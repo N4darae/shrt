@@ -1,0 +1,18 @@
+target:
+  base_url: http://127.0.0.1:8080
+  timeout: 30s
+  headers: {}
+
+descriptor:
+  file: .shrt/descriptor.binpb
+  source: ..
+  binary: buf
+
+paths:
+  chains: .shrt/chains
+  runs: .shrt/runs
+  safespots: .shrt/safespots
+
+volatile:
+  - "**.created_at"
+  - "**.updated_at"
