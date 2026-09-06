@@ -1,0 +1,31 @@
+apiVersion: shrt/v1
+name: example
+description: replace this with the state the chain reproduces
+
+vars:
+  sku: SKU-A
+
+volatile:
+  - "**.id_item"
+
+steps:
+  - id: create_item
+    call: acme.inventory.item.v1.ItemService/CreateItem
+    body:
+      sku: ${vars.sku}
+      idempotency_key: ${uuid}
+    expect:
+      - path: error.code
+        equals: OK
+    export:
+      item_id: id_item
+
+  - id: fetch_item
+    call: acme.inventory.item.v1.ItemService/FetchItem
+    body:
+      id_item: ${create_item.id_item}
+    expect:
+      - path: error.code
+        equals: OK
+      - path: sku
+        equals: ${vars.sku}
