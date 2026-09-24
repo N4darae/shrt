@@ -17,6 +17,12 @@ type Fixtures struct {
 }
 
 func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
+	requests := append([]Change{}, r.RequestChanges...)
+	r.separateInput(spot, rec, extra, fx)
+	r.noteReordered(spot, rec, extra, &fx, requests)
+}
+
+func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
 	fixture := fx.Named
 	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)
@@ -72,6 +78,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		}
 	}
 	remaining, echoed, stale := splitStaleEchoes(r.Changes, r.compared, append(pairs, r.renames...))
+	r.dropEchoedUnapproved(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
 	kept := []Change{}
@@ -188,4 +195,26 @@ func generatedPairs(was, now []*runner.StepRecord, generated func(step, path str
 		})
 	}
 	return out
+}
+
+func (r *Report) dropEchoedUnapproved(pairs [][2]string) {
+	rn := renamer(pairs)
+	if rn == nil || len(r.UnapprovedMasked) == 0 {
+		return
+	}
+	echo := map[string]bool{}
+	for _, c := range r.VolatileValues {
+		w, okW := c.Want.(string)
+		g, okG := c.Got.(string)
+		if c.Kind == KindChanged && okW && okG && w != g && !renameable(c.Path, w, g) && rn.Replace(w) == g {
+			echo[c.Step+" "+c.Path] = true
+		}
+	}
+	kept := r.UnapprovedMasked[:0]
+	for _, p := range r.UnapprovedMasked {
+		if !echo[p] {
+			kept = append(kept, p)
+		}
+	}
+	r.UnapprovedMasked = kept
 }

@@ -13,6 +13,7 @@ type Chain struct {
 	Description string         `yaml:"description,omitempty" json:"description,omitempty"`
 	Vars        map[string]any `yaml:"vars,omitempty" json:"vars,omitempty"`
 	Volatile    []string       `yaml:"volatile,omitempty" json:"volatile,omitempty"`
+	Unordered   []string       `yaml:"unordered,omitempty" json:"unordered,omitempty"`
 	Redact      []string       `yaml:"redact,omitempty" json:"redact,omitempty"`
 	Steps       []*Step        `yaml:"steps" json:"steps"`
 	KeptRed     []Pin          `yaml:"kept_red,omitempty" json:"kept_red,omitempty"`
@@ -32,6 +33,7 @@ type Step struct {
 	SkipAuth    bool              `yaml:"skip_auth,omitempty" json:"skip_auth,omitempty"`
 	AllowFail   bool              `yaml:"allow_fail,omitempty" json:"allow_fail,omitempty"`
 	Volatile    []string          `yaml:"volatile,omitempty" json:"volatile,omitempty"`
+	Unordered   []string          `yaml:"unordered,omitempty" json:"unordered,omitempty"`
 }
 
 type Pin struct {

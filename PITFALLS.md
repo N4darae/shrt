@@ -67,7 +67,10 @@ is almost always evidence about the fixture, and its `error` line tells you when
 One case used to break that rule and no longer does: with `conventions.validate_output: true`, a
 response the descriptor cannot read was reported as `error` although the request had been sent and
 answered. It is now `failed` with `"drift": true` on the step — a third reading, and the one the
-status words could not express. See entry 29.
+status words could not express, and each unevaluated expectation says the backend answered rather
+than that the call was refused. See entry 29. With `validate_output` off, a response carrying a field
+the descriptor does not declare is not a mismatch at all: the field is discarded, named in the step's
+`warning`, and the rest decodes with proto names and zero values as usual.
 
 ## 5. A cached, still-valid token that shrt refuses to use
 
@@ -189,7 +192,11 @@ In a shrt corpus the same chain declares `kept_red`, and its run says so itself:
 (defect_gone)` and exit 1. The opposite failure is quieter and worse: a gate that only checks a
 kept-red chain exits 1 stays green when a regression makes the chain fail EARLIER, at a step the
 defect never touched (`create_order` total wrong, so `confirm_order` is never reached). `kept_red`
-pins the step and path, so that run says `not_as_pinned` and exits 1.
+pins the step and path, so that run says `not_as_pinned` and exits 1. Until 2026-09-24 a plain run
+still stopped at the first pinned failure, so a second pin was "never answered" (`not_as_pinned`
+on a correct chain) and a regression in a step AFTER the pinned one was never sent (`as_pinned`,
+exit 0). A kept-red chain now runs past its pinned failures as `-keep-going` does, and a step left
+unsent behind a failure keeps it from `as_pinned`.
 
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
@@ -748,6 +755,14 @@ was sent; `drift` because no expectation was evaluated, so nothing in the step i
 rpc — the body the assertions would read could not be decoded. `allow_fail` does not swallow it:
 a refusal is not what happened, and swallowing it would hide the only thing `validate_output` was
 turned on to find. Run `shrt catalog build` and re-run before reading it as a backend defect.
+
+2026-09-24: a backend that adds an optional response field (backward compatible) used to make the
+body "kept as sent" with `validate_output` off: camelCase names, zero values omitted, so
+`product.qty_on_hand equals 0` failed as "path not present" and `shrt verify` reported every field
+as renamed. Unknown fields are now discarded before decoding and listed in the step's `warning`; the
+record keeps proto names and zero values. With `validate_output` on the step still fails as drift,
+its expectations say the backend answered, and `response` holds the re-encoded body without the
+undeclared field, so verify's change list is the status change, not a rename of every field.
 
 ## 30. A path copied out of `contract show` that can never match
 

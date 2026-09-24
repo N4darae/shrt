@@ -29,7 +29,7 @@ func TestATokenEchoedAsAResponseObjectKeyIsScrubbed(t *testing.T) {
 	if text := recordText(t, rec); strings.Contains(text, token) {
 		t.Fatalf("the token %q echoed as an object key reached the run record: %s", token, text)
 	}
-	if got := string(rec.Steps[0].Response); !strings.Contains(got, "<redacted>") {
-		t.Fatalf("the key should be replaced by the redaction marker, got %s", got)
+	if got := rec.Steps[0].Error; !strings.Contains(got, "<redacted>") {
+		t.Fatalf("the drift error names the key, and it should name it by the redaction marker, got %s", got)
 	}
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
+	"github.com/N4darae/shrt/transport"
 )
 
 func init() {
@@ -30,10 +31,14 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
-	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
-	"     is not judged, so this is not a verdict about the backend; when the backend refused a\n" +
-	"     token a login in this run had just issued, the credentials work and it says this may\n" +
-	"     be an auth regression\n"
+	"     sent but no answer before target.timeout, login or auth refused) and nothing drifted\n" +
+	"     before it; a change at or after that step\n" +
+	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
+	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
+	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
+	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
+	"     backend refused a token a login in this run had just issued, the credentials work and it\n" +
+	"     says this may be an auth regression\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -151,6 +156,11 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
+	loss := detectSessionLoss(rec)
+	var reuse *fixtureReuse
+	if !report.Clean() {
+		reuse = detectFixtureReuse(e, c, rec)
+	}
 	if *asJSON {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
@@ -166,18 +176,32 @@ func runVerify(ctx context.Context, args []string) error {
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
+		if loss != nil {
+			fmt.Println("WARNING: " + loss.line())
+		}
 		if !unanswered || anyAnswered(rec) {
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
+			}
+			if reuse != nil {
+				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
 			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
 	}
+	if loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index) {
+		return exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
+	}
 	if unanswered {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	}
+	if reuse != nil && !driftedBefore(rec, report, reuse.index) {
+		return exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -226,6 +250,11 @@ func runVerify(ctx context.Context, args []string) error {
 			"this run logged in as the account it was confirmed with, and shrt cannot tell.\n"+
 			"Check the credentials against the ones it was confirmed with; to turn principal checking on, propose a passing run in its place:\n"+
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
+	}
+	if report.OnlyReordered() {
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n"+
+			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
+			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "))
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
@@ -517,8 +546,13 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 				"(auth_retry, error); re-run verify to confirm, and treat a repeat as a finding", name, step, why, past)
 		}
 	}
+	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
+		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
+			"or find why the backend answers so slowly, and run verify again"
+	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
-		"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why, past)
+		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
 }
 
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {

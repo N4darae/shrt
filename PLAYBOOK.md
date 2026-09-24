@@ -128,7 +128,11 @@ check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which 
 chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
 interpolate (`sku-${vars.tag}`) under `vars:`, with the chain's name as its value, so a planned
 chain lints without a warning and its first run needs no `-var`. The second run sends the same
-values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. A var that
+values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt
+verify` recognises that case: when the first failing step is refused as a uniqueness conflict
+(`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
+of the chain already used, it prints `fixture reused: ...` and, unless a step before it drifted,
+exits 3 with `could not verify <chain>: fixture reused`, not `regression`. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -805,7 +809,10 @@ and never says the chain file is not what differs. An expectation added, removed
 approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
 step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
-it `volatile`.
+it `volatile`. A list whose order the rpc does not promise is declared `unordered: [products]` on
+the step (or the chain): verify compares it as a multiset, pairing items by content. Without the
+declaration, the same items in another order are reported as `same items in another order`, and
+when that is every change verify fails with `order changed`, not `regression`.
 
 Three things that decide whether this works for a given chain:
 
@@ -859,9 +866,10 @@ Three things that decide whether this works for a given chain:
 - **A chain kept red on purpose must NEVER be confirmed.** Such a chain asserts the correct
   behaviour and pins the known defect it shows with `kept_red` (a step, an expectation path, and
   the value it got when that is stable); a safe spot would freeze the bug as ground truth. Pin
-  every expectation that fails today, and nothing more: `shrt run` exits 0 only while the chain
-  fails exactly there, and 1 when an earlier step regresses, the failure changes, or the defect is
-  gone. `PITFALLS.md` §11.
+  every expectation that fails today, and nothing more: `shrt run` goes past a pinned failure
+  as `-keep-going` does, so several pins are all evaluated in a plain run (the gate's), and exits
+  0 only while the chain fails exactly there, and 1 when an earlier or later step regresses, a
+  step is left unsent, the failure changes, or the defect is gone. `PITFALLS.md` §11.
 
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:

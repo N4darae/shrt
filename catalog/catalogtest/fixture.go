@@ -65,6 +65,8 @@ func file() *descriptorpb.FileDescriptorProto {
 			message("CreateResponse",
 				msg("error", 1, ".shrt.test.v1.ErrorMessage"),
 				str("id", 2),
+				str("name", 3),
+				num("total", 4, descriptorpb.FieldDescriptorProto_TYPE_INT32),
 			),
 			message("FetchRequest",
 				str("id", 1),
@@ -74,6 +76,7 @@ func file() *descriptorpb.FileDescriptorProto {
 				str("id", 2),
 				str("name", 3),
 				str("created_at", 4),
+				num("total", 5, descriptorpb.FieldDescriptorProto_TYPE_INT32),
 			),
 		},
 		Service: []*descriptorpb.ServiceDescriptorProto{

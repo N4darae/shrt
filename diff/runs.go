@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/transport"
 )
 
 const RunComparisonNote = "this compares two recorded runs with each other; it is not a verdict against a confirmed safe spot (that is 'shrt verify')"
@@ -452,13 +453,32 @@ func (r *RunReport) Text() string {
 			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
 	}
-	if len(r.NoLongerReached) > 0 {
-		fmt.Fprintf(&b, "\nreached in A, not reached in B: %s\n", strings.Join(r.NoLongerReached, ", "))
-	}
-	if len(r.NewlyReached) > 0 {
-		fmt.Fprintf(&b, "\nreached in B, not reached in A: %s\n", strings.Join(r.NewlyReached, ", "))
-	}
+	timedOutA, timedOutB := map[string]bool{}, map[string]bool{}
 	for _, s := range r.WhyNotReached {
+		timedOutA[s.Step] = timedOutA[s.Step] || strings.Contains(s.ErrorA, transport.NoAnswerBeforeTimeout)
+		timedOutB[s.Step] = timedOutB[s.Step] || strings.Contains(s.ErrorB, transport.NoAnswerBeforeTimeout)
+	}
+	unreachedLines := func(ids []string, timedOut map[string]bool, reachedIn, other string) {
+		sent, unreached := []string{}, []string{}
+		for _, id := range ids {
+			if timedOut[id] {
+				sent = append(sent, id)
+			} else {
+				unreached = append(unreached, id)
+			}
+		}
+		if len(unreached) > 0 {
+			fmt.Fprintf(&b, "\nreached in %s, not reached in %s: %s\n", reachedIn, other, strings.Join(unreached, ", "))
+		}
+		if len(sent) > 0 {
+			fmt.Fprintf(&b, "\nanswered in %s; sent in %s, no answer before target.timeout: %s\n", reachedIn, other, strings.Join(sent, ", "))
+		}
+	}
+	unreachedLines(r.NoLongerReached, timedOutB, "A", "B")
+	unreachedLines(r.NewlyReached, timedOutA, "B", "A")
+	skipsA, skipsB := runner.NewSkipCondenser(), runner.NewSkipCondenser()
+	for _, s := range r.WhyNotReached {
+		s.ErrorA, s.ErrorB = skipsA.Condense(s.Step, s.ErrorA), skipsB.Condense(s.Step, s.ErrorB)
 		fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 	}
 	if len(r.ErrorChanges) > 0 {

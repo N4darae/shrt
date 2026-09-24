@@ -65,6 +65,23 @@ func TestLookupKeyFindsACamelCaseKeyByItsProtoName(t *testing.T) {
 	}
 }
 
+func TestLookupKeyReadsOnlyNamesProtojsonAccepts(t *testing.T) {
+	for key, seg := range map[string]string{"STATUS": "status", "Status": "status", "QtyOnHand": "qty_on_hand", "QTY_ON_HAND": "qty_on_hand", "qty-on-hand": "qty_on_hand"} {
+		if got, ok := namecase.LookupKey(map[string]any{key: 1}, seg); ok {
+			t.Errorf("protojson reads neither a case-folded nor a hyphenated name, but %q resolved to %q", seg, got)
+		}
+	}
+	for i := 0; i < 50; i++ {
+		body := map[string]any{"qtyOnHand": "7", "QtyOnHand": "5", "QTY_ON_HAND": "3"}
+		if got, _ := namecase.LookupKey(body, "qty_on_hand"); got != "qtyOnHand" {
+			t.Fatalf("only the JSON name counts, so the lookup is deterministic, got %q", got)
+		}
+	}
+	if got, ok := namecase.LookupKey(map[string]any{"qty_on_hand": 1, "qtyOnHand": 2}, "QtyOnHand"); ok {
+		t.Errorf("a field written under both its proto and JSON names has no single value, got %q", got)
+	}
+}
+
 func TestLookupKeyPrefersAnExactMatchOverAFoldedOne(t *testing.T) {
 	body := map[string]any{"access_token": "snake", "accessToken": "camel"}
 	if key, _ := namecase.LookupKey(body, "access_token"); key != "access_token" {

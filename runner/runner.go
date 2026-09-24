@@ -844,6 +844,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	repeats := map[int][]string{}
 	var dead *StepRecord
 	unreached := 0
+	keepGoing, pastPins := opts.KeepGoing, false
+	pinned := map[string]bool{}
+	for _, k := range c.KeptRed {
+		pinned[k.Step] = true
+	}
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind, behindOn := false, ""
@@ -857,7 +862,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 			continue
 		}
-		if opts.KeepGoing {
+		if keepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
 				behind, behindOn = true, producer.ID
@@ -866,7 +871,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if sr == nil {
 			stepOpts := opts
 			stepOpts.chain = c
-			if opts.KeepGoing {
+			if keepGoing {
 				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
@@ -887,7 +892,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			continue
 		}
 		failure := failureOf(step, sr)
-		if !opts.KeepGoing {
+		if !keepGoing && pinned[step.ID] && sr.Status == StatusFailed && !opts.DryRun {
+			keepGoing, pastPins = true, true
+		}
+		if !keepGoing {
 			rec.Status = sr.Status
 			rec.Failure = failure
 			break
@@ -915,6 +923,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			dead = sr
 		}
 	}
+	for i, sr := range rec.Steps {
+		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
+			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
+		}
+	}
 	for at, ids := range repeats {
 		quoted := make([]string, 0, len(ids))
 		for _, id := range ids {
@@ -922,7 +935,13 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
 	}
-	if len(failures) > 0 {
+	switch {
+	case pastPins && len(failures) == 1 && failedCount == 1 && unreached == 0:
+		rec.Failure = failures[0]
+	case pastPins && len(failures) > 0:
+		rec.Failure = fmt.Sprintf("kept_red: ran past the pinned failure(s), as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
+			strings.Join(failures, "\n")
+	case len(failures) > 0:
 		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}
@@ -1189,21 +1208,31 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			sr.Response = mustJSON(redactor.Apply(last), res.Body)
 		}
 		sr.Status = StatusFailed
-		sr.Expect = unevaluated(step.Expect, redactor)
+		sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but the body repeats a key, so this assertion never ran")
 		sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
 			"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
 			"were not evaluated. A backend that writes a key twice is the defect to report", key)
 		return sr
 	}
-	canonical, populated, cerr := r.Catalog.CanonicalizeWithPresence(method.Output(), res.Body)
+	canonical, populated, unknown, cerr := r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), res.Body)
+	if cerr != nil && unknownHoldsAVerdict(unknown) {
+		unknown = nil
+	}
 	staleOutput := false
 	switch {
 	case cerr == nil:
 	case r.ValidateOutput:
 		sr.Response = jsonBodyOrString(res.Body)
+		if len(unknown) > 0 {
+			var decoded any
+			if err := json.Unmarshal(canonical, &decoded); err == nil {
+				sr.Response = mustJSON(redactor.Apply(decoded), canonical)
+			}
+		}
 		sr.Status = StatusFailed
 		sr.Drift = true
-		sr.Expect = unevaluated(step.Expect, redactor)
+		sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but conventions.validate_output "+
+			"is on and the body does not match the response message, so this assertion never ran")
 		sr.Error = "conventions.validate_output is on and this response does not match " +
 			string(method.Output().FullName()) + ": " + cerr.Error() +
 			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
@@ -1211,6 +1240,12 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			"the body they would read could not be decoded. Rebuild the descriptor ('shrt catalog " +
 			"build') and re-run before reading it as a backend defect."
 		return sr
+	case len(unknown) > 0:
+		sr.Warning = joinLines(sr.Warning, "response carries field(s) "+string(method.Output().FullName())+
+			" does not declare, discarded before the expectations ran: "+strings.Join(unknown, ", ")+
+			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
+			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
+			"listed here that differs from a declared one only in case or separators is not read either")
 	default:
 		canonical = res.Body
 		populated = res.Body
@@ -2045,7 +2080,25 @@ func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
 	return declared.Rule + " " + fmt.Sprint(want)
 }
 
+func unknownHoldsAVerdict(unknown []string) bool {
+	verdicts := []string{chain.EnvelopePath(), chain.ItemEnvelope()}
+	for _, u := range unknown {
+		for _, v := range verdicts {
+			if v != "" && (v == u || strings.HasPrefix(v, u+".")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func unevaluated(expect []chain.Expectation, redactor *pathmask.Masker) []chain.ExpectResult {
+	return unevaluatedBecause(expect, redactor, "the call was refused before a response body existed, so this assertion never ran. "+
+		"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted "+
+		"with transport.code or transport.http_status")
+}
+
+func unevaluatedBecause(expect []chain.Expectation, redactor *pathmask.Masker, why string) []chain.ExpectResult {
 	if len(expect) == 0 {
 		return nil
 	}
@@ -2056,9 +2109,7 @@ func unevaluated(expect []chain.Expectation, redactor *pathmask.Masker) []chain.
 			Rule:   "unevaluated",
 			Want:   declaredWant(e, redactor),
 			Passed: false,
-			Detail: "the call was refused before a response body existed, so this assertion never ran. " +
-				"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted " +
-				"with transport.code or transport.http_status",
+			Detail: why,
 		})
 	}
 	return out
