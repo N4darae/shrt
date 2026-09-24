@@ -257,14 +257,23 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 			expired++
 		}
 	}
-	counts := fmt.Sprintf("%d cached token(s), %d expired by their own expires_at", len(entries), expired)
+	counts := fmt.Sprintf("%d cached token(s), %d expired", len(entries), expired)
+	off := expired > 0
 	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
-		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
-			"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
-		if split.foreignTotal() > 0 {
-			counts += " (" + split.foreignTargets() + ")"
+		off = split.expired > 0 || split.foreignTotal() > 0 || split.other > 0
+		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d expired", split.mine, split.expired)
+		if off {
+			counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
+				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
+			if split.foreignTotal() > 0 {
+				counts += " (" + split.foreignTargets() + ")"
+			}
+			counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
 		}
-		counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
+	}
+	if !off {
+		r.add(CheckTokens, LevelOK, counts, "")
+		return
 	}
 	r.add(CheckTokens, LevelOK,
 		fmt.Sprintf("%s. A token the backend "+
