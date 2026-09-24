@@ -205,7 +205,9 @@ rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
 `<chain> <step-id> <reason>`; an entry without a reason is
 refused. `PITFALLS.md` §24. The summary's `asserting only the envelope verdict` count is the reads
 whose expectations touch nothing but the envelope; a refusal probe that pins a detail code field
-under it (`error.details.0.app_code`, `reason`) asserts the refusal's detail and is not counted.
+under it (`error.details.0.app_code`, `reason`) asserts the refusal's detail and is not counted. A
+read with no `expect:` at all is counted apart, as `asserting nothing`; both kinds can be hollow,
+and `of those hollow` counts the two together.
 
 ## 5. Probe one failure code
 
