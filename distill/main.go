@@ -154,6 +154,7 @@ var notes = map[string]string{
 	"Record.keep_going":    "True when `shrt run -keep-going` produced this record: steps after a failure were still run, so a later red may be a consequence of an earlier one.",
 	"Record.kept_red":      "Set only for a chain with `kept_red` that was answered: `as_pinned` (it failed exactly as pinned; `shrt run` exits 0), `not_as_pinned` (it failed elsewhere or differently; exit 1) or `defect_gone` (it passed; exit 1). Absent on a dry run and on an `error` run.",
 	"Record.kept_red_note": "What `kept_red` found: the pins, and for `not_as_pinned` each step or expectation that failed where nothing is pinned, each pinned path that held, and each pinned `got` that differed.",
+	"Record.kept_red_new":  "Set only for `not_as_pinned` when something failed outside the pinned defect: one line, `NEW FAILURE outside the pinned defect: ` and each such failure as `<step> <path> want=... got=...` (or `<step> is error: ...`, `<step> failed: ...`), joined by `; `. `shrt run` prints it right under the verdict line and ends its exit-1 message with it, so the regression is named without a `diff`. A pinned path that held or a pinned `got` that differed is not a new failure and is only in `kept_red_note`.",
 	"Record.failed_steps":  "Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag.",
 
 	"StepRecord.index":           "Position in the chain, from 1.",

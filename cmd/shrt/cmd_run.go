@@ -137,6 +137,9 @@ func runVerdict(rec *runner.Record) error {
 	case runner.KeptRedAsPinned:
 		return nil
 	case runner.KeptRedNotAsPinned:
+		if rec.KeptRedNew != "" {
+			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, rec.KeptRedNew)
+		}
 		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
 	case runner.KeptRedGone:
 		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
@@ -251,7 +254,13 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.KeptRed == runner.KeptRedAsPinned {
 		verdict = "FAILED AS PINNED (kept red)"
 	}
+	if rec.KeptRed == runner.KeptRedNotAsPinned {
+		verdict = "FAILED, NOT AS PINNED (kept red)"
+	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
+	if rec.KeptRedNew != "" {
+		fmt.Fprintf(&b, "\n  %s", rec.KeptRedNew)
+	}
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}

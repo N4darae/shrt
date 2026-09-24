@@ -41,6 +41,7 @@ type Record struct {
 	Warning     string         `json:"warning,omitempty"`
 	KeptRed     string         `json:"kept_red,omitempty"`
 	KeptRedNote string         `json:"kept_red_note,omitempty"`
+	KeptRedNew  string         `json:"kept_red_new,omitempty"`
 	Seal        string         `json:"seal,omitempty"`
 }
 
