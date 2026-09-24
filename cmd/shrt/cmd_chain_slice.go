@@ -25,14 +25,17 @@ type sliceProgress struct{ verify, sent bool }
 
 const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>]] [-json]"
 
-const sliceExitCodes = "\nexit codes:\n" +
-	"  0  the slice was printed or written; with -verify, reproduced\n" +
-	"  1  with -verify, NOT REPRODUCED; without it, a refusal (unknown chain or step); a flag that\n" +
-	"     cannot be parsed exits 1 either way\n" +
-	"  2  with -verify, DID NOT RUN: the target step was never answered, or -verify refused before\n" +
+const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
+	"  0  the slice was printed or written\n" +
+	"  1  a refusal: an unknown chain or step, -mode pin without -run, an unknown run, a slice file\n" +
+	"     -write would overwrite; the same refusal exits 2 under -verify, where 1 means NOT REPRODUCED\n" +
+	"\nexit codes with -verify:\n" +
+	"  0  reproduced\n" +
+	"  1  NOT REPRODUCED; a flag that cannot be parsed exits 1 in either mode\n" +
+	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
 	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
 	"     a missing or not-fresh -var name=<fresh>), so nothing was verified\n" +
-	"  3  with -verify, INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
+	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
