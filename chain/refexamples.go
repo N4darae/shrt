@@ -13,7 +13,7 @@ var ReferenceExamples = []ReferenceExample{
 	{"${env.API_USER}", "an environment variable; missing is an error, never `\"\"`"},
 	{"${create_deal.id_deal}", "a field of an earlier step's RESPONSE"},
 	{"${steps.create_deal.response.id_deal}", "the same, written out"},
-	{"${steps.create_deal.request.id_book}", "a field of an earlier step's REQUEST"},
+	{"${steps.create_deal.request.id_book}", "a field of an earlier step's REQUEST, or inside `expect` this step's own, to assert the response echoes what was sent"},
 	{"${create_deal.deals.0.id_deal}", "a list index"},
 	{"${exports.deal_id}", "a value an earlier step exported"},
 	{"${deal_id}", "the same export, bare"},

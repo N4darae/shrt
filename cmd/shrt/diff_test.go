@@ -105,3 +105,21 @@ func TestCLIDiffFindsTheChainFromTwoRunIds(t *testing.T) {
 		t.Errorf("the report must name the chain it found:\n%s", out)
 	}
 }
+
+func TestCLIDiffThatCannotCompareExitsTwoAndNamesTheRun(t *testing.T) {
+	name := "widget"
+	srv := newNamingBackend(&name)
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	if err := runRun(context.Background(), []string{"cli-thing-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	derr := runDiff(context.Background(), []string{"cli-thing-flow", "latest", "no-such-run"})
+	if exitCodeOf(derr) != 2 {
+		t.Fatalf("a diff that could not compare must exit 2, not 1 like runs that differ, got %v", derr)
+	}
+	if derr == nil || !strings.Contains(derr.Error(), "chain cli-thing-flow has no run no-such-run") ||
+		strings.Contains(derr.Error(), "no such file") {
+		t.Fatalf("the error must name the run and chain, not a file path, got %v", derr)
+	}
+}

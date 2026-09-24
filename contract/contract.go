@@ -154,9 +154,6 @@ func bodyNode(fields []*catalog.Field, example map[string]any) *yaml.Node {
 		} else if err := val.Encode(v); err != nil {
 			continue
 		}
-		if f.Doc != "" {
-			key.LineComment = f.Doc
-		}
 		out.Content = append(out.Content, key, val)
 	}
 	return out

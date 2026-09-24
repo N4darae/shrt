@@ -84,7 +84,7 @@ func chainHollow(args []string) error {
 		}
 		fmt.Printf("HOLLOW %-40s %-54s %-30s %s (%d record(s))\n", f.Chain, f.Step, f.RPC, f.RunID, f.Occurrences)
 	}
-	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the error envelope, %d of those hollow\n",
+	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the envelope verdict, %d of those hollow\n",
 		rep.Records, rep.ReadSteps, rep.EnvelopeOnly, rep.HollowRecords)
 	fmt.Printf("%d distinct (chain, step): %d reported, %d allowlisted, %d whose chain now asserts a data path\n",
 		rep.DistinctSteps, rep.Unallowed, rep.Allowed, rep.ChainFixed)
@@ -92,7 +92,7 @@ func chainHollow(args []string) error {
 	if rep.Unallowed > 0 {
 		return exitWith(1,
 			"%d read step(s) passed while the response carried nothing.\n"+
-				"Either assert something the read should have found (core_distillation/PLAYBOOK.md §4),\n"+
+				"Either assert something the read should have found (.shrt/docs/PLAYBOOK.md §4),\n"+
 				"or, if an empty body is the correct answer, add '<chain> <step-id> <reason>' to %s.",
 			rep.Unallowed, path)
 	}
@@ -108,7 +108,7 @@ func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
 	case store.RatchetWorse:
 		return exitWith(1, "hollow: %d read step(s) passed while finding nothing, worse than the baseline %d.\n"+
 			"Run 'shrt chain hollow' to see which. Either assert something the read should have found\n"+
-			"(core_distillation/PLAYBOOK.md §4), or, if an empty body is correct, add a reasoned line to %s.",
+			"(.shrt/docs/PLAYBOOK.md §4), or, if an empty body is correct, add a reasoned line to %s.",
 			rep.Unallowed, want, allowPath)
 	case store.RatchetBetter:
 		return exitWith(1, "hollow: %d read step(s) passed while finding nothing, better than the baseline %d — "+

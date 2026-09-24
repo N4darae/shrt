@@ -30,7 +30,7 @@ after any proto change: it fails quietly rather than loudly, which is `.shrt/doc
 `shrt` itself comes from `go install github.com/N4darae/shrt/cmd/shrt@latest`. Inside a
 clone of the shrt repo the binary is gitignored and built from source instead, and must be rebuilt
 after any change to that source, because a stale binary lints with the OLD rules and tells you
-everything is fine — `.shrt/docs/README.md` has the two lines for that case.
+everything is fine — `.shrt/docs/README.md` has the build command for that case.
 
 ## The rules
 
@@ -44,16 +44,16 @@ server did not crash.
 | question | file |
 |---|---|
 | what am I allowed to do, and what is the loop | `.shrt/docs/README.md` |
-| which keys exist, with types — chain, contract, config, run record, `${...}` forms, volatile patterns, the command list | `.shrt/docs/GRAMMAR.md` (generated from the Go structs and gate-checked, so an invented key is not in it) |
-| compose a chain from a contract · with no contract · fill bodies · assert something that can fail · probe one failure code · cross a principal boundary · author a contract · run, hand off, verify | `.shrt/docs/PLAYBOOK.md` §1-§8 |
+| which keys exist, with types — chain, contract, config, run record, `${...}` forms, volatile patterns, the command list | `.shrt/docs/GRAMMAR.md` (generated from the Go structs, so an invented key is not in it) |
+| compose a chain from a contract · with no contract · fill bodies · assert something that can fail · probe one failure code · cross a principal boundary · author a contract · run, hand off, verify · refactor against a safe spot · find the chain for an rpc or code · cut a minimal reproduction | `.shrt/docs/PLAYBOOK.md` §1-§11 |
 | it did something strange | `.shrt/docs/PITFALLS.md`, symptom → cause → fix |
 
 ## Things the route does not cover
 
 - **The contract is two layers.** The *generated* layer comes from the descriptor and is always
   right about shape; the *curated* layer is what someone wrote down about behaviour. `shrt contract
-  show <rpc>` prints both (`-json` for tooling); `-filter <domain>` does a whole domain at
-  once. If the descriptor is stale because
+  show <rpc>` prints both (`-json` for tooling); `-filter <word>` prints every rpc whose name
+  contains the word, which can reach past one domain. If the descriptor is stale because
   the proto changed, rebuild it with `shrt catalog build`.
 - **What `shrt chain lint` checks:** every body against its proto message, `${...}` references to
   steps that do not run earlier, and exports reading response fields that do not exist.
@@ -77,7 +77,7 @@ server did not crash.
   while the finished library needed thirteen. After every domain is authored:
 
   ```bash
-  shrt contract quality            # every read_with_no_producer is a candidate
+  shrt contract quality            # every 'read rpc with no producer' line is a candidate
   shrt contract plan <that-rpc>    # a one-step order confirms the producer edge is missing
   ```
 

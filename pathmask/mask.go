@@ -1,6 +1,7 @@
 package pathmask
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -84,7 +85,29 @@ func (m *Masker) coversValue(v any) bool {
 		return true
 	}
 	_, isBool := v.(bool)
-	return !isBool
+	return !isBool && !isEmpty(v)
+}
+
+func isEmpty(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case float64:
+		return t == 0
+	case int:
+		return t == 0
+	case int64:
+		return t == 0
+	case json.Number:
+		return t == "0"
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
 }
 
 func (m *Masker) masked(path string) bool {

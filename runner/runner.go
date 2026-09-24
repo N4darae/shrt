@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -50,6 +51,12 @@ func (a *AuthBinding) observe(procedure string, response any) bool {
 	}
 	a.Sink.Seed(text, expiryOf(response, a.ExpiresPath))
 	return true
+}
+
+func (a *AuthBinding) carriesToken(response any) bool {
+	token, ok := chain.Get(response, a.TokenPath)
+	text, isText := token.(string)
+	return ok && isText && text != ""
 }
 
 func (a *AuthBinding) sentOwnCredentials(sent []byte, canonical func([]byte) ([]byte, error)) bool {
@@ -101,8 +108,9 @@ func (bs AuthBindings) matching(procedure string) AuthBindings {
 }
 
 type seeding struct {
-	seeded  []string
-	refused []string
+	seeded    []string
+	refused   []string
+	tokenless []string
 }
 
 func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical func([]byte) ([]byte, error), response any) seeding {
@@ -112,7 +120,11 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 			continue
 		}
 		if !b.sentOwnCredentials(sent, canonical) {
-			out.refused = append(out.refused, b.Profile)
+			if b.carriesToken(response) {
+				out.refused = append(out.refused, b.Profile)
+			} else {
+				out.tokenless = append(out.tokenless, b.Profile)
+			}
 			continue
 		}
 		if b.observe(procedure, response) {
@@ -160,6 +172,7 @@ type Options struct {
 	DryRun    bool
 	KeepGoing bool
 	Build     string
+	heldBack  map[int]string
 }
 
 type buildTracker struct {
@@ -219,13 +232,82 @@ func failureOf(step *chain.Step, sr *StepRecord) string {
 	return failure
 }
 
-func readsBroken(step *chain.Step, broken map[string]bool, exporter map[string]string) (string, string, bool) {
-	for _, ref := range step.References() {
-		if producer := producerOf(ref, exporter); producer != "" && broken[producer] {
-			return ref, producer, true
+func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+	return readsBrokenIn(step.SendReferences(), broken, exporter)
+}
+
+func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) map[int]string {
+	held := map[int]string{}
+	for i, e := range step.Expect {
+		if ref, producer, ok := readsBrokenIn(e.References(), broken, exporter); ok {
+			held[i] = fmt.Sprintf("not evaluated: ${%s} reads step %q, which did not pass, so its value is not evidence (-keep-going)", ref, producer.ID)
 		}
 	}
-	return "", "", false
+	return held
+}
+
+func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+	for _, ref := range refs {
+		producer := producerOf(ref, exporter)
+		sr, isBroken := broken[producer]
+		if producer == "" || !isBroken {
+			continue
+		}
+		if readsRequest(ref) && sr.Request != nil {
+			continue
+		}
+		if readsSoundField(ref, sr) {
+			continue
+		}
+		return ref, sr, true
+	}
+	return "", nil, false
+}
+
+func readsSoundField(ref string, sr *StepRecord) bool {
+	if sr.Status != StatusFailed || sr.Transport != nil || sr.Drift {
+		return false
+	}
+	if _, refused := inBandRefusal(sr.Response); refused {
+		return false
+	}
+	path, ok := responsePathOf(ref)
+	if !ok {
+		return false
+	}
+	failed := failedPaths(sr.Expect)
+	if len(failed) == 0 {
+		return false
+	}
+	for _, f := range failed {
+		if f == "" || strings.Contains(f, "[]") || f == path || strings.HasPrefix(path, f+".") || strings.HasPrefix(f, path+".") {
+			return false
+		}
+	}
+	return true
+}
+
+func responsePathOf(ref string) (string, bool) {
+	ref = strings.TrimSpace(ref)
+	if rest, ok := strings.CutPrefix(ref, "steps."); ok {
+		_, rest, _ = strings.Cut(rest, ".")
+		path, ok := strings.CutPrefix(rest, "response.")
+		return path, ok && path != ""
+	}
+	r := chain.ParseRef(ref)
+	if r.Kind != chain.RefStep || r.Rest == "" {
+		return "", false
+	}
+	return r.Rest, true
+}
+
+func readsRequest(ref string) bool {
+	r := chain.ParseRef(ref)
+	if r.Kind != chain.RefStep {
+		return false
+	}
+	section, _, _ := strings.Cut(r.Rest, ".")
+	return section == "request"
 }
 
 func producerOf(ref string, exporter map[string]string) string {
@@ -245,15 +327,72 @@ func producerOf(ref string, exporter map[string]string) string {
 	return head
 }
 
-func (r *Runner) skippedBehind(i int, step *chain.Step, ref, producer string) *StepRecord {
+func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
 		sr.Procedure = method.Procedure()
 	}
-	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which did not pass. -keep-going never sends a "+
-		"request built from a failed step's response, because a refused call's response decodes to zero "+
-		"values and the request would carry them as if they were real", ref, producer)
+	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
+	if producer.Request != nil {
+		sr.Error += fmt.Sprintf(" A reference to its request (${steps.%s.request...}) is still safe: that "+
+			"is what was sent, so a step reading only that is sent", producer.ID)
+	}
 	return sr
+}
+
+func whyNotReadable(sr *StepRecord) string {
+	switch {
+	case sr.Status == StatusSkipped:
+		return "was itself not sent, so it has no response to read."
+	case sr.Transport != nil:
+		return fmt.Sprintf("was refused before a response body existed (transport %s), so there is no "+
+			"response to read.", sr.Transport.Code)
+	case sr.Status == StatusError:
+		return "did not complete (" + firstLine(sr.Error) + "), so there is no response to read."
+	case sr.Drift:
+		return "was answered with a body the descriptor could not decode, so no value read from it can be trusted."
+	}
+	if code, refused := inBandRefusal(sr.Response); refused {
+		return fmt.Sprintf("was refused in-band (%s = %s): a refused call's response decodes to zero values, "+
+			"and the request would carry them as if they were real.", chain.EnvelopePath(), code)
+	}
+	if failed := failedPaths(sr.Expect); len(failed) > 0 {
+		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
+			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
+	}
+	return "did not pass (" + firstLine(firstNonEmpty(sr.Error, sr.Status)) + "), so -keep-going does not " +
+		"send a request built from its response."
+}
+
+func inBandRefusal(response json.RawMessage) (string, bool) {
+	if len(response) == 0 {
+		return "", false
+	}
+	var v any
+	if err := json.Unmarshal(response, &v); err != nil {
+		return "", false
+	}
+	code, ok := chain.Get(v, chain.EnvelopePath())
+	if !ok || code == nil {
+		return "", false
+	}
+	text := fmt.Sprint(code)
+	return text, text != "" && text != chain.EnvelopeOK()
+}
+
+func failedPaths(results []chain.ExpectResult) []string {
+	out := []string{}
+	for _, e := range results {
+		if !e.Passed {
+			out = append(out, e.Path)
+		}
+	}
+	return out
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return strings.TrimSpace(line)
 }
 
 func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record, error) {
@@ -273,6 +412,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		Redacted:    append(append([]string{}, c.Redact...), opts.Redact...),
 		Steps:       make([]*StepRecord, 0, len(c.Steps)),
 	}
+	if err := checkVarsSupplied(c, opts.Vars); err != nil {
+		return nil, err
+	}
 	if err := r.checkAuthProfiles(c); err != nil {
 		return nil, err
 	}
@@ -283,7 +425,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	}
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
-	broken := map[string]bool{}
+	broken := map[string]*StepRecord{}
 	exporter := map[string]string{}
 	failures := []string{}
 	for i, step := range c.Steps {
@@ -296,7 +438,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 		}
 		if sr == nil {
-			sr = r.runStep(ctx, scope, i, step, opts, redactor)
+			stepOpts := opts
+			if opts.KeepGoing {
+				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
+			}
+			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
 		}
 		for name := range step.Export {
 			exporter[name] = step.ID
@@ -324,7 +470,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 				rec.Status = StatusFailed
 			}
 		}
-		broken[step.ID] = true
+		broken[step.ID] = sr
 		rec.FailedSteps = append(rec.FailedSteps, step.ID)
 		failures = append(failures, failure)
 	}
@@ -349,11 +495,15 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return fail(sr, err)
 	}
 	sr.Procedure = method.Procedure()
+	if method.Streaming() {
+		return fail(sr, errors.New(method.StreamRefusal()))
+	}
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
 		return fail(sr, err)
 	}
+	scope.RecordRequest(step.ID, resolved)
 	body, err := json.Marshal(resolved)
 	if err != nil {
 		return fail(sr, fmt.Errorf("encode request: %w", err))
@@ -411,6 +561,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Response = jsonBodyOrString(res.Body)
 		sr.Transport = &TransportError{Code: res.Error.Code, Message: res.Error.Message}
 		sr.Expect = evaluateRefused(scope, step.Expect, outcome, redactor)
+		for i, why := range opts.heldBack {
+			if i < len(sr.Expect) {
+				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Passed: false, Detail: why}
+			}
+		}
 		if refusalAsserted(step.Expect, sr.Expect) {
 			sr.Note = "refused as this step asserted: " + res.Error.Error()
 			if len(step.Export) > 0 {
@@ -423,8 +578,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Error = res.Error.Error()
 		if res.Error.Code == "unauthenticated" && len(r.Auth) == 0 {
 			sr.Error += "\n       this Runner carries no auth bindings, so no token was ever attached. Either " +
-				".shrt/config.yaml declares no auth: block (shrt init writes none — it cannot guess your login " +
-				"rpc; see GRAMMAR.md §4), or it does and this Runner was built without Auth: deps.Bindings."
+				".shrt/config.yaml declares no auth: block (shrt init writes one only when the descriptor has an " +
+				"rpc that looks like a login; see GRAMMAR.md §4), or it does and this Runner was built without Auth: deps.Bindings."
 		}
 		return sr
 	}
@@ -466,15 +621,24 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	canonicalInput := func(raw []byte) ([]byte, error) { return r.Catalog.Canonicalize(method.Input(), raw) }
 	sr.Note = seedingNote(r.Auth.observe(step.Auth, method.Procedure(), body, canonicalInput, decoded))
 
-	for _, e := range step.Expect {
+	for i, e := range step.Expect {
 		response, presence := any(decoded), sent
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
 		}
 		result := evaluate(scope, e, response, presence, redactor)
+		if why, held := opts.heldBack[i]; held {
+			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
+		}
 		sr.Expect = append(sr.Expect, result)
 		if !result.Passed {
 			sr.Status = StatusFailed
+		}
+	}
+
+	if len(step.Expect) == 0 {
+		if warning := unassertedRefusalWarning(decoded); warning != "" {
+			sr.Warning = joinLines(sr.Warning, warning)
 		}
 	}
 
@@ -499,11 +663,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 				Want:   chain.EnvelopeOK(),
 				Got:    strings.Join(got, ", "),
 				Passed: false,
-				Detail: "every item in a batch response carries its own verdict, and these were refused " +
-					"while the top-level envelope said OK — a step that asserts only the envelope would " +
-					"pass having achieved nothing. A line this step MEANS to be refused is declared by " +
-					"asserting that line's verdict path (equals, not_equal or contains), and is then not " +
-					"reported here",
+				Detail: itemEnvelopeDetail(decoded),
 			})
 			sr.Status = StatusFailed
 		}
@@ -514,12 +674,16 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		for name, path := range step.Export {
 			v, ok := chain.Get(decoded, path)
 			if !ok {
+				missing := fmt.Sprintf("export %q: path %q missing in response", name, path)
+				if sr.AssertionFailed() {
+					missing = failedExpectations(sr) + "; " + missing
+				}
 				sr.Status = StatusFailed
-				sr.Error = fmt.Sprintf("export %q: path %q missing in response", name, path)
+				sr.Error = missing
 				continue
 			}
 			scope.Exports[name] = v
-			if redactor.Masks(path) {
+			if redactor.MasksValue(path, v) {
 				sr.Exported[name] = pathmask.MaskRedacted
 				continue
 			}
@@ -529,14 +693,47 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	return sr
 }
 
+func unassertedRefusalWarning(decoded any) string {
+	path := chain.EnvelopePath()
+	if path == "" {
+		return ""
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return ""
+	}
+	text := fmt.Sprint(code)
+	if text == "" || text == chain.EnvelopeOK() {
+		return ""
+	}
+	return fmt.Sprintf("refused in-band (%s = %s, not %s), and this step declares no expect, so it is "+
+		"recorded passed with nothing checked. If the refusal is the point, assert it (%s equals: %s); if "+
+		"not, the backend rejected this call and later steps that read its response read zero values", path, text,
+		chain.EnvelopeOK(), path, text)
+}
+
+func itemEnvelopeDetail(decoded any) string {
+	said := "no top-level verdict at " + chain.EnvelopePath()
+	if v, ok := chain.Get(decoded, chain.EnvelopePath()); ok && v != nil {
+		said = fmt.Sprintf("the top-level envelope said %v", v)
+	}
+	return "every item in a batch response carries its own verdict, and these were refused while " + said +
+		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
+		"MEANS to be refused is declared by pinning that line's verdict path, or one of its code fields (" +
+		strings.Join(chain.CodeFields(), ", ") + "), with equals, not_equal or contains, and is then not " +
+		"reported here"
+}
+
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
 	bound, err := e.ResolveWith(scope)
 	if err != nil {
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
 	result := bound.EvaluateIn(response, presence)
-	if redactor.MasksValue(e.Path, result.Got) || redactor.MasksValue(e.Path, result.Want) {
+	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
+	}
+	if redactor.MasksValue(e.Path, result.Want) {
 		result.Want = pathmask.MaskRedacted
 	}
 	return result
@@ -581,12 +778,29 @@ func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask
 	}
 	for _, s := range steps {
 		for name, path := range s.Export {
-			if _, exported := out[name]; exported && redactor.Masks(path) {
+			if _, exported := out[name]; exported && redactor.MasksValue(path, out[name]) {
 				out[name] = pathmask.MaskRedacted
 			}
 		}
 	}
 	return out
+}
+
+func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
+	missing := c.MissingVars(supplied)
+	if len(missing) == 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(missing))
+	flags := make([]string, 0, len(missing))
+	for _, name := range missing {
+		refs = append(refs, "${vars."+name+"}")
+		flags = append(flags, "-var "+name+"=...")
+	}
+	return fmt.Errorf("chain %q reads %s, which it does not declare under vars: and this run was not given, "+
+		"so nothing was sent: the run would have died at the first step reading one, after every step before "+
+		"it had already hit the backend. Supply %s, or declare a value under vars: in the chain",
+		c.Name, strings.Join(refs, ", "), strings.Join(flags, " "))
 }
 
 func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
@@ -615,21 +829,46 @@ func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
 }
 
 func seedingNote(s seeding) string {
-	notes := make([]string, 0, len(s.seeded)+1)
-	for _, profile := range s.seeded {
-		notes = append(notes, seededNote(profile))
-	}
-	if len(s.refused) > 0 {
-		names := make([]string, 0, len(s.refused))
-		for _, p := range s.refused {
-			names = append(names, profileLabel(p))
+	if len(s.seeded) > 0 {
+		notes := make([]string, 0, len(s.seeded)+1)
+		for _, profile := range s.seeded {
+			notes = append(notes, seededNote(profile))
 		}
-		notes = append(notes, "did not seed the "+strings.Join(names, ", ")+" auth token: this login sent "+
-			"other credentials than that profile's body in .shrt/config.yaml, so its token belongs to a "+
-			"different principal. Steps under that profile keep logging in as the configured one — to act "+
-			"as this principal, declare a profile with these credentials and name it with auth:")
+		if others := append(append([]string{}, s.refused...), s.tokenless...); len(others) > 0 {
+			if len(others) == 1 {
+				notes = append(notes, "the "+profileNames(others)+" profile on the same login rpc was not seeded: "+
+					"its configured body differs from what this login sent, so steps under it keep logging in with that body")
+			} else {
+				notes = append(notes, "the "+profileNames(others)+" profiles on the same login rpc were not seeded: "+
+					"each one's configured body differs from what this login sent, so steps under each keep logging in "+
+					"with that profile's own body")
+			}
+		}
+		return strings.Join(notes, "\n")
 	}
-	return strings.Join(notes, "\n")
+	all := append(append([]string{}, s.refused...), s.tokenless...)
+	switch {
+	case len(s.refused) > 0:
+		return "did not seed any auth token: what this login sent differs from the configured body of every " +
+			"profile it could seed (" + profileNames(all) + "), so the token it returned belongs to a principal " +
+			"no profile describes and no later step uses it. Steps under each of those profiles keep logging in " +
+			"with that profile's own body. To run steps as this principal, add a profile with this body under " +
+			"auth.profiles in .shrt/config.yaml and put auth: <that profile's name> on those steps"
+	case len(s.tokenless) > 0:
+		return "did not seed any auth token: this login returned no token, and what it sent differs from the " +
+			"configured body of every profile it could seed (" + profileNames(all) + "). Steps under each of " +
+			"those profiles keep logging in with that profile's own body"
+	}
+	return ""
+}
+
+func profileNames(profiles []string) string {
+	names := make([]string, 0, len(profiles))
+	for _, p := range profiles {
+		names = append(names, profileLabel(p))
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
 }
 
 func profileLabel(profile string) string {
@@ -724,6 +963,16 @@ func firstNonEmpty(vals ...string) string {
 
 func newRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
+}
+
+func failedExpectations(sr *StepRecord) string {
+	parts := []string{}
+	for _, e := range sr.Expect {
+		if !e.Passed {
+			parts = append(parts, chain.DescribeFailure(e))
+		}
+	}
+	return "expectation failed: " + strings.Join(parts, "; ")
 }
 
 func unevaluated(expect []chain.Expectation) []chain.ExpectResult {

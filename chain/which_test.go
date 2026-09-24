@@ -93,6 +93,9 @@ func scanIsCodePath(path string) bool {
 	if len(segs) == 0 {
 		return false
 	}
+	if len(segs) == 2 && segs[0] == "transport" && segs[1] == "code" {
+		return true
+	}
 	last := segs[len(segs)-1]
 	if last == "app_code" || last == "reason" {
 		return true
@@ -348,5 +351,22 @@ func TestNeitherSelectorMatchesNothingRatherThanEverything(t *testing.T) {
 	hits := chain.Which(whichFixture(), chain.WhichQuery{RPC: "pkg.Svc/Create", Code: "1218"}, chain.WhichOptions{})
 	if len(hits) != 0 {
 		t.Fatalf("both selectors intersect, so an rpc that never asserts 1218 must match nothing, got %d", len(hits))
+	}
+}
+
+func TestAPassingStepOutranksAFailedOneThatAlsoAnsweredTheCode(t *testing.T) {
+	hits := chain.Which(whichFixture(), chain.WhichQuery{Code: "1218"}, chain.WhichOptions{
+		Observations: func(name string) []chain.Observation {
+			switch name {
+			case "long":
+				return []chain.Observation{{Run: "r1", Step: "boom_long", Status: "failed", Reached: true, Response: failureResponse(float64(1218))}}
+			case "short":
+				return []chain.Observation{{Run: "r2", Step: "boom", Status: "passed", Reached: true, Response: failureResponse(float64(1218))}}
+			}
+			return nil
+		},
+	})
+	if len(hits) != 2 || hits[0].Chain != "short" {
+		t.Fatalf("both answered 1218, the step that passed is the better reproduction, got %+v", hits)
 	}
 }

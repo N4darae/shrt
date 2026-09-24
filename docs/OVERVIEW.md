@@ -1,6 +1,6 @@
 # shrt
 
-Snapshot the valid API call chains of a gRPC backend so an agent can look one up
+Snapshot the valid API call chains of a Connect/gRPC backend so an agent can look one up
 instead of tracing for it.
 
 ## Why
@@ -13,36 +13,38 @@ and tokens hunting for the rest of the path, and pays that cost again next time.
 
 ## How it works
 
-shrt reads the server's descriptor set, so every method and message type comes from
-the server itself. It then calls the real RPCs, records what ran, and writes a
-chain into the contract.
+shrt builds a descriptor set from the backend's proto sources (`shrt catalog build`, which runs
+`buf build` by default), so every method and message type comes from the protos the server is built
+from. It calls the backend as unary Connect requests: JSON over HTTP POST.
 
-Nothing enters the contract on inference alone:
+A chain is a YAML file under `.shrt/chains/`. It is an ordered list of steps, and a step names an
+rpc, its request body, its assertions and what it exports. A body value is a literal or a `${...}`
+reference to an earlier step's request or response, an export, a chain var, an environment
+variable, a fresh uuid or the clock. The references are what make a chain reproducible rather than
+just a list of calls.
 
-- A chain is replayed before it is accepted.
-- Each data edge between steps is perturbed. Change the value at the source step and
-  the chain has to break. If it still passes, the edge was a coincidence and gets
-  marked unverified.
-- Every step carries where it came from, either a trace id or a test location.
+Chains are written, not recorded from traffic. `shrt contract plan` composes one from the curated
+contract in `.shrt/contracts/<domain>.yaml`, which holds what the descriptor cannot: which fields
+the server requires, where each value comes from, which calls must run first, and how each rpc
+refuses. `shrt chain new` scaffolds one from the descriptor alone.
 
-A contract is a snapshot taken at a point in time. Diffing descriptor sets between
-snapshots tells you exactly which chains a proto change affects, so only those get
-replayed.
-
-## Contract
-
-The format is proto based. A chain is an ordered list of steps; a step is a method
-reference, its inputs, assertions, and provenance. An input is either a literal or a
-reference to an earlier step's output, which is the part that makes a chain
-reproducible rather than just a list of calls.
-
+`shrt run` executes a chain in order and writes a run record under `.shrt/runs/`. A human promotes
+a passing run to the chain's safe spot with `shrt confirm`. `shrt verify` replays the chain and
+diffs every response field against the safe spot, so a regression names the rpc that changed.
+Before a chain has a safe spot, `shrt diff` compares two of its recorded runs.
 
 ## Limits
 
-Unary RPCs only. Streaming methods are recorded as unsupported.
+Unary RPCs only. `shrt catalog ls`, `shrt catalog describe` and `shrt contract show` mark a
+streaming rpc as out of scope, `shrt chain new` refuses to scaffold one, and `shrt chain lint`
+rejects a step that calls one.
 
-Steps with external side effects (payments, mail, third party calls) are flagged and
-skipped on replay. Chains containing them need a test environment that can be reset.
+Every step runs, in order. shrt has no notion of an external side effect, so a chain that takes
+payments, sends mail or calls a third party needs a test environment that can absorb it or be reset.
 
-Coverage is whatever was exercised during recording. shrt does not discover chains
-nobody has run.
+Coverage is whatever the chains exercise. shrt does not discover chains nobody has written;
+`shrt chain which` says which existing chains exercise an rpc or assert a failure code.
+
+The first design also planned to perturb each data edge to prove it was not a coincidence, to
+record a trace id or test location on every step, and to diff descriptor sets to choose which chains
+to replay. None of those is implemented.

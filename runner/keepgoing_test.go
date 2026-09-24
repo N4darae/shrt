@@ -115,7 +115,7 @@ func TestKeepGoingContinuesPastAStepThatWasNeverSent(t *testing.T) {
 
 	c := normalized(t, &chain.Chain{Name: "keep-going-error", Steps: []*chain.Step{
 		{ID: "broken", Call: "ThingService/Create",
-			Body: map[string]any{"name": "${vars.missing}", "kind": "KIND_A"}, Expect: okExpect()},
+			Body: map[string]any{"name": "${env.SHRT_TEST_NEVER_EXPORTED_7F3A}", "kind": "KIND_A"}, Expect: okExpect()},
 		{ID: "independent", Call: "ThingService/Create",
 			Body: map[string]any{"name": "widget", "kind": "KIND_A"}, Expect: okExpect()},
 	}})

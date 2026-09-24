@@ -47,6 +47,7 @@ func chainWhich(args []string) error {
 		RPCOf:        rpcOf(e),
 		SliceOf:      sliceSizeOf(e),
 		Observations: runObservations(e),
+		FreshVars:    freshVarsOf(e),
 	})
 	if len(hits) == 0 {
 		return fmt.Errorf("no chain in %s %s\nnothing to slice: the corpus does not exercise it yet", e.chainsDir(), describeWhichQuery(q))
@@ -100,11 +101,12 @@ func runObservations(e *env) func(string) []chain.Observation {
 					Run:     rec.RunID,
 					Step:    s.ID,
 					Status:  s.Status,
-					Reached: s.Transport == nil && (s.Status == runner.StatusPassed || s.Status == runner.StatusFailed),
+					Reached: s.Status == runner.StatusPassed || s.Status == runner.StatusFailed,
 				}
-				if len(s.Response) > 0 {
-					_ = json.Unmarshal(s.Response, &o.Response)
+				if s.Status == runner.StatusFailed {
+					o.Failures = s.Expect
 				}
+				o.Response = observedResponse(s)
 				out = append(out, o)
 			}
 		}
@@ -112,8 +114,81 @@ func runObservations(e *env) func(string) []chain.Observation {
 	}
 }
 
+func observedResponse(s *runner.StepRecord) any {
+	var response any
+	if len(s.Response) > 0 {
+		_ = json.Unmarshal(s.Response, &response)
+	}
+	if s.HTTPStatus == 0 && s.Transport == nil {
+		return response
+	}
+	code, message := "", ""
+	if s.Transport != nil {
+		code, message = s.Transport.Code, s.Transport.Message
+	}
+	outcome := chain.TransportOutcome(s.HTTPStatus, code, message)
+	obj, ok := response.(map[string]any)
+	if !ok {
+		return outcome
+	}
+	merged := make(map[string]any, len(obj)+1)
+	for k, v := range obj {
+		merged[k] = v
+	}
+	merged[chain.TransportPrefix] = outcome[chain.TransportPrefix]
+	return merged
+}
+
+func freshVarsOf(e *env) func(*chain.Chain, string, string) []string {
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e)}
+	if lib, _, err := e.library(); err == nil && lib != nil {
+		opts.Prereqs = contract.PrereqsFor(lib)
+	}
+	return func(c *chain.Chain, step, run string) []string {
+		o := opts
+		if run != "" {
+			rec, err := e.store.LoadRun(c.Name, run)
+			if err != nil {
+				return nil
+			}
+			o.Mode, o.RunID, o.Value, o.RunVars = chain.SliceModePin, rec.RunID, recordValues(rec), recordVars(rec)
+		}
+		res, err := chain.Slice(c, step, o)
+		if err != nil {
+			return nil
+		}
+		sharedWithDropped := map[string]bool{}
+		if run != "" {
+			sharedWithDropped = interpolatedVars(droppedBefore(c, res))
+		}
+		out := []string{}
+		for name := range interpolatedVars(res.Chain) {
+			if !sharedWithDropped[name] {
+				out = append(out, name)
+			}
+		}
+		return out
+	}
+}
+
+func droppedBefore(c *chain.Chain, res *chain.SliceResult) *chain.Chain {
+	kept := map[string]bool{}
+	for _, k := range res.Kept {
+		kept[k.ID] = true
+	}
+	out := &chain.Chain{Name: c.Name}
+	for i, st := range c.Steps {
+		if i >= res.Reach {
+			break
+		}
+		if !kept[st.ID] {
+			out.Steps = append(out.Steps, st)
+		}
+	}
+	return out
+}
+
 const (
-	whichLineWidth = 110
 	whichMarkSeen  = "OBSERVED"
 	whichMarkClaim = "asserted"
 )
@@ -148,33 +223,44 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 				mark, idW, m.Step, codeW, whichCodeCell(m, q), m.SliceSteps, h.Steps)
 			if m.Observed == nil {
 				fmt.Println(line)
-				continue
-			}
-			seen := whichSeenCell(m.Observed)
-			if len(line)+2+len(seen) <= whichLineWidth {
-				fmt.Printf("%s  %s\n", line, seen)
+				if m.Newest != nil {
+					fmt.Printf("    no local run reached it; newest run %s: step %s\n", m.Newest.Run, m.Newest.Status)
+				}
 				continue
 			}
 			fmt.Println(line)
-			fmt.Printf("  %s\n", seen)
+			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
+			for _, f := range m.Observed.Failures {
+				fmt.Printf("    failed: %s\n", chain.DescribeFailure(f))
+			}
+			if m.Newest != nil {
+				fmt.Printf("    newest run %s did not reach it: step %s\n", m.Newest.Run, m.Newest.Status)
+			}
 		}
 		fmt.Printf("  reproduce: %s\n", h.Command)
 	}
 	fmt.Printf("\n%d chain(s), %d with a local run record that reached a matching step.\n", len(hits), observed)
-	fmt.Printf("%s is what the chain claims; %s means a local run record reached the step, and \"got\" is the code\n"+
-		"its recorded response carried. A step marked FAILED did not produce what it asserts. Run records are machine-local.\n",
+	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
+		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
+		"and its failing expectations follow. Steps whose newest reaching run contradicts the assertion rank last.\n"+
+		"Run records are machine-local.\n",
 		whichMarkClaim, whichMarkSeen)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
 }
 
 func whichSeenCell(o *chain.WhichEvidence) string {
-	got := o.Code
-	if got == "" {
-		got = "no code"
-	}
 	status := o.Status
 	if status != runner.StatusPassed {
 		status = strings.ToUpper(status)
+	}
+	got := o.Code
+	switch {
+	case o.Asserted != "" && o.Path != o.Asserted && o.Code != "":
+		got = fmt.Sprintf("%s at %s (nothing at %s)", o.Code, o.Path, o.Asserted)
+	case o.Asserted != "" && o.Code == "":
+		got = "nothing at " + o.Asserted
+	case o.Code == "":
+		got = "no code"
 	}
 	return fmt.Sprintf("run %s got %s, step %s", o.Run, got, status)
 }
@@ -187,28 +273,11 @@ func runCount(n int) string {
 }
 
 func whichCodeCell(m chain.WhichStep, q chain.WhichQuery) string {
+	if a, ok := chain.PrimaryAssertion(m.Asserts, q.Code); ok {
+		return a.Value
+	}
 	if q.Code != "" {
-		for _, a := range m.Asserts {
-			if strings.EqualFold(a.Value, q.Code) {
-				return a.Value
-			}
-		}
 		return q.Code
 	}
-	if len(m.Asserts) == 0 {
-		return "-"
-	}
-	for _, a := range m.Asserts {
-		if isAllDigits(a.Value) {
-			return a.Value
-		}
-	}
-	return m.Asserts[0].Value
-}
-
-func isAllDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	return strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
+	return "-"
 }

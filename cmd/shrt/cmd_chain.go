@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -182,6 +183,7 @@ func chainList(args []string) error {
 		Description string `json:"description,omitempty"`
 		Path        string `json:"path"`
 	}
+	sort.SliceStable(chains, func(i, j int) bool { return chains[i].Name < chains[j].Name })
 	rows := make([]row, 0, len(chains))
 	for _, c := range chains {
 		rows = append(rows, row{
@@ -266,7 +268,7 @@ func descriptionLines(description string) []string {
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	strict := fs.Bool("strict", false, "treat assertion-quality warnings — an assertion that cannot fail, a step asserting nothing — as errors")
+	strict := fs.Bool("strict", false, "treat assertion-quality warnings — an assertion that cannot fail, a step asserting nothing, an allow_fail that does nothing — as errors")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

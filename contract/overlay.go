@@ -305,7 +305,31 @@ func LoadOverlayBytes(path string, raw []byte) (*Overlay, error) {
 	o.SourcePath = path
 	o.EmptyEntries = normalizeEmptyEntries(o)
 	markUnfilled(o, raw)
+	dropTodoRequired(o)
 	return o, nil
+}
+
+func dropTodoRequired(o *Overlay) {
+	for _, c := range o.RPCs {
+		if c == nil || len(c.Required) == 0 {
+			continue
+		}
+		kept := make([]string, 0, len(c.Required))
+		for _, name := range c.Required {
+			if IsTodo(name) {
+				continue
+			}
+			kept = append(kept, name)
+		}
+		if len(kept) == len(c.Required) {
+			continue
+		}
+		c.Required = kept
+		if c.Unfilled == nil {
+			c.Unfilled = map[string]bool{}
+		}
+		c.Unfilled["required"] = true
+	}
 }
 
 func normalizeEmptyEntries(o *Overlay) []string {

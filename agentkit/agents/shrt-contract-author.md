@@ -25,7 +25,9 @@ with. Read the file, make the change, write it back.
 
 Every `.shrt/docs/` file named below is **build output and normally gitignored**, so a fresh clone
 has none of them. If `.shrt/docs/GRAMMAR.md` is missing, run `shrt init -build=false -agents=false`
-once to write them, then carry on. That is the only sanctioned way to recover them: the rule below
+once to write them, then carry on. It writes only files that are missing, but that can include
+`.shrt/config.yaml`, `.gitignore` entries and a guessed `auth:` block, so say in your report if it
+touched anything outside `.shrt/docs/`. That is the only sanctioned way to recover them: the rule below
 against working from a key list in any other file still stands, and this file deliberately carries
 no such list to fall back on.
 
@@ -41,7 +43,7 @@ shrt catalog describe <rpc>       # schema only
 ## What you must supply
 
 **Which keys exist, and what each one means: `.shrt/docs/GRAMMAR.md` §3.** It is generated
-from the Go structs and gate-checked, so it cannot drift; do not work from a list in any other file,
+from the Go structs, so it carries only keys that exist; do not work from a list in any other file,
 including this one. **The order to fill them in — `required`, then `from`/`same_as`, then
 `needs`/`before`, then `failures`, then `exports`/`terminal`/`soft_signals`, then `source` — and why
 each step pays for the next: `.shrt/docs/PLAYBOOK.md` §7.** Start with
@@ -71,7 +73,7 @@ Judgement the key tables do not carry:
   matches the string anywhere and will show you more rpcs than your file has; the extras are the
   ones to name in `needs:`, not to copy into your overlay.
 - `requires_role:` is not optional decoration — it is what makes `shrt contract plan` warn a chain
-  author before they meet **1603** at run time. If an rpc genuinely reaches no role gate (the
+  author before they meet a role refusal at run time. If an rpc genuinely reaches no role gate (the
   partner-token surface, a public login), write `requires_role: [NONE]` rather than leaving the key
   out: silence and "no role needed" must not look the same.
 - Codes that every RPC in the domain returns belong in the overlay's top-level `failures:` block,
@@ -98,15 +100,18 @@ Judgement the key tables do not carry:
 
    **If there is no reachable source at all** — a vendored API, a repo that holds only protos — say
    so rather than inferring behaviour from field names, and work the evidence you do have, in this
-   order: the proto's own doc comments; request/response field names that pair across rpcs (that is
-   what the scaffolder already wired into `from:`); any integration or e2e test in the repo, which
+   order: the proto's own doc comments; request fields whose leaf name matches an id in a write
+   rpc's response, nested ones included (`product.id_product`, `lines.id_product`), which is what the
+   scaffolder already wired into `from:` (it wires only the single rpc that mints the id, and leaves
+   `TODO: pick a from — candidates are …` where more than one remains); any integration or e2e test in the repo, which
    shows a real call order and real values; an OpenAPI or published API document if one exists; and
    last, ask the user. `required: [UNKNOWN]` is the honest end state for what none of those settle,
    and it is scored as an empty list rather than punished further.
 3. Harvest the failure codes. They are usually raised in one place; find the project's error
    constructor by grepping the handler you just read for whatever it returns on a rejection, then
    grep that constructor across the domain and match each code to the branch that raises it.
-4. Fill the overlay. Delete a `TODO` when you have answered it. Do **not** delete a `fields:` entry
+4. Fill the overlay. Every TODO is a quoted value (`'TODO: …'`), never a YAML comment; replace it
+   when you have answered it, and remove the TODO entry from `required:` when you fill that list. Do **not** delete a `fields:` entry
    to make it quiet: a request field in neither `fields:` nor `required:` is scored as undocumented,
    so deleting costs you 2 where an honest "could not determine, and here is what I checked" costs
    nothing.

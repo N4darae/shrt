@@ -146,7 +146,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	}
 	token, ok := lookupString(payload, s.spec.TokenPath)
 	if !ok || token == "" {
-		return "", fmt.Errorf("auth login response has no token at %q", s.spec.TokenPath)
+		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s", s.spec.TokenPath, excerpt(raw, 300))
 	}
 	s.token = token
 	s.expiresAt = time.Time{}
@@ -427,4 +427,12 @@ func lookup(root map[string]any, path string) (any, bool) {
 		cur = m[key]
 	}
 	return cur, true
+}
+
+func excerpt(raw []byte, max int) string {
+	text := strings.Join(strings.Fields(string(raw)), " ")
+	if len(text) > max {
+		return text[:max] + "…"
+	}
+	return text
 }

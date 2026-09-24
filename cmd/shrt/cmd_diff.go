@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 )
@@ -23,7 +26,16 @@ const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
 	"       shrt diff <chain>                   latest~1 against latest"
 
-func runDiff(_ context.Context, args []string) error {
+func runDiff(ctx context.Context, args []string) error {
+	err := compareRuns(ctx, args)
+	var coded *exitError
+	if err == nil || errors.Is(err, flag.ErrHelp) || errors.As(err, &coded) {
+		return err
+	}
+	return &exitError{code: 2, err: err}
+}
+
+func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
 	rest, err := parseArgs(fs, args)
@@ -64,7 +76,7 @@ func runDiff(_ context.Context, args []string) error {
 	if a.RunID == b.RunID {
 		return fmt.Errorf("both sides are run %s: comparing a record with itself says nothing", a.RunID)
 	}
-	rep := diff.CompareRuns(a, b)
+	rep := diff.CompareRunsMasking(a, b, currentVolatile(e, a.Chain))
 	if *asJSON {
 		if err := emitJSON(rep); err != nil {
 			return err
@@ -78,13 +90,38 @@ func runDiff(_ context.Context, args []string) error {
 	return nil
 }
 
+func currentVolatile(e *env, chainName string) []string {
+	out := append([]string{}, e.cfg.Volatile...)
+	c, err := chain.Resolve(e.chainsDir(), chainName)
+	if err != nil {
+		return out
+	}
+	out = append(out, c.Volatile...)
+	for _, s := range c.Steps {
+		out = append(out, s.Volatile...)
+	}
+	return out
+}
+
 func selectRun(e *env, chainName, sel string) (*runner.Record, error) {
 	back, isSelector, err := parseLatest(sel)
 	if err != nil {
 		return nil, err
 	}
 	if !isSelector {
-		return e.store.LoadRun(chainName, sel)
+		rec, err := e.store.LoadRun(chainName, sel)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) {
+			return rec, err
+		}
+		if found, ferr := e.store.FindRun(sel); ferr == nil && len(found) > 0 {
+			return nil, fmt.Errorf("run %s is not a run of chain %s: it is recorded under chain %s, and shrt diff compares two runs of the SAME chain",
+				sel, chainName, found[0].Chain)
+		}
+		ids, _ := e.store.ListRuns(chainName)
+		if len(ids) > 3 {
+			ids = ids[len(ids)-3:]
+		}
+		return nil, fmt.Errorf("chain %s has no run %s (newest recorded: %s)", chainName, sel, strings.Join(ids, ", "))
 	}
 	ids, err := e.store.ListRuns(chainName)
 	if err != nil {

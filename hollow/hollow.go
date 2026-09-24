@@ -3,6 +3,7 @@ package hollow
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -108,13 +109,47 @@ func AssertsAbsence(e chain.ExpectResult) bool {
 }
 
 func discriminatesEmptiness(path string, want bool) bool {
+	segs := strings.Split(path, ".")
 	if !want {
-		return false
+		return isIndexSegment(segs[len(segs)-1])
 	}
-	for _, seg := range strings.Split(path, ".") {
+	for _, seg := range segs {
 		if isIndexSegment(seg) {
 			return true
 		}
+	}
+	return false
+}
+
+func DeclaresRefusal(expect []chain.ExpectResult) bool {
+	for _, e := range expect {
+		if e.Passed && pinsRefusal(e.Path, e.Rule, e.Want) {
+			return true
+		}
+	}
+	return false
+}
+
+func declaresRefusalExpectation(e chain.Expectation) bool {
+	switch {
+	case e.Equals != nil:
+		return pinsRefusal(e.Path, "equals", e.Equals)
+	case e.NotEqual != nil:
+		return pinsRefusal(e.Path, "not_equal", e.NotEqual)
+	}
+	return false
+}
+
+func pinsRefusal(path, rule string, want any) bool {
+	if strings.Join(chain.SplitPath(path), ".") != chain.EnvelopePath() || want == nil {
+		return false
+	}
+	isOK := fmt.Sprint(want) == chain.EnvelopeOK()
+	switch rule {
+	case "equals":
+		return !isOK
+	case "not_equal":
+		return isOK
 	}
 	return false
 }
@@ -136,6 +171,10 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 	for _, c := range chains {
 		for _, s := range c.Steps {
 			for _, e := range s.Expect {
+				if declaresRefusalExpectation(e) {
+					out[stepKey(c.Name, s.ID)] = true
+					break
+				}
 				if chain.TautologyReason(e) != "" || AssertsAbsenceExpectation(e) || isVacuousExpectation(e) {
 					continue
 				}
@@ -286,7 +325,7 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 				continue
 			}
 			rep.EnvelopeOnly++
-			if !BodyIsEmpty(step.Response) {
+			if DeclaresRefusal(step.Expect) || !BodyIsEmpty(step.Response) {
 				continue
 			}
 			rep.HollowRecords++

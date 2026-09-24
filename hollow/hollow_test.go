@@ -143,8 +143,7 @@ func TestScanCountsAnAllowlistedStepWithoutReportingIt(t *testing.T) {
 	writeRecord(t, runs, &runner.Record{
 		RunID: "20260912T000000Z-eeee", Chain: "probe", Status: "passed",
 		Steps: []*runner.StepRecord{
-			step("reject_bad_id", "/acme.x.v1.S/FetchRows", `{"error":{"code":"invalid_argument"},"rows":[]}`,
-				[]chain.ExpectResult{{Path: "error.code", Rule: "equals", Want: "invalid_argument", Passed: true}}),
+			step("reject_bad_id", "/acme.x.v1.S/FetchRows", `{"error":{"code":"OK"},"rows":[]}`, envelopeOK()),
 		},
 	})
 	dir := t.TempDir()

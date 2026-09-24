@@ -7,6 +7,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,19 +21,88 @@ type Producer struct {
 func (p Producer) Ref() string { return p.RPC + RefSeparator + p.Path }
 
 func ProducersOf(field string, methods []*catalog.Method, exclude string) []Producer {
+	leaf := field
+	if i := strings.LastIndex(leaf, "."); i >= 0 {
+		leaf = leaf[i+1:]
+	}
 	out := []Producer{}
 	for _, m := range methods {
-		if m.FullName == exclude || isReadOnly(m.Name) {
+		if m.FullName == exclude || isReadOnly(m.Name) || m.Streaming() {
 			continue
 		}
-		for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-			if f.Name == field && f.Kind != "message" && f.Kind != "group" && !f.Repeated {
-				out = append(out, Producer{RPC: m.FullName, Path: f.Name})
-			}
+		if carriesLeaf(catalog.DescribeMessage(m.Input()).Fields, leaf) {
+			continue
+		}
+		for _, path := range responsePathsTo(catalog.DescribeMessage(m.Output()).Fields, leaf, "") {
+			out = append(out, Producer{RPC: m.FullName, Path: path})
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].RPC < out[j].RPC })
+	out = preferOwnID(out, leaf)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].RPC != out[j].RPC {
+			return out[i].RPC < out[j].RPC
+		}
+		return out[i].Path < out[j].Path
+	})
 	return out
+}
+
+func preferOwnID(candidates []Producer, leaf string) []Producer {
+	subject := idSubject(leaf)
+	if subject == "" || len(candidates) < 2 {
+		return candidates
+	}
+	own := []Producer{}
+	for _, p := range candidates {
+		segs := strings.Split(p.Path, ".")
+		if len(segs) == 1 || strings.Join(namecase.Words(segs[len(segs)-2]), "_") == subject {
+			own = append(own, p)
+		}
+	}
+	if len(own) == 0 {
+		return candidates
+	}
+	return own
+}
+
+func idSubject(leaf string) string {
+	words := []string{}
+	for _, w := range namecase.Words(leaf) {
+		if !isIDWord(w) {
+			words = append(words, w)
+		}
+	}
+	return strings.Join(words, "_")
+}
+
+func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
+	out := []string{}
+	for _, f := range fields {
+		if prefix == "" && f.Name == chain.EnvelopeField() {
+			continue
+		}
+		path := join(prefix, f.Name)
+		if f.Repeated || f.MapKey != "" {
+			continue
+		}
+		if f.Kind == "message" || f.Kind == "group" {
+			out = append(out, responsePathsTo(f.Fields, leaf, path)...)
+			continue
+		}
+		if f.Name == leaf {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+func carriesLeaf(fields []*catalog.Field, leaf string) bool {
+	for _, f := range fields {
+		if f.Name == leaf || carriesLeaf(f.Fields, leaf) {
+			return true
+		}
+	}
+	return false
 }
 
 func isReadOnly(name string) bool {
@@ -41,8 +111,8 @@ func isReadOnly(name string) bool {
 
 func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library, all []*catalog.Method) *yaml.Node {
 	doc := &yaml.Node{Kind: yaml.MappingNode}
-	put(doc, "apiVersion", scalar(OverlayAPIVersion), "")
-	put(doc, "domain", scalar(domain), "")
+	put(doc, "apiVersion", scalar(OverlayAPIVersion))
+	put(doc, "domain", scalar(domain))
 
 	description := TodoMarker + ": what this domain is for, in two lines"
 	if existing != nil {
@@ -50,11 +120,11 @@ func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library
 			description = prior
 		}
 	}
-	put(doc, "description", scalar(description), "")
+	put(doc, "description", scalar(description))
 
 	if existing != nil {
 		if prior := domainFailures(existing, domain); prior != nil {
-			put(doc, "failures", prior, "")
+			put(doc, "failures", prior)
 		}
 	}
 
@@ -66,9 +136,9 @@ func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library
 				prior = c
 			}
 		}
-		put(rpcs, m.FullName, scaffoldRPC(m, prior, all), m.Doc)
+		put(rpcs, m.FullName, scaffoldRPC(m, prior, all))
 	}
-	put(doc, "rpcs", rpcs, "")
+	put(doc, "rpcs", rpcs)
 	return doc
 }
 
@@ -89,7 +159,7 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 	if prior != nil {
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
-			reattachFieldDocs(node, m)
+			carryRequiredTodo(node, prior)
 			return node
 		}
 	}
@@ -106,20 +176,13 @@ func scaffoldReadOnly(m *catalog.Method, all []*catalog.Method) *yaml.Node {
 		summary = fmt.Sprintf("%s: what %s returns, and which request fields the handler actually requires",
 			TodoMarker, m.Name)
 	}
-	put(node, "summary", scalar(summary), "")
-	put(node, "required", seq(TodoMarker+": which fields the server rejects without, or "+
-		RequiredNone+" if it rejects nothing"), "")
-
-	schema := catalog.DescribeMessage(m.Input())
-	fields := &yaml.Node{Kind: yaml.MappingNode}
-	for _, f := range schema.Fields {
-		put(fields, f.Name, scaffoldField(f, m, all, readOnlyHint), f.Doc)
+	put(node, "summary", scalar(summary))
+	put(node, "required", requiredTodo())
+	if fields := scaffoldFields(m, all, readOnlyHint); len(fields.Content) > 0 {
+		put(node, "fields", fields)
 	}
-	if len(fields.Content) > 0 {
-		put(node, "fields", fields, "")
-	}
-	put(node, "exports", exportsNode(m), "")
-	put(node, "status", scalar(StatusDraft), "")
+	put(node, "exports", exportsNode(m))
+	put(node, "status", scalar(StatusDraft))
 	return node
 }
 
@@ -141,38 +204,89 @@ func scaffoldWrite(m *catalog.Method, all []*catalog.Method) *yaml.Node {
 	if summary == "" {
 		summary = TodoMarker + ": what this rpc does and when to call it"
 	}
-	put(node, "summary", scalar(summary), "")
-	put(node, "required", seq(TodoMarker+": which fields the server rejects without, or "+
-		RequiredNone+" if it rejects nothing"), "")
-
-	schema := catalog.DescribeMessage(m.Input())
-	fields := &yaml.Node{Kind: yaml.MappingNode}
-	for _, f := range schema.Fields {
-		put(fields, f.Name, scaffoldField(f, m, all, fieldHint), f.Doc)
+	put(node, "summary", scalar(summary))
+	if refusal := m.StreamRefusal(); refusal != "" {
+		put(node, "note", scalar(refusal))
 	}
-	if len(fields.Content) > 0 {
-		put(node, "fields", fields, "")
+	put(node, "required", requiredTodo())
+	if fields := scaffoldFields(m, all, fieldHint); len(fields.Content) > 0 {
+		put(node, "fields", fields)
 	}
 	if exports := exportsNode(m); len(exports.Content) > 0 {
-		put(node, "exports", exports, "")
+		put(node, "exports", exports)
 	}
-	put(node, "status", scalar(StatusDraft), "")
+	put(node, "status", scalar(StatusDraft))
 	return node
+}
+
+const RequiredTodoText = TodoMarker + ": which fields the server rejects without, or " +
+	RequiredNone + " if it rejects nothing"
+
+func requiredTodo() *yaml.Node {
+	n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
+	n.Content = append(n.Content, scalar(RequiredTodoText))
+	return n
+}
+
+func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
+	if !prior.IsUnfilled("required") || len(prior.Required) > 0 {
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "required" {
+			node.Content[i+1] = requiredTodo()
+			return
+		}
+	}
+}
+
+func scaffoldFields(m *catalog.Method, all []*catalog.Method, hint func(*catalog.Field) string) *yaml.Node {
+	fields := &yaml.Node{Kind: yaml.MappingNode}
+	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+		put(fields, f.Name, scaffoldField(f, m, all, hint))
+		scaffoldNestedIDs(fields, f, f.Name, m, all, 1)
+	}
+	return fields
+}
+
+const nestedIDDepth = 3
+
+func scaffoldNestedIDs(fields *yaml.Node, parent *catalog.Field, path string, m *catalog.Method, all []*catalog.Method, depth int) {
+	if depth > nestedIDDepth || parent.MapKey != "" || (parent.Kind != "message" && parent.Kind != "group") {
+		return
+	}
+	for _, f := range parent.Fields {
+		child := path + "." + f.Name
+		if IsEntityIDField(f.Name) && f.Kind != "message" && f.Kind != "group" && !f.Repeated {
+			if len(ProducersOf(f.Name, all, m.FullName)) > 0 {
+				put(fields, child, scaffoldField(f, m, all, fieldHint))
+			}
+			continue
+		}
+		scaffoldNestedIDs(fields, f, child, m, all, depth+1)
+	}
+}
+
+func withDoc(text string, f *catalog.Field) string {
+	if f == nil || strings.TrimSpace(f.Doc) == "" || !IsTodo(text) {
+		return text
+	}
+	return text + " (proto: " + strings.TrimSpace(f.Doc) + ")"
 }
 
 func scaffoldField(f *catalog.Field, m *catalog.Method, all []*catalog.Method, hint func(*catalog.Field) string) *yaml.Node {
 	entry := &yaml.Node{Kind: yaml.MappingNode}
 	if strings.Contains(f.Name, "idempotency") {
-		put(entry, "value", scalar("${uuid}"), "")
-		put(entry, "note", scalar("fresh per run; a replay with the same key is the idempotency path"), "")
+		put(entry, "value", scalar("${uuid}"))
+		put(entry, "note", scalar("fresh per run; a replay with the same key is the idempotency path"))
 		return entry
 	}
 	if IsEntityIDField(f.Name) {
 		producers := ProducersOf(f.Name, all, m.FullName)
 		switch len(producers) {
 		case 1:
-			put(entry, "from", scalar(producers[0].Ref()), "")
-			put(entry, "checked_by", scalar(TodoMarker+": fk, app_lookup or none"), "")
+			put(entry, "from", scalar(producers[0].Ref()))
+			put(entry, "checked_by", scalar(TodoMarker+": fk, app_lookup or none"))
 			return entry
 		case 0:
 		default:
@@ -180,11 +294,11 @@ func scaffoldField(f *catalog.Field, m *catalog.Method, all []*catalog.Method, h
 			for _, p := range producers {
 				refs = append(refs, p.Ref())
 			}
-			put(entry, "note", scalar(TodoMarker+": pick a from — candidates are "+strings.Join(refs, ", ")), "")
+			put(entry, "note", scalar(TodoMarker+": pick a from — candidates are "+strings.Join(refs, ", ")))
 			return entry
 		}
 	}
-	put(entry, "note", scalar(hint(f)), "")
+	put(entry, "note", scalar(withDoc(hint(f), f)))
 	return entry
 }
 
@@ -200,7 +314,7 @@ func exportsNode(m *catalog.Method) *yaml.Node {
 				continue
 			}
 		}
-		put(exports, f.Name, scalar(TodoMarker+": why a later step would need this, or delete the line"), f.Doc)
+		put(exports, f.Name, scalar(withDoc(TodoMarker+": why a later step would need this, or delete the line", f)))
 	}
 	return exports
 }
@@ -309,17 +423,8 @@ func scalar(v string) *yaml.Node {
 	return n
 }
 
-func seq(comment string) *yaml.Node {
-	n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
-	n.LineComment = comment
-	return n
-}
-
-func put(mapping *yaml.Node, key string, value *yaml.Node, comment string) {
+func put(mapping *yaml.Node, key string, value *yaml.Node) {
 	k := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}
-	if comment != "" {
-		k.HeadComment = comment
-	}
 	mapping.Content = append(mapping.Content, k, value)
 }
 
@@ -380,6 +485,12 @@ func collectTodos(domain, rpc, path string, node *yaml.Node, issues *[]Issue) {
 			report(path, text)
 		}
 		for i, item := range node.Content {
+			if item.Kind == yaml.ScalarNode {
+				if text := todoText(item.Value, item.LineComment); text != "" {
+					report(path, text)
+					continue
+				}
+			}
 			collectTodos(domain, rpc, fmt.Sprintf("%s.%d", path, i), item, issues)
 		}
 	}
@@ -418,32 +529,6 @@ func join(prefix, key string) string {
 		return key
 	}
 	return prefix + "." + key
-}
-
-func reattachFieldDocs(node *yaml.Node, m *catalog.Method) {
-	reattachDocs(mappingValue(node, "fields"), catalog.DescribeMessage(m.Input()).Fields)
-	reattachDocs(mappingValue(node, "exports"), catalog.DescribeMessage(m.Output()).Fields)
-}
-
-func reattachDocs(mapping *yaml.Node, fields []*catalog.Field) {
-	if mapping == nil || mapping.Kind != yaml.MappingNode {
-		return
-	}
-	docs := map[string]string{}
-	for _, f := range fields {
-		if f.Doc != "" {
-			docs[f.Name] = f.Doc
-		}
-	}
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		key := mapping.Content[i]
-		if key.HeadComment != "" || key.LineComment != "" {
-			continue
-		}
-		if doc, ok := docs[key.Value]; ok {
-			key.HeadComment = doc
-		}
-	}
 }
 
 func mappingValue(node *yaml.Node, key string) *yaml.Node {

@@ -32,6 +32,7 @@ type fakeServer struct {
 	inBandPath    string
 	batchDrift    bool
 	receiptDrift  bool
+	createRefusal string
 	issued        map[string]string
 	partnerIssued map[string]string
 	builds        []string
@@ -167,6 +168,10 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	case "/shrt.test.v1.ThingService/Create":
 		f.creates++
 		f.nextID++
+		if f.createRefusal != "" {
+			writeJSON(w, 200, map[string]any{"error": map[string]any{"code": f.createRefusal, "message": "refused"}})
+			return
+		}
 		writeJSON(w, 200, map[string]any{
 			"error": okError(),
 			"id":    fmt.Sprintf("thing-%d", f.nextID),

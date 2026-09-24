@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 
@@ -83,3 +84,52 @@ func (r *Record) Step(id string) (*StepRecord, bool) {
 }
 
 func (r *Record) Passed() bool { return r.Status == StatusPassed }
+
+func (r *Record) UnmarshalJSON(data []byte) error {
+	type plain Record
+	var decoded struct {
+		*plain
+		Vars json.RawMessage `json:"vars,omitempty"`
+	}
+	decoded.plain = (*plain)(r)
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	r.Vars = nil
+	if len(decoded.Vars) == 0 || string(decoded.Vars) == "null" {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(decoded.Vars))
+	dec.UseNumber()
+	var vars map[string]any
+	if err := dec.Decode(&vars); err != nil {
+		return err
+	}
+	for k, v := range vars {
+		vars[k] = exactNumber(v)
+	}
+	r.Vars = vars
+	return nil
+}
+
+func exactNumber(v any) any {
+	switch t := v.(type) {
+	case json.Number:
+		if n, err := t.Int64(); err == nil {
+			return n
+		}
+		if f, err := t.Float64(); err == nil {
+			return f
+		}
+		return t.String()
+	case map[string]any:
+		for k, inner := range t {
+			t[k] = exactNumber(inner)
+		}
+	case []any:
+		for i, inner := range t {
+			t[i] = exactNumber(inner)
+		}
+	}
+	return v
+}

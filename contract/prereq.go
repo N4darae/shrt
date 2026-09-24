@@ -10,14 +10,17 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 	return func(rpc string) []chain.Prereq {
 		seen := map[string]bool{}
 		out := []chain.Prereq{}
-		add := func(node, edge string) {
-			target, _ := SplitNode(node)
-			if target == "" || target == rpc || seen[target] {
+		addFor := func(node, edge, forAlias string) {
+			target, alias := SplitNode(node)
+			p := chain.Prereq{RPC: target, Alias: alias, Edge: edge, For: forAlias}
+			key := p.Node() + "\x00" + forAlias
+			if target == "" || target == rpc || seen[key] {
 				return
 			}
-			seen[target] = true
-			out = append(out, chain.Prereq{RPC: target, Edge: edge})
+			seen[key] = true
+			out = append(out, p)
 		}
+		add := func(node, edge string) { addFor(node, edge, "") }
 		if c, ok := lib.Get(rpc); ok {
 			for _, n := range c.Needs {
 				add(n, "needs")
@@ -25,16 +28,21 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 			for _, f := range c.Fields {
 				addFieldPrereq(f, add)
 			}
-			for _, a := range c.Aliases {
+			for name, a := range c.Aliases {
 				for _, f := range a.Fields {
-					addFieldPrereq(f, add)
+					addFieldPrereq(f, func(node, edge string) { addFor(node, edge, name) })
 				}
 			}
 		}
 		for _, n := range lib.RequiredBy(rpc) {
 			add(n, "before")
 		}
-		sort.Slice(out, func(i, j int) bool { return out[i].RPC < out[j].RPC })
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].Node() != out[j].Node() {
+				return out[i].Node() < out[j].Node()
+			}
+			return out[i].For < out[j].For
+		})
 		return out
 	}
 }

@@ -26,6 +26,9 @@ func (c *RPCContract) Text(lib *Library, rpc string) string {
 	} else if len(c.RequiresRole) > 0 {
 		fmt.Fprintf(&b, "  requires_role  %s\n", strings.Join(c.RequiresRole, " or "))
 	}
+	if len(c.Required) == 0 && c.IsUnfilled("required") {
+		fmt.Fprintf(&b, "  required\n    %s (unfilled)\n", TodoMarker)
+	}
 	writeList(&b, "required", c.Required)
 	writeList(&b, "needs (declared)", c.Needs)
 	writeList(&b, "before (this must precede)", c.Before)

@@ -131,3 +131,32 @@ func TestLintRejectsFromAndSameAsTogether(t *testing.T) {
 		t.Fatal("from and same_as on one field must be an error")
 	}
 }
+
+func TestLintSeesNoCycleWhenAnAliasSharesAValueWithItsOwnPlainRPC(t *testing.T) {
+	const raw = `apiVersion: shrt/contract/v1
+domain: demo
+rpcs:
+    shrt.test.v1.ThingService/Create:
+        summary: creates a thing
+        required: [name]
+        fields:
+            name:
+                value: widget
+        aliases:
+            replay:
+                note: the same create again, to pin the duplicate refusal
+                fields:
+                    name:
+                        same_as: shrt.test.v1.ThingService/Create->name
+        status: draft
+`
+	cat := catalogtest.New()
+	for _, i := range LintLibrary(libraryFrom(t, raw), cat) {
+		if strings.Contains(i.Message, "dependency cycle") {
+			t.Fatalf("Create@replay depends on plain Create, which depends on nothing; plan builds it, lint must agree: %s", i.Message)
+		}
+	}
+	if _, err := BuildPlan("shrt.test.v1.ThingService/Create@replay", libraryFrom(t, raw), cat, "replay"); err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+}

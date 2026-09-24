@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -98,12 +99,26 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		}
 		if !catalog.HasPath(in, chain.SplitPath(name)) {
 			add(SeverityError, name, "required lists %q which is not a field of %s", name, m.Input().FullName())
+			continue
+		}
+		if problem := indexProblem(in, name); problem != "" {
+			add(SeverityError, name, "required: %s", problem)
 		}
 	}
 	issues = append(issues, lintFieldMap(domain, rpc, "fields", c.Fields, in, lib, cat)...)
+	baseGaps := map[string]bool{}
+	for _, gap := range indexGaps(in, c.FieldsFor("")) {
+		baseGaps[gap.message] = true
+		add(SeverityWarn, "fields."+gap.list, "%s", gap.message)
+	}
 	for _, alias := range sortedAliasNames(c.Aliases) {
 		label := "aliases." + alias
 		issues = append(issues, lintFieldMap(domain, rpc, label, c.Aliases[alias].Fields, in, lib, cat)...)
+		for _, gap := range indexGaps(in, c.FieldsFor(alias)) {
+			if !baseGaps[gap.message] {
+				add(SeverityWarn, label+".fields."+gap.list, "@%s: %s", alias, gap.message)
+			}
+		}
 	}
 	issues = append(issues, lintOneOf(domain, rpc, c)...)
 
@@ -177,6 +192,10 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 		if !catalog.HasPath(in, chain.SplitPath(name)) {
 			m, _ := cat.Lookup(rpc)
 			add(SeverityError, qualified, "%s has %q which is not a field of %s", label, name, m.Input().FullName())
+			continue
+		}
+		if problem := indexProblem(in, name); problem != "" {
+			add(SeverityError, qualified, "%s", problem)
 			continue
 		}
 		if f.CheckedBy != "" && !validCheckedBy[f.CheckedBy] && !IsTodo(f.CheckedBy) {
@@ -324,38 +343,47 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 
 	var visit func(node string, trail []string) bool
 	visit = func(node string, trail []string) bool {
-		rpc, _ := SplitNode(node)
+		rpc, alias := SplitNode(node)
 		if m, err := cat.Lookup(rpc); err == nil {
 			rpc = m.FullName
 		}
-		switch state[rpc] {
+		canonical := rpc
+		if alias != "" {
+			canonical = rpc + "@" + alias
+		}
+		switch state[canonical] {
 		case 1:
 			issues = append(issues, Issue{
 				Domain: lib.Domain(rpc), RPC: rpc, Field: "needs", Severity: SeverityError,
-				Message: "dependency cycle: " + strings.Join(append(trail, rpc), " -> "),
+				Message: "dependency cycle: " + strings.Join(append(trail, canonical), " -> "),
 			})
 			return true
 		case 2:
 			return false
 		}
-		state[rpc] = 1
+		state[canonical] = 1
 		if c, ok := lib.Get(rpc); ok {
-			for _, dep := range c.Dependencies() {
-				if visit(dep, append(trail, rpc)) {
+			for _, dep := range c.DependenciesFor(alias) {
+				if visit(dep, append(trail, canonical)) {
 					break
 				}
 			}
 		}
 		for _, requires := range lib.RequiredBy(rpc) {
-			if visit(requires, append(trail, rpc)) {
+			if visit(requires, append(trail, canonical)) {
 				break
 			}
 		}
-		state[rpc] = 2
+		state[canonical] = 2
 		return false
 	}
 	for _, rpc := range lib.RPCs() {
 		visit(rpc, nil)
+		if c, ok := lib.Get(rpc); ok {
+			for _, alias := range sortedAliasNames(c.Aliases) {
+				visit(rpc+"@"+alias, nil)
+			}
+		}
 	}
 	return issues
 }
@@ -521,4 +549,121 @@ func lintSameAs(domain, rpc, field, raw string, lib *Library, cat *catalog.Catal
 			ref.Path, src.Input().FullName()))
 	}
 	return append(issues, lintAliasDeclared(domain, rpc, field, ref.RPC, ref.Alias, lib, cat)...)
+}
+
+func indexProblem(in []*catalog.Field, name string) string {
+	segs := chain.SplitPath(name)
+	fields := in
+	var prev *catalog.Field
+	prevIndex := false
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			switch {
+			case prev == nil || prevIndex:
+				return fmt.Sprintf("%q puts index %s where a field name belongs — an index follows a repeated field, as in lines.1.qty", name, seg)
+			case !prev.Repeated:
+				return fmt.Sprintf("%q indexes %s, which is not a repeated field — an index can only pick an entry of a list", name, strings.Join(segs[:i], "."))
+			case len(seg) > 1 && seg[0] == '0':
+				return fmt.Sprintf("%q writes index %s with a leading zero — write %s", name, seg, strings.TrimLeft(seg, "0"))
+			}
+			if n, _ := strconv.Atoi(seg); n >= maxPlannedEntries {
+				return fmt.Sprintf("%q asks for entry %d; a plan builds at most %d entries of one list", name, n, maxPlannedEntries)
+			}
+			prevIndex = true
+			continue
+		}
+		prevIndex = false
+		var next *catalog.Field
+		for _, f := range fields {
+			if f.Name == seg {
+				next = f
+				break
+			}
+		}
+		if next == nil || next.Truncated || next.MapKey != "" {
+			return ""
+		}
+		prev = next
+		fields = next.Fields
+	}
+	return ""
+}
+
+type indexGap struct {
+	list    string
+	message string
+}
+
+func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap {
+	named := map[string]map[int]bool{}
+	broadcast := map[string]bool{}
+	for name := range fields {
+		if indexProblem(in, name) != "" || !catalog.HasPath(in, chain.SplitPath(name)) {
+			continue
+		}
+		segs := chain.SplitPath(name)
+		cur := in
+		for i, seg := range segs {
+			if isIndexSegment(seg) {
+				continue
+			}
+			var f *catalog.Field
+			for _, c := range cur {
+				if c.Name == seg {
+					f = c
+					break
+				}
+			}
+			if f == nil || f.MapKey != "" || f.Truncated {
+				break
+			}
+			cur = f.Fields
+			if !f.Repeated || i+1 >= len(segs) {
+				continue
+			}
+			list := strings.Join(segs[:i+1], ".")
+			if isIndexSegment(segs[i+1]) {
+				n, _ := strconv.Atoi(segs[i+1])
+				if named[list] == nil {
+					named[list] = map[int]bool{}
+				}
+				named[list][n] = true
+			} else {
+				broadcast[list] = true
+			}
+		}
+	}
+	out := []indexGap{}
+	for _, list := range sortedKeysOf(named) {
+		if broadcast[list] {
+			continue
+		}
+		top := 0
+		for n := range named[list] {
+			top = max(top, n)
+		}
+		missing := []string{}
+		for n := 0; n < top; n++ {
+			if !named[list][n] {
+				missing = append(missing, fmt.Sprintf("%s.%d", list, n))
+			}
+		}
+		if len(missing) == 0 {
+			continue
+		}
+		out = append(out, indexGap{list: list, message: fmt.Sprintf(
+			"%s.%d is declared but %s %s not, so a plan builds %d entries of %s and sends %s as the scaffold "+
+				"left it, zeros and empty strings included. Declare every entry up to the highest index, or "+
+				"write the shared part without an index (%s.<field> applies to every entry)",
+			list, top, strings.Join(missing, ", "), pluralIs(len(missing)), top+1, list,
+			strings.Join(missing, ", "), list)})
+	}
+	return out
+}
+
+func pluralIs(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }

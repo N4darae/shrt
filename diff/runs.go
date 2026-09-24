@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,12 @@ type StepStatus struct {
 	B    string `json:"b"`
 }
 
+type VarChange struct {
+	Name string `json:"name"`
+	A    any    `json:"a"`
+	B    any    `json:"b"`
+}
+
 type RunReport struct {
 	Note            string       `json:"note"`
 	Chain           string       `json:"chain"`
@@ -27,6 +34,11 @@ type RunReport struct {
 	StatusB         string       `json:"status_b"`
 	TargetA         string       `json:"target_a,omitempty"`
 	TargetB         string       `json:"target_b,omitempty"`
+	BuildA          string       `json:"build_a,omitempty"`
+	BuildB          string       `json:"build_b,omitempty"`
+	KeepGoingA      bool         `json:"keep_going_a,omitempty"`
+	KeepGoingB      bool         `json:"keep_going_b,omitempty"`
+	VarChanges      []VarChange  `json:"var_changes,omitempty"`
 	FirstFailureA   string       `json:"first_failure_a,omitempty"`
 	FirstFailureB   string       `json:"first_failure_b,omitempty"`
 	StatusChanges   []StepStatus `json:"status_changes,omitempty"`
@@ -43,6 +55,14 @@ func (r *RunReport) Same() bool {
 }
 
 func CompareRuns(a, b *runner.Record) *RunReport {
+	return CompareRunsMasking(a, b, nil)
+}
+
+func reached(rec *runner.Record, s *runner.StepRecord) bool {
+	return s.Status != runner.StatusSkipped || rec.DryRun
+}
+
+func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 	rep := &RunReport{
 		Note: RunComparisonNote, Chain: a.Chain,
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status,
@@ -51,13 +71,25 @@ func CompareRuns(a, b *runner.Record) *RunReport {
 	if a.Target != b.Target {
 		rep.TargetA, rep.TargetB = a.Target, b.Target
 	}
+	if a.Build != b.Build {
+		rep.BuildA, rep.BuildB = a.Build, b.Build
+	}
+	if a.KeepGoing != b.KeepGoing {
+		rep.KeepGoingA, rep.KeepGoingB = a.KeepGoing, b.KeepGoing
+	}
+	rep.VarChanges = varChanges(a.Vars, b.Vars)
 	byID := map[string]*runner.StepRecord{}
 	for _, s := range b.Steps {
-		byID[s.ID] = s
+		if reached(b, s) {
+			byID[s.ID] = s
+		}
 	}
 	inA := map[string]bool{}
-	base := mergePatterns(a.Volatile, b.Volatile)
+	base := mergePatterns(a.Volatile, b.Volatile, extra)
 	for _, sa := range a.Steps {
+		if !reached(a, sa) {
+			continue
+		}
 		inA[sa.ID] = true
 		sb, ok := byID[sa.ID]
 		if !ok {
@@ -71,11 +103,36 @@ func CompareRuns(a, b *runner.Record) *RunReport {
 		rep.compareResponses(sa, sb, masker)
 	}
 	for _, sb := range b.Steps {
-		if !inA[sb.ID] {
+		if reached(b, sb) && !inA[sb.ID] {
 			rep.NewlyReached = append(rep.NewlyReached, sb.ID)
 		}
 	}
 	return rep
+}
+
+func varChanges(a, b map[string]any) []VarChange {
+	names := map[string]bool{}
+	for k := range a {
+		names[k] = true
+	}
+	for k := range b {
+		names[k] = true
+	}
+	sorted := make([]string, 0, len(names))
+	for k := range names {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
+	out := []VarChange{}
+	for _, k := range sorted {
+		va, inA := a[k]
+		vb, inB := b[k]
+		if inA && inB && fmt.Sprint(va) == fmt.Sprint(vb) {
+			continue
+		}
+		out = append(out, VarChange{Name: k, A: va, B: vb})
+	}
+	return out
 }
 
 func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask.Masker) {
@@ -126,9 +183,10 @@ func looksVolatile(path string, a, b any) bool {
 	lower := strings.ToLower(key)
 	switch {
 	case lower == "id", lower == "ids", lower == "token", lower == "access_token", lower == "idempotency_key",
-		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"),
+		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"), strings.HasPrefix(lower, "id_"),
 		strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
-		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelSuffix(key, "At"), camelSuffix(key, "Time"):
+		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelSuffix(key, "At"), camelSuffix(key, "Time"),
+		camelIDPrefix(key):
 		return true
 	}
 	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString)
@@ -142,6 +200,10 @@ func lastKey(path string) string {
 		}
 	}
 	return ""
+}
+
+func camelIDPrefix(key string) bool {
+	return len(key) > 2 && key[:2] == "id" && key[2] >= 'A' && key[2] <= 'Z'
 }
 
 func camelSuffix(key, suffix string) bool {
@@ -169,6 +231,23 @@ func (r *RunReport) Text() string {
 	fmt.Fprintf(&b, "%s\n", r.Note)
 	if r.TargetA != "" || r.TargetB != "" {
 		fmt.Fprintf(&b, "\ntargets differ: A %s, B %s\n", r.TargetA, r.TargetB)
+	}
+	if r.BuildA != "" || r.BuildB != "" {
+		fmt.Fprintf(&b, "\nbuilds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
+	}
+	if r.KeepGoingA != r.KeepGoingB {
+		with, without := "B", "A"
+		if r.KeepGoingA {
+			with, without = "A", "B"
+		}
+		fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so steps past the first red are reached in %s only\n", with, without, with)
+	}
+	if len(r.VarChanges) > 0 {
+		parts := make([]string, 0, len(r.VarChanges))
+		for _, v := range r.VarChanges {
+			parts = append(parts, fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B)))
+		}
+		fmt.Fprintf(&b, "\nthe runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
 	}
 	if r.FirstFailureA != r.FirstFailureB {
 		fmt.Fprintf(&b, "\nfirst failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
@@ -207,6 +286,20 @@ func (c Change) describeRuns() string {
 		return fmt.Sprintf("a=%v b=%v", c.Want, c.Got)
 	}
 	return fmt.Sprintf("a=%s b=%s", withKind(c.Want), withKind(c.Got))
+}
+
+func orUnset(s string) string {
+	if s == "" {
+		return "(no build recorded)"
+	}
+	return s
+}
+
+func orAbsent(v any) any {
+	if v == nil {
+		return "(unset)"
+	}
+	return v
 }
 
 func orNone(s string) string {

@@ -139,12 +139,24 @@ func TautologyReason(e Expectation) string {
 		return "only asserts that the envelope is present, which every well-formed response carries"
 	case (e.NotEmpty || (e.Exists != nil && *e.Exists)) && alwaysPresentTransportPath(e.Path):
 		return "asserts that the call has a transport outcome, which every answered call has — success " +
-			"or refusal. Assert the outcome's VALUE, e.g. equals: unauthenticated"
+			"or refusal"
 	case e.NotEmpty && (e.Path == EnvelopeField() || e.Path == EnvelopePath()):
 		return "asserts that the envelope is non-empty, which it always is — every response carries a " +
-			"code, success or refusal. Assert the code's VALUE, not its presence"
+			"code, success or refusal"
 	}
 	return ""
+}
+
+func TautologyRemedy(e Expectation) string {
+	switch {
+	case alwaysPresentTransportPath(e.Path):
+		return fmt.Sprintf("Assert the outcome's VALUE instead: %s.code equals: %s for a call that must "+
+			"succeed, or the refusal it must get, e.g. %s.code equals: unauthenticated", TransportPrefix, TransportOK, TransportPrefix)
+	case IsEnvelopePath(e.Path) || e.Path == EnvelopePath():
+		return fmt.Sprintf("Assert the code's VALUE instead: %s equals: %s for a call that must succeed, or "+
+			"the refusal code it must get", EnvelopePath(), EnvelopeOK())
+	}
+	return "Assert the value this step should have produced"
 }
 
 func EnumTautologyReason(e Expectation, enumValues []string) string {

@@ -34,6 +34,12 @@ func runInit(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	baseURLGiven := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "base-url" {
+			baseURLGiven = true
+		}
+	})
 	root, err := os.Getwd()
 	if err != nil {
 		return err
@@ -48,6 +54,7 @@ func runInit(ctx context.Context, args []string) error {
 	cfg.Volatile = []string{"**.created_at", "**.updated_at"}
 
 	cfgPath := filepath.Join(root, config.DirName, config.FileName)
+	wroteConfig := false
 	if _, err := os.Stat(cfgPath); err == nil && !*forceConfig {
 		fmt.Printf("keep  %s (already exists)\n", rel(root, cfgPath))
 		if *force {
@@ -61,7 +68,7 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("write %s\n", rel(root, cfgPath))
-		fmt.Print("\n" + config.ConventionsGuide + "\n")
+		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
 	if err != nil {
@@ -74,18 +81,6 @@ func runInit(ctx context.Context, args []string) error {
 		}
 	}
 	fmt.Printf("write %s/{chains,runs,safespots}/\n", config.DirName)
-
-	example := loaded.Abs(filepath.Join(loaded.Paths.Chains, "example.yaml.template"))
-	if _, err := os.Stat(example); err != nil || *force {
-		raw, err := agentkit.Read("templates/chain.example.yaml")
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(example, raw, 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("write %s\n", rel(root, example))
-	}
 
 	docs, err := agentkit.Install(root, agentkit.DocAssets(), *force)
 	if err != nil {
@@ -120,6 +115,12 @@ func runInit(ctx context.Context, args []string) error {
 
 	if *build {
 		if err := buildDescriptor(ctx, loaded); err != nil {
+			if wroteConfig {
+				fmt.Print("\n" + config.ConventionsGuide + "\n")
+			}
+			if werr := writeExampleChain(root, loaded, *force); werr != nil {
+				return werr
+			}
 			fmt.Printf("\nwrote %s/ and the agent kit, but the descriptor did NOT build:\n\n%v\n\n",
 				config.DirName, err)
 			return exitWith(2, "every catalog, contract and chain command reads the descriptor, so this repo "+
@@ -132,10 +133,18 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 	}
+	if wroteConfig {
+		guidePath, _ := exampleEnvelope(loaded)
+		fmt.Print("\n" + config.ConventionsGuideFor(guidePath) + "\n")
+	}
 	reportEnvelope(loaded)
+	if err := writeExampleChain(root, loaded, *force); err != nil {
+		return err
+	}
 
 	fmt.Println("\nnext:")
 	fmt.Printf("  read %s/README.md\n", agentkit.DocsDir)
+	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
 	if loaded.Auth == nil {
 		fmt.Printf("  declare auth: in %s/%s — nothing in this descriptor looked like a login rpc, so\n",
 			config.DirName, config.FileName)
@@ -152,6 +161,21 @@ func runInit(ctx context.Context, args []string) error {
 	fmt.Println("\nan agent can author the overlays for you: ask it to use the shrt-contract-author subagent,")
 	fmt.Println("one domain at a time. It reads your backend's own source; it never sends traffic.")
 	return nil
+}
+
+func printBaseURLNext(have, flagValue string, given bool) {
+	where := config.DirName + "/" + config.FileName
+	switch {
+	case !given:
+		fmt.Printf("  set target.base_url in %s to the backend the chains run against — it is %s now,\n", where, have)
+		fmt.Println("    and every run and confirm goes there (or pass -base-url to init)")
+	case have != flagValue:
+		fmt.Printf("  -base-url %s was NOT applied: %s already existed and still says target.base_url: %s,\n",
+			flagValue, where, have)
+		fmt.Println("    and every run and confirm goes there — edit it, or pass -force-config to rebuild it")
+	default:
+		fmt.Printf("  check target.base_url in %s: every run and confirm goes to %s\n", where, have)
+	}
 }
 
 func ensureGitignore(root string, want []string) (bool, error) {
@@ -273,4 +297,53 @@ func reportEnvelope(cfg *config.Config) {
 	fmt.Print(EnvelopeSuggestion(best.Path))
 	fmt.Printf("\n'shrt doctor' re-checks this every time, so a repo that skipped it says so rather than\n" +
 		"running a whole corpus against a path no response carries.\n")
+}
+
+const exampleEnvelopeExpect = "      - path: " + chain.DefaultEnvelopePath + "\n        equals: " + chain.DefaultEnvelopeOK + "\n"
+
+func exampleEnvelope(cfg *config.Config) (path, ok string) {
+	if p := strings.TrimSpace(cfg.Conventions.EnvelopePath); p != "" {
+		ok = strings.TrimSpace(cfg.Conventions.EnvelopeOK)
+		if ok == "" {
+			ok = chain.DefaultEnvelopeOK
+		}
+		return p, ok
+	}
+	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
+	if err != nil {
+		return chain.DefaultEnvelopePath, chain.DefaultEnvelopeOK
+	}
+	if found := catalog.DetectEnvelope(cat); len(found) > 0 && found[0].Path != chain.DefaultEnvelopePath {
+		return found[0].Path, ""
+	}
+	return chain.DefaultEnvelopePath, chain.DefaultEnvelopeOK
+}
+
+func renderExampleChain(template []byte, path, ok string) []byte {
+	expect := "      - path: " + path + "\n        not_empty: true\n"
+	if ok != "" {
+		expect = "      - path: " + path + "\n        equals: " + ok + "\n"
+	}
+	return []byte(strings.ReplaceAll(string(template), exampleEnvelopeExpect, expect))
+}
+
+func writeExampleChain(root string, cfg *config.Config, force bool) error {
+	example := cfg.Abs(filepath.Join(cfg.Paths.Chains, "example.yaml.template"))
+	if _, err := os.Stat(example); err == nil && !force {
+		return nil
+	}
+	raw, err := agentkit.Read("templates/chain.example.yaml")
+	if err != nil {
+		return err
+	}
+	path, ok := exampleEnvelope(cfg)
+	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
+		return err
+	}
+	fmt.Printf("write %s\n", rel(root, example))
+	if ok == "" {
+		fmt.Printf("      its steps assert only that %s is present: envelope_ok is not declared, and the\n"+
+			"      success value is data shrt will not guess. Once it is, write equals: <that value>\n", path)
+	}
+	return nil
 }

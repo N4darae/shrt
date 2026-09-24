@@ -134,6 +134,21 @@ func IsStableRef(s string) bool {
 
 func HasReference(s string) bool { return refPattern.MatchString(s) }
 
+func (s *Step) SendReferences() []string {
+	if s == nil {
+		return nil
+	}
+	values := []any{s.Body}
+	for _, v := range s.Headers {
+		values = append(values, v)
+	}
+	return collectRefs(values)
+}
+
+func (e Expectation) References() []string {
+	return collectRefs([]any{e.Equals, e.NotEqual, e.Contains})
+}
+
 func (s *Step) References() []string {
 	if s == nil {
 		return nil
@@ -146,4 +161,15 @@ func (s *Step) References() []string {
 		values = append(values, e.Equals, e.NotEqual, e.Contains)
 	}
 	return collectRefs(values)
+}
+
+func (c *Chain) MissingVars(supplied map[string]any) []string {
+	undeclared, _ := ExternalInputs(c)
+	out := []string{}
+	for _, name := range undeclared {
+		if _, ok := supplied[name]; !ok {
+			out = append(out, name)
+		}
+	}
+	return out
 }

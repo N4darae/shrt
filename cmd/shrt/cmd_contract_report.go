@@ -10,6 +10,20 @@ import (
 	"github.com/N4darae/shrt/store"
 )
 
+type statusRow struct {
+	Domain    string   `json:"domain"`
+	Total     int      `json:"total"`
+	Covered   int      `json:"covered"`
+	Reached   int      `json:"reached"`
+	Verified  int      `json:"verified"`
+	Todos     int      `json:"todos"`
+	Gaps      int      `json:"gaps"`
+	Score     int      `json:"score"`
+	Uncovered []string `json:"uncovered,omitempty"`
+	Orphans   []string `json:"orphans,omitempty"`
+	Streaming []string `json:"streaming,omitempty"`
+}
+
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
@@ -40,26 +54,14 @@ func contractStatus(args []string) error {
 		todos[i.Domain]++
 	}
 
-	type row struct {
-		Domain    string   `json:"domain"`
-		Total     int      `json:"total"`
-		Covered   int      `json:"covered"`
-		Reached   int      `json:"reached"`
-		Verified  int      `json:"verified"`
-		Todos     int      `json:"todos"`
-		Gaps      int      `json:"gaps"`
-		Score     int      `json:"score"`
-		Uncovered []string `json:"uncovered,omitempty"`
-		Orphans   []string `json:"orphans,omitempty"`
-	}
 	quality := contract.MeasurePhase(lib, e.cat, "", *phase)
 	gaps, scores := quality.GapsByDomain(), quality.ScoreByDomain()
 	reached := reachableRPCs(lib, e.cat)
 	byDomain := contract.Domains(e.cat.Methods())
-	rows := []row{}
-	totals := row{Domain: "TOTAL"}
+	rows := []statusRow{}
+	totals := statusRow{Domain: "TOTAL"}
 	for _, d := range contract.DomainNames(e.cat.Methods()) {
-		r := row{Domain: d, Total: len(byDomain[d]), Todos: todos[d], Gaps: gaps[d], Score: scores[d]}
+		r := statusRow{Domain: d, Total: len(byDomain[d]), Todos: todos[d], Gaps: gaps[d], Score: scores[d]}
 		for _, m := range byDomain[d] {
 			c, ok := lib.Get(m.FullName)
 			if !ok {
@@ -70,9 +72,12 @@ func contractStatus(args []string) error {
 			if c.Status == contract.StatusVerified {
 				r.Verified++
 			}
-			if reached[m.FullName] {
+			switch {
+			case m.Streaming():
+				r.Streaming = append(r.Streaming, m.FullName)
+			case reached[m.FullName]:
 				r.Reached++
-			} else {
+			default:
 				r.Orphans = append(r.Orphans, m.FullName)
 			}
 		}
@@ -88,9 +93,13 @@ func contractStatus(args []string) error {
 	if *asJSON {
 		return emitJSON(append(rows, totals))
 	}
+	if *showGaps {
+		printStatusGaps(rows)
+		return nil
+	}
 	const statusFormat = "%-14s %6s %9s %8s %9s %7s %6s %6s\n"
 	fmt.Printf(statusFormat, "DOMAIN", "RPCS", "CONTRACT", "REACHED", "VERIFIED", "TODOS", "GAPS", "SCORE")
-	line := func(r row) {
+	line := func(r statusRow) {
 		fmt.Printf("%-14s %6d %9d %8d %9d %7d %6d %6d\n",
 			r.Domain, r.Total, r.Covered, r.Reached, r.Verified, r.Todos, r.Gaps, r.Score)
 	}
@@ -98,29 +107,42 @@ func contractStatus(args []string) error {
 		line(r)
 	}
 	line(totals)
-	fmt.Print("\nCONTRACT, REACHED and VERIFIED count ENTRIES: a scaffold with nothing filled in counts.\n" +
-		"They sit at their ceiling the moment one lands, so they cannot tell you a contract is usable.\n" +
+	fmt.Print("\nCONTRACT counts ENTRIES: a scaffold with nothing filled in counts, so it sits at its ceiling\n" +
+		"the moment one lands and cannot tell you a contract is usable. VERIFIED counts the entries a\n" +
+		"human set to 'status: verified'.\n" +
 		"REACHED counts the rpcs that appear in some MULTI-STEP 'shrt contract plan' — as the target or\n" +
 		"as a dependency of one. An rpc below it plans as a single step: nothing it needs is declared,\n" +
 		"and nothing declares it as a producer. That is correct for a login or a read taking no id from\n" +
 		"elsewhere, and a missing 'needs:' or 'from:' for a write that cannot run on its own. '-gaps'\n" +
-		"lists them as 'no path to'; only you can say which kind each one is.\n" +
+		"lists them as 'no path to'; only you can say which kind each one is. A streaming rpc is never\n" +
+		"REACHED: shrt is unary-only, so no plan can call it.\n" +
 		"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
 		phaseScope(*phase) + ":\n" +
 		scoringTerms(*phase) +
 		"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
-	if *showGaps {
-		fmt.Println()
-		for _, r := range rows {
-			for _, u := range r.Uncovered {
-				fmt.Printf("  no contract  %s\n", u)
-			}
-			for _, o := range r.Orphans {
-				fmt.Printf("  no path to   %s\n", o)
-			}
+	return nil
+}
+
+func printStatusGaps(rows []statusRow) {
+	n := 0
+	for _, r := range rows {
+		for _, u := range r.Uncovered {
+			fmt.Printf("no contract  %s\n", u)
+			n++
+		}
+		for _, o := range r.Orphans {
+			fmt.Printf("no path to   %s\n", o)
+			n++
 		}
 	}
-	return nil
+	for _, r := range rows {
+		for _, st := range r.Streaming {
+			fmt.Printf("streaming    %s  (out of scope: shrt is unary-only; not a gap, never REACHED)\n", st)
+		}
+	}
+	if n == 0 {
+		fmt.Println("no gaps: every rpc has a contract, and every unary one appears in some multi-step plan")
+	}
 }
 
 func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) map[string]bool {

@@ -114,15 +114,37 @@ type Conventions struct {
 	ValidateOutput   bool     `yaml:"validate_output,omitempty"`
 }
 
-const ConventionsGuide = `no conventions: block declared, so shrt assumes the defaults. Declare only what
-differs, under a top-level conventions: key in .shrt/config.yaml; every key is optional:
-    read_only_prefixes: [Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve]
-    envelope_path: error.code                     where a response states its own verdict; MOVE it, "" does not disable it
-    envelope_ok: OK                               the value at that path meaning success
-    item_envelope_path: results[].error.code      per-item verdict in a batch response; unset = none
-    code_fields: [app_code, reason, error_code]   detail field names 'shrt chain which -code' searches
-    validate_output: true                         a response the descriptor does not match FAILS the step instead of warning
-`
+var ConventionsGuide = ConventionsGuideFor("")
+
+func ConventionsGuideFor(envelopePath string) string {
+	envelopePath = strings.TrimSpace(envelopePath)
+	if envelopePath == "" {
+		envelopePath = "error.code"
+	}
+	row := func(setting, why string) string {
+		pad := 46 - len(setting)
+		if pad < 2 {
+			pad = 2
+		}
+		return "    " + setting + strings.Repeat(" ", pad) + why + "\n"
+	}
+	okRow := row("envelope_ok: OK", "the value at that path meaning success")
+	head := "no conventions: block declared, so shrt assumes the defaults. Declare only what\n" +
+		"differs, under a top-level conventions: key in .shrt/config.yaml; every key is optional:\n"
+	if envelopePath != "error.code" {
+		head = "no conventions: block declared, so shrt assumes its default envelope, which this backend's\n" +
+			"responses do not carry: they carry " + envelopePath + ", so the block below uses it. Paste what applies\n" +
+			"under a top-level conventions: key in .shrt/config.yaml, with envelope_ok set to its success value:\n"
+		okRow = row("envelope_ok: <success value>", "the value at "+envelopePath+" meaning success; shrt cannot guess it")
+	}
+	return head +
+		"    read_only_prefixes: [Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve]\n" +
+		row("envelope_path: "+envelopePath, `where a response states its own verdict; MOVE it, "" does not disable it`) +
+		okRow +
+		row("item_envelope_path: results[]."+envelopePath, "per-item verdict in a batch response; unset = none") +
+		row("code_fields: [app_code, reason, error_code]", "detail field names 'shrt chain which -code' searches") +
+		row("validate_output: true", "a response the descriptor does not match FAILS the step instead of warning")
+}
 
 func Default() *Config {
 	return &Config{

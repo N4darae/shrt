@@ -1,11 +1,12 @@
-# core_distillation
+# shrt docs
 
 The distilled core of shrt: what an agent needs to **compose an RPC chain and a contract**, and
 nothing else.
 
 `.claude/skills/shrt/SKILL.md` is the skill Claude Code **loads automatically**; it is
-the overview and it routes here. This folder is the working surface — four files, each with one
-job:
+the overview and it routes here. These four files are the working surface, each with one job. In
+the shrt module they sit at the root; `shrt init` installs them into `.shrt/docs/` of the repo that
+adopts shrt:
 
 | file | job | hand-written? |
 |---|---|---|
@@ -14,24 +15,27 @@ job:
 | `PLAYBOOK.md` | the procedures: compose a chain, author a contract, probe a failure, assert an invariant | yes |
 | `PITFALLS.md` | symptom → cause → fix, each entry tied to the receipt that taught it | yes |
 
-`GRAMMAR.md` is produced by `go run ./core_distillation/distill`, which reflects over the Go
+`GRAMMAR.md` is produced by `go run ./distill` in the shrt module, which reflects over the Go
 structs and **exercises** the resolver and the expectation rules rather than describing them.
-`scripts/check.sh` runs `-check`, so a key that exists in code and not in `GRAMMAR.md` fails the
-gate. That is the point: an agent's characteristic failure is inventing a plausible key, and until
-2026-09-11 both the loader and `lint` accepted invented keys in silence.
+`go run ./distill -check` fails when a key exists in code and not in `GRAMMAR.md`; nothing in the
+module runs it automatically, so run it before committing a change to a key. That is the point: an
+agent's characteristic failure is inventing a plausible key, and until 2026-09-11 both the loader
+and `lint` accepted invented keys in silence.
 
-**About the paths cited in these four files.** A `core_distillation/...` path is source you have —
-it is the module you imported, so you can open it. A `scripts/...` or `internal/...` path is **not**:
-those live in the shrt repository itself and will not exist in your repo. They are cited as
-provenance — how a rule came to be known — never as commands for you to run.
+**About the paths cited in these four files.** A package path such as `contract/plan.go` or
+`runner/runner.go` is a file in the shrt module, `github.com/N4darae/shrt`: open it in a clone of the
+module or in your Go module cache. A `scripts/...`, `internal/...` or `docs/...` path is **not**:
+those belong to the development repo shrt grew up in, and exist neither in the module nor in your
+repo. They are cited as provenance — how a rule came to be known — never as commands for you to run.
 
 ---
 
 ## Before the first command
 
-The binary **and the descriptor are both gitignored**, so a fresh clone has neither. Build both from
-the repo root, wherever that clone lives — `shrt init` copies this folder into every repo that
-adopts shrt, so nothing here may assume one machine's path:
+`shrt init` adds `.shrt/descriptor.binpb`, `.shrt/docs/`, `.shrt/runs/` and `.shrt/tokens.json` to
+`.gitignore`, so a fresh clone has no descriptor and no installed docs. The binary is not in the repo
+at all. Build the descriptor from the repo root, wherever that clone lives — `shrt init` copies these
+files into every repo that adopts shrt, so nothing here may assume one machine's path:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
@@ -43,20 +47,23 @@ shrt catalog ls -filter <word>
 **`shrt doctor` is the check to run before you trust a green.** The four files you are reading are
 installed build output, copied out of the binary by `shrt init`; upgrade the binary and the copy
 stays where it was, so the rules you are reading can be older than the rules being enforced.
-Nothing else notices that. `doctor` compares them, and in the same pass checks the descriptor
-against a rebuild, the paths that must never be committed against `.gitignore`, the token cache's
-mode, and whether the environment variables the `auth:` profiles name are actually exported. It
-exits non-zero on a failure, prints the remedy under each finding, and `-strict` makes the
-warnings count too.
+Nothing else notices that. `doctor` compares them, and in the same pass reports which build of
+shrt is running, checks the descriptor against a rebuild, the paths that must never be committed
+against `.gitignore`, the token cache's mode, the `auth:` profiles (a literal credential, a body
+reference it cannot resolve, an environment variable that is not exported), and whether
+`conventions.envelope_path` and `item_envelope_path` fit the response messages. It exits non-zero
+on a failure, prints the remedy under each finding, and `-strict` makes the warnings count too.
 
-`shrt` comes from `go install github.com/N4darae/shrt/cmd/shrt@latest`. **In a clone of
-the shrt repo itself** it is built from source instead — `go build -o shrt ./cmd/shrt` — and every
-command then reads `./shrt`, not `shrt`. Rebuild it after any change to the shrt source: a stale
-binary lints with the OLD rules and tells you everything is fine. Rebuild the descriptor after any proto change; that one
+`shrt` comes from `go install github.com/N4darae/shrt/cmd/shrt@latest`. **If you are changing
+shrt itself**, build it from a clone of the module instead — `go build -o shrt ./cmd/shrt` — and run
+that binary in a repo that has a `.shrt/config.yaml`; the module has none, so its commands fail
+inside the module's own clone. Rebuild it after any change to the shrt source: a stale binary lints
+with the OLD rules and tells you everything is fine. Rebuild the descriptor after any proto change; that one
 fails quietly rather than loudly, which is `PITFALLS.md` §2.
 
-Everything except `shrt run` and `shrt verify` works offline. Those two need a backend and a
-credential.
+Everything works offline except the commands that send traffic: `shrt run` (not with `-dry-run`),
+`shrt verify` (not with `-run <id>`, which re-diffs a recorded run), and `shrt chain slice -verify`.
+Those need a backend and a credential.
 
 **`shrt init` GUESSES the `auth:` block from the descriptor** — it looks for an rpc that returns a
 token and takes a credential, and writes one, plus a named profile for each additional login in
@@ -66,8 +73,8 @@ before the first run. If nothing looked like a login it writes no block at all a
 
 Either way, `auth.body` names the environment variables the login reads. **Read those names out of
 `.shrt/config.yaml` rather than assuming them** — they differ per repo — and export them before the
-run. Without them a run dies at step 1 with status `error` and **sends nothing**, which is a fixture
-problem, not a backend one.
+run. Without them a run dies at the first step that needs a token, with status `error`, and that
+step **sends nothing**, which is a fixture problem, not a backend one.
 
 If the target is a remote box whose credential must not be copied around, run shrt on that box
 instead of forwarding the secret; where that is written down is this repo's business, not the
@@ -79,21 +86,21 @@ kit's.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the Claude skill and subagent |
 | `shrt version` | which build this is — version, commit, build time, and the four docs it carries; `-short` prints the version alone |
-| `shrt doctor` | check this repo's own `.shrt/`: installed docs against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, and every `${env.*}` the auth profiles read. `-strict` fails on warnings too |
+| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the RPC surface |
 | `shrt catalog describe <rpc>` | request and response schemas with proto doc comments |
 | `shrt contract init <domain>` | scaffold the curated contract; re-running keeps what you wrote |
-| `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter` for a whole domain |
+| `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter <word>` for every rpc whose name contains the word |
 | `shrt contract lint` | validate contracts against the descriptor |
-| `shrt contract plan <rpc>` | compose an ordered chain from the dependency graph, references pre-wired |
+| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
 | `shrt contract status [-gaps]` | contract coverage per domain |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
-| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns assertion-quality warnings — an assertion that cannot fail, a step asserting nothing — into errors — the form a CI gate should run. Other warnings — the `-var`s and environment a run needs — are not promoted |
+| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail, a step asserting nothing, an expect path that can never match, a reference nothing can produce, an export reading a field the response does not have, an `allow_fail` that does nothing), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs, are not promoted |
 | `shrt chain ls` | one line per chain, marking which have a safe spot; `-long` for full descriptions |
-| `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record shows it reaching that verdict rather than only claiming it, and printing the `chain slice` command that reproduces the best match |
-| `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write` it, `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-verify -run <id>` to prove the slice still fails the same way |
+| `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match |
+| `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in, `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way (the slice's run record is kept only with `-write`) |
 | `shrt chain hollow` | read steps that passed while the response carried nothing |
 | `shrt run <c>` | execute in order and record |
 | `shrt confirm <c> -by <name> -i-verified` | promote a run to the safe spot — **human only** |
@@ -121,8 +128,7 @@ correct means.**
 
 `chain lint` reports a step that asserts nothing, or whose assertion cannot fail, as a warning and
 still exits 0 — the right default while a chain is half-written. A gate is not half-written: run
-`shrt chain lint -strict`, which makes those errors. `scripts/check.sh` does; `PITFALLS.md` §27 is
-the adopter who did not.
+`shrt chain lint -strict`, which makes those errors. `PITFALLS.md` §27 is the adopter who did not.
 
 That loop assumes the contract already knows the domain. Authoring the contract itself is a
 different loop, with `shrt contract quality` as its feedback signal rather than `chain lint` —

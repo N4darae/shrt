@@ -182,8 +182,8 @@ func TestSliceKeepsOriginalRelativeOrder(t *testing.T) {
 					t.Fatalf("%s sliced for %s: kept index %d follows %d", c.Name, target.ID, k.Index, prev)
 				}
 				prev = k.Index
-				if c.Steps[k.Index].ID != k.ID {
-					t.Fatalf("%s sliced for %s: kept %q claims index %d, which is %q", c.Name, target.ID, k.ID, k.Index, c.Steps[k.Index].ID)
+				if c.Steps[k.Index-1].ID != k.ID {
+					t.Fatalf("%s sliced for %s: kept %q claims index %d, which is %q", c.Name, target.ID, k.ID, k.Index, c.Steps[k.Index-1].ID)
 				}
 				if res.Chain.Steps[i].ID != k.ID {
 					t.Fatalf("%s sliced for %s: emitted step %d is %q, report says %q", c.Name, target.ID, i, res.Chain.Steps[i].ID, k.ID)

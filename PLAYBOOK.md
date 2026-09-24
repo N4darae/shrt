@@ -33,7 +33,9 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
 - **The `# order:` line is the claim to check.** `plan` wires what the contracts say to wire; it
   cannot tell that a movement in one asset should not discharge an obligation in another. A plan
   that lints clean and runs green can still reproduce a meaningless state. Grep it as
-  `'^# order:'` — the `# ` is part of the line, and so is the single space after `note:`.
+  `'^# order:'` — the `# ` is part of the line, and so is the single space after `note:`. That
+  is the printed form; with `-write` the same lines go to the terminal as `wrote <path>`, then
+  `  order: ...` and `  note: ...`, indented two spaces with no `#`, so grep `'^  order:'` there.
 - **`plan` emits ten kinds of `# note:` and only one of them is test data you owe** — the
   `is required and has no usable value — fill it` kind. Read the others rather than skimming past:
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
@@ -41,8 +43,13 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   the server rejects without — treat the body as unverified`. That last one means the plan is
   guessing, which is the opposite of test data you owe. Ten is a count of call sites on
   2026-09-17 and it grows whenever `plan` learns to say something new — re-derive with
-  `grep -c 'p.note(' core_distillation/contract/plan.go`, which matches the calls and not the definition
+  `grep -c 'p.note(' contract/plan.go` in the shrt module, which matches the calls and not the definition
   (`func (p *Plan) note(`).
+- **Compose a whole flow from the contract, not one rpc at a time:**
+  `shrt contract plan ConfirmOrder FetchOrder ListOrders CancelOrder@confirmed -write`. Each target
+  may carry `@alias`, and the aliased step is built with that alias's field overrides (an undeclared
+  alias is refused with the list of declared ones). All targets go into one chain in dependency
+  order, and a node reached twice appears once.
 - If you find yourself adding a step by hand, the contract is missing an edge — fix the contract,
   then re-plan. That is the difference between composing one chain and making every future chain
   compose itself.
@@ -65,14 +72,19 @@ nothing; the same work written into the overlay composes the next ten chains.
 repeated field whose entries are all blank all count as **no usable value**.
 
 **`shrt chain lint` is deliberately laxer than `plan` about one case, so do not read a green lint
-as "the header is dealt with".** Both sides share `HasUsableValue` in `core_distillation/contract`, but they
+as "the header is dealt with".** Both sides share `HasUsableValue` in the `contract` package, but they
 call it with different `Strictness`: `plan` reads a body **it just generated**, where a `"0"` can
 only be the scaffold's own filler, so it says fill it; `lint` reads a body **a human edited**,
 where `"0"` may be meant — `short_limit_qty: "0"` in
 `dealing-createdeal-positionlimit-enforcement-probe` is a real limit of zero, and an int64 zero and
 the scaffold's filler are the same bytes. Everything that cannot be deliberate — `""`, the zero
 enum member, an empty or all-blank list — both sides reject. So the plan header is the only thing
-that will ever tell you about a leftover numeric zero; nothing downstream repeats it.
+that will ever tell you about a leftover numeric zero, and it does so for every field: a field in
+`required:` gets `is required and has no usable value — fill it`, and any other field still holding
+the scaffold's 0 gets the softer `still carries the scaffold's numeric zero and is not in required`.
+A field `note:` does not silence it: a note describes the field, not your test data. Say a 0 is
+deliberate with `value: "0"`; `from:`, `same_as:` or listing the field in `required:` also silence
+it. `required: [lines]` does not silence `lines.qty`. Nothing downstream repeats either note.
 
 Three habits that keep a chain re-runnable:
 
@@ -83,12 +95,15 @@ Three habits that keep a chain re-runnable:
 | a name or code that must be fresh per run | `${vars.tag}` interpolated, and pass `-var tag=...` at run time |
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
-constraint, and it is why `scripts/verify-all-flows.sh` generates a random tag per chain.
+constraint, and it is why the development repo's `scripts/verify-all-flows.sh` generates a random
+tag per chain.
 
 ## 3b. Tell shrt how YOUR backend answers
 
-`.shrt/config.yaml` carries a `conventions:` block. Five keys, all optional, and the defaults
-describe a Connect-style backend that reports its verdict at `error.code` with `OK` meaning success:
+`.shrt/config.yaml` carries a `conventions:` block. Six keys, all optional, and the defaults
+describe a Connect-style backend that reports its verdict at `error.code` with `OK` meaning success.
+The block below is NOT the defaults: it is an example for a backend that answers
+`{"status": {"code": "SUCCESS"}}`, with every key set to show its shape:
 
 ```yaml
 conventions:
@@ -96,6 +111,7 @@ conventions:
   envelope_path: status.code                           # where a response states its verdict
   envelope_ok: SUCCESS                                 # the value there meaning success
   item_envelope_path: results[].error.code             # a BATCH rpc's per-item verdict
+  code_fields: [app_code, reason, error_code]          # detail fields `chain which -code` searches
   validate_output: true                                # a response the descriptor rejects FAILS
 ```
 
@@ -116,13 +132,17 @@ only evidence once you have seen it go red.
 atomic batch whose receipts carry no verdict — `results[] {id_deal, ...}` — is left alone even when a
 non-atomic rpc on the same backend answers `results[] {error, ...}`; one config serves both. A
 negative step that pins a line's own verdict — `path: results.0.error.code, equals: not_found` — has
-declared that refusal, and the runner reports only the lines the step did not pin. `exists` and
+declared that refusal, and so has an `equals` on one of that line's code fields
+(`results.0.error.details.0.app_code`); the runner reports only the lines the step did not pin. `exists` and
 `not_empty` on that path declare nothing, since both hold for `OK` and for a refusal. A path that no
 response message declares fails `shrt run` before any traffic is sent: a convention that can never
 fire is a config error, not a quiet pass.
 
-`GRAMMAR.md` §4 is the key table. `shrt init` prints every key with its default when it writes the
-config, and writes no comment lines into the file, so a repo whose pre-commit hook blocks new
+`GRAMMAR.md` §4 is the key table. `shrt init` prints every key when it writes the config, with its
+default, except `item_envelope_path` and `validate_output`, which it prints with the value you
+would set (their defaults are unset and `false`). When the descriptor's responses carry a
+verdict field somewhere other than `error.code`, init prints that detected path instead, says the
+default is not carried, and leaves `envelope_ok` for you to fill. It writes no comment lines into the file, so a repo whose pre-commit hook blocks new
 comments can commit it as written.
 
 ## 4. Assert something that can fail
@@ -160,9 +180,12 @@ names every one:
 shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there are no records at all
 ```
 
-Fix one by asserting what the read should have found. If an empty body really is the right answer —
-a probe pinning a refusal, a cap, a filter that rejects a bad id — say so in `.shrt/hollow-allow.txt`
-with the reason; an entry without one is refused. `PITFALLS.md` §24.
+Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
+`not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body
+is the answer and are not reported. For any other case where empty is right — a cap, a filter that
+rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
+`<chain> <step-id> <reason>`; an entry without a reason is
+refused. `PITFALLS.md` §24.
 
 ## 5. Probe one failure code
 
@@ -175,8 +198,7 @@ observed. To turn a declared code into an observed one:
         The second confirm must be refused. Names the code in the assertion so the receipt
         distinguishes "refused for the right reason" from "refused for any reason".
       call: acme.orders.order.v1.OrderActionService/ConfirmOrder
-      body: {id_order: ${create_order.id_order}}
-      allow_fail: true
+      body: {id_order: "${create_order.id_order}"}
       expect:
         - path: error.code
           not_equal: OK
@@ -190,13 +212,16 @@ observed. To turn a declared code into an observed one:
 and `conventions.envelope_ok` — a backend answering `result.code: SUCCESS` writes `path: result.code`
 and `not_equal: SUCCESS`.
 
-- `allow_fail: true` is not what makes this step green: an in-band refusal that matches these
-  expectations passes on its own. `allow_fail` only tolerates a transport-level refusal on a step
-  that asserts nothing — it never waives a failed or unevaluated expectation, and it never lets a
-  chain run past a step that did not pass. To see what lies behind the first red, run
+- The step needs no `allow_fail`: an in-band refusal that matches these expectations passes on its
+  own, and `allow_fail` on a step that declares expectations does nothing. `allow_fail` only tolerates a transport-level refusal on a step
+  that asserts nothing: the step stays `failed` and the chain goes on past it. It never waives a
+  failed or unevaluated expectation, and it never lets a chain run past a step whose status is
+  `error`. To see what lies behind the first red, run
   `shrt run -keep-going <chain>`: every step still runs, a step that reads a failed step's
   response or exports is recorded `skipped` instead of being sent, and the run stays failed with
-  every red step listed.
+  every red step listed. One exception: when the failed step was answered and only its
+  expectations failed, a step that reads a response field none of those failed expectations
+  covers (the id, when the total was wrong) is still sent.
 - Assert on `error.details.0.app_code` **and** `reason` — but **only for a named business failure**.
   `error.code` alone is a Connect code that a dozen unrelated refusals share.
 - **A shape error has no `app_code` and no `reason` to assert on.** `errmsg.NewShape` and
@@ -271,7 +296,7 @@ from an expired token, because that is a false fail, not a regression.
   ```yaml
       - id: fetch_without_token
         call: acme.orders.order.v1.OrderService/FetchOrder
-        body: {id_order: ${create_order.id_order}}
+        body: {id_order: "${create_order.id_order}"}
         skip_auth: true
         expect:
           - path: transport.code
@@ -280,7 +305,7 @@ from an expired token, because that is a false fail, not a regression.
             equals: 401
       - id: fetch_with_bad_token
         call: acme.orders.order.v1.OrderService/FetchOrder
-        body: {id_order: ${create_order.id_order}}
+        body: {id_order: "${create_order.id_order}"}
         auth: invalid
         expect:
           - path: transport.code
@@ -304,8 +329,11 @@ shrt contract init <domain>            # scaffold; re-running keeps what you wro
 shrt contract lint
 ```
 
-**A domain is the SECOND dotted segment of the service name** — `DomainOf` reads
-`<pkg>.<domain>.…` and nothing about it is specific to any one backend. Wherever a surface groups
+**A domain is the package segment after the organisation root, once the trailing version is
+dropped** — usually the SECOND dotted segment of the service name. `DomainOf` drops version segments
+such as `v1`, also drops a reverse-DNS root (`com`, `org`, `io`, …) when the package has at least
+three segments left, and then reads `<org>.<domain>.…`; a one-segment package is its own domain.
+Nothing about it is specific to any one backend. Wherever a surface groups
 its privileged writes under a single segment, every one of them lands in THAT overlay, not in the
 overlay of the thing they are about.
 
@@ -320,10 +348,10 @@ The lesson transfers even if your surface has no `admin` segment: an author who 
 overlay will not see the rpcs that produce what it reads. **When a domain's writes look too few for
 its reads, grep the catalog for the other segments before concluding anything.**
 
-**`shrt contract status` counts entries; `shrt contract quality` measures them.** The CONTRACT,
-REACHED and VERIFIED columns of `status` go to their ceiling the moment a scaffold lands — N-of-N,
-and 200/200 the day after 76 empty scaffolds landed — so a full column says only that somebody ran
-`contract init`. The one thing they do tell you is when RPCS **exceeds** CONTRACT: that is an rpc
+**`shrt contract status` counts entries; `shrt contract quality` measures them.** The CONTRACT
+column of `status` goes to its ceiling the moment a scaffold lands — N-of-N, and 200/200 the day
+after 76 empty scaffolds landed — so a full column says only that somebody ran `contract init`.
+VERIFIED counts only entries a human set to `status: verified`, and scaffolds are written `draft`. The one thing they do tell you is when RPCS **exceeds** CONTRACT: that is an rpc
 the descriptor knows and no overlay has an entry for, which is what a freshly rebuilt descriptor
 surfaces after the backend adds a procedure (125 vs 124 on 2026-09-12, `ResolveInstrumentNames`).
 `status` says all this in its own footer and carries the quality score in its GAPS and SCORE
@@ -338,7 +366,9 @@ dependency. An rpc below the count plans as a single step: nothing it needs is d
 other entry names it as a producer. For a login, or a read that takes no id from anywhere, that is
 correct and permanent. For a write that cannot run on its own it means a missing `needs:` or `from:`,
 and the chain composed from that contract will be short by a step. `shrt contract status -gaps`
-lists them as `no path to`; the column cannot tell the two apart and does not try.
+lists them as `no path to`; the column cannot tell the two apart and does not try. A streaming rpc
+is never REACHED, because shrt is unary-only and no plan can call it; `-gaps` lists it as
+`streaming … (out of scope)` instead. `-gaps` prints only the gap lines, not the table.
 
 **The score measures OMISSION as well as vagueness, and it did not always.** Until 2026-09-12 every
 term asked whether something *declared* was vague, so declaring nothing scored best of all: a bare
@@ -347,24 +377,24 @@ the receipt. What the pair of them measures now, and what each term is worth:
 
 | # | weight | phase | term |
 |---|---|---|---|
-| 1 | 2 | happy | a request field in the descriptor with no `fields:` entry and not in `required:` |
-| 2 | 2 | happy | an id field with no `from` / `same_as` / `value` — unless it is optional AND its `note:` says why |
+| 1 | 2 | happy | a request field in the descriptor not in `required:` and with no `fields:` entry that says anything (a `from`, `value`, `same_as`, `oneof`, `checked_by`, or a note of three words or more) |
+| 2 | 2 | happy | an id field named in `fields:` or `required:` with no `from` / `same_as` / `value` — unless it is optional AND its `note:` says why |
 | 3 | 2 | failure | a write rpc whose own `failures:` is empty; a domain-wide block does not satisfy it |
-| 4 | 2 | happy | a missing `summary` |
+| 4 | 2 | happy | a missing `summary`, a `TODO`, or one shorter than three words |
 | 5 | 2 | happy | an rpc with no `requires_role:` at all — `NONE`, alone, is how you say "no role gate" |
 | 6 | 2 | happy | a READ rpc no write rpc can reach — unless `no_producer:` says why |
 | 7 | 2 | happy | an rpc with request fields and an empty `required:` — `NONE`, alone, says the server rejects nothing |
-| 8 | 1 | failure | an id wired by `from`/`same_as` with no `checked_by:` |
+| 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
 | 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
 | — | — | — | codes the backend raises that no contract declares at all |
 
-The ten scored rows come from `QualityTerms()` in `core_distillation/contract/quality.go`, which is what
+The ten scored rows come from `QualityTerms()` in `contract/quality.go`, which is what
 `shrt contract status` prints in its footer and what computes the score — so run the command for
-today's list, and read the rows below for the reasoning a one-line label cannot carry. A term
-cannot exist in code without a label there; `internal/guard` fails the build if one does, and
-`TestPlaybookQualityTableMatchesTheCode` fails it if this table and `QualityTerms()` disagree on how
-many rows there are, on a weight, or on a phase.
+today's list, and read the rows below for the reasoning a one-line label cannot carry. In the
+development repo a guard test and `TestPlaybookQualityTableMatchesTheCode` fail the build when this
+table and `QualityTerms()` disagree; neither ships in the module, so here the command's footer is
+the authority.
 
 **An unfilled `TODO` scores nothing.** It is listed beside the score as a hint, never charged. The
 row that used to claim `1 per unfilled TODO` was wrong for as long as it stood: no `QualityTerm`
@@ -384,9 +414,10 @@ reads.
 
 **Row 6 asks whether a producer EXISTS, not whether `needs:` names it.** A read rpc satisfies it
 when any of four things is true: a `needs:` entry names a write rpc; a `fields.<f>.from` or
-`same_as` points at a write rpc's response; an alias override does; or some write rpc in another
-domain declares `before:` this read. All four are edges `shrt contract plan` walks, so the term
-fires exactly when `plan <read>` would compose a chain **one step long — the read alone**. Requiring
+`same_as` points at a write rpc's response; an alias override does; or some write rpc, in any
+domain, declares `before:` this read. All four are edges `shrt contract plan` walks, so the term
+fires when `plan <read>` would compose a chain **one step long — the read alone**, and also when
+the read's only edges point at other reads. A `no_producer:` of three words or more spares it. Requiring
 `needs:` specifically was measured and rejected: it fires on 18 of the corpus's 49 read rpcs and all
 18 already compose correctly through a `from:` edge, so every one would have been a false positive.
 
@@ -411,7 +442,7 @@ cannot read it.
 absence — so accepting one as the explanation would make row 6 fire on nothing.
 
 **One undocumented exemption, now documented: a response field that is a non-repeated message is
-not counted by row 9.** `referenceableResponseField` in `core_distillation/contract/quality.go` skips `error`,
+not counted by row 9.** `referenceableResponseField` in `contract/quality.go` skips the envelope field (`error` by default),
 and skips message-typed fields unless they are `repeated`, because a bare nested message has no
 scalar to reference and `exports:` names paths a later step can read. So a score of 0 guarantees
 every SCALAR and every REPEATED response field is accounted for in `exports:`/`terminal:`/
@@ -420,12 +451,15 @@ with a dotted path (`row.id_reference_rate`) when a later step needs the value.
 
 Every row but the last needs only the descriptor and the overlays, so they live in the binary. **The
 last one cannot**: finding the codes a backend raises means reading that backend's source, and shrt
-drives a backend it never imports. That one cross-check, and nothing else, stays in
-`scripts/contract-quality.py` — which **exits 2 rather than 0 when it cannot find that backend**,
-because a check that cannot run must fail. `scripts/check.sh` gates both as a **ratchet**: the score
-may fall, never rise, and undeclared backend codes must stay at zero. Improve a contract and the gate
-tells you to lower the baseline in `scripts/contract-quality-baseline.txt`. That is what stops an
-N-of-N score from meaning less each time the backend grows.
+drives a backend it never imports. shrt ships no tool for it: in the development repo it is
+`scripts/contract-quality.py`, which **exits 2 rather than 0 when it cannot find that backend**,
+because a check that cannot run must fail, and you write the equivalent for your own backend.
+
+The score itself can be gated as a **ratchet** with `shrt contract quality -gate -baseline <file>`:
+it fails if the score rises, and also if it falls without the baseline being lowered, so improving
+a contract means lowering the number in the file. `shrt chain hollow -gate -baseline <file>` does
+the same for hollow reads. That is what stops an N-of-N score from meaning less each time the
+backend grows.
 
 What no term can see is an INCOMPLETE `needs:`. Row 6 above catches a read that nothing at all
 produces, which is the loudest version of the mistake; it cannot catch a read that names one
@@ -483,6 +517,11 @@ Fill in this order — each step pays for the next:
 6. **`source`** — the files you read. This is what lets the next person re-check you, and it is
    also what a cross-check script uses to find codes you missed.
 
+**`before:` always attaches the PLAIN rpc.** If the later rpc also `needs:` aliases of it
+(`needs: [AddStock@first, AddStock@second]`), the plan gets an extra unaliased step carrying the
+scaffold's empty strings and zeros, and `plan` flags it with a note naming every edge. Drop the
+`before:`: the `needs:` already orders the aliases.
+
 Leave `status: draft`. Only a human promotes to `verified`.
 
 **`reason:` means two different things and only one of them is checkable.** For a failure with a
@@ -498,12 +537,22 @@ probe asserting a path that can never exist. The numeric `code` is what tells th
 shrt chain lint <name>          # fix every error before sending traffic
 shrt chain lint -strict <name>  # and every assertion-quality warning, before it is a gate;
                                 # a warning about the run's environment stays a warning
-shrt run <name> -dry-run        # resolves references and validates bodies, sends nothing
+shrt run <name> -dry-run        # resolves references and validates bodies against the proto,
+                                # sends nothing; it does not run chain lint, so lint first
 shrt run <name>
 ```
 
+Each progress line starts with the step's status: `ok` passed, `FAIL` failed (the call was
+answered and an expectation or export did not hold), `ERROR` error (the step never completed: an
+unresolved reference, a body the proto rejects, a transport failure), `SKIP` not sent under
+`-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
+validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
+anything is sent, with the `-var` flags it needs. A step with no `expect` that the backend refuses
+in-band stays `passed` with a warning under it; only `chain lint -strict` stops it.
+
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
-evidence about your fixture, never about the backend. That trap is `PITFALLS.md` §4; the vocabulary
+nearly always evidence about your fixture rather than the backend: most of the time no request was
+sent. Read the step's `error` line before deciding which. That trap is `PITFALLS.md` §4; the vocabulary
 it belongs to is `GRAMMAR.md` §8.
 
 Then stop and hand the confirmation to the user:
@@ -541,7 +590,7 @@ Three things that decide whether this works for a given chain:
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** Those paths must be in `volatile`, or the first replay reports a
   regression that is not one. This is per-chain work and it is why paving the corpus is not a bulk
-  operation — see the one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
+  operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
   so a safe spot would freeze the bug as ground truth. `PITFALLS.md` §11.
@@ -557,13 +606,20 @@ shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest,
 ```
 
 It reports step status changes, where the first failing step moved, steps reached in one run and
-not the other, and response differences in steps both reached. The chain's `volatile` paths and
-config `volatile` are masked as `verify` masks them, and so are ids and timestamps, which differ
-every run; the report says how many values it hid. It exits 1 when the runs differ. It is a
+not the other (a step `-keep-going` held back as `skipped` counts as not reached), and response
+differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
+ones in today's config and chain file, so a pattern you add after the runs still applies. It also
+masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
+camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values. Values derived
+from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
+(an error message naming the product) is not masked either; declare that path volatile too, knowing
+it also hides a genuine change of that message. The report says how many values it hid, and names
+the two runs' `build` labels and any var that differed, since a difference that follows a changed
+`-var` comes from the input, not the backend. It exits 1 when the runs differ and 2 when it could not compare them (an unknown run, runs of two chains). It is a
 comparison between two runs, not a verdict: it cannot tell you which of the two is right, only
 that they disagree and where.
 
-`scripts/verify-all-flows.sh` prints `safe spots: N of M chains` in its header and diffs every
+In the development repo, `scripts/verify-all-flows.sh` prints `safe spots: N of M chains` in its header and diffs every
 chain that has one, reporting `DRIFT` separately from `UNEXPECTED` — the assertions held, the state
 did not. The rest of the corpus is checked for PASS/FAIL only. That header line is the honest
 measure of how much of the corpus is actually a regression baseline rather than a smoke test.
@@ -572,8 +628,8 @@ measure of how much of the corpus is actually a regression baseline rather than 
 
 `chain slice` cuts one chain down to one step. It cannot tell you WHICH chain and WHICH step — and
 an agent holding a failing rpc name, or an `app_code` out of a production envelope, has only that.
-`chain which` is the index over the corpus that closes the gap, and it ends every match with the
-`chain slice` command to paste.
+`chain which` is the index over the corpus that closes the gap, and it ends each chain's block
+with the `chain slice` command to paste for that chain's best match.
 
 ```bash
 shrt chain which -code 1218
@@ -585,22 +641,36 @@ shrt chain which -code 1218 -json
 1. **Two selectors; naming neither is an error, not a listing of everything.** `-rpc` takes the same
    shorthand `contract show` takes and resolves through the same catalog, so `Service/Rpc` and the
    fully qualified form find the same steps. `-code` matches an `equals` wherever a chain can name a
-   failure: the envelope code, an `app_code` detail, a `reason` detail. The searchable paths are
+   failure: the envelope code, an `app_code` detail, a `reason` detail, or `transport.code` (a
+   Connect refusal such as `invalid_argument` or `unauthenticated`). The searchable paths are
    derived from the corpus, so a chain asserting a code under a batch result — the corpus has
    `results.0.error.details.0.app_code` — is found without teaching the command a new shape. Both
    selectors together intersect.
-2. **`OBSERVED` outranks `asserted`, and they are different claims.** `asserted` means the chain
-   says that step answers that code. `OBSERVED` means a run record under `.shrt/runs/` shows that
-   step actually answering it — `README.md`'s "where the authority is" rule, applied to discovery. A
-   chain that claims 1218 and a chain that has been seen answering 1218 are not equally good
-   answers to "what reproduces this". Run records are gitignored and machine-local, so a clone with
-   none reports `no local runs` and still ranks by the assertions. An `OBSERVED` line reads
-   `asserts <code>` for the claim and `run <id> got <code>, step <status>` for the record: `got` is
-   the code the recorded response carried, never the asserted one, and a step that failed its
-   assertions says `step FAILED`. `-json` carries the same two facts as `asserts` and `observed`.
+2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
+   answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
+   line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
+   applied to discovery. Matches rank in three tiers: observed and holding, then asserted only, then
+   observed but contradicted (under `-code`, the newest reaching run got a different code at the
+   asserted path; under `-rpc` alone, the step FAILED), because a
+   chain the backend has stopped answering that way is the least likely to reproduce it, though it
+   is often the regression you want to see. Run records are gitignored and machine-local, so a
+   clone with none reports `no local runs` and still ranks by the assertions. A step the backend
+   refused at the transport layer was reached, and its `got` is read from `transport.code`. An
+   `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads
+   `run <id> got <code>, step <status>` for the record. `got` is read from the path of the shown assertion, never copied from it; when that path is
+   absent the line says `got X at <path> (nothing at <asserted path>)`. A step that failed says
+   `step FAILED`, followed by one `failed: <path> want=… got=…` line per failing expectation. When
+   the newest run did not reach the step, a `newest run <id> did not reach it: step <status>` line
+   follows. `-json` carries the same facts as `asserts`, `observed` (with `holds`,
+   `asserted_path`, `failures` and `newer_runs_not_reaching`) and `newest_unreached`.
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
-   `OBSERVED` match it is the `-mode pin -run <id>` form, because pinning that run's values is the
-   cheaper reproduction of the same incident. Paste it; do not retype it from the columns.
+   `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
+   contradicting one), because pinning that run's values is the cheaper reproduction of the same
+   incident. When the slice interpolates a var into a name, the line ends with
+   `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a var that a
+   dropped step before the target also interpolated is left off: the target depends on what that
+   step created under the run's value, so the slice takes the value from the run. Paste it; do not retype it from the
+   columns.
 4. **`slice k/n` is the CLOSURE size, not the size of the pinned command printed under it.** It is
    the mode-independent cost of reaching that step, so the numbers are comparable across chains;
    `-mode pin` can only drop steps, never add them.
@@ -622,33 +692,70 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
 ```
 
 1. **Slice, and read the reason on every kept step.** Each line says `target`,
-   `produces ${x} used by <step>`, or `contract needs <rpc>` — the third kind comes from
-   `needs` / `before` / `from` / `same_as` in `.shrt/contracts/`, which is the only reason a step
-   with no textual link to the target survives at all.
+   `produces ${x} used by <step>`, or `contract needs <rpc>[@alias] (<edge>)` — the third kind
+   comes from `needs` / `before` / `from` / `same_as` in `.shrt/contracts/`, which is the only
+   reason a step with no textual link to the target survives at all. For an aliased edge
+   (`<rpc>@<alias>`) the slice keeps the step whose id carries `_<alias>` (the id `contract plan`
+   gives it), preferring among those the one the body references; for an unaliased edge it keeps
+   the referenced step, else the nearest. An edge declared under one alias of a contract binds only
+   a step carrying that alias. Steps are numbered from 1, as in `shrt run` and the run record, and
+   so are expectations in a verify difference.
 2. **Read the two named sections before trusting the count.** `unmet prerequisites` means a
    contract edge names an rpc *no earlier step calls*, so the slice may not stand alone.
-   `WARNING possible under-inclusion` means the slice is under half the chain and the dropped steps
-   include WRITES: nothing in the YAML records that step 61 needed the row step 20 wrote, so the
-   slice can be too small and still go GREEN. That failure mode is worse than no slice.
-3. **`-write` then `chain lint` it.** A slice that does not lint is a failed slice, not a smaller
-   chain. Without `-write` nothing is written and the YAML goes to stdout.
+   `WARNING possible under-inclusion` means the dropped steps BEFORE the target include WRITES
+   (a write after the target cannot matter and is not counted), and the line adds
+   `under half of them` when the slice keeps fewer than half the steps up to the target: nothing in the YAML records that step 61
+   needed the row step 20 wrote, so the slice can be too small and still go GREEN. That failure mode is worse than no slice.
+   With `-run`, a dropped write whose step in that run was refused (a transport error, an envelope
+   code other than `envelope_ok`) or never sent wrote nothing: it is listed under
+   `wrote nothing in run <id>` and does not count. A write that succeeded, including an idempotent
+   replay, still counts.
+3. **`-write [name]` then `chain lint` it.** A slice that does not lint is a failed slice, not a
+   smaller chain. Without `-write` nothing is written and the YAML goes to stdout, and `-verify`
+   still runs the slice but keeps no run record, since the record would name a chain that does not
+   exist. `-keep id[,id]` forces named earlier steps back into the slice, with their own producers
+   and prerequisites. `-write` refuses to replace an existing chain file unless `-force`, except a
+   slice this command wrote of the same chain and step (its description starts
+   `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
 4. **`-verify -run <id|latest>` is what turns the claim into a receipt.** It runs the slice and
    compares the TARGET step's verdict — the code at `conventions.envelope_path` and the pass/fail
    of every expectation — against that same step in the source run. It prints one of four
    outcomes, each with its own exit code:
-   - `reproduced` (0): the verdicts match and the slice dropped no write step.
-   - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's.
+   - `reproduced` (0): the verdicts match and the slice dropped no write step that wrote
+     something in the source run. With `-write`, the verdict replaces the HYPOTHESIS paragraph in
+     the written slice's `description:` (VERIFIED, both run ids, the date).
+   - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. When the
+     slice dropped writes it also ends with the `next:` `-keep` command below, since the
+     difference can come from state those writes built.
    - `DID NOT RUN` (2): the target was never sent — an unset `${env.X}`, a login that failed, a
-     step before it that errored. Nothing was compared; fix the cause the line names and re-run.
+     step before it that errored or failed its expectations. `-verify` stops at the first kept
+     step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
+     cannot be verified from that chain. Nothing was compared; fix the cause the line names and
+     re-run.
    - `INCONCLUSIVE` (3): the verdicts match, but the slice dropped write steps. A match can come
      from state the slice never built (a limit the dropped writes would have reached, say), so it
-     is not a receipt. Put the writes back into the written slice and compare again.
-   Until you have a `reproduced`, the slice is a hypothesis, and the command says so on its own
-   last line.
+     is not a receipt. The output ends with a `next:` line —
+     `shrt chain slice <src> -step <t> -run <source-run> -keep <dropped writes> -verify -write` —
+     which keeps every dropped write and so can give a real verdict. A var interpolated into a
+     name is printed as `<fresh>`: the run above already used its value, so give a new one. Only
+     the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
+     again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
+     needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
+     and a receipt. When you want both, write the minimal chain by hand (only the steps the
+     defect needs, its own writes included), run it, and `slice -verify` the target on THAT
+     chain: nothing is dropped, so the verdict can be `reproduced`.
+   Until you have a `reproduced`, the slice is a hypothesis, and every slice prints a line saying
+   so.
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**
    A producer whose only contribution was a VALUE is dropped and its value pinned into `vars:`,
-   with every reference rewritten to `${vars.<name>}`. A step that contributed a SIDE EFFECT — it
-   is there via `needs` / `before` — is never pinned away. Pin mode needs a run record and refuses
-   without `-run` rather than quietly falling back to closure.
+   with every reference rewritten to `${vars.<name>}`. A `from` or `same_as` contract edge exists to
+   deliver a value, so it is satisfied by the pinned value; a step kept by `needs` or `before` did
+   something the target depends on and is never pinned away. A var the kept steps read that the
+   chain does not declare (one you passed with `-var` at run time) is taken from `-var`, else in pin
+   mode from the source run's `vars`, and written into the slice's `vars:`. Closure mode never
+   reuses the run's value: it re-creates what the run created, so a tag interpolated into a name
+   would collide, and `-verify` refuses up front and prints the `-var name=<fresh>` flags to add.
+   Pin mode needs a run record and refuses without `-run` rather than quietly falling back to
+   closure.
 6. **A pinned slice reproduces one incident, not the flow.** Its ids are the ids of that run, so it
    is dead the moment that data is. Confirm a safe spot from a closure slice, never a pinned one.

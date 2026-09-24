@@ -79,7 +79,7 @@ func TestAllowFailDoesNotSwallowAnUnresolvedReference(t *testing.T) {
 	defer srv.Close()
 
 	c := allowFailChain(t, func(s *chain.Step) {
-		s.Body = map[string]any{"name": "${vars.never_declared}", "kind": "KIND_A", "idempotency_key": "${uuid}"}
+		s.Body = map[string]any{"name": "${env.SHRT_TEST_NEVER_EXPORTED_7F3A}", "kind": "KIND_A", "idempotency_key": "${uuid}"}
 	})
 
 	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})

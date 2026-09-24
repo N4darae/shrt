@@ -141,6 +141,7 @@ func setEnvelopeLocked(path, ok string) {
 type ItemRefusal struct {
 	Path string
 	Code string
+	Line string
 }
 
 func (r ItemRefusal) String() string { return r.Path + " = " + r.Code }
@@ -184,7 +185,8 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 		}
 		accounted++
 		if code := stringify(v); code != "" && code != EnvelopeOK() {
-			out = append(out, ItemRefusal{Path: fmt.Sprintf("%s.%d.%s", listPath, i, field), Code: code})
+			line := fmt.Sprintf("%s.%d", listPath, i)
+			out = append(out, ItemRefusal{Path: line + "." + field, Code: code, Line: line})
 		}
 	}
 	if len(items) > 0 && accounted == 0 {
@@ -318,10 +320,40 @@ func DeclaresVerdict(expect []Expectation, path string) bool {
 	return false
 }
 
+func DeclaresRefusal(expect []Expectation, r ItemRefusal) bool {
+	if DeclaresVerdict(expect, r.Path) {
+		return true
+	}
+	line := r.Line
+	if _, field, err := splitItemEnvelope(); line == "" && err == nil && strings.HasSuffix(r.Path, "."+field) {
+		line = strings.TrimSuffix(r.Path, "."+field)
+	}
+	line = strings.Join(SplitPath(line), ".")
+	if line == "" {
+		return false
+	}
+	codes := CodeFields()
+	for _, e := range expect {
+		if !e.PinsValue() {
+			continue
+		}
+		segs := SplitPath(e.Path)
+		if len(segs) == 0 || !strings.HasPrefix(strings.Join(segs, "."), line+".") {
+			continue
+		}
+		for _, name := range codes {
+			if segs[len(segs)-1] == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func UndeclaredRefusals(refusals []ItemRefusal, expect []Expectation) []ItemRefusal {
 	out := []ItemRefusal{}
 	for _, r := range refusals {
-		if !DeclaresVerdict(expect, r.Path) {
+		if !DeclaresRefusal(expect, r) {
 			out = append(out, r)
 		}
 	}

@@ -23,9 +23,10 @@ type Scope struct {
 }
 
 type StepView struct {
-	Request   any
-	Response  any
-	Synthetic bool
+	Request    any
+	Response   any
+	Synthetic  bool
+	NoResponse bool
 }
 
 func NewScope(vars map[string]any) *Scope {
@@ -48,6 +49,10 @@ func cloneMap(in map[string]any) map[string]any {
 
 func (s *Scope) Record(id string, request, response any) {
 	s.Steps[id] = &StepView{Request: request, Response: response}
+}
+
+func (s *Scope) RecordRequest(id string, request any) {
+	s.Steps[id] = &StepView{Request: request, NoResponse: true}
 }
 
 func (s *Scope) RecordSynthetic(id string, request, response any) {
@@ -231,11 +236,17 @@ func (s *Scope) lookupStep(rest, expr string) (any, error) {
 		return nil, fmt.Errorf("unresolved reference ${%s}: no prior step %q", expr, id)
 	}
 	root := view.Response
+	readsRequest := false
 	if section, sub, _ := strings.Cut(tail, "."); section == "request" || section == "response" {
-		if section == "request" {
+		readsRequest = section == "request"
+		if readsRequest {
 			root = view.Request
 		}
 		tail = sub
+	}
+	if view.NoResponse && !readsRequest {
+		return nil, fmt.Errorf("unresolved reference ${%s}: step %q has no response to read — its call "+
+			"was refused or never completed, so only its request (${steps.%s.request...}) resolves", expr, id, id)
 	}
 	if tail == "" {
 		return root, nil

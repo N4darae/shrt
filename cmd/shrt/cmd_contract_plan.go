@@ -20,7 +20,7 @@ func contractPlan(args []string) error {
 		return err
 	}
 	if len(rest) == 0 {
-		return fmt.Errorf("usage: shrt contract plan <rpc> [-write]")
+		return fmt.Errorf("usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write]")
 	}
 	e, err := loadEnv(true)
 	if err != nil {
@@ -30,15 +30,14 @@ func contractPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	m, err := e.cat.Lookup(rest[0])
-	if err != nil {
-		return err
-	}
 	chainName := *name
 	if chainName == "" {
-		chainName = contract.DomainOf(m) + "-" + strings.ToLower(m.Name)
+		chainName, err = planChainName(rest, lib, e)
+		if err != nil {
+			return err
+		}
 	}
-	plan, err := contract.BuildPlan(m.FullName, lib, e.cat, chainName)
+	plan, err := contract.BuildPlanFor(rest, lib, e.cat, chainName)
 	if err != nil {
 		return err
 	}
@@ -79,6 +78,31 @@ func contractPlan(args []string) error {
 	}
 	fmt.Printf("\nnext: fill the test data, then shrt chain lint %s\n", chainName)
 	return nil
+}
+
+func planChainName(targets []string, lib *contract.Library, e *env) (string, error) {
+	parts := []string{}
+	seen := map[string]bool{}
+	domain := ""
+	for _, raw := range targets {
+		node, m, err := contract.ResolveTarget(raw, lib, e.cat)
+		if err != nil {
+			return "", err
+		}
+		if seen[node] {
+			continue
+		}
+		seen[node] = true
+		if domain == "" {
+			domain = contract.DomainOf(m)
+		}
+		part := strings.ToLower(m.Name)
+		if _, alias := contract.SplitNode(node); alias != "" {
+			part += "-" + strings.ToLower(alias)
+		}
+		parts = append(parts, part)
+	}
+	return domain + "-" + strings.Join(parts, "-"), nil
 }
 
 func unfilledCount(plan *contract.Plan) int {

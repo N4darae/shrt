@@ -148,6 +148,7 @@ type QualityReport struct {
 type MethodShape struct {
 	RequestFields  []string `json:"request_fields"`
 	ResponseFields []string `json:"response_fields"`
+	Streaming      bool     `json:"streaming,omitempty"`
 }
 
 func (r QualityReport) ScoreByDomain() map[string]int {
@@ -172,7 +173,7 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 		return out
 	}
 	for _, m := range cat.Methods() {
-		shape := MethodShape{RequestFields: []string{}, ResponseFields: []string{}}
+		shape := MethodShape{RequestFields: []string{}, ResponseFields: []string{}, Streaming: m.Streaming()}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			shape.RequestFields = append(shape.RequestFields, f.Name)
 		}
@@ -209,7 +210,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 		}
 		for _, rpc := range sortedContractNames(o.RPCs) {
 			c := o.RPCs[rpc]
-			if c == nil {
+			if c == nil || shapes[rpc].Streaming {
 				continue
 			}
 			row := measureRPC(o.Domain, rpc, c, shapes[rpc], lib.RequiredBy(rpc))
@@ -499,7 +500,23 @@ func hasValueSource(f *FieldContract) bool {
 func isEntityIDKey(key string) bool { return IsEntityIDField(key) }
 
 func relatedKey(a, b string) bool {
-	return a == b || strings.HasPrefix(a, b+".") || strings.HasPrefix(b, a+".")
+	if a == b || strings.HasPrefix(a, b+".") || strings.HasPrefix(b, a+".") {
+		return true
+	}
+	x, y := chain.SplitPath(a), chain.SplitPath(b)
+	for len(x) > 0 && len(y) > 0 {
+		switch {
+		case x[0] == y[0]:
+			x, y = x[1:], y[1:]
+		case isIndexSegment(x[0]) && !isIndexSegment(y[0]):
+			x = x[1:]
+		case isIndexSegment(y[0]) && !isIndexSegment(x[0]):
+			y = y[1:]
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func unexplainedLabel(f Failure) string {

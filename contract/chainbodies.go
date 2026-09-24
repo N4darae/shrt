@@ -48,6 +48,21 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 			if IsRequiredLiteral(name) {
 				continue
 			}
+			if v, ok := bodyValue(s.Body, name); ok {
+				if varName, empty := emptyDeclaredVar(c, v); empty {
+					issues = append(issues, chain.Issue{
+						Step:     s.ID,
+						Severity: chain.SeverityError,
+						Message: fmt.Sprintf(
+							"%s is required by the contract for %s and this step sends ${vars.%s}, which vars: "+
+								"declares as empty, so a run without -var %s=... sends no value for it. Give the var "+
+								"a value under vars:, or remove it from vars: so shrt run refuses the chain until "+
+								"-var %s=... supplies one",
+							name, s.Call, varName, varName, varName),
+					})
+					continue
+				}
+			}
 			if HasUsableValue(s.Body, name, AuthoredBody) {
 				continue
 			}
@@ -55,9 +70,13 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 				Step:     s.ID,
 				Severity: chain.SeverityError,
 				Message: fmt.Sprintf(
-					"%s is required by the contract for %s and this step sends no value for it, "+
-						"while expecting success — fill it, or say what refusal you expect",
-					name, s.Call),
+					"%s is required by the contract for %s and this step sends no value for it. Lint reads "+
+						"this step as expecting success, because none of its expect entries states a refusal on "+
+						"%s (the envelope path) or on transport.code / transport.http_status; an assertion on "+
+						"another field, such as an app_code, does not make it a probe. Fill the field, or, if this "+
+						"step is meant to be refused for leaving it out, state that refusal: %s equals: <refusal "+
+						"code> (or not_equal: %s), or transport.code equals: <code>",
+					name, s.Call, chain.EnvelopePath(), chain.EnvelopePath(), chain.EnvelopeOK()),
 			})
 		}
 	}
@@ -130,12 +149,32 @@ func stepExpectsSuccess(s *chain.Step) bool {
 		if e.Path != chain.EnvelopePath() {
 			continue
 		}
-		if text, ok := e.Equals.(string); ok && text != chain.EnvelopeOK() {
+		if e.Equals != nil && fmt.Sprint(e.Equals) != chain.EnvelopeOK() {
 			return false
 		}
-		if text, ok := e.NotEqual.(string); ok && text == chain.EnvelopeOK() {
+		if e.NotEqual != nil && fmt.Sprint(e.NotEqual) == chain.EnvelopeOK() {
 			return false
 		}
 	}
 	return true
+}
+
+func emptyDeclaredVar(c *chain.Chain, v any) (string, bool) {
+	text, ok := v.(string)
+	if !ok {
+		return "", false
+	}
+	name, ok := strings.CutPrefix(text, "${vars.")
+	if !ok {
+		return "", false
+	}
+	name, ok = strings.CutSuffix(name, "}")
+	if !ok || name == "" || strings.ContainsAny(name, "${}") {
+		return "", false
+	}
+	declared, ok := c.Vars[name]
+	if !ok {
+		return "", false
+	}
+	return name, IsPlaceholder(declared, AuthoredBody)
 }

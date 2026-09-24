@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -11,10 +12,11 @@ import (
 )
 
 type Plan struct {
-	Target string       `json:"target" yaml:"target"`
-	Order  []string     `json:"order" yaml:"order"`
-	Chain  *chain.Chain `json:"-" yaml:"-"`
-	Notes  []string     `json:"notes,omitempty" yaml:"notes,omitempty"`
+	Target  string       `json:"target" yaml:"target"`
+	Targets []string     `json:"targets" yaml:"targets"`
+	Order   []string     `json:"order" yaml:"order"`
+	Chain   *chain.Chain `json:"-" yaml:"-"`
+	Notes   []string     `json:"notes,omitempty" yaml:"notes,omitempty"`
 
 	stepOf  map[string]string
 	cat     *catalog.Catalog
@@ -25,23 +27,52 @@ type pendingChecks struct {
 	step     *chain.Step
 	contract *RPCContract
 	schema   *catalog.Schema
+	fields   map[string]*FieldContract
 }
 
 func BuildPlan(target string, lib *Library, cat *catalog.Catalog, name string) (*Plan, error) {
-	m, err := cat.Lookup(target)
+	return BuildPlanFor([]string{target}, lib, cat, name)
+}
+
+func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name string) (*Plan, error) {
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("nothing to plan: name at least one rpc")
+	}
+	nodes := []string{}
+	labels := []string{}
+	seen := map[string]bool{}
+	for _, raw := range targets {
+		node, m, err := ResolveTarget(raw, lib, cat)
+		if err != nil {
+			return nil, err
+		}
+		if m.Streaming() {
+			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, m.StreamRefusal())
+		}
+		if seen[node] {
+			continue
+		}
+		seen[node] = true
+		nodes = append(nodes, node)
+		labels = append(labels, shortNode(node))
+	}
+	order, edges, err := resolveOrder(nodes, lib, cat)
 	if err != nil {
 		return nil, err
 	}
-	order, err := resolveOrder(m.FullName, lib, cat)
-	if err != nil {
-		return nil, err
+	for _, node := range order {
+		rpc, _ := SplitNode(node)
+		if dep, err := cat.Lookup(rpc); err == nil && dep.Streaming() {
+			return nil, fmt.Errorf("refusing to plan %s: its contract graph pulls in %s, and %s — drop that "+
+				"edge (needs/from/same_as/before) from the contract", strings.Join(nodes, ", "), dep.FullName, dep.StreamRefusal())
+		}
 	}
 
-	p := &Plan{Target: m.FullName, Order: order, stepOf: map[string]string{}, cat: cat}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
-		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", m.Name),
+		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
 	p.Chain = c
 	for _, node := range order {
@@ -58,11 +89,95 @@ func BuildPlan(target string, lib *Library, cat *catalog.Catalog, name string) (
 		p.stepOf[node] = id
 		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
 	}
+	p.noteAliasSiblings(edges)
 	p.noteRequirements()
 	if err := c.Normalize(); err != nil {
 		return nil, err
 	}
+	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
+		p.note("the chain reads ${vars.%s}, which the contract's value: entries use and the chain does not declare: "+
+			"pass -var %s=... on every run (a fresh value when it makes names unique), or declare it under vars:",
+			strings.Join(missing, "}, ${vars."), strings.Join(missing, "=... -var "))
+	}
 	return p, nil
+}
+
+func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *catalog.Method, error) {
+	rpc, alias := SplitNode(raw)
+	m, err := cat.Lookup(rpc)
+	if err != nil {
+		return "", nil, err
+	}
+	if alias == "" {
+		return m.FullName, m, nil
+	}
+	c, ok := lib.Get(m.FullName)
+	if !ok {
+		return "", nil, fmt.Errorf("%s has no contract, so it has no alias %q to plan", m.FullName, alias)
+	}
+	if _, declared := c.Aliases[alias]; !declared {
+		names := sortedAliasNames(c.Aliases)
+		have := "it declares none"
+		if len(names) > 0 {
+			have = "declared: " + strings.Join(names, ", ")
+		}
+		return "", nil, fmt.Errorf("%s has no alias %q (%s)", m.FullName, alias, have)
+	}
+	return m.FullName + "@" + alias, m, nil
+}
+
+func shortNode(node string) string {
+	if i := strings.LastIndex(node, "/"); i >= 0 {
+		return node[i+1:]
+	}
+	return node
+}
+
+func (p *Plan) noteAliasSiblings(edges map[string][]string) {
+	byRPC := map[string][]string{}
+	rpcs := []string{}
+	for _, node := range p.Order {
+		rpc, _ := SplitNode(node)
+		if _, ok := byRPC[rpc]; !ok {
+			rpcs = append(rpcs, rpc)
+		}
+		byRPC[rpc] = append(byRPC[rpc], node)
+	}
+	for _, rpc := range rpcs {
+		nodes := byRPC[rpc]
+		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
+			continue
+		}
+		aliased := []string{}
+		ids := []string{p.stepOf[rpc]}
+		first := ""
+		for _, node := range nodes {
+			if node == rpc {
+				continue
+			}
+			if first == "" {
+				first = node
+			}
+			ids = append(ids, p.stepOf[node])
+			aliased = append(aliased, fmt.Sprintf("%s (via %s)", shortNode(node), strings.Join(edges[node], "; ")))
+		}
+		p.note("steps %s all call %s: the plain %s came in via %s, while %s came in through other edges. "+
+			"The plain step is built from the unaliased fields only, so it is likely a duplicate of an "+
+			"aliased one — if it is, point that edge at the alias (needs: [%s], or from:/same_as: naming it) or drop it. before: "+
+			"always names the plain rpc, so an ordering meant for an alias belongs in the later rpc's "+
+			"needs: instead",
+			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
+			strings.Join(aliased, ", "), shortNode(first))
+	}
+}
+
+func containsString(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }
 
 func ArmedOneofMembersOf(lib *Library, rpc string) []string {
@@ -138,7 +253,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
 		return step
 	}
-	if c.Summary != "" {
+	if c.Summary != "" && !IsTodo(c.Summary) {
 		step.Description = firstSentence(c.Summary)
 	}
 	step.Auth = c.Auth
@@ -150,11 +265,16 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 
 	fields := c.FieldsFor(alias)
 	schema := catalog.DescribeMessage(m.Input())
-	for _, name := range sortedFieldNames(fields) {
+	names := byIndexDepth(sortedFieldNames(fields))
+	for _, name := range names {
+		growLists(step.Body, name)
+	}
+	for _, name := range names {
 		f := fields[name]
+		placed := true
 		switch {
 		case f.Value != "":
-			setBodyPath(step.Body, name, typedValue(f.Value, schema, name))
+			placed = setBodyPath(step.Body, name, typedValue(f.Value, schema, name))
 		case f.From != "":
 			ref, err := ParseRef(f.From)
 			if err != nil {
@@ -165,9 +285,13 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				p.note("step %s: %s wants %s but that rpc is not in the plan", id, name, ref.Node())
 				continue
 			}
-			setBodyPath(step.Body, name, "${"+src+"."+ref.Path+"}")
+			placed = setBodyPath(step.Body, name, "${"+src+"."+ref.Path+"}")
 		case f.SameAs != "":
 			p.bindSameAs(step, id, name, f.SameAs)
+		}
+		if !placed {
+			p.note("step %s: the contract sets %s, but that path does not exist in the %s body, so the "+
+				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
 	if len(step.Expect) == 0 {
@@ -175,7 +299,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+
 			"'chain lint -strict' rejects it", id, m.FullName)
 	}
-	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema})
+	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema, fields: fields})
 	if len(c.Exports) > 0 {
 		step.Export = map[string]string{}
 		for _, path := range sortedKeys(c.Exports) {
@@ -189,42 +313,128 @@ func (p *Plan) note(format string, args ...any) {
 	p.Notes = append(p.Notes, fmt.Sprintf(format, args...))
 }
 
-func setBodyPath(body map[string]any, path string, value any) {
+func setBodyPath(body map[string]any, path string, value any) bool {
 	segs := chain.SplitPath(path)
 	if len(segs) == 0 {
-		return
+		return false
 	}
-	var cur any = body
-	for i, seg := range segs {
-		last := i == len(segs)-1
-		if list, ok := cur.([]any); ok {
-			idx, err := strconv.Atoi(seg)
-			if err == nil {
-				if idx < 0 || idx >= len(list) {
-					return
-				}
-				if last {
-					list[idx] = value
-					return
-				}
-				cur = list[idx]
-				continue
+	return setAt(body, segs, value)
+}
+
+func setAt(cur any, segs []string, value any) bool {
+	seg := segs[0]
+	last := len(segs) == 1
+	if list, ok := cur.([]any); ok {
+		if idx, err := strconv.Atoi(seg); err == nil {
+			if idx < 0 || idx >= len(list) {
+				return false
 			}
-			if len(list) == 0 {
-				return
+			if last {
+				list[idx] = value
+				return true
 			}
-			cur = list[0]
+			return setAt(list[idx], segs[1:], value)
 		}
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return
+		if len(list) == 0 {
+			return false
 		}
-		if last {
-			m[seg] = value
-			return
+		placed := true
+		for _, item := range list {
+			placed = setAt(item, segs, value) && placed
 		}
-		cur = childContainer(m, seg)
+		return placed
 	}
+	m, ok := cur.(map[string]any)
+	if !ok {
+		return false
+	}
+	if last {
+		m[seg] = value
+		return true
+	}
+	return setAt(childContainer(m, seg), segs[1:], value)
+}
+
+const maxPlannedEntries = 100
+
+func growLists(body map[string]any, path string) {
+	growAt(body, chain.SplitPath(path))
+}
+
+func growAt(cur any, segs []string) any {
+	if len(segs) == 0 {
+		return cur
+	}
+	switch t := cur.(type) {
+	case []any:
+		idx, err := strconv.Atoi(segs[0])
+		if err != nil {
+			for i := range t {
+				t[i] = growAt(t[i], segs)
+			}
+			return t
+		}
+		if len(t) == 0 || idx < 0 || idx >= maxPlannedEntries {
+			return t
+		}
+		for len(t) <= idx {
+			t = append(t, cloneBody(t[0]))
+		}
+		t[idx] = growAt(t[idx], segs[1:])
+		return t
+	case map[string]any:
+		if next, ok := t[segs[0]]; ok {
+			t[segs[0]] = growAt(next, segs[1:])
+		}
+		return t
+	}
+	return cur
+}
+
+func cloneBody(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, item := range t {
+			out[k] = cloneBody(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, item := range t {
+			out[i] = cloneBody(item)
+		}
+		return out
+	}
+	return v
+}
+
+func indexDepth(path string) int {
+	n := 0
+	for _, seg := range chain.SplitPath(path) {
+		if isIndexSegment(seg) {
+			n++
+		}
+	}
+	return n
+}
+
+func isIndexSegment(seg string) bool {
+	if seg == "" {
+		return false
+	}
+	for _, r := range seg {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func byIndexDepth(names []string) []string {
+	out := append([]string{}, names...)
+	sort.SliceStable(out, func(i, j int) bool { return indexDepth(out[i]) < indexDepth(out[j]) })
+	return out
 }
 
 func childContainer(m map[string]any, seg string) any {
@@ -239,19 +449,26 @@ func childContainer(m map[string]any, seg string) any {
 	return next
 }
 
-func resolveOrder(target string, lib *Library, cat *catalog.Catalog) ([]string, error) {
+func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, error) {
 	order := []string{}
 	state := map[string]int{}
-
-	var visit func(node string, trail []string) error
-	visit = func(node string, trail []string) error {
+	edges := map[string][]string{}
+	canon := func(node string) (string, string, string) {
 		rpc, alias := SplitNode(node)
 		if m, err := cat.Lookup(rpc); err == nil {
 			rpc = m.FullName
 		}
-		canonical := rpc
 		if alias != "" {
-			canonical = rpc + "@" + alias
+			return rpc + "@" + alias, rpc, alias
+		}
+		return rpc, rpc, alias
+	}
+
+	var visit func(node, via string, trail []string) error
+	visit = func(node, via string, trail []string) error {
+		canonical, rpc, alias := canon(node)
+		if via != "" && !containsString(edges[canonical], via) {
+			edges[canonical] = append(edges[canonical], via)
 		}
 		switch state[canonical] {
 		case 1:
@@ -262,13 +479,16 @@ func resolveOrder(target string, lib *Library, cat *catalog.Catalog) ([]string, 
 		state[canonical] = 1
 		if c, ok := lib.Get(rpc); ok {
 			for _, dep := range c.DependenciesFor(alias) {
-				if err := visit(dep, append(trail, canonical)); err != nil {
+				depCanonical, _, _ := canon(dep)
+				label := shortNode(canonical) + " " + dependencyKind(c, alias, depCanonical, canon)
+				if err := visit(dep, label, append(trail, canonical)); err != nil {
 					return err
 				}
 			}
 		}
 		for _, requires := range lib.RequiredBy(rpc) {
-			if err := visit(requires, append(trail, canonical)); err != nil {
+			label := shortNode(requires) + " before: " + shortNode(rpc)
+			if err := visit(requires, label, append(trail, canonical)); err != nil {
 				return err
 			}
 		}
@@ -276,10 +496,39 @@ func resolveOrder(target string, lib *Library, cat *catalog.Catalog) ([]string, 
 		order = append(order, canonical)
 		return nil
 	}
-	if err := visit(target, nil); err != nil {
-		return nil, err
+	for _, target := range targets {
+		if err := visit(target, "the plan target", nil); err != nil {
+			return nil, nil, err
+		}
 	}
-	return order, nil
+	return order, edges, nil
+}
+
+func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (string, string, string)) string {
+	kinds := []string{}
+	for _, n := range c.Needs {
+		if got, _, _ := canon(n); got == dep {
+			kinds = append(kinds, "needs:")
+			break
+		}
+	}
+	fields := c.FieldsFor(alias)
+	for _, name := range sortedFieldNames(fields) {
+		if ref, err := ParseRef(fields[name].From); err == nil {
+			if got, _, _ := canon(ref.Node()); got == dep {
+				kinds = append(kinds, name+" from:")
+			}
+		}
+		if ref, err := ParseRef(fields[name].SameAs); err == nil {
+			if got, _, _ := canon(ref.Node()); got == dep {
+				kinds = append(kinds, name+" same_as:")
+			}
+		}
+	}
+	if len(kinds) == 0 {
+		return "depends on it"
+	}
+	return strings.Join(kinds, ", ")
 }
 
 func (p *Plan) YAML() ([]byte, error) {
@@ -430,6 +679,13 @@ func (p *Plan) noteRequirements() {
 				p.note("step %s: %s is required and has no usable value — fill it", id, name)
 			}
 		}
+		if zeros := scaffoldZeros(pc.step.Body, pc.schema.Fields, pc.contract, pc.fields); len(zeros) > 0 {
+			p.note("step %s: %s still %s the scaffold's numeric zero and %s not in required. If 0 is not the "+
+				"test data you mean, set it — in the contract (value:) or in the chain; if 0 IS what you mean, say so "+
+				"with value: \"0\", because a note: describes the field and does not silence this. This line is the only "+
+				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
+				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
+		}
 		if len(pc.contract.RequiresRole) > 0 && !pc.contract.DeclaresNoRole() {
 			p.note("step %s: caller must hold role %s", id, strings.Join(pc.contract.RequiresRole, " or "))
 		}
@@ -440,7 +696,10 @@ func typedValue(raw string, schema *catalog.Schema, path string) any {
 	if schema == nil || chain.HasReference(raw) {
 		return raw
 	}
-	kind := fieldKindAt(schema.Fields, chain.SplitPath(path))
+	kind := ""
+	if f, ok := catalog.FieldAt(schema.Fields, chain.SplitPath(path)); ok && f != nil {
+		kind = f.Kind
+	}
 	switch kind {
 	case "bool":
 		switch raw {
@@ -453,18 +712,90 @@ func typedValue(raw string, schema *catalog.Schema, path string) any {
 	return raw
 }
 
-func fieldKindAt(fields []*catalog.Field, segs []string) string {
-	if len(segs) == 0 {
-		return ""
+func pluralVerb(n int, one, many string) string {
+	if n == 1 {
+		return one
 	}
-	for _, f := range fields {
-		if f.Name != segs[0] {
-			continue
+	return many
+}
+
+func scaffoldZeros(body map[string]any, schema []*catalog.Field, c *RPCContract, fields map[string]*FieldContract) []string {
+	out := []string{}
+	var walk func(v any, fs []*catalog.Field, path string)
+	walk = func(v any, fs []*catalog.Field, path string) {
+		m, ok := v.(map[string]any)
+		if !ok {
+			return
 		}
-		if len(segs) == 1 {
-			return f.Kind
+		for _, f := range fs {
+			child, ok := m[f.Name]
+			if !ok || IsPagingFieldName(f.Name) || f.MapKey != "" || f.JSONForm != "" {
+				continue
+			}
+			at := join(path, f.Name)
+			if list, isList := child.([]any); isList {
+				for i, item := range list {
+					itemPath := at
+					if len(list) > 1 {
+						itemPath = fmt.Sprintf("%s.%d", at, i)
+					}
+					if len(f.Fields) > 0 {
+						walk(item, f.Fields, itemPath)
+					} else if isNumericZero(item) && !contractSpeaksFor(c, fields, itemPath) {
+						out = append(out, itemPath)
+					}
+				}
+				continue
+			}
+			if len(f.Fields) > 0 {
+				walk(child, f.Fields, at)
+				continue
+			}
+			if isNumericZero(child) && !contractSpeaksFor(c, fields, at) {
+				out = append(out, at)
+			}
 		}
-		return fieldKindAt(f.Fields, segs[1:])
 	}
-	return ""
+	walk(body, schema, "")
+	return out
+}
+
+func isNumericZero(v any) bool {
+	switch t := v.(type) {
+	case string:
+		return t == "0"
+	case float64:
+		return t == 0
+	case int:
+		return t == 0
+	}
+	return false
+}
+
+func contractSpeaksFor(c *RPCContract, fields map[string]*FieldContract, path string) bool {
+	depth := len(chain.SplitPath(stripIndexes(path)))
+	covers := func(key string) bool {
+		return relatedKey(key, path) && len(chain.SplitPath(stripIndexes(key))) >= depth
+	}
+	for _, r := range c.Required {
+		if !IsRequiredLiteral(r) && covers(r) {
+			return true
+		}
+	}
+	for name, f := range fields {
+		if f != nil && covers(name) && hasValueSource(f) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripIndexes(path string) string {
+	kept := []string{}
+	for _, seg := range chain.SplitPath(path) {
+		if !isIndexSegment(seg) {
+			kept = append(kept, seg)
+		}
+	}
+	return strings.Join(kept, ".")
 }

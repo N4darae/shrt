@@ -57,6 +57,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintExpectRefs(s, known, knownExports)...)
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)
+		issues = append(issues, lintInertAllowFail(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
 		for name := range s.Export {
@@ -83,13 +84,38 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool) []Issue {
 				e.Path, ref)})
 		}
 		for _, ref := range collectRefs([]any{e.Equals, e.NotEqual, e.Contains}) {
-			if why := referenceProblem(ParseRef(ref), known, knownExports); why != "" {
+			r := ParseRef(ref)
+			if why, own := ownStepProblem(s.ID, r, knownExports); own {
+				if why != "" {
+					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+						"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
+				}
+				continue
+			}
+			if why := referenceProblem(r, known, knownExports); why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
 			}
 		}
 	}
 	return issues
+}
+
+func ownStepProblem(stepID string, r Ref, knownExports map[string]bool) (string, bool) {
+	if r.Err != nil || (r.Kind != RefStep && r.Kind != RefBare) || r.Head != stepID {
+		return "", false
+	}
+	if r.Kind == RefBare && knownExports[r.Head] {
+		return "", false
+	}
+	if section, _, _ := strings.Cut(r.Rest, "."); r.Kind == RefStep && section == "request" {
+		return "", true
+	}
+	return fmt.Sprintf("reads step %q's own response. This expect already reads that response through "+
+		"its path, so the reference compares the answer with itself: on the same path it cannot fail, "+
+		"and on another it checks the server against nothing independent of it. Read this step's own "+
+		"request (${steps.%s.request.<field>}) to assert the response echoes what was sent, or an "+
+		"earlier step's response", stepID, stepID), true
 }
 
 func referenceProblem(r Ref, known, knownExports map[string]bool) string {
@@ -334,6 +360,29 @@ func lintAssertsSomething(s *Step) []Issue {
 	}}
 }
 
+func lintInertAllowFail(s *Step) []Issue {
+	if !s.AllowFail || len(s.Expect) == 0 {
+		return nil
+	}
+	say := fmt.Sprintf("%s.code equals: permission_denied for a Connect error", TransportPrefix)
+	inBand := ""
+	if p := EnvelopePath(); p != "" {
+		say += fmt.Sprintf(", or %s equals: <the refusal code> for an in-band refusal", p)
+		inBand = fmt.Sprintf(", and an in-band refusal on %s is never covered by allow_fail", p)
+	}
+	return []Issue{{
+		Step:     s.ID,
+		Severity: SeverityWarn,
+		Kind:     KindInertAllowFail,
+		Message: fmt.Sprintf("allow_fail: true does nothing on this step: it tolerates only a transport refusal "+
+			"(the call answered with a Connect error) on a step that declares NO expect, and this step "+
+			"declares %d. Here the expectations alone decide the verdict — a refusal they do not describe "+
+			"still fails the step%s. Drop allow_fail; if this step is meant to be refused, its expectations "+
+			"are how you say which refusal (%s), and the step passes when it gets exactly that",
+			len(s.Expect), inBand, say),
+	}}
+}
+
 func indexedForm(path, at string) string {
 	if len(path) <= len(at) {
 		return path + ".0"
@@ -469,7 +518,7 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	if len(missingVars) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
 			"reads ${vars.%s} which this chain does not declare in vars: — the run needs %s, "+
-				"and without it the run dies at the first step that reads one, after every step before it has already hit the backend",
+				"and without it shrt run refuses the chain before sending anything",
 			strings.Join(missingVars, "}, ${vars."),
 			"-var "+strings.Join(missingVars, "=... -var ")+"=...")})
 	}
@@ -557,9 +606,8 @@ func lintExpectRules(s *Step) []Issue {
 		if why := TautologyReason(e); why != "" {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
 				"expect on %q %s, so it passes whatever the server answers. An assertion that cannot "+
-					"fail is the one fault no gate downstream can see — a green step proves nothing. "+
-					"Assert the value this step should have produced",
-				e.Path, why)})
+					"fail is the one fault no gate downstream can see — a green step proves nothing. %s",
+				e.Path, why, TautologyRemedy(e))})
 		}
 	}
 	return issues
@@ -638,11 +686,13 @@ const (
 	KindUnreachable = "unreachable-path"
 	KindDeadRef     = "unproducible-reference"
 	KindBadExport   = "export-reads-nonfield"
+
+	KindInertAllowFail = "inert-allow-fail"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
-	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport:
+	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail:
 		return true
 	}
 	return false

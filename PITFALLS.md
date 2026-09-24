@@ -1,7 +1,7 @@
 # PITFALLS
 
-Symptom → cause → fix. Every entry is something that actually happened in this repo, with the
-pointer that lets you re-check it. Ordered by how quietly each one fails, quietest first.
+Symptom → cause → fix. Every entry is something that actually happened in the repo shrt was
+developed in, with the pointer that lets you re-check it.
 
 **Read the receipts as history, not as instructions.** The mechanism in each entry is a property of
 shrt and travels to any repo; the particulars are not. Host names, app codes, migration numbers,
@@ -22,7 +22,7 @@ typed `host_overide:` would have sent every request with the wrong SNI and `Host
 
 **Fix.** Loaders now decode with `KnownFields(true)` and reject the file. The habit that outlives
 the fix: **look the key up in `GRAMMAR.md` rather than writing the one another tool would use.**
-`core_distillation/{chain,contract,config}/unknownfield_test.go` pin it.
+`{chain,contract,config}/unknownfield_test.go` in the shrt module pin it.
 
 ## 2. A green chain that proves nothing, because the descriptor is stale
 
@@ -33,8 +33,10 @@ missing", so you "fix" the chain.
 values omitted. Lint cannot catch this: lint validates against whatever the descriptor says, so a
 stale descriptor is self-consistent.
 
-**Fix.** `shrt catalog build` after any proto change. `scripts/check-descriptor-fresh.sh` rebuilds
-and compares bytes; `scripts/check.sh` runs it. Recorded at commit `4251e77`.
+**Fix.** `shrt catalog build` after any proto change. `shrt doctor` rebuilds the descriptor and
+fails when the bytes differ from the one on disk. (In the development repo the same comparison is
+`scripts/check-descriptor-fresh.sh`, run by its `scripts/check.sh`; recorded there at commit
+`4251e77`.)
 
 ## 3. `not_empty` used where `exists` was meant
 
@@ -51,13 +53,15 @@ less than it looks like on a proto3 scalar.
 
 **Symptom.** A chain goes red and the report blames an rpc.
 
-**Cause.** `error` is the third run status and it means **no request was sent for that step** — a
-reference or an auth body that would not resolve. Nothing reached the backend, so it says nothing
-about the backend. It is usually an unset env var or a `${...}` naming something the chain never
-created.
+**Cause.** `error` is the third run status, and nearly always it means **no request was sent for
+that step**: a reference or an auth body would not resolve, or the login failed. Then nothing
+reached the backend, so it says nothing about the backend. It is usually an unset env var or a
+`${...}` naming something the chain never created. The rarer cases where the request did go out
+are a transport failure after sending, an answer that is not JSON, and a per-item verdict path that
+cannot be read; the step's `error` line says which.
 
 **Fix.** Read the status word before the step name. `failed` is evidence about the server; `error`
-is evidence about the fixture.
+is almost always evidence about the fixture, and its `error` line tells you when it is not.
 
 One case used to break that rule and no longer does: with `conventions.validate_output: true`, a
 response the descriptor cannot read was reported as `error` although the request had been sent and
@@ -70,7 +74,7 @@ status words could not express. See entry 29.
 `auth body: unresolved reference ${env.API_PASSWORD}`.
 
 **Cause.** Deliberate, not a bug: the cache key is a hash of the login procedure **and the resolved
-request body** (`cacheKey` in `core_distillation/transport/tokencache.go`), so a token minted for one credential can
+request body** (`cacheKey` in `transport/tokencache.go`), so a token minted for one credential can
 never be handed to another. Resolving the body is therefore a precondition of *reading* the cache,
 and an unresolvable body returns an empty key — a miss.
 
@@ -116,8 +120,7 @@ of the same 193 distinct codes, on 2026-09-12.
 **Fix.** Cross-check the two sides mechanically rather than by reading. `errmsg.New` calls span
 several lines, so a line-oriented regex matches nothing — scan the file as one string and take the
 first `<digits>, "<Reason>"` after each `errmsg.New`. Compare against every `failures:` entry, both
-the per-rpc blocks and the domain-level one. That scan is now a script and a gate, so do not redo
-it by hand and do not quote either number from here:
+the per-rpc blocks and the domain-level one. Do not quote either number from here.
 
 Compare the codes your backend actually raises against the codes your contracts declare. shrt ships
 no tool for that — the comparison needs a reader of YOUR backend's error constructor — so it is a
@@ -168,7 +171,7 @@ chain's own tag isolates.
 
 ## 11. An expect-fail chain that passes
 
-**Symptom.** `verify-all-flows.sh` reports `UNEXPECTED … got=PASSED want=FAILED`.
+**Symptom.** The development repo's `verify-all-flows.sh` sweep reports `UNEXPECTED … got=PASSED want=FAILED`.
 
 **Cause.** This is the sweep working. Such a chain asserts a **pre-fix defect**; it must FAIL. A
 PASS means the fix that made it fail has fallen off the target — a deploy regression, not a chain
@@ -192,17 +195,20 @@ description in the overlay. This is the one part of composition that is not mech
 
 **The narrower version of this — a planned body nobody filled in — lint does catch**, per step and
 per field: `sends an empty string or a placeholder enum for <fields>, and the contract does not say
-that is deliberate`. It is a WARNING, and it is silenced two ways, both of them correct: name the
-field in the contract's `required:`, where the stronger error already covers it, or answer that
-field's `note:` TODO to say the empty value is the point (`fetch_..._unfiltered` steps in this repo
-do exactly that). On a fully curated corpus it fires on nothing, which is the intended end state
+that is deliberate`. It is a WARNING, and it is silenced three ways, all of them correct: name the
+field in the contract's `required:`, where the stronger error already covers it; give the field a
+`from`, `same_as` or `value` in the contract; or answer that field's `note:` TODO to say the empty
+value is the point (`fetch_..._unfiltered` steps in the development repo do exactly that). A step
+that asserts a refusal is not checked at all. On a fully curated corpus it fires on nothing, which is the intended end state
 rather than evidence the check is inert.
 
 **Read its scope precisely, because two neighbours look identical and are not reported:**
 
 - **A numeric zero is NOT reported.** `amount_minor: "0"` from a scaffold and a deliberate limit of
   zero are the same bytes, and §3 of `PLAYBOOK.md` records why lint stays lax there. The `plan`
-  header is the only thing that will ever tell you about a leftover numeric zero.
+  header is the only thing that will ever tell you about a leftover numeric zero, for required and
+  other fields alike (the latter as a softer `still carries the scaffold's numeric zero` note). A
+  field `note:` does not silence it; `value: "0"` does.
 - **A zero enum member is reported only when its NAME is a placeholder** — `*_UNSPECIFIED`,
   `*_UNKNOWN`, `*_NONE`, `*_INVALID`, `*_UNSET`, `*_UNDEFINED`. proto3 requires a zero member; it
   does not require that member to mean "unset". `enum Side { BUY = 0; SELL = 1; }` sending `BUY` is
@@ -217,9 +223,9 @@ field. The obvious response — fill them — destroys the probe.
 
 **Cause.** The required-field rule skips a step only when `stepExpectsSuccess` says the step wants
 a refusal, and that function looks at exactly two things: an expectation on the envelope path
-(`conventions.envelope_path`, default `error.code`) with `not_equal: <envelope_ok>` or
-`equals: <anything else>`, or one on `transport.code` / `transport.http_status` that names a
-refusal (`core_distillation/contract/chainbodies.go`).
+(`conventions.envelope_path`, default `error.code`) with `not_equal: <envelope_ok>` or a string
+`equals:` naming anything else, or one on `transport.code` / `transport.http_status` that names a
+refusal (`contract/chainbodies.go`).
 `allow_fail: true` does **not** count, and neither does asserting `error.details.0.app_code` —
 which is the natural way to write a probe, and is how this was found: the skeleton in `PLAYBOOK.md`
 §5 was written without it and produced 8 spurious errors on its own self-test.
@@ -231,9 +237,9 @@ which is the natural way to write a probe, and is how this was found: the skelet
 
 # Green things that are not evidence
 
-The entries above are ways to be wrong that eventually go red. These four pass **every** check —
+The entries above are ways to be wrong that eventually go red. §14 to §17 pass **every** check —
 `lint ok`, `dry-run PASSED`, a green run record — and still assert nothing. They are the reason this
-document exists, so they get their own heading.
+document exists, so they get their own heading. Entries found later were added after them.
 
 ## 14. Two rules on one expectation: the second replaces the first
 
@@ -249,7 +255,7 @@ runs weakest-first, so the entry passes. The natural way to say "present, and un
 the way that drops the "unchanged".
 
 `shrt chain lint` rejects it as of 2026-09-11, naming both rules and which one would have won
-(`lintExpectRules` in `core_distillation/chain/lint.go`), and `GRAMMAR.md` §1's last table row is generated by
+(`lintExpectRules` in `chain/lint.go`), and `GRAMMAR.md` §1's last table row is generated by
 running the case. **Write one rule per entry and repeat the path** — two entries both fire.
 
 ## 15. A `${...}` inside a `vars:` value is a string, not a reference
@@ -259,7 +265,7 @@ vars:
     shared_key: ${uuid}        # both steps should share one idempotency key
 ```
 
-They share it, in the worst way: the scope is built by `mergeVars` (`core_distillation/runner/runner.go`) with no
+They share it, in the worst way: the scope is built by `mergeVars` (`runner/runner.go`) with no
 resolution pass, so the literal seven characters `${uuid}` are sent to the server. Same reference in
 a `body` is loud — status `error`, "unresolved reference". In `vars` it was neither resolved nor
 reported.
@@ -270,16 +276,17 @@ directly in the body that needs it, or supply the value with `-var key=...` at r
 ## 16. A green `-dry-run` has only really checked step 1
 
 Dry run resolves and validates, but there are no responses to resolve from, so every cross-step
-reference becomes `""`. A step whose body is `{ids: ["${create.id}"]}` dry-runs as `{ids: [""]}` —
-a value the server rejects — and the dry run reports `PASSED`, with every step recorded as
-`skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
+reference resolves against a scaffold of the response message: `""` for a string, `"0"` for an
+int64, `0`, `false`, the first enum member. A step whose body is `{ids: ["${create.id}"]}` dry-runs
+as `{ids: [""]}` — a value the server rejects — and the dry run reports `PASSED`, with every step
+recorded as `skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
 any body downstream of a reference.
 
 ## 17. A step that only asserts `error.code == OK`
 
 The oldest one, and still the most common: it asserts the server did not crash. Before references
 were allowed in comparison values, **48.7% of steps in this corpus asserted only the error
-envelope**, because that was the only thing an assertion could reach (`core_distillation/chain/expect.go`). It
+envelope**, because that was the only thing an assertion could reach (`chain/expect.go`). It
 is no longer the only thing, and the share has barely moved: **817 of 1887 steps, 43.3%, on
 2026-09-12**. Neither number is worth quoting a day later. Re-derive — a step counts when every one
 of its expectations names a path under `error`:
@@ -311,14 +318,15 @@ composed the correct dependency order for **4 of 10** rpcs from the first author
 are the entire reason `plan` exists. Two of the three authors reported the hole themselves: *"the two
 automated gates are satisfiable without doing any of the actual curation work."*
 
-**Fix.** The score now charges for omission too — unfilled `TODO`s, a write rpc with no `failures:`,
-an id with no `from`/`same_as`/`value`, a response field in no `exports:`/`terminal:`/`soft_signals:`,
-an id wired with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. Same three
+**Fix.** The score now charges for omission too — a write rpc with no `failures:`, an id with no
+`from`/`same_as`/`value`, a response field in no `exports:`/`terminal:`/`soft_signals:`, an id wired
+with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. An unfilled `TODO` is not
+charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
-scaffold **56**. `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
+scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
 or finds zero `errmsg.New` sites — run from a copy outside the backend it used to report `0
 undeclared` and pass, verifying nothing. Weights and exemptions: `PLAYBOOK.md` §7;
-`core_distillation/contract/quality_test.go` pins each term.
+`contract/quality_test.go` pins each term.
 
 The habit that outlives the fix: **a gate you can satisfy by deleting the file is measuring the
 wrong thing.** Before trusting one, feed it an empty scaffold and check that it goes red.
@@ -348,8 +356,9 @@ declarations with no descriptor counterpart, so their absence was free. `needs:`
 **Fix, and what was measured before choosing it.** Two new weight-2 terms:
 
 - **a READ rpc no write rpc can reach** — satisfied by `needs:`, by a `from`/`same_as` on any field
-  (aliases included), or by a `before:` some write declares at it, i.e. by any edge `plan` walks.
-  It fires exactly when `plan <read>` would emit a one-step chain. Fires on **0 of the corpus's 49
+  (aliases included), or by a `before:` some write declares at it, i.e. by any edge `plan` walks
+  that ends at a write. It fires when `plan <read>` would emit a one-step chain. Since then a
+  `no_producer:` saying why also spares it. Fires on **0 of the corpus's 49
   read rpcs** and on r2-cand1 and r2-cand3 (4 points each); r2-cand2 stays 0.
 - **an rpc with no `requires_role:`** — spared by the literal `NONE`, alone, which is how an rpc
   declares it reaches no role gate. Fired on **12 of 124**; 4 were verified real omissions against
@@ -365,7 +374,7 @@ fires, 18 false positives. So was a **noun-pairing** signal (a `FetchX` whose `n
 **Say plainly what the fix does not do.** It separates **two of the three** authors from ground
 truth. Author 2 wired an id on every read, so every read had *a* producer — the wrong ones. No term
 can see an incomplete `needs:`, because the descriptor holds nothing to compare it against. The
-blind spot is now documented in `PLAYBOOK.md` §7 and `docs/contracts.md` rather than papered over;
+blind spot is now documented in `PLAYBOOK.md` §7 rather than papered over;
 the step-3 procedure gained the cheap detector that does work — run `plan` on every read and ask
 whether that order could have produced a row for the read to find.
 
@@ -373,8 +382,8 @@ Two smaller things the same three authors found, both confirmed: `shrt contract 
 `note: filter, empty means no filter` on every field of a read rpc, wrong for **18 of 184** such
 fields in the corpus and for **6 of pricing's 12** — and, worse, a non-`TODO` note made the score
 treat the field as answered. It now asks the question instead of answering it, which is also why the
-bare pricing scaffold went from 56 to **112**. And a domain is the SECOND dotted segment of the
-service name, so `acme.admin.pricing.…/FreezeAssetDailyMark` lives in `admin.yaml`, not in
+bare pricing scaffold went from 56 to **112**. And a domain is, on that backend, the SECOND dotted
+segment of the service name (`PLAYBOOK.md` §7 has the exact rule), so `acme.admin.pricing.…/FreezeAssetDailyMark` lives in `admin.yaml`, not in
 `pricing.yaml`; `catalog ls -filter pricing` returns 11 while `contract init pricing` scaffolds 10,
 and nothing said so.
 
@@ -438,7 +447,7 @@ real field. When a curated contract arms one member (a `value`, `from` or `same_
 declares a group), `shrt contract show` and `shrt chain new` scaffold that member instead of the
 first. Pinned by `TestScaffoldEmitsOneMemberOfEachOneof`,
 `TestScaffoldHonoursAPreferredOneofMember` and `TestSchemaMarksOneofMembersAndWellKnownForms` in
-`core_distillation/catalog`.
+`catalog`.
 
 ## 22. A well-known type scaffolded as its seconds-and-nanos fields
 
@@ -459,8 +468,9 @@ The scaffold expanded them like ordinary messages, so every one of them produced
 could never parse.
 
 **Fix.** Measured, not reasoned: the placeholder for a well-known type is protojson's own marshal of
-that type's ZERO message (`core_distillation/catalog/wellknown.go`), so it round-trips by construction and a new
-well-known type needs no new table entry. `google.protobuf.Value` is the single type that cannot be
+that type's ZERO message (`catalog/wellknown.go`), so it round-trips by construction. The table
+there only decides which types are well known and carries the accepted form the schema listing
+prints; a type missing from it is scaffolded as an ordinary message. `google.protobuf.Value` is the single type that cannot be
 marshalled at zero — a Value with no kind set is not a value — and it scaffolds as `null`, which
 protojson accepts. `google.protobuf.Any` scaffolds as `{}`, which is accepted as an EMPTY Any;
 anything else in it needs a `@type`, and the schema listing says so, next to the field, along with
@@ -486,24 +496,28 @@ comes back is a parse failure with nothing in it about streaming.
 
 **Cause.** Nothing read the descriptor's streaming flags — `grep -rn Streaming` across shrt's own source returned
 nothing at all. shrt's transport is unary by design: one POST of JSON to `/pkg.Service/Method`, one
-response body (`core_distillation/transport/client.go`). A rpc that answers with a stream is out of scope, and
+response body (`transport/client.go`). A rpc that answers with a stream is out of scope, and
 the tool had no way to say so.
 
 **Fix.** `catalog.Method` carries `ClientStreaming` / `ServerStreaming` from the descriptor.
 `shrt catalog ls` and `shrt catalog describe` mark such an rpc, `shrt contract show` prints a
-`STREAMING` line, `shrt chain new` refuses to scaffold one, and `shrt chain lint` reports a step
-that calls one as an ERROR — all of them carrying the same sentence, which names the rpc, the kind
-of streaming, and the unary shape that cannot carry it. An adopting repo with streaming methods
+`STREAMING` line, `shrt chain new` refuses to scaffold one, `shrt chain lint` reports a step
+that calls one as an ERROR, and `shrt run` and `-dry-run` refuse the step before anything is sent
+(until 2026-09-24 they did not: dry-run printed `DRY-RUN OK` and a run sent it). `shrt contract plan` refuses a streaming target, and any plan whose graph pulls one in, with the same sentence (it used to write a chain that could never lint), and `contract status` never counts one as REACHED. `describe`, `chain new` and `chain lint` carry the same sentence, which
+names the rpc, the kind of streaming, and the unary shape that cannot carry it; `catalog ls` and
+`contract show` print a shorter `OUT OF SCOPE` marker. An adopting repo with streaming methods
 learns they are out of scope from the tool, not from a confusing runtime parse failure.
-`TestStreamingFlagsRideOnTheMethod` and `TestLintErrorsOnAStepCallingAStreamingRPC` pin it.
+`TestStreamingFlagsRideOnTheMethod`, `TestLintErrorsOnAStepCallingAStreamingRPC` and
+`TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun` pin it.
 
 **All three shared one absence, and that is the part worth keeping.** Nothing checked that a
 scaffolded body validates against the message it was scaffolded FROM — a property the tool can test
 against itself, with no server involved. It is now two tests:
-`TestScaffoldedBodyValidatesForEveryRPCInTheCorpus` walks every rpc in this repo's real descriptor,
+`TestScaffoldedBodyValidatesForEveryRPCInTheCorpus` walks every rpc in the development repo's real
+descriptor (in the module it skips, because there is no `.shrt/descriptor.binpb` for it to find),
 and `TestScaffoldedBodyValidatesForEveryRPCInTheRichFixture` walks a fixture built for the proto
-features the real surface happens not to use (`core_distillation/catalog/catalogtest/rich.go`: a three-armed
-group, ten well-known types, a repeated message, a map, an enum, a proto3 `optional`, and the three
+features the real surface happens not to use (`catalog/catalogtest/rich.go`: a three-armed group and
+a two-armed one, twelve well-known types, a repeated message, a map, an enum, a proto3 `optional`, and the three
 streaming shapes). The corpus test is the one that would have caught all three the day a new proto
 feature reached the surface; the fixture is the one that catches them today, because the surface
 this grew up against uses none of those features.
@@ -525,7 +539,8 @@ chain file to compare against.
 the emptiness visible at all. Measured 2026-09-12 over 2438 local records: 9112 passed read steps,
 1965 asserting only the envelope, 529 of those hollow, across 34 distinct (chain, step) pairs. 28
 are refusal probes where an empty body IS the pass and now carry their reason in
-`.shrt/hollow-allow.txt`; 1 has since gained a data assertion in its chain; 5 remain, four of them in
+`.shrt/hollow-allow.txt` (since 2026-09-24 a probe that pins its non-OK envelope value is recognised
+without an allowlist line, as is `<list>.0 exists: false`); 1 has since gained a data assertion in its chain; 5 remain, four of them in
 `readonly-fetch-sweep` — a sweep of reads with nothing in the chain that creates the data.
 
 Two things that reading the numbers wrong will cost you. **A proto3 JSON int64 arrives as a STRING**,
@@ -536,6 +551,9 @@ candidates and would silently exempt every future step whose name happens to con
 including a real regression. The reason field is the whole file; an entry without one is refused.
 
 ## 25. A gate that skipped its own comparison because the file was not there
+
+This entry is about the development repo's own gate script, `scripts/check.sh`, and the scripts and
+tests it names. None of them ships in the shrt module; the lesson is the part that transfers.
 
 **Symptom.** `check.sh` printed the agent-kit section and moved on, every run, with
 `.claude/skills/shrt/SKILL.md` deleted. Measured 2026-09-12: the loop guarded its `diff` with
@@ -568,7 +586,7 @@ watches do: it reports green about a question it never asked.
 a probe, an entry in the small `nonGates` table that carries the one-line reason it cannot go blind
 (`echo` prints, `exit` propagates a verdict, `[ … ]` inspects state, …), or punctuation carrying no
 command. Anything else fails by section and line number with the two remedies spelled out. That
-accounting is a test inside the shrt repository, not something to run in yours — the transferable
+accounting is a test inside the development repo, not something to run in yours — the transferable
 part is the shape: a gate list whose default is to REFUSE a line it cannot classify. The reason table is the same shape as the backend's
 `requiretx_exemption_gate_test.go` — an exemption must carry its premise, or it exempts something
 nobody examined.
@@ -594,13 +612,13 @@ Three chains in this corpus leaned on it, written by three authors who each meas
 hand, found the field there, and wrote `exists: true` believing it pinned what they had just seen.
 It never did — an expectation cannot reach wire bytes, because the re-encode happens first.
 
-**Fix.** Fixed 2026-09-22: `Canonicalize` also returns the message with unpopulated fields left
-out, and `exists` reads that. What remains true, and is not a bug: **a proto3 scalar without
+**Fix.** Fixed 2026-09-22: `CanonicalizeWithPresence` returns the message a second time with
+unpopulated fields left out, and `exists` reads that. What remains true, and is not a bug: **a proto3 scalar without
 `optional` has no presence on the wire at all.** `false`, `0`, `""` and a zero-length list are
 encoded identically to a field that was never set, so no tool can tell you which happened. If that
 distinction is what you need, the proto must say `optional`. Otherwise assert the value
 (`equals: false`) or the emptiness (`rows.0 exists: false`), which are things the wire can answer.
-`GRAMMAR.md` §7's second table is generated by running the rules against a body with one key.
+The second table in `GRAMMAR.md` §1 is generated by running the rules against a body with one key.
 
 ## 27. A CI gate of `lint && run`, green on a chain that proves nothing
 
@@ -612,10 +630,13 @@ has no field for is an error since 2026-09-24, §36.) That
 default is right while you are authoring, when the chain is half-written by definition. It is wrong
 for a gate, and the gate is what a team copies out of the docs.
 
-**Fix.** `shrt chain lint -strict` promotes those four kinds to errors and exits non-zero. It has
+**Fix.** `shrt chain lint -strict` promotes the assertion-quality warnings to errors and exits
+non-zero: an assertion that cannot fail, a step asserting nothing, a path that can never match, a
+reference nothing can produce, an export reading a field the response does not have, and an
+`allow_fail` on a step with expectations, where it does nothing. It has
 existed since the flag was added, but no document mentioned it, so an adopter reading the four docs
-end to end would not learn it was there — one did not, and wired up the weak gate. `scripts/check.sh`
-runs the strict form. Since 2026-09-22 the non-strict run also prints, after the warnings, that
+end to end would not learn it was there — one did not, and wired up the weak gate. The development
+repo's `scripts/check.sh` runs the strict form. Since 2026-09-22 the non-strict run also prints, after the warnings, that
 `-strict` is what a gate should run.
 
 ## 28. A cached token the backend has forgotten, re-sent forever
@@ -803,12 +824,12 @@ It was rejected: only generator references (`${uuid}`, `${now}`, `${nowunix}`) c
 there — a `${create_deal.id}` cannot, because no step has run — so the feature would have to teach a
 second rule about *which* references work *where*, in a tool whose selling point is that a reference
 either resolves or fails loudly. The use case is already served, correctly, by `-var key=value` at
-run time, which is what `scripts/verify-all-flows.sh` does for every chain it runs. A loud refusal
+run time, which is what the development repo's `scripts/verify-all-flows.sh` does for every chain it runs. A loud refusal
 with two working alternatives beats a clever resolver with a new silent-failure surface.
 
-**`GRAMMAR.md` owns every key table, and `scripts/check-key-ownership.py` enforces it** (2026-09-11).
-`docs/chain-spec.md`, `docs/contracts.md` and `agentkit/skill/SKILL.md` each used to carry their own
-copy. That is how `oneof` came to say "at most one" in one file and "exactly one" in another with
+**`GRAMMAR.md` owns every key table** (2026-09-11). In the development repo
+`scripts/check-key-ownership.py` enforces it; nothing in the module does. `docs/chain-spec.md`,
+`docs/contracts.md` and `agentkit/skill/SKILL.md` each used to carry their own copy. That is how `oneof` came to say "at most one" in one file and "exactly one" in another with
 nothing to notice — 46 duplicated rows across three files at the time of the sweep. They now point
 at the generated table. Prose, rationale and worked examples stay where they were; only the key
 enumerations moved.

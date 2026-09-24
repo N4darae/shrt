@@ -53,7 +53,7 @@ func runRun(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "emit the run record as JSON")
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	build := fs.String("build", "", buildFlagUsage)
-	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent; the run stays failed")
+	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent, unless it reads a field no failed expectation covers; the run stays failed")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -72,10 +72,7 @@ func runRun(ctx context.Context, args []string) error {
 
 	supplied := c.CoerceVars(vars)
 	if unused := c.UnusedVarNames(vars); len(unused) > 0 {
-		return fmt.Errorf("-var %s names a variable chain %q never reads, so it would have no effect.\n"+
-			"A chain isolates its fixtures with vars, so a mistyped one silently collapses every run onto "+
-			"the same key. Check the spelling, or drop the flag.\nvars this chain reads: %s",
-			strings.Join(unused, ", "), c.Name, strings.Join(c.DeclaredVarNames(), ", "))
+		return unusedVarError(unused, c.Name, c.DeclaredVarNames())
 	}
 
 	rec, err := executeChain(ctx, e, c, runner.Options{
@@ -103,6 +100,17 @@ func runRun(ctx context.Context, args []string) error {
 	return nil
 }
 
+func unusedVarError(unused []string, chainName string, reads []string) error {
+	readsLine := "this chain reads no vars at all, so any -var is rejected"
+	if len(reads) > 0 {
+		readsLine = "vars this chain reads: " + strings.Join(reads, ", ")
+	}
+	return fmt.Errorf("-var %s names a variable chain %q never reads, so it would have no effect.\n"+
+		"A chain isolates its fixtures with vars, so a mistyped one silently collapses every run onto "+
+		"the same key. Check the spelling, or drop the flag.\n%s",
+		strings.Join(unused, ", "), chainName, readsLine)
+}
+
 const buildFlagUsage = "stamp this build identity (a version, commit or image tag) into the run record; overrides target.build_header"
 
 func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Options, quiet bool) (*runner.Record, error) {
@@ -112,7 +120,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	}
 	if !quiet {
 		r.OnStep = func(sr *runner.StepRecord) {
-			fmt.Printf("%-4s %2d %-24s %-52s %4dms\n", statusMark(sr.Status), sr.Index, sr.ID, sr.Call, sr.LatencyMS)
+			fmt.Println(progressLine(sr, opts.DryRun))
 			for _, ex := range sr.Expect {
 				if !ex.Passed {
 					fmt.Printf("       %s\n", ex.String())
@@ -129,14 +137,25 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	return r.Run(ctx, c, opts)
 }
 
-func statusMark(s string) string {
+func progressLine(sr *runner.StepRecord, dry bool) string {
+	return fmt.Sprintf("%-5s %2d %-24s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, sr.ID, sr.Call, sr.LatencyMS)
+}
+
+func statusMark(s string, dry bool) string {
 	switch s {
 	case runner.StatusPassed:
 		return "ok"
-	case runner.StatusSkipped:
-		return "--"
-	default:
+	case runner.StatusFailed:
 		return "FAIL"
+	case runner.StatusError:
+		return "ERROR"
+	case runner.StatusSkipped:
+		if dry {
+			return "--"
+		}
+		return "SKIP"
+	default:
+		return strings.ToUpper(s)
 	}
 }
 
