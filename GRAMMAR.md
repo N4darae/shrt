@@ -456,7 +456,9 @@ names the list without indices (`orders.lines` for every order's lines). Without
 list that holds the safe spot's items in another order is still drift, but verify says so (`same
 items in another order`), names the declaration, and fails with `order changed` instead of
 `regression` when that is every change. Expectations are not affected: `products.0` is still the
-first item as sent. `shrt verify
+first item as sent. An `unordered` path added after approval is named as a chain change note
+(`chain change since the safe spot's run: ... added`); it can hide only a change of order, never a
+changed, added or removed item, so it does not fail verify. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 

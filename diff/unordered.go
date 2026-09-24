@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -275,4 +276,42 @@ func (r *Report) reorderedText() string {
 			" (or at chain level), and verify compares that list as a multiset, pairing items by content\n")
 	}
 	return b.String()
+}
+
+func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
+	was := map[string][]string{}
+	for _, st := range spot.Steps {
+		if st != nil {
+			was[st.ID] = st.Unordered
+		}
+	}
+	out := []string{}
+	for _, st := range rec.Steps {
+		if st == nil {
+			continue
+		}
+		approved, ok := was[st.ID]
+		if !ok {
+			continue
+		}
+		added := []string{}
+		for _, p := range st.Unordered {
+			if !containsString(approved, p) && !containsString(added, p) {
+				added = append(added, p)
+			}
+		}
+		if len(added) > 0 {
+			out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(added, ", "), st.ID))
+		}
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

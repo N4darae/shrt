@@ -226,6 +226,11 @@ func runVerify(ctx context.Context, args []string) error {
 			if reuse != nil {
 				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
+			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
+				fmt.Printf("chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
+					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
+					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
+			}
 			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
