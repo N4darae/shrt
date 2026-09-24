@@ -1047,6 +1047,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
+	sr.BodyRefs = BodyRefs(step.Body)
 	body, err := json.Marshal(resolved)
 	if err != nil {
 		return fail(sr, fmt.Errorf("encode request: %w", err))

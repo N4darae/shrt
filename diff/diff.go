@@ -317,7 +317,7 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 	}
 	was := map[string]bool{}
 	wasOrder := []string{}
-	for _, st := range spot.Steps {
+	for i, st := range spot.Steps {
 		was[st.ID] = true
 		wasOrder = append(wasOrder, st.ID)
 		s, ok := now[st.ID]
@@ -329,6 +329,7 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
 		default:
 			out = append(out, expectChanges(st, s)...)
+			out = append(out, refChanges(spot.Steps[:i], st, s)...)
 		}
 	}
 	for _, id := range nowOrder {
@@ -818,7 +819,7 @@ func (r *Report) Text() string {
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
-			cause = "the chain changed since it was confirmed; a step or expectation edit is a chain change, not an input change, " +
+			cause = "the chain changed since it was confirmed; a step, expectation or body reference edit is a chain change, not an input change, " +
 				"and an expectation edit explains a status change at its own step only"
 		}
 		if r.InputCause != "" {

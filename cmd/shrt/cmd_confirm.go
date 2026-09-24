@@ -202,10 +202,11 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	if spot.Target != rec.Target {
 		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})
 	}
-	for _, ch := range diff.ChainChanges(spot, c) {
+	edited := diff.ChainChanges(spot, c)
+	for _, ch := range edited {
 		out = append(out, store.Differ{Step: ch.Step, Side: "chain", Path: ch.Path, Delta: ch.Transition()})
 	}
-	for _, c := range rep.RequestChanges {
+	for _, c := range diff.DropRefEdited(rep.RequestChanges, edited) {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}
 	for _, c := range rep.Changes {

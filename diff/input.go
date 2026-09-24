@@ -58,7 +58,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			continue
 		}
 		i, ok := index[c.Step]
-		if chainLevel(c) || !ok {
+		if stepLevel(c) || !ok {
 			i = 0
 		}
 		if from < 0 || i < from {
@@ -109,6 +109,10 @@ func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
 }
 
 func chainLevel(c Change) bool {
+	return stepLevel(c) || refChange(c)
+}
+
+func stepLevel(c Change) bool {
 	return c.Path == "step" || c.Path == "steps" || c.Path == "call"
 }
 
