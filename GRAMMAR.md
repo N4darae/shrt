@@ -476,7 +476,8 @@ alike, so it is never compared: a change there is invisible to verify. Verify do
 it counts those values and names each one (`N redacted response value(s) ... never compared`), and
 `shrt confirm` lists them before approval, so redact only what must not be stored. A redact pattern
 the safe spot's run did not have blanks a value on one side only; that value is not compared either,
-and verify fails naming the pattern and each value (`unapproved_redact`, `unapproved_redacted`), as
+and verify fails naming the pattern and each value, a request value it blanked too (`<step> request
+<path>`, next to the response's `<step> <path>`) (`unapproved_redact`, `unapproved_redacted`), as
 for an unapproved volatile pattern, never as a backend change. A value under no
 redact path that held a secret the run knew (a credential or token it sent) is scrubbed by value to
 `<redacted>` just the same; verify and confirm name it apart, as `scrubbed by value` (`scrubbed_paths`

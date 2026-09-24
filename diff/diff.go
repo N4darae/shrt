@@ -89,6 +89,29 @@ func (r *Report) NoteApprovedRedact(approved []string, rec *runner.Record) {
 	}
 }
 
+func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) {
+	if len(r.UnapprovedRedact) == 0 {
+		return
+	}
+	masker := pathmask.NewMasker(r.UnapprovedRedact)
+	for i := range min(len(spot.Steps), len(rec.Steps)) {
+		want, got := spot.Steps[i], rec.Steps[i]
+		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+			continue
+		}
+		a, errA := decode(want.Request)
+		b, errB := decode(got.Request)
+		if errA != nil || errB != nil {
+			continue
+		}
+		walk(a, b, "", func(c Change) {
+			if (c.Kind == KindChanged || c.Kind == KindType) && c.Got == pathmask.MaskRedacted && c.Want != pathmask.MaskRedacted && maskedAt(masker, c) {
+				r.UnapprovedRedacted = append(r.UnapprovedRedacted, want.ID+" request "+c.Path)
+			}
+		})
+	}
+}
+
 func (r *Report) addUnapprovedRedact(pattern string) {
 	for _, p := range r.UnapprovedRedact {
 		if p == pattern {

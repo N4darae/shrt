@@ -138,6 +138,7 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)
+		report.NoteRedactedRequests(spot, rec)
 	}
 	if c != nil {
 		edited := diff.ChainChangesIn(spot, c, rec)
