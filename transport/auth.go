@@ -312,7 +312,7 @@ func WithAuthRouter(router AuthRouter) Middleware {
 				}
 				return res, nil
 			}
-			untried := tracked != nil && tracked.UntriedCached(token)
+			untried := tracked != nil && res.Status == http.StatusUnauthorized && tracked.UntriedCached(token)
 			minted, accepted := false, false
 			if tracked != nil {
 				minted, accepted = tracked.Minted(token)
