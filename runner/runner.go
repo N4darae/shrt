@@ -1124,7 +1124,15 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 				top, chain.EnvelopeOK(), top, top)
 		}
 	}
-	return "every item in a batch response carries its own verdict, and these were refused while " + said +
+	missing := ""
+	for _, r := range surprises {
+		if r.Code == chain.NoItemVerdict {
+			missing = fmt.Sprintf(". A line marked %s carries no verdict at all while another line of the same "+
+				"batch carries %s explicitly, so nothing says that line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
+			break
+		}
+	}
+	return "every item in a batch response carries its own verdict, and these were refused while " + said + missing +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
 		"MEANS to be refused is declared by pinning that line's verdict path, or one of its code fields (" +
 		strings.Join(chain.CodeFields(), ", ") + "), with equals, not_equal or contains, and is then not " +
