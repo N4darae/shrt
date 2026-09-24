@@ -28,7 +28,7 @@ func TestARemovedStepIsAChainChangeNotARegression(t *testing.T) {
 	if rep.Clean() {
 		t.Fatal("the step count still differs")
 	}
-	if !strings.Contains(rep.Text(), "with different input, so they are not evidence of a backend regression") {
+	if !strings.Contains(rep.Text(), "after a chain change, so they are not evidence of a backend regression") {
 		t.Fatalf("a removed step must be reported as a chain change:\n%s", rep.Text())
 	}
 

@@ -195,6 +195,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
 			len(report.Changes), principalChanges(report), name)
 	}
+	if !report.Clean() && report.OnlyChainChanged() {
+		return fmt.Errorf("drift after a chain change: %d change(s) vs safe spot, after %s since it was confirmed: the chain changed, "+
+			"not the input it sends.\nRestore the chain; if the edit is intended, run it until it passes,\n"+
+			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			len(report.Changes), report.InputSummary(), name)
+	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s since it was confirmed.\n"+
 			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+

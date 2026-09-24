@@ -805,8 +805,9 @@ Three things that decide whether this works for a given chain:
   verify prints `principal checking is off for safe spot …` and calls a drift against it
   `drift, principal not checked` (exit 1), not `regression`. Turn it on with
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
-  So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
-  `chain differs` line and `drift with different input`, not a `regression`. A call respelled to
+  The chain's step list and expectations are compared too: a step removed, added, moved or
+  re-pointed, or an expectation edited, since approval is a `chain differs` line, a chain change
+  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
   `procedure` decides.
   `verify` masks what `diff` masks: config and chain `volatile` paths,

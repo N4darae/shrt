@@ -443,13 +443,16 @@ every difference first, as `request differs from the confirmed run at <step> <pa
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
 every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
-verify with `drift with different input` even when every response matches. So is the chain's list of
-steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
+verify with `drift with different input` even when every response matches. The chain's list of steps
+is compared too: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
 from the confirmed run at <step> ...`, and the change of step count it causes is not a regression.
 An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
 `${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
 printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
-at that step and nothing else. When vars and the chain file both differ, verify names both.
+at that step and nothing else. A step or expectation edit is a CHAIN change, not an input change: the
+summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
+confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
+(exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
 compares like with like; a response value that only echoes the new fixture name is masked and counted.

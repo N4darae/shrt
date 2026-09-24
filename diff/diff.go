@@ -455,7 +455,7 @@ func (r *Report) principalCaveat() string {
 		r.SafeSpotID, strings.Join(r.PrincipalUnchecked, ", "), r.Chain)
 }
 
-func (r *Report) InputSummary() string {
+func (r *Report) inputCounts() (int, int) {
 	requests, edits := 0, 0
 	for _, c := range r.RequestChanges {
 		if chainLevel(c) || c.Path == ExpectPath {
@@ -464,6 +464,16 @@ func (r *Report) InputSummary() string {
 			requests++
 		}
 	}
+	return requests, edits
+}
+
+func (r *Report) OnlyChainChanged() bool {
+	requests, edits := r.inputCounts()
+	return requests == 0 && edits > 0
+}
+
+func (r *Report) InputSummary() string {
+	requests, edits := r.inputCounts()
 	parts := []string{}
 	if requests > 0 {
 		parts = append(parts, fmt.Sprintf("%d request value(s) differ", requests))
@@ -799,6 +809,10 @@ func (r *Report) Text() string {
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
+		if r.OnlyChainChanged() {
+			cause = "the chain changed since it was confirmed; a step or expectation edit is a chain change, not an input change, " +
+				"and an expectation edit explains a status change at its own step only"
+		}
 		if r.InputCause != "" {
 			cause = r.InputCause
 		}
@@ -820,6 +834,8 @@ func (r *Report) Text() string {
 	case mixed:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
 			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+	case r.OnlyChainChanged():
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	default:
