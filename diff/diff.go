@@ -107,7 +107,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	rep.Changes = append(rep.Changes, structural...)
 	for _, p := range pairs {
 		i, want, got := p.i, p.want, p.got
-		if want.ID != got.ID || want.Call != got.Call {
+		if want.ID != got.ID || !SameCall(want, got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: fmt.Sprintf("steps.%d", i), Kind: KindOrder,
 				Want: want.ID + " " + want.Call, Got: got.ID + " " + got.Call,
@@ -284,7 +284,7 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 		case !ok:
 			out = append(out, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call,
 				Detail: "the chain no longer has this step"})
-		case s.Call != st.Call:
+		case !callNames(s.Call, st.Call, st.Procedure):
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
 		default:
 			out = append(out, expectChanges(st, s)...)
@@ -301,6 +301,28 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
 	}
 	return out
+}
+
+func SameCall(a, b *runner.StepRecord) bool {
+	if a.Call == b.Call {
+		return true
+	}
+	if a.Procedure != "" && b.Procedure != "" {
+		return strings.EqualFold(a.Procedure, b.Procedure)
+	}
+	return callNames(a.Call, b.Call, b.Procedure) || callNames(b.Call, a.Call, a.Procedure)
+}
+
+func callNames(call, recorded, procedure string) bool {
+	if call == recorded {
+		return true
+	}
+	if procedure == "" {
+		return false
+	}
+	c := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(call), "/"))
+	p := strings.ToLower(strings.TrimPrefix(procedure, "/"))
+	return c != "" && (c == p || strings.HasSuffix(p, "/"+c) || strings.HasSuffix(p, "."+c))
 }
 
 const ExpectPath = "expect"

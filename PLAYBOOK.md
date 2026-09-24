@@ -758,7 +758,9 @@ Three things that decide whether this works for a given chain:
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
   `drift with different input` naming the profile change, even when every response matches.
   So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
-  `chain differs` line and `drift with different input`, not a `regression`.
+  `chain differs` line and `drift with different input`, not a `regression`. A call respelled to
+  the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
+  `procedure` decides.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
@@ -791,8 +793,11 @@ shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest,
 ```
 
 It reports step status changes, where the first failing step moved, steps reached in one run and
-not the other (a step `-keep-going` held back as `skipped` counts as not reached), and response
-differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
+not the other (a step `-keep-going` held back as `skipped` counts as not reached), and, in steps
+both reached, what each SENT (request values, the `auth_profile` a step ran as, and the rpc, where
+`ListProducts` and `shop.catalog.v1.ProductService/ListProducts` are the same call) before the
+response differences. A request value that only differs in a fixture name (`sku-${vars.tag}`) is
+counted, not listed, as verify does. It masks the `volatile` patterns stored in each record plus the
 ones in today's config and chain file, so a pattern you add after the runs still applies. When
 those patterns cover every response field of a step (`volatile: ["**"]`), the report opens with a
 `WARNING` naming the steps it compared nothing of (`fully_masked` under `-json`), because "no

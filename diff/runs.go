@@ -49,6 +49,8 @@ type RunReport struct {
 	WhyNotReached    []StepStatus `json:"why_not_reached,omitempty"`
 	ErrorChanges     []StepStatus `json:"error_changes,omitempty"`
 	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
+	RequestChanges   []Change     `json:"request_changes,omitempty"`
+	FixtureRequests  int          `json:"fixture_requests,omitempty"`
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
@@ -57,7 +59,7 @@ type RunReport struct {
 func (r *RunReport) Same() bool {
 	return r.StatusA == r.StatusB && r.FirstFailureA == r.FirstFailureB &&
 		len(r.StatusChanges) == 0 && len(r.NoLongerReached) == 0 &&
-		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0
+		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0 && len(r.RequestChanges) == 0
 }
 
 func CompareRuns(a, b *runner.Record) *RunReport {
@@ -76,6 +78,10 @@ func stepError(s *runner.StepRecord) string {
 }
 
 func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
+	return CompareRunsSkipping(a, b, extra, nil)
+}
+
+func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step, path string) bool) *RunReport {
 	rep := &RunReport{
 		Note: RunComparisonNote, Chain: a.Chain,
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status,
@@ -123,6 +129,7 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 				ErrorA: stepError(sa), ErrorB: stepError(sb)})
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
+		rep.compareRequests(sa, sb, masker, fixture)
 		rep.compareResponses(sa, sb, masker)
 		if everyFieldMasked(masker, sa.Response) && everyFieldMasked(masker, sb.Response) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
@@ -204,6 +211,35 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		}
 		c.Step = sa.ID
 		r.Changes = append(r.Changes, c)
+	})
+}
+
+func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.Masker, fixture func(step, path string) bool) {
+	if !SameCall(sa, sb) {
+		r.RequestChanges = append(r.RequestChanges, Change{Step: sa.ID, Path: "call", Kind: KindChanged, Want: sa.Call, Got: sb.Call})
+	}
+	if sa.AuthProfile != "" && sb.AuthProfile != "" && sa.AuthProfile != sb.AuthProfile {
+		r.RequestChanges = append(r.RequestChanges, Change{Step: sa.ID, Path: AuthProfilePath, Kind: KindChanged, Want: sa.AuthProfile, Got: sb.AuthProfile})
+	}
+	if len(sa.Request) == 0 || len(sb.Request) == 0 {
+		return
+	}
+	a, errA := decode(sa.Request)
+	b, errB := decode(sb.Request)
+	if errA != nil || errB != nil {
+		return
+	}
+	walk(a, b, "", func(c Change) {
+		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+			r.Masked++
+			return
+		}
+		if fixture != nil && fixture(sa.ID, c.Path) {
+			r.FixtureRequests++
+			return
+		}
+		c.Step = sa.ID
+		r.RequestChanges = append(r.RequestChanges, c)
 	})
 }
 
@@ -408,6 +444,15 @@ func (r *RunReport) Text() string {
 		for _, s := range r.ErrorChanges {
 			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
+	}
+	if len(r.RequestChanges) > 0 {
+		fmt.Fprintf(&b, "\n%d request difference(s), what the two runs SENT, in steps both reached (a = run A, b = run B):\n", len(r.RequestChanges))
+		for _, c := range r.RequestChanges {
+			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
+		}
+	}
+	if r.FixtureRequests > 0 {
+		fmt.Fprintf(&b, "\n%d request value(s) differ only in a fixture name built from a var inside other text (`sku-${vars.tag}`), not shown\n", r.FixtureRequests)
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))
