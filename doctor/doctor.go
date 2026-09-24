@@ -13,6 +13,11 @@ import (
 	"github.com/N4darae/shrt/config"
 )
 
+type KitFile struct {
+	Path string
+	Want []byte
+}
+
 type Level int
 
 const (
@@ -47,6 +52,7 @@ type Report struct {
 type Options struct {
 	Docs     fs.FS
 	DocNames []string
+	Kit      []KitFile
 	Env      func(string) string
 	Now      func() time.Time
 	Ignored  func(root string, paths []string) (map[string]bool, error)
@@ -76,6 +82,7 @@ func (o Options) withDefaults() Options {
 var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkBuild,
 	checkDocs,
+	checkKit,
 	checkDescriptor,
 	checkIgnored,
 	checkTokenCache,

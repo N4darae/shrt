@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	coredistillation "github.com/N4darae/shrt"
+	"github.com/N4darae/shrt/agentkit"
 	"github.com/N4darae/shrt/doctor"
 )
 
@@ -29,9 +31,18 @@ func runDoctor(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	kit := []doctor.KitFile{}
+	for _, a := range agentkit.ClaudeAssets() {
+		want, err := agentkit.ReadAsset(a)
+		if err != nil {
+			return err
+		}
+		kit = append(kit, doctor.KitFile{Path: filepath.ToSlash(a.Dest), Want: want})
+	}
 	report := doctor.Run(ctx, e.cfg, doctor.Options{
 		Docs:     coredistillation.Docs,
 		DocNames: coredistillation.DocNames,
+		Kit:      kit,
 	})
 	if *asJSON {
 		if err := emitJSON(report); err != nil {

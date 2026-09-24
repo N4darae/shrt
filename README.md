@@ -47,7 +47,8 @@ shrt catalog ls -filter <word>
 **`shrt doctor` is the check to run before you trust a green.** The four files you are reading are
 installed build output, copied out of the binary by `shrt init`; upgrade the binary and the copy
 stays where it was, so the rules you are reading can be older than the rules being enforced.
-Nothing else notices that. `doctor` compares them, and in the same pass reports which build of
+Nothing else notices that. `doctor` compares them, and the agent kit `init` installed under
+`.claude/` (the skill and the contract-author subagent), and in the same pass reports which build of
 shrt is running, checks the descriptor against a rebuild, the paths that must never be committed
 against `.gitignore`, the token cache's mode, the `auth:` profiles (a literal credential, a body
 reference it cannot resolve, an environment variable that is not exported), and whether
@@ -86,7 +87,7 @@ kit's.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the Claude skill and subagent |
 | `shrt version` | which build this is — version, commit, build time, and the four docs it carries; `-short` prints the version alone |
-| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
+| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the RPC surface |
 | `shrt catalog describe <rpc>` | request and response schemas with proto doc comments |
