@@ -40,6 +40,7 @@ type AuthBinding struct {
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
 	EnvVars     []string
+	Header      string
 }
 
 type AuthBindings []*AuthBinding
@@ -623,6 +624,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		return nil, err
 	}
 	if err := r.checkAuthEnv(c); err != nil {
+		return nil, err
+	}
+	if err := r.checkHandWrittenAuth(c); err != nil {
 		return nil, err
 	}
 	problems := c.PreflightProblems()

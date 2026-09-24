@@ -324,7 +324,10 @@ with `auth_retry: not_resent` and a warning, and the next call or run logs in fr
   anyone else seeds nothing, and its `note` says so. Each step's `auth_profile` in the run record
   names the profile it ran under.
 - Never `skip_auth` plus a hand-written `Authorization` header. That is the workaround profiles
-  replaced, and lint rejects `skip_auth` and `auth` together.
+  replaced, and lint rejects `skip_auth` and `auth` together. Nor a hand-written header on a step
+  an auth profile covers: the middleware would overwrite it and the step would run as that
+  profile's principal. Lint rejects both, and `shrt run` (and `verify`) refuses the chain before
+  sending anything, naming the step.
 - **Probe that a missing or invalid token is refused** with the two sanctioned forms, never a
   hand-written header:
 
