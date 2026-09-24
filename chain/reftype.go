@@ -141,6 +141,7 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 				"sent. Check that the source really carries a number", refs[0], path, target.Kind, where, kind))
 		}
 	})
+	never = append(never, headerStructures(s, responses, exports)...)
 	return never, maybe
 }
 

@@ -69,6 +69,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		for _, why := range maybe {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
 		}
+		for _, why := range varStructures(s, c.Vars) {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
+		}
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintUnorderedStep(s, m)...)
 		methods = append(methods, m)

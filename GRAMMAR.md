@@ -152,6 +152,10 @@ A reference that is the whole value keeps its JSON type; inside a longer string 
 interpolated as text. Only a scalar has a text form: a message, list or map interpolated inside other text
 (`name: "x-${p1.product}"`) is a lint error and refused before anything is sent when the response
 message declares it so, and fails the step when it resolves to one, never sent as `map[...]`.
+A header carries text only, so the same holds for a message, list or map referenced anywhere in a
+header, the whole value included (`X-Prod: ${p.product}`). A var is known before anything runs, so a
+map or list var inside text (`name: "n ${vars.obj}"`) or in a header is a lint error and refused
+before anything is sent, with the value `-var` gives it; interpolate one field (`${vars.obj.a}`).
 A reference that cannot resolve fails the step — it never becomes empty.
 One that is known not to resolve is refused before anything is sent, by `shrt run` and as a lint
 error: a step or export that does not exist or runs later, an unset `${env.*}`, and a field of an
