@@ -40,7 +40,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	reject := fs.Bool("reject", false, "discard the pending proposal")
 	pending := fs.Bool("pending", false, "list proposals awaiting a decision")
 	setUsage(fs, confirmUsage, "\nexit codes:\n  0  proposal written, approved, rejected or listed\n"+
-		"  1  refused: no passing run, no -note, no -by, or nothing pending\n")
+		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, or nothing pending\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -63,6 +63,9 @@ func runConfirm(ctx context.Context, args []string) error {
 	case *approve && *reject:
 		return errors.New("-approve and -reject together say nothing; pick one")
 	case *approve:
+		if err := keptRedNeverConfirmed(e, name); err != nil {
+			return err
+		}
 		return approveProposal(e, name, *by, *note)
 	case *reject:
 		if !e.store.DropProposal(name) {
@@ -72,6 +75,9 @@ func runConfirm(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	if err := keptRedNeverConfirmed(e, name); err != nil {
+		return err
+	}
 	e.store.Notes = nil
 	rec, err := e.store.LoadRun(name, *runID)
 	if err != nil {
@@ -96,6 +102,21 @@ func runConfirm(ctx context.Context, args []string) error {
 	fmt.Printf("\nonly after the user says yes:  shrt confirm %s -approve -by <their email>\n"+
 		"if they say no:                shrt confirm %s -reject\n", p.Chain, p.Chain)
 	return nil
+}
+
+func keptRedNeverConfirmed(e *env, name string) error {
+	c, err := chain.Resolve(e.chainsDir(), name)
+	if err != nil || len(c.KeptRed) == 0 {
+		return nil
+	}
+	pins := make([]string, 0, len(c.KeptRed))
+	for _, k := range c.KeptRed {
+		pins = append(pins, k.Step+" "+k.Path)
+	}
+	return fmt.Errorf("chain %s is kept red on purpose (kept_red pins %s), so it is never confirmed: its runs are evidence "+
+		"of the pinned defect, not baselines, and a safe spot would freeze the bug as ground truth. Its check is `shrt run %s` "+
+		"exiting 0 (failed exactly as pinned). Once the defect is fixed (the run says defect_gone), remove kept_red, assert the "+
+		"corrected behaviour, run it until it passes, and propose that run", name, strings.Join(pins, ", "), name)
 }
 
 func approverEmail(by string) (string, error) {

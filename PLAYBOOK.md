@@ -869,7 +869,8 @@ Three things that decide whether this works for a given chain:
   every expectation that fails today, and nothing more: `shrt run` goes past every failure,
   pinned or not, as `-keep-going` does, so several pins are all evaluated in a plain run (the gate's), and exits
   0 only while the chain fails exactly there, and 1 when an earlier or later step regresses, a
-  step is left unsent, the failure changes, or the defect is gone. `PITFALLS.md` §11.
+  step is left unsent, the failure changes, or the defect is gone. `shrt confirm` refuses a chain
+  with `kept_red`, saying so, even when its run passed. `PITFALLS.md` §11.
 
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:
