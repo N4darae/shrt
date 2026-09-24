@@ -26,8 +26,9 @@ const (
 )
 
 type LintOptions struct {
-	AuthHeader func(*Step) (profile, header string, covered bool)
-	Env        func(string) (string, bool)
+	AuthHeader   func(*Step) (profile, header string, covered bool)
+	AuthProfiles []string
+	Env          func(string) (string, bool)
 }
 
 func Lint(c *Chain, cat *catalog.Catalog) []Issue {
@@ -55,6 +56,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintExports(s, m)...)
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
+		issues = append(issues, lintAuthProfile(s, opts.AuthProfiles)...)
 		issues = append(issues, lintTransport(s, m)...)
 		issues = append(issues, lintExpectRefs(s, known, knownExports, idx)...)
 		issues = append(issues, lintExpectRules(s)...)
@@ -256,6 +258,27 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 			name, profile, profile)})
 	}
 	return issues
+}
+
+func lintAuthProfile(s *Step, profiles []string) []Issue {
+	if profiles == nil || s.Auth == "" || s.Auth == InvalidTokenAuth {
+		return nil
+	}
+	for _, name := range profiles {
+		if name == s.Auth {
+			return nil
+		}
+	}
+	if len(profiles) == 0 {
+		return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+			"asks for auth profile %q, but the config declares no auth at all, so shrt run refuses the chain "+
+				"before sending anything", s.Auth)}}
+	}
+	have := append([]string{}, profiles...)
+	sort.Strings(have)
+	return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+		"asks for auth profile %q, which the config does not define (have: %s), so shrt run refuses the "+
+			"chain before sending anything%s", s.Auth, strings.Join(have, ", "), didYouMean(s.Auth, have))}}
 }
 
 func headerNamed(headers map[string]string, want string) (string, bool) {

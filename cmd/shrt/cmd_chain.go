@@ -311,6 +311,7 @@ func chainLint(args []string) error {
 	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
 		opts.Chain.AuthHeader = covers
 	}
+	opts.Chain.AuthProfiles = append([]string{}, e.cfg.AuthProfileNames()...)
 	if authIssues := lintAuthBodies(e.cfg); len(authIssues) > 0 {
 		errCount += len(authIssues)
 		reports = append(reports, report{Chain: "<config>", Issues: authIssues})
