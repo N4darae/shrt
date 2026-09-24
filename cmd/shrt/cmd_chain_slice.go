@@ -26,7 +26,7 @@ func chainSlice(ctx context.Context, args []string) error {
 	runID := fs.String("run", "", "run record id or 'latest', required by -mode pin and -verify")
 	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record")
 	asJSON := fs.Bool("json", false, "emit JSON")
-	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step")
+	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step, or a VERIFIED slice this one differs from")
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
 	write := &optionalString{}
@@ -118,7 +118,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		}
 	} else if write.set {
 		path := filepath.Join(e.chainsDir(), res.Chain.Name+".yaml")
-		if err := mayOverwriteSlice(path, res, *force); err != nil {
+		if err := mayOverwriteSlice(path, res, *force, *verify); err != nil {
 			return err
 		}
 		if err := writeSliceFile(path, res.Chain); err != nil {
@@ -632,17 +632,29 @@ func writeSliceFile(path string, c *chain.Chain) error {
 	return os.WriteFile(path, raw, 0o644)
 }
 
-func mayOverwriteSlice(path string, res *chain.SliceResult, force bool) error {
+func mayOverwriteSlice(path string, res *chain.SliceResult, force, verify bool) error {
 	if _, err := os.Stat(path); err != nil || force {
 		return nil
 	}
 	existing, err := chain.LoadFile(path)
-	if err == nil && existing.Name == res.Chain.Name &&
-		strings.HasPrefix(existing.Description, chain.SliceDescriptionPrefix(res.Source, res.Target)) {
+	if err != nil || existing.Name != res.Chain.Name ||
+		!strings.HasPrefix(existing.Description, chain.SliceDescriptionPrefix(res.Source, res.Target)) {
+		return fmt.Errorf("%s already exists and is not a slice of %s for step %s, pass -force to overwrite it or name another file: -write <name>",
+			path, res.Source, res.Target)
+	}
+	if verify || !chain.HasVerifiedVerdict(existing.Description) {
 		return nil
 	}
-	return fmt.Errorf("%s already exists and is not a slice of %s for step %s, pass -force to overwrite it or name another file: -write <name>",
-		path, res.Source, res.Target)
+	same := *res.Chain
+	same.Description = existing.Description
+	raw, rawErr := os.ReadFile(path)
+	want, wantErr := same.Marshal()
+	if rawErr == nil && wantErr == nil && string(raw) == string(want) {
+		res.Chain.Description = existing.Description
+		return nil
+	}
+	return fmt.Errorf("%s holds a slice VERIFIED by 'shrt chain slice -verify', and this slice differs from it (its steps, vars or pinned values), so writing it would drop that verdict.\n"+
+		"Add -verify to verify the new slice in its place, pass -force to overwrite it unverified, or name another file: -write <name>", path)
 }
 
 func recordVars(rec *runner.Record) map[string]any {

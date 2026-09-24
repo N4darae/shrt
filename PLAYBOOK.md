@@ -799,6 +799,9 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    and prerequisites. `-write` refuses to replace an existing chain file unless `-force`, except a
    slice this command wrote of the same chain and step (its description starts
    `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
+   A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
+   `-verify` keeps the verdict when the new slice is identical (same steps, vars and pinned
+   values), and otherwise is refused unless `-force`, since the new slice was never verified.
    When the slice keeps EVERY step of the chain (slicing a chain that is itself a slice, or a
    hand-written minimal chain, or a `next:` command that keeps every dropped write of a chain
    whose target is its last step), the slice is that chain: `-write` with no name writes no

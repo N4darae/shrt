@@ -366,6 +366,10 @@ func verifiedLine(verified string) string {
 	return verifiedPrefix + verified + ".\n"
 }
 
+func HasVerifiedVerdict(description string) bool {
+	return strings.Contains(description, verifiedPrefix)
+}
+
 func RecordVerified(description, verified string) string {
 	line := verifiedLine(verified)
 	if strings.Contains(description, hypothesisParagraph) {
