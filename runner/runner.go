@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -448,7 +449,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 		if text == ok {
 			return ""
 		}
-		if !assertedValue(sr.Expect, path) {
+		if !assertedValue(sr.Expect, path) && !assertsTransport(sr.Expect) {
 			counts[text]++
 		}
 	}
@@ -456,13 +457,59 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 		return ""
 	}
 	seen := make([]string, 0, len(counts))
+	verdicts, refusals := true, true
 	for text, n := range counts {
-		seen = append(seen, fmt.Sprintf("%s (%d)", text, n))
+		shown := text
+		if !looksLikeVerdict(text) {
+			shown = strconv.Quote(text)
+			verdicts = false
+		}
+		if !looksLikeRefusal(text) {
+			refusals = false
+		}
+		seen = append(seen, fmt.Sprintf("%s (%d)", shown, n))
 	}
 	sort.Strings(seen)
+	if !verdicts {
+		return fmt.Sprintf("no response in this run carried %s = %s, and the values found at %s were %s, which "+
+			"do not look like verdict codes. conventions.envelope_path in .shrt/config.yaml most likely names "+
+			"the wrong field: point it at the field that carries the verdict", path, ok, path, strings.Join(seen, ", "))
+	}
+	if refusals {
+		return ""
+	}
 	return fmt.Sprintf("no response in this run carried %s = %s, the configured success value; the values seen "+
 		"were %s. If one of those is how this backend spells success, conventions.envelope_ok in "+
 		".shrt/config.yaml is wrong, and every success is being read as a refusal", path, ok, strings.Join(seen, ", "))
+}
+
+func assertsTransport(results []chain.ExpectResult) bool {
+	for _, e := range results {
+		if chain.IsTransportPath(e.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	verdictShape = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,40}$`)
+	refusalWords = []string{"REJECT", "ERROR", "FAIL", "DENIED", "FORBIDDEN", "INVALID", "UNAUTH", "NOT_FOUND",
+		"NOTFOUND", "REFUSE", "DECLINE", "CONFLICT", "ABORT", "EXPIRED"}
+)
+
+func looksLikeVerdict(text string) bool {
+	return verdictShape.MatchString(text)
+}
+
+func looksLikeRefusal(text string) bool {
+	upper := strings.ToUpper(text)
+	for _, w := range refusalWords {
+		if strings.Contains(upper, w) {
+			return true
+		}
+	}
+	return false
 }
 
 func assertedValue(results []chain.ExpectResult, path string) bool {
