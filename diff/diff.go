@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -181,7 +182,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			})
 			continue
 		}
-		if StepReached(rec, want) && !StepReached(rec, got) && got != first {
+		if StepReached(rec, want) && !StepReached(rec, got) && got != first && !sentUnanswered(got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached,
 				Want: want.Status, Got: got.Status, Detail: firstLineOf(got.Error),
@@ -383,6 +384,10 @@ func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []strin
 }
 
 func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
+	return ChainChangesIn(spot, c, nil)
+}
+
+func ChainChangesIn(spot *store.SafeSpot, c *chain.Chain, rec *runner.Record) []Change {
 	out := []Change{}
 	if c == nil {
 		return out
@@ -408,7 +413,11 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 		case !callNames(s.Call, st.Call, st.Procedure):
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
 		default:
-			out = append(out, expectChanges(st, s)...)
+			var ran *runner.StepRecord
+			if rec != nil {
+				ran, _ = rec.Step(st.ID)
+			}
+			out = append(out, expectChanges(st, s, ran)...)
 			out = append(out, refChanges(spot.Steps[:i], st, s)...)
 		}
 	}
@@ -449,37 +458,99 @@ func callNames(call, recorded, procedure string) bool {
 
 const ExpectPath = "expect"
 
-func expectChanges(was *runner.StepRecord, now *chain.Step) []Change {
+func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepRecord) []Change {
 	out := []Change{}
-	for i := range max(len(was.Expect), len(now.Expect)) {
-		switch {
-		case i >= len(now.Expect):
-			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(was.Expect[i].Path, was.Expect[i].Rule, was.Expect[i].Want)})
-		case i >= len(was.Expect):
-			r := now.Expect[i].Evaluate(nil)
-			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: expectText(r.Path, r.Rule, r.Want)})
-		default:
-			w, r := was.Expect[i], now.Expect[i].Evaluate(nil)
+	declared := make([]chain.ExpectResult, len(now.Expect))
+	for i, e := range now.Expect {
+		declared[i] = e.Evaluate(nil)
+	}
+	shown := func(i int) string {
+		r := declared[i]
+		if ran != nil && i < len(ran.Expect) && ran.Expect[i].Path == r.Path && ran.Expect[i].Rule == r.Rule {
+			return expectText(r.Path, r.Rule, ran.Expect[i].Want)
+		}
+		return expectText(r.Path, r.Rule, r.Want)
+	}
+	pairs := pairExpectations(was.Expect, declared)
+	paths := []string{}
+	seen := map[string]bool{}
+	for _, r := range declared {
+		if !seen[r.Path] {
+			seen[r.Path] = true
+			paths = append(paths, r.Path)
+		}
+	}
+	for _, w := range was.Expect {
+		if !seen[w.Path] {
+			seen[w.Path] = true
+			paths = append(paths, w.Path)
+		}
+	}
+	matched := map[int]bool{}
+	for _, j := range pairs {
+		if j >= 0 {
+			matched[j] = true
+		}
+	}
+	for _, path := range paths {
+		for i, w := range was.Expect {
+			if w.Path != path {
+				continue
+			}
+			j := pairs[i]
+			if j < 0 {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(w.Path, w.Rule, w.Want)})
+				continue
+			}
+			r := declared[j]
 			if w.Rule == "unevaluated" {
 				continue
 			}
-			same := w.Path == r.Path && w.Rule == r.Rule
+			same := w.Rule == r.Rule
 			if text, templated := r.Want.(string); same && !(templated && strings.Contains(text, "${")) && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
 				same = fmt.Sprint(w.Want) == fmt.Sprint(r.Want)
 			}
 			if !same {
-				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: expectText(r.Path, r.Rule, r.Want)})
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: shown(j)})
+			}
+		}
+		for j, r := range declared {
+			if r.Path == path && !matched[j] {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: shown(j)})
 			}
 		}
 	}
 	return out
 }
 
+func pairExpectations(was, now []chain.ExpectResult) []int {
+	pairs := make([]int, len(was))
+	taken := make([]bool, len(now))
+	for i := range pairs {
+		pairs[i] = -1
+	}
+	for _, sameRule := range []bool{true, false} {
+		for i, w := range was {
+			if pairs[i] >= 0 {
+				continue
+			}
+			for j, r := range now {
+				if taken[j] || r.Path != w.Path || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
+					continue
+				}
+				pairs[i], taken[j] = j, true
+				break
+			}
+		}
+	}
+	return pairs
+}
+
 func expectText(path, rule string, want any) string {
 	if want == nil {
 		return path + " " + rule
 	}
-	return fmt.Sprintf("%s %s %v", path, rule, want)
+	return fmt.Sprintf("%s %s %s", path, rule, show(want))
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
@@ -619,15 +690,15 @@ func (r *Report) InputSummary() string {
 func (c Change) Transition() string {
 	switch c.Kind {
 	case KindMissing:
-		return fmt.Sprintf("%v -> absent", c.Want)
+		return fmt.Sprintf("%s -> absent", show(c.Want))
 	case KindUnexpected:
-		return fmt.Sprintf("absent -> %v", c.Got)
+		return fmt.Sprintf("absent -> %s", show(c.Got))
 	case KindLength:
-		return fmt.Sprintf("%v item(s) -> %v item(s)", c.Want, c.Got)
+		return fmt.Sprintf("%s item(s) -> %s item(s)", show(c.Want), show(c.Got))
 	case KindType:
 		return fmt.Sprintf("%s -> %s", withKind(c.Want), withKind(c.Got))
 	}
-	return fmt.Sprintf("%v -> %v", c.Want, c.Got)
+	return fmt.Sprintf("%s -> %s", show(c.Want), show(c.Got))
 }
 
 func StepReached(rec *runner.Record, s *runner.StepRecord) bool {
@@ -828,26 +899,43 @@ func (c Change) describe() string {
 func (c Change) describeValues() string {
 	if c.Kind == KindNotReached {
 		if c.Got == nil {
-			return fmt.Sprintf("want=%v got=not recorded", c.Want)
+			return fmt.Sprintf("want=%s got=not recorded", show(c.Want))
 		}
-		return fmt.Sprintf("want=%v got=%v, %s", c.Want, c.Got, sentOrNot(c.Detail))
+		return fmt.Sprintf("want=%s got=%s, %s", show(c.Want), show(c.Got), sentOrNot(c.Detail))
 	}
 	if c.Kind == KindLength {
-		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
+		return fmt.Sprintf("want=%s item(s) got=%s item(s)", show(c.Want), show(c.Got))
 	}
 	if c.Path == "step" && c.Kind == KindMissing {
-		return fmt.Sprintf("want=%v got=absent", c.Want)
+		return fmt.Sprintf("want=%s got=absent", show(c.Want))
 	}
 	if c.Path == "step" && c.Kind == KindUnexpected {
-		return fmt.Sprintf("want=absent got=%v", c.Got)
+		return fmt.Sprintf("want=absent got=%s", show(c.Got))
 	}
 	if c.Kind == KindChanged && fmt.Sprint(c.Want) == fmt.Sprint(c.Got) {
 		return fmt.Sprintf("want=%s got=%s, the same text, so the change is that it did not change", withKind(c.Want), withKind(c.Got))
 	}
 	if c.Kind != KindType {
-		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
+		return fmt.Sprintf("want=%s got=%s", show(c.Want), show(c.Got))
 	}
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
+}
+
+func show(v any) string {
+	switch v.(type) {
+	case map[string]any, []any:
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err == nil {
+			return strings.TrimRight(buf.String(), "\n")
+		}
+	}
+	return fmt.Sprint(v)
+}
+
+func sentUnanswered(st *runner.StepRecord) bool {
+	return st.Status == runner.StatusError && strings.Contains(st.Error, transport.NoAnswerBeforeTimeout)
 }
 
 func sentOrNot(detail string) string {
@@ -868,7 +956,7 @@ func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
 	}
-	return fmt.Sprintf("%s %v", jsonKind(v), v)
+	return fmt.Sprintf("%s %s", jsonKind(v), show(v))
 }
 
 func (r *Report) MaskedList() string {

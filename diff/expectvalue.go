@@ -23,9 +23,16 @@ func ExpectValueChanges(spot *store.SafeSpot, rec *runner.Record, c *chain.Chain
 		if !ok || !inChain || now == nil {
 			continue
 		}
-		for i := range min(len(was.Expect), len(got.Expect), len(now.Expect)) {
-			w, g := was.Expect[i], got.Expect[i]
-			template, _ := now.Expect[i].Evaluate(nil).Want.(string)
+		declared := make([]chain.ExpectResult, len(now.Expect))
+		for j, e := range now.Expect {
+			declared[j] = e.Evaluate(nil)
+		}
+		for i, j := range pairExpectations(was.Expect, declared) {
+			if j < 0 || j >= len(got.Expect) {
+				continue
+			}
+			w, g := was.Expect[i], got.Expect[j]
+			template, _ := declared[j].Want.(string)
 			if w.Path != g.Path || w.Rule != g.Rule || !inputOnly(template) || (fixture != nil && fixture(template)) {
 				continue
 			}

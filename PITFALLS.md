@@ -70,7 +70,10 @@ answered. It is now `failed` with `"drift": true` on the step — a third readin
 status words could not express, and each unevaluated expectation says the backend answered rather
 than that the call was refused. See entry 29. With `validate_output` off, a response carrying a field
 the descriptor does not declare is not a mismatch at all: the field is discarded, named in the step's
-`warning`, and the rest decodes with proto names and zero values as usual.
+`warning` (`response field(s) the proto does not declare, not compared: ...`), and the rest decodes
+with proto names and zero values as usual. `run` and `verify` print these once per run, grouped as
+`the backend sends fields the proto does not declare: ...: <rpc> -> <fields>; ...`; update the
+proto and the descriptor only if you want those fields compared.
 
 ## 5. A cached, still-valid token that shrt refuses to use
 

@@ -131,8 +131,15 @@ chain lints without a warning and its first run needs no `-var`. The second run 
 values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt
 verify` recognises that case: when the first failing step is refused as a uniqueness conflict
 (`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
-of the chain already used, it prints `fixture reused: ...` and, unless a step before it drifted,
-exits 3 with `could not verify <chain>: fixture reused`, not `regression`. A var that
+of the chain already used (a run counts only if that step was answered and not refused there, so it
+created the record), it prints `fixture reused: ...` and, unless a step before it drifted,
+exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
+the chain used that value, the other record came from somewhere else (another chain with the same
+tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
+way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
+failing step is refused that way. The var named is the one the conflicting field is built from:
+the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
+`email`); when it names none, every fixture field of the step counts. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -365,11 +372,16 @@ perform the call); the step records `auth_retry: resent` with a warning. A write
 token the backend already accepted in this run is not re-sent, since the backend may already have
 performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
 fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
-When the refused token came from a login in THIS run (re-sent after a fresh login and refused again,
-or a write refused with a token just issued, perhaps accepted by earlier calls), the credentials
-work, so the step's error and `verify` both say it `may be an auth regression` in the backend with
-that evidence, instead of pointing at the credentials. It still exits 3; re-run, and report a
-repeat as a finding.
+When the refused token came from a login in THIS run and was refused on its first use (re-sent
+after a fresh login and refused again, or a write refused with a token just issued), the
+credentials work, so the step's error and `verify` both say it `may be an auth regression` in the
+backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run, and
+report a repeat as a finding. A token the backend accepted on earlier calls of this run and then
+refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
+error and `verify`'s `WARNING` say so and it exits 3; when data created before the refusal is still
+there after the re-login, that line says so too. When the previous run that sent the step was
+refused at the same step the same way, a restart does not explain it: `run` and `verify` print
+`auth refused at <rpc> ... a finding about the backend` and exit 1.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -672,7 +684,7 @@ empty code): it fails unless an expectation pins the envelope (`status.code exis
 an absent verdict is what the rpc answers; a `not_equal` does not, since it holds on an empty code) or the transport, and warns on a step with no
 `expect`. Every step warning is
 repeated in the closing summary as `warning [<step>]: ...`, so `-quiet`, which drops the progress
-lines, still shows them.
+lines, still shows them; `verify -quiet` prints the same lines after its diff summary.
 
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
 nearly always evidence about your fixture rather than the backend: most of the time no request was
@@ -720,14 +732,18 @@ language, give:
    that differed and is not masked the way `verify` masks it: every `verify` would report those
    as drift. An id, a timestamp, and a value that only echoes a fixture name (a response `sku`,
    `name` or `email` that follows the run's `sku-${vars.tag}`) are masked by `verify` and are not
-   listed, so do not declare them volatile. Pass the warning
+   listed, so do not declare them volatile. The fields of one list are one line, the list's
+   path with a count and the fix (`volatile: [<path>]` on the step, or `unordered: [<path>]` if
+   only its order changes), since a list other runs add to grows every run. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
    replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
    column, and every difference from it is listed under the table: requests and responses, a
    target change (`target base_url <old> -> <new>`), and each chain edit since then, such as an
-   expectation added or changed (`chain expect absent -> <path> <rule> <value>`);
+   expectation added or changed (`chain expect absent -> <path> <rule> <value>`). A request or
+   response value that differs only in the fixture name (`sku-${vars.tag}` under a fresh tag) is
+   masked there as `verify` masks it, so it is not listed;
 5. the question: approve or reject.
 
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
@@ -841,7 +857,9 @@ Three things that decide whether this works for a given chain:
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
-  `procedure` decides.
+  `procedure` decides. Expectations are paired by path, then by rule, not by position, so one
+  added in the middle is one `absent -> <path> <rule> <value>` line; each path reports its own
+  added, removed or changed expectation, with values as the run resolved them.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped

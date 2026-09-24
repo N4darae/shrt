@@ -41,7 +41,6 @@ func TestATransportRefusalAtAPinnedStepIsNotAsPinned(t *testing.T) {
 		{"internal", "application/json", `{"code":"internal","message":"panic: nil map"}`, 500},
 		{"not found", "application/json", `{"code":"not_found","message":"no such rpc"}`, 404},
 		{"permission denied", "application/json", `{"code":"permission_denied","message":"nope"}`, 403},
-		{"html", "text/html", `<html>bad gateway</html>`, 503},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := refusingSecondRunner(t, tc.status, tc.contentType, tc.body)
@@ -58,6 +57,22 @@ func TestATransportRefusalAtAPinnedStepIsNotAsPinned(t *testing.T) {
 				t.Fatalf("want not_as_pinned naming the transport refusal, got %q: %q", rec.KeptRed, rec.KeptRedNote)
 			}
 		})
+	}
+}
+
+func TestAGatewayAnswerAtAPinnedStepIsAnErrorRunNeverAsPinned(t *testing.T) {
+	r := refusingSecondRunner(t, 503, "text/html", `<html>bad gateway</html>`)
+	c := keptRedChain(5, 5, chain.Pin{Step: "second", Path: "qty_on_hand"})
+	c.Steps[1].Expect = []chain.Expectation{{Path: "qty_on_hand", Equals: 5}}
+	rec, err := r.Run(context.Background(), normalized(t, c), runner.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		t.Fatalf("a gateway answer never satisfies a pin: got as_pinned (note %q)", rec.KeptRedNote)
+	}
+	if rec.Status != runner.StatusError {
+		t.Fatalf("a bare 503 was not answered by the service, so the run is an error, got %q", rec.Status)
 	}
 }
 

@@ -23,17 +23,34 @@ type fixtureReuse struct {
 	run   string
 }
 
+func (f *fixtureReuse) verdict() string {
+	if f.run == "" {
+		return "fixture collision"
+	}
+	return "fixture reused"
+}
+
 func (f *fixtureReuse) line() string {
+	if f.run == "" {
+		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
+			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
+			"(another chain with the same value, another client, or a shared backend)",
+			f.step, f.why, strings.Join(f.vars, ", "))
+	}
 	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
 		"and run %s of this chain already used that value, so the backend still holds what that run created",
 		f.step, f.why, strings.Join(f.vars, ", "), f.run)
 }
 
 func (f *fixtureReuse) fresh() string {
+	fill := "<a value no run used>"
+	if f.run == "" {
+		fill = "<a value nothing on this backend used>"
+	}
 	names := []string{}
 	for _, v := range f.vars {
 		name, _, _ := strings.Cut(v, "=")
-		names = append(names, "-var "+name+"=<a value no run used>")
+		names = append(names, "-var "+name+"="+fill)
 	}
 	return strings.Join(names, " ")
 }
@@ -58,32 +75,41 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	named := fixtureRequestPath(c)
-	fed := map[string]bool{}
 	var req any
 	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
 	}
+	fields := []fixtureField{}
 	visitLeaves(req, "", func(path string) {
 		if !named(first.ID, path) {
 			return
 		}
-		if v, ok := requestTemplate(c, first.ID, path); ok {
-			if text, ok := v.(string); ok {
-				for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-					if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-						fed[n[1]] = true
-					}
-				}
+		v, ok := requestTemplate(c, first.ID, path)
+		text, isText := v.(string)
+		if !ok || !isText {
+			return
+		}
+		f := fixtureField{path: path}
+		if sent, ok := chain.Get(req, path); ok {
+			f.sent = fmt.Sprint(sent)
+		}
+		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+			if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+				f.vars = append(f.vars, n[1])
 			}
 		}
+		fields = append(fields, f)
 	})
+	fed := map[string]bool{}
+	for _, f := range conflictingFields(fields, why) {
+		for _, n := range f.vars {
+			fed[n] = true
+		}
+	}
 	if len(fed) == 0 {
 		return nil
 	}
-	ids, err := e.store.ListRuns(rec.Chain)
-	if err != nil {
-		return nil
-	}
+	ids, _ := e.store.ListRuns(rec.Chain)
 	names := make([]string, 0, len(fed))
 	for n := range fed {
 		names = append(names, n)
@@ -94,7 +120,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun {
+		if err != nil || prev.DryRun || !createdBy(prev, first.ID) {
 			continue
 		}
 		same := []string{}
@@ -109,7 +135,66 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID}
 		}
 	}
-	return nil
+	current := []string{}
+	for _, n := range names {
+		if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+			current = append(current, fmt.Sprintf("%s=%v", n, v))
+		}
+	}
+	if len(current) == 0 {
+		return nil
+	}
+	return &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+}
+
+type fixtureField struct {
+	path string
+	sent string
+	vars []string
+}
+
+func conflictingFields(fields []fixtureField, why string) []fixtureField {
+	byValue, byName := []fixtureField{}, []fixtureField{}
+	folded := foldName(why)
+	for _, f := range fields {
+		if f.sent != "" && strings.Contains(why, f.sent) {
+			byValue = append(byValue, f)
+		}
+		leaf := f.path
+		if i := strings.LastIndex(leaf, "."); i >= 0 {
+			leaf = leaf[i+1:]
+		}
+		if name := foldName(leaf); name != "" && strings.Contains(folded, name) {
+			byName = append(byName, f)
+		}
+	}
+	if len(byValue) > 0 {
+		return byValue
+	}
+	if len(byName) > 0 {
+		return byName
+	}
+	return fields
+}
+
+func foldName(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func createdBy(rec *runner.Record, step string) bool {
+	for _, st := range rec.Steps {
+		if st == nil || st.ID != step {
+			continue
+		}
+		return st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
+	}
+	return false
 }
 
 func stepRefusalText(st *runner.StepRecord) string {
@@ -178,7 +263,7 @@ func driftedBefore(rec *runner.Record, report *diff.Report, from int) bool {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
-		if i, ok := index[c.Step]; ok && i < from {
+		if i, ok := index[c.Step]; ok && i < from && !runner.NotAnsweredByService(rec.Steps[i]) {
 			return true
 		}
 	}

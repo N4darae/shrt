@@ -105,6 +105,17 @@ func runRun(ctx context.Context, args []string) error {
 		return runVerdict(rec)
 	}
 	fmt.Println(summary(rec, *dry))
+	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
+		fmt.Println("  " + loss.line())
+		if loss.finding() && rec.KeptRed == "" {
+			return fmt.Errorf("chain %s: %s", rec.Chain, loss.line())
+		}
+	}
+	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
+		if reuse := detectFixtureReuse(e, c, rec); reuse != nil {
+			fmt.Printf("  %s; re-run with a fresh value: shrt run %s %s\n", reuse.line(), rest[0], reuse.fresh())
+		}
+	}
 	return runVerdict(rec)
 }
 
@@ -128,8 +139,12 @@ const runExitCodes = "\nexit codes:\n" +
 	"     body the proto rejects, checked for every step up front as -dry-run does)\n" +
 	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
 	"     a real response gave, target unreachable, the connection closed before a response because\n" +
-	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend;\n" +
-	"     but a token a login in this run had just issued and the backend refused is reported as a\n" +
+	"     the backend stopped or crashed, a gateway answered for the service with a Connect unavailable\n" +
+	"     or a bare HTTP 502/503/504, login failed), so the run is not a verdict about the backend;\n" +
+	"     a token the backend accepted earlier in the run and then refused reads as a likely restart\n" +
+	"     mid-run, and exits 1 as a finding when the previous run that sent that step was refused\n" +
+	"     there the same way; a token a login in this run had just issued and the backend refused on\n" +
+	"     its first use is reported as a\n" +
 	"     possible auth regression\n"
 
 func runVerdict(rec *runner.Record) error {
@@ -194,7 +209,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
 			}
 			for _, line := range strings.Split(sr.Warning, "\n") {
-				if line = strings.TrimSpace(line); line == "" {
+				if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
 					continue
 				}
 				if at, seen := warned[line]; seen {
@@ -273,28 +288,8 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.KeptRedNote != "" {
 		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)
 	}
-	if rec.Warning != "" {
-		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
-	}
-	warnings, stepsOf := []string{}, map[string][]string{}
-	for _, sr := range rec.Steps {
-		if sr == nil {
-			continue
-		}
-		for _, line := range strings.Split(sr.Warning, "\n") {
-			if line = strings.TrimSpace(line); line == "" {
-				continue
-			}
-			if _, seen := stepsOf[line]; !seen {
-				warnings = append(warnings, line)
-			}
-			if ids := stepsOf[line]; len(ids) == 0 || ids[len(ids)-1] != sr.ID {
-				stepsOf[line] = append(ids, sr.ID)
-			}
-		}
-	}
-	for _, line := range warnings {
-		fmt.Fprintf(&b, "\n  warning [%s]: %s", capList(stepsOf[line], 10), line)
+	for _, line := range warningLines(rec) {
+		fmt.Fprintf(&b, "\n  %s", line)
 	}
 	if len(rec.Exports) > 0 {
 		names := make([]string, 0, len(rec.Exports))
@@ -313,6 +308,37 @@ func summary(rec *runner.Record, dry bool) string {
 		}
 	}
 	return b.String()
+}
+
+func warningLines(rec *runner.Record) []string {
+	out := []string{}
+	if rec.Warning != "" {
+		out = append(out, "warning: "+rec.Warning)
+	}
+	warnings, stepsOf := []string{}, map[string][]string{}
+	for _, sr := range rec.Steps {
+		if sr == nil {
+			continue
+		}
+		for _, line := range strings.Split(sr.Warning, "\n") {
+			if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
+				continue
+			}
+			if _, seen := stepsOf[line]; !seen {
+				warnings = append(warnings, line)
+			}
+			if ids := stepsOf[line]; len(ids) == 0 || ids[len(ids)-1] != sr.ID {
+				stepsOf[line] = append(ids, sr.ID)
+			}
+		}
+	}
+	for _, line := range warnings {
+		out = append(out, fmt.Sprintf("warning [%s]: %s", capList(stepsOf[line], 10), line))
+	}
+	if line := runner.UndeclaredFieldsLine(rec); line != "" {
+		out = append(out, "warning: "+line)
+	}
+	return out
 }
 
 func capList(items []string, max int) string {

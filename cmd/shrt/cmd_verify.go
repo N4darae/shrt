@@ -32,15 +32,21 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
-	"     sent but no answer before target.timeout, login or auth refused) and nothing drifted\n" +
+	"     sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
+	"     502/503/504 from a gateway, login or auth refused) and nothing drifted\n" +
 	"     before it; a change at or after that step\n" +
 	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
 	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
-	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
+	"     this chain already used (fixture reused: re-run with a fresh -var), or that no recorded run\n" +
+	"     used, so something else created the record (fixture collision: re-run with a fresh -var);\n" +
+	"     or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
-	"     backend refused a token a login in this run had just issued, the credentials work and it\n" +
-	"     says this may be an auth regression; or the first failing step failed only because its\n" +
-	"     response does not match the descriptor (validate_output, drift) and nothing drifted before it\n"
+	"     backend refused a token a login in this run had just issued, on its first use, the\n" +
+	"     credentials work and it says this may be an auth regression; or the first failing step\n" +
+	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
+	"     and nothing drifted before it\n" +
+	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
+	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -131,7 +137,7 @@ func runVerify(ctx context.Context, args []string) error {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)
 	}
 	if c != nil {
-		edited := diff.ChainChanges(spot, c)
+		edited := diff.ChainChangesIn(spot, c, rec)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
@@ -162,10 +168,40 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
-	loss := detectSessionLoss(rec)
+	loss := examineSessionLoss(e, rec)
 	var reuse *fixtureReuse
 	if !report.Clean() {
 		reuse = detectFixtureReuse(e, c, rec)
+	}
+	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
+	var nonBackend error
+	headline := ""
+	switch {
+	case loss.finding():
+	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
+		headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
+	case unanswered:
+		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
+		switch {
+		case strings.Contains(unansweredWhy, transport.NoAnswerBeforeTimeout):
+			headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", unansweredStep)
+		case strings.Contains(unansweredWhy, "a gateway answered for the service"):
+			headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", unansweredStep)
+		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
+			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
+		}
+		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	case driftStep != "" && !report.Clean() && !driftedBefore(rec, report, driftAt):
+		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
+		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); rebuild it with shrt catalog build, "+
+			"or turn validate_output off. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, driftStep, driftWhy)
+	case reuse != nil && !driftedBefore(rec, report, reuse.index):
+		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
 	}
 	if *asJSON {
 		if olderSpot != "" {
@@ -176,16 +212,26 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 	} else {
 		fmt.Println()
+		if nonBackend != nil {
+			fmt.Printf("could not verify %s: %s; this is not a verdict about the backend (why below)\n", name, headline)
+		}
 		if olderSpot != "" {
 			fmt.Println(olderSpot)
 		}
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
-		if loss != nil {
+		switch {
+		case nonBackend != nil:
+			if list := affectedSteps(rec, report); list != "" {
+				fmt.Println("  affected step(s), not judged: " + list)
+			}
+		case loss.finding():
+			fmt.Println("FINDING: " + loss.line())
+		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
-		if !unanswered || anyAnswered(rec) {
+		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
@@ -193,26 +239,28 @@ func runVerify(ctx context.Context, args []string) error {
 			if reuse != nil {
 				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
+			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
+				fmt.Printf("chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
+					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
+					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
+			}
 			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
+		if *quiet {
+			for _, line := range warningLines(rec) {
+				fmt.Println(line)
+			}
+		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
+			fmt.Println("warning: " + line)
+		}
 	}
-	if loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index) {
-		return exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
+	if loss.finding() && !driftedBefore(rec, report, loss.index) {
+		return fmt.Errorf("%s: %s", name, loss.line())
 	}
-	if unanswered {
-		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
-	}
-	if step, why, at := firstFailureIsDrift(rec); step != "" && !report.Clean() && !driftedBefore(rec, report, at) {
-		return exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); rebuild it with shrt catalog build, "+
-			"or turn validate_output off. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, step, why)
-	}
-	if reuse != nil && !driftedBefore(rec, report, reuse.index) {
-		return exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
+	if nonBackend != nil {
+		return nonBackend
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -620,6 +668,12 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 		}
 	}
 	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	for _, st := range rec.Steps {
+		if st.ID == step && runner.NotAnsweredByService(st) {
+			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
+				"so wait until it is up and run verify again"
+		}
+	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
 			"or find why the backend answers so slowly, and run verify again"
@@ -636,9 +690,13 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 	for i, st := range rec.Steps {
 		index[st.ID] = i
 		authRefused := st.Status == runner.StatusError && st.AuthRetry != ""
-		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused {
+		gateway := runner.NotAnsweredByService(st)
+		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused || gateway {
 			why := st.Error
-			if authRefused {
+			if gateway {
+				why, _, _ = strings.Cut(st.Error, "\n")
+				why = fmt.Sprintf("HTTP %d %s: a gateway answered for the service", st.HTTPStatus, why)
+			} else if authRefused {
 				line, _, _ := strings.Cut(st.Error, "\n")
 				why = "the backend refused authentication: " + line
 			}
@@ -665,4 +723,27 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 		return "", "", false
 	}
 	return first, unanswered[first], true
+}
+
+func affectedSteps(rec *runner.Record, report *diff.Report) string {
+	status := map[string]string{}
+	for _, st := range rec.Steps {
+		if st != nil {
+			status[st.ID] = st.Status
+		}
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, c := range report.Changes {
+		if c.Step == "" || seen[c.Step] {
+			continue
+		}
+		seen[c.Step] = true
+		st := status[c.Step]
+		if st == "" {
+			st = "not run"
+		}
+		out = append(out, c.Step+" ("+st+")")
+	}
+	return capList(out, 6)
 }

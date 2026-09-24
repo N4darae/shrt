@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -211,7 +212,7 @@ func likeness(want, got any, r *strings.Replacer) int {
 }
 
 func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra []string, fx *Fixtures, requests []Change) {
-	r.Reordered = nil
+	r.Reordered, r.reordered = nil, nil
 	if len(r.reorderCandidates) == 0 || r.Clean() {
 		return
 	}
@@ -270,9 +271,47 @@ func (r *Report) reorderedText() string {
 	}
 	var b strings.Builder
 	for _, at := range r.reordered {
-		b.WriteString("  same items in another order: " + at.step + " " + at.path + " holds what the safe spot holds, in another order. " +
+		b.WriteString("  " + at.step + " " + at.path + ": same items in another order: it holds what the safe spot holds, in another order. " +
 			"If the rpc promises no order, declare `unordered: [" + at.path + "]` on step " + at.step +
 			" (or at chain level), and verify compares that list as a multiset, pairing items by content\n")
 	}
 	return b.String()
+}
+
+func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
+	was := map[string][]string{}
+	for _, st := range spot.Steps {
+		if st != nil {
+			was[st.ID] = st.Unordered
+		}
+	}
+	out := []string{}
+	for _, st := range rec.Steps {
+		if st == nil {
+			continue
+		}
+		approved, ok := was[st.ID]
+		if !ok {
+			continue
+		}
+		added := []string{}
+		for _, p := range st.Unordered {
+			if !containsString(approved, p) && !containsString(added, p) {
+				added = append(added, p)
+			}
+		}
+		if len(added) > 0 {
+			out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(added, ", "), st.ID))
+		}
+	}
+	return out
+}
+
+func containsString(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
 }

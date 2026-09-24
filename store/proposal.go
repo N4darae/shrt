@@ -304,7 +304,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	if p.Replaces != "" {
 		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
 		if len(p.Replaced) == 0 {
-			b.WriteString("It sent the same requests and got the same responses, beyond ids and timestamps.\n")
+			b.WriteString("It sent the same requests and got the same responses, beyond ids, timestamps and values that only echo a fixture name (`sku-${vars.tag}`), which verify masks too.\n")
 		} else {
 			fmt.Fprintf(&b, "**%d difference(s) from the safe spot it replaces**, what approving signs off on:\n\n", len(p.Replaced))
 			for _, d := range p.Replaced {
@@ -320,8 +320,8 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no field differs beyond ids, timestamps and values echoing a fixture name, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo)
 	default:
 		fmt.Fprintf(&b, "\n**Warning: %d field(s) differ from the earlier passing run `%s`** and are not declared volatile, so every `shrt verify` will report them as drift unless the chain's `volatile:` covers them (or they are a real difference):\n\n", len(p.Unstable), p.ComparedTo)
-		for _, u := range p.Unstable {
-			fmt.Fprintf(&b, "- `%s`\n", u)
+		for _, line := range unstableLines(p.Unstable) {
+			fmt.Fprintf(&b, "- %s\n", line)
 		}
 	}
 	redacted, scrubbed := redactedSummary(rec)
@@ -771,4 +771,53 @@ func itemsSummary(body any) string {
 		parts = append(parts, fmt.Sprintf("%d %s", counts[text], text))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func unstableLines(unstable []string) []string {
+	type list struct{ step, path string }
+	lists := map[list]bool{}
+	for _, u := range unstable {
+		step, path, _ := strings.Cut(u, " ")
+		if root, indexed := listRoot(path); indexed {
+			lists[list{step, root}] = true
+		}
+	}
+	order := []any{}
+	counts := map[list]int{}
+	for _, u := range unstable {
+		step, path, _ := strings.Cut(u, " ")
+		root, _ := listRoot(path)
+		key := list{step, root}
+		if !lists[key] {
+			order = append(order, u)
+			continue
+		}
+		if _, seen := counts[key]; !seen {
+			order = append(order, key)
+		}
+		counts[key]++
+	}
+	out := make([]string, 0, len(order))
+	for _, o := range order {
+		switch t := o.(type) {
+		case string:
+			out = append(out, "`"+t+"`")
+		case list:
+			out = append(out, fmt.Sprintf("`%s %s`: %d field(s) of this list differ, so its items change from run to run "+
+				"(a list other runs add to grows every run). If that is expected, declare `volatile: [%s]` on step `%s` "+
+				"(or `unordered: [%s]` if only its order changes), or narrow the request to this run's records",
+				t.step, t.path, counts[t], t.path, t.step, t.path))
+		}
+	}
+	return out
+}
+
+func listRoot(path string) (string, bool) {
+	segs := strings.Split(path, ".")
+	for i, seg := range segs {
+		if _, err := strconv.Atoi(seg); err == nil && i > 0 {
+			return strings.Join(segs[:i], "."), true
+		}
+	}
+	return path, false
 }

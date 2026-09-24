@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"reflect"
 	"regexp"
@@ -390,19 +391,86 @@ func RefusedFreshToken(sr *StepRecord) bool {
 	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
 }
 
+const UndeclaredFieldsWarning = "response field(s) the proto does not declare, not compared: "
+
+const UndeclaredFieldsAdvice = "the backend sends fields the proto does not declare: update the proto/descriptor if you want " +
+	"them compared (an added field is backward compatible; a field is read only under its proto or JSON name, so a name " +
+	"that differs from a declared one only in case or separators is not read either)"
+
+func UndeclaredFieldsLine(rec *Record) string {
+	order, fields := []string{}, map[string][]string{}
+	for _, sr := range rec.Steps {
+		if sr == nil {
+			continue
+		}
+		for _, line := range strings.Split(sr.Warning, "\n") {
+			rest, ok := strings.CutPrefix(strings.TrimSpace(line), UndeclaredFieldsWarning)
+			if !ok {
+				continue
+			}
+			if _, seen := fields[sr.Call]; !seen {
+				order = append(order, sr.Call)
+			}
+			for _, f := range strings.Split(rest, ", ") {
+				if f != "" && !slicesContain(fields[sr.Call], f) {
+					fields[sr.Call] = append(fields[sr.Call], f)
+				}
+			}
+		}
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(order))
+	for _, call := range order {
+		parts = append(parts, call+" -> "+strings.Join(fields[call], ", "))
+	}
+	return UndeclaredFieldsAdvice + ": " + strings.Join(parts, "; ")
+}
+
+func slicesContain(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+const notAnsweredByService = "not answered by the service"
+
+func unavailableAnswer(status int, code string) bool {
+	switch code {
+	case "unavailable":
+		return true
+	case "http_502", "http_503", "http_504":
+		return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+	}
+	return false
+}
+
+func NotAnsweredByService(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && sr.Transport != nil && unavailableAnswer(sr.HTTPStatus, sr.Transport.Code)
+}
+
 func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	if sr.Status != StatusFailed {
 		return
 	}
 	sr.Status = StatusError
+	if fresh == transport.FreshTokenAccepted {
+		sr.Error = joinLines(sr.Error, "the backend refused a token that a login in this run issued and that it had accepted on an "+
+			"earlier call of this run: it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
+			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
+			"reported as a finding. Only a token refused on its first use "+
+			"suggests the backend refuses valid tokens")
+		return
+	}
 	evidence := ""
 	switch fresh {
 	case transport.FreshTokenRelogin:
 		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
 			"was re-sent with the new token, and the backend refused that too"
-	case transport.FreshTokenAccepted:
-		evidence = "the backend refused a token that a login in this run had just issued and that it had accepted on an " +
-			"earlier call of this run"
 	case transport.FreshTokenMinted:
 		evidence = "the backend refused a token that a login in this run had just issued"
 	}
@@ -1143,6 +1211,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if step.SkipAuth || step.Auth != "" {
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
+	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
@@ -1161,6 +1230,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		if transport.Unreachable(err) {
 			sr.unreachable = innermost(err)
+		} else {
+			sr.LatencyMS = time.Since(sentAt).Milliseconds()
 		}
 		return fail(sr, err)
 	}
@@ -1186,6 +1257,14 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 				sr.Status = StatusFailed
 				sr.Error = "the call was refused as asserted, so there is no response to export from"
 			}
+			return sr
+		}
+		if unavailableAnswer(res.Status, res.Error.Code) {
+			sr.Status = StatusError
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was "+notAnsweredByService+", so this assertion never ran")
+			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the call was %s: a gateway or load balancer "+
+				"answered for it (the normal answer while the service restarts or is not ready), so this is not a verdict "+
+				"about the rpc. Re-run once the service is up", res.Status, notAnsweredByService)
 			return sr
 		}
 		sr.Status = StatusFailed
@@ -1237,11 +1316,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			"build') and re-run before reading it as a backend defect."
 		return sr
 	case len(unknown) > 0:
-		sr.Warning = joinLines(sr.Warning, "response carries field(s) "+string(method.Output().FullName())+
-			" does not declare, discarded before the expectations ran: "+strings.Join(unknown, ", ")+
-			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
-			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
-			"listed here that differs from a declared one only in case or separators is not read either")
+		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
 		if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
 			named := make([]string, 0, len(enums))
 			for _, e := range enums {
