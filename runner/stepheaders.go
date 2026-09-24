@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/textproto"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -82,4 +83,39 @@ func readsSecretEnv(template string) bool {
 		}
 	}
 	return false
+}
+
+func learnHeaderSecrets(redactor *pathmask.Masker, templates map[string]string, scope *chain.Scope) {
+	env := scope.Env
+	if env == nil {
+		env = os.LookupEnv
+	}
+	for name, template := range templates {
+		credential := secretHeader(name)
+		for _, envName := range chain.AuthBodyEnvNames(map[string]any{"v": template}) {
+			if !credential && !secretHeader(envName) {
+				continue
+			}
+			if value, ok := env(envName); ok {
+				redactor.AddSecret(value)
+			}
+		}
+		if !credential || !readsOnlyInputs(template) {
+			continue
+		}
+		if value, err := scope.ResolveValue(template); err == nil {
+			learnSecret(redactor, value)
+		}
+	}
+}
+
+func learnSentHeaderSecrets(redactor *pathmask.Masker, templates map[string]string, resolved map[string][]string) {
+	for name := range templates {
+		if !secretHeader(name) {
+			continue
+		}
+		for _, value := range resolved[name] {
+			redactor.AddSecret(value)
+		}
+	}
 }

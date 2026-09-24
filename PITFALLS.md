@@ -994,6 +994,11 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+A credential sent in a step HEADER was only digested in `headers`: with
+`X-Api-Key: "${env.PARTNER_API_KEY}"` and a backend answering 403 `api key <value> is not allowed`,
+the key stood in clear in the response, `transport_error`, `error`, `failure` and on the terminal.
+Every value a header named like a credential resolves to, and every `${env.*}` value with a
+credential-like name any header reads, is now a secret scrubbed by value in the whole record.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.

@@ -902,6 +902,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	for _, step := range c.Steps {
 		if step != nil {
 			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
+			learnHeaderSecrets(redactor, step.Headers, scope)
 		}
 	}
 	r.Auth.learnTokens(redactor)
@@ -1189,6 +1190,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
+	learnSentHeaderSecrets(redactor, step.Headers, resolvedHeaders)
 	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
 
 	if r.ValidateInput {

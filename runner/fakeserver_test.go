@@ -35,6 +35,7 @@ type fakeServer struct {
 	itemKey       string
 	receiptDrift  bool
 	createRefusal string
+	echoHeader    string
 	issued        map[string]string
 	partnerIssued map[string]string
 	builds        []string
@@ -176,6 +177,10 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 	case "/shrt.test.v1.ThingService/Create":
 		f.creates++
 		f.nextID++
+		if f.echoHeader != "" {
+			writeJSON(w, 403, map[string]any{"code": "permission_denied", "message": "api key " + r.Header.Get(f.echoHeader) + " is not allowed"})
+			return
+		}
 		if f.createRefusal != "" {
 			writeJSON(w, 200, map[string]any{"error": map[string]any{"code": f.createRefusal, "message": "refused"}})
 			return
