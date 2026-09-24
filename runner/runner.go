@@ -831,6 +831,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
 			result.Detail = refusalContext(decoded, e.Path, redactor)
 		}
+		if !result.Passed && result.Detail == "" && chain.IsTransportPath(e.Path) {
+			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
+		}
 		if why, held := opts.heldBack[i]; held {
 			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
 		}
@@ -918,6 +921,25 @@ func unassertedRefusalWarning(decoded any) string {
 		"recorded passed with nothing checked. If the refusal is the point, assert it (%s equals: %s); if "+
 		"not, the backend rejected this call and later steps that read its response read zero values", path, text,
 		chain.EnvelopeOK(), path, text)
+}
+
+func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {
+	path := chain.EnvelopePath()
+	if path == "" {
+		return ""
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return ""
+	}
+	said := fmt.Sprintf("the envelope said %s = %v", path, code)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		said += " " + context
+	}
+	if status, ok := chain.Get(outcome, "transport.http_status"); ok {
+		return fmt.Sprintf("answered with HTTP %v, so the transport did not refuse it; %s", status, said)
+	}
+	return said
 }
 
 func refusalContext(decoded any, codePath string, redactor *pathmask.Masker) string {
