@@ -27,7 +27,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	material := []Change{}
 	pairs := [][2]string{}
 	for _, c := range r.RequestChanges {
-		if c.Path != AuthProfilePath && c.Path != ExpectPath && !chainLevel(c) {
+		if c.Path != AuthProfilePath && !expectationChange(c) && !chainLevel(c) {
 			m := pathmask.NewMasker(mergePatterns(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
@@ -53,7 +53,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	firstEdited := -1
 	edited := map[string]bool{}
 	for _, c := range material {
-		if c.Path == ExpectPath {
+		if expectationChange(c) {
 			if !editedExpectFailed(rec, c) {
 				continue
 			}
@@ -118,7 +118,11 @@ func editedExpectFailed(rec *runner.Record, c Change) bool {
 	if c.Kind == KindMissing {
 		return false
 	}
-	path, _, _ := strings.Cut(fmt.Sprint(c.Got), " ")
+	text := c.Got
+	if c.Path == ExpectValuePath {
+		text = c.Want
+	}
+	path, _, _ := strings.Cut(fmt.Sprint(text), " ")
 	st, ok := rec.Step(c.Step)
 	if !ok {
 		return false
@@ -136,7 +140,7 @@ func (r *Report) OnlyExpectationsEdited() bool {
 		return false
 	}
 	for _, c := range r.RequestChanges {
-		if c.Path != ExpectPath {
+		if !expectationChange(c) {
 			return false
 		}
 	}
