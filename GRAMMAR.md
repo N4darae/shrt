@@ -437,7 +437,9 @@ string was, or disappeared, is reported too. Masking an id is a renaming, and it
 across the whole record: each id of the safe spot must become one value in the new run, wherever it
 appears, and no two ids of the safe spot may become the same one. An order whose `id_customer` no
 longer names the customer the run created, or an id unchanged in one step and renamed in another,
-is reported as `changed` at that path, naming the step and path that set the renaming. The same
+is reported as `changed` at that path, naming the step and path that set the renaming, with `want`
+the value the renaming gives, so a stale id reads `want=<new id> got=<old id>`; a change whose two
+values print the same says so (`the same text, so the change is that it did not change`). The same
 renaming is applied inside every other string before it is compared: a message that names a renamed
 id (`not enough stock for prd-847c…` against `… prd-b770…`) is equal, and counted with the masked
 ids, when the only difference is that id (a string id of at least 4 characters the renaming mapped

@@ -718,6 +718,9 @@ func (c Change) describeValues() string {
 	if c.Path == "step" && c.Kind == KindUnexpected {
 		return fmt.Sprintf("want=absent got=%v", c.Got)
 	}
+	if c.Kind == KindChanged && fmt.Sprint(c.Want) == fmt.Sprint(c.Got) {
+		return fmt.Sprintf("want=%s got=%s, the same text, so the change is that it did not change", withKind(c.Want), withKind(c.Got))
+	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
 	}
