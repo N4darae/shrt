@@ -796,7 +796,8 @@ differences in steps both reached. It masks the `volatile` patterns stored in ea
 ones in today's config and chain file, so a pattern you add after the runs still applies. When
 those patterns cover every response field of a step (`volatile: ["**"]`), the report opens with a
 `WARNING` naming the steps it compared nothing of (`fully_masked` under `-json`), because "no
-differences" then says nothing about them, as `confirm` warns for the same patterns. It also
+differences" then says nothing about them, as `confirm` warns for the same patterns and `verify`
+opens its report for a `no drift` it reached the same way. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
 camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is

@@ -54,6 +54,7 @@ type Report struct {
 	Redacted       int      `json:"redacted"`
 	RedactedPaths  []string `json:"redacted_paths,omitempty"`
 	ScrubbedPaths  []string `json:"scrubbed_paths,omitempty"`
+	FullyMasked    []string `json:"fully_masked,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
@@ -145,6 +146,9 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			}
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
+		if everyFieldMasked(stepMask, want.Response) && everyFieldMasked(stepMask, got.Response) {
+			rep.FullyMasked = append(rep.FullyMasked, want.ID)
+		}
 		for _, c := range compareStep(want, got) {
 			switch {
 			case c.Path != "response" && maskedAt(stepMask, c):
@@ -663,6 +667,11 @@ func (r *Report) Text() string {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if len(r.FullyMasked) > 0 {
+		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
+			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
+			strings.Join(r.FullyMasked, ", "))
+	}
 	if r.SafeSpotTarget != "" || r.RunTarget != "" {
 		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
 			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
