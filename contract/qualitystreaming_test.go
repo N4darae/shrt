@@ -30,7 +30,8 @@ func TestQualityDoesNotChargeAStreamingRPCShrtCannotCall(t *testing.T) {
 			t.Fatalf("%s is out of scope for a unary-only tool, so it is not a gap, got %+v", watch, r)
 		}
 	}
-	if report.TotalScore != 0 {
-		t.Fatalf("want 0, got %d", report.TotalScore)
+	without := contract.Measure(contract.NewLibrary(nil), cat, "")
+	if report.TotalScore != without.TotalScore {
+		t.Fatalf("an entry for %s moved the score from %d to %d; a streaming rpc is not measured", watch, without.TotalScore, report.TotalScore)
 	}
 }

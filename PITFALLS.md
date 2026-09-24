@@ -330,7 +330,13 @@ automated gates are satisfiable without doing any of the actual curation work."*
 
 **Fix.** The score now charges for omission too — a write rpc with no `failures:`, an id with no
 `from`/`same_as`/`value`, a response field in no `exports:`/`terminal:`/`soft_signals:`, an id wired
-with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. An unfilled `TODO` is not
+with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. An rpc in the catalog that no
+overlay covers at all is scored too, as an empty entry plus 2, so moving `orders.yaml` out of
+`.shrt/contracts/` raises the score and fails `quality -gate`; until 2026-09-24 an rpc with no entry
+was simply not measured, and deleting a whole overlay left the gate green at its baseline.
+`contract lint` still checks only what is written — it says `ok` for the overlays that remain — so
+the gate that catches lost coverage is `quality -gate`, and `contract status -gaps` lists each
+uncovered rpc as `no contract`. An unfilled `TODO` is not
 charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
 scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files

@@ -443,9 +443,10 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
 | 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
+| 11 | 2 | happy | a unary rpc in the catalog that no overlay covers: it is scored as an empty entry (rows 1-10 as they apply) plus this row, so deleting an overlay or an entry raises the score instead of lowering it |
 | — | — | — | codes the backend raises that no contract declares at all |
 
-The ten scored rows are the terms `shrt contract status` prints in its footer, the same list
+The eleven scored rows are the terms `shrt contract status` prints in its footer, the same list
 that computes the score — so run the command for today's list, and read the rows below for the
 reasoning a one-line label cannot carry. In shrt's own development repo a test fails the build
 when this table and the scored terms disagree; that test does not ship with the binary, so here
@@ -454,9 +455,9 @@ the command's footer is the authority.
 **An unfilled `TODO` scores nothing.** It is listed beside the score as a hint, never charged. The
 row that used to claim `1 per unfilled TODO` was wrong for as long as it stood: no scored row
 counts unfilled TODOs, so clearing every TODO in a file moves the score only where clearing it also
-answers one of the ten rows above.
+answers one of the eleven rows above.
 
-**The phase column is what `-phase` filters.** `shrt contract quality -phase happy` scores the seven
+**The phase column is what `-phase` filters.** `shrt contract quality -phase happy` scores the eight
 rows a working chain needs and ignores the three that curate refusals; `-phase failure` does the
 reverse. Curate happy first: a domain at happy-0 composes and runs, and nothing about the three
 failure rows changes that. The default is still every row, so a gate pinned to a baseline is
