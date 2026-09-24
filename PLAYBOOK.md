@@ -578,7 +578,9 @@ step's response message does not have, such as a misspelt `${create_product.prod
 in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
 declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
 `not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
-holds on the zero a refusal leaves, and must not turn the step green.
+holds on the zero a refusal leaves, and must not turn the step green. Every step warning is
+repeated in the closing summary as `warning [<step>]: ...`, so `-quiet`, which drops the progress
+lines, still shows them.
 
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
 nearly always evidence about your fixture rather than the backend: most of the time no request was
