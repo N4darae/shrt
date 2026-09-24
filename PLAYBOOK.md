@@ -841,9 +841,15 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    hand-written minimal chain, or a `next:` command that keeps every dropped write of a chain
    whose target is its last step), the slice is that chain: `-write` with no name writes no
    `<chain>-slice-<step>.yaml` copy, the `-verify` run record is kept under the chain itself, and
-   a `reproduced` verdict is recorded in that chain's own `description:` (replacing its
-   HYPOTHESIS paragraph, or a previous VERIFIED line, else appended). `-write <name>` still
-   writes a copy under that name.
+   a `reproduced` verdict is recorded in that chain's own `description:`. Its source run is then
+   a run of that same chain, so the line says so ("the verdict of <chain>'s own run"): it
+   re-ran the chain, it did not reproduce another chain's failure. In a hand-written chain it
+   is a VERIFIED line (replacing a previous one, else appended). In a chain that is itself a
+   slice it is a separate RE-RUN line, and the slice's VERIFIED line against its real source run,
+   with the dropped steps it lists, is kept. `-write <name>` still writes a copy under that name.
+   A written slice whose `-verify` says NOT REPRODUCED records that, with the first difference,
+   in place of the HYPOTHESIS paragraph. `-build <id>` stamps the `-verify` run as `shrt run
+   -build` does, and every verdict line names the build it held on.
 4. **`-verify -run <id|latest>` is what turns the claim into a receipt.** It runs the slice and
    compares the TARGET step's verdict — the code at `conventions.envelope_path`, the refusal
    beside it (its `message`, and `reason` and `app_code` at `details.0.` or beside the code, the

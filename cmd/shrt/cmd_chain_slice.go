@@ -27,6 +27,7 @@ func chainSlice(ctx context.Context, args []string) error {
 	runID := fs.String("run", "", "run record id or 'latest', required by -mode pin and -verify")
 	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record")
 	asJSON := fs.Bool("json", false, "emit JSON")
+	build := fs.String("build", "", "with -verify, "+buildFlagUsage+"; the verdict names the build the slice run held on")
 	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step, or a VERIFIED slice this one differs from")
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
@@ -39,7 +40,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		return err
 	}
 	if len(rest) == 0 || len(rest) > 2 {
-		return fmt.Errorf("usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify] [-json]")
+		return fmt.Errorf("usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>]] [-json]")
 	}
 	name := write.value
 	if len(rest) == 2 {
@@ -133,7 +134,7 @@ func chainSlice(ctx context.Context, args []string) error {
 	var verifyErr error
 	if *verify {
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
-			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep,
+			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
 			reslice: func(keep []string) *chain.SliceResult {
 				o := opts
 				o.Keep = keep
@@ -147,20 +148,33 @@ func chainSlice(ctx context.Context, args []string) error {
 		if verdict == nil {
 			return verifyErr
 		}
-		if verdict.Outcome == sliceReproduced {
-			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, time.Now())
+		res.Build = verdict.Build
+		now := time.Now()
+		switch {
+		case verdict.Outcome == sliceReproduced && whole:
+			res.Verified = res.OwnRunVerdict(c.Name, verdict.SourceRun, verdict.SliceRun, now)
+			record := chain.RecordVerified
+			if chain.IsSliceDescription(c.Description) {
+				record = chain.RecordRerun
+			}
+			if err := recordVerdictIn(c.SourcePath, func(d string) string { return record(d, res.Verified) }); err != nil {
+				return err
+			}
+			verdict.Recorded = c.SourcePath
+		case verdict.Outcome == sliceReproduced:
+			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, now)
+		case verdict.Outcome == sliceNotReproduced && !whole:
+			first := ""
+			if len(verdict.Differences) > 0 {
+				first = verdict.Differences[0]
+			}
+			res.MarkNotReproduced(verdict.SourceRun, verdict.SliceRun, now, first)
 		}
-		if verdict.Outcome == sliceReproduced && written != "" {
+		if (verdict.Outcome == sliceReproduced || verdict.Outcome == sliceNotReproduced) && written != "" {
 			if err := writeSliceFile(written, res.Chain); err != nil {
 				return err
 			}
 			verdict.Recorded = written
-		}
-		if verdict.Outcome == sliceReproduced && whole {
-			if err := recordVerdictIn(c.SourcePath, res.Verified); err != nil {
-				return err
-			}
-			verdict.Recorded = c.SourcePath
 		}
 	}
 
@@ -392,6 +406,7 @@ type sliceVerdict struct {
 	EnvelopePath string        `json:"envelope_path"`
 	SourceRun    string        `json:"source_run"`
 	SliceRun     string        `json:"slice_run,omitempty"`
+	Build        string        `json:"build,omitempty"`
 	SliceRecord  string        `json:"slice_record,omitempty"`
 	Status       string        `json:"slice_status,omitempty"`
 	Source       chain.Verdict `json:"source"`
@@ -421,6 +436,7 @@ type sliceVerifyArgs struct {
 	persist bool
 	name    string
 	keep    []string
+	build   string
 	reslice func(keep []string) *chain.SliceResult
 }
 
@@ -436,7 +452,11 @@ func (v *sliceVerdict) text() string {
 	if slice == "" {
 		slice = "none"
 	}
-	fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s\n", head, v.Step, v.SourceRun, slice)
+	fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s", head, v.Step, v.SourceRun, slice)
+	if v.Build != "" {
+		fmt.Fprintf(&b, " on build %s", v.Build)
+	}
+	b.WriteString("\n")
 	fmt.Fprintf(&b, "  source: status %s, %s %q%s\n", v.Source.Status, v.EnvelopePath, v.Source.ErrorCode, refusalText(v.Source))
 	if v.Outcome == sliceDidNotRun {
 		fmt.Fprintf(&b, "  slice:  step %s was never sent, so there is no verdict to compare\n", v.Step)
@@ -517,12 +537,13 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		return v, v.err()
 	}
 	replayRec, err := executeChain(ctx, e, res.Chain, runner.Options{
-		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact,
+		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: a.build,
 	}, a.quiet)
 	if err != nil {
 		return didNotRun("could not run the slice: " + err.Error())
 	}
 	v.SliceRun = replayRec.RunID
+	v.Build = replayRec.Build
 	v.Status = replayRec.Status
 	if a.persist {
 		if path, saveErr := e.store.SaveRun(replayRec); saveErr == nil {
@@ -956,7 +977,7 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 		strings.Join(reused, ", "), strings.Join(from, "; "), strings.Join(flags, " "))
 }
 
-func recordVerdictIn(path, verified string) error {
+func recordVerdictIn(path string, record func(string) string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -975,7 +996,7 @@ func recordVerdictIn(path, verified string) error {
 			current = top.Content[i+1].Value
 		}
 	}
-	value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: chain.RecordVerified(current, verified), Style: yaml.LiteralStyle}
+	value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: record(current), Style: yaml.LiteralStyle}
 	setKey(top, "description", value)
 	out, err := yaml.Marshal(doc)
 	if err != nil {

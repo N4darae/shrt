@@ -136,6 +136,8 @@ type SliceResult struct {
 	MissingVars   []string    `json:"missing_vars,omitempty"`
 	FreshVars     []string    `json:"fresh_vars,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
+	NotReproduced string      `json:"not_reproduced,omitempty"`
+	Build         string      `json:"verify_build,omitempty"`
 	Chain         *Chain      `json:"-"`
 }
 
@@ -412,17 +414,45 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 }
 
 func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
-	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s gave step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.Target, sourceRun)
+	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
+	r.NotReproduced = ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
 }
 
+func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time, difference string) {
+	r.NotReproduced = fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
+	if difference != "" {
+		r.NotReproduced += " (" + difference + ")"
+	}
+	r.Verified = ""
+	if r.Chain != nil {
+		r.Chain.Description = sliceDescription(r)
+	}
+}
+
+func (r *SliceResult) OwnRunVerdict(chainName, sourceRun, sliceRun string, at time.Time) string {
+	return fmt.Sprintf("reproduced on %s: run %s%s of %s gave step %s the verdict of %s's own run %s. The slice keeps every step, "+
+		"so this re-ran the chain, it did not reproduce a failure of another chain",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, chainName, sourceRun)
+}
+
+func (r *SliceResult) onBuild() string {
+	if r.Build == "" {
+		return ""
+	}
+	return " on build " + r.Build
+}
+
 const (
 	hypothesisParagraph = "\nThis slice is a HYPOTHESIS until it is run. A dependency that is state rather than a\n" +
 		"reference leaves no trace in the YAML, so a slice can be too small and still go green.\n"
-	verifiedPrefix = "VERIFIED by 'shrt chain slice -verify': "
+	verifiedPrefix      = "VERIFIED by 'shrt chain slice -verify': "
+	notReproducedPrefix = "NOT REPRODUCED by 'shrt chain slice -verify': "
+	rerunPrefix         = "RE-RUN by 'shrt chain slice -verify': "
 )
 
 func verifiedLine(verified string) string {
@@ -433,17 +463,34 @@ func HasVerifiedVerdict(description string) bool {
 	return strings.Contains(description, verifiedPrefix)
 }
 
+func IsSliceDescription(description string) bool {
+	head, _, _ := strings.Cut(description, "\n")
+	return strings.HasPrefix(head, "Slice of ") && strings.Contains(head, " reproducing step ")
+}
+
 func RecordVerified(description, verified string) string {
-	line := verifiedLine(verified)
-	if strings.Contains(description, hypothesisParagraph) {
-		return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
-	}
-	if i := strings.Index(description, verifiedPrefix); i >= 0 {
-		end := strings.Index(description[i:], "\n")
-		if end < 0 {
-			return description[:i] + line
+	return recordVerdict(description, verifiedLine(verified), hypothesisParagraph, verifiedPrefix, notReproducedPrefix)
+}
+
+func RecordRerun(description, verdict string) string {
+	return recordVerdict(description, rerunPrefix+verdict+".\n", rerunPrefix)
+}
+
+func recordVerdict(description, line string, replaces ...string) string {
+	for _, old := range replaces {
+		if old == hypothesisParagraph {
+			if strings.Contains(description, hypothesisParagraph) {
+				return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
+			}
+			continue
 		}
-		return description[:i] + line + description[i+end+1:]
+		if i := strings.Index(description, old); i >= 0 {
+			end := strings.Index(description[i:], "\n")
+			if end < 0 {
+				return description[:i] + line
+			}
+			return description[:i] + line + description[i+end+1:]
+		}
 	}
 	description = strings.TrimRight(description, "\n")
 	if description == "" {
@@ -508,6 +555,8 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))
+	} else if res.NotReproduced != "" {
+		b.WriteString("\n" + notReproducedPrefix + res.NotReproduced + ".\n")
 	} else {
 		b.WriteString(hypothesisParagraph)
 	}
