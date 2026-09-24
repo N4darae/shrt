@@ -649,7 +649,9 @@ shrt run <name>                                  # a fresh receipt on today's bi
 shrt verify <name> -run <run-id>                 # does it still match the safe spot?
 ```
 
-After you touch it, the same two lines. A drift report names the step, the path, the change kind
+After you touch it, the same two lines. When the replay ran against another target than the
+safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may
+then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
 of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
 spot, and says so: a regression in a path no safe spot exercises is not seen.

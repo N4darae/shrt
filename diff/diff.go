@@ -35,6 +35,8 @@ type Report struct {
 	Chain          string   `json:"chain"`
 	SafeSpotID     string   `json:"safe_spot_run_id"`
 	RunID          string   `json:"run_id"`
+	SafeSpotTarget string   `json:"safe_spot_target,omitempty"`
+	RunTarget      string   `json:"run_target,omitempty"`
 	FirstFailure   string   `json:"first_failure,omitempty"`
 	RequestChanges []Change `json:"request_changes,omitempty"`
 	Changes        []Change `json:"changes"`
@@ -56,6 +58,9 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
+	if spot.Target != rec.Target {
+		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
+	}
 	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
 	approvedPatterns := append([]string{}, spot.Volatile...)
 	for _, st := range spot.Steps {
@@ -392,6 +397,13 @@ func (c Change) describeValues() string {
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
 }
 
+func orNotRecorded(s string) string {
+	if s == "" {
+		return "(not recorded)"
+	}
+	return s
+}
+
 func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
@@ -412,6 +424,10 @@ func (r *Report) Text() string {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if r.SafeSpotTarget != "" || r.RunTarget != "" {
+		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
+			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
+	}
 	if r.Widened() {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
 			len(r.UnapprovedVolatile), r.SafeSpotID, strings.Join(r.UnapprovedVolatile, ", "))
