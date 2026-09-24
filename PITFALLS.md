@@ -1049,6 +1049,12 @@ so `verify -run` accepted an edited record. The run id's timestamp is checked to
 the two decides: a record whose run id is dated after the cut-off is refused as edited whatever its
 `started_at` says.
 
+A `not_as_pinned` run without `-quiet` printed each unpinned failure three times: on its step line,
+on the `NEW FAILURE` line, and again in the `kept red (not_as_pinned)` line. The detail is now
+printed once: with the step lines shown, the `NEW FAILURE` line names the step(s) only, and
+`kept_red_note` names the step and path and leaves want and got to `kept_red_new`. Under `-quiet`
+the `NEW FAILURE` line keeps the values, since no step line was printed.
+
 ---
 
 # Decisions, so they are not relitigated

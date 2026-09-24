@@ -16,6 +16,8 @@ const (
 
 const NewFailurePrefix = "NEW FAILURE outside the pinned defect: "
 
+const inNewFailure = "named on the NEW FAILURE line"
+
 func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 	if len(c.KeptRed) == 0 || rec.Status == StatusError {
 		return "", "", ""
@@ -68,18 +70,18 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 
 func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []string) {
 	if sr.Status == StatusError {
-		return []string{fmt.Sprintf("step %q is error: %s", id, sr.Error)}, []string{id + " is error: " + firstLine(sr.Error)}
+		return []string{fmt.Sprintf("step %q is error (%s)", id, inNewFailure)}, []string{id + " is error: " + firstLine(sr.Error)}
 	}
 	if sr.Drift || !sr.AssertionFailed() {
-		return []string{fmt.Sprintf("step %q failed with no failed expectation: %s", id, sr.Error)}, []string{id + " failed: " + firstLine(sr.Error)}
+		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + firstLine(sr.Error)}
 	}
 	if refusal := pinnedRefusal(sr, want); refusal != "" {
-		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport: %s, so its pinned failure was not seen", id, refusal)},
+		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport, so its pinned failure was not seen (%s)", id, inNewFailure)},
 			[]string{id + " refused at transport: " + refusal}
 	}
 	if sr.Transport != nil && len(want) == 0 {
 		refusal := firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
-		return []string{fmt.Sprintf("step %q was refused at transport where nothing is pinned: %s", id, refusal)},
+		return []string{fmt.Sprintf("step %q was refused at transport where nothing is pinned (%s)", id, inNewFailure)},
 			[]string{id + " refused at transport: " + refusal}
 	}
 	out, fresh := []string{}, []string{}
@@ -104,7 +106,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 			}
 		}
 		if !matched {
-			out = append(out, fmt.Sprintf("step %q failed where nothing is pinned: %s", id, strings.TrimPrefix(ex.String(), "FAIL ")))
+			out = append(out, fmt.Sprintf("step %q failed where nothing is pinned, on %s (%s)", id, ex.Path, inNewFailure))
 			fresh = append(fresh, id+" "+chain.DescribeFailure(ex))
 		}
 	}

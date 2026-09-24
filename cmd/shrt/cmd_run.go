@@ -188,6 +188,30 @@ func runVerdict(rec *runner.Record) error {
 	return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 }
 
+func newFailureLine(rec *runner.Record, stepsShown bool) string {
+	if !stepsShown {
+		return rec.KeptRedNew
+	}
+	ids := map[string]bool{}
+	for _, st := range rec.Steps {
+		if st != nil {
+			ids[st.ID] = true
+		}
+	}
+	named, seen := []string{}, map[string]bool{}
+	for _, item := range strings.Split(strings.TrimPrefix(rec.KeptRedNew, runner.NewFailurePrefix), "; ") {
+		id, _, _ := strings.Cut(item, " ")
+		if ids[id] && !seen[id] {
+			seen[id] = true
+			named = append(named, id)
+		}
+	}
+	if len(named) == 0 {
+		return rec.KeptRedNew
+	}
+	return runner.NewFailurePrefix + strings.Join(named, ", ") + " (each failure is on its step's line above)"
+}
+
 func shortNewFailure(line string) string {
 	found := strings.Split(strings.TrimPrefix(line, runner.NewFailurePrefix), "; ")
 	if len(found) == 1 && len(line) <= 200 {
@@ -320,7 +344,7 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
 	if rec.KeptRedNew != "" {
-		fmt.Fprintf(&b, "\n  %s", rec.KeptRedNew)
+		fmt.Fprintf(&b, "\n  %s", newFailureLine(rec, stepsShown))
 	}
 	if lead != "" {
 		fmt.Fprintf(&b, "\n  %s", lead)

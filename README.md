@@ -191,7 +191,8 @@ step is not sent, and says so); it exits 0 only when it fails exactly there, and
 fails anywhere else, fails differently, leaves a step unsent, or passes (the defect is gone), so a
 regression in an earlier or a later step of that chain fails the gate instead of hiding behind the
 known red; the run names that regression under its verdict line and in its exit message, e.g.
-`NEW FAILURE outside the pinned defect: create_order order.total_minor want=1250 got=500`. A list
+`NEW FAILURE outside the pinned defect: create_order order.total_minor want=1250 got=500` (with the
+step lines shown, no `-quiet`, the verdict line names only `create_order`, whose own line has the values). A list
 of red chain names beside the gate, checked
 only for exit 1, cannot tell those apart: do not keep one.
 
