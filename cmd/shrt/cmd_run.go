@@ -204,7 +204,7 @@ func summary(rec *runner.Record, dry bool) string {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
 	if len(rec.FailedSteps) > 0 {
-		fmt.Fprintf(&b, "\n  did not pass: %s", strings.Join(rec.FailedSteps, ", "))
+		fmt.Fprintf(&b, "\n  did not pass: %s", capList(rec.FailedSteps, 10))
 	}
 	if rec.Failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(rec.Failure, "\n", "\n  "))
@@ -229,6 +229,13 @@ func summary(rec *runner.Record, dry bool) string {
 		}
 	}
 	return b.String()
+}
+
+func capList(items []string, max int) string {
+	if len(items) <= max {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:max], ", "), len(items)-max)
 }
 
 func exportJSON(v any) string {

@@ -216,7 +216,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, "expectation failed"))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, firstFailedExpectation(sr)))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -585,11 +585,14 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	broken := map[string]*StepRecord{}
 	exporter := exportSources{}
 	failures := []string{}
+	failedCount := 0
+	said := map[string]int{}
+	repeats := map[int][]string{}
 	var dead *StepRecord
 	unreached := 0
 	for i, step := range c.Steps {
 		var sr *StepRecord
-		behind := false
+		behind, behindOn := false, ""
 		if dead != nil {
 			sr = r.skippedUnreachable(i, step, dead)
 			rec.Steps = append(rec.Steps, sr)
@@ -603,7 +606,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if opts.KeepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
-				behind = true
+				behind, behindOn = true, producer.ID
 			}
 		}
 		if sr == nil {
@@ -641,13 +644,30 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		broken[step.ID] = sr
 		rec.FailedSteps = append(rec.FailedSteps, step.ID)
-		failures = append(failures, failure)
+		key := strings.TrimPrefix(failure, fmt.Sprintf("step %q: ", sr.ID))
+		if behind {
+			key = "behind " + behindOn
+		}
+		failedCount++
+		if at, ok := said[key]; ok {
+			repeats[at] = append(repeats[at], sr.ID)
+		} else {
+			said[key] = len(failures)
+			failures = append(failures, failure)
+		}
 		if sr.unreachable != "" {
 			dead = sr
 		}
 	}
+	for at, ids := range repeats {
+		quoted := make([]string, 0, len(ids))
+		for _, id := range ids {
+			quoted = append(quoted, strconv.Quote(id))
+		}
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
+	}
 	if len(failures) > 0 {
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", len(failures)+unreached, len(c.Steps)) +
+		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}
 	if unreached > 0 {
@@ -1200,6 +1220,30 @@ func firstNonEmpty(vals ...string) string {
 
 func newRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
+}
+
+func capIDs(ids []string, max int) string {
+	if len(ids) <= max {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
+}
+
+func firstFailedExpectation(sr *StepRecord) string {
+	failed := []chain.ExpectResult{}
+	for _, e := range sr.Expect {
+		if !e.Passed {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) == 0 {
+		return "expectation failed"
+	}
+	out := "expectation failed: " + chain.DescribeFailure(failed[0])
+	if len(failed) > 1 {
+		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
+	}
+	return out
 }
 
 func failedExpectations(sr *StepRecord) string {
