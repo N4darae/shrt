@@ -164,7 +164,7 @@ var notes = map[string]string{
 	"StepRecord.error":           "Why this step failed or could not run.",
 	"StepRecord.warning":         "Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`) or answered with no verdict, which stays `passed` with a warning saying so.",
 	"StepRecord.note":            "Runner commentary, e.g. that a login seeded a profile's token — or did NOT, because it sent other credentials than that profile's `body`. A login seeds a profile only when its request equals that profile's resolved body, so a chain that logs in as someone else never changes whose token later steps carry.",
-	"StepRecord.auth_profile":    "The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap.",
+	"StepRecord.auth_profile":    "The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. `shrt verify` compares it with the safe spot's value for the same step as part of the input (§7): a step that now runs under another profile is reported as `request differs ... auth_profile (default -> clerk)` and fails verify with `drift with different input`, even when every response matches. A record that does not say which profile ran (no `auth:` block, or recorded before this field) is not compared.",
 	"StepRecord.volatile":        "Step-level volatile patterns.",
 	"StepRecord.drift":           "The response did not match its proto message while `conventions.validate_output` was on. The step is `failed`, not `error`: the request was sent and answered. No expectation was evaluated, so nothing in this step is evidence about the rpc — rebuild the descriptor first. `allow_fail` does not swallow a step carrying it.",
 
@@ -705,7 +705,9 @@ func exerciseDiff() (string, error) {
 	b.WriteString("\nBefore the responses, verify compares each step's recorded REQUEST with the safe spot's and prints\n")
 	b.WriteString("every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A\n")
 	b.WriteString("request value the chain builds from another step's output or from `${uuid}` / `${now}` differs\n")
-	b.WriteString("every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input. When the input\n")
+	b.WriteString("every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's\n")
+	b.WriteString("`auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails\n")
+	b.WriteString("verify with `drift with different input` even when every response matches. When the input\n")
 	b.WriteString("differs, the response changes are reported as coming with different input, not as a backend\n")
 	b.WriteString("regression, and verify fails with `drift with different input` instead of `regression`.\n")
 	fmt.Fprintf(&b, "\nChange kinds `shrt verify` and `shrt diff` print: `%s` (a path the baseline had is gone), `%s`\n", diff.KindMissing, diff.KindUnexpected)

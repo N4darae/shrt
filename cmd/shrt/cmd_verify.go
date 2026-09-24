@@ -136,7 +136,7 @@ func runVerify(ctx context.Context, args []string) error {
 		if list := report.MaskedList(); *listMasked && list != "" {
 			fmt.Println(list)
 		}
-		if report.Clean() && !report.Widened() {
+		if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 		}
 	}
@@ -153,6 +153,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"%s; if the new value is intended, run the chain with it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
 			len(report.Changes), len(report.RequestChanges), varDrift, fix, name)
+	}
+	if report.PrincipalChanged() {
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile than the confirmed run (%s).\n"+
+			"Restore the step's auth; if the new principal is intended, run the chain until it passes,\n"+
+			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			len(report.Changes), principalChanges(report), name)
 	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
@@ -213,6 +219,16 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+func principalChanges(report *diff.Report) string {
+	out := []string{}
+	for _, c := range report.RequestChanges {
+		if c.Path == diff.AuthProfilePath {
+			out = append(out, fmt.Sprintf("%s: %v -> %v", c.Step, c.Want, c.Got))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func orUnknown(s string) string {

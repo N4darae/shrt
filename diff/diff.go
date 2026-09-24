@@ -57,6 +57,17 @@ func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
+const AuthProfilePath = "auth_profile"
+
+func (r *Report) PrincipalChanged() bool {
+	for _, c := range r.RequestChanges {
+		if c.Path == AuthProfilePath {
+			return true
+		}
+	}
+	return false
+}
+
 func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 	return CompareMasking(spot, rec, nil)
 }
@@ -167,7 +178,13 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 	out := []Change{}
 	for i := range min(len(spot.Steps), len(rec.Steps)) {
 		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+		if want.ID != got.ID {
+			continue
+		}
+		if want.AuthProfile != "" && got.AuthProfile != "" && want.AuthProfile != got.AuthProfile {
+			out = append(out, Change{Step: want.ID, Path: AuthProfilePath, Kind: KindChanged, Want: want.AuthProfile, Got: got.AuthProfile})
+		}
+		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
 		}
 		a, errA := decode(want.Request)
@@ -487,6 +504,11 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: %s\n",
 			len(r.RequestChanges), r.SafeSpotID, cause)
+	}
+	if r.Clean() && r.PrincipalChanged() {
+		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile than the confirmed run, "+
+			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
+		return b.String()
 	}
 	if r.Clean() {
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)

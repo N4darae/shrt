@@ -341,7 +341,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `id` | string | The step id. |
 | `call` | string | As written in the chain. |
 | `procedure` | string | The resolved `/package.Service/Rpc`. |
-| `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. |
+| `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. `shrt verify` compares it with the safe spot's value for the same step as part of the input (§7): a step that now runs under another profile is reported as `request differs ... auth_profile (default -> clerk)` and fails verify with `drift with different input`, even when every response matches. A record that does not say which profile ran (no `auth:` block, or recorded before this field) is not compared. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. A `-keep-going` step after one that could not connect to the target at all is `skipped` too, its `error` naming the unreachable target. |
 | `http_status` | int | Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal. |
 | `latency_ms` | int | Per-step wall time. |
@@ -424,7 +424,9 @@ a path `volatile` when its value changes every run without being id- or timestam
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
-every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input. When the input
+every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
+`auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
+verify with `drift with different input` even when every response matches. When the input
 differs, the response changes are reported as coming with different input, not as a backend
 regression, and verify fails with `drift with different input` instead of `regression`.
 
