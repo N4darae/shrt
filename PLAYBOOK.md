@@ -400,7 +400,8 @@ error and `verify`'s `WARNING` say so and it exits 3, whether the token came fro
 run or from the on-disk cache; when data created before the refusal is still there after the
 re-login (a later step answered with an id created before it, not merely answered), that line says
 so too. When the previous run that sent the step was
-refused at the same step the same way, a restart does not explain it: `run` and `verify` print
+refused at the same step the same way (the same HTTP status and code: an in-band refusal and a 401
+are not the same way), a restart does not explain it: `run` and `verify` print
 `auth refused at <rpc> ... a finding about the backend` and exit 1. That finding needs the refusal
 to persist after a fresh login, so evidence of a restart in either run overrides the repeat: a call
 refused at authentication, re-sent after a fresh login and accepted (a cached token refused on its

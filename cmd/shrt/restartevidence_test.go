@@ -114,3 +114,19 @@ func TestAnExpectedPassingNotFoundIsNotRestartEvidence(t *testing.T) {
 		t.Fatalf("a not-found the step expects is no evidence of lost data, so a repeated refusal is a finding: %v", loss)
 	}
 }
+
+func TestARefusalOfAnotherKindIsNotTheSameWay(t *testing.T) {
+	n := 0
+	loss := saveTwoRuns(t, func() *runner.Record {
+		n++
+		refused := refusedFetch()
+		if n == 1 {
+			refused.HTTPStatus = 200
+			refused.Response = json.RawMessage(`{"error":{"code":"UNAUTHENTICATED"}}`)
+		}
+		return restartRecord("", createdThing(), refused)
+	})
+	if loss == nil || loss.finding() {
+		t.Fatalf("an in-band 200 refusal and a 401 are not refused the same way: %v", loss)
+	}
+}

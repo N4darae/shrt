@@ -73,7 +73,7 @@ func examineSessionLoss(e *env, rec *runner.Record) *sessionLoss {
 	}
 	if prev := previousRunSending(e, rec, s.step.ID); prev != nil {
 		if again := detectSessionLoss(prev); again != nil && again.step.ID == s.step.ID && again.step.Call == s.step.Call &&
-			restartEvidence(prev, again.index) == "" {
+			refusalKind(again.step) == refusalKind(s.step) && restartEvidence(prev, again.index) == "" {
 			s.repeat = prev.RunID
 		}
 	}
@@ -183,6 +183,14 @@ func resentAccepted(st *runner.StepRecord) bool {
 	return st != nil && st.AuthRetry == runner.AuthRetryResent && st.Status != runner.StatusSkipped && !runner.RefusedFreshToken(st) &&
 		len(st.Response) > 0 && !(st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated")) &&
 		!runner.NotAnsweredByService(st)
+}
+
+func refusalKind(st *runner.StepRecord) string {
+	code := ""
+	if st.Transport != nil {
+		code = strings.ToLower(st.Transport.Code)
+	}
+	return fmt.Sprintf("%d %s", st.HTTPStatus, code)
 }
 
 func shrunkList(rec *runner.Record, index int, st *runner.StepRecord) string {
@@ -342,7 +350,7 @@ func repeatedFreshRefusal(e *env, rec *runner.Record) *freshRefusal {
 	if prev == nil {
 		return nil
 	}
-	if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) {
+	if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) && refusalKind(st) == refusalKind(f.step) {
 		f.repeat = prev.RunID
 		return f
 	}
