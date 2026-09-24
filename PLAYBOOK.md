@@ -708,7 +708,9 @@ language, give:
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
    replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
-   column, and every request and response difference from it is listed under the table;
+   column, and every difference from it is listed under the table: requests and responses, a
+   target change (`target base_url <old> -> <new>`), and each chain edit since then, such as an
+   expectation added or changed (`chain expect absent -> <path> <rule> <value>`);
 5. the question: approve or reject.
 
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS

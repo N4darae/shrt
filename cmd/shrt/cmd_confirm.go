@@ -182,11 +182,19 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		return nil
 	}
 	var derived func(step, path string) bool
-	if c, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
+	var c *chain.Chain
+	if resolved, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
+		c = resolved
 		derived = derivedRequestPath(c)
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
 	out := []store.Differ{}
+	if spot.Target != rec.Target {
+		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})
+	}
+	for _, ch := range diff.ChainChanges(spot, c) {
+		out = append(out, store.Differ{Step: ch.Step, Side: "chain", Path: ch.Path, Delta: ch.Transition()})
+	}
 	for _, p := range rep.UnapprovedVolatile {
 		out = append(out, store.Differ{Step: "-", Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
 	}
