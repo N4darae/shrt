@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -117,5 +118,38 @@ func TestASavedRunRecordIsSealedAndProposable(t *testing.T) {
 	}
 	if _, err := s.Propose(loaded, store.ProposalInput{Checked: "checked"}); err != nil {
 		t.Fatalf("an untouched record must stay proposable after a round trip through disk: %v", err)
+	}
+}
+
+func TestAStrippedRunRecordDatedAfterSealsIsRefusedAsEdited(t *testing.T) {
+	s := newStore(t)
+	dir := filepath.Join(s.RunsDir, "thing-flow")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id      string
+		started time.Time
+		want    error
+	}{
+		{"run-stripped", time.Date(2026, 9, 24, 22, 27, 47, 0, time.UTC), store.ErrRunEdited},
+		{"run-older", time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC), nil},
+	} {
+		rec := passingRun(tc.id)
+		rec.StartedAt = tc.started
+		raw, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, tc.id+".json"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.LoadRun(rec.Chain, rec.RunID)
+		if tc.want == nil && err != nil {
+			t.Fatalf("%s started before seals, so it is loaded as predating them: %v", tc.id, err)
+		}
+		if tc.want != nil && (!errors.Is(err, tc.want) || !strings.Contains(err.Error(), "began sealing")) {
+			t.Fatalf("%s started after every build sealed its records, so an unsealed copy was stripped: %v", tc.id, err)
+		}
 	}
 }

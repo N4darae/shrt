@@ -20,6 +20,8 @@ const NoAuthProfile = "none"
 
 const RecordFormat = 2
 
+var SealsIntroduced = time.Date(2026, 9, 24, 18, 11, 7, 0, time.UTC)
+
 type Record struct {
 	Format      int            `json:"format,omitempty"`
 	RunID       string         `json:"run_id"`
@@ -69,6 +71,10 @@ func (r *Record) SealingBuildEvidence() string {
 		case st.Headers != nil:
 			return "it carries headers, which only a build that seals run records writes"
 		}
+	}
+	if r.StartedAt.After(SealsIntroduced) {
+		return fmt.Sprintf("it started at %s, after %s, when shrt began sealing every run record it writes",
+			r.StartedAt.UTC().Format(time.RFC3339), SealsIntroduced.Format(time.RFC3339))
 	}
 	return ""
 }
