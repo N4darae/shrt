@@ -75,25 +75,37 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	named := fixtureRequestPath(c)
-	fed := map[string]bool{}
 	var req any
 	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
 	}
+	fields := []fixtureField{}
 	visitLeaves(req, "", func(path string) {
 		if !named(first.ID, path) {
 			return
 		}
-		if v, ok := requestTemplate(c, first.ID, path); ok {
-			if text, ok := v.(string); ok {
-				for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-					if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-						fed[n[1]] = true
-					}
-				}
+		v, ok := requestTemplate(c, first.ID, path)
+		text, isText := v.(string)
+		if !ok || !isText {
+			return
+		}
+		f := fixtureField{path: path}
+		if sent, ok := chain.Get(req, path); ok {
+			f.sent = fmt.Sprint(sent)
+		}
+		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+			if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+				f.vars = append(f.vars, n[1])
 			}
 		}
+		fields = append(fields, f)
 	})
+	fed := map[string]bool{}
+	for _, f := range conflictingFields(fields, why) {
+		for _, n := range f.vars {
+			fed[n] = true
+		}
+	}
 	if len(fed) == 0 {
 		return nil
 	}
@@ -133,6 +145,46 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	return &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+}
+
+type fixtureField struct {
+	path string
+	sent string
+	vars []string
+}
+
+func conflictingFields(fields []fixtureField, why string) []fixtureField {
+	byValue, byName := []fixtureField{}, []fixtureField{}
+	folded := foldName(why)
+	for _, f := range fields {
+		if f.sent != "" && strings.Contains(why, f.sent) {
+			byValue = append(byValue, f)
+		}
+		leaf := f.path
+		if i := strings.LastIndex(leaf, "."); i >= 0 {
+			leaf = leaf[i+1:]
+		}
+		if name := foldName(leaf); name != "" && strings.Contains(folded, name) {
+			byName = append(byName, f)
+		}
+	}
+	if len(byValue) > 0 {
+		return byValue
+	}
+	if len(byName) > 0 {
+		return byName
+	}
+	return fields
+}
+
+func foldName(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 func createdBy(rec *runner.Record, step string) bool {

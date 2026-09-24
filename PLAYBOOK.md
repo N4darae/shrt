@@ -137,7 +137,9 @@ exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When 
 the chain used that value, the other record came from somewhere else (another chain with the same
 tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
 way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
-failing step is refused that way. A var that
+failing step is refused that way. The var named is the one the conflicting field is built from:
+the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
+`email`); when it names none, every fixture field of the step counts. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
