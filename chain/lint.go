@@ -617,6 +617,9 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 						"must succeed, or the refusal code for one that must be refused",
 					e.Path, EnvelopeOK(), EnvelopeOK())})
 			}
+			if issue, bad := arithmeticIssue(s.ID, e, schema.Fields); bad {
+				issues = append(issues, issue)
+			}
 			continue
 		}
 		if absent {
@@ -645,6 +648,41 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 		})
 	}
 	return issues
+}
+
+func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Issue, bool) {
+	f, ok := catalog.ResponseFieldAt(fields, SplitPath(e.Path))
+	if !ok || f == nil || !numericKinds[f.Kind] {
+		return Issue{}, false
+	}
+	for _, rule := range []struct {
+		name  string
+		value any
+	}{{"equals", e.Equals}, {"not_equal", e.NotEqual}} {
+		text, isText := rule.value.(string)
+		if !isText || !HasReference(text) || IsStableRef(text) {
+			continue
+		}
+		rest := strings.TrimSpace(refPattern.ReplaceAllString(text, " "))
+		if !strings.ContainsAny(rest, "+-*/") {
+			continue
+		}
+		outcome := "no response can equal it, so the step always fails"
+		if rule.name == "not_equal" {
+			outcome = "every response differs from it, so the assertion cannot fail"
+		}
+		return Issue{
+			Step:     stepID,
+			Severity: SeverityWarn,
+			Kind:     KindArithmetic,
+			Message: fmt.Sprintf("expect on %q says %s: %q, and %s is declared %s: references are pasted into "+
+				"the text as they resolve and no arithmetic is done, so the run compares the number with a string "+
+				"such as \"0+5\" — %s. shrt cannot compute an invariant; pin each side instead, with a value you "+
+				"work out and state (equals: 5, or a vars: entry the chain supplies), or compare one reference to "+
+				"one field", e.Path, rule.name, text, e.Path, f.Kind, outcome),
+		}, true
+	}
+	return Issue{}, false
 }
 
 func lintExports(s *Step, m *catalog.Method) []Issue {
@@ -1014,12 +1052,13 @@ const (
 	KindRefSyntax         = "reference-syntax"
 
 	KindInertAllowFail = "inert-allow-fail"
+	KindArithmetic     = "interpolated-arithmetic"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
 	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
-		KindExportOverwritten:
+		KindExportOverwritten, KindArithmetic:
 		return true
 	}
 	return false

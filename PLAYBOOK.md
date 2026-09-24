@@ -193,8 +193,15 @@ expect:
 ```
 
 A `${...}` in `equals` / `not_equal` / `contains` resolves at run time, which is what lets a chain
-state an invariant — *after == before*, *side A == side B*, *give + fees == get + margin* — instead
-of a hand-typed number that only encodes what its author expected.
+state an invariant between two values — *after == before*, *side A == side B* — instead of a
+hand-typed number that only encodes what its author expected. It compares one value with one
+value; it does no arithmetic. `equals: ${a.qty}+${b.qty}` resolves to the text `0+5`, which no
+number equals, so the step fails every time; `chain lint` warns on it against a numeric field
+(`interpolated-arithmetic`, failed by `-strict`). An invariant with arithmetic in it — *give + fees
+== get + margin*, *after == before + added* — is stated by pinning each side: choose the inputs
+(`vars:` or literal body values), work the expected result out, and assert it as a value
+(`equals: 5` on the after-read, `equals: ${vars.expected_total}`), or assert each term against the
+step that produced it.
 
 A `${...}` in `path` is a lint error: a path names a location in this step's own response, so there
 is nothing for it to resolve to.
