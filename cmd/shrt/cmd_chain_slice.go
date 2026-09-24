@@ -311,11 +311,14 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %s = %v  (was ${%s}, produced by %s)\n", p.Var, p.Value, p.Ref, p.Producer)
 		}
 	}
-	undeclared, fromRun := []chain.FilledVar{}, []chain.FilledVar{}
+	undeclared, fromRun, fromFlag := []chain.FilledVar{}, []chain.FilledVar{}, []chain.FilledVar{}
 	for _, f := range res.FilledVars {
-		if f.Declared {
+		switch {
+		case f.Declared && f.From == chain.VarFromFlag:
+			fromFlag = append(fromFlag, f)
+		case f.Declared:
 			fromRun = append(fromRun, f)
-		} else {
+		default:
 			undeclared = append(undeclared, f)
 		}
 	}
@@ -327,6 +330,12 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 				from = "the value run " + res.Run + " used"
 			}
 			fmt.Printf("  %s = %v  (%s)\n", f.Var, f.Value, from)
+		}
+	}
+	if len(fromFlag) > 0 {
+		fmt.Println("\nvars written with the -var value given, not the chain's default, which the chain's own runs already created with:")
+		for _, f := range fromFlag {
+			fmt.Printf("  %s = %v  (default %v)\n", f.Var, f.Value, f.Default)
 		}
 	}
 	if len(fromRun) > 0 {

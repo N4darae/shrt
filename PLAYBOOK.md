@@ -1193,7 +1193,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    target is never sent. `-verify` refuses up front and prints `-var name=<fresh>` unless you pass
    `-var name=...`, every `next:` line carries `-var name=<fresh>` for the slice it suggests
    (computed on that slice, so a pinned slice whose `next:` keeps the dropped creates asks for
-   it too), and the slice output names the var. Pin mode keeps the run's value when no kept
+   it too), and the slice output names the var. A written slice declares such a var with the
+   `-var` value it was given (`-verify -var tag=slice2` writes `tag: slice2`), not the chain's default,
+   which the chain's own runs already created with; that value is used too once `-verify` sent it, so
+   every later run of the slice still passes a fresh `-var`. Pin mode keeps the run's value when no kept
    write interpolates the var, and when a kept write sends exactly a string a dropped step before
    the target sent (it names what that step created, not something new). A string that also
    carries `${uuid}` or `${now}` is fresh on every run and does not count.

@@ -1079,6 +1079,14 @@ cell that is too long ends at the last whole word or id segment before the `…`
 chain with issues, so a chain with only warnings looked like neither a pass nor a failure. The
 column now says `warn` for warnings only and `FAIL` when any issue is an error.
 
+A slice written with `-verify -var tag=slice2` still declared `vars: tag: order-flow`, the source
+chain's default, which the chain's own runs had already created with, while its recorded verdict came
+from `slice2`. A declared var a kept write interpolates is now written with the `-var` value given.
+Leaving it undeclared, so `run` would demand `-var`, was the alternative; it was not taken because an
+undeclared var the slice reads is what `-verify` refuses as missing and what a written slice already
+reports under `vars the chain does not declare`, and the file should say what the verified run sent.
+Either way a later run needs a fresh `-var`, which the slice's description says.
+
 ---
 
 # Decisions, so they are not relitigated
