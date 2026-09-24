@@ -166,6 +166,8 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	}
 	if !quiet {
 		unreachableShown := false
+		skips := runner.NewSkipCondenser()
+		warned := map[string]string{}
 		r.OnStep = func(sr *runner.StepRecord) {
 			if sr.NotSentUnreachable() {
 				if !unreachableShown {
@@ -181,10 +183,18 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				}
 			}
 			if sr.Error != "" {
-				fmt.Printf("       %s\n", sr.Error)
+				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
 			}
-			if sr.Warning != "" {
-				fmt.Printf("       %s\n", sr.Warning)
+			for _, line := range strings.Split(sr.Warning, "\n") {
+				if line = strings.TrimSpace(line); line == "" {
+					continue
+				}
+				if at, seen := warned[line]; seen {
+					fmt.Printf("       the same warning as at step %s above\n", at)
+					continue
+				}
+				warned[line] = sr.ID
+				fmt.Printf("       %s\n", line)
 			}
 		}
 	}
@@ -238,10 +248,25 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.Warning != "" {
 		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
 	}
+	warnings, stepsOf := []string{}, map[string][]string{}
 	for _, sr := range rec.Steps {
-		if sr != nil && strings.TrimSpace(sr.Warning) != "" {
-			fmt.Fprintf(&b, "\n  warning [%s]: %s", sr.ID, sr.Warning)
+		if sr == nil {
+			continue
 		}
+		for _, line := range strings.Split(sr.Warning, "\n") {
+			if line = strings.TrimSpace(line); line == "" {
+				continue
+			}
+			if _, seen := stepsOf[line]; !seen {
+				warnings = append(warnings, line)
+			}
+			if ids := stepsOf[line]; len(ids) == 0 || ids[len(ids)-1] != sr.ID {
+				stepsOf[line] = append(ids, sr.ID)
+			}
+		}
+	}
+	for _, line := range warnings {
+		fmt.Fprintf(&b, "\n  warning [%s]: %s", capList(stepsOf[line], 10), line)
 	}
 	if len(rec.Exports) > 0 {
 		names := make([]string, 0, len(rec.Exports))

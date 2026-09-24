@@ -890,8 +890,12 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
 	}
 	b.WriteString(r.reorderedText())
+	skips := runner.NewSkipCondenser()
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
+		if c.Kind == KindNotReached {
+			c.Detail = skips.Condense(c.Step, c.Detail)
+		}
 		step := c.Step
 		if step == "" {
 			step = "-"

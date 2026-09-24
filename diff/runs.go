@@ -475,7 +475,9 @@ func (r *RunReport) Text() string {
 	}
 	unreachedLines(r.NoLongerReached, timedOutB, "A", "B")
 	unreachedLines(r.NewlyReached, timedOutA, "B", "A")
+	skipsA, skipsB := runner.NewSkipCondenser(), runner.NewSkipCondenser()
 	for _, s := range r.WhyNotReached {
+		s.ErrorA, s.ErrorB = skipsA.Condense(s.Step, s.ErrorA), skipsB.Condense(s.Step, s.ErrorB)
 		fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 	}
 	if len(r.ErrorChanges) > 0 {
