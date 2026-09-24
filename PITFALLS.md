@@ -987,6 +987,12 @@ in the whole record the same way, so the proposal shows `pw=<redacted>`.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
+A token echoed in a changed form stayed in clear: a 401 message quoting the Authorization value
+upper-cased (`TOK-33E73F3486CF`) or without its prefix (`33e73f3486cf` for `tok-33e73f3486cf`).
+Since 2026-09-24 a secret of 8 characters or more is also scrubbed whatever its case, and a secret
+made of a short alphabetic prefix (up to 5 letters), a `-` or `_`, and a tail of 8 characters or
+more (`tok-...`, `sk_...`) also has that tail scrubbed on its own, in any case. Exact matches are
+scrubbed as before.
 
 ---
 

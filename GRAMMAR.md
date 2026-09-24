@@ -477,6 +477,8 @@ for an unapproved volatile pattern, never as a backend change. A value under no
 redact path that held a secret the run knew (a credential or token it sent) is scrubbed by value to
 `<redacted>` just the same; verify and confirm name it apart, as `scrubbed by value` (`scrubbed_paths`
 in `-json`), so a field the backend echoes a credential into is not mistaken for a redact pattern.
+A secret of 8 characters or more is scrubbed in any case, and the tail of a token with a short
+alphabetic prefix and a separator (`tok-`, `sk_`) is scrubbed on its own when 8 characters or more.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A

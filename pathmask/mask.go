@@ -35,6 +35,10 @@ func NewRedactor(patterns []string) *Masker {
 
 const minSubstringSecret = 4
 
+const minFoldedSecret = 8
+
+const maxTokenPrefix = 5
+
 func (m *Masker) AddSecret(v string) {
 	if m == nil || m.secrets == nil || v == "" || v == MaskRedacted {
 		return
@@ -76,10 +80,55 @@ func scrubText(s string, secrets []string) string {
 			case len(secret) >= minSubstringSecret:
 				part = strings.ReplaceAll(part, secret, MaskRedacted)
 			}
+			if len(secret) >= minFoldedSecret {
+				part = replaceFold(part, secret)
+			}
+			if tail := tokenTail(secret); tail != "" {
+				part = replaceFold(part, tail)
+			}
 		}
 		parts[i] = part
 	}
 	return strings.Join(parts, MaskRedacted)
+}
+
+func replaceFold(s, secret string) string {
+	pieces := strings.Split(s, MaskRedacted)
+	for i, piece := range pieces {
+		var b strings.Builder
+		last := 0
+		for at := 0; at+len(secret) <= len(piece); {
+			if strings.EqualFold(piece[at:at+len(secret)], secret) {
+				b.WriteString(piece[last:at])
+				b.WriteString(MaskRedacted)
+				at += len(secret)
+				last = at
+				continue
+			}
+			at++
+		}
+		if last > 0 {
+			b.WriteString(piece[last:])
+			pieces[i] = b.String()
+		}
+	}
+	return strings.Join(pieces, MaskRedacted)
+}
+
+func tokenTail(secret string) string {
+	cut := strings.IndexAny(secret, "-_")
+	if cut < 1 || cut > maxTokenPrefix {
+		return ""
+	}
+	for _, r := range secret[:cut] {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return ""
+		}
+	}
+	if tail := secret[cut+1:]; len(tail) >= minFoldedSecret {
+		return tail
+	}
+	return ""
 }
 
 func (m *Masker) ScrubValue(v any) any {
