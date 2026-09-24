@@ -159,13 +159,20 @@ func (r *Report) Text() string {
 	return b.String()
 }
 
+func warnings(n int) string {
+	if n == 1 {
+		return "1 warning"
+	}
+	return fmt.Sprintf("%d warnings", n)
+}
+
 func (r *Report) Summary() string {
 	fails, warns := r.Count(LevelError), r.Count(LevelWarn)
 	switch {
 	case fails > 0:
-		return fmt.Sprintf("%d failing, %d warning, %d ok", fails, warns, r.Count(LevelOK))
+		return fmt.Sprintf("%d failing, %s, %d ok", fails, warnings(warns), r.Count(LevelOK))
 	case warns > 0:
-		return fmt.Sprintf("%d warning, %d ok", warns, r.Count(LevelOK))
+		return fmt.Sprintf("%s, %d ok", warnings(warns), r.Count(LevelOK))
 	default:
 		return fmt.Sprintf("%d ok", r.Count(LevelOK))
 	}
