@@ -46,7 +46,10 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     credentials work and it says this may be an auth regression (exit 1 as a finding when the\n" +
 	"     previous run that sent that step was refused there the same way); or the first failing step\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
-	"     and nothing drifted before it\n" +
+	"     and nothing drifted before it, the descriptor being stale or the body carrying fields the\n" +
+	"     proto does not declare\n" +
+	"  1  also when that drift is a wrong-typed value or an undeclared enum value and the descriptor\n" +
+	"     matches a rebuild: the proto is current, so the backend changed (a regression at that step)\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
 	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
 	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
@@ -197,6 +200,8 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
 	declared := declaredDriftChanges(e, rec, report, driftStep)
+	violation := driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt) &&
+		protoViolation(ctx, e, driftWhy)
 	var nonBackend error
 	headline := ""
 	switch {
@@ -217,6 +222,7 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
 		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	case violation:
 	case driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
@@ -275,6 +281,9 @@ func runVerify(ctx context.Context, args []string) error {
 			if literal != nil {
 				fmt.Println("CHAIN DEFECT: " + literal.line())
 			}
+			if violation {
+				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
+			}
 			if len(declared) > 0 {
 				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
 					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
@@ -311,6 +320,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if literal != nil {
 		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
+	}
+	if violation {
+		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", len(report.Changes), violationLine(e, name, driftStep, driftWhy))
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -714,6 +726,21 @@ func firstFailureIsDrift(rec *runner.Record) (string, string, int) {
 
 var descriptorMatchesRebuild = doctor.DescriptorMatchesRebuild
 
+func protoViolation(ctx context.Context, e *env, why string) bool {
+	if strings.Contains(why, "unknown field") {
+		return false
+	}
+	matches, err := descriptorMatchesRebuild(ctx, e.cfg)
+	return err == nil && matches
+}
+
+func violationLine(e *env, name, step, why string) string {
+	return fmt.Sprintf("the response at %s is a body its proto cannot hold (%s), and the descriptor matches a rebuild from %q, "+
+		"so it is not stale: the backend changed what it sends at that step (a value of the wrong type, or an enum value "+
+		"the proto does not declare). Fix the backend, or, if the new value is intended, declare it in the proto, rebuild "+
+		"with shrt catalog build and propose a passing run: shrt confirm %s -supersede", step, why, e.cfg.Descriptor.Source, name)
+}
+
 func driftRemedy(ctx context.Context, e *env, why string) string {
 	sends := "a body the proto does not describe"
 	if strings.Contains(why, "unknown field") {
@@ -721,6 +748,9 @@ func driftRemedy(ctx context.Context, e *env, why string) string {
 	}
 	matches, err := descriptorMatchesRebuild(ctx, e.cfg)
 	switch {
+	case err == nil && matches && sends != "field(s) the proto does not declare":
+		return fmt.Sprintf("the descriptor matches a rebuild from %q, so it is not stale: the backend sends %s, "+
+			"which is a backend change", e.cfg.Descriptor.Source, sends)
 	case err == nil && matches:
 		return fmt.Sprintf("the descriptor matches a rebuild from %q, so rebuilding changes nothing: the backend sends %s. "+
 			"Declare them in the proto if they are intended, or turn validate_output off", e.cfg.Descriptor.Source, sends)

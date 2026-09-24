@@ -790,6 +790,15 @@ with the drift as a note. The advice no longer says to rebuild when a rebuild wo
 verify rebuilds as `shrt doctor` does, and when the descriptor matches it says the backend sends
 fields the proto does not declare.
 
+Later still: a body the proto cannot hold at all (`qty_on_hand: "seven"` for an int64, an enum
+value `ORDER_STATUS_SHIPPED` the proto does not declare) was still `could not verify`, exit 3, when
+the descriptor matched a rebuild, so the proto is current and the backend itself changed. Exit 3 is
+now kept for a STALE descriptor (and for undeclared fields, which a newer backend may add on
+purpose). When the descriptor matches a rebuild and the first failing step drifted by a wrong type
+or an undeclared enum value, verify exits 1, `regression: ... the response at stock is a body its
+proto cannot hold (invalid value for int64 field qtyOnHand: "seven"), and the descriptor matches a
+rebuild ... so it is not stale`, naming the step, field and value.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says
