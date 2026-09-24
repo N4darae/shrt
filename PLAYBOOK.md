@@ -113,22 +113,25 @@ is a field's whole value (`${vars.key}`) has no safe default and stays undeclare
 `.shrt/config.yaml` carries a `conventions:` block. Six keys, all optional, and the defaults
 describe a Connect-style backend that reports its verdict at `error.code` with `OK` meaning success.
 The block below is NOT the defaults: it is an example for a backend that answers
-`{"status": {"code": "SUCCESS"}}`, with every key set to show its shape. It carries no comment
-lines, so it pastes into a repo whose hook rejects them:
+`{"status": {"code": "SUCCESS"}}`, and whose batch rpcs answer
+`{"status": {...}, "results": [{"status": {"code": "SUCCESS"}, ...}]}`, with every key set to show
+its shape. It carries no comment lines, so it pastes into a repo whose hook rejects them:
 
 ```yaml
 conventions:
   read_only_prefixes: [Fetch, Get, List, Query, Read]
   envelope_path: status.code
   envelope_ok: SUCCESS
-  item_envelope_path: results[].error.code
+  item_envelope_path: results[].status.code
   code_fields: [app_code, reason, error_code]
   validate_output: true
 ```
 
 Key by key: `read_only_prefixes` says which rpc names are reads; `envelope_path` is where a
 response states its verdict, and `envelope_ok` the value there meaning success;
-`item_envelope_path` is a BATCH rpc's per-item verdict; `code_fields` are the detail fields
+`item_envelope_path` is a BATCH rpc's per-item verdict, a path that must exist in your response
+messages (`results[].error.code` on a backend like this one makes `shrt run` refuse every chain,
+because no response declares it); `code_fields` are the detail fields
 `chain which -code` searches; and with `validate_output: true` a response the descriptor rejects
 FAILS its step.
 
