@@ -495,6 +495,7 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 			out = append(out, Change{Step: want.ID, Path: AuthPrincipalPath, Kind: KindChanged, Want: want.AuthPrincipal, Got: got.AuthPrincipal,
 				Detail: fmt.Sprintf("auth profile %q logged in as another principal: its login body's non-secret fields differ", got.AuthProfile)})
 		}
+		out = append(out, headerChanges(want, got)...)
 		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
 		}
@@ -516,6 +517,39 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 			c.Step = want.ID
 			out = append(out, c)
 		})
+	}
+	return out
+}
+
+const HeadersPathPrefix = "headers."
+
+func headerChanges(want, got *runner.StepRecord) []Change {
+	if want.Headers == nil || got.Headers == nil {
+		return nil
+	}
+	names := []string{}
+	for k := range want.Headers {
+		names = append(names, k)
+	}
+	for k := range got.Headers {
+		if _, ok := want.Headers[k]; !ok {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	out := []Change{}
+	for _, k := range names {
+		w, had := want.Headers[k]
+		g, has := got.Headers[k]
+		switch {
+		case had && has && w == g:
+		case had && has:
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g})
+		case had:
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindMissing, Want: w})
+		default:
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindUnexpected, Got: g})
+		}
 	}
 	return out
 }

@@ -1118,6 +1118,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
+	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
@@ -1389,6 +1390,9 @@ func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	}
 	if scrubbed, ok := redactor.ScrubValue(sr.Exported).(map[string]any); ok && sr.Exported != nil {
 		sr.Exported = scrubbed
+	}
+	for k, v := range sr.Headers {
+		sr.Headers[k] = redactor.ScrubText(v)
 	}
 	sr.Error = redactor.ScrubText(sr.Error)
 	sr.Warning = redactor.ScrubText(sr.Warning)
