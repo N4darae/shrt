@@ -846,7 +846,9 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      step before it that errored or failed its expectations. `-verify` stops at the first kept
      step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and
-     re-run.
+     re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
+     unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
+     `-var name=<fresh>`. Only a flag that cannot be parsed exits 1.
    - `INCONCLUSIVE` (3): the verdicts match, but the slice dropped write steps. A match can come
      from state the slice never built (a limit the dropped writes would have reached, say), so it
      is not a receipt. The output ends with a `next:` line —

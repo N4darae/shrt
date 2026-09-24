@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -18,7 +19,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type sliceProgress struct{ verify, sent bool }
+
+const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify] [-json]"
+
+const sliceExitCodes = "\nexit codes:\n" +
+	"  0  the slice was printed or written; with -verify, reproduced\n" +
+	"  1  with -verify, NOT REPRODUCED; without it, a refusal (unknown chain or step); a flag that\n" +
+	"     cannot be parsed exits 1 either way\n" +
+	"  2  with -verify, DID NOT RUN: the target step was never answered, or -verify refused before\n" +
+	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
+	"     a missing or not-fresh -var name=<fresh>), so nothing was verified\n" +
+	"  3  with -verify, INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
+
 func chainSlice(ctx context.Context, args []string) error {
+	p := &sliceProgress{}
+	err := sliceChain(ctx, args, p)
+	var coded *exitError
+	if err == nil || !p.verify || p.sent || errors.Is(err, flag.ErrHelp) || errors.As(err, &coded) {
+		return err
+	}
+	return &exitError{code: 2, err: err}
+}
+
+func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	fs := flag.NewFlagSet("chain slice", flag.ContinueOnError)
 	step := fs.String("step", "", "step id the slice must reproduce")
 	mode := fs.String("mode", chain.SliceModeClosure, "closure (rebuild every producer) or pin (pin values from a run record)")
@@ -32,12 +56,14 @@ func chainSlice(ctx context.Context, args []string) error {
 	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>")
 	keep := &stepList{}
 	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`")
+	setUsage(fs, sliceUsage, sliceExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
 	}
+	p.verify = *verify
 	if len(rest) == 0 || len(rest) > 2 {
-		return fmt.Errorf("usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify] [-json]")
+		return errors.New(sliceUsage)
 	}
 	name := write.value
 	if len(rest) == 2 {
@@ -145,6 +171,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		if verdict == nil {
 			return verifyErr
 		}
+		p.sent = true
 		if verdict.Outcome == sliceReproduced {
 			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, time.Now())
 		}
