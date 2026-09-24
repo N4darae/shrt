@@ -202,6 +202,8 @@ func runVerify(ctx context.Context, args []string) error {
 			for _, line := range warningLines(rec) {
 				fmt.Println(line)
 			}
+		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
+			fmt.Println("warning: " + line)
 		}
 	}
 	if loss.finding() && !driftedBefore(rec, report, loss.index) {

@@ -206,7 +206,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
 			}
 			for _, line := range strings.Split(sr.Warning, "\n") {
-				if line = strings.TrimSpace(line); line == "" {
+				if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
 					continue
 				}
 				if at, seen := warned[line]; seen {
@@ -312,7 +312,7 @@ func warningLines(rec *runner.Record) []string {
 			continue
 		}
 		for _, line := range strings.Split(sr.Warning, "\n") {
-			if line = strings.TrimSpace(line); line == "" {
+			if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
 				continue
 			}
 			if _, seen := stepsOf[line]; !seen {
@@ -325,6 +325,9 @@ func warningLines(rec *runner.Record) []string {
 	}
 	for _, line := range warnings {
 		out = append(out, fmt.Sprintf("warning [%s]: %s", capList(stepsOf[line], 10), line))
+	}
+	if line := runner.UndeclaredFieldsLine(rec); line != "" {
+		out = append(out, "warning: "+line)
 	}
 	return out
 }

@@ -391,6 +391,52 @@ func RefusedFreshToken(sr *StepRecord) bool {
 	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
 }
 
+const UndeclaredFieldsWarning = "response field(s) the proto does not declare, not compared: "
+
+const UndeclaredFieldsAdvice = "the backend sends fields the proto does not declare: update the proto/descriptor if you want " +
+	"them compared (an added field is backward compatible; a field is read only under its proto or JSON name, so a name " +
+	"that differs from a declared one only in case or separators is not read either)"
+
+func UndeclaredFieldsLine(rec *Record) string {
+	order, fields := []string{}, map[string][]string{}
+	for _, sr := range rec.Steps {
+		if sr == nil {
+			continue
+		}
+		for _, line := range strings.Split(sr.Warning, "\n") {
+			rest, ok := strings.CutPrefix(strings.TrimSpace(line), UndeclaredFieldsWarning)
+			if !ok {
+				continue
+			}
+			if _, seen := fields[sr.Call]; !seen {
+				order = append(order, sr.Call)
+			}
+			for _, f := range strings.Split(rest, ", ") {
+				if f != "" && !slicesContain(fields[sr.Call], f) {
+					fields[sr.Call] = append(fields[sr.Call], f)
+				}
+			}
+		}
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(order))
+	for _, call := range order {
+		parts = append(parts, call+" -> "+strings.Join(fields[call], ", "))
+	}
+	return UndeclaredFieldsAdvice + ": " + strings.Join(parts, "; ")
+}
+
+func slicesContain(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 const notAnsweredByService = "not answered by the service"
 
 func unavailableAnswer(status int, code string) bool {
@@ -1271,11 +1317,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			"build') and re-run before reading it as a backend defect."
 		return sr
 	case len(unknown) > 0:
-		sr.Warning = joinLines(sr.Warning, "response carries field(s) "+string(method.Output().FullName())+
-			" does not declare, discarded before the expectations ran: "+strings.Join(unknown, ", ")+
-			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
-			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
-			"listed here that differs from a declared one only in case or separators is not read either")
+		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
 	default:
 		canonical = res.Body
 		populated = res.Body

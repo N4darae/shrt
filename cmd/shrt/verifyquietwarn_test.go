@@ -35,7 +35,7 @@ func TestVerifyQuietStillPrintsStepWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("an added field is backward compatible, so verify is clean: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "warning [") || !strings.Contains(out, "tier") {
+	if !strings.Contains(out, "warning") || !strings.Contains(out, "tier") {
 		t.Fatalf("verify -quiet must still print the step warnings in its summary, as run -quiet does:\n%s", out)
 	}
 }
