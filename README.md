@@ -181,9 +181,11 @@ Each run and each replay gets a fresh tag, or the second CI run of a chain trips
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
 a `-var` the chain never reads. Every run must exit 0, and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
-§1): its run exits 0 only when it fails exactly there, and exits 1 when it fails anywhere else, fails
-differently, or passes (the defect is gone), so a regression in an earlier step of that chain fails
-the gate instead of hiding behind the known red. A list of red chain names beside the gate, checked
+§1): its run goes past a failure at a pinned step as `-keep-going` would, with no flag, so every pin
+and every later step is evaluated; it exits 0 only when it fails exactly there, and exits 1 when it
+fails anywhere else, fails differently, leaves a step unsent, or passes (the defect is gone), so a
+regression in an earlier or a later step of that chain fails the gate instead of hiding behind the
+known red. A list of red chain names beside the gate, checked
 only for exit 1, cannot tell those apart: do not keep one.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a

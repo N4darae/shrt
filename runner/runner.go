@@ -803,6 +803,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	repeats := map[int][]string{}
 	var dead *StepRecord
 	unreached := 0
+	keepGoing, pastPins := opts.KeepGoing, false
+	pinned := map[string]bool{}
+	for _, k := range c.KeptRed {
+		pinned[k.Step] = true
+	}
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind, behindOn := false, ""
@@ -816,7 +821,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 			continue
 		}
-		if opts.KeepGoing {
+		if keepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
 				behind, behindOn = true, producer.ID
@@ -825,7 +830,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if sr == nil {
 			stepOpts := opts
 			stepOpts.chain = c
-			if opts.KeepGoing {
+			if keepGoing {
 				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
@@ -846,7 +851,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			continue
 		}
 		failure := failureOf(step, sr)
-		if !opts.KeepGoing {
+		if !keepGoing && pinned[step.ID] && sr.Status == StatusFailed && !opts.DryRun {
+			keepGoing, pastPins = true, true
+		}
+		if !keepGoing {
 			rec.Status = sr.Status
 			rec.Failure = failure
 			break
@@ -886,7 +894,13 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
 	}
-	if len(failures) > 0 {
+	switch {
+	case pastPins && len(failures) == 1 && failedCount == 1 && unreached == 0:
+		rec.Failure = failures[0]
+	case pastPins && len(failures) > 0:
+		rec.Failure = fmt.Sprintf("kept_red: ran past the pinned failure(s), as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
+			strings.Join(failures, "\n")
+	case len(failures) > 0:
 		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}

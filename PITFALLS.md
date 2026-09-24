@@ -192,7 +192,11 @@ In a shrt corpus the same chain declares `kept_red`, and its run says so itself:
 (defect_gone)` and exit 1. The opposite failure is quieter and worse: a gate that only checks a
 kept-red chain exits 1 stays green when a regression makes the chain fail EARLIER, at a step the
 defect never touched (`create_order` total wrong, so `confirm_order` is never reached). `kept_red`
-pins the step and path, so that run says `not_as_pinned` and exits 1.
+pins the step and path, so that run says `not_as_pinned` and exits 1. Until 2026-09-24 a plain run
+still stopped at the first pinned failure, so a second pin was "never answered" (`not_as_pinned`
+on a correct chain) and a regression in a step AFTER the pinned one was never sent (`as_pinned`,
+exit 0). A kept-red chain now runs past its pinned failures as `-keep-going` does, and a step left
+unsent behind a failure keeps it from `as_pinned`.
 
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
