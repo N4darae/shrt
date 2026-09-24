@@ -35,7 +35,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     before it; a change at or after that step\n" +
 	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
 	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
-	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
+	"     this chain already used (fixture reused: re-run with a fresh -var), or that no recorded run\n" +
+	"     used, so something else created the record (fixture collision: re-run with a fresh -var);\n" +
+	"     or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
 	"     backend refused a token a login in this run had just issued, the credentials work and it\n" +
 	"     says this may be an auth regression\n"

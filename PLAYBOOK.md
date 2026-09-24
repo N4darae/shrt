@@ -132,7 +132,11 @@ values and trips the same uniqueness constraint, so keep passing a fresh `-var t
 verify` recognises that case: when the first failing step is refused as a uniqueness conflict
 (`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
 of the chain already used, it prints `fixture reused: ...` and, unless a step before it drifted,
-exits 3 with `could not verify <chain>: fixture reused`, not `regression`. A var that
+exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
+the chain used that value, the other record came from somewhere else (another chain with the same
+tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
+way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
+failing step is refused that way. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers

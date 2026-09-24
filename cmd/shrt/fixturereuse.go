@@ -23,17 +23,34 @@ type fixtureReuse struct {
 	run   string
 }
 
+func (f *fixtureReuse) verdict() string {
+	if f.run == "" {
+		return "fixture collision"
+	}
+	return "fixture reused"
+}
+
 func (f *fixtureReuse) line() string {
+	if f.run == "" {
+		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
+			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
+			"(another chain with the same value, another client, or a shared backend)",
+			f.step, f.why, strings.Join(f.vars, ", "))
+	}
 	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
 		"and run %s of this chain already used that value, so the backend still holds what that run created",
 		f.step, f.why, strings.Join(f.vars, ", "), f.run)
 }
 
 func (f *fixtureReuse) fresh() string {
+	fill := "<a value no run used>"
+	if f.run == "" {
+		fill = "<a value nothing on this backend used>"
+	}
 	names := []string{}
 	for _, v := range f.vars {
 		name, _, _ := strings.Cut(v, "=")
-		names = append(names, "-var "+name+"=<a value no run used>")
+		names = append(names, "-var "+name+"="+fill)
 	}
 	return strings.Join(names, " ")
 }
@@ -80,10 +97,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(fed) == 0 {
 		return nil
 	}
-	ids, err := e.store.ListRuns(rec.Chain)
-	if err != nil {
-		return nil
-	}
+	ids, _ := e.store.ListRuns(rec.Chain)
 	names := make([]string, 0, len(fed))
 	for n := range fed {
 		names = append(names, n)
@@ -109,7 +123,16 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID}
 		}
 	}
-	return nil
+	current := []string{}
+	for _, n := range names {
+		if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+			current = append(current, fmt.Sprintf("%s=%v", n, v))
+		}
+	}
+	if len(current) == 0 {
+		return nil
+	}
+	return &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
 }
 
 func stepRefusalText(st *runner.StepRecord) string {
