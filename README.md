@@ -141,10 +141,13 @@ error), and 0 for `-h`.
 
 ### CI gate
 
-In this order, under `set -e` or with each exit checked, and with every env var the `auth:`
-bodies read exported first (a missing one makes `doctor -strict` warn and `run` refuse):
+In this order, with every env var the `auth:` bodies read exported first (a missing one makes
+`doctor -strict` warn and `run` refuse). The static checks stop the gate at the first failure; the
+runs, replays and the hollow ratchet each have their exit checked, so one red chain does not hide
+the rest, and the gate fails at the end if any of them did:
 
 ```bash
+set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 [ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
 shrt catalog build
@@ -152,25 +155,47 @@ shrt doctor -strict
 shrt contract lint
 shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
+is_red() { [ -f .shrt/expect-red.txt ] && grep -qxF "$1" .shrt/expect-red.txt; }
 tag="ci$(date +%s)$RANDOM"
+fail=0
 shopt -s nullglob
 for f in .shrt/chains/*.yaml; do
   c="$(basename "$f" .yaml)"
-  if grep -q 'vars\.tag' "$f"; then shrt run "$c" -quiet -var "tag=$tag-$c"; else shrt run "$c" -quiet; fi
+  args=(-quiet)
+  if grep -q 'vars\.tag' "$f"; then args+=(-var "tag=$tag-$c"); fi
+  rc=0; shrt run "$c" "${args[@]}" || rc=$?
+  if is_red "$c"; then
+    [ "$rc" -eq 1 ] || { echo "gate: $c is kept red on purpose, but its run exited $rc" >&2; fail=1; }
+  elif [ "$rc" -ne 0 ]; then
+    echo "gate: run $c exited $rc" >&2; fail=1
+  fi
 done
 for s in .shrt/safespots/*.json; do
   c="$(basename "$s" .json)"
-  if grep -q 'vars\.tag' ".shrt/chains/$c.yaml"; then shrt verify "$c" -quiet -var "tag=$tag-v-$c"; else shrt verify "$c" -quiet; fi
+  args=(-quiet)
+  if grep -qs 'vars\.tag' ".shrt/chains/$c.yaml"; then args+=(-var "tag=$tag-v-$c"); fi
+  rc=0; shrt verify "$c" "${args[@]}" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "gate: verify $c exited $rc" >&2; fail=1; }
 done
-shrt chain hollow -gate -baseline .shrt/hollow-baseline
+rc=0; shrt chain hollow -gate -baseline .shrt/hollow-baseline || rc=$?
+[ "$rc" -eq 0 ] || { echo "gate: chain hollow -gate exited $rc" >&2; fail=1; }
+exit "$fail"
 ```
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is the gate's
-to list: expect exit 1 from its run, and treat exit 0 (the defect is gone) or 3 (no verdict) as a
-failure. Each baseline file holds one number, the score the gate must equal; write the current
-score into it once (a missing file fails the gate), and change it only as a reviewed edit.
+a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is listed by
+name, one per line, in `.shrt/expect-red.txt`: its run must exit 1, and exit 0 (the defect is gone)
+or 3 (no verdict) fails the gate. Any other chain must exit 0, and so must every `verify`.
+
+Both baseline files are committed, and each holds one number, the score its gate must equal; a
+missing file fails the gate. Create them once, before the first gate run: write `0` into each
+(`echo 0 > .shrt/quality-baseline; echo 0 > .shrt/hollow-baseline`), run
+`shrt contract quality -gate -baseline .shrt/quality-baseline`, and if it fails, the message names
+the current score: read what it counts with `shrt contract quality` and write that number into the
+file. Do the same for `shrt chain hollow -gate -baseline .shrt/hollow-baseline` after running the
+chains, since it reads the run records they leave (run records are gitignored, so on a fresh clone
+the gate's own runs are what it reads). From then on, change a baseline only as a reviewed edit.
 
 ## The loop
 
