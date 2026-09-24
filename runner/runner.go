@@ -685,7 +685,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if !opts.DryRun {
 		rec.Warning = envelopeOKNeverSeen(rec.Steps)
 	}
-	rec.Exports = maskExports(scope.Exports, c.Steps, redactor)
+	rec.Exports = r.maskExports(scope.Exports, c.Steps, redactor)
 	if masked, ok := redactor.Apply(rec.Vars).(map[string]any); ok {
 		rec.Vars = masked
 	}
@@ -704,6 +704,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if method.Streaming() {
 		return fail(sr, errors.New(method.StreamRefusal()))
 	}
+	outputFields := catalog.DescribeMessage(method.Output()).Fields
+	requestRedactor := redactor.WithNumeric(numericPaths(catalog.DescribeMessage(method.Input()).Fields))
+	redactor = redactor.WithNumeric(numericPaths(outputFields))
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
@@ -714,7 +717,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, fmt.Errorf("encode request: %w", err))
 	}
-	sr.Request = mustJSON(redactor.Apply(resolved), body)
+	sr.Request = mustJSON(requestRedactor.Apply(resolved), body)
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
@@ -835,7 +838,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
 		}
-		result := evaluate(scope, e, response, presence, redactor)
+		kind := ""
+		if !chain.IsTransportPath(e.Path) {
+			kind = fieldKind(outputFields, e.Path)
+		}
+		result := evaluateTyped(scope, e, response, presence, kind, redactor)
 		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
 			result.Detail = refusalContext(decoded, e.Path, redactor)
 		}
@@ -1012,11 +1019,15 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 }
 
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
+	return evaluateTyped(scope, e, response, presence, "", redactor)
+}
+
+func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence any, kind string, redactor *pathmask.Masker) chain.ExpectResult {
 	bound, err := e.ResolveWith(scope)
 	if err != nil {
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
-	result := bound.EvaluateIn(response, presence)
+	result := bound.EvaluateTyped(response, presence, kind)
 	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
 	}
@@ -1024,6 +1035,34 @@ func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, r
 		result.Want = pathmask.MaskRedacted
 	}
 	return result
+}
+
+func fieldKind(fields []*catalog.Field, path string) string {
+	segs := chain.SplitPath(path)
+	f, ok := catalog.ResponseFieldAt(fields, segs)
+	if !ok || f == nil || f.MapKey != "" || len(segs) == 0 {
+		return ""
+	}
+	if f.Repeated && !isIndexSegment(segs[len(segs)-1]) {
+		return ""
+	}
+	return f.Kind
+}
+
+func numericPaths(fields []*catalog.Field) func(string) bool {
+	return func(path string) bool { return chain.IsNumericKind(fieldKind(fields, path)) }
+}
+
+func isIndexSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func transportOutcome(res *transport.Result) map[string]any {
@@ -1055,7 +1094,7 @@ func refusalAsserted(expect []chain.Expectation, results []chain.ExpectResult) b
 	return true
 }
 
-func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
+func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
 	if len(exports) == 0 {
 		return exports
 	}
@@ -1064,8 +1103,14 @@ func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask
 		out[name] = v
 	}
 	for _, s := range steps {
+		masker := redactor
+		if r.Catalog != nil {
+			if m, err := r.Catalog.Lookup(s.Call); err == nil {
+				masker = redactor.WithNumeric(numericPaths(catalog.DescribeMessage(m.Output()).Fields))
+			}
+		}
 		for name, path := range s.Export {
-			if _, exported := out[name]; exported && redactor.MasksValue(path, out[name]) {
+			if _, exported := out[name]; exported && masker.MasksValue(path, out[name]) {
 				out[name] = pathmask.MaskRedacted
 			}
 		}

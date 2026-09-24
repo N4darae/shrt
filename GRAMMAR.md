@@ -48,7 +48,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `not_equal` | any |  | The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`. |
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
-| `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. |
+| `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `"0"`. |
 
 ### What each rule actually does
 
@@ -65,12 +65,16 @@ Produced by evaluating every rule against a fixture response, not by description
 | `not_empty: true` on `id_deal` | `not_empty` | **yes** |
 | `not_empty: true` on an empty list | `not_empty` | no |
 | `not_empty: true` on the number 0 | `not_empty` | no |
+| `not_empty: true` on an int64 at 0 (stored as the string `"0"`) | `not_empty` | no |
+| `not_equal: ""` on an int64 at 0 | `not_equal` | no |
 | `exists: true` on a path that is absent | `exists` | no |
 | no rule at all | `invalid — expectation has no rule` | no |
 | TWO rules on one entry: `equals: NOPE` **and** `not_empty: true` | `not_empty` | **yes** |
 
-Read the last four rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for
-`exists`. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one
+Read the last six rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for
+`exists`. Zero follows the field's proto type: an int64 or uint64 is stored as a JSON string, and
+its `"0"` is zero exactly as an int32's `0` is; on any numeric field `""` in `equals` or `not_equal`
+means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one
 to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >
 `not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one
 you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`
@@ -236,7 +240,7 @@ Produced by resolving each form against a fixture scope:
 | `paths` | paths | + | Where chains, runs and safe spots live. |
 | `conventions` | conventions |  | Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded. |
 | `volatile` | list of string |  | Volatile paths applied to every chain. |
-| `redact` | list of string |  | Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
+| `redact` | list of string |  | Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0 of any numeric type — an int64's `"0"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
 
 ### `target`
 

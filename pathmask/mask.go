@@ -2,6 +2,7 @@ package pathmask
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -11,6 +12,7 @@ type Masker struct {
 	patterns    []string
 	value       string
 	secretsOnly bool
+	numeric     func(path string) bool
 }
 
 func NewMasker(patterns []string) *Masker {
@@ -19,6 +21,15 @@ func NewMasker(patterns []string) *Masker {
 
 func NewRedactor(patterns []string) *Masker {
 	return &Masker{patterns: patterns, value: MaskRedacted, secretsOnly: true}
+}
+
+func (m *Masker) WithNumeric(numeric func(path string) bool) *Masker {
+	if m == nil {
+		return nil
+	}
+	out := *m
+	out.numeric = numeric
+	return &out
 }
 
 func (m *Masker) Patterns() []string {
@@ -46,7 +57,7 @@ func (m *Masker) walk(v any, path string) any {
 		out := make(map[string]any, len(t))
 		for k, item := range t {
 			child := Join(path, k)
-			if m.masked(child) && m.coversValue(item) {
+			if m.masked(child) && m.coversValue(child, item) {
 				out[k] = m.value
 				continue
 			}
@@ -57,7 +68,7 @@ func (m *Masker) walk(v any, path string) any {
 		out := make([]any, 0, len(t))
 		for i, item := range t {
 			child := Join(path, IndexKey(i))
-			if m.masked(child) && m.coversValue(item) {
+			if m.masked(child) && m.coversValue(child, item) {
 				out = append(out, m.value)
 				continue
 			}
@@ -77,15 +88,24 @@ func (m *Masker) Masks(path string) bool {
 }
 
 func (m *Masker) MasksValue(path string, v any) bool {
-	return m.Masks(path) && m.coversValue(v)
+	return m.Masks(path) && m.coversValue(path, v)
 }
 
-func (m *Masker) coversValue(v any) bool {
+func (m *Masker) coversValue(path string, v any) bool {
 	if m == nil || !m.secretsOnly {
 		return true
 	}
 	_, isBool := v.(bool)
-	return !isBool && !isEmpty(v)
+	return !isBool && !isEmpty(v) && !m.numericZero(path, v)
+}
+
+func (m *Masker) numericZero(path string, v any) bool {
+	text, ok := v.(string)
+	if !ok || m.numeric == nil || !m.numeric(path) {
+		return false
+	}
+	n, err := strconv.ParseFloat(text, 64)
+	return err == nil && n == 0
 }
 
 func isEmpty(v any) bool {

@@ -55,7 +55,7 @@ var notes = map[string]string{
 	"Expectation.not_equal": "The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
 	"Expectation.exists":    "Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1.",
-	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`.",
+	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `\"0\"`.",
 
 	"Overlay.apiVersion":  "`shrt/contract/v1`.",
 	"Overlay.domain":      "Defaults to the file name.",
@@ -107,7 +107,7 @@ var notes = map[string]string{
 	"Config.paths":       "Where chains, runs and safe spots live.",
 	"Config.conventions": "Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded.",
 	"Config.volatile":    "Volatile paths applied to every chain.",
-	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
+	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0 of any numeric type — an int64's `\"0\"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
 
 	"Target.base_url":      "Scheme and host of the backend.",
 	"Target.host_override": "Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification.",
@@ -435,28 +435,32 @@ func exerciseRules() (string, error) {
 		"id_deal": "d-1",
 		"rows":    []any{},
 		"count":   float64(0),
+		"total":   "0",
 	}
 	cases := []struct {
 		label string
 		e     chain.Expectation
+		kind  string
 	}{
-		{"`equals: OK` on `error.code`", chain.Expectation{Path: "error.code", Equals: "OK"}},
-		{"`equals: NOPE` on `error.code`", chain.Expectation{Path: "error.code", Equals: "NOPE"}},
-		{"`equals: 0` on `count` (number vs text)", chain.Expectation{Path: "count", Equals: "0"}},
-		{"`not_equal: \"\"` on `id_deal`", chain.Expectation{Path: "id_deal", NotEqual: ""}},
-		{"`not_equal: x` on a path that is ABSENT", chain.Expectation{Path: "nope", NotEqual: "x"}},
-		{"`contains: d-` on `id_deal`", chain.Expectation{Path: "id_deal", Contains: "d-"}},
-		{"`not_empty: true` on `id_deal`", chain.Expectation{Path: "id_deal", NotEmpty: true}},
-		{"`not_empty: true` on an empty list", chain.Expectation{Path: "rows", NotEmpty: true}},
-		{"`not_empty: true` on the number 0", chain.Expectation{Path: "count", NotEmpty: true}},
-		{"`exists: true` on a path that is absent", chain.Expectation{Path: "nope", Exists: boolp(true)}},
-		{"no rule at all", chain.Expectation{Path: "id_deal"}},
-		{"TWO rules on one entry: `equals: NOPE` **and** `not_empty: true`", chain.Expectation{Path: "error.code", Equals: "NOPE", NotEmpty: true}},
+		{"`equals: OK` on `error.code`", chain.Expectation{Path: "error.code", Equals: "OK"}, ""},
+		{"`equals: NOPE` on `error.code`", chain.Expectation{Path: "error.code", Equals: "NOPE"}, ""},
+		{"`equals: 0` on `count` (number vs text)", chain.Expectation{Path: "count", Equals: "0"}, ""},
+		{"`not_equal: \"\"` on `id_deal`", chain.Expectation{Path: "id_deal", NotEqual: ""}, ""},
+		{"`not_equal: x` on a path that is ABSENT", chain.Expectation{Path: "nope", NotEqual: "x"}, ""},
+		{"`contains: d-` on `id_deal`", chain.Expectation{Path: "id_deal", Contains: "d-"}, ""},
+		{"`not_empty: true` on `id_deal`", chain.Expectation{Path: "id_deal", NotEmpty: true}, ""},
+		{"`not_empty: true` on an empty list", chain.Expectation{Path: "rows", NotEmpty: true}, ""},
+		{"`not_empty: true` on the number 0", chain.Expectation{Path: "count", NotEmpty: true}, "int32"},
+		{"`not_empty: true` on an int64 at 0 (stored as the string `\"0\"`)", chain.Expectation{Path: "total", NotEmpty: true}, "int64"},
+		{"`not_equal: \"\"` on an int64 at 0", chain.Expectation{Path: "total", NotEqual: ""}, "int64"},
+		{"`exists: true` on a path that is absent", chain.Expectation{Path: "nope", Exists: boolp(true)}, ""},
+		{"no rule at all", chain.Expectation{Path: "id_deal"}, ""},
+		{"TWO rules on one entry: `equals: NOPE` **and** `not_empty: true`", chain.Expectation{Path: "error.code", Equals: "NOPE", NotEmpty: true}, ""},
 	}
 	var b strings.Builder
 	b.WriteString("| expectation | rule fired | passes |\n|---|---|---|\n")
 	for _, c := range cases {
-		r := c.e.Evaluate(resp)
+		r := c.e.EvaluateTyped(resp, resp, c.kind)
 		verdict := "no"
 		if r.Passed {
 			verdict = "**yes**"
@@ -467,8 +471,10 @@ func exerciseRules() (string, error) {
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, detail, verdict)
 	}
-	b.WriteString("\nRead the last four rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for\n")
-	b.WriteString("`exists`. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one\n")
+	b.WriteString("\nRead the last six rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for\n")
+	b.WriteString("`exists`. Zero follows the field's proto type: an int64 or uint64 is stored as a JSON string, and\n")
+	b.WriteString("its `\"0\"` is zero exactly as an int32's `0` is; on any numeric field `\"\"` in `equals` or `not_equal`\n")
+	b.WriteString("means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one\n")
 	b.WriteString("to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >\n")
 	b.WriteString("`not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one\n")
 	b.WriteString("you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`\n")
