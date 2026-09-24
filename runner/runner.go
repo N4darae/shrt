@@ -148,6 +148,39 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	}
 }
 
+func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
+	login := false
+	for _, b := range bs {
+		if b == nil || b.Procedure != procedure {
+			continue
+		}
+		login = true
+		if token, ok := chain.Get(response, b.TokenPath); ok && b.TokenPath != "" {
+			learnSecret(redactor, token)
+		}
+	}
+	if login {
+		learnMaskedValues(redactor, response, "")
+	}
+}
+
+func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
+	if path != "" && redactor.MasksValue(path, v) {
+		learnSecret(redactor, v)
+		return
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	}
+}
+
 func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
 	switch t := v.(type) {
 	case map[string]any:
@@ -892,6 +925,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err := json.Unmarshal(populated, &sent); err != nil {
 		return fail(sr, fmt.Errorf("decode response: %w", err))
 	}
+	r.Auth.learnLoginResponse(redactor, method.Procedure(), decoded)
 	sr.Response = mustJSON(redactor.Apply(decoded), canonical)
 	scope.Record(step.ID, resolved, decoded)
 	canonicalInput := func(raw []byte) ([]byte, error) { return r.Catalog.Canonicalize(method.Input(), raw) }

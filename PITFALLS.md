@@ -859,6 +859,11 @@ Only secrets are scrubbed by value: an auth body value counts when its field is 
 `clerk` was scrubbed too, so a request `name: "clerk made"` was stored as `"<redacted> made"`. A safe
 spot approved with such a mangled request shows it once as a request difference in `verify`.
 
+A token a login step in the chain returned was scrubbed only when it seeded a profile or was
+exported: read directly (`name: ${login_clerk.access_token}`) under a login body no profile has, it
+stayed in clear. Every response of a login rpc now gives up its `token_path` value and every value
+under a redacted path as secrets, whichever step called it.
+
 ---
 
 # Decisions, so they are not relitigated
