@@ -211,7 +211,7 @@ func likeness(want, got any, r *strings.Replacer) int {
 }
 
 func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra []string, fx *Fixtures, requests []Change) {
-	r.Reordered = nil
+	r.Reordered, r.reordered = nil, nil
 	if len(r.reorderCandidates) == 0 || r.Clean() {
 		return
 	}
@@ -270,7 +270,7 @@ func (r *Report) reorderedText() string {
 	}
 	var b strings.Builder
 	for _, at := range r.reordered {
-		b.WriteString("  same items in another order: " + at.step + " " + at.path + " holds what the safe spot holds, in another order. " +
+		b.WriteString("  " + at.step + " " + at.path + ": same items in another order: it holds what the safe spot holds, in another order. " +
 			"If the rpc promises no order, declare `unordered: [" + at.path + "]` on step " + at.step +
 			" (or at chain level), and verify compares that list as a multiset, pairing items by content\n")
 	}
