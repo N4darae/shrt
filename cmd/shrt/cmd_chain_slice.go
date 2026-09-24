@@ -174,6 +174,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			return err
 		}
 		written = path
+		res.Chain.SourcePath = rel(e.cfg.Root, path)
 	}
 
 	var verdict *sliceVerdict
