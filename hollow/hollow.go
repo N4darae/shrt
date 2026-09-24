@@ -13,6 +13,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 var ErrNoRecords = errors.New("no run records were read")
@@ -48,6 +49,8 @@ type Report struct {
 	Findings       []Finding `json:"findings"`
 	Orphans        []string  `json:"orphan_run_dirs,omitempty"`
 	OrphanRecords  int       `json:"orphan_records,omitempty"`
+	Edited         []string  `json:"edited_records,omitempty"`
+	Unsealed       int       `json:"unsealed_records,omitempty"`
 }
 
 func IsReadProcedure(procedure string) bool {
@@ -363,6 +366,13 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 		rec := &runner.Record{}
 		if err := json.Unmarshal(raw, rec); err != nil {
 			continue
+		}
+		switch err := store.SealState(rec); {
+		case errors.Is(err, store.ErrRunEdited):
+			rep.Edited = append(rep.Edited, path)
+			continue
+		case errors.Is(err, store.ErrRunUnsealed):
+			rep.Unsealed++
 		}
 		rep.Records++
 		for _, step := range rec.Steps {

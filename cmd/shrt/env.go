@@ -37,6 +37,7 @@ func loadEnv(withCatalog bool) (*env, error) {
 		cfg:   cfg,
 		store: store.New(cfg.Abs(cfg.Paths.Runs), cfg.Abs(cfg.Paths.SafeSpots)),
 	}
+	e.store.Notes = os.Stderr
 	if !withCatalog {
 		return e, nil
 	}

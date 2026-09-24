@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,6 +14,9 @@ import (
 type Store struct {
 	RunsDir      string
 	SafeSpotsDir string
+	Notes        io.Writer
+
+	notedUnsealed bool
 }
 
 func New(runsDir, safeSpotsDir string) *Store {

@@ -17,6 +17,39 @@ import (
 
 var ErrRunEdited = errors.New("the run record is not the one shrt wrote")
 
+var ErrRunUnsealed = errors.New("the run record predates sealed run records")
+
+func SealState(rec *runner.Record) error {
+	if rec.Seal == "" {
+		return ErrRunUnsealed
+	}
+	seal, err := runSeal(rec)
+	if err != nil {
+		return err
+	}
+	if seal != rec.Seal {
+		return ErrRunEdited
+	}
+	return nil
+}
+
+func (s *Store) vouch(path string, rec *runner.Record) error {
+	switch err := SealState(rec); {
+	case errors.Is(err, ErrRunEdited):
+		return fmt.Errorf("%w: %s was changed after shrt wrote it (its content no longer matches its seal %s), so it is not "+
+			"what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.Seal)
+	case errors.Is(err, ErrRunUnsealed):
+		if s.Notes != nil && !s.notedUnsealed {
+			s.notedUnsealed = true
+			fmt.Fprintf(s.Notes, "note: run %s of %s predates sealed run records (as may others this command reads), so an edit to it "+
+				"cannot be ruled out; it is used as recorded. Run the chain again for a record shrt can check\n", rec.RunID, rec.Chain)
+		}
+		return nil
+	default:
+		return err
+	}
+}
+
 func (s *Store) SaveRun(rec *runner.Record) (string, error) {
 	path := s.runPath(rec.Chain, rec.RunID)
 	seal, err := runSeal(rec)
@@ -83,6 +116,9 @@ func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
 	if slug(rec.Chain) != slug(chainName) {
 		return nil, fmt.Errorf("load run %s/%s: the record is a run of chain %q, not of %q, and was copied or moved into %s; it is not evidence about %s",
 			chainName, runID, rec.Chain, chainName, s.chainDir(chainName), chainName)
+	}
+	if err := s.vouch(path, rec); err != nil {
+		return nil, err
 	}
 	return rec, nil
 }
@@ -157,6 +193,9 @@ func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
 		rec := &runner.Record{}
 		if err := readJSON(path, rec); err != nil {
 			return nil, fmt.Errorf("load run %s: %w", path, err)
+		}
+		if err := s.vouch(path, rec); err != nil {
+			return nil, err
 		}
 		out = append(out, rec)
 	}

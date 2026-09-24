@@ -32,8 +32,11 @@ func TestAHandEditedRunRecordCannotBeProposed(t *testing.T) {
 	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := s.LoadRun(rec.Chain, rec.RunID)
-	if err != nil {
+	if _, err := s.LoadRun(rec.Chain, rec.RunID); !errors.Is(err, store.ErrRunEdited) {
+		t.Fatalf("a run record edited after shrt wrote it is not loaded as evidence; got %v", err)
+	}
+	loaded := &runner.Record{}
+	if err := json.Unmarshal([]byte(edited), loaded); err != nil {
 		t.Fatal(err)
 	}
 	if !loaded.Passed() {
@@ -66,6 +69,31 @@ func TestAnUnsealedRunRecordCannotBeProposed(t *testing.T) {
 	_, err = s.Propose(loaded, store.ProposalInput{Checked: "looks right"})
 	if !errors.Is(err, store.ErrRunEdited) || !strings.Contains(strings.ToLower(err.Error()), "run the chain again") {
 		t.Fatalf("a record with no seal cannot be told from an edited one, so it is refused with a way out; got %v", err)
+	}
+}
+
+func TestAnUnsealedRunRecordIsLoadedWithOneNote(t *testing.T) {
+	s := newStore(t)
+	var notes strings.Builder
+	s.Notes = &notes
+	dir := filepath.Join(s.RunsDir, "thing-flow")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"run-old-1", "run-old-2"} {
+		raw, err := json.Marshal(passingRun(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.LoadRun("thing-flow", id); err != nil {
+			t.Fatalf("an unsealed record is still read, with a note: %v", err)
+		}
+	}
+	if strings.Count(notes.String(), "\n") != 1 || !strings.Contains(notes.String(), "predates sealed run records") {
+		t.Fatalf("one line must say the record predates seals, got %q", notes.String())
 	}
 }
 

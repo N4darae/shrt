@@ -2,13 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func chainWhich(args []string) error {
@@ -97,6 +100,7 @@ func sliceSizeOf(e *env, lib *contract.Library) func(*chain.Chain, string) (int,
 }
 
 func runObservations(e *env) func(string) []chain.Observation {
+	refused := map[string]bool{}
 	return func(name string) []chain.Observation {
 		ids, err := e.store.ListRuns(name)
 		if err != nil || len(ids) == 0 {
@@ -105,6 +109,10 @@ func runObservations(e *env) func(string) []chain.Observation {
 		out := []chain.Observation{}
 		for _, id := range ids {
 			rec, err := e.store.LoadRun(name, id)
+			if errors.Is(err, store.ErrRunEdited) && !refused[name+"/"+id] {
+				refused[name+"/"+id] = true
+				fmt.Fprintf(os.Stderr, "chain which: not cited: %v\n", err)
+			}
 			if err != nil || e.otherTarget(rec.Target) {
 				continue
 			}

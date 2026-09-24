@@ -715,7 +715,9 @@ bare name is refused. `-reject` discards the proposal. A run record carries a `s
 with it, and `confirm` refuses to propose (and `-approve` to approve) a record whose content no
 longer matches its seal, or that has none: a record flipped from failed to passed by hand is not
 what ran. A record written before seals existed is refused the same way; run the chain again and
-propose the new run. The seal catches an edit, not a forger who recomputes it: it is a checksum,
+propose the new run. `diff`, `verify -run`, `chain slice`, `chain which` and `chain hollow`
+refuse an edited record too (`which` and `hollow` leave it out and name it), and read an unsealed
+older one as recorded after one `note:` line saying it predates seals. The seal catches an edit, not a forger who recomputes it: it is a checksum,
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
