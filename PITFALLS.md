@@ -690,6 +690,13 @@ after a fresh login and records `auth_retry: resent`, and a write is not re-sent
 `auth_retry: not_resent` and a warning, and the next run logs in fresh. A dead cached token therefore
 costs one red write step, not a doubled write.
 
+**Also 2026-09-24:** Go's HTTP client silently re-sent a POST carrying an `Idempotency-Key` or
+`X-Idempotency-Key` header when a reused connection dropped after the request went out, so a step
+whose connection closed mid-flight passed with the write performed twice and nothing recorded. shrt
+now never lets the transport re-send a request whose body was sent: such a drop is a step `error`
+saying whether the call took effect is unknown. A request that provably never left (nothing written
+on a stale idle connection) is still retried on a fresh connection.
+
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
 **Symptom.** You turn on `conventions.validate_output`, a response fails to match its proto message,
