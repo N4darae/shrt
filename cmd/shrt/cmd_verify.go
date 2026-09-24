@@ -892,7 +892,7 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 				"(auth_retry, error); re-run verify to confirm: a repeat at the same step is reported as a finding", name, step, why, past)
 		}
 	}
-	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	remedy := unansweredRemedy(why)
 	for _, st := range rec.Steps {
 		if st.ID == step && runner.NotAnsweredByService(st) {
 			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
@@ -904,6 +904,23 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
+}
+
+var gatewayLogin = regexp.MustCompile(`(?i)login rejected: (http_50[234]|unavailable)\b`)
+
+func unansweredRemedy(why string) string {
+	lower := strings.ToLower(why)
+	switch {
+	case gatewayLogin.MatchString(why):
+		return "the login was answered by a gateway, not by the service (as during a rolling restart), so wait until it is up " +
+			"and run verify again"
+	case strings.Contains(lower, "refused authentication") || strings.Contains(lower, "login rejected") ||
+		strings.Contains(lower, "unauthenticated") || strings.Contains(lower, "permission_denied"):
+		return "fix the credentials it refused, and run verify again"
+	case strings.Contains(lower, "closed the connection"):
+		return "check the backend is up (it stopped or crashed with the request in flight) and run verify again"
+	}
+	return "start or reach the target, and run verify again"
 }
 
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
