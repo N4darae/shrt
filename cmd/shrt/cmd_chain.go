@@ -166,6 +166,9 @@ func chainList(args []string) error {
 	fs := flag.NewFlagSet("chain ls", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
+	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot",
+		"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
+			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

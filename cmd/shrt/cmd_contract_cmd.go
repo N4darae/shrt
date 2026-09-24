@@ -95,7 +95,10 @@ func contractInit(args []string) error {
 	all := fs.Bool("all", false, "scaffold every domain in the catalog")
 	force := fs.Bool("force", false, "discard existing curation instead of carrying it forward")
 	stdout := fs.Bool("stdout", false, "print instead of writing")
-	setUsage(fs, "usage: shrt contract init <domain>... | -all [flags]   with no domain, lists the domains in the catalog", "")
+	setUsage(fs, "usage: shrt contract init <domain>... | -all [flags]   with no domain, lists the domains in the catalog",
+		"\nexit codes:\n  0  scaffolded or unchanged; with no domain, the domains were listed\n"+
+			"  1  an unknown domain, a contract overlay that does not parse, a flag that cannot be parsed, or a\n"+
+			"     setup that cannot load\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -115,7 +118,8 @@ func contractInit(args []string) error {
 		for _, d := range contract.DomainNames(e.cat.Methods()) {
 			fmt.Printf("  %-14s %d rpc(s)\n", d, len(byDomain[d]))
 		}
-		return fmt.Errorf("usage: shrt contract init <domain>... | -all")
+		fmt.Println("\nscaffold one: shrt contract init <domain>...  (or -all)")
+		return nil
 	}
 
 	lib, err := e.library()

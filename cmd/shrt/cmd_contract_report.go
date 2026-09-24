@@ -29,6 +29,10 @@ func contractStatus(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry) and 'no path to' (a contract, but in no multi-step plan), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
+	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
+		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
+			"  1  a flag or -phase that cannot be parsed, a contract overlay that does not parse, or a setup that\n"+
+			"     cannot load (no .shrt/config.yaml, a missing descriptor)\n")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
