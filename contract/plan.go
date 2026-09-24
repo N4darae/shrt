@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -155,6 +156,9 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
 			continue
 		}
+		if !p.plainLooksDuplicate(rpc, nodes, edges[rpc]) {
+			continue
+		}
 		aliased := []string{}
 		ids := []string{p.stepOf[rpc]}
 		first := ""
@@ -176,6 +180,31 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
 			strings.Join(aliased, ", "), shortNode(first))
 	}
+}
+
+func (p *Plan) plainLooksDuplicate(rpc string, nodes, via []string) bool {
+	onlyBefore := len(via) > 0
+	for _, edge := range via {
+		if !strings.Contains(edge, " before: ") {
+			onlyBefore = false
+		}
+	}
+	if onlyBefore {
+		return true
+	}
+	plain := p.stepByID(p.stepOf[rpc])
+	if plain == nil {
+		return false
+	}
+	for _, node := range nodes {
+		if node == rpc {
+			continue
+		}
+		if s := p.stepByID(p.stepOf[node]); s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {

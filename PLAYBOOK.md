@@ -602,7 +602,10 @@ Fill in this order — each step pays for the next:
 **`before:` always attaches the PLAIN rpc.** If the later rpc also `needs:` aliases of it
 (`needs: [AddStock@first, AddStock@second]`), the plan gets an extra unaliased step carrying the
 scaffold's empty strings and zeros, and `plan` flags it with a note naming every edge. Drop the
-`before:`: the `needs:` already orders the aliases.
+`before:`: the `needs:` already orders the aliases. The same note fires when a plain step sends
+exactly the body an aliased sibling sends. It does not fire when the plain rpc and its aliases are
+each wired on purpose with different values, such as order line 0 `from:` `CreateProduct` and line
+1 `from:` `CreateProduct@b` with its own sku and price: that is two products, not a duplicate.
 
 Leave `status: draft`. Only a human promotes to `verified`.
 
