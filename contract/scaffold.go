@@ -314,7 +314,7 @@ func exportsNode(m *catalog.Method) *yaml.Node {
 				continue
 			}
 		}
-		put(exports, f.Name, scalar(withDoc(TodoMarker+": why a later step would need this, or delete the line", f)))
+		put(exports, f.Name, scalar(withDoc(TodoMarker+": why a later step would need this, or move it to terminal: if nothing consumes it", f)))
 	}
 	return exports
 }
@@ -328,7 +328,7 @@ func fieldHint(f *catalog.Field) string {
 		parts = append(parts, "repeated")
 	}
 	if len(parts) == 0 {
-		return TodoMarker + ": where this value comes from, or delete the entry"
+		return TodoMarker + ": where this value comes from, or what you checked if you could not tell; keep the entry"
 	}
 	return TodoMarker + ": " + strings.Join(parts, "; ")
 }
