@@ -1215,6 +1215,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if step.SkipAuth || step.Auth != "" {
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
+	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
@@ -1233,6 +1234,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		if transport.Unreachable(err) {
 			sr.unreachable = innermost(err)
+		} else {
+			sr.LatencyMS = time.Since(sentAt).Milliseconds()
 		}
 		return fail(sr, err)
 	}
