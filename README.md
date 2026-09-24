@@ -117,7 +117,7 @@ command or group subcommand, 1 for a flag it cannot parse or a setup it cannot l
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unknown auth profile, a conventions path no response declares) | — | `error`: a step could not complete (unresolved reference, invalid request, login failed, target unreachable), so the run is not a verdict about the backend |
+| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unknown auth profile, an rpc the catalog does not have, a conventions path no response declares) | — | `error`: a step could not complete (unresolved reference, invalid request, login failed, target unreachable), so the run is not a verdict about the backend |
 | `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | — |
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice -verify` | `reproduced` | `NOT REPRODUCED` | `DID NOT RUN` | `INCONCLUSIVE` |

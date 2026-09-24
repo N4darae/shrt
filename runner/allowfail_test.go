@@ -60,17 +60,16 @@ func TestAllowFailDoesNotSwallowAnRPCThatDoesNotExist(t *testing.T) {
 	})
 
 	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
+	if err == nil {
+		t.Fatalf("a chain naming an rpc that does not exist must be refused before sending, allow_fail or not; got status %s", rec.Status)
 	}
-	if rec.Passed() {
-		t.Fatal("a chain naming an rpc that does not exist reported PASSED: allow_fail must not cover a call that never reached the backend")
+	if !strings.Contains(err.Error(), "NoSuchRpc") || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("the refusal must name the rpc and say nothing was sent: %v", err)
 	}
-	if rec.Status != runner.StatusError {
-		t.Fatalf("record status = %s, want %s", rec.Status, runner.StatusError)
-	}
-	if !strings.Contains(rec.Failure, "allow_fail does not cover this") {
-		t.Fatalf("failure does not explain why allow_fail did not apply: %q", rec.Failure)
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	if len(srv.calls) != 0 {
+		t.Fatalf("nothing may be sent, the backend received %v", srv.calls)
 	}
 }
 

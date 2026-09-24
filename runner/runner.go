@@ -576,6 +576,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := r.checkAuthProfiles(c); err != nil {
 		return nil, err
 	}
+	if err := r.checkCalls(c); err != nil {
+		return nil, err
+	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
 	scope := chain.NewScope(rec.Vars)
 	if r.Now != nil {
@@ -1082,6 +1085,19 @@ func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
 		"so nothing was sent: the run would have died at the first step reading one, after every step before "+
 		"it had already hit the backend. Supply %s, or declare a value under vars: in the chain",
 		c.Name, strings.Join(refs, ", "), strings.Join(flags, " "))
+}
+
+func (r *Runner) checkCalls(c *chain.Chain) error {
+	if r.Catalog == nil {
+		return nil
+	}
+	for i, step := range c.Steps {
+		if _, err := r.Catalog.Lookup(step.Call); err != nil {
+			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
+				step.ID, i+1, step.Call, err)
+		}
+	}
+	return nil
 }
 
 func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
