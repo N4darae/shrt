@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -210,10 +213,30 @@ func summary(rec *runner.Record, dry bool) string {
 		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
 	}
 	if len(rec.Exports) > 0 {
+		names := make([]string, 0, len(rec.Exports))
+		for k := range rec.Exports {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		if dry {
+			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
+				strings.Join(names, ", "))
+			return b.String()
+		}
 		b.WriteString("\n  exports:")
-		for k, v := range rec.Exports {
-			fmt.Fprintf(&b, " %s=%v", k, v)
+		for _, k := range names {
+			fmt.Fprintf(&b, " %s=%s", k, exportJSON(rec.Exports[k]))
 		}
 	}
 	return b.String()
+}
+
+func exportJSON(v any) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return fmt.Sprint(v)
+	}
+	return strings.TrimRight(buf.String(), "\n")
 }
