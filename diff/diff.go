@@ -148,6 +148,31 @@ func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
+func (r *Report) NotReachedCount() int {
+	n := 0
+	for _, c := range r.Changes {
+		if c.Kind == KindNotReached {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *Report) Counted() int {
+	if n := len(r.Changes) - r.NotReachedCount(); n > 0 {
+		return n
+	}
+	return len(r.Changes)
+}
+
+func (r *Report) uncountedNote() string {
+	n := r.NotReachedCount()
+	if n == 0 || r.Counted() == len(r.Changes) {
+		return ""
+	}
+	return fmt.Sprintf("; %d step(s) not reached are listed below and not counted: a step the run never sent is not a change", n)
+}
+
 const (
 	AuthProfilePath   = "auth_profile"
 	AuthPrincipalPath = "auth_principal"
@@ -1123,7 +1148,7 @@ func (r *Report) Text() string {
 	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	default:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s%s\n", r.Counted(), r.SafeSpotID, masked, r.uncountedNote())
 	}
 	if r.FirstFailure != "" {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)

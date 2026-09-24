@@ -322,7 +322,7 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
 	}
 	if violation {
-		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", len(report.Changes), violationLine(e, name, driftStep, driftWhy))
+		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -379,10 +379,10 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if !report.Clean() && len(declared) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot, including %s in the declared fields of the response at %s, "+
-			"which also does not match the descriptor (%s)", len(report.Changes), describeChanges(declared), driftStep, driftWhy)
+			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
+		return fmt.Errorf("regression: %d change(s) vs safe spot", report.Counted())
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; the value(s) they blanked were not compared, "+

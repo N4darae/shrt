@@ -1055,6 +1055,12 @@ printed once: with the step lines shown, the `NEW FAILURE` line names the step(s
 `kept_red_note` names the step and path and leaves want and got to `kept_red_new`. Under `-quiet`
 the `NEW FAILURE` line keeps the values, since no step line was printed.
 
+`shrt verify <chain> -run <run>` of a run that stopped at its first failure (recorded without
+`-keep-going`) counted every step after the stop as a change: `regression: 10 change(s)` for a run
+with 2 changes and `[..] not_reached 8 step(s)`. A step never sent is not a change; the steps not
+reached are still listed, but the change count and the verdict leave them out, and the header says
+`N step(s) not reached are listed below and not counted`.
+
 ---
 
 # Decisions, so they are not relitigated
