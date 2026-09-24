@@ -31,27 +31,28 @@ var numericWellKnown = map[string]bool{
 	"google.protobuf.Value": true, "google.protobuf.Any": true, "google.protobuf.Struct": true,
 }
 
-func cannotBeNumber(f *catalog.Field) (string, bool) {
+func cannotBeNumber(f *catalog.Field) (kind string, never, maybe bool) {
 	switch f.Kind {
-	case "string", "bytes", "bool", "enum":
-		return f.Kind, true
+	case "string":
+		return f.Kind, false, true
+	case "bytes", "bool", "enum":
+		return f.Kind, true, false
 	case "message", "group":
 		if numericWellKnown[f.Message] {
-			return "", false
+			return "", false, false
 		}
 		if f.Message != "" {
-			return f.Message, true
+			return f.Message, true, false
 		}
-		return "message", true
+		return "message", true, false
 	}
-	return "", false
+	return "", false, false
 }
 
-func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
+func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.Method, exports map[string]exportOrigin) (never, maybe []string) {
 	if s == nil || m == nil {
-		return nil
+		return nil, nil
 	}
-	out := []string{}
 	walkTypedBody(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, target *catalog.Field, value string) {
 		refs := collectRefs(value)
 		if len(refs) != 1 || strings.TrimSpace(value) != "${"+refs[0]+"}" {
@@ -61,15 +62,20 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 		if !ok {
 			return
 		}
-		kind, bad := cannotBeNumber(src)
-		if !bad {
-			return
+		kind, isNever, isMaybe := cannotBeNumber(src)
+		switch {
+		case isNever:
+			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — no value of that "+
+				"type can be sent as %s, so the request would be rejected after every earlier step had already hit "+
+				"the backend, and shrt run refuses the chain before sending anything", refs[0], path, target.Kind,
+				where, kind, target.Kind))
+		case isMaybe:
+			maybe = append(maybe, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — the request is "+
+				"valid only if that string holds digits, such as \"5\"; any other text is rejected when the step is "+
+				"sent. Check that the source really carries a number", refs[0], path, target.Kind, where, kind))
 		}
-		out = append(out, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — no value of that type "+
-			"can be sent as %s, so the request would be rejected after every earlier step had already hit the "+
-			"backend, and shrt run refuses the chain before sending anything", refs[0], path, target.Kind, where, kind, target.Kind))
 	})
-	return out
+	return never, maybe
 }
 
 func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool) {

@@ -636,8 +636,10 @@ anything is sent, with the `-var` flags it needs; so is one reading a response f
 step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`, or a request path the earlier step's
 request message does not declare, such as `${steps.create_order.request.id_custmer}`; so is one
 filling a numeric field with a reference whose declared type can never be a number, such as
-`qty: "${create_product.product.name}"` (a string) or `.created_at` (a timestamp) into AddStock's
-int64 `qty`. So is
+`qty: "${create_product.product.created_at}"` (a timestamp) into AddStock's int64 `qty`, or a bool,
+an enum or bytes. A string source, such as `.product.name`, is only a `chain lint` warning (not
+failed by `-strict`) and is sent: protojson accepts a digit string like `"5"` for an int64, and
+backends often carry numbers as strings. Refused as well is
 one whose step body the proto rejects (an unknown field, an enum value the message does not
 have) in any step, not only the first: `shrt run` validates every request up front as `-dry-run`
 does, with the same synthetic values for references to earlier responses, and exits 1. A body

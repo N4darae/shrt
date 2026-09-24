@@ -25,7 +25,7 @@ func addStockFrom(qty string) *chain.Chain {
 
 func TestAReferenceWhoseTypeCannotFillANumericFieldIsRefusedUpFront(t *testing.T) {
 	cat := catalogtest.Shop()
-	for _, ref := range []string{"${pid}", "${exports.pid}", "${cp.product.sku}", "${steps.cp.request.name}", "${cp.product}"} {
+	for _, ref := range []string{"${cp.product}"} {
 		c := addStockFrom(ref)
 		lintErr := false
 		for _, i := range chain.Lint(c, cat) {
@@ -56,6 +56,30 @@ func TestANumericReferenceIntoANumericFieldIsNotReported(t *testing.T) {
 			if i.IsError() && strings.Contains(i.Message, "int64") {
 				t.Errorf("qty: %q is numeric, got %+v", ref, i)
 			}
+		}
+	}
+}
+
+func TestAStringReferenceIntoANumericFieldIsOnlyAWarning(t *testing.T) {
+	cat := catalogtest.Shop()
+	for _, ref := range []string{"${pid}", "${exports.pid}", "${cp.product.sku}", "${steps.cp.request.name}"} {
+		c := addStockFrom(ref)
+		if p := c.ResponseRefProblems(cat); len(p) != 0 {
+			t.Errorf("qty: %q reads a string, and protojson accepts a digit string such as \"5\" for an int64, "+
+				"so the chain must run, got refused: %v", ref, p)
+		}
+		warned := false
+		for _, i := range chain.Promote(chain.Lint(c, cat), chain.IsAssertionQualityIssue) {
+			if !strings.Contains(i.Message, ref) || !strings.Contains(i.Message, "int64") {
+				continue
+			}
+			if i.IsError() {
+				t.Errorf("qty: %q may hold digits; want a warning even under -strict, got %+v", ref, i)
+			}
+			warned = true
+		}
+		if !warned {
+			t.Errorf("qty: %q fills an int64 from a string field; want a warning", ref)
 		}
 	}
 }

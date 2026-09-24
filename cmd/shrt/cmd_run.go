@@ -116,10 +116,10 @@ const runExitCodes = "\nexit codes:\n" +
 	"     a reference to a step or export that does not exist or runs later, or to a response field\n" +
 	"     the producing step's message does not declare or a request path its request does not\n" +
 	"     declare, a reference whose declared type cannot fill the numeric field it is sent in (a\n" +
-	"     string or a timestamp into an int64), an unknown auth profile, an rpc the catalog does not\n" +
-	"     have, a streaming rpc, a config or descriptor that does not load, a conventions path no\n" +
-	"     response declares, a step body the proto rejects, checked for every step up front as\n" +
-	"     -dry-run does)\n" +
+	"     bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint\n" +
+	"     warning), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a\n" +
+	"     config or descriptor that does not load, a conventions path no response declares, a step\n" +
+	"     body the proto rejects, checked for every step up front as -dry-run does)\n" +
 	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
 	"     a real response gave, target unreachable, the connection closed before a response because\n" +
 	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend\n"

@@ -70,7 +70,8 @@ func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
 		}
 		m, err := cat.Lookup(s.Call)
 		if err == nil {
-			for _, why := range refTypeProblems(s, m, responses, exports) {
+			never, _ := refTypeProblems(s, m, responses, exports)
+			for _, why := range never {
 				out = append(out, fmt.Sprintf("step %q (step %d): %s", s.ID, i+1, why))
 			}
 		}

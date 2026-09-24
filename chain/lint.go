@@ -58,8 +58,12 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
-		for _, why := range refTypeProblems(s, m, responses, exports) {
+		never, maybe := refTypeProblems(s, m, responses, exports)
+		for _, why := range never {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
+		}
+		for _, why := range maybe {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
 		}
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintExports(s, m)...)
