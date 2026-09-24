@@ -157,32 +157,54 @@ shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
 tag="ci$(date +%s)$RANDOM"
 fail=0
+unverified=0
 shopt -s nullglob
+check() {
+  local what="$1" c="$2" file="$3" prefix="$4" try rc
+  for try in 1 2; do
+    args=(-quiet)
+    if grep -qs 'vars\.tag' "$file"; then args+=(-var "tag=$tag-$prefix$c-$try"); fi
+    rc=0; shrt "$what" "$c" "${args[@]}" || rc=$?
+    if [ "$rc" -ne 3 ] || [ "$try" -eq 2 ]; then break; fi
+    echo "gate: $what $c: no verdict (exit 3); retrying once in 20s" >&2
+    sleep 20
+  done
+  case "$rc" in
+    0) ;;
+    3) echo "gate: could not verify $c: $what exited 3 twice (backend unreachable, restarting or refusing auth); not a regression" >&2
+       unverified=1 ;;
+    *) echo "gate: $what $c exited $rc" >&2; fail=1 ;;
+  esac
+}
 for f in .shrt/chains/*.yaml; do
-  c="$(basename "$f" .yaml)"
-  args=(-quiet)
-  if grep -q 'vars\.tag' "$f"; then args+=(-var "tag=$tag-$c"); fi
-  rc=0; shrt run "$c" "${args[@]}" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "gate: run $c exited $rc" >&2; fail=1; }
+  check run "$(basename "$f" .yaml)" "$f" ""
 done
 for s in .shrt/safespots/*.json; do
   c="$(basename "$s" .json)"
-  args=(-quiet)
-  if grep -qs 'vars\.tag' ".shrt/chains/$c.yaml"; then args+=(-var "tag=$tag-v-$c"); fi
-  rc=0; shrt verify "$c" "${args[@]}" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "gate: verify $c exited $rc" >&2; fail=1; }
+  check verify "$c" ".shrt/chains/$c.yaml" "v-"
 done
 rc=0; shrt chain hollow -gate -baseline .shrt/hollow-baseline || rc=$?
 [ "$rc" -eq 0 ] || { echo "gate: chain hollow -gate exited $rc" >&2; fail=1; }
-exit "$fail"
+if [ "$fail" -ne 0 ]; then exit 1; fi
+if [ "$unverified" -ne 0 ]; then echo "gate: could not verify every chain; re-run the gate once the backend is up" >&2; exit 3; fi
 ```
+
+Exit 3 from `run` or `verify` is not a verdict: the backend was unreachable, a gateway answered for
+it, it restarted mid-run, or it refused authentication, and the output says which, followed by
+`re-run`. A rolling restart does that routinely, so the gate retries such a chain once, after a
+short wait and with a fresh tag (the first attempt may have created some of its fixtures), and never
+retries exit 1 or 2. Still 3 on the retry, it prints `gate: could not verify <chain>: ...`
+instead of a failure line, and the gate exits 3 when nothing else failed (1 when something did, so a
+regression is never reported as merely unverified). Treat 3 in CI as "no verdict": re-run the job
+once the backend is up, or retry it automatically; do not mark the change red, and do not count it
+as green either.
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
 a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`): verify
 treats a var inside other text as a fixture name and does not count a new one as a change, but a
 field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `verify` of that chain
-fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0,
+fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0 (3 is retried once, as above),
 and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
 §1): its run goes past every failure, pinned or not, as `-keep-going` would, with no flag, so every
