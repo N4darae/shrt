@@ -622,11 +622,15 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 
 func anyAnswered(rec *runner.Record) bool {
 	for _, st := range rec.Steps {
-		if st.HTTPStatus != 0 || len(st.Response) > 0 {
+		if answeredByService(st) {
 			return true
 		}
 	}
 	return false
+}
+
+func answeredByService(st *runner.StepRecord) bool {
+	return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !runner.NotAnsweredByService(st)
 }
 
 var descriptorMismatch = regexp.MustCompile(`does not match [^:\s]+: (?:proto: )?(?:\(line [^)]*\): )?([^\n]*)`)
@@ -651,7 +655,7 @@ func firstFailureIsDrift(rec *runner.Record) (string, string, int) {
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	after, answered := false, 0
 	for _, st := range rec.Steps {
-		if after && (st.HTTPStatus != 0 || len(st.Response) > 0) {
+		if after && answeredByService(st) {
 			answered++
 		}
 		after = after || st.ID == step
