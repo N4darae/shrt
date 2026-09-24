@@ -201,8 +201,8 @@ as green either.
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`): verify
-treats a var inside other text as a fixture name and does not count a new one as a change, but a
+a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`, or a header value `X-Tag: t-${vars.tag}`): verify
+treats a var inside other text, in a body field or a header alike, as a fixture name and does not count a new one as a change, but a
 field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `verify` of that chain
 fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0 (3 is retried once, as above),
 and so must every `verify`. A chain kept

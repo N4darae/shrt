@@ -526,7 +526,8 @@ confirmed`, and when it is the only difference a drift fails verify with `drift 
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
 compares like with like. A var names fixtures only when the chain reads it inside other text in at least
-one field that is not an id (`id`, `*_id`, `id_*`, `idempotency_key`), and never inside text that is
+one body field or header value (`X-Tag: t-${vars.tag}` counts as `sku: sku-${vars.tag}` does) that is
+not an id (`id`, `*_id`, `id_*`, `idempotency_key`), and never inside text that is
 otherwise only digits; every in-text read of such a var is a fixture name, an id field included
 (`idempotency_key: k1-${vars.tag}`). A var feeding a number (`qty: "${vars.q}0"`) or read only in an id
 field (`id_customer: cus-${vars.n}`) is input, and `shrt diff` shows its request difference.

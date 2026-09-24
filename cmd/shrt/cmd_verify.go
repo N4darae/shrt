@@ -564,6 +564,9 @@ func isolationVars(c *chain.Chain) map[string]bool {
 	for _, s := range c.Steps {
 		if s != nil {
 			visit(s.Body, "")
+			for name, value := range s.Headers {
+				visit(value, diff.HeadersPathPrefix+name)
+			}
 		}
 	}
 	out := map[string]bool{}
