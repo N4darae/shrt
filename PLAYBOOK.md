@@ -328,10 +328,13 @@ Auth is a **chain-level** concern. `.shrt/config.yaml` declares the login once a
 attaches the header, re-logging in on expiry — a chain that passes today must not fail tomorrow
 from an expired token, because that is a false fail, not a regression. With `expires_path` the
 refresh happens before the call goes out. A call answered unauthenticated (401, or the envelope
-saying so) drops the token either way; only a READ (`conventions.read_only_prefixes`) is then
-re-sent after a fresh login, and its step records `auth_retry: resent` with a warning. A write is
-never re-sent automatically, since the backend may already have performed it: the step fails
-with `auth_retry: not_resent` and a warning, and the next call or run logs in fresh.
+saying so) drops the token either way and makes a fresh login. The call is then re-sent when it is a
+READ (`conventions.read_only_prefixes`), or when its token came from the on-disk cache and no call
+in this run had used it yet (the backend restarted and refused it at authentication, so it did not
+perform the call); the step records `auth_retry: resent` with a warning. A write refused with a
+token the backend already accepted in this run is not re-sent, since the backend may already have
+performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
+fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.

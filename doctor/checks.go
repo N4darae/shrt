@@ -223,8 +223,11 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 		fmt.Sprintf("%d cached token(s), %d expired by their own expires_at. A token the backend "+
 			"has forgotten -- a restart, a revoke -- does not look expired here and cannot: only "+
 			"the backend knows. It is dropped when a call comes back unauthenticated, by HTTP "+
-			"status or in the response envelope, and the call is retried once against a fresh "+
-			"login. 'rm %s' forces that without a call", len(entries), expired,
+			"status or in the response envelope, and a fresh login is made. The call is re-sent once "+
+			"when it is a read, or when the refused token came from this cache and no call in the "+
+			"run had used it yet; a write refused with a token the backend already accepted in the "+
+			"run is not re-sent. A call still refused is an error, not a failure. 'rm %s' forces "+
+			"the fresh login without a call", len(entries), expired,
 			config.DirName+"/"+config.TokensFile), "")
 }
 

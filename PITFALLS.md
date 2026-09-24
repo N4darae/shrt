@@ -686,9 +686,20 @@ its line says so rather than implying `0 expired` means healthy.
 **Changed 2026-09-24:** the re-send is now for reads only. A backend that performs a write and then
 answers 401 had it performed twice, and the step record did not say the call went out twice. A call
 answered unauthenticated still drops the token; a read (`conventions.read_only_prefixes`) is re-sent
-after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step fails with
-`auth_retry: not_resent` and a warning, and the next run logs in fresh. A dead cached token therefore
-costs one red write step, not a doubled write.
+after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step records
+`auth_retry: not_resent` and a warning, and the next run logs in fresh.
+
+**Changed again 2026-09-24:** that rule made the first write after every deploy fail, because the
+backend restart forgot the cached token, and every step reading that write was skipped: the first
+`verify` after a deploy reported a pile of failures, or `regression`, and hid the real change until
+the second run. A 401 is the backend refusing authentication, not a verdict about the rpc. So a
+call whose token came from `.shrt/tokens.json` and had not yet been accepted by any call in this
+run is re-sent after a fresh login, write or not: the backend refused it at authentication and did
+not perform it. It records `auth_retry: resent` and a warning naming the cache. The no-re-send rule
+stays for a write refused with a token the backend already accepted in this run (the late 401).
+A call still refused after all this is `error`, not `failed`: `shrt run` exits 3, and `shrt verify`
+says `could not verify` unless a step before it drifted. A step with `allow_fail` keeps `failed`, so
+it still tolerates a refusal. A dead cached token therefore costs one extra login, not a red step.
 
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 

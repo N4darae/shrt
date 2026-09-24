@@ -160,7 +160,7 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if step, why, ok := unansweredOnly(rec, report); ok {
 		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
-			"This is not a verdict about the backend: start or reach the target and run verify again", name, step, why)
+			"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
@@ -353,12 +353,24 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
 	unanswered := map[string]string{}
 	first := ""
-	for _, st := range rec.Steps {
-		if st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0 {
-			unanswered[st.ID] = st.Error
+	index := map[string]int{}
+	refusedFrom := -1
+	for i, st := range rec.Steps {
+		index[st.ID] = i
+		authRefused := st.Status == runner.StatusError && st.AuthRetry != ""
+		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused {
+			why := st.Error
+			if authRefused {
+				line, _, _ := strings.Cut(st.Error, "\n")
+				why = "the backend refused authentication: " + line
+			}
+			unanswered[st.ID] = why
 			if first == "" {
 				first = st.ID
 			}
+		}
+		if authRefused && refusedFrom < 0 {
+			refusedFrom = i
 		}
 	}
 	if first == "" {
@@ -369,6 +381,9 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 			continue
 		}
 		if _, skip := unanswered[c.Step]; skip {
+			continue
+		}
+		if i, ok := index[c.Step]; refusedFrom >= 0 && (!ok || i >= refusedFrom) {
 			continue
 		}
 		return "", "", false

@@ -318,7 +318,21 @@ const (
 	AuthRetryNotResent = transport.AuthRetryNotResent
 )
 
-func authRetryWarning(retry string) string {
+func authRefusedIsNoVerdict(sr *StepRecord) {
+	if sr.Status != StatusFailed {
+		return
+	}
+	sr.Status = StatusError
+	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
+		"check the credentials of the step's auth profile and re-run")
+}
+
+func authRetryWarning(retry string, cached bool) string {
+	if retry == AuthRetryResent && cached {
+		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
+			"and the backend refused it at authentication (a restart or a revoke), so it did not perform the call: the " +
+			"token was dropped, a fresh login made, and this call re-sent. This record is the second answer"
+	}
 	if retry == AuthRetryResent {
 		return "the first attempt was answered unauthenticated, so the token was dropped, a fresh login made, " +
 			"and this call re-sent: the backend received it twice. It is a read (conventions.read_only_prefixes), " +
@@ -1027,7 +1041,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
-		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry))
+		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
+		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached))
+	}
+	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
+		defer authRefusedIsNoVerdict(sr)
 	}
 	if err != nil {
 		if transport.Unreachable(err) {
