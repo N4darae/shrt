@@ -48,6 +48,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     and nothing drifted before it\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
 	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
+	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
+	"     with another fresh value: two fresh values in a row are not fixture noise;\n" +
 	"     unless either run shows a restart (data created before the refusal gone after the re-login,\n" +
 	"     or a step before it that got no answer from the service), which keeps it exit 3\n"
 
@@ -209,6 +211,7 @@ func runVerify(ctx context.Context, args []string) error {
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); rebuild it with shrt catalog build, "+
 			"or turn validate_output off. Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, driftStep, driftWhy)
+	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
@@ -252,7 +255,10 @@ func runVerify(ctx context.Context, args []string) error {
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
 			}
-			if reuse != nil {
+			switch {
+			case reuse.finding():
+				fmt.Println("FINDING: " + reuse.line())
+			case reuse != nil:
 				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
 			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
@@ -277,6 +283,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if fresh != nil {
 		return fmt.Errorf("%s: %s", name, fresh.line())
+	}
+	if reuse.finding() && nonBackend == nil && !driftedBefore(rec, report, reuse.index) {
+		return fmt.Errorf("%s: %s", name, reuse.line())
 	}
 	if nonBackend != nil {
 		return nonBackend

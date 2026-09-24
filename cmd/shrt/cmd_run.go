@@ -117,7 +117,9 @@ func runRun(ctx context.Context, args []string) error {
 		}
 	}
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
-		if reuse := detectFixtureReuse(e, c, rec); reuse != nil {
+		if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
+			fmt.Println("  FINDING: " + reuse.line())
+		} else if reuse != nil {
 			fmt.Printf("  %s; re-run with a fresh value: shrt run %s %s\n", reuse.line(), rest[0], reuse.fresh())
 		}
 	}

@@ -16,11 +16,17 @@ import (
 var uniquenessConflict = regexp.MustCompile(`(?i)(already (exists?|registered|taken|in use|used)|duplicate|not unique|unique constraint|already_exists|alreadyexists|[a-z]taken\b|\btaken\b|\bconflict\b)`)
 
 type fixtureReuse struct {
-	step  string
-	index int
-	why   string
-	vars  []string
-	run   string
+	step   string
+	index  int
+	why    string
+	vars   []string
+	run    string
+	repeat string
+	before []string
+}
+
+func (f *fixtureReuse) finding() bool {
+	return f != nil && f.repeat != ""
 }
 
 func (f *fixtureReuse) verdict() string {
@@ -31,6 +37,13 @@ func (f *fixtureReuse) verdict() string {
 }
 
 func (f *fixtureReuse) line() string {
+	if f.finding() {
+		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from %s, and the previous run "+
+			"%s of this chain was refused there the same way with %s, a different value no recorded run had created: two "+
+			"fresh values in a row cannot both collide with leftover fixtures, so the backend refuses the create itself. "+
+			"This is a finding about the backend, not a fixture collision",
+			f.step, f.why, strings.Join(f.vars, ", "), f.repeat, strings.Join(f.before, ", "))
+	}
 	if f.run == "" {
 		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
 			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
@@ -144,7 +157,51 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(current) == 0 {
 		return nil
 	}
-	return &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+	f := &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] >= rec.RunID {
+			continue
+		}
+		prev, err := e.store.LoadRun(rec.Chain, ids[i])
+		if err != nil || prev.DryRun || !sent(prev, first.ID) {
+			continue
+		}
+		if st, ok := prev.Step(first.ID); ok && st.Call == first.Call && uniquenessConflict.MatchString(stepRefusalText(st)) {
+			f.before = freshValuesOf(e, rec, prev, first.ID, names)
+			if f.before != nil {
+				f.repeat = prev.RunID
+			}
+		}
+		break
+	}
+	return f
+}
+
+func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string) []string {
+	out := []string{}
+	for _, n := range names {
+		was, ok := prev.Vars[n]
+		if !ok || fmt.Sprint(was) == pathmask.MaskRedacted || fmt.Sprint(was) == fmt.Sprint(rec.Vars[n]) {
+			return nil
+		}
+		out = append(out, fmt.Sprintf("%s=%v", n, was))
+	}
+	ids, _ := e.store.ListRuns(rec.Chain)
+	for _, id := range ids {
+		if id >= prev.RunID {
+			continue
+		}
+		other, err := e.store.LoadRun(rec.Chain, id)
+		if err != nil || other.DryRun || !createdBy(other, step) {
+			continue
+		}
+		for _, n := range names {
+			if v, ok := other.Vars[n]; ok && fmt.Sprint(v) == fmt.Sprint(prev.Vars[n]) {
+				return nil
+			}
+		}
+	}
+	return out
 }
 
 type fixtureField struct {

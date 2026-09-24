@@ -136,7 +136,10 @@ created the record), it prints `fixture reused: ...` and, unless a step before i
 exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
 the chain used that value, the other record came from somewhere else (another chain with the same
 tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
-way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
+way, with the same fresh `-var` hint. When the previous run of the chain that sent that step was
+refused there the same way with a different value that no recorded run had created, two fresh
+values in a row collided, which leftover fixtures cannot explain: it prints `FINDING: ...` naming
+both values and exits 1, a finding about the backend. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
 `email`); when it names none, every fixture field of the step counts. A var that
