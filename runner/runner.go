@@ -3,6 +3,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/transport"
 )
@@ -149,6 +152,41 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	}
 }
 
+func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
+	defaults := pathmask.NewRedactor(config.DefaultRedact())
+	out := map[string]string{}
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		fields := map[string]any{}
+		for k, v := range b.BodyFields {
+			if redactor.Masks(k) || defaults.Masks(k) {
+				continue
+			}
+			resolved, err := chain.AuthBodyScope().ResolveValue(v)
+			if err != nil {
+				fields = nil
+				break
+			}
+			if redactor.MasksValue(k, resolved) {
+				continue
+			}
+			fields[k] = resolved
+		}
+		if fields == nil {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{"call": b.Procedure, "fields": fields})
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(raw)
+		out[b.Profile] = hex.EncodeToString(sum[:8])
+	}
+	return out
+}
+
 func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
 	login := false
 	for _, b := range bs {
@@ -277,14 +315,15 @@ func expiryOf(response any, path string) time.Time {
 }
 
 type Options struct {
-	Vars      map[string]any
-	Volatile  []string
-	Redact    []string
-	DryRun    bool
-	KeepGoing bool
-	Build     string
-	heldBack  map[int]string
-	chain     *chain.Chain
+	Vars       map[string]any
+	Volatile   []string
+	Redact     []string
+	DryRun     bool
+	KeepGoing  bool
+	Build      string
+	heldBack   map[int]string
+	principals map[string]string
+	chain      *chain.Chain
 }
 
 type buildTracker struct {
@@ -724,6 +763,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		scope.Now = r.Now
 	}
 	r.Auth.learnSecrets(redactor)
+	opts.principals = r.Auth.principals(redactor)
 	for _, step := range c.Steps {
 		if step != nil {
 			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
@@ -1030,6 +1070,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
+		sr.AuthPrincipal = opts.principals[profile]
 	}
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
