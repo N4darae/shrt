@@ -632,8 +632,10 @@ bare name is refused. `-reject` discards the proposal. Approval refuses a run re
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
 request, response, http status and transport error), not only the responses. The safe spot
-keeps that digest, and `verify` refuses a safe spot whose content no longer matches it: a hand
-edit is not what a person approved. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
+keeps that digest, sealed together with who approved it and when (`confirmed_by`, `confirmed_at`,
+`note`), and `verify` refuses a safe spot whose content or approval no longer matches it: a hand
+edit is not what a person approved. A safe spot sealed before the approval was covered still
+verifies, and `verify` says it is of the older kind; re-approve it with `-supersede` to seal it. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
 on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
