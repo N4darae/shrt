@@ -83,7 +83,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if *step == "" {
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")
 	}
-	writePath := ""
+	writePath, writeArg := "", name
 	if isSlicePath(name) {
 		writePath, name, err = slicePathAndName(name)
 		if err != nil {
@@ -184,7 +184,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			printSliceHeader(res)
 		}
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
-			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
+			vars: vars, quiet: *asJSON, persist: write.set, name: writeArg, keep: *keep, build: *build,
 			otherTarget: sourceTargetDiffers(e, rec),
 			reslice: func(keep []string) *chain.SliceResult {
 				o := opts

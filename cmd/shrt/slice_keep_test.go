@@ -114,3 +114,20 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 		t.Errorf("the verify run record is kept next to the chain it ran: %v, %d", err, len(entries))
 	}
 }
+
+func TestCLISliceNextKeepsTheWritePathTheUserGave(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeNoisyChain(t, "widget")
+	if err := runRun(context.Background(), []string{"cli-noisy-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	out, err := sliceVerify(t, "-write", ".shrt/scratch/noisy-repro.yaml")
+	if exitCodeOf(err) != 3 {
+		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
+	}
+	if !strings.Contains(out, "-verify -write .shrt/scratch/noisy-repro.yaml\n") {
+		t.Fatalf("next must write where the user asked, not into .shrt/chains:\n%s", out)
+	}
+}
