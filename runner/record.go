@@ -3,6 +3,7 @@ package runner
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
@@ -42,7 +43,36 @@ type Record struct {
 	KeptRed     string         `json:"kept_red,omitempty"`
 	KeptRedNote string         `json:"kept_red_note,omitempty"`
 	Seal        string         `json:"seal,omitempty"`
+
+	sealClaim string
 }
+
+func (r *Record) SealingBuildEvidence() string {
+	if r.sealClaim != "" {
+		return r.sealClaim
+	}
+	if r.Format != 0 {
+		return fmt.Sprintf("it carries record format %d", r.Format)
+	}
+	for _, st := range r.Steps {
+		if st == nil {
+			continue
+		}
+		switch {
+		case st.BodyRefs != nil:
+			return "it carries body_refs, which only a build that seals run records writes"
+		case st.AuthPrincipal != "":
+			return "it carries auth_principal, which only a build that seals run records writes"
+		case st.Unordered != nil:
+			return "it carries unordered, which only a build that seals run records writes"
+		case st.Headers != nil:
+			return "it carries headers, which only a build that seals run records writes"
+		}
+	}
+	return ""
+}
+
+func (r *Record) MalformedSeal() bool { return r.sealClaim != "" }
 
 func (s *StepRecord) AssertionFailed() bool {
 	for _, e := range s.Expect {
@@ -106,11 +136,28 @@ func (r *Record) UnmarshalJSON(data []byte) error {
 	type plain Record
 	var decoded struct {
 		*plain
-		Vars json.RawMessage `json:"vars,omitempty"`
+		Vars   json.RawMessage `json:"vars,omitempty"`
+		Format json.RawMessage `json:"format"`
+		Seal   *string         `json:"seal"`
 	}
 	decoded.plain = (*plain)(r)
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		return err
+	}
+	r.Format, r.Seal, r.sealClaim = 0, "", ""
+	if decoded.Seal != nil {
+		r.Seal = *decoded.Seal
+		if r.Seal == "" {
+			r.sealClaim = "it carries an empty seal, which no build writes"
+		}
+	}
+	if len(decoded.Format) > 0 {
+		var n int
+		if err := json.Unmarshal(decoded.Format, &n); err != nil || n <= 0 || string(decoded.Format) == "null" {
+			r.sealClaim = fmt.Sprintf("its format is %s, which no build writes (a build that seals run records writes a positive whole number)", decoded.Format)
+		} else {
+			r.Format = n
+		}
 	}
 	r.Vars = nil
 	if len(decoded.Vars) == 0 || string(decoded.Vars) == "null" {

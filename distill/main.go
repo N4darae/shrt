@@ -133,7 +133,7 @@ var notes = map[string]string{
 	"Descriptor.source": "What `shrt catalog build` compiles, passed to the descriptor binary.",
 	"Descriptor.binary": "The compiler, normally `buf`.",
 
-	"Record.format":        "The record format version, written by every build that seals run records (today `2`). A record that carries it but no `seal` had its seal removed and is refused as edited; one with neither predates seals.",
+	"Record.format":        "The record format version, written by every build that seals run records (today `2`). A record that carries it but no `seal` had its seal removed and is refused as edited; so is one whose `format` is not a positive whole number (`0`, `null`, `-1`, `1.5`, `\"2\"`), one with an empty `seal`, and one with neither that carries a field only a sealing build writes (`body_refs`, `auth_principal`, `unordered`, `headers` on a step). Only a record with neither and none of those predates seals.",
 	"Record.run_id":        "Timestamp-prefixed, e.g. `20260911T104434Z-e94560bd`. `-run latest` picks the newest by that prefix; runs started in the same second are ordered by `started_at`, then by file time.",
 	"Record.chain":         "Chain name, which is also the run directory and the safe-spot key.",
 	"Record.chain_source":  "Path the chain was loaded from.",
