@@ -244,6 +244,13 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 	if sa.AuthProfile != "" && sb.AuthProfile != "" && sa.AuthProfile != sb.AuthProfile {
 		r.RequestChanges = append(r.RequestChanges, Change{Step: sa.ID, Path: AuthProfilePath, Kind: KindChanged, Want: sa.AuthProfile, Got: sb.AuthProfile})
 	}
+	for _, c := range headerChanges(sa, sb) {
+		if fx.Named != nil && fx.Named(sa.ID, c.Path) {
+			r.FixtureRequests++
+			continue
+		}
+		r.RequestChanges = append(r.RequestChanges, c)
+	}
 	if len(sa.Request) == 0 || len(sb.Request) == 0 {
 		return
 	}
@@ -253,6 +260,7 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 		return
 	}
 	r.fixturePairs = append(r.fixturePairs, generatedPairs([]*runner.StepRecord{sa}, []*runner.StepRecord{sb}, fx.Generated)...)
+	rn := renamer(r.fixturePairs)
 	walk(a, b, "", func(c Change) {
 		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
@@ -266,6 +274,12 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 				}
 			}
 			return
+		}
+		if w, okW := c.Want.(string); okW && rn != nil && c.Kind == KindChanged {
+			if g, okG := c.Got.(string); okG && rn.Replace(w) == g {
+				r.FixtureRequests++
+				return
+			}
 		}
 		c.Step = sa.ID
 		r.RequestChanges = append(r.RequestChanges, c)

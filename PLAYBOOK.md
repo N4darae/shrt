@@ -955,10 +955,11 @@ shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest,
 
 It reports step status changes, where the first failing step moved, steps reached in one run and
 not the other (a step `-keep-going` held back as `skipped` counts as not reached), and, in steps
-both reached, what each SENT (request values, the `auth_profile` a step ran as, and the rpc, where
-`ListProducts` and `shop.catalog.v1.ProductService/ListProducts` are the same call) before the
-response differences. A request value that only differs in a fixture name (`sku-${vars.tag}`) is
-counted, not listed, as verify does. It masks the `volatile` patterns stored in each record plus the
+both reached, what each SENT (request values, the step's own `headers`, the `auth_profile` a step
+ran as, and the rpc, where `ListProducts` and `shop.catalog.v1.ProductService/ListProducts` are the
+same call) before the response differences. A request value that only differs in a fixture name
+(`sku-${vars.tag}`, `X-Tag: t-${vars.tag}`) is counted, not listed, as verify does, and so is a
+reference that copies one from an earlier step (`sku: ${steps.create_product.request.sku}`). It masks the `volatile` patterns stored in each record plus the
 ones in today's config and chain file, so a pattern you add after the runs still applies. When
 those patterns cover every response field of a step (`volatile: ["**"]`), the report opens with a
 `WARNING` naming the steps it compared nothing of (`fully_masked` under `-json`), because "no
