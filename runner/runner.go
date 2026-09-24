@@ -1247,6 +1247,14 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
 			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
 			"listed here that differs from a declared one only in case or separators is not read either")
+		if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
+			named := make([]string, 0, len(enums))
+			for _, e := range enums {
+				named = append(named, fmt.Sprintf("%s = %s (%s)", e.Path, e.Value, e.Enum))
+			}
+			sr.Warning = joinLines(sr.Warning, "response carries enum value(s) the descriptor does not declare, kept as sent "+
+				"rather than decoded as another value: "+strings.Join(named, ", ")+". Rebuild the descriptor ('shrt catalog build') to read them")
+		}
 	default:
 		canonical = res.Body
 		populated = res.Body
