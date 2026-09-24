@@ -464,12 +464,35 @@ func (r *Report) Text() string {
 	if r.FirstFailure != "" {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
 	}
-	for _, c := range r.Changes {
+	for i := 0; i < len(r.Changes); i++ {
+		c := r.Changes[i]
 		step := c.Step
 		if step == "" {
 			step = "-"
 		}
+		if run := sameNotReached(r.Changes[i:]); run > 1 {
+			last := r.Changes[i+run-1]
+			fmt.Fprintf(&b, "  [%s..%s] %-10s %d step(s) want=%v, not sent (%s)\n", step, last.Step, c.Kind, run, c.Want, c.Detail)
+			i += run - 1
+			continue
+		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", step, c.Kind, c.Path, c.describe())
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func sameNotReached(changes []Change) int {
+	first := changes[0]
+	if first.Kind != KindNotReached || first.Detail == "" {
+		return 0
+	}
+	n := 1
+	for n < len(changes) {
+		c := changes[n]
+		if c.Kind != KindNotReached || c.Detail != first.Detail || c.Path != first.Path || fmt.Sprint(c.Want) != fmt.Sprint(first.Want) || fmt.Sprint(c.Got) != fmt.Sprint(first.Got) {
+			break
+		}
+		n++
+	}
+	return n
 }

@@ -689,7 +689,8 @@ Three things that decide whether this works for a given chain:
   because the run stopped) is reported as `not_reached` rather than as a status change or a
   shorter chain. The report names the first failing step. A recorded run that stopped at its
   first red (`-run <id>` of a run made without `-keep-going`) reports every step after the stop
-  as `not_reached`.
+  as `not_reached`. Consecutive steps not reached for the same reason (a stopped backend, say)
+  are one line, `[<first>..<last>] not_reached <n> step(s) ...`; `-json` still lists each.
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
   credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
   copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
