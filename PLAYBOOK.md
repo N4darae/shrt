@@ -574,7 +574,11 @@ unresolved reference, a body the proto rejects, a transport failure), `SKIP` not
 `-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
 anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
-step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. A step with no `expect` that the backend refuses
+step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. So is
+one whose step body the proto rejects (an unknown field, an enum value the message does not
+have) in any step, not only the first: `shrt run` validates every request up front as `-dry-run`
+does, with the same synthetic values for references to earlier responses, and exits 1. A body
+that fails only because of such a synthetic value is left to the run, where the real value decides. A step with no `expect` that the backend refuses
 in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
 declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
 `not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
@@ -632,8 +636,10 @@ bare name is refused. `-reject` discards the proposal. Approval refuses a run re
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
 request, response, http status and transport error), not only the responses. The safe spot
-keeps that digest, and `verify` refuses a safe spot whose content no longer matches it: a hand
-edit is not what a person approved. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
+keeps that digest, sealed together with who approved it and when (`confirmed_by`, `confirmed_at`,
+`note`), and `verify` refuses a safe spot whose content or approval no longer matches it: a hand
+edit is not what a person approved. A safe spot sealed before the approval was covered still
+verifies, and `verify` says it is of the older kind; re-approve it with `-supersede` to seal it. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
 on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
@@ -683,7 +689,8 @@ Three things that decide whether this works for a given chain:
   because the run stopped) is reported as `not_reached` rather than as a status change or a
   shorter chain. The report names the first failing step. A recorded run that stopped at its
   first red (`-run <id>` of a run made without `-keep-going`) reports every step after the stop
-  as `not_reached`.
+  as `not_reached`. Consecutive steps not reached for the same reason (a stopped backend, say)
+  are one line, `[<first>..<last>] not_reached <n> step(s) ...`; `-json` still lists each.
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
   credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
   copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
@@ -840,7 +847,7 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    smaller chain. Without `-write` nothing is written and the YAML goes to stdout, and `-verify`
    still runs the slice but keeps no run record, since the record would name a chain that does not
    exist. `-keep id[,id]` forces named earlier steps back into the slice, with their own producers
-   and prerequisites. `-write` refuses to replace an existing chain file unless `-force`, except a
+   and prerequisites; `-keep writes` does so for every earlier write step (see INCONCLUSIVE below). `-write` refuses to replace an existing chain file unless `-force`, except a
    slice this command wrote of the same chain and step (its description starts
    `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
    A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
@@ -893,8 +900,11 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    - `INCONCLUSIVE` (3): the verdicts match, but the slice dropped write steps. A match can come
      from state the slice never built (a limit the dropped writes would have reached, say), so it
      is not a receipt. The output ends with a `next:` line —
-     `shrt chain slice <src> -step <t> -run <source-run> -keep <dropped writes> -verify -write` —
-     which keeps every dropped write and so can give a real verdict. A var interpolated into a
+     `shrt chain slice <src> -step <t> -run <source-run> -keep writes -verify -write` —
+     which keeps every dropped write and so can give a real verdict. `-keep writes` keeps every
+     write step before the target except one the source run shows refused (it wrote nothing), and
+     combines with ids (`-keep writes,<read id>`); `next:` lists the dropped writes by id instead
+     when keeping all of them would re-send one that failed in the source run. A var interpolated into a
      name is printed as `<fresh>`: the run above already used its value, so give a new one. A
      dropped write whose step failed or errored in the source run (a `-keep-going` run) is left
      out of `next:` and named with its status: keeping it would stop the slice there, before the
@@ -906,8 +916,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
      needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
      and a receipt. When you want both, write the minimal chain by hand (only the steps the
-     defect needs, its own writes included), run it, and `slice -verify` the target on THAT
-     chain: nothing is dropped, so the verdict can be `reproduced`.
+     defect needs, its own writes included), run it, and verify the target on THAT chain with
+     `shrt chain slice <minimal> -step <t> -run latest -keep writes -verify -write`. A plain
+     `slice -verify` of it is not enough: closure still drops every write nothing references (an
+     order created only so a list has something to filter), so it returns NOT REPRODUCED or
+     INCONCLUSIVE. With `-keep writes` nothing that wrote state is dropped, so the verdict can be
+     `reproduced`, and when the slice keeps every step `-write` records it in the chain itself.
    Until you have a verdict, the slice is a hypothesis, and every slice prints a line saying so;
    when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line.
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**

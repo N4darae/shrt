@@ -285,6 +285,10 @@ as `{ids: [""]}` — a value the server rejects — and the dry run prints
 `DRY-RUN OK (resolved and validated, nothing sent)`, with every step recorded as `skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
 any body downstream of a reference.
 
+The other way round holds since 2026-09-24: a body `-dry-run` rejects in any step (an unknown field,
+an invalid enum) makes `shrt run` refuse the chain with exit 1 before step 1 is sent, instead of
+sending step 1 and erroring at step 2. A body rejected only through a scaffold value is not refused.
+
 ## 17. A step that only asserts `error.code == OK`
 
 The oldest one, and still the most common: it asserts the server did not crash. Before references
@@ -853,6 +857,20 @@ customer `name`, a product id, a message — was not under any redacted path.
 every token a login returned, and every value exported from a redacted path, wherever it appears in
 the record; the report and safe spot are built from the record. A value shorter than 4 characters
 is replaced only where it is the whole string, so a one-letter username does not shred the record.
+
+Only secrets are scrubbed by value: an auth body value counts when its field is covered by `redact`
+(the password), not a username or another login field no pattern covers. Before this, the username
+`clerk` was scrubbed too, so a request `name: "clerk made"` was stored as `"<redacted> made"`. A safe
+spot approved with such a mangled request shows it once as a request difference in `verify`.
+
+A token a login step in the chain returned was scrubbed only when it seeded a profile or was
+exported: read directly (`name: ${login_clerk.access_token}`) under a login body no profile has, it
+stayed in clear. Every response of a login rpc now gives up its `token_path` value and every value
+under a redacted path as secrets, whichever step called it.
+
+Likewise an env credential a STEP body read (`password: ${env.CLERK_PW}` in an in-chain login) was
+path-redacted in that step but stayed in clear wherever it was echoed. Every `${env.*}` value a step
+body reads into a field covered by `redact` is now scrubbed by value in the whole record.
 
 ---
 

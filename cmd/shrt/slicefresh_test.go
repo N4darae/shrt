@@ -17,7 +17,7 @@ func TestTheNextCommandAsksForAFreshValueOfAnInterpolatedVar(t *testing.T) {
 			},
 		},
 	}
-	got := keepWritesCommand(res, "r1", sliceVerifyArgs{vars: map[string]any{"qty": 3}}, []string{"add_stock"})
+	got := keepWritesCommand(res, "r1", sliceVerifyArgs{vars: map[string]any{"qty": 3}}, []string{"add_stock"}, false)
 	if !strings.Contains(got, "-var tag=<fresh>") {
 		t.Fatalf("tag makes created names unique and the source run used it, so pasting it again collides: %s", got)
 	}

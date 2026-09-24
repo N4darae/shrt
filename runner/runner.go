@@ -40,6 +40,7 @@ type AuthBinding struct {
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
 	EnvVars     []string
+	BodyFields  map[string]any
 }
 
 type AuthBindings []*AuthBinding
@@ -138,15 +139,90 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 	return out
 }
 
-func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker, env func(string) (string, bool)) {
+func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	for _, b := range bs {
 		if b == nil {
 			continue
 		}
-		for _, name := range b.EnvVars {
-			if v, ok := env(name); ok {
-				redactor.AddSecret(v)
+		learnMaskedTemplate(redactor, b.BodyFields, "")
+	}
+}
+
+func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
+	login := false
+	for _, b := range bs {
+		if b == nil || b.Procedure != procedure {
+			continue
+		}
+		login = true
+		if token, ok := chain.Get(response, b.TokenPath); ok && b.TokenPath != "" {
+			learnSecret(redactor, token)
+		}
+	}
+	if login {
+		learnMaskedValues(redactor, response, "")
+	}
+}
+
+func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
+	if path != "" && redactor.MasksValue(path, v) {
+		learnSecret(redactor, v)
+		return
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	}
+}
+
+func learnMaskedEnv(redactor *pathmask.Masker, v any, path string, env func(string) (string, bool)) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedEnv(redactor, item, pathmask.Join(path, k), env)
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedEnv(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), env)
+		}
+	case string:
+		if !redactor.Masks(path) {
+			return
+		}
+		if env == nil {
+			env = os.LookupEnv
+		}
+		for _, name := range chain.AuthBodyEnvNames(map[string]any{"v": t}) {
+			if value, ok := env(name); ok {
+				redactor.AddSecret(value)
 			}
+		}
+	}
+}
+
+func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	default:
+		if !redactor.Masks(path) {
+			return
+		}
+		resolved, err := chain.AuthBodyScope().ResolveValue(t)
+		if err == nil && redactor.MasksValue(path, resolved) {
+			learnSecret(redactor, resolved)
 		}
 	}
 }
@@ -621,8 +697,20 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if r.Now != nil {
 		scope.Now = r.Now
 	}
-	r.Auth.learnSecrets(redactor, scope.Env)
+	r.Auth.learnSecrets(redactor)
+	for _, step := range c.Steps {
+		if step != nil {
+			learnMaskedEnv(redactor, orEmpty(step.Body), "", scope.Env)
+		}
+	}
 	r.Auth.learnTokens(redactor)
+	if !opts.DryRun {
+		if problems := r.requestProblems(c, rec.Vars); len(problems) > 0 {
+			return nil, errors.New(redactor.ScrubText(fmt.Sprintf("chain %q has a request that does not match its rpc, so nothing was sent "+
+				"(checked as -dry-run does, with synthetic values for references to earlier responses): %s",
+				c.Name, strings.Join(problems, "; "))))
+		}
+	}
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
@@ -736,6 +824,121 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	rec.Warning = redactor.ScrubText(rec.Warning)
 	rec.DurationMS = r.clock().Sub(now).Milliseconds()
 	return rec, nil
+}
+
+func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
+	if !r.ValidateInput || r.Catalog == nil {
+		return nil
+	}
+	scope := chain.NewScope(vars)
+	if r.Now != nil {
+		scope.Now = r.Now
+	}
+	problems := []string{}
+	for i, step := range c.Steps {
+		if step == nil {
+			continue
+		}
+		method, err := r.Catalog.Lookup(step.Call)
+		if err != nil || method.Streaming() {
+			continue
+		}
+		resolved, err := scope.ResolveValue(orEmpty(step.Body))
+		if err == nil {
+			if body, merr := json.Marshal(resolved); merr == nil {
+				if verr := r.Catalog.ValidateInput(method, body); verr != nil && !r.validWithoutSynthetic(scope, method, orEmpty(step.Body), vars) {
+					problems = append(problems, fmt.Sprintf("step %q (step %d): %v", step.ID, i+1, verr))
+				}
+			}
+		}
+		sample := catalog.Scaffold(method.Output())
+		scope.RecordSynthetic(step.ID, resolved, sample)
+		for name, path := range step.Export {
+			if v, ok := chain.Get(sample, path); ok {
+				scope.Exports[name] = v
+			}
+		}
+	}
+	return problems
+}
+
+func (r *Runner) validWithoutSynthetic(scope *chain.Scope, method *catalog.Method, body map[string]any, vars map[string]any) bool {
+	stripped, changed := dropSynthetic(body, vars)
+	if !changed {
+		return false
+	}
+	resolved, err := scope.ResolveValue(stripped)
+	if err != nil {
+		return true
+	}
+	raw, err := json.Marshal(resolved)
+	if err != nil {
+		return true
+	}
+	return r.Catalog.ValidateInput(method, raw) == nil
+}
+
+func dropSynthetic(v any, vars map[string]any) (any, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		changed := false
+		for k, item := range t {
+			if readsSynthetic(item, vars) {
+				changed = true
+				continue
+			}
+			kept, c := dropSynthetic(item, vars)
+			out[k], changed = kept, changed || c
+		}
+		return out, changed
+	case []any:
+		out := make([]any, 0, len(t))
+		changed := false
+		for _, item := range t {
+			if readsSynthetic(item, vars) {
+				changed = true
+				continue
+			}
+			kept, c := dropSynthetic(item, vars)
+			out, changed = append(out, kept), changed || c
+		}
+		return out, changed
+	}
+	return v, false
+}
+
+func readsSynthetic(v any, vars map[string]any) bool {
+	text, ok := v.(string)
+	if !ok {
+		return false
+	}
+	for _, ref := range chainRefs(text) {
+		r := chain.ParseRef(ref)
+		switch r.Kind {
+		case chain.RefExports:
+			return true
+		case chain.RefStep:
+			if !strings.HasPrefix(r.Rest, "request") {
+				return true
+			}
+		case chain.RefBare:
+			if _, isVar := vars[r.Head]; !isVar {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var refExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+func chainRefs(text string) []string {
+	out := []string{}
+	for _, m := range refExpr.FindAllStringSubmatch(text, -1) {
+		out = append(out, m[1])
+	}
+	return out
 }
 
 func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *chain.Step, opts Options, redactor *pathmask.Masker) *StepRecord {
@@ -874,6 +1077,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err := json.Unmarshal(populated, &sent); err != nil {
 		return fail(sr, fmt.Errorf("decode response: %w", err))
 	}
+	r.Auth.learnLoginResponse(redactor, method.Procedure(), decoded)
 	sr.Response = mustJSON(redactor.Apply(decoded), canonical)
 	scope.Record(step.ID, resolved, decoded)
 	canonicalInput := func(raw []byte) ([]byte, error) { return r.Catalog.Canonicalize(method.Input(), raw) }
@@ -1316,7 +1520,7 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 		}
 		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
 			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
-			"had already hit the backend. Export %s", step.ID, i+1, profileLabel(profile), strings.Join(refs, ", "),
+			"had already hit the backend. Export %s", step.ID, i+1, profile, strings.Join(refs, ", "),
 			strings.Join(unset, ", "), strings.Join(unset, ", "))
 	}
 	return nil

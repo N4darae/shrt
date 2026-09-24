@@ -15,6 +15,7 @@ import (
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func init() {
@@ -73,6 +74,16 @@ func runVerify(ctx context.Context, args []string) error {
 			"propose it with 'shrt confirm %s -supersede -note \"...\"', and a person approves it",
 			rel(e.cfg.Root, e.store.SafeSpotPath(name)), spot.Digest, rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "archive")), name)
 	}
+	olderSpot := ""
+	if kind := spot.DigestKind(); kind != store.DigestCurrent {
+		covers := "the chain, run, target, build, volatile patterns and step records"
+		if kind == store.DigestLegacy {
+			covers = "step ids, calls and responses only"
+		}
+		olderSpot = fmt.Sprintf("safe spot %s is of the older kind: its digest covers %s, not who approved it (confirmed_by, confirmed_at, note), "+
+			"so a hand edit of those is not caught. To seal the approval, propose a passing run in its place with 'shrt confirm %s -supersede -note \"...\"' and have a person approve it",
+			rel(e.cfg.Root, e.store.SafeSpotPath(name)), covers, name)
+	}
 
 	var rec *runner.Record
 	var c *chain.Chain
@@ -124,11 +135,17 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	if *asJSON {
+		if olderSpot != "" {
+			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
+		}
 		if err := emitJSON(map[string]any{"run": rec, "diff": report}); err != nil {
 			return err
 		}
 	} else {
 		fmt.Println()
+		if olderSpot != "" {
+			fmt.Println(olderSpot)
+		}
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}

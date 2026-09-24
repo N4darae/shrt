@@ -43,7 +43,7 @@ func TestVerifyOfARecordedRunThatStoppedEarlyReportsTheRestAsNotReached(t *testi
 	if strings.Contains(text, "length") {
 		t.Fatalf("a run that stopped at its first red did not change the chain's length:\n%s", text)
 	}
-	if !strings.Contains(text, "[fetch] not_reached") || !strings.Contains(text, "[list] not_reached") {
+	if !strings.Contains(text, "[fetch..list] not_reached 2 step(s)") {
 		t.Fatalf("every step past the stop is not reached:\n%s", text)
 	}
 	if !strings.Contains(text, "connection refused") || strings.Contains(text, "type ") {

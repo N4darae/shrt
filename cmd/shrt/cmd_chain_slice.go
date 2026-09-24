@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,14 +26,17 @@ type sliceProgress struct{ verify, sent bool }
 
 const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>]] [-json]"
 
-const sliceExitCodes = "\nexit codes:\n" +
-	"  0  the slice was printed or written; with -verify, reproduced\n" +
-	"  1  with -verify, NOT REPRODUCED; without it, a refusal (unknown chain or step); a flag that\n" +
-	"     cannot be parsed exits 1 either way\n" +
-	"  2  with -verify, DID NOT RUN: the target step was never answered, or -verify refused before\n" +
+const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
+	"  0  the slice was printed or written\n" +
+	"  1  a refusal: an unknown chain or step, -mode pin without -run, an unknown run, a slice file\n" +
+	"     -write would overwrite; the same refusal exits 2 under -verify, where 1 means NOT REPRODUCED\n" +
+	"\nexit codes with -verify:\n" +
+	"  0  reproduced\n" +
+	"  1  NOT REPRODUCED; a flag that cannot be parsed exits 1 in either mode\n" +
+	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
 	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
 	"     a missing or not-fresh -var name=<fresh>), so nothing was verified\n" +
-	"  3  with -verify, INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
+	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
@@ -58,7 +62,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	write := &optionalString{}
 	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>")
 	keep := &stepList{}
-	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`")
+	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
 	setUsage(fs, sliceUsage, sliceExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -159,6 +163,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	var verdict *sliceVerdict
 	var verifyErr error
 	if *verify {
+		if !*asJSON {
+			printSliceHeader(res)
+		}
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
 			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
 			reslice: func(keep []string) *chain.SliceResult {
@@ -221,6 +228,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		return verifyErr
 	}
 
+	if !*verify {
+		printSliceHeader(res)
+	}
 	printSlice(res, written, verdict)
 	if !write.set {
 		raw, err := res.Chain.Marshal()
@@ -234,13 +244,19 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 
 const hypothesisLine = "this slice is a HYPOTHESIS until it is run: a dependency that is state rather than a reference leaves no trace in the YAML"
 
-func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
+func printSliceHeader(res *chain.SliceResult) {
 	fmt.Printf("slice of %s for step %s, mode %s", res.Source, res.Target, res.Mode)
 	if res.Run != "" {
 		fmt.Printf(", run %s", res.Run)
 	}
 	fmt.Println()
 	fmt.Println()
+}
+
+func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
+	if verdict != nil {
+		fmt.Println()
+	}
 	idW, callW := 0, 0
 	for _, k := range res.Kept {
 		if n := len(k.ID); n > idW {
@@ -639,7 +655,7 @@ func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a
 			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
 		return
 	}
-	v.Next = keepWritesCommand(res, rec.RunID, a, usable)
+	v.Next = keepWritesCommand(res, rec.RunID, a, usable, len(blocked) == 0 && keepsEveryWriteCleanly(res, rec, a))
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
@@ -720,9 +736,34 @@ func freshSet(res *chain.SliceResult) map[string]bool {
 	return out
 }
 
-func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string) string {
+func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs) bool {
+	if a.reslice == nil {
+		return false
+	}
+	next := a.reslice(append(append([]string{}, a.keep...), chain.SliceKeepWrites))
+	if next == nil || len(next.DroppedWrites) > 0 {
+		return false
+	}
+	for _, k := range next.Kept {
+		if k.ID == res.Target {
+			continue
+		}
+		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) {
+			return false
+		}
+	}
+	return true
+}
+
+func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string, allWrites bool) string {
 	keep := append([]string{}, a.keep...)
-	keep = append(keep, dropped...)
+	if allWrites {
+		if !slices.Contains(keep, chain.SliceKeepWrites) {
+			keep = append(keep, chain.SliceKeepWrites)
+		}
+	} else {
+		keep = append(keep, dropped...)
+	}
 	parts := []string{"shrt chain slice", res.Source, "-step", res.Target}
 	if res.Mode != chain.SliceModeClosure {
 		parts = append(parts, "-mode", res.Mode)

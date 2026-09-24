@@ -155,7 +155,7 @@ func TestCLISliceNotReproducedNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 			next = l
 		}
 	}
-	if !strings.Contains(next, "-keep other") || !strings.Contains(next, "-var tag=<fresh>") {
+	if !strings.Contains(next, "-keep writes") || !strings.Contains(next, "-var tag=<fresh>") {
 		t.Fatalf("a NOT REPRODUCED slice that dropped a write must name the -keep command: %q\n%s", next, out)
 	}
 	if strings.Contains(next, "fill") || strings.Contains(next, "blank") {

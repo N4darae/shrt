@@ -138,11 +138,41 @@ func (s *Store) archive(chainName string, prev *SafeSpot) error {
 	return writeJSON(path, prev)
 }
 
+const (
+	DigestCurrent         = "current"
+	DigestWithoutApproval = "without-approval"
+	DigestLegacy          = "legacy"
+)
+
 func (spot *SafeSpot) DigestMatches() bool {
-	return spot.Digest == spot.ComputeDigest() || spot.Digest == legacyDigest(spot.Steps)
+	return spot.DigestKind() != ""
+}
+
+func (spot *SafeSpot) DigestKind() string {
+	switch spot.Digest {
+	case spot.ComputeDigest():
+		return DigestCurrent
+	case spot.ContentDigest():
+		return DigestWithoutApproval
+	case legacyDigest(spot.Steps):
+		return DigestLegacy
+	}
+	return ""
 }
 
 func (spot *SafeSpot) ComputeDigest() string {
+	return hashJSON(struct {
+		Content     string
+		ConfirmedBy string
+		ConfirmedAt time.Time
+		Note        string
+		ProposedBy  string
+		ProposedAt  *time.Time
+		Supersedes  string
+	}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes})
+}
+
+func (spot *SafeSpot) ContentDigest() string {
 	return hashJSON(struct {
 		Chain, RunID, Target, Build string
 		Volatile                    []string
