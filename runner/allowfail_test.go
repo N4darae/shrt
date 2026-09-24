@@ -95,15 +95,9 @@ func TestAllowFailDoesNotSwallowARequestTheProtoRejects(t *testing.T) {
 		s.Body = map[string]any{"name": "widget", "kind": "KIND_A", "idempotency_key": "${uuid}", "not_a_real_field": 1}
 	})
 
-	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if rec.Passed() {
-		t.Fatal("a chain whose body does not match the proto message reported PASSED under allow_fail")
-	}
-	if rec.Status != runner.StatusError {
-		t.Fatalf("record status = %s, want %s", rec.Status, runner.StatusError)
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("a chain whose body does not match the proto message must be refused before sending, allow_fail or not, got %v", err)
 	}
 }
 

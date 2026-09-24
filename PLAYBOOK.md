@@ -574,7 +574,11 @@ unresolved reference, a body the proto rejects, a transport failure), `SKIP` not
 `-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
 anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
-step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. A step with no `expect` that the backend refuses
+step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. So is
+one whose step body the proto rejects (an unknown field, an enum value the message does not
+have) in any step, not only the first: `shrt run` validates every request up front as `-dry-run`
+does, with the same synthetic values for references to earlier responses, and exits 1. A body
+that fails only because of such a synthetic value is left to the run, where the real value decides. A step with no `expect` that the backend refuses
 in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
 declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
 `not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`

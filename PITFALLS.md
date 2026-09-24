@@ -285,6 +285,10 @@ as `{ids: [""]}` — a value the server rejects — and the dry run prints
 `DRY-RUN OK (resolved and validated, nothing sent)`, with every step recorded as `skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
 any body downstream of a reference.
 
+The other way round holds since 2026-09-24: a body `-dry-run` rejects in any step (an unknown field,
+an invalid enum) makes `shrt run` refuse the chain with exit 1 before step 1 is sent, instead of
+sending step 1 and erroring at step 2. A body rejected only through a scaffold value is not refused.
+
 ## 17. A step that only asserts `error.code == OK`
 
 The oldest one, and still the most common: it asserts the server did not crash. Before references

@@ -2,6 +2,7 @@ package runner_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -131,12 +132,9 @@ func TestUnknownRequestFieldFailsBeforeSending(t *testing.T) {
 	c := testChain()
 	c.Steps[0].Body["not_a_field"] = "x"
 
-	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if rec.Steps[0].Status != runner.StatusError {
-		t.Fatalf("want a validation error, got %s", rec.Steps[0].Status)
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil || !strings.Contains(err.Error(), "nothing was sent") || !strings.Contains(err.Error(), "not_a_field") {
+		t.Fatalf("want a refusal naming the field before anything is sent, got %v", err)
 	}
 	for _, path := range srv.calls {
 		if path == "/shrt.test.v1.ThingService/Create" {

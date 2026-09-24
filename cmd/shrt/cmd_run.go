@@ -114,9 +114,11 @@ const runExitCodes = "\nexit codes:\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
 	"     an unset env var or a reference to a step or export that does not exist or runs later,\n" +
 	"     an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a config or\n" +
-	"     descriptor that does not load, a conventions path no response declares)\n" +
-	"  3  error: a step could not complete (unresolved reference, invalid request, target unreachable,\n" +
-	"     login failed), so the run is not a verdict about the backend\n"
+	"     descriptor that does not load, a conventions path no response declares, a step body the\n" +
+	"     proto rejects, checked for every step up front as -dry-run does)\n" +
+	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
+	"     a real response gave, target unreachable, login failed), so the run is not a verdict about\n" +
+	"     the backend\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.Status {
