@@ -45,11 +45,15 @@ func chainWhich(args []string) error {
 		}
 		q.RPC = m.FullName
 	}
+	lib, err := e.library()
+	if err != nil {
+		return err
+	}
 	opts := chain.WhichOptions{
 		RPCOf:        rpcOf(e),
-		SliceOf:      sliceSizeOf(e),
+		SliceOf:      sliceSizeOf(e, lib),
 		Observations: runObservations(e),
-		FreshVars:    freshVarsOf(e),
+		FreshVars:    freshVarsOf(e, lib),
 	}
 	hits := chain.Which(chains, q, opts)
 	if len(hits) == 0 {
@@ -81,11 +85,8 @@ func describeWhichQuery(q chain.WhichQuery) string {
 	return strings.Join(parts, " and ")
 }
 
-func sliceSizeOf(e *env) func(*chain.Chain, string) (int, bool) {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e)}
-	if lib, _, err := e.library(); err == nil && lib != nil {
-		opts.Prereqs = contract.PrereqsFor(lib)
-	}
+func sliceSizeOf(e *env, lib *contract.Library) func(*chain.Chain, string) (int, bool) {
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
 	return func(c *chain.Chain, step string) (int, bool) {
 		res, err := chain.Slice(c, step, opts)
 		if err != nil {
@@ -150,11 +151,8 @@ func observedResponse(s *runner.StepRecord) any {
 	return merged
 }
 
-func freshVarsOf(e *env) func(*chain.Chain, string, string) []string {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e)}
-	if lib, _, err := e.library(); err == nil && lib != nil {
-		opts.Prereqs = contract.PrereqsFor(lib)
-	}
+func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts
 		if run != "" {

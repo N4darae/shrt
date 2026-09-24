@@ -61,15 +61,25 @@ func runContract(ctx context.Context, args []string) error {
 
 func (e *env) contractsDir() string { return e.cfg.Abs(e.cfg.Paths.Contracts) }
 
-func (e *env) library() (*contract.Library, []error, error) {
+func (e *env) library() (*contract.Library, error) {
 	lib, broken, err := contract.LoadLibrary(e.contractsDir())
-	for _, b := range broken {
-		fmt.Fprintf(os.Stderr,
-			"warning: an overlay under %s did not load, so every rpc it curates is treated as having NO "+
-				"contract — a plan or slice built now silently drops its required/from/needs wiring: %v\n",
-			e.contractsDir(), b)
+	if err != nil {
+		return nil, err
 	}
-	return lib, broken, err
+	if len(broken) > 0 {
+		return nil, brokenOverlaysError(e.contractsDir(), broken)
+	}
+	return lib, nil
+}
+
+func brokenOverlaysError(dir string, broken []error) error {
+	lines := make([]string, 0, len(broken))
+	for _, b := range broken {
+		lines = append(lines, "  "+b.Error())
+	}
+	return fmt.Errorf("%d contract overlay(s) under %s do not load, so nothing was checked or composed: "+
+		"reading the rest would treat every rpc they curate as having no contract and silently drop its "+
+		"required/from/needs wiring and checks. Fix them, then rerun:\n%s", len(broken), dir, strings.Join(lines, "\n"))
 }
 
 func sameYAML(a, b []byte) bool {
@@ -108,7 +118,7 @@ func contractInit(args []string) error {
 		return fmt.Errorf("usage: shrt contract init <domain>... | -all")
 	}
 
-	lib, _, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
 	}
@@ -176,7 +186,7 @@ func contractLint(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, broken, err := e.library()
+	lib, broken, err := contract.LoadLibrary(e.contractsDir())
 	if err != nil {
 		return err
 	}
@@ -191,14 +201,11 @@ func contractLint(args []string) error {
 				"scaffold it with 'shrt contract init %s'", *only, e.contractsDir(), *only)
 		}
 	}
-	all := []contract.Issue{}
-	for _, b := range broken {
-		all = append(all, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
-	}
-	all = append(all, contract.LintAll(lib, e.cat, e.cfg.AuthProfileNames())...)
-
 	issues := []contract.Issue{}
-	for _, i := range all {
+	for _, b := range broken {
+		issues = append(issues, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
+	}
+	for _, i := range contract.LintAll(lib, e.cat, e.cfg.AuthProfileNames()) {
 		if *quiet && i.Severity != contract.SeverityError {
 			continue
 		}
@@ -225,7 +232,7 @@ func contractLint(args []string) error {
 		} else {
 			fmt.Printf("\n%s\n", tally(issues))
 		}
-		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); !reach.Empty() {
+		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); len(broken) == 0 && !reach.Empty() {
 			fmt.Printf("note %d referenced rpc(s) live in domains not present in this library (%s) — alias and response-path checks could not run for them\n",
 				len(reach.RPCs), strings.Join(reach.Domains, ", "))
 			for _, rpc := range reach.RPCs {

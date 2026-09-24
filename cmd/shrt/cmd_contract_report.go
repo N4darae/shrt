@@ -40,14 +40,9 @@ func contractStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, brokenOverlays, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
-	}
-	if len(brokenOverlays) > 0 {
-		return fmt.Errorf("%d overlay(s) did not parse, so every rpc they cover is counted as having no "+
-			"contract at all. This table would report that as coverage you do not have — run "+
-			"'shrt contract lint' to see which, and fix them before reading these numbers", len(brokenOverlays))
 	}
 	todos := map[string]int{}
 	for _, i := range contract.LintTodos(lib) {
@@ -190,14 +185,9 @@ func contractQuality(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, brokenOverlays, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
-	}
-	if len(brokenOverlays) > 0 {
-		return fmt.Errorf("%d overlay(s) did not parse, so every rpc they cover is absent from this score. "+
-			"A score computed over half a library is not a lower score, it is a different question — run "+
-			"'shrt contract lint' to see which, and fix them before reading this number", len(brokenOverlays))
 	}
 	report := contract.MeasurePhase(lib, e.cat, *only, *phase)
 

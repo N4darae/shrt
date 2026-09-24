@@ -113,7 +113,9 @@ kit's.
 
 A gate reads these, so they are part of the interface. Any command also exits 2 for an unknown
 command or group subcommand, 1 for a flag it cannot parse or a setup it cannot load (no
-`.shrt/config.yaml`, a config that does not parse, a missing descriptor), and 0 for `-h`.
+`.shrt/config.yaml`, a config that does not parse, a missing descriptor, and, in every command that
+reads contracts, an overlay under `paths.contracts` that does not parse, named with its parse
+error), and 0 for `-h`.
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|

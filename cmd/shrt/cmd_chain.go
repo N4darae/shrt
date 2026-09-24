@@ -81,7 +81,10 @@ func chainNew(args []string) error {
 		return fmt.Errorf("-name is required")
 	}
 
-	lib, _, libErr := e.library()
+	lib, err := e.library()
+	if err != nil {
+		return err
+	}
 	c := &chain.Chain{APIVersion: chain.APIVersion, Name: *name, Description: *desc}
 	refs := make([]string, 0, len(rest))
 	ids := make([]string, 0, len(rest))
@@ -97,9 +100,6 @@ func chainNew(args []string) error {
 		c.Steps = append(c.Steps, &chain.Step{ID: id, Call: m.FullName})
 		refs = append(refs, m.FullName)
 		ids = append(ids, id)
-	}
-	if libErr != nil {
-		lib = nil
 	}
 	built, notes, err := contract.ScaffoldSteps(refs, ids, lib, e.cat)
 	if err != nil {
@@ -305,12 +305,12 @@ func chainLint(args []string) error {
 			{Severity: chain.SeverityError, Message: b.Error()},
 		}})
 	}
-	lib, _, libErr := e.library()
-	opts := contract.ChainLintOptions{Strict: *strict}
-	opts.Chain.Env = os.LookupEnv
-	if libErr == nil {
-		opts.Library = lib
+	lib, err := e.library()
+	if err != nil {
+		return err
 	}
+	opts := contract.ChainLintOptions{Strict: *strict, Library: lib}
+	opts.Chain.Env = os.LookupEnv
 	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
 		opts.Chain.AuthHeader = covers
 		opts.Chain.AuthEnv = runner.AuthEnv(e.cfg)

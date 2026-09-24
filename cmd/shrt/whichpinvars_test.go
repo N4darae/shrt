@@ -47,7 +47,11 @@ func TestWhichPinnedCommandReusesAVarADroppedStepAlsoInterpolated(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	fresh := freshVarsOf(e)
+	lib, err := e.library()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh := freshVarsOf(e, lib)
 	if got := fresh(c, "again", rec.RunID); len(got) != 0 {
 		t.Fatalf("first, dropped from the pinned slice, created w-T9 in that run; again depends on that state, so tag must come from the run, not be fresh: %v", got)
 	}
