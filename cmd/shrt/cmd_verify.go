@@ -201,6 +201,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
 			len(report.Changes), report.InputSummary(), name)
 	}
+	if !report.Clean() && len(report.PrincipalUnchecked) > 0 {
+		return fmt.Errorf("drift, principal not checked: %d change(s) vs safe spot, which records no auth_principal, so they are a regression only if "+
+			"this run logged in as the account it was confirmed with, and shrt cannot tell.\n"+
+			"Check the credentials against the ones it was confirmed with; to turn principal checking on, propose a passing run in its place:\n"+
+			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
+	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
 	}

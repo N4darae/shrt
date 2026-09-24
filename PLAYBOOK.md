@@ -799,6 +799,10 @@ Three things that decide whether this works for a given chain:
   legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
   `drift with different input` naming the profile change, even when every response matches.
+  A safe spot confirmed before shrt recorded `auth_principal` cannot tell which account ran:
+  verify prints `principal checking is off for safe spot …` and calls a drift against it
+  `drift, principal not checked` (exit 1), not `regression`. Turn it on with
+  `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
   `chain differs` line and `drift with different input`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded

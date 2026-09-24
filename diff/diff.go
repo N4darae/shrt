@@ -58,6 +58,7 @@ type Report struct {
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
+	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
 
 	inputSeparated bool
 }
@@ -89,6 +90,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	if spot.Target != rec.Target {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
+	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)
 	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
 	approvedPatterns := append([]string{}, spot.Volatile...)
 	for _, st := range spot.Steps {
@@ -424,6 +426,33 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 		})
 	}
 	return out
+}
+
+func uncheckedPrincipals(spot *store.SafeSpot, rec *runner.Record) []string {
+	out := []string{}
+	for i := range min(len(spot.Steps), len(rec.Steps)) {
+		want, got := spot.Steps[i], rec.Steps[i]
+		if want.ID != got.ID || want.AuthPrincipal != "" || got.AuthPrincipal == "" {
+			continue
+		}
+		if want.AuthProfile == "" || want.AuthProfile == got.AuthProfile {
+			out = append(out, want.ID)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (r *Report) principalCaveat() string {
+	if len(r.PrincipalUnchecked) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("principal checking is off for safe spot %s: it records no auth_principal (it was confirmed before shrt recorded one), "+
+		"so it cannot say which account step(s) %s logged in as, and a change below may come from logging in as another account rather than "+
+		"from the backend. To turn it on, propose a passing run in its place and have a person approve it: shrt confirm %s -supersede -note \"...\"\n",
+		r.SafeSpotID, strings.Join(r.PrincipalUnchecked, ", "), r.Chain)
 }
 
 func (r *Report) InputSummary() string {
@@ -775,6 +804,7 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "%s since the safe spot's run %s: %s\n", r.InputSummary(), r.SafeSpotID, cause)
 	}
+	b.WriteString(r.principalCaveat())
 	if r.Clean() && r.PrincipalChanged() {
 		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile or principal than the confirmed run, "+
 			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
