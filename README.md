@@ -74,8 +74,10 @@ before the first run. If nothing looked like a login it writes no block at all a
 
 Either way, `auth.body` names the environment variables the login reads. **Read those names out of
 `.shrt/config.yaml` rather than assuming them** — they differ per repo — and export them before the
-run. Without them a run dies at the first step that needs a token, with status `error`, and that
-step **sends nothing**, which is a fixture problem, not a backend one.
+run. Without them `shrt run` refuses the chain **before sending anything**: it exits 1, writes no
+run record, and says `step "<id>" (step N) runs under auth profile "<profile>", whose login body
+reads ${env.NAME}, and env NAME is not set, so nothing was sent`. That is a fixture problem, not a
+backend one.
 
 If the target is a remote box whose credential must not be copied around, run shrt on that box
 instead of forwarding the secret; where that is written down is this repo's business, not the
