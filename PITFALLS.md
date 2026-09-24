@@ -344,7 +344,9 @@ the gate that catches lost coverage is `quality -gate`, and `contract status -ga
 uncovered rpc as `no contract`. An unfilled `TODO` is not
 charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points; so
 does a `TODO` as the description of an `exports:`, `terminal:` or `soft_signals:` entry, which until
-2026-09-24 still counted as declaring the field. Same three
+2026-09-24 still counted as declaring the field. A singular message response field (`FetchOrder`'s
+`order`) is charged like a repeated one; until 2026-09-24 it was skipped, so its `TODO` or a deleted
+entry scored 0. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
 scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
 or finds zero `errmsg.New` sites — run from a copy outside the backend it used to report `0

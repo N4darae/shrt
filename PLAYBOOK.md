@@ -470,7 +470,7 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 6 | 2 | happy | a READ rpc no write rpc can reach — unless `no_producer:` says why |
 | 7 | 2 | happy | an rpc with request fields and an empty `required:` — `NONE`, alone, says the server rejects nothing |
 | 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
-| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
+| 9 | 1 | happy | a top-level response field (scalar, list or singular message; not the envelope) named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
 | 11 | 2 | happy | a unary rpc in the catalog that no overlay covers: it is scored as an empty entry (rows 1-10 as they apply) plus this row, so deleting an overlay or an entry raises the score instead of lowering it |
 | — | — | — | codes the backend raises that no contract declares at all |
@@ -526,13 +526,12 @@ cannot read it.
 **`summary:` does NOT spare row 6, deliberately.** Every rpc has a summary — row 4 charges its
 absence — so accepting one as the explanation would make row 6 fire on nothing.
 
-**One undocumented exemption, now documented: a response field that is a non-repeated message is
-not counted by row 9.** Row 9 skips the envelope field (`error` by default),
-and skips message-typed fields unless they are `repeated`, because a bare nested message has no
-scalar to reference and `exports:` names paths a later step can read. So a score of 0 guarantees
-every SCALAR and every REPEATED response field is accounted for in `exports:`/`terminal:`/
-`soft_signals:` — it does not guarantee that a singular nested message was looked at. Reach into it
-with a dotted path (`row.id_reference_rate`) when a later step needs the value.
+**Row 9 charges every top-level response field but the envelope (`error` by default): a scalar, a
+list, and a singular message alike.** An entry names it by its head, so `order` or any dotted path
+into it (`order.status`, `customer.id_customer`) declares `order`; a `TODO` description declares
+nothing. Until 2026-09-24 a non-repeated message was skipped, so `terminal: order` set to a `TODO`, or
+deleted, still scored 0 while `orders` (repeated) was charged. Reach into a message with a dotted path
+(`row.id_reference_rate`) when a later step needs the value.
 
 Every row but the last needs only the descriptor and the overlays, so they live in the binary. **The
 last one cannot**: finding the codes a backend raises means reading that backend's source, and shrt
