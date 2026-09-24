@@ -23,7 +23,9 @@ func init() {
 
 const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
-	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n"
+	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
+	"  3  could not verify: a step never got an answer (target unreachable, login failed) and\n" +
+	"     nothing else drifted, so this is not a verdict about the backend\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -103,6 +105,10 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 		}
 	}
+	if step, why, ok := unansweredOnly(rec, report); ok {
+		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
+			"This is not a verdict about the backend: start or reach the target and run verify again", name, step, why)
+	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
 			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
@@ -149,4 +155,30 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 		}
 		return false
 	}
+}
+
+func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
+	unanswered := map[string]string{}
+	first := ""
+	for _, st := range rec.Steps {
+		if st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0 {
+			unanswered[st.ID] = st.Error
+			if first == "" {
+				first = st.ID
+			}
+		}
+	}
+	if first == "" {
+		return "", "", false
+	}
+	for _, c := range report.Changes {
+		if c.Kind == diff.KindNotReached {
+			continue
+		}
+		if _, skip := unanswered[c.Step]; skip {
+			continue
+		}
+		return "", "", false
+	}
+	return first, unanswered[first], true
 }
