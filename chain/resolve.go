@@ -105,6 +105,12 @@ func (s *Scope) resolveString(in string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		switch val.(type) {
+		case map[string]any, []any:
+			return nil, fmt.Errorf("reference ${%s} is interpolated inside other text (%q) but holds a message, list or map, "+
+				"which has no text form and would be sent as Go syntax; interpolate one scalar field of it instead",
+				strings.TrimSpace(in[m[2]:m[3]]), in)
+		}
 		b.WriteString(stringify(val))
 		last = m[1]
 	}

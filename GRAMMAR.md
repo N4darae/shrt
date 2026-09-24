@@ -149,7 +149,10 @@ Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal`
 **Not** in an expectation's `path`.
 
 A reference that is the whole value keeps its JSON type; inside a longer string it is
-interpolated as text. A reference that cannot resolve fails the step — it never becomes empty.
+interpolated as text. Only a scalar has a text form: a message, list or map interpolated inside other text
+(`name: "x-${p1.product}"`) is a lint error and refused before anything is sent when the response
+message declares it so, and fails the step when it resolves to one, never sent as `map[...]`.
+A reference that cannot resolve fails the step — it never becomes empty.
 One that is known not to resolve is refused before anything is sent, by `shrt run` and as a lint
 error: a step or export that does not exist or runs later, an unset `${env.*}`, and a field of an
 earlier step's response that its response message does not declare (`${create_product.product.id_prodct}`,

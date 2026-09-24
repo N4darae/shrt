@@ -84,7 +84,11 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 	}
 	walkTypedBody(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, target *catalog.Field, value string, whole bool) {
 		refs := collectRefs(value)
+		if len(refs) == 0 {
+			return
+		}
 		if len(refs) != 1 || strings.TrimSpace(value) != "${"+refs[0]+"}" {
+			never = append(never, interpolatedStructures(path, value, refs, responses, exports)...)
 			return
 		}
 		src, where, collection, ok := refSourceField(ParseRef(refs[0]), responses, exports)
@@ -138,6 +142,33 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 		}
 	})
 	return never, maybe
+}
+
+func interpolatedStructures(path, value string, refs []string, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
+	out := []string{}
+	for _, ref := range refs {
+		src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
+		if !ok || dynamicWellKnown[src.Message] {
+			continue
+		}
+		kind := ""
+		switch {
+		case collection:
+			kind = collectionKind(src)
+		case isMessage(src) && !scalarWellKnown[src.Message]:
+			kind = src.Message
+			if kind == "" {
+				kind = "message"
+			}
+		default:
+			continue
+		}
+		out = append(out, fmt.Sprintf("${%s} is interpolated inside other text in %s (%q), from %s, declared %s — "+
+			"a message, list or map has no text form, so it would be sent as Go syntax (map[...] or [...]) instead of "+
+			"anything the backend reads, and shrt run refuses the chain before sending anything. Interpolate one "+
+			"scalar field of it instead", ref, path, value, where, kind))
+	}
+	return out
 }
 
 func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool, bool) {
