@@ -29,7 +29,7 @@ func runInit(ctx context.Context, args []string) error {
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
 	build := fs.Bool("build", true, "build the descriptor now")
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
-	force := fs.Bool("force", false, "overwrite the installed docs and agent kit, which are build output")
+	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -58,7 +58,7 @@ func runInit(ctx context.Context, args []string) error {
 	if _, err := os.Stat(cfgPath); err == nil && !*forceConfig {
 		fmt.Printf("keep  %s (already exists)\n", rel(root, cfgPath))
 		if *force {
-			fmt.Println("      -force refreshes the docs and agent kit only. Your config is yours: it holds " +
+			fmt.Println("      -force refreshes the docs, the agent kit and .shrt/chains/example.yaml.template only. Your config is yours: it holds " +
 				"auth, conventions and volatile paths that no default can reconstruct, and rewriting it " +
 				"silently is how a declared convention disappears and a red chain turns green. " +
 				"Pass -force-config if you really want it rebuilt from defaults.")

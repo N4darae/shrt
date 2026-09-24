@@ -19,6 +19,10 @@ func init() {
 	})
 }
 
+const verifyExitCodes = "\nexit codes:\n" +
+	"  0  no drift against the safe spot, and the replay passed\n" +
+	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n"
+
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	vars := varFlags{}
@@ -28,6 +32,7 @@ func runVerify(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
+	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

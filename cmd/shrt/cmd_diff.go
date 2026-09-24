@@ -38,6 +38,8 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
+	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ\n"+
+		"  2  could not compare: an unknown run, runs of two chains, or bad usage\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

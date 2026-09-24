@@ -36,6 +36,8 @@ func runConfirm(ctx context.Context, args []string) error {
 	approve := fs.Bool("approve", false, "approve the pending proposal and write the safe spot; run it only after the user has said yes")
 	reject := fs.Bool("reject", false, "discard the pending proposal")
 	pending := fs.Bool("pending", false, "list proposals awaiting a decision")
+	setUsage(fs, confirmUsage, "\nexit codes:\n  0  proposal written, approved, rejected or listed\n"+
+		"  1  refused: no passing run, no -note, no -by, or nothing pending\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

@@ -111,8 +111,9 @@ func runRun(ctx context.Context, args []string) error {
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated)\n" +
 	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
-	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var, a config\n" +
-	"     or descriptor that does not load, a conventions path no response declares)\n" +
+	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
+	"     an unknown auth profile, a config or descriptor that does not load, a conventions path no\n" +
+	"     response declares)\n" +
 	"  3  error: a step could not complete (unresolved reference, invalid request, target unreachable,\n" +
 	"     login failed), so the run is not a verdict about the backend\n"
 
