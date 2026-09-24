@@ -39,6 +39,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues := []Issue{}
 	issues = append(issues, lintVars(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
+	issues = append(issues, lintExportNames(c)...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -564,6 +565,40 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 	return issues
 }
 
+func lintExportNames(c *Chain) []Issue {
+	issues := []Issue{}
+	stepAt := map[string]int{}
+	for i, s := range c.Steps {
+		if _, seen := stepAt[s.ID]; !seen {
+			stepAt[s.ID] = i + 1
+		}
+	}
+	writer := map[string]int{}
+	for i, s := range c.Steps {
+		names := make([]string, 0, len(s.Export))
+		for name := range s.Export {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if at, clash := stepAt[name]; clash {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+					"export %q has the same name as step %q (step %d), so ${%s} is ambiguous: the bare reference "+
+						"reads the export once one exists and the step's whole response otherwise, while "+
+						"${%s.<field>} always reads the step. Rename the export", name, name, at, name, name)})
+			}
+			if prev, twice := writer[name]; twice {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindExportOverwritten, Message: fmt.Sprintf(
+					"export %q is also written by step %q (step %d), and this later write silently replaces it: "+
+						"every ${%s} after step %d reads this step's value, and none reads the first. Give each "+
+						"export its own name", name, c.Steps[prev-1].ID, prev, name, i+1)})
+			}
+			writer[name] = i + 1
+		}
+	}
+	return issues
+}
+
 func isIndex(s string) bool {
 	for _, r := range s {
 		if r < '0' || r > '9' {
@@ -784,12 +819,15 @@ const (
 	KindDeadRef     = "unproducible-reference"
 	KindBadExport   = "export-reads-nonfield"
 
+	KindExportOverwritten = "export-overwritten"
+
 	KindInertAllowFail = "inert-allow-fail"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
-	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail:
+	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
+		KindExportOverwritten:
 		return true
 	}
 	return false
