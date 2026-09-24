@@ -113,6 +113,9 @@ func runRun(ctx context.Context, args []string) error {
 		}
 	}
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
+	if step := timedOutStep(rec); step != "" {
+		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
+	}
 	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
 		fmt.Println("  " + loss.line())
 		if loss.finding() && rec.KeptRed == "" {

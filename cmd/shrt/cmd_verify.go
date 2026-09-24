@@ -730,6 +730,18 @@ func describeChanges(changes []diff.Change) string {
 	return capList(out, 4)
 }
 
+const timeoutRemedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
+	"or find why the backend answers so slowly"
+
+func timedOutStep(rec *runner.Record) string {
+	for _, st := range rec.Steps {
+		if st != nil && strings.Contains(st.Error, transport.NoAnswerBeforeTimeout) {
+			return st.ID
+		}
+	}
+	return ""
+}
+
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	after, answered := false, 0
 	for _, st := range rec.Steps {
@@ -759,8 +771,7 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 		}
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
-		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
-			"or find why the backend answers so slowly, and run verify again"
+		remedy = timeoutRemedy + ", and run verify again"
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
