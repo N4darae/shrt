@@ -767,6 +767,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		return nil, err
 	}
 	problems := c.PreflightProblems()
+	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
