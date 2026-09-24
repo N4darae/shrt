@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"os"
 	"strconv"
 	"strings"
 
@@ -24,7 +25,7 @@ func init() {
 
 const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
-	"       shrt diff <chain>                   latest~1 against latest"
+	"       shrt diff <chain>                   the two latest runs that are not shrt verify replays"
 
 func runDiff(ctx context.Context, args []string) error {
 	err := compareRuns(ctx, args)
@@ -58,12 +59,10 @@ func compareRuns(_ context.Context, args []string) error {
 		}
 	}
 	var a, b *runner.Record
+	picked := ""
 	switch len(rest) {
 	case 1:
-		a, err = selectRun(e, rest[0], "latest~1")
-		if err == nil {
-			b, err = selectRun(e, rest[0], "latest")
-		}
+		a, b, picked, err = latestNonReplays(e, rest[0])
 	case 2:
 		a, err = findRunAnywhere(e, rest[0])
 		if err == nil {
@@ -93,16 +92,54 @@ func compareRuns(_ context.Context, args []string) error {
 	}
 	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
 	if *asJSON {
+		if picked != "" {
+			fmt.Fprintln(os.Stderr, "diff: "+picked)
+		}
 		if err := emitJSON(rep); err != nil {
 			return err
 		}
 	} else {
+		if picked != "" {
+			fmt.Println(picked)
+		}
 		fmt.Println(rep.Text())
 	}
 	if !rep.Same() {
 		return exitWith(1, "runs %s and %s differ (a comparison between two runs, not a regression verdict)", a.RunID, b.RunID)
 	}
 	return nil
+}
+
+func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record, string, error) {
+	ids, err := e.store.ListRuns(chainName)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	picked := []*runner.Record{}
+	replays := []string{}
+	for i := len(ids) - 1; i >= 0 && len(picked) < 2; i-- {
+		rec, err := e.store.LoadRun(chainName, ids[i])
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if rec.ReplayOf != "" {
+			replays = append(replays, rec.RunID)
+			continue
+		}
+		picked = append(picked, rec)
+	}
+	if len(picked) < 2 {
+		return nil, nil, "", fmt.Errorf("chain %s has %d recorded run(s) that are not shrt verify replays (%d replay(s) skipped), and a "+
+			"default diff needs two; name the runs to compare: shrt diff %s <run-a> <run-b> (latest and latest~N count replays too)",
+			chainName, len(picked), len(replays), chainName)
+	}
+	line := fmt.Sprintf("comparing the two latest runs of %s that are not shrt verify replays: run A %s, run B %s",
+		chainName, picked[1].RunID, picked[0].RunID)
+	if len(replays) > 0 {
+		line += fmt.Sprintf(" (skipped %d verify replay(s) of the safe spot, recorded by shrt verify beside a run against the same "+
+			"backend: %s; name one to compare it: shrt diff %s <run-a> <run-b>)", len(replays), capList(replays, 3), chainName)
+	}
+	return picked[1], picked[0], line, nil
 }
 
 func currentVolatile(e *env, chainName string) []string {

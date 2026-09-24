@@ -153,3 +153,35 @@ func TestAStrippedRunRecordDatedAfterSealsIsRefusedAsEdited(t *testing.T) {
 		}
 	}
 }
+
+func TestAStrippedRunRecordBackdatedBelowSealsIsRefusedByItsRunID(t *testing.T) {
+	s := newStore(t)
+	dir := filepath.Join(s.RunsDir, "thing-flow")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id   string
+		want error
+	}{
+		{"20260924T223900Z-1a2b3c4d", store.ErrRunEdited},
+		{"20260920T090000Z-1a2b3c4d", nil},
+	} {
+		rec := passingRun(tc.id)
+		rec.StartedAt = time.Date(2026, 9, 20, 9, 0, 0, 0, time.UTC)
+		raw, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, tc.id+".json"), raw, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.LoadRun(rec.Chain, rec.RunID)
+		if tc.want == nil && err != nil {
+			t.Fatalf("%s is dated before seals by both its run id and started_at: %v", tc.id, err)
+		}
+		if tc.want != nil && (!errors.Is(err, tc.want) || !strings.Contains(err.Error(), tc.id)) {
+			t.Fatalf("%s: a run id dated after seals outweighs a backdated started_at, want ErrRunEdited naming it, got %v", tc.id, err)
+		}
+	}
+}

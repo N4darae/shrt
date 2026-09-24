@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +77,9 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	c, err := chain.Resolve(e.chainsDir(), rest[0])
 	if err != nil {
+		return err
+	}
+	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
 
@@ -181,6 +186,30 @@ func runVerdict(rec *runner.Record) error {
 		return exitWith(3, "chain %s: %s", rec.Chain, rec.Status)
 	}
 	return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
+}
+
+func newFailureLine(rec *runner.Record, stepsShown bool) string {
+	if !stepsShown {
+		return rec.KeptRedNew
+	}
+	ids := map[string]bool{}
+	for _, st := range rec.Steps {
+		if st != nil {
+			ids[st.ID] = true
+		}
+	}
+	named, seen := []string{}, map[string]bool{}
+	for _, item := range strings.Split(strings.TrimPrefix(rec.KeptRedNew, runner.NewFailurePrefix), "; ") {
+		id, _, _ := strings.Cut(item, " ")
+		if ids[id] && !seen[id] {
+			seen[id] = true
+			named = append(named, id)
+		}
+	}
+	if len(named) == 0 {
+		return rec.KeptRedNew
+	}
+	return runner.NewFailurePrefix + strings.Join(named, ", ") + " (each failure is on its step's line above)"
 }
 
 func shortNewFailure(line string) string {
@@ -315,7 +344,7 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
 	if rec.KeptRedNew != "" {
-		fmt.Fprintf(&b, "\n  %s", rec.KeptRedNew)
+		fmt.Fprintf(&b, "\n  %s", newFailureLine(rec, stepsShown))
 	}
 	if lead != "" {
 		fmt.Fprintf(&b, "\n  %s", lead)
@@ -404,4 +433,25 @@ func exportJSON(v any) string {
 		return fmt.Sprint(v)
 	}
 	return strings.TrimRight(buf.String(), "\n")
+}
+
+func refuseShadowingChainFile(e *env, ref string, c *chain.Chain) error {
+	if !strings.ContainsAny(ref, "/\\") && !strings.HasSuffix(ref, ".yaml") && !strings.HasSuffix(ref, ".yml") {
+		return nil
+	}
+	for _, ext := range []string{".yaml", ".yml"} {
+		own := filepath.Join(e.chainsDir(), c.Name+ext)
+		ownInfo, err := os.Stat(own)
+		if err != nil {
+			continue
+		}
+		if given, err := os.Stat(ref); err == nil && os.SameFile(given, ownInfo) {
+			return nil
+		}
+		return fmt.Errorf("%s is named %q, the name of the chain %s in paths.chains, so its runs would be stored as that "+
+			"chain's runs, proposed by shrt confirm %s and counted by shrt chain hollow as that chain. Nothing was sent: "+
+			"rename it (name: %s-scratch, say), or run the chain itself: shrt run %s",
+			ref, c.Name, rel(e.cfg.Root, own), c.Name, c.Name, c.Name)
+	}
+	return nil
 }

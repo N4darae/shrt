@@ -728,6 +728,11 @@ answered unauthenticated still drops the token; a read (`conventions.read_only_p
 after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step records
 `auth_retry: not_resent` and a warning, and the next run logs in fresh.
 
+**Changed later 2026-09-24:** a prefix matched anywhere a name began with it, so `ShowcaseProduct`
+counted as a `Show` read and `Getaway` as a `Get` read: a write refused in-band was re-sent with
+`sending it again changes nothing`. A prefix now counts only at a word boundary: the name ends
+there or goes on with anything but a lowercase letter (`GetProduct`, `Get2Product`, `Get_product`).
+
 **Changed again 2026-09-24:** that rule made the first write after every deploy fail, because the
 backend restart forgot the cached token, and every step reading that write was skipped: the first
 `verify` after a deploy reported a pile of failures, or `regression`, and hid the real change until
@@ -789,6 +794,15 @@ in the declared fields of the response at get_product, which also does not match
 with the drift as a note. The advice no longer says to rebuild when a rebuild would change nothing:
 verify rebuilds as `shrt doctor` does, and when the descriptor matches it says the backend sends
 fields the proto does not declare.
+
+Later still: a body the proto cannot hold at all (`qty_on_hand: "seven"` for an int64, an enum
+value `ORDER_STATUS_SHIPPED` the proto does not declare) was still `could not verify`, exit 3, when
+the descriptor matched a rebuild, so the proto is current and the backend itself changed. Exit 3 is
+now kept for a STALE descriptor (and for undeclared fields, which a newer backend may add on
+purpose). When the descriptor matches a rebuild and the first failing step drifted by a wrong type
+or an undeclared enum value, verify exits 1, `regression: ... the response at stock is a body its
+proto cannot hold (invalid value for int64 field qtyOnHand: "seven"), and the descriptor matches a
+rebuild ... so it is not stale`, naming the step, field and value.
 
 ## 30. A path copied out of `contract show` that can never match
 
@@ -994,6 +1008,15 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+A credential sent in a step HEADER was only digested in `headers`: with
+`X-Api-Key: "${env.PARTNER_API_KEY}"` and a backend answering 403 `api key <value> is not allowed`,
+the key stood in clear in the response, `transport_error`, `error`, `failure` and on the terminal.
+Every value a header named like a credential resolves to, and every `${env.*}` value with a
+credential-like name any header reads, is now a secret scrubbed by value in the whole record.
+A var such a header read as part of its value (`X-Passwd: "Sig ${vars.sig}"`) still stood in clear
+in the record's `vars` and in the proposal's `| vars | sig=... |`, since only the whole header value
+was a secret. Each `${vars.*}` a credential-named header reads is now a secret of its own, learned
+before the chain runs, so `vars` shows `sig=<redacted>` even when the step is never reached.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
@@ -1003,6 +1026,66 @@ Since 2026-09-24 a secret of 8 characters or more is also scrubbed whatever its 
 made of a short alphabetic prefix (up to 5 letters), a `-` or `_`, and a tail of 8 characters or
 more (`tok-...`, `sk_...`) also has that tail scrubbed on its own, in any case. Exact matches are
 scrubbed as before.
+An ENCODED secret stayed in clear: the live token base64-encoded in a Connect error's
+`details[].value` (Connect always base64-encodes details) or in `status.message`, and a password
+percent-encoded (`s3cret%2Dadmin`). A secret of 8 characters or more is now also scrubbed in its
+standard and URL-safe base64 forms, with and without padding, including where it sits inside a
+longer base64 value at any byte offset (a detail message that holds the token among other fields),
+and percent-encoded in any mix of `%XX` (either hex case) and plain characters, `+` for a space.
+Other transformations are left alone on purpose: a secret echoed reversed, with spaces between its
+characters, hashed, or encoded twice is NOT scrubbed, since recognising it would mean guessing at
+arbitrary transforms and blanking unrelated values. Keep such echoes out of committed runs.
+
+A scratch chain run by path took its runs directory from its `name:`, not its file: `.scratch/fake.yaml`
+with `name: happy` wrote into `.shrt/runs/happy`, `shrt confirm happy -supersede` proposed that run as
+happy's safe spot, and `chain hollow` counted it as chain happy. `shrt run` now refuses, before sending
+anything, a file given by path whose `name:` is that of a chain in `paths.chains` unless it is that
+chain's own file, and says to rename it. Refusing was chosen over storing such runs apart: every
+reader of `.shrt/runs/<name>` would have to learn a second place, and a rename is one line.
+
+A run record stripped of its seal and of every sealing-only field was refused when its `started_at`
+was after the first sealing build, but backdating `started_at` alone got it read as predating seals,
+so `verify -run` accepted an edited record. The run id's timestamp is checked too, and the later of
+the two decides: a record whose run id is dated after the cut-off is refused as edited whatever its
+`started_at` says.
+
+A `not_as_pinned` run without `-quiet` printed each unpinned failure three times: on its step line,
+on the `NEW FAILURE` line, and again in the `kept red (not_as_pinned)` line. The detail is now
+printed once: with the step lines shown, the `NEW FAILURE` line names the step(s) only, and
+`kept_red_note` names the step and path and leaves want and got to `kept_red_new`. Under `-quiet`
+the `NEW FAILURE` line keeps the values, since no step line was printed.
+
+`shrt verify <chain> -run <run>` of a run that stopped at its first failure (recorded without
+`-keep-going`) counted every step after the stop as a change: `regression: 10 change(s)` for a run
+with 2 changes and `[..] not_reached 8 step(s)`. A step never sent is not a change; the steps not
+reached are still listed, but the change count and the verdict leave them out, and the header says
+`N step(s) not reached are listed below and not counted`.
+
+`shrt diff <chain>` right after a gate compared the gate's `shrt run` with that gate's `shrt verify`
+replay: `latest~1` against `latest`, two runs against the same backend build a few seconds apart,
+so it showed nothing but `-keep-going` and fixture differences. A live verify replay now records
+`replay_of: <safe spot run>`, and `shrt diff <chain>` with no run arguments skips such records,
+compares the two latest runs that carry none, and prints which two it picked and which replays it
+skipped. Explicit ids, `latest` and `latest~N` still count every record; a replay recorded before
+`replay_of` existed is not recognised as one.
+
+The `shrt confirm` summary table clipped values mid-word and mid-id: `order is alr…dy confirmed`,
+`cust-pre2-or…example.test` (the `@` lost, so the email no longer read as one), and a cell cut off
+inside an id (`prd-3b0…`). A value is now clipped at word boundaries (`order is … confirmed`), an
+email keeps its `@domain` whole (`cust-pre2-…@example.test`), an id keeps its tail segments, and a
+cell that is too long ends at the last whole word or id segment before the `…`.
+
+`shrt chain lint` printed `ok` for a clean chain and nothing at all in the status column of a
+chain with issues, so a chain with only warnings looked like neither a pass nor a failure. The
+column now says `warn` for warnings only and `FAIL` when any issue is an error.
+
+A slice written with `-verify -var tag=slice2` still declared `vars: tag: order-flow`, the source
+chain's default, which the chain's own runs had already created with, while its recorded verdict came
+from `slice2`. A declared var a kept write interpolates is now written with the `-var` value given.
+Leaving it undeclared, so `run` would demand `-var`, was the alternative; it was not taken because an
+undeclared var the slice reads is what `-verify` refuses as missing and what a written slice already
+reports under `vars the chain does not declare`, and the file should say what the verified run sent.
+Either way a later run needs a fresh `-var`, which the slice's description says.
 
 ---
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
@@ -34,6 +35,7 @@ type Record struct {
 	Status      string         `json:"status"`
 	DryRun      bool           `json:"dry_run,omitempty"`
 	KeepGoing   bool           `json:"keep_going,omitempty"`
+	ReplayOf    string         `json:"replay_of,omitempty"`
 	Vars        map[string]any `json:"vars,omitempty"`
 	Exports     map[string]any `json:"exports,omitempty"`
 	Volatile    []string       `json:"volatile,omitempty"`
@@ -72,11 +74,21 @@ func (r *Record) SealingBuildEvidence() string {
 			return "it carries headers, which only a build that seals run records writes"
 		}
 	}
-	if r.StartedAt.After(SealsIntroduced) {
-		return fmt.Sprintf("it started at %s, after %s, when shrt began sealing every run record it writes",
-			r.StartedAt.UTC().Format(time.RFC3339), SealsIntroduced.Format(time.RFC3339))
+	started, from := r.StartedAt, "it started at"
+	if at, ok := runIDTime(r.RunID); ok && at.After(started) {
+		started, from = at, fmt.Sprintf("its run id %s is dated", r.RunID)
+	}
+	if started.After(SealsIntroduced) {
+		return fmt.Sprintf("%s %s, after %s, when shrt began sealing every run record it writes",
+			from, started.UTC().Format(time.RFC3339), SealsIntroduced.Format(time.RFC3339))
 	}
 	return ""
+}
+
+func runIDTime(id string) (time.Time, bool) {
+	stamp, _, _ := strings.Cut(id, "-")
+	at, err := time.Parse("20060102T150405Z", stamp)
+	return at, err == nil
 }
 
 func (r *Record) MalformedSeal() bool { return r.sealClaim != "" }

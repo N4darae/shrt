@@ -35,11 +35,19 @@ func IsReadOnlyCall(call string) bool {
 		name = call[i+1:]
 	}
 	for _, p := range ReadOnlyPrefixes() {
-		if strings.HasPrefix(name, p) {
+		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
 			return true
 		}
 	}
 	return false
+}
+
+func wordBoundaryAt(name string, at int) bool {
+	if at >= len(name) {
+		return true
+	}
+	c := name[at]
+	return c < 'a' || c > 'z'
 }
 
 type Prereq struct {
@@ -399,7 +407,14 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	sort.Strings(declared)
 	for _, name := range declared {
-		if (mode != SliceModePin && !opts.RunVarsAsDefaults) || fresh[name] {
+		if fresh[name] {
+			if v, ok := opts.Vars[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
+				vars[name] = v
+				res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag, Declared: true, Default: c.Vars[name]})
+			}
+			continue
+		}
+		if mode != SliceModePin && !opts.RunVarsAsDefaults {
 			continue
 		}
 		v, ok := opts.RunVars[name]

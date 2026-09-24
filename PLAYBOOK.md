@@ -168,7 +168,8 @@ conventions:
   validate_output: true
 ```
 
-Key by key: `read_only_prefixes` says which rpc names are reads; `envelope_path` is where a
+Key by key: `read_only_prefixes` says which rpc names are reads, a prefix counting only at a word
+boundary (`Get` covers `GetProduct`, not `Getaway`; `Show` not `ShowcaseProduct`); `envelope_path` is where a
 response states its verdict, and `envelope_ok` the value there meaning success;
 `item_envelope_path` is a BATCH rpc's per-item verdict, a path that must exist in your response
 messages (`results[].error.code` on a backend like this one makes `shrt run` refuse every chain,
@@ -262,7 +263,8 @@ It counts the runs of the chains under `paths.chains` only. Runs of a chain no f
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
 when the chain is gone. A run recorded before shrt kept `chain_source` cannot say it was run by path,
-so it stays an orphan until the chain is run again.
+so it stays an orphan until the chain is run again. A file run by path whose `name:` is that of a chain under
+`paths.chains` is refused by `shrt run` (rename it), so its runs never count as that chain's.
 
 Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
 `not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body
@@ -925,7 +927,7 @@ creates a safe spot, so a refactor often has to be checked with none:
 ```bash
 shrt run <name>                                  # before the change
 shrt run <name>                                  # after it
-shrt diff <name>                                 # latest~1 against latest
+shrt diff <name>                                 # the two latest runs that are not verify replays
 shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest, latest~N
 ```
 
@@ -1191,7 +1193,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    target is never sent. `-verify` refuses up front and prints `-var name=<fresh>` unless you pass
    `-var name=...`, every `next:` line carries `-var name=<fresh>` for the slice it suggests
    (computed on that slice, so a pinned slice whose `next:` keeps the dropped creates asks for
-   it too), and the slice output names the var. Pin mode keeps the run's value when no kept
+   it too), and the slice output names the var. A written slice declares such a var with the
+   `-var` value it was given (`-verify -var tag=slice2` writes `tag: slice2`), not the chain's default,
+   which the chain's own runs already created with; that value is used too once `-verify` sent it, so
+   every later run of the slice still passes a fresh `-var`. Pin mode keeps the run's value when no kept
    write interpolates the var, and when a kept write sends exactly a string a dropped step before
    the target sent (it names what that step created, not something new). A string that also
    carries `${uuid}` or `${now}` is fresh on every run and does not count.

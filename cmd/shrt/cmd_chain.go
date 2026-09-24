@@ -347,7 +347,13 @@ func chainLint(args []string) error {
 				fmt.Printf("ok   %s\n", r.Chain)
 				continue
 			}
-			fmt.Printf("     %s\n", r.Chain)
+			status := "warn"
+			for _, i := range r.Issues {
+				if i.Severity == chain.SeverityError {
+					status = "FAIL"
+				}
+			}
+			fmt.Printf("%-4s %s\n", status, r.Chain)
 			for _, i := range r.Issues {
 				where := ""
 				if i.Step != "" {

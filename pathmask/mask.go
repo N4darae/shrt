@@ -82,6 +82,7 @@ func scrubText(s string, secrets []string) string {
 			}
 			if len(secret) >= minFoldedSecret {
 				part = replaceFold(part, secret)
+				part = replaceEncoded(part, secret)
 			}
 			if tail := tokenTail(secret); tail != "" {
 				part = replaceFold(part, tail)

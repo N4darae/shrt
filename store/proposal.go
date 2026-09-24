@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
@@ -472,10 +473,17 @@ func flat(s string) string {
 }
 
 func clip(s string, n int) string {
-	if len([]rune(s)) > n {
-		s = string([]rune(s)[:n]) + "…"
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	return s
+	cut := n
+	if at := lastRune(r[:n+1], ' '); at > n/2 {
+		cut = at
+	} else if at := segmentPrefix(r, n); len(at) > n/2 {
+		cut = len(at)
+	}
+	return strings.TrimRight(string(r[:cut]), " ") + "…"
 }
 
 func shortValue(v any) string {
@@ -495,8 +503,90 @@ func clipMiddle(s string, n int) string {
 	if len(r) <= n {
 		return s
 	}
-	tail := n / 2
-	return string(r[:n-tail]) + "…" + string(r[len(r)-tail:])
+	if strings.Contains(s, " ") {
+		if out, ok := clipWords(strings.Split(s, " "), n); ok {
+			return out
+		}
+	}
+	return clipToken(r, n)
+}
+
+func clipWords(words []string, n int) (string, bool) {
+	budget := n - 2
+	tail, used := 0, 0
+	for i := len(words) - 1; i > 0; i-- {
+		w := utf8.RuneCountInString(words[i]) + 1
+		if used+w > budget/2 {
+			break
+		}
+		used += w
+		tail++
+	}
+	head := 0
+	for head < len(words)-tail {
+		w := utf8.RuneCountInString(words[head]) + 1
+		if used+w > budget {
+			break
+		}
+		used += w
+		head++
+	}
+	if head == 0 && tail == 0 {
+		return "", false
+	}
+	parts := append([]string{}, words[:head]...)
+	parts = append(parts, "…")
+	parts = append(parts, words[len(words)-tail:]...)
+	return strings.Join(parts, " "), true
+}
+
+func clipToken(r []rune, n int) string {
+	budget := n - 1
+	var tail []rune
+	if at := lastRune(r, '@'); at > 0 && len(r)-at <= budget-2 {
+		tail = r[at:]
+	} else {
+		tail = segmentSuffix(r, budget-budget/3)
+	}
+	head := segmentPrefix(r[:len(r)-len(tail)], budget-len(tail))
+	return string(head) + "…" + string(tail)
+}
+
+func segmentSeparator(c rune) bool {
+	return c == '-' || c == '_' || c == '.' || c == '/' || c == ':' || c == '@'
+}
+
+func lastRune(r []rune, c rune) int {
+	for i := len(r) - 1; i >= 0; i-- {
+		if r[i] == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func segmentPrefix(r []rune, max int) []rune {
+	if len(r) <= max {
+		return r
+	}
+	for i := max; i > 0; i-- {
+		if segmentSeparator(r[i-1]) {
+			return r[:i]
+		}
+	}
+	return r[:max]
+}
+
+func segmentSuffix(r []rune, max int) []rune {
+	if len(r) <= max {
+		return r
+	}
+	for i := len(r) - max; i < len(r); i++ {
+		if i > 0 && segmentSeparator(r[i-1]) {
+			return r[i:]
+		}
+	}
+	return r[len(r)-max:]
 }
 
 func sentSummary(st *runner.StepRecord) string {
