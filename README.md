@@ -179,7 +179,11 @@ exit "$fail"
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. Every run must exit 0, and so must every `verify`. A chain kept
+a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`): verify
+treats a var inside other text as a fixture name and does not count a new one as a change, but a
+field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `verify` of that chain
+fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0,
+and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
 §1): its run exits 0 only when it fails exactly there, and exits 1 when it fails anywhere else, fails
 differently, or passes (the defect is gone), so a regression in an earlier step of that chain fails

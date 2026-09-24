@@ -59,6 +59,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintRefSyntax(s)...)
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
+		issues = append(issues, lintWholeTag(c, s, m)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
 		for _, why := range never {

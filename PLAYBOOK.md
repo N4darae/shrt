@@ -832,9 +832,12 @@ Three things that decide whether this works for a given chain:
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
   alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
   before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
-  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). Anything else that differs every
-  run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
-  replay reports a regression that is not one. The price is that a wrong id that is still
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A value the chain builds
+  from `${uuid}` or a clock form, whole or inside other text (`sku: s-${uuid}`), and a response
+  value that only echoes it (a message quoting it), is treated like a fixture name and masked and
+  counted (GRAMMAR §7), so it needs no `volatile`. Anything else that differs every run and that
+  the chain did not build, such as a server-generated code that is not id-shaped, must be in
+  `volatile`, or the first replay reports a regression that is not one. The price is that a wrong id that is still
   id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
   approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value

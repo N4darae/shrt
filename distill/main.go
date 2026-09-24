@@ -760,6 +760,8 @@ func exerciseDiff() (string, error) {
 	b.WriteString("otherwise only digits; every in-text read of such a var is a fixture name, an id field included\n")
 	b.WriteString("(`idempotency_key: k1-${vars.tag}`). A var feeding a number (`qty: \"${vars.q}0\"`) or read only in an id\n")
 	b.WriteString("field (`id_customer: cus-${vars.n}`) is input, and `shrt diff` shows its request difference.\n")
+	b.WriteString("So is a string field that is `${vars.tag}` alone (`sku: \"${vars.tag}\"`): `chain lint` warns on it when it is\n")
+	b.WriteString("not an id field, since a CI gate that passes a fresh `-var tag` would fail every verify of the chain.\n")
 	b.WriteString("A response value that only echoes the new fixture name is masked and counted,\n")
 	b.WriteString("by `shrt diff` and `confirm`'s drift warning as well. The comparison is made against what an echo\n")
 	b.WriteString("of THIS run's input would read: a response value that still carries the confirmed run's fixture name\n")
