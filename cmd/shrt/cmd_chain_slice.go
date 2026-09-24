@@ -162,6 +162,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	var verdict *sliceVerdict
 	var verifyErr error
 	if *verify {
+		if !*asJSON {
+			printSliceHeader(res)
+		}
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
 			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
 			reslice: func(keep []string) *chain.SliceResult {
@@ -224,6 +227,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		return verifyErr
 	}
 
+	if !*verify {
+		printSliceHeader(res)
+	}
 	printSlice(res, written, verdict)
 	if !write.set {
 		raw, err := res.Chain.Marshal()
@@ -237,13 +243,19 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 
 const hypothesisLine = "this slice is a HYPOTHESIS until it is run: a dependency that is state rather than a reference leaves no trace in the YAML"
 
-func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
+func printSliceHeader(res *chain.SliceResult) {
 	fmt.Printf("slice of %s for step %s, mode %s", res.Source, res.Target, res.Mode)
 	if res.Run != "" {
 		fmt.Printf(", run %s", res.Run)
 	}
 	fmt.Println()
 	fmt.Println()
+}
+
+func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
+	if verdict != nil {
+		fmt.Println()
+	}
 	idW, callW := 0, 0
 	for _, k := range res.Kept {
 		if n := len(k.ID); n > idW {
