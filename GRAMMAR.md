@@ -217,7 +217,7 @@ Produced by resolving each form against a fixture scope:
 |---|---|---|---|
 | `from` | string |  | `<rpc>[@alias]->response_path`. This value comes from an earlier call, and declares the ordering edge. |
 | `value` | string |  | A fixed literal or template, e.g. `${uuid}`. |
-| `same_as` | string |  | `<rpc>[@alias]->request_path`. Must equal what an earlier call SENT. Mutually exclusive with `from`; `plan` rewrites both sites onto one generated var. |
+| `same_as` | string |  | `<rpc>[@alias]->request_path`. Must equal what an earlier call SENT. Mutually exclusive with `from`. `plan` keeps a producer value that is a single stable reference on both sites, points the consumer at `${steps.<producer>.request.<path>}` when the producer's value is a template (`sku-${vars.tag}`, `${uuid}`), and otherwise rewrites both sites onto one generated var. |
 | `oneof` | string |  | Mutual-exclusion group; at most one member may carry a value. The member that carries one is also the member `contract show` and `chain new` scaffold, in place of the proto group's first field. |
 | `checked_by` | string |  | How the server validates the id, which decides whether a bad one is a named domain failure or an unnamed 500. |
 | `note` | string |  | Units, formats, constraints. Prose only: it never changes `plan` output, and it does not mark a scaffold zero as deliberate; `value: "0"` does. |

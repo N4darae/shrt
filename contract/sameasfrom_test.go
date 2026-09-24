@@ -46,7 +46,7 @@ func TestSameAsReusesTheProducersOwnReferenceInsteadOfBlankingIt(t *testing.T) {
 	}
 }
 
-func TestSameAsStillSharesAVarWhenTheProducerValueIsGenerated(t *testing.T) {
+func TestSameAsReadsTheProducersRequestWhenItsValueIsGenerated(t *testing.T) {
 	out := planWith(t,
 		&contract.FieldContract{Value: "${uuid}"},
 		&contract.FieldContract{SameAs: "shrt.test.v1.ThingService/Create->name"})
@@ -55,8 +55,9 @@ func TestSameAsStillSharesAVarWhenTheProducerValueIsGenerated(t *testing.T) {
 		t.Errorf("${uuid} mints a fresh value at every resolution, so sharing the expression verbatim "+
 			"makes the two sites DIFFER — the one thing same_as exists to prevent:\n%s", out)
 	}
-	if !strings.Contains(out, "${vars.") {
-		t.Errorf("a generated producer value must still bind through one shared var:\n%s", out)
+	if strings.Count(out, "${uuid}") != 1 || !strings.Contains(out, "id: ${steps.create.request.name}") {
+		t.Errorf("a generated producer value must stay on the producer, and the consumer must read what "+
+			"the producer sent:\n%s", out)
 	}
 }
 

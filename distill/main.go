@@ -84,7 +84,7 @@ var notes = map[string]string{
 
 	"FieldContract.from":       "`<rpc>[@alias]->response_path`. This value comes from an earlier call, and declares the ordering edge.",
 	"FieldContract.value":      "A fixed literal or template, e.g. `${uuid}`.",
-	"FieldContract.same_as":    "`<rpc>[@alias]->request_path`. Must equal what an earlier call SENT. Mutually exclusive with `from`; `plan` rewrites both sites onto one generated var.",
+	"FieldContract.same_as":    "`<rpc>[@alias]->request_path`. Must equal what an earlier call SENT. Mutually exclusive with `from`. `plan` keeps a producer value that is a single stable reference on both sites, points the consumer at `${steps.<producer>.request.<path>}` when the producer's value is a template (`sku-${vars.tag}`, `${uuid}`), and otherwise rewrites both sites onto one generated var.",
 	"FieldContract.oneof":      "Mutual-exclusion group; at most one member may carry a value. The member that carries one is also the member `contract show` and `chain new` scaffold, in place of the proto group's first field.",
 	"FieldContract.checked_by": "How the server validates the id, which decides whether a bad one is a named domain failure or an unnamed 500.",
 	"FieldContract.note":       "Units, formats, constraints. Prose only: it never changes `plan` output, and it does not mark a scaffold zero as deliberate; `value: \"0\"` does.",

@@ -624,6 +624,10 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 		setBodyPath(step.Body, field, text)
 		return
 	}
+	if hasTemplate(seed) && !IsPlaceholder(seed, ScaffoldedBody) {
+		setBodyPath(step.Body, field, "${steps."+producerID+".request."+ref.Path+"}")
+		return
+	}
 	if p.Chain.Vars == nil {
 		p.Chain.Vars = map[string]any{}
 	}
