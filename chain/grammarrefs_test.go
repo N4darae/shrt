@@ -52,7 +52,7 @@ func grammarExampleChain(t *testing.T, headers map[string]string, expect []chain
 func referenceErrors(issues []chain.Issue) []chain.Issue {
 	out := []chain.Issue{}
 	for _, i := range issues {
-		if i.IsError() {
+		if i.IsError() && i.Kind != chain.KindDeadRef {
 			out = append(out, i)
 		}
 	}

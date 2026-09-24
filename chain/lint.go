@@ -59,7 +59,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
 		issues = append(issues, lintAuthProfile(s, opts.AuthProfiles)...)
 		issues = append(issues, lintTransport(s, m)...)
-		issues = append(issues, lintExpectRefs(s, known, knownExports, idx)...)
+		issues = append(issues, lintExpectRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
@@ -80,7 +80,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 // The referenced step must still run EARLIER, checked against the same `known` set body references
 // use: an expect naming a later step would resolve to nothing and the assertion would compare
 // against emptiness while looking deliberate.
-func lintExpectRefs(s *Step, known, knownExports map[string]bool, idx *refIndex) []Issue {
+func lintExpectRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method, idx *refIndex) []Issue {
 	issues := []Issue{}
 	for _, e := range s.Expect {
 		for _, ref := range collectRefs([]any{e.Path}) {
@@ -100,6 +100,13 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool, idx *refIndex)
 			if why := referenceProblem(r, known, knownExports, idx); why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
+				continue
+			}
+			if r.Kind == RefStep {
+				if issue, bad := refPathIssue(s.ID, r, responses); bad {
+					issue.Message = fmt.Sprintf("expect on %q: %s", e.Path, issue.Message)
+					issues = append(issues, issue)
+				}
 			}
 		}
 	}
@@ -413,29 +420,42 @@ func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string
 }
 
 func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (Issue, bool) {
-	ref, producer := r.Expr, r.Head
-	m, ok := responses[producer]
-	if !ok || m == nil {
-		return Issue{}, false
-	}
-	rest := strings.TrimPrefix(r.Rest, "response.")
-	if rest == "" || strings.HasPrefix(rest, "request") {
-		return Issue{}, false
-	}
-	if catalog.HasResponsePath(catalog.DescribeMessage(m.Output()).Fields, SplitPath(rest)) {
+	why, bad := responseRefProblem(r, responses)
+	if !bad {
 		return Issue{}, false
 	}
 	return Issue{
 		Step:     stepID,
-		Severity: SeverityWarn,
+		Severity: SeverityError,
 		Kind:     KindDeadRef,
-		Message: fmt.Sprintf(
-			"${%s} reads %q, which is not a field of %s — step %q cannot produce it, so this resolves to "+
-				"nothing at run time, after every earlier step has already hit the backend (shrt run cannot know "+
-				"the response shape up front, so it does not refuse this one). An export under that "+
-				"name is a different thing: write ${exports.<name>} for that",
-			ref, rest, m.Output().FullName(), producer),
+		Message: fmt.Sprintf("${%s} %s. An export under that name is a different thing: write ${exports.<name>} for that",
+			r.Expr, why),
 	}, true
+}
+
+func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bool) {
+	if r.Kind != RefStep || r.Err != nil {
+		return "", false
+	}
+	m, ok := responses[r.Head]
+	if !ok || m == nil {
+		return "", false
+	}
+	rest := r.Rest
+	if strings.HasPrefix(rest, "request.") || rest == "request" {
+		return "", false
+	}
+	rest = strings.TrimPrefix(rest, "response.")
+	if rest == "" || rest == "response" {
+		return "", false
+	}
+	fields := catalog.DescribeMessage(m.Output()).Fields
+	if catalog.HasResponsePath(fields, SplitPath(rest)) {
+		return "", false
+	}
+	return fmt.Sprintf("reads %q, which is not a field of %s — step %q cannot produce it, so the run would "+
+		"die resolving it after every earlier step had already hit the backend, and shrt run refuses the "+
+		"chain before sending anything", rest, m.Output().FullName(), r.Head), true
 }
 
 func headerValues(in map[string]string) []any {

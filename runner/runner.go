@@ -604,7 +604,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := r.checkCalls(c); err != nil {
 		return nil, err
 	}
-	if problems := c.PreflightProblems(); len(problems) > 0 {
+	problems := c.PreflightProblems()
+	if r.Catalog != nil {
+		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
+	}
+	if len(problems) > 0 {
 		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(problems, "; "))
 	}
 	redactor := pathmask.NewRedactor(rec.Redacted)

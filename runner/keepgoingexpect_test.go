@@ -71,18 +71,18 @@ func TestKeepGoingSendsAStepReadingAFieldTheFailedStepDidNotFailOn(t *testing.T)
 	c := normalized(t, &chain.Chain{Name: "keep-going-sound-field", Steps: []*chain.Step{
 		{ID: "create", Call: "ThingService/Create",
 			Body:   map[string]any{"name": "widget", "kind": "KIND_A"},
-			Expect: []chain.Expectation{{Path: "id", NotEmpty: true}, {Path: "name", Equals: "deliberately-wrong"}}},
+			Expect: []chain.Expectation{{Path: "id", NotEmpty: true}, {Path: "error.message", Equals: "deliberately-wrong"}}},
 		{ID: "fetch_by_id", Call: "ThingService/Fetch",
 			Body: map[string]any{"id": "${create.id}"}, Expect: okExpect()},
 		{ID: "fetch_by_name", Call: "ThingService/Fetch",
-			Body: map[string]any{"id": "${create.name}"}, Expect: okExpect()},
+			Body: map[string]any{"id": "${create.error.message}"}, Expect: okExpect()},
 	}})
 	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{KeepGoing: true})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
 	if rec.Steps[1].Status == runner.StatusSkipped {
-		t.Fatalf("create failed on name, not id, so a step reading its id is sent: %s", rec.Steps[1].Error)
+		t.Fatalf("create failed on error.message, not id, so a step reading its id is sent: %s", rec.Steps[1].Error)
 	}
 	if rec.Steps[2].Status != runner.StatusSkipped {
 		t.Fatalf("a step reading the very field that failed is still held back, got %s", rec.Steps[2].Status)

@@ -138,6 +138,10 @@ Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal`
 
 A reference that is the whole value keeps its JSON type; inside a longer string it is
 interpolated as text. A reference that cannot resolve fails the step — it never becomes empty.
+One that is known not to resolve is refused before anything is sent, by `shrt run` and as a lint
+error: a step or export that does not exist or runs later, an unset `${env.*}`, and a field of an
+earlier step's response that its response message does not declare (`${create_product.product.id_prodct}`,
+lint kind `unproducible-reference`). If the field is real and new, the descriptor is stale: `shrt catalog build`.
 
 The `resolves to` column below is quoted where the value is a Go string, so the rows that
 look numeric but are not stand out: `${nowunix}` resolves to a STRING of digits, never an

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"sort"
+
+	"github.com/N4darae/shrt/catalog"
 )
 
 func (c *Chain) PreflightProblems() []string {
@@ -52,5 +54,31 @@ func sortedHeaderNames(h map[string]string) []string {
 		out = append(out, name)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
+	out := []string{}
+	if cat == nil {
+		return out
+	}
+	responses := map[string]*catalog.Method{}
+	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
+		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
+		for _, e := range s.Expect {
+			refs = append(refs, e.References()...)
+		}
+		for _, ref := range refs {
+			if why, bad := responseRefProblem(ParseRef(ref), responses); bad {
+				out = append(out, fmt.Sprintf("step %q (step %d): ${%s} %s", s.ID, i+1, ref, why))
+			}
+		}
+		if m, err := cat.Lookup(s.Call); err == nil {
+			responses[s.ID] = m
+		}
+	}
 	return out
 }
