@@ -177,6 +177,13 @@ func runVerify(ctx context.Context, args []string) error {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
+		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
+			return fmt.Errorf("regression: %d change(s) vs safe spot; the expectation edit since it was confirmed explains none of them", n)
+		}
+		if report.OnlyExpectationsEdited() {
+			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation edit since it was confirmed "+
+				"(%d more are: the edited step's status or the steps not reached after it, where the edited expectation failed)", n, len(report.Changes)-n)
+		}
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
 			"(%d more come at or after it)", n, len(report.Changes)-n)
 	}

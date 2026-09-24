@@ -820,7 +820,7 @@ func (r *Report) Text() string {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
 			cause = "the chain changed since it was confirmed; a step, expectation or body reference edit is a chain change, not an input change, " +
-				"and an expectation edit explains a status change at its own step only"
+				"and an expectation edit explains a status change at its own step only, and only when the edited expectation failed"
 		}
 		if r.InputCause != "" {
 			cause = r.InputCause
@@ -839,7 +839,15 @@ func (r *Report) Text() string {
 	}
 	unexplained := len(r.Unexplained())
 	mixed := len(r.RequestChanges) > 0 && unexplained > 0
+	expectOnly := r.OnlyExpectationsEdited()
 	switch {
+	case mixed && expectOnly && unexplained == len(r.Changes):
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: the expectation edit explains none of them, since it explains only a failure of the "+
+			"edited expectation itself, so they are evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
+	case mixed && expectOnly:
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are not explained by the expectation edit, which explains only its own step's "+
+			"status and the steps not reached after it when the edited expectation failed, so they are evidence of a backend regression; "+
+			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
 			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
@@ -868,6 +876,9 @@ func (r *Report) Text() string {
 		after := ""
 		if mixed && c.WithInput {
 			after = " (after different input)"
+			if expectOnly {
+				after = " (explained by the failed edited expectation)"
+			}
 		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}

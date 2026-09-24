@@ -1,6 +1,9 @@
 package diff
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -51,6 +54,9 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	edited := map[string]bool{}
 	for _, c := range material {
 		if c.Path == ExpectPath {
+			if !editedExpectFailed(rec, c) {
+				continue
+			}
 			edited[c.Step] = true
 			if i, ok := index[c.Step]; ok && (firstEdited < 0 || i < firstEdited) {
 				firstEdited = i
@@ -106,6 +112,35 @@ func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
 		}
 	}
 	return out
+}
+
+func editedExpectFailed(rec *runner.Record, c Change) bool {
+	if c.Kind == KindMissing {
+		return false
+	}
+	path, _, _ := strings.Cut(fmt.Sprint(c.Got), " ")
+	st, ok := rec.Step(c.Step)
+	if !ok {
+		return false
+	}
+	for _, r := range st.Expect {
+		if !r.Passed && r.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Report) OnlyExpectationsEdited() bool {
+	if len(r.RequestChanges) == 0 {
+		return false
+	}
+	for _, c := range r.RequestChanges {
+		if c.Path != ExpectPath {
+			return false
+		}
+	}
+	return true
 }
 
 func chainLevel(c Change) bool {

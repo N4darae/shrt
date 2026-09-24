@@ -474,7 +474,10 @@ from the confirmed run at <step> ...`, and the change of step count it causes is
 An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
 `${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
 printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
-at that step, and the later steps the run then did not reach, and nothing else. A step, expectation
+at that step, and the later steps the run then did not reach, and nothing else, and only when the
+edited expectation itself failed in this run: an edit whose expectation held explains no change, so
+every drift beside it is a `regression` (`the expectation edit ... explains none of them`), never
+worded as different input. A step, expectation
 or body reference edit is a CHAIN change, not an input change: the
 summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
 confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
