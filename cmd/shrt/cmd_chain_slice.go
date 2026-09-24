@@ -119,6 +119,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		opts.RunID = rec.RunID
 		opts.Value = recordValues(rec)
 		opts.RunVars = recordVars(rec)
+		opts.RunVarsAsDefaults = *verify
 		opts.Refused = refusedIn(rec)
 		opts.Performed = performedIn(rec)
 	}
@@ -295,7 +296,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 		}
 	}
 	if len(fromRun) > 0 {
-		fmt.Printf("\nvars written with the value run %s used, not the chain's default (no kept write re-sends them):\n", res.Run)
+		fmt.Printf("\nvars written with the value run %s used, not the chain's default, so the slice sends what that run sent:\n", res.Run)
 		for _, f := range fromRun {
 			fmt.Printf("  %s = %v  (default %v)\n", f.Var, f.Value, f.Default)
 		}
@@ -620,6 +621,10 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 				"the target needs.", len(names), strings.Join(names, ", "))
 			v.suggestKeep(res, rec, a, names)
 		}
+		if differ := varsDifferBetween(rec, replayRec, freshSet(res)); differ != "" {
+			v.Reason = strings.TrimPrefix(v.Reason+"\nthe slice ran with other vars than the source run ("+differ+
+				"), so a value it sent or asserted can differ for that reason alone: drop the -var to use the source run's", "\n")
+		}
 	case res.UnderIncluded:
 		v.Outcome = sliceInconclusive
 		names := droppedNames(res)
@@ -633,6 +638,25 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Reproduced = true
 	}
 	return v, v.err()
+}
+
+func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) string {
+	out := []string{}
+	names := make([]string, 0, len(replay.Vars))
+	for k := range replay.Vars {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		was, ok := source.Vars[k]
+		if !ok || fresh[k] || fmt.Sprint(was) == pathmask.MaskRedacted {
+			continue
+		}
+		if now := replay.Vars[k]; fmt.Sprint(now) != fmt.Sprint(was) {
+			out = append(out, fmt.Sprintf("%s=%v, source %v", k, now, was))
+		}
+	}
+	return strings.Join(out, "; ")
 }
 
 func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, names []string) {

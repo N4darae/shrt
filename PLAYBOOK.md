@@ -933,8 +933,14 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    compares the TARGET step's verdict — the code at `conventions.envelope_path`, the refusal
    beside it (its `message`, and `reason` and `app_code` at `details.0.` or beside the code, the
    ones `shrt run` prints), a transport refusal (HTTP status and code), the pass/fail of every
-   expectation, and for an expectation that failed in both runs against the same want, the value
-   it got — against that same step in the source run. Values that differ every run are masked
+   expectation, and for an expectation that failed in both runs, its want and the value it got —
+   against that same step in the source run. A failure against another want, or with another got,
+   is NOT REPRODUCED (`failed in both, with other values: source want 3697 got 1995, slice want 4548
+   got 6250`): it is not the same failure. So that like is compared with like, `-verify` writes the
+   source run's value of every declared var into the slice, in closure mode too (listed under `vars
+   written with the value run <id> used`), except the fresh vars a kept write interpolates; a
+   `-var` still overrides, and when the verdicts then differ the verdict names each var that differs
+   from the source run's. Values that differ every run are masked
    as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
    differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run

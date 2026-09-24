@@ -57,18 +57,20 @@ func (p Prereq) Node() string {
 }
 
 type SliceOptions struct {
-	Mode      string
-	RunID     string
-	Name      string
-	RPCOf     func(*Step) string
-	Prereqs   func(rpc string) []Prereq
-	Value     func(ref string) (any, bool)
-	Keep      []string
-	Vars      map[string]any
-	RunVars   map[string]any
-	Refused   func(stepID string) (string, bool)
-	Performed func(stepID string) bool
-	IsLogin   func(*Step) bool
+	Mode    string
+	RunID   string
+	Name    string
+	RPCOf   func(*Step) string
+	Prereqs func(rpc string) []Prereq
+	Value   func(ref string) (any, bool)
+	Keep    []string
+	Vars    map[string]any
+	RunVars map[string]any
+	Refused func(stepID string) (string, bool)
+
+	RunVarsAsDefaults bool
+	Performed         func(stepID string) bool
+	IsLogin           func(*Step) bool
 }
 
 type Keep struct {
@@ -386,7 +388,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	sort.Strings(declared)
 	for _, name := range declared {
-		if mode != SliceModePin || fresh[name] {
+		if (mode != SliceModePin && !opts.RunVarsAsDefaults) || fresh[name] {
 			continue
 		}
 		v, ok := opts.RunVars[name]
@@ -931,7 +933,12 @@ func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b 
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
 			continue
 		}
-		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
+		if !want.Passed && verdictText(want.Want) != verdictText(got.Want) && !alike(want.Path, want.Want, got.Want) {
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, with other values: source want %s got %s, slice want %s got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Want), verdictText(want.Got), verdictText(got.Want), verdictText(got.Got)))
+			continue
+		}
+		if !want.Passed && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
 				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
 		}
