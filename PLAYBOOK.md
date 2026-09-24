@@ -751,7 +751,8 @@ language, give:
    replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
    column, and every difference from it is listed under the table: requests and responses, a
    target change (`target base_url <old> -> <new>`), and each chain edit since then, such as an
-   expectation added or changed (`chain expect absent -> <path> <rule> <value>`). A request or
+   expectation added or changed (`chain expect absent -> <path> <rule> <value>`) or an `unordered`
+   path added (`chain unordered absent -> unordered: [<path>]`), which verify will compare as a multiset. A request or
    response value that differs only in the fixture name (`sku-${vars.tag}` under a fresh tag) is
    masked there as `verify` masks it, so it is not listed;
 5. the question: approve or reject.
