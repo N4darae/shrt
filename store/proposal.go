@@ -15,6 +15,7 @@ import (
 	"unicode"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 )
@@ -662,14 +663,25 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 		value any
 	}
 	leaves := []leaf{}
+	unordered := map[string]bool{}
+	for _, p := range st.Unordered {
+		unordered[listKey(p)] = true
+	}
 	var walk func(path string, depth int, v any)
 	walk = func(path string, depth int, v any) {
+		if path != "" && volatile.Masks(path) {
+			return
+		}
 		switch t := v.(type) {
 		case map[string]any:
 			for k, x := range t {
 				walk(joinKey(path, k), depth+1, x)
 			}
 		case []any:
+			if unordered[listKey(path)] && len(t) > 0 {
+				leaves = append(leaves, leaf{path, depth, fmt.Sprintf("%d item(s) in any order", len(t))})
+				return
+			}
 			for i, x := range t {
 				walk(joinKey(path, fmt.Sprint(i)), depth+1, x)
 			}
@@ -697,6 +709,16 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 		parts = append(parts, l.path+"="+shortValue(l.value))
 	}
 	return strings.Join(parts, " ")
+}
+
+func listKey(path string) string {
+	out := []string{}
+	for _, seg := range strings.Split(path, ".") {
+		if _, err := strconv.Atoi(seg); err != nil && seg != "" {
+			out = append(out, seg)
+		}
+	}
+	return namecase.Fold(strings.Join(out, "."))
 }
 
 func baselineNoise(v any, fixtures []string) bool {

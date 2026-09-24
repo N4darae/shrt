@@ -717,9 +717,11 @@ uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300
-order.lines.0.qty=1`), leaving out ids, timestamps, volatile paths, empty strings and values
-echoing a var, shallow paths first, capped with `+N more`; read those too, since approving signs
-them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+order.lines.0.qty=1`), leaving out ids, timestamps, everything under a volatile path (a step's
+`volatile: [products]` leaves out the whole list), empty strings and values echoing a var, and
+showing a list the step declares `unordered` as one entry (`products=3 item(s) in any order`), since
+verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; read
+those too, since approving signs them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is
