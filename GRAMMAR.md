@@ -21,7 +21,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `description` | string |  | What state this chain reproduces, for the next reader. |
 | `vars` | map string → any |  | Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var. |
 | `volatile` | list of string |  | Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value. |
-| `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. |
+| `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). |
 | `steps` | list of step | + | Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it. |
 
 ### Step
@@ -34,7 +34,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `body` | map string → any |  | Validated against the proto request message before anything is sent. |
 | `headers` | map string → string |  | Per-step header overrides. |
 | `expect` | list of expectation |  | Assertions on this step's response. Each entry needs exactly one rule, and nearly always a `path`: an entry with no `path` tests the whole response. |
-| `export` | map string → string |  | `name: response.path`. Publishes `${exports.name}` and the bare `${name}`. |
+| `export` | map string → string |  | `name: response.path`. Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error, since the bare `${name}` would then mean two things; a name another step also exports is a lint warning (`export-overwritten`, failed by `-strict`), since the later write silently replaces the earlier. |
 | `auth` | string |  | Named auth profile from `.shrt/config.yaml`. Contradicts `skip_auth`; lint rejects both. The reserved value `invalid` sends a token the backend never issued, in the header and scheme of the profile that would otherwise cover the call, and never re-logs in on the 401 — the probe for "an invalid token is refused". Lint rejects it with `export`; `shrt run` refuses it when the config declares no auth. |
 | `skip_auth` | bool |  | Attach no auth header. For the probe "a missing token is refused". A login step does not need it: a call to a configured login rpc (or one listed in `auth.skip_calls`) never carries a token, and its run record says `auth_profile: none`. |
 | `allow_fail` | bool |  | Tolerate the backend REFUSING this call, when a later step depends on the attempt rather than the outcome: a step the backend refused at the transport level (a Connect error) does not stop the chain, provided it declares no expectation — a refusal leaves every expectation unevaluated, and an unevaluated expectation is never tolerated. An in-band refusal whose expectations hold is simply `passed` and needs no key. It covers nothing else — not a failed expectation, not an expectation a transport error left unevaluated, not drift, not a step whose status is `error` — and every one of those still stops the run. One more case slips through: a step answered 200 whose `export` path is missing is `failed` with no failed expectation, and `allow_fail` lets the chain go on past it. To see what lies beyond a step that does not pass, use `shrt run -keep-going`, not this key. A step MEANT to be refused at the transport level asserts which refusal with `transport.*` and needs no key. On a step that declares any expectation it does nothing, and `chain lint` warns `inert-allow-fail`, which `-strict` fails. |
@@ -44,12 +44,12 @@ scaffold leaves it present-but-empty rather than absent.
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `path` | string | + | JSON path into this step's own response, or one of the reserved `transport.*` paths (table below), which read the recorded transport result instead. `${...}` here is a lint ERROR: a path names a location, not a value. So is a path the response message has no field for, under every rule — `exists: false` included, since it could not fail. |
+| `path` | string | + | JSON path into this step's own response, or one of the reserved `transport.*` paths (table below), which read the recorded transport result instead. `${...}` here is a lint ERROR: a path names a location, not a value. So is a path the response message has no field for, under every rule — `exists: false` included, since it could not fail. Field names match with case and separators folded (`qtyOnHand` reads `qty_on_hand`), and a path that matches only that way is a lint warning (`inexact-path`) naming the exact field; an `export` path is checked the same way. |
 | `equals` | any |  | Compared as text, so `1` matches `"1"`. May carry `${...}`: an earlier step, or this step's own request (`${steps.<this>.request.<field>}`); this step's own response is a lint error. |
 | `not_equal` | any |  | The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`. |
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
-| `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. |
+| `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `"0"`. |
 
 ### What each rule actually does
 
@@ -66,12 +66,16 @@ Produced by evaluating every rule against a fixture response, not by description
 | `not_empty: true` on `id_deal` | `not_empty` | **yes** |
 | `not_empty: true` on an empty list | `not_empty` | no |
 | `not_empty: true` on the number 0 | `not_empty` | no |
+| `not_empty: true` on an int64 at 0 (stored as the string `"0"`) | `not_empty` | no |
+| `not_equal: ""` on an int64 at 0 | `not_equal` | no |
 | `exists: true` on a path that is absent | `exists` | no |
 | no rule at all | `invalid — expectation has no rule` | no |
 | TWO rules on one entry: `equals: NOPE` **and** `not_empty: true` | `not_empty` | **yes** |
 
-Read the last four rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for
-`exists`. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one
+Read the last six rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for
+`exists`. Zero follows the field's proto type: an int64 or uint64 is stored as a JSON string, and
+its `"0"` is zero exactly as an int32's `0` is; on any numeric field `""` in `equals` or `not_equal`
+means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one
 to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >
 `not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one
 you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`
@@ -135,6 +139,17 @@ Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal`
 
 A reference that is the whole value keeps its JSON type; inside a longer string it is
 interpolated as text. A reference that cannot resolve fails the step — it never becomes empty.
+One that is known not to resolve is refused before anything is sent, by `shrt run` and as a lint
+error: a step or export that does not exist or runs later, an unset `${env.*}`, and a field of an
+earlier step's response that its response message does not declare (`${create_product.product.id_prodct}`,
+lint kind `unproducible-reference`). If the field is real and new, the descriptor is stale: `shrt catalog build`.
+
+There is no escape for a literal `${`: `$${x}` is a `$` followed by the resolved `${x}`. A value that
+must carry `${` comes in through `${env.NAME}` or `-var name=...`, whose values are never resolved again.
+Lint warns (`reference-syntax`) on forms that are accepted but do not do what they read as: spaces
+inside the braces (`${ uuid }` resolves as `${uuid}`), a fractional clock offset (`${now+1.5}` resolves
+as `${now+1}`), a path after `uuid` or a clock form (ignored), and a `${` never closed, which is sent as
+literal text.
 
 The `resolves to` column below is quoted where the value is a Go string, so the rows that
 look numeric but are not stand out: `${nowunix}` resolves to a STRING of digits, never an
@@ -237,7 +252,7 @@ Produced by resolving each form against a fixture scope:
 | `paths` | paths | + | Where chains, runs and safe spots live. |
 | `conventions` | conventions |  | Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded. |
 | `volatile` | list of string |  | Volatile paths applied to every chain. |
-| `redact` | list of string |  | Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
+| `redact` | list of string |  | Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0 of any numeric type — an int64's `"0"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. Paths are not the only guard: the runner also scrubs by VALUE, replacing with `<redacted>`, wherever it appears in the record (request, response, each expectation's `want`, `got` and detail, errors, warnings, notes, exports), every value an auth body reads from `${env.*}` (username included), every token a login returned, and every value a step exports from a redacted path, so the proposal report and the safe spot built from the record never carry them either. A value shorter than 4 characters is replaced only where it is the whole string. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
 
 ### `target`
 
@@ -262,7 +277,7 @@ Produced by resolving each form against a fixture scope:
 | key | type | req | meaning |
 |---|---|---|---|
 | `call` | string | + | The login rpc. |
-| `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. |
+| `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run. |
 | `token_path` | string | + | Response path holding the token. |
 | `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401. |
 | `header` | string |  | Defaults to `Authorization`. |
@@ -288,7 +303,7 @@ Produced by resolving each form against a fixture scope:
 | `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve. |
 | `envelope_path` | string |  | JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead. A path set here that no response message in the descriptor declares fails `shrt run` before any traffic is sent, as `shrt doctor` fails it. |
 | `envelope_ok` | string |  | The `envelope_path` value that means success. Default `OK`. A run in which responses carried the envelope but none carried this value ends with a `warning` naming the values seen; a batch whose items "refuse" with the very value the top-level envelope carries says to check this key. |
-| `item_envelope_path` | string |  | Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent. |
+| `item_envelope_path` | string |  | Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone. An item whose verdict is missing (its envelope unset or absent) is success when no item of that batch carries `envelope_ok` explicitly — a backend that writes an item's error only on refusal — and is reported like a refused item, as `(no verdict)`, when another item of the same batch does; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent. |
 | `code_fields` | list of string |  | Detail-field names that carry a backend's OWN numeric or symbolic code, searched by `shrt chain which -code`. Default `app_code`, `reason`, `error_code`. An explicit list REPLACES the defaults. The envelope's own leaf is not listed here — it follows `envelope_path`, so a deployment answering at `status.code` is searched there without any setting. Nothing enforces these names; a code this list cannot reach makes `chain which` answer "no chain asserts it" for a corpus that does. |
 | `validate_output` | bool |  | When true, a response that does not match its proto message FAILS the step. Default false: the response is kept as sent and a warning is recorded, so a descriptor that has drifted from the deployed binary degrades quietly rather than failing every chain. Turn it on once your descriptor build and your deploy are in step. |
 
@@ -333,7 +348,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `request` | JSON | What was sent, AFTER reference resolution and redaction. |
 | `response` | JSON | What came back, RE-ENCODED through the response message and then redacted — not the wire bytes. Field names are the proto ones, every declared scalar and list field is present at its zero value if the server omitted it (an unset nested message is `null`, so assert `exists: false` on the message itself rather than on a path inside it), and an int64 is a JSON string whatever the server sent. That is what gives `shrt verify` a stable shape to diff across runs, and it is why a scalar's absence cannot be read out of this field: see the second table in §1 on `exists`. When the descriptor cannot decode the body it is stored as sent instead, and the step carries a `warning` saying so, so the shape of this field depends on descriptor freshness. |
 | `transport_error` | transporterror | Set when the backend answered with a Connect error (any non-200) instead of a response message. `transport.code` and `transport.message` read it. |
-| `expect` | list of expectresult | One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. |
+| `expect` | list of expectresult | One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), and has no expectation pinning the verdict (a value rule on the envelope, or a `transport.*` path) — that step is `failed`, because the assertions that held read the zero values a refusal leaves. |
 | `exported` | map string → any | What this step published. |
 | `error` | string | Why this step failed or could not run. |
 | `warning` | string | Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`), which stays `passed` with a warning saying so. |

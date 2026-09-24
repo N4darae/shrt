@@ -194,7 +194,7 @@ func TestBodyIsEmptyTreatsAProtoJSONZeroAsNothingFound(t *testing.T) {
 		}
 	}
 	full := []string{
-		`{"error":{"code":"OK"},"rows":[{}]}`,
+		`{"error":{"code":"OK"},"rows":[{}, {"id":"r-1"}]}`,
 		`{"error":{"code":"OK"},"total_qty":"1"}`,
 		`{"error":{"code":"OK"},"id":"01a0"}`,
 		`{"error":{"code":"OK"},"ok":true}`,

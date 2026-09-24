@@ -214,6 +214,11 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.Warning != "" {
 		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
 	}
+	for _, sr := range rec.Steps {
+		if sr != nil && strings.TrimSpace(sr.Warning) != "" {
+			fmt.Fprintf(&b, "\n  warning [%s]: %s", sr.ID, sr.Warning)
+		}
+	}
 	if len(rec.Exports) > 0 {
 		names := make([]string, 0, len(rec.Exports))
 		for k := range rec.Exports {

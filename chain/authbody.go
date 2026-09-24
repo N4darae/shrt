@@ -64,3 +64,16 @@ func AuthBodyEnvRefs(body map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+func AuthBodyEnvNames(body map[string]any) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, ref := range collectRefs(body) {
+		if r := ParseRef(ref); r.Kind == RefEnv && r.Rest != "" && !seen[r.Rest] {
+			seen[r.Rest] = true
+			out = append(out, r.Rest)
+		}
+	}
+	sort.Strings(out)
+	return out
+}

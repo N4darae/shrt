@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -27,6 +28,7 @@ type Runner struct {
 	ValidateOutput bool
 	OnStep         func(*StepRecord)
 	Auth           AuthBindings
+	AuthRoute      func(*chain.Step) (string, bool)
 	BuildHeader    string
 }
 
@@ -37,6 +39,7 @@ type AuthBinding struct {
 	ExpiresPath string
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
+	EnvVars     []string
 }
 
 type AuthBindings []*AuthBinding
@@ -133,6 +136,30 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 		}
 	}
 	return out
+}
+
+func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker, env func(string) (string, bool)) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		for _, name := range b.EnvVars {
+			if v, ok := env(name); ok {
+				redactor.AddSecret(v)
+			}
+		}
+	}
+}
+
+func (bs AuthBindings) learnTokens(redactor *pathmask.Masker) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		if holder, ok := b.Sink.(interface{ CurrentToken() string }); ok {
+			redactor.AddSecret(holder.CurrentToken())
+		}
+	}
 }
 
 func (bs AuthBindings) profiles() []string {
@@ -579,7 +606,14 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := r.checkCalls(c); err != nil {
 		return nil, err
 	}
-	if problems := c.PreflightProblems(); len(problems) > 0 {
+	if err := r.checkAuthEnv(c); err != nil {
+		return nil, err
+	}
+	problems := c.PreflightProblems()
+	if r.Catalog != nil {
+		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
+	}
+	if len(problems) > 0 {
 		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(problems, "; "))
 	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
@@ -587,6 +621,8 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if r.Now != nil {
 		scope.Now = r.Now
 	}
+	r.Auth.learnSecrets(redactor, scope.Env)
+	r.Auth.learnTokens(redactor)
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
@@ -624,6 +660,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
 		}
+		scrubStep(sr, redactor)
 		for name, path := range step.Export {
 			exporter[name] = exportSource{step: step.ID, path: path}
 		}
@@ -685,10 +722,18 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if !opts.DryRun {
 		rec.Warning = envelopeOKNeverSeen(rec.Steps)
 	}
-	rec.Exports = maskExports(scope.Exports, c.Steps, redactor)
+	rec.Exports = r.maskExports(scope.Exports, c.Steps, redactor)
 	if masked, ok := redactor.Apply(rec.Vars).(map[string]any); ok {
 		rec.Vars = masked
 	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Exports).(map[string]any); ok && rec.Exports != nil {
+		rec.Exports = scrubbed
+	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Vars).(map[string]any); ok && rec.Vars != nil {
+		rec.Vars = scrubbed
+	}
+	rec.Failure = redactor.ScrubText(rec.Failure)
+	rec.Warning = redactor.ScrubText(rec.Warning)
 	rec.DurationMS = r.clock().Sub(now).Milliseconds()
 	return rec, nil
 }
@@ -704,6 +749,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if method.Streaming() {
 		return fail(sr, errors.New(method.StreamRefusal()))
 	}
+	outputFields := catalog.DescribeMessage(method.Output()).Fields
+	requestRedactor := redactor.WithNumeric(numericPaths(catalog.DescribeMessage(method.Input()).Fields))
+	redactor = redactor.WithNumeric(numericPaths(outputFields))
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
@@ -714,7 +762,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, fmt.Errorf("encode request: %w", err))
 	}
-	sr.Request = mustJSON(redactor.Apply(resolved), body)
+	sr.Request = mustJSON(requestRedactor.Apply(resolved), body)
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
@@ -750,6 +798,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
 	res, err := r.Client.Do(ctx, call)
+	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 	}
@@ -835,7 +884,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
 		}
-		result := evaluate(scope, e, response, presence, redactor)
+		kind := ""
+		if !chain.IsTransportPath(e.Path) {
+			kind = fieldKind(outputFields, e.Path)
+		}
+		result := evaluateTyped(scope, e, response, presence, kind, redactor)
 		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
 			result.Detail = refusalContext(decoded, e.Path, redactor)
 		}
@@ -855,6 +908,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if warning := unassertedRefusalWarning(decoded); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
+	} else if result, refused := unpinnedRefusal(decoded, step.Expect, redactor); refused {
+		sr.Expect = append(sr.Expect, result)
+		sr.Status = StatusFailed
 	}
 
 	if chain.ItemEnvelope() != "" && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
@@ -903,6 +959,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			}
 			scope.Exports[name] = v
 			if redactor.MasksValue(path, v) {
+				learnSecret(redactor, v)
 				sr.Exported[name] = pathmask.MaskRedacted
 				continue
 			}
@@ -910,6 +967,44 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 	return sr
+}
+
+func learnSecret(redactor *pathmask.Masker, v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case []any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case string:
+		redactor.AddSecret(t)
+	case nil, bool:
+	default:
+		redactor.AddSecret(fmt.Sprint(t))
+	}
+}
+
+func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
+	sr.Request = redactor.ScrubJSON(sr.Request)
+	sr.Response = redactor.ScrubJSON(sr.Response)
+	for i := range sr.Expect {
+		e := &sr.Expect[i]
+		e.Want = redactor.ScrubValue(e.Want)
+		e.Got = redactor.ScrubValue(e.Got)
+		e.Detail = redactor.ScrubText(e.Detail)
+	}
+	if scrubbed, ok := redactor.ScrubValue(sr.Exported).(map[string]any); ok && sr.Exported != nil {
+		sr.Exported = scrubbed
+	}
+	sr.Error = redactor.ScrubText(sr.Error)
+	sr.Warning = redactor.ScrubText(sr.Warning)
+	sr.Note = redactor.ScrubText(sr.Note)
+	if sr.Transport != nil {
+		sr.Transport.Message = redactor.ScrubText(sr.Transport.Message)
+	}
 }
 
 func unassertedRefusalWarning(decoded any) string {
@@ -929,6 +1024,40 @@ func unassertedRefusalWarning(decoded any) string {
 		"recorded passed with nothing checked. If the refusal is the point, assert it (%s equals: %s); if "+
 		"not, the backend rejected this call and later steps that read its response read zero values", path, text,
 		chain.EnvelopeOK(), path, text)
+}
+
+func unpinnedRefusal(decoded any, expect []chain.Expectation, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+	path := chain.EnvelopePath()
+	if path == "" || pinsVerdict(expect) {
+		return chain.ExpectResult{}, false
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return chain.ExpectResult{}, false
+	}
+	text := fmt.Sprint(code)
+	if text == "" || text == chain.EnvelopeOK() {
+		return chain.ExpectResult{}, false
+	}
+	detail := fmt.Sprintf("refused in-band (%s = %s, not %s), and no expectation on this step pins the verdict, "+
+		"so the ones that held read the zero values a refusal leaves. If the refusal is the point, assert it "+
+		"(%s equals: %s); if not, the backend rejected this call", path, text, chain.EnvelopeOK(), path, text)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		detail += " (" + context + ")"
+	}
+	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
+}
+
+func pinsVerdict(expect []chain.Expectation) bool {
+	for _, e := range expect {
+		if chain.IsTransportPath(e.Path) {
+			return true
+		}
+		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "") {
+			return true
+		}
+	}
+	return false
 }
 
 func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {
@@ -1004,7 +1133,15 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 				top, chain.EnvelopeOK(), top, top)
 		}
 	}
-	return "every item in a batch response carries its own verdict, and these were refused while " + said +
+	missing := ""
+	for _, r := range surprises {
+		if r.Code == chain.NoItemVerdict {
+			missing = fmt.Sprintf(". A line marked %s carries no verdict at all while another line of the same "+
+				"batch carries %s explicitly, so nothing says that line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
+			break
+		}
+	}
+	return "every item in a batch response carries its own verdict, and these were refused while " + said + missing +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
 		"MEANS to be refused is declared by pinning that line's verdict path, or one of its code fields (" +
 		strings.Join(chain.CodeFields(), ", ") + "), with equals, not_equal or contains, and is then not " +
@@ -1012,11 +1149,15 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 }
 
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
+	return evaluateTyped(scope, e, response, presence, "", redactor)
+}
+
+func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence any, kind string, redactor *pathmask.Masker) chain.ExpectResult {
 	bound, err := e.ResolveWith(scope)
 	if err != nil {
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
-	result := bound.EvaluateIn(response, presence)
+	result := bound.EvaluateTyped(response, presence, kind)
 	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
 	}
@@ -1024,6 +1165,34 @@ func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, r
 		result.Want = pathmask.MaskRedacted
 	}
 	return result
+}
+
+func fieldKind(fields []*catalog.Field, path string) string {
+	segs := chain.SplitPath(path)
+	f, ok := catalog.ResponseFieldAt(fields, segs)
+	if !ok || f == nil || f.MapKey != "" || len(segs) == 0 {
+		return ""
+	}
+	if f.Repeated && !isIndexSegment(segs[len(segs)-1]) {
+		return ""
+	}
+	return f.Kind
+}
+
+func numericPaths(fields []*catalog.Field) func(string) bool {
+	return func(path string) bool { return chain.IsNumericKind(fieldKind(fields, path)) }
+}
+
+func isIndexSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func transportOutcome(res *transport.Result) map[string]any {
@@ -1055,7 +1224,7 @@ func refusalAsserted(expect []chain.Expectation, results []chain.ExpectResult) b
 	return true
 }
 
-func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
+func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
 	if len(exports) == 0 {
 		return exports
 	}
@@ -1064,8 +1233,14 @@ func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask
 		out[name] = v
 	}
 	for _, s := range steps {
+		masker := redactor
+		if r.Catalog != nil {
+			if m, err := r.Catalog.Lookup(s.Call); err == nil {
+				masker = redactor.WithNumeric(numericPaths(catalog.DescribeMessage(m.Output()).Fields))
+			}
+		}
 		for name, path := range s.Export {
-			if _, exported := out[name]; exported && redactor.MasksValue(path, out[name]) {
+			if _, exported := out[name]; exported && masker.MasksValue(path, out[name]) {
 				out[name] = pathmask.MaskRedacted
 			}
 		}
@@ -1103,6 +1278,46 @@ func (r *Runner) checkCalls(c *chain.Chain) error {
 		if method.Streaming() {
 			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, method.StreamRefusal())
 		}
+	}
+	return nil
+}
+
+func (r *Runner) checkAuthEnv(c *chain.Chain) error {
+	if r.AuthRoute == nil {
+		return nil
+	}
+	byProfile := map[string]*AuthBinding{}
+	for _, b := range r.Auth {
+		if b != nil {
+			byProfile[b.Profile] = b
+		}
+	}
+	for i, step := range c.Steps {
+		if step == nil || step.SkipAuth {
+			continue
+		}
+		profile, routed := r.AuthRoute(step)
+		b := byProfile[profile]
+		if !routed || b == nil {
+			continue
+		}
+		unset := []string{}
+		for _, name := range b.EnvVars {
+			if _, set := os.LookupEnv(name); !set {
+				unset = append(unset, name)
+			}
+		}
+		if len(unset) == 0 {
+			continue
+		}
+		refs := make([]string, 0, len(unset))
+		for _, name := range unset {
+			refs = append(refs, "${env."+name+"}")
+		}
+		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
+			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
+			"had already hit the backend. Export %s", step.ID, i+1, profileLabel(profile), strings.Join(refs, ", "),
+			strings.Join(unset, ", "), strings.Join(unset, ", "))
 	}
 	return nil
 }

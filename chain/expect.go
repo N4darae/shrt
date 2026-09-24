@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -66,13 +67,17 @@ func (e Expectation) Evaluate(response any) ExpectResult {
 }
 
 func (e Expectation) EvaluateIn(response, presence any) ExpectResult {
+	return e.EvaluateTyped(response, presence, "")
+}
+
+func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectResult {
 	got, found := Get(response, e.Path)
 	switch {
 	case e.Exists != nil:
 		_, sent := Get(presence, e.Path)
 		return result(e.Path, "exists", *e.Exists, sent, sent == *e.Exists, "")
 	case e.NotEmpty:
-		ok := found && !isEmpty(got)
+		ok := found && !IsZeroOf(kind, got)
 		return result(e.Path, "not_empty", true, got, ok, "")
 	case e.Contains != "":
 		ok := found && strings.Contains(stringify(got), e.Contains)
@@ -81,12 +86,12 @@ func (e Expectation) EvaluateIn(response, presence any) ExpectResult {
 		if !found {
 			return result(e.Path, "not_equal", e.NotEqual, nil, false, "path not present in response")
 		}
-		return result(e.Path, "not_equal", e.NotEqual, got, !equal(got, e.NotEqual), "")
+		return result(e.Path, "not_equal", e.NotEqual, got, !equalOf(kind, got, e.NotEqual), "")
 	case e.Equals != nil:
 		if !found {
 			return result(e.Path, "equals", e.Equals, nil, false, "path not present in response")
 		}
-		return result(e.Path, "equals", e.Equals, got, equal(got, e.Equals), "")
+		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
 	default:
 		return result(e.Path, "invalid", nil, nil, false, "expectation has no rule")
 	}
@@ -101,6 +106,33 @@ func equal(got, want any) bool {
 		return true
 	}
 	return stringify(got) == stringify(want)
+}
+
+func equalOf(kind string, got, want any) bool {
+	if text, ok := want.(string); ok && text == "" && IsNumericKind(kind) {
+		return IsZeroOf(kind, got)
+	}
+	return equal(got, want)
+}
+
+func IsNumericKind(kind string) bool {
+	switch kind {
+	case "int32", "int64", "uint32", "uint64", "sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64",
+		"float", "double":
+		return true
+	}
+	return false
+}
+
+func IsZeroOf(kind string, v any) bool {
+	if text, ok := v.(string); ok && IsNumericKind(kind) {
+		if text == "" {
+			return true
+		}
+		n, err := strconv.ParseFloat(text, 64)
+		return err == nil && n == 0
+	}
+	return isEmpty(v)
 }
 
 func isEmpty(v any) bool {

@@ -75,13 +75,14 @@ func TestLintAcceptsEveryReferenceFormThatCanActuallyResolve(t *testing.T) {
 	}
 }
 
-func TestACrossStepReferenceIsAWarningNotAnError(t *testing.T) {
+func TestACrossStepReferenceToAFieldTheDescriptorLacksIsAnError(t *testing.T) {
 	issues := crossStepIssues(t, map[string]any{"id": "${create.thing.id}"}, nil)
 	if len(issues) == 0 {
 		t.Fatal("nothing reported")
 	}
-	if issues[0].Severity != chain.SeverityWarn {
-		t.Errorf("severity = %q, want warn: a response can legitimately outrun a stale descriptor, "+
-			"so this must not block a chain that is actually correct", issues[0].Severity)
+	if issues[0].Severity != chain.SeverityError {
+		t.Errorf("severity = %q, want error: the descriptor knows the response shape and shrt run refuses "+
+			"this chain before sending; a response that outran the descriptor needs 'shrt catalog build'",
+			issues[0].Severity)
 	}
 }

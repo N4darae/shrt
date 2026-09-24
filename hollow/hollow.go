@@ -243,11 +243,21 @@ func valueIsEmpty(raw json.RawMessage) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return len(t) == 0
+		return listIsEmpty(t)
 	case map[string]any:
 		return mapIsEmpty(t)
 	}
 	return false
+}
+
+func listIsEmpty(items []any) bool {
+	for _, item := range items {
+		m, isMessage := item.(map[string]any)
+		if item != nil && (!isMessage || !mapIsEmpty(m)) {
+			return false
+		}
+	}
+	return true
 }
 
 func mapIsEmpty(m map[string]any) bool {
@@ -277,7 +287,7 @@ func anyIsEmpty(v any) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return len(t) == 0
+		return listIsEmpty(t)
 	case map[string]any:
 		return mapIsEmpty(t)
 	}

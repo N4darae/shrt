@@ -62,7 +62,26 @@ func TestCLISlicePinLatestUsesTheNewestRunThatReachedTheStep(t *testing.T) {
 		t.Fatalf("shrt run: %v", err)
 	}
 	reaching := runIDsOf(t, "cli-env-flow")[0]
-	writeEnvFetchChainReading(t, "${create.no_such_field}")
+	writeFile(t, ".shrt/chains/cli-env-flow.yaml", `apiVersion: shrt/v1
+name: cli-env-flow
+steps:
+    - id: create
+      call: ThingService/Create
+      body:
+          name: widget
+          kind: KIND_A
+          idempotency_key: ${uuid}
+      expect:
+          - path: error.code
+            equals: NOT_THIS
+    - id: fetch
+      call: ThingService/Fetch
+      body:
+          id: ${env.SHRT_LAB5_NAME}
+      expect:
+          - path: error.code
+            equals: OK
+`)
 	_ = runRun(context.Background(), []string{"cli-env-flow", "-quiet"})
 	writeEnvFetchChain(t)
 	ids := runIDsOf(t, "cli-env-flow")

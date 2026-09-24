@@ -190,7 +190,8 @@ was meant — is `PITFALLS.md` §3.
 **The read that passed and found nothing is the version of this you cannot see by reading the
 chain.** `error.code == OK` on a read rpc — one whose name starts with a prefix in
 `conventions.read_only_prefixes` (default list in `GRAMMAR.md`) — whose body came back empty
-is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
+(every field at its zero value: `""`, `0`, `false`, `null`, `[]`, `{}`, or a list whose every item is
+itself all zeros, like `products: [{}]`) is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
 names every one:
 
 ```bash
@@ -572,8 +573,14 @@ answered and an expectation or export did not hold), `ERROR` error (the step nev
 unresolved reference, a body the proto rejects, a transport failure), `SKIP` not sent under
 `-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
-anything is sent, with the `-var` flags it needs. A step with no `expect` that the backend refuses
-in-band stays `passed` with a warning under it; only `chain lint -strict` stops it.
+anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
+step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. A step with no `expect` that the backend refuses
+in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
+declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
+`not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
+holds on the zero a refusal leaves, and must not turn the step green. Every step warning is
+repeated in the closing summary as `warning [<step>]: ...`, so `-quiet`, which drops the progress
+lines, still shows them.
 
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
 nearly always evidence about your fixture rather than the backend: most of the time no request was

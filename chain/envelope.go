@@ -2,6 +2,8 @@ package chain
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -175,19 +177,33 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 	}
 	out := []ItemRefusal{}
 	accounted := 0
+	explicitOK := false
+	unset := []int{}
 	for i, item := range items {
 		v, found := Get(item, field)
-		if !found {
-			if declaresUnsetVerdict(item, field) {
+		if !found || v == nil {
+			if found || declaresUnsetVerdict(item, field) {
 				accounted++
 			}
+			unset = append(unset, i)
 			continue
 		}
 		accounted++
-		if code := stringify(v); code != "" && code != EnvelopeOK() {
+		code := stringify(v)
+		if code == EnvelopeOK() {
+			explicitOK = true
+		}
+		if code != "" && code != EnvelopeOK() {
 			line := fmt.Sprintf("%s.%d", listPath, i)
 			out = append(out, ItemRefusal{Path: line + "." + field, Code: code, Line: line})
 		}
+	}
+	if explicitOK {
+		for _, i := range unset {
+			line := fmt.Sprintf("%s.%d", listPath, i)
+			out = append(out, ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line})
+		}
+		sort.SliceStable(out, func(a, b int) bool { return itemIndex(out[a].Line) < itemIndex(out[b].Line) })
 	}
 	if len(items) > 0 && accounted == 0 {
 		return nil, fmt.Errorf("conventions.item_envelope_path expects each %s[] to carry %q, and none of "+
@@ -196,6 +212,13 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 			listPath, field, len(items))
 	}
 	return out, nil
+}
+
+const NoItemVerdict = "(no verdict)"
+
+func itemIndex(line string) int {
+	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
+	return n
 }
 
 func declaresUnsetVerdict(item any, field string) bool {

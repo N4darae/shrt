@@ -35,7 +35,7 @@ var notes = map[string]string{
 	"Chain.description": "What state this chain reproduces, for the next reader.",
 	"Chain.vars":        "Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var.",
 	"Chain.volatile":    "Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value.",
-	"Chain.redact":      "Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`.",
+	"Chain.redact":      "Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2).",
 	"Chain.steps":       "Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it.",
 
 	"Step.id":          "Unique; later steps reference it. Derived from the rpc name when omitted.",
@@ -44,18 +44,18 @@ var notes = map[string]string{
 	"Step.body":        "Validated against the proto request message before anything is sent.",
 	"Step.headers":     "Per-step header overrides.",
 	"Step.expect":      "Assertions on this step's response. Each entry needs exactly one rule, and nearly always a `path`: an entry with no `path` tests the whole response.",
-	"Step.export":      "`name: response.path`. Publishes `${exports.name}` and the bare `${name}`.",
+	"Step.export":      "`name: response.path`. Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error, since the bare `${name}` would then mean two things; a name another step also exports is a lint warning (`export-overwritten`, failed by `-strict`), since the later write silently replaces the earlier.",
 	"Step.auth":        "Named auth profile from `.shrt/config.yaml`. Contradicts `skip_auth`; lint rejects both. The reserved value `invalid` sends a token the backend never issued, in the header and scheme of the profile that would otherwise cover the call, and never re-logs in on the 401 — the probe for \"an invalid token is refused\". Lint rejects it with `export`; `shrt run` refuses it when the config declares no auth.",
 	"Step.skip_auth":   "Attach no auth header. For the probe \"a missing token is refused\". A login step does not need it: a call to a configured login rpc (or one listed in `auth.skip_calls`) never carries a token, and its run record says `auth_profile: none`.",
 	"Step.allow_fail":  "Tolerate the backend REFUSING this call, when a later step depends on the attempt rather than the outcome: a step the backend refused at the transport level (a Connect error) does not stop the chain, provided it declares no expectation — a refusal leaves every expectation unevaluated, and an unevaluated expectation is never tolerated. An in-band refusal whose expectations hold is simply `passed` and needs no key. It covers nothing else — not a failed expectation, not an expectation a transport error left unevaluated, not drift, not a step whose status is `error` — and every one of those still stops the run. One more case slips through: a step answered 200 whose `export` path is missing is `failed` with no failed expectation, and `allow_fail` lets the chain go on past it. To see what lies beyond a step that does not pass, use `shrt run -keep-going`, not this key. A step MEANT to be refused at the transport level asserts which refusal with `transport.*` and needs no key. On a step that declares any expectation it does nothing, and `chain lint` warns `inert-allow-fail`, which `-strict` fails.",
 	"Step.volatile":    "Volatile paths for this step only, added to the chain's.",
 
-	"Expectation.path":      "JSON path into this step's own response, or one of the reserved `transport.*` paths (table below), which read the recorded transport result instead. `${...}` here is a lint ERROR: a path names a location, not a value. So is a path the response message has no field for, under every rule — `exists: false` included, since it could not fail.",
+	"Expectation.path":      "JSON path into this step's own response, or one of the reserved `transport.*` paths (table below), which read the recorded transport result instead. `${...}` here is a lint ERROR: a path names a location, not a value. So is a path the response message has no field for, under every rule — `exists: false` included, since it could not fail. Field names match with case and separators folded (`qtyOnHand` reads `qty_on_hand`), and a path that matches only that way is a lint warning (`inexact-path`) naming the exact field; an `export` path is checked the same way.",
 	"Expectation.equals":    "Compared as text, so `1` matches `\"1\"`. May carry `${...}`: an earlier step, or this step's own request (`${steps.<this>.request.<field>}`); this step's own response is a lint error.",
 	"Expectation.not_equal": "The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
 	"Expectation.exists":    "Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1.",
-	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`.",
+	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `\"0\"`.",
 
 	"Overlay.apiVersion":  "`shrt/contract/v1`.",
 	"Overlay.domain":      "Defaults to the file name.",
@@ -107,7 +107,7 @@ var notes = map[string]string{
 	"Config.paths":       "Where chains, runs and safe spots live.",
 	"Config.conventions": "Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded.",
 	"Config.volatile":    "Volatile paths applied to every chain.",
-	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
+	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0 of any numeric type — an int64's `\"0\"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. Paths are not the only guard: the runner also scrubs by VALUE, replacing with `<redacted>`, wherever it appears in the record (request, response, each expectation's `want`, `got` and detail, errors, warnings, notes, exports), every value an auth body reads from `${env.*}` (username included), every token a login returned, and every value a step exports from a redacted path, so the proposal report and the safe spot built from the record never carry them either. A value shorter than 4 characters is replaced only where it is the whole string. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
 
 	"Target.base_url":      "Scheme and host of the backend.",
 	"Target.host_override": "Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification.",
@@ -116,7 +116,7 @@ var notes = map[string]string{
 	"Target.build_header":  "A response header in which the server reports its own build or version, e.g. `X-Server-Version`. Its value is stamped into each run record as `build`, and a value that changes mid-run is recorded as `old -> new` with a warning on the step that first saw it. `shrt run -build <label>` overrides it, and a label the header contradicts is warned about. Unset, a record says only which `base_url` answered, not which build.",
 
 	"Auth.call":           "The login rpc.",
-	"Auth.body":           "Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references.",
+	"Auth.body":           "Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run.",
 	"Auth.token_path":     "Response path holding the token.",
 	"Auth.expires_path":   "Response path holding the expiry. Without it the token is refreshed only on a 401.",
 	"Auth.header":         "Defaults to `Authorization`.",
@@ -159,7 +159,7 @@ var notes = map[string]string{
 	"StepRecord.request":         "What was sent, AFTER reference resolution and redaction.",
 	"StepRecord.response":        "What came back, RE-ENCODED through the response message and then redacted — not the wire bytes. Field names are the proto ones, every declared scalar and list field is present at its zero value if the server omitted it (an unset nested message is `null`, so assert `exists: false` on the message itself rather than on a path inside it), and an int64 is a JSON string whatever the server sent. That is what gives `shrt verify` a stable shape to diff across runs, and it is why a scalar's absence cannot be read out of this field: see the second table in §1 on `exists`. When the descriptor cannot decode the body it is stored as sent instead, and the step carries a `warning` saying so, so the shape of this field depends on descriptor freshness.",
 	"StepRecord.transport_error": "Set when the backend answered with a Connect error (any non-200) instead of a response message. `transport.code` and `transport.message` read it.",
-	"StepRecord.expect":          "One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status.",
+	"StepRecord.expect":          "One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), and has no expectation pinning the verdict (a value rule on the envelope, or a `transport.*` path) — that step is `failed`, because the assertions that held read the zero values a refusal leaves.",
 	"StepRecord.exported":        "What this step published.",
 	"StepRecord.error":           "Why this step failed or could not run.",
 	"StepRecord.warning":         "Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`), which stays `passed` with a warning saying so.",
@@ -192,7 +192,7 @@ var notes = map[string]string{
 	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve.",
 	"Conventions.envelope_path":      "JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead. A path set here that no response message in the descriptor declares fails `shrt run` before any traffic is sent, as `shrt doctor` fails it.",
 	"Conventions.envelope_ok":        "The `envelope_path` value that means success. Default `OK`. A run in which responses carried the envelope but none carried this value ends with a `warning` naming the values seen; a batch whose items \"refuse\" with the very value the top-level envelope carries says to check this key.",
-	"Conventions.item_envelope_path": "Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent.",
+	"Conventions.item_envelope_path": "Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone. An item whose verdict is missing (its envelope unset or absent) is success when no item of that batch carries `envelope_ok` explicitly — a backend that writes an item's error only on refusal — and is reported like a refused item, as `(no verdict)`, when another item of the same batch does; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent.",
 	"Conventions.code_fields":        "Detail-field names that carry a backend's OWN numeric or symbolic code, searched by `shrt chain which -code`. Default `app_code`, `reason`, `error_code`. An explicit list REPLACES the defaults. The envelope's own leaf is not listed here — it follows `envelope_path`, so a deployment answering at `status.code` is searched there without any setting. Nothing enforces these names; a code this list cannot reach makes `chain which` answer \"no chain asserts it\" for a corpus that does.",
 	"Conventions.validate_output":    "When true, a response that does not match its proto message FAILS the step. Default false: the response is kept as sent and a warning is recorded, so a descriptor that has drifted from the deployed binary degrades quietly rather than failing every chain. Turn it on once your descriptor build and your deploy are in step.",
 
@@ -269,7 +269,17 @@ func render() ([]byte, error) {
 	b.WriteString("Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains`.\n")
 	b.WriteString("**Not** in an expectation's `path`.\n\n")
 	b.WriteString("A reference that is the whole value keeps its JSON type; inside a longer string it is\n")
-	b.WriteString("interpolated as text. A reference that cannot resolve fails the step — it never becomes empty.\n\n")
+	b.WriteString("interpolated as text. A reference that cannot resolve fails the step — it never becomes empty.\n")
+	b.WriteString("One that is known not to resolve is refused before anything is sent, by `shrt run` and as a lint\n")
+	b.WriteString("error: a step or export that does not exist or runs later, an unset `${env.*}`, and a field of an\n")
+	b.WriteString("earlier step's response that its response message does not declare (`${create_product.product.id_prodct}`,\n")
+	b.WriteString("lint kind `unproducible-reference`). If the field is real and new, the descriptor is stale: `shrt catalog build`.\n\n")
+	b.WriteString("There is no escape for a literal `${`: `$${x}` is a `$` followed by the resolved `${x}`. A value that\n")
+	b.WriteString("must carry `${` comes in through `${env.NAME}` or `-var name=...`, whose values are never resolved again.\n")
+	b.WriteString("Lint warns (`reference-syntax`) on forms that are accepted but do not do what they read as: spaces\n")
+	b.WriteString("inside the braces (`${ uuid }` resolves as `${uuid}`), a fractional clock offset (`${now+1.5}` resolves\n")
+	b.WriteString("as `${now+1}`), a path after `uuid` or a clock form (ignored), and a `${` never closed, which is sent as\n")
+	b.WriteString("literal text.\n\n")
 	b.WriteString("The `resolves to` column below is quoted where the value is a Go string, so the rows that\n")
 	b.WriteString("look numeric but are not stand out: `${nowunix}` resolves to a STRING of digits, never an\n")
 	b.WriteString("integer, so an expectation comparing it to a number-typed response field will not match.\n\n")
@@ -436,28 +446,32 @@ func exerciseRules() (string, error) {
 		"id_deal": "d-1",
 		"rows":    []any{},
 		"count":   float64(0),
+		"total":   "0",
 	}
 	cases := []struct {
 		label string
 		e     chain.Expectation
+		kind  string
 	}{
-		{"`equals: OK` on `error.code`", chain.Expectation{Path: "error.code", Equals: "OK"}},
-		{"`equals: NOPE` on `error.code`", chain.Expectation{Path: "error.code", Equals: "NOPE"}},
-		{"`equals: 0` on `count` (number vs text)", chain.Expectation{Path: "count", Equals: "0"}},
-		{"`not_equal: \"\"` on `id_deal`", chain.Expectation{Path: "id_deal", NotEqual: ""}},
-		{"`not_equal: x` on a path that is ABSENT", chain.Expectation{Path: "nope", NotEqual: "x"}},
-		{"`contains: d-` on `id_deal`", chain.Expectation{Path: "id_deal", Contains: "d-"}},
-		{"`not_empty: true` on `id_deal`", chain.Expectation{Path: "id_deal", NotEmpty: true}},
-		{"`not_empty: true` on an empty list", chain.Expectation{Path: "rows", NotEmpty: true}},
-		{"`not_empty: true` on the number 0", chain.Expectation{Path: "count", NotEmpty: true}},
-		{"`exists: true` on a path that is absent", chain.Expectation{Path: "nope", Exists: boolp(true)}},
-		{"no rule at all", chain.Expectation{Path: "id_deal"}},
-		{"TWO rules on one entry: `equals: NOPE` **and** `not_empty: true`", chain.Expectation{Path: "error.code", Equals: "NOPE", NotEmpty: true}},
+		{"`equals: OK` on `error.code`", chain.Expectation{Path: "error.code", Equals: "OK"}, ""},
+		{"`equals: NOPE` on `error.code`", chain.Expectation{Path: "error.code", Equals: "NOPE"}, ""},
+		{"`equals: 0` on `count` (number vs text)", chain.Expectation{Path: "count", Equals: "0"}, ""},
+		{"`not_equal: \"\"` on `id_deal`", chain.Expectation{Path: "id_deal", NotEqual: ""}, ""},
+		{"`not_equal: x` on a path that is ABSENT", chain.Expectation{Path: "nope", NotEqual: "x"}, ""},
+		{"`contains: d-` on `id_deal`", chain.Expectation{Path: "id_deal", Contains: "d-"}, ""},
+		{"`not_empty: true` on `id_deal`", chain.Expectation{Path: "id_deal", NotEmpty: true}, ""},
+		{"`not_empty: true` on an empty list", chain.Expectation{Path: "rows", NotEmpty: true}, ""},
+		{"`not_empty: true` on the number 0", chain.Expectation{Path: "count", NotEmpty: true}, "int32"},
+		{"`not_empty: true` on an int64 at 0 (stored as the string `\"0\"`)", chain.Expectation{Path: "total", NotEmpty: true}, "int64"},
+		{"`not_equal: \"\"` on an int64 at 0", chain.Expectation{Path: "total", NotEqual: ""}, "int64"},
+		{"`exists: true` on a path that is absent", chain.Expectation{Path: "nope", Exists: boolp(true)}, ""},
+		{"no rule at all", chain.Expectation{Path: "id_deal"}, ""},
+		{"TWO rules on one entry: `equals: NOPE` **and** `not_empty: true`", chain.Expectation{Path: "error.code", Equals: "NOPE", NotEmpty: true}, ""},
 	}
 	var b strings.Builder
 	b.WriteString("| expectation | rule fired | passes |\n|---|---|---|\n")
 	for _, c := range cases {
-		r := c.e.Evaluate(resp)
+		r := c.e.EvaluateTyped(resp, resp, c.kind)
 		verdict := "no"
 		if r.Passed {
 			verdict = "**yes**"
@@ -468,8 +482,10 @@ func exerciseRules() (string, error) {
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, detail, verdict)
 	}
-	b.WriteString("\nRead the last four rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for\n")
-	b.WriteString("`exists`. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one\n")
+	b.WriteString("\nRead the last six rows together. `not_empty` is false for `0` and `[]`, so it cannot stand in for\n")
+	b.WriteString("`exists`. Zero follows the field's proto type: an int64 or uint64 is stored as a JSON string, and\n")
+	b.WriteString("its `\"0\"` is zero exactly as an int32's `0` is; on any numeric field `\"\"` in `equals` or `not_equal`\n")
+	b.WriteString("means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one\n")
 	b.WriteString("to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >\n")
 	b.WriteString("`not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one\n")
 	b.WriteString("you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`\n")

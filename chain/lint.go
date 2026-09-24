@@ -28,6 +28,7 @@ const (
 type LintOptions struct {
 	AuthHeader   func(*Step) (profile, header string, covered bool)
 	AuthProfiles []string
+	AuthEnv      func(profile string) []string
 	Env          func(string) (string, bool)
 }
 
@@ -39,6 +40,8 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues := []Issue{}
 	issues = append(issues, lintVars(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
+	issues = append(issues, lintExportNames(c)...)
+	issues = append(issues, lintAuthEnv(c, opts)...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -50,6 +53,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 			known[s.ID] = true
 			continue
 		}
+		issues = append(issues, lintRefSyntax(s)...)
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
@@ -58,7 +62,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
 		issues = append(issues, lintAuthProfile(s, opts.AuthProfiles)...)
 		issues = append(issues, lintTransport(s, m)...)
-		issues = append(issues, lintExpectRefs(s, known, knownExports, idx)...)
+		issues = append(issues, lintExpectRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
@@ -79,7 +83,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 // The referenced step must still run EARLIER, checked against the same `known` set body references
 // use: an expect naming a later step would resolve to nothing and the assertion would compare
 // against emptiness while looking deliberate.
-func lintExpectRefs(s *Step, known, knownExports map[string]bool, idx *refIndex) []Issue {
+func lintExpectRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method, idx *refIndex) []Issue {
 	issues := []Issue{}
 	for _, e := range s.Expect {
 		for _, ref := range collectRefs([]any{e.Path}) {
@@ -99,6 +103,13 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool, idx *refIndex)
 			if why := referenceProblem(r, known, knownExports, idx); why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
+				continue
+			}
+			if r.Kind == RefStep {
+				if issue, bad := refPathIssue(s.ID, r, responses); bad {
+					issue.Message = fmt.Sprintf("expect on %q: %s", e.Path, issue.Message)
+					issues = append(issues, issue)
+				}
 			}
 		}
 	}
@@ -213,6 +224,54 @@ func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex)
 		}
 	}
 	return ""
+}
+
+func lintRefSyntax(s *Step) []Issue {
+	values := []any{s.Body}
+	for _, name := range sortedHeaderNames(s.Headers) {
+		values = append(values, s.Headers[name])
+	}
+	for _, e := range s.Expect {
+		values = append(values, e.Equals, e.NotEqual, e.Contains)
+	}
+	issues := []Issue{}
+	walkStrings(values, func(text string) {
+		for _, why := range refSyntaxProblems(text) {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindRefSyntax, Message: why})
+		}
+	})
+	return issues
+}
+
+func refSyntaxProblems(text string) []string {
+	out := []string{}
+	for _, m := range refPattern.FindAllStringSubmatch(text, -1) {
+		inner := m[1]
+		trimmed := strings.TrimSpace(inner)
+		if inner != trimmed {
+			out = append(out, fmt.Sprintf("%q carries spaces inside the braces of %s; it resolves as ${%s}, "+
+				"but reads as something else. Write ${%s}", text, m[0], trimmed, trimmed))
+		}
+		r := ParseRef(trimmed)
+		if r.Err != nil || r.Rest == "" || (r.Kind != RefClock && r.Kind != RefUUID) {
+			continue
+		}
+		if r.Kind == RefClock && r.Offset != 0 && isIndexSegment(r.Rest) {
+			out = append(out, fmt.Sprintf("%q: the offset in ${%s} is a whole number of seconds, so it "+
+				"resolves as ${%s} and the .%s is dropped. Write the offset in whole seconds", text, trimmed,
+				r.Expr[:len(r.Expr)-len(r.Rest)-1], r.Rest))
+			continue
+		}
+		out = append(out, fmt.Sprintf("%q: ${%s} takes no path, so .%s is ignored and it resolves as ${%s}",
+			text, trimmed, r.Rest, r.Expr[:len(r.Expr)-len(r.Rest)-1]))
+	}
+	if rest := refPattern.ReplaceAllString(text, ""); strings.Contains(rest, "${") {
+		out = append(out, fmt.Sprintf("%q carries ${ with no closing }, so no reference resolves there and "+
+			"the text is sent as the literal characters. Close the brace; there is no escape for a literal "+
+			"${, so a value that must contain one comes from ${env.NAME} or -var name=..., whose values are "+
+			"never resolved again", text))
+	}
+	return out
 }
 
 func lintStreaming(s *Step, m *catalog.Method) []Issue {
@@ -412,29 +471,42 @@ func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string
 }
 
 func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (Issue, bool) {
-	ref, producer := r.Expr, r.Head
-	m, ok := responses[producer]
-	if !ok || m == nil {
-		return Issue{}, false
-	}
-	rest := strings.TrimPrefix(r.Rest, "response.")
-	if rest == "" || strings.HasPrefix(rest, "request") {
-		return Issue{}, false
-	}
-	if catalog.HasResponsePath(catalog.DescribeMessage(m.Output()).Fields, SplitPath(rest)) {
+	why, bad := responseRefProblem(r, responses)
+	if !bad {
 		return Issue{}, false
 	}
 	return Issue{
 		Step:     stepID,
-		Severity: SeverityWarn,
+		Severity: SeverityError,
 		Kind:     KindDeadRef,
-		Message: fmt.Sprintf(
-			"${%s} reads %q, which is not a field of %s — step %q cannot produce it, so this resolves to "+
-				"nothing at run time, after every earlier step has already hit the backend (shrt run cannot know "+
-				"the response shape up front, so it does not refuse this one). An export under that "+
-				"name is a different thing: write ${exports.<name>} for that",
-			ref, rest, m.Output().FullName(), producer),
+		Message: fmt.Sprintf("${%s} %s. An export under that name is a different thing: write ${exports.<name>} for that",
+			r.Expr, why),
 	}, true
+}
+
+func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bool) {
+	if r.Kind != RefStep || r.Err != nil {
+		return "", false
+	}
+	m, ok := responses[r.Head]
+	if !ok || m == nil {
+		return "", false
+	}
+	rest := r.Rest
+	if strings.HasPrefix(rest, "request.") || rest == "request" {
+		return "", false
+	}
+	rest = strings.TrimPrefix(rest, "response.")
+	if rest == "" || rest == "response" {
+		return "", false
+	}
+	fields := catalog.DescribeMessage(m.Output()).Fields
+	if catalog.HasResponsePath(fields, SplitPath(rest)) {
+		return "", false
+	}
+	return fmt.Sprintf("reads %q, which is not a field of %s — step %q cannot produce it, so the run would "+
+		"die resolving it after every earlier step had already hit the backend, and shrt run refuses the "+
+		"chain before sending anything", rest, m.Output().FullName(), r.Head), true
 }
 
 func headerValues(in map[string]string) []any {
@@ -496,6 +568,9 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 		}
 		absent := e.Exists != nil && !*e.Exists
 		if catalog.HasResponsePath(schema.Fields, SplitPath(e.Path)) {
+			if exact, inexact := inexactPath(schema.Fields, e.Path); inexact {
+				issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("expect path %q", e.Path), exact, m))
+			}
 			if at, ok := catalog.ResponseMissingIndex(schema.Fields, SplitPath(e.Path)); ok {
 				if absent {
 					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnfailable, Message: fmt.Sprintf(
@@ -551,7 +626,16 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := catalog.DescribeMessage(m.Output())
-	for name, path := range s.Export {
+	names := make([]string, 0, len(s.Export))
+	for name := range s.Export {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := s.Export[name]
+		if exact, inexact := inexactPath(schema.Fields, path); inexact {
+			issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("export %q reads %q", name, path), exact, m))
+		}
 		if !catalog.HasResponsePath(schema.Fields, SplitPath(path)) {
 			issues = append(issues, Issue{
 				Step:     s.ID,
@@ -562,6 +646,84 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 		}
 	}
 	return issues
+}
+
+func lintExportNames(c *Chain) []Issue {
+	issues := []Issue{}
+	stepAt := map[string]int{}
+	for i, s := range c.Steps {
+		if _, seen := stepAt[s.ID]; !seen {
+			stepAt[s.ID] = i + 1
+		}
+	}
+	writer := map[string]int{}
+	for i, s := range c.Steps {
+		names := make([]string, 0, len(s.Export))
+		for name := range s.Export {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if at, clash := stepAt[name]; clash {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+					"export %q has the same name as step %q (step %d), so ${%s} is ambiguous: the bare reference "+
+						"reads the export once one exists and the step's whole response otherwise, while "+
+						"${%s.<field>} always reads the step. Rename the export", name, name, at, name, name)})
+			}
+			if prev, twice := writer[name]; twice {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindExportOverwritten, Message: fmt.Sprintf(
+					"export %q is also written by step %q (step %d), and this later write silently replaces it: "+
+						"every ${%s} after step %d reads this step's value, and none reads the first. Give each "+
+						"export its own name", name, c.Steps[prev-1].ID, prev, name, i+1)})
+			}
+			writer[name] = i + 1
+		}
+	}
+	return issues
+}
+
+func inexactPath(fields []*catalog.Field, path string) (string, bool) {
+	segs := SplitPath(path)
+	out := make([]string, 0, len(segs))
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			out = append(out, seg)
+			continue
+		}
+		var f *catalog.Field
+		for _, candidate := range fields {
+			if candidate.Name == seg {
+				f = candidate
+				break
+			}
+		}
+		if f == nil {
+			for _, candidate := range fields {
+				if namecase.Equal(candidate.Name, seg) {
+					f = candidate
+					break
+				}
+			}
+		}
+		if f == nil {
+			return "", false
+		}
+		out = append(out, f.Name)
+		if f.Truncated || f.MapKey != "" {
+			out = append(out, segs[i+1:]...)
+			break
+		}
+		fields = f.Fields
+	}
+	exact := strings.Join(out, ".")
+	return exact, exact != strings.Join(segs, ".")
+}
+
+func inexactPathIssue(stepID, what, exact string, m *catalog.Method) Issue {
+	return Issue{Step: stepID, Severity: SeverityWarn, Kind: KindInexactPath, Message: fmt.Sprintf(
+		"%s, which matches a field of %s only by folding case and separators; the field is %q. It resolves "+
+			"at run time, but a reader, a grep and a diff against the proto see a name the message does not "+
+			"declare: write %q", what, m.Output().FullName(), exact, exact)}
 }
 
 func isIndex(s string) bool {
@@ -638,6 +800,45 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 			"reads environment variables that are not exported in this shell: %s — shrt run refuses the "+
 				"chain before sending anything until they are set",
 			strings.Join(unset, ", "))})
+	}
+	return issues
+}
+
+func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
+	if opts.AuthHeader == nil || opts.AuthEnv == nil || opts.Env == nil {
+		return nil
+	}
+	firstStep := map[string]string{}
+	order := []string{}
+	for _, s := range c.Steps {
+		if s == nil || s.SkipAuth || s.Auth == InvalidTokenAuth {
+			continue
+		}
+		profile, _, covered := opts.AuthHeader(s)
+		if !covered {
+			continue
+		}
+		if _, seen := firstStep[profile]; !seen {
+			firstStep[profile] = s.ID
+			order = append(order, profile)
+		}
+	}
+	issues := []Issue{}
+	for _, profile := range order {
+		unset := []string{}
+		for _, name := range opts.AuthEnv(profile) {
+			if _, ok := opts.Env(name); !ok {
+				unset = append(unset, name)
+			}
+		}
+		if len(unset) == 0 {
+			continue
+		}
+		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
+			"from step %q on, this chain runs steps under auth profile %q, whose login body reads environment "+
+				"variables that are not exported in this shell: %s — shrt run refuses the chain before sending "+
+				"anything until they are set, since the login would fail after earlier steps had run",
+			firstStep[profile], profile, strings.Join(unset, ", "))})
 	}
 	return issues
 }
@@ -784,12 +985,17 @@ const (
 	KindDeadRef     = "unproducible-reference"
 	KindBadExport   = "export-reads-nonfield"
 
+	KindExportOverwritten = "export-overwritten"
+	KindInexactPath       = "inexact-path"
+	KindRefSyntax         = "reference-syntax"
+
 	KindInertAllowFail = "inert-allow-fail"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
-	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail:
+	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
+		KindExportOverwritten:
 		return true
 	}
 	return false
