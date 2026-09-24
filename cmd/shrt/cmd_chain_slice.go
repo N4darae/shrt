@@ -239,6 +239,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		printSliceHeader(res)
 	}
 	printSlice(res, written, verdict)
+	if written != "" {
+		fmt.Print(sweepNote(rel(e.cfg.Root, written), res.Chain.Name))
+	}
 	if !write.set {
 		raw, err := res.Chain.Marshal()
 		if err != nil {
@@ -375,6 +378,13 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 		fmt.Println()
 		fmt.Print(verdict.text())
 	}
+}
+
+func sweepNote(shown, name string) string {
+	return fmt.Sprintf("note: %s is now part of every sweep, like any chain there: `shrt chain lint` and `chain hollow` read it, "+
+		"and a gate that runs every .shrt/chains/*.yaml (README) runs it. To keep an exploratory slice out, move it:\n"+
+		"  mkdir -p .shrt/scratch && mv %s .shrt/scratch/\n"+
+		"  shrt run .shrt/scratch/%s.yaml still runs it by path\n", shown, shown, name)
 }
 
 func shortCall(call string) string {
