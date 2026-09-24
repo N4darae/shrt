@@ -786,12 +786,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 	}
 	r.Auth.learnTokens(redactor)
-	if !opts.DryRun {
-		if problems := r.requestProblems(c, rec.Vars); len(problems) > 0 {
-			return nil, errors.New(redactor.ScrubText(fmt.Sprintf("chain %q has a request that does not match its rpc, so nothing was sent "+
-				"(checked as -dry-run does, with synthetic values for references to earlier responses): %s",
-				c.Name, strings.Join(problems, "; "))))
-		}
+	if problems := r.requestProblems(c, rec.Vars); len(problems) > 0 {
+		return nil, errors.New(redactor.ScrubText(fmt.Sprintf("chain %q has a request that does not match its rpc, so nothing was sent "+
+			"(checked as -dry-run does, with synthetic values for references to earlier responses): %s",
+			c.Name, strings.Join(problems, "; "))))
 	}
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
