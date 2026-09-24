@@ -174,6 +174,7 @@ type Options struct {
 	KeepGoing bool
 	Build     string
 	heldBack  map[int]string
+	chain     *chain.Chain
 }
 
 type buildTracker struct {
@@ -611,6 +612,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		if sr == nil {
 			stepOpts := opts
+			stepOpts.chain = c
 			if opts.KeepGoing {
 				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
 			}
@@ -699,7 +701,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
 	body, err := json.Marshal(resolved)
@@ -710,7 +712,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 
 	if r.ValidateInput {
