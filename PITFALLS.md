@@ -1075,6 +1075,10 @@ inside an id (`prd-3b0…`). A value is now clipped at word boundaries (`order i
 email keeps its `@domain` whole (`cust-pre2-…@example.test`), an id keeps its tail segments, and a
 cell that is too long ends at the last whole word or id segment before the `…`.
 
+`shrt chain lint` printed `ok` for a clean chain and nothing at all in the status column of a
+chain with issues, so a chain with only warnings looked like neither a pass nor a failure. The
+column now says `warn` for warnings only and `FAIL` when any issue is an error.
+
 ---
 
 # Decisions, so they are not relitigated
