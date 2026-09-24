@@ -128,7 +128,11 @@ check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which 
 chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
 interpolate (`sku-${vars.tag}`) under `vars:`, with the chain's name as its value, so a planned
 chain lints without a warning and its first run needs no `-var`. The second run sends the same
-values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. A var that
+values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt
+verify` recognises that case: when the first failing step is refused as a uniqueness conflict
+(`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
+of the chain already used, it prints `fixture reused: ...` and, unless a step before it drifted,
+exits 3 with `could not verify <chain>: fixture reused`, not `regression`. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers

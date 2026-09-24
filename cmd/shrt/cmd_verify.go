@@ -31,7 +31,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
 	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
-	"     is not judged, so this is not a verdict about the backend\n"
+	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
+	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
+	"     this chain already used (fixture reused: re-run with a fresh -var)\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -147,6 +149,10 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
+	var reuse *fixtureReuse
+	if !report.Clean() {
+		reuse = detectFixtureReuse(e, c, rec)
+	}
 	if *asJSON {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
@@ -167,6 +173,9 @@ func runVerify(ctx context.Context, args []string) error {
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
 			}
+			if reuse != nil {
+				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
+			}
 			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
@@ -174,6 +183,10 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if unanswered {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	}
+	if reuse != nil && !driftedBefore(rec, report, reuse.index) {
+		return exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
