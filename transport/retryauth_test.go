@@ -131,7 +131,11 @@ func TestWithAuthAttachesTokenHeader(t *testing.T) {
 func TestWithAuthInvalidatesAndRetriesOnUnauthenticated(t *testing.T) {
 	src := &fakeTokenSource{token: "tok-1"}
 	attempt := 0
-	h := WithAuth(src, AuthSpec{}, nil)(func(ctx context.Context, call *Call) (*Result, error) {
+	h := WithAuthRouter(AuthRouter{
+		Profiles: []*AuthProfile{{Name: DefaultProfile, Source: src}},
+		Default:  DefaultProfile,
+		Resend:   func(string) bool { return true },
+	})(func(ctx context.Context, call *Call) (*Result, error) {
 		attempt++
 		if attempt == 1 {
 			return &Result{Status: 401, Error: &Error{Code: "unauthenticated"}}, nil

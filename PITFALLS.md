@@ -553,7 +553,9 @@ the emptiness visible at all. Measured 2026-09-12 over 2438 local records: 9112 
 1965 asserting only the envelope, 529 of those hollow, across 34 distinct (chain, step) pairs. 28
 are refusal probes where an empty body IS the pass and now carry their reason in
 `.shrt/hollow-allow.txt` (since 2026-09-24 a probe that pins its non-OK envelope value is recognised
-without an allowlist line, as is `<list>.0 exists: false`); 1 has since gained a data assertion in its chain; 5 remain, four of them in
+without an allowlist line, as is `<list>.0 exists: false`; the chain-side check resolves a
+`${vars.x}` pin from the chain's `vars`, and treats any other reference on the envelope as
+envelope-only, so `status.code equals: ${vars.ok}` no longer passes for a refusal probe); 1 has since gained a data assertion in its chain; 5 remain, four of them in
 `readonly-fetch-sweep` — a sweep of reads with nothing in the chain that creates the data.
 
 Two things that reading the numbers wrong will cost you. **A proto3 JSON int64 arrives as a STRING**,
@@ -680,6 +682,13 @@ from memory, leaving other profiles' entries alone, and the middleware reads the
 envelope path on a 200 body. A dead token now costs one extra login instead of a red corpus. What
 `doctor` still cannot tell you is whether a cached token is live — only the backend knows that, so
 its line says so rather than implying `0 expired` means healthy.
+
+**Changed 2026-09-24:** the re-send is now for reads only. A backend that performs a write and then
+answers 401 had it performed twice, and the step record did not say the call went out twice. A call
+answered unauthenticated still drops the token; a read (`conventions.read_only_prefixes`) is re-sent
+after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step fails with
+`auth_retry: not_resent` and a warning, and the next run logs in fresh. A dead cached token therefore
+costs one red write step, not a doubled write.
 
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
@@ -840,9 +849,25 @@ asserts only `qty_on_hand equals: 0` and is `ok`, with no warning.
 zero holds on the refusal. Nothing on the step said the call had to succeed or had to be refused.
 
 **Fix.** 2026-09-24: a step that declares expectations, is refused in-band, and has none pinning the
-verdict (`equals`, `not_equal` or `contains` on the envelope, or a `transport.*` path) is `failed`,
+verdict (`equals` on the envelope, or a rule on the envelope or a `transport.*` path that would fail
+on a successful answer) is `failed`,
 with an `envelope` entry naming the refusal. Assert `status.code equals: SUCCESS` on a call that must
 succeed, or the refusal code on one that must be refused.
+
+The same hole was open through a response with no verdict at all: `{}` or `status: {}` has
+`status.code == ""`, which is not a refusal code, so `qty_on_hand equals: ""` passed on it. Since
+2026-09-24 an absent or empty verdict, on an rpc whose response message declares the envelope
+path, is treated like a refusal: the step fails with an `envelope` entry saying no verdict was
+sent, unless an expectation pins the envelope (`exists: false` included) or the transport.
+
+And through a pin the refusal itself satisfies: `status.code not_equal: ""`, or `not_equal: REJECTD`
+with a typo, holds on `REJECTED` exactly as on `SUCCESS`, so it declares nothing, yet it used to
+count as pinning the verdict and turned the refused step green. Since 2026-09-24 a pin counts only
+if it is an `equals` on the envelope or would fail on the ok value (`not_equal: SUCCESS`,
+`contains: REJ`, `exists: false`, `transport.code equals: unauthenticated`), after resolving its
+references; the same rule already held for a batch line's verdict. `chain lint` warns
+(`unfailable-assertion`, failed by `-strict`) on `not_equal: ""` on the envelope; a misspelt code on
+a string-typed envelope cannot be told from a real one statically, so only the runner catches it.
 
 ## 38. A password or a token in clear in a run record, though `redact` covers its field
 

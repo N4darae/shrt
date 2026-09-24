@@ -41,7 +41,7 @@ func runVerify(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	listMasked := fs.Bool("masked", false, "list every response value a volatile pattern kept out of the comparison")
+	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -117,7 +117,7 @@ func runVerify(ctx context.Context, args []string) error {
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
-		report.RequestChanges = diff.CompareRequests(spot, rec, derivedRequestPath(c))
+		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
 	}
 	varDrift := ""
 	if len(report.RequestChanges) > 0 {
@@ -150,10 +150,10 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		fmt.Println(report.Text())
-		if *listMasked && len(report.VolatilePaths) > 0 {
-			fmt.Printf("values under volatile paths, not compared:\n  %s\n", strings.Join(report.VolatilePaths, "\n  "))
+		if list := report.MaskedList(); *listMasked && list != "" {
+			fmt.Println(list)
 		}
-		if report.Clean() && !report.Widened() {
+		if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 		}
 	}
@@ -170,6 +170,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"%s; if the new value is intended, run the chain with it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
 			len(report.Changes), len(report.RequestChanges), varDrift, fix, name)
+	}
+	if report.PrincipalChanged() {
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile than the confirmed run (%s).\n"+
+			"Restore the step's auth; if the new principal is intended, run the chain until it passes,\n"+
+			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			len(report.Changes), principalChanges(report), name)
 	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
@@ -230,6 +236,16 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+func principalChanges(report *diff.Report) string {
+	out := []string{}
+	for _, c := range report.RequestChanges {
+		if c.Path == diff.AuthProfilePath {
+			out = append(out, fmt.Sprintf("%s: %v -> %v", c.Step, c.Want, c.Got))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func orUnknown(s string) string {

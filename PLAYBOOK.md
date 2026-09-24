@@ -216,7 +216,10 @@ shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there 
 
 Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
 `not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body
-is the answer and are not reported. For any other case where empty is right — a cap, a filter that
+is the answer and are not reported. A pin written as a reference is judged by its value: a
+`${vars.x}` is read from the chain's `vars`, so `equals: ${vars.ok}` holding the OK value is an
+envelope-only assertion like `equals: SUCCESS`, and any other reference on the envelope, which
+only a run can resolve, never exempts a step. For any other case where empty is right — a cap, a filter that
 rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
 `<chain> <step-id> <reason>`; an entry without a reason is
 refused. `PITFALLS.md` §24. The summary's `asserting only the envelope verdict` count is the reads
@@ -323,7 +326,12 @@ in the contract say it is not, and why.
 
 Auth is a **chain-level** concern. `.shrt/config.yaml` declares the login once and the runner
 attaches the header, re-logging in on expiry — a chain that passes today must not fail tomorrow
-from an expired token, because that is a false fail, not a regression.
+from an expired token, because that is a false fail, not a regression. With `expires_path` the
+refresh happens before the call goes out. A call answered unauthenticated (401, or the envelope
+saying so) drops the token either way; only a READ (`conventions.read_only_prefixes`) is then
+re-sent after a fresh login, and its step records `auth_retry: resent` with a warning. A write is
+never re-sent automatically, since the backend may already have performed it: the step fails
+with `auth_retry: not_resent` and a warning, and the next call or run logs in fresh.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -334,7 +342,10 @@ from an expired token, because that is a false fail, not a regression.
   anyone else seeds nothing, and its `note` says so. Each step's `auth_profile` in the run record
   names the profile it ran under.
 - Never `skip_auth` plus a hand-written `Authorization` header. That is the workaround profiles
-  replaced, and lint rejects `skip_auth` and `auth` together.
+  replaced, and lint rejects `skip_auth` and `auth` together. Nor a hand-written header on a step
+  an auth profile covers: the middleware would overwrite it and the step would run as that
+  profile's principal. Lint rejects both, and `shrt run` (and `verify`) refuses the chain before
+  sending anything, naming the step.
 - **Probe that a missing or invalid token is refused** with the two sanctioned forms, never a
   hand-written header:
 
@@ -598,9 +609,17 @@ have) in any step, not only the first: `shrt run` validates every request up fro
 does, with the same synthetic values for references to earlier responses, and exits 1. A body
 that fails only because of such a synthetic value is left to the run, where the real value decides. A step with no `expect` that the backend refuses
 in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
-declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
-`not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
-holds on the zero a refusal leaves, and must not turn the step green. Every step warning is
+declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`
+on the envelope, or any rule on the envelope or a `transport.*` path that would FAIL on a
+successful answer, such as `not_equal: SUCCESS`): `expect qty_on_hand equals: 0` holds on the zero
+a refusal leaves, and must not turn the step green. A pin the refusal and the ok value both satisfy
+declares nothing: `status.code not_equal: ""`, `not_equal: REJECTD` (a typo), or `transport.code
+equals: ok` on a call refused in-band. References in a pin are resolved first, and `chain lint`
+warns on `not_equal: ""` on the envelope, which `-strict` fails. The same holds for a
+response that carries NO verdict where its message declares one (no envelope, `status: {}`, or an
+empty code): it fails unless an expectation pins the envelope (`status.code exists: false` when
+an absent verdict is what the rpc answers) or the transport, and warns on a step with no
+`expect`. Every step warning is
 repeated in the closing summary as `warning [<step>]: ...`, so `-quiet`, which drops the progress
 lines, still shows them.
 
@@ -714,18 +733,27 @@ Three things that decide whether this works for a given chain:
   copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
   without spending another live run.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
-  legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
+  legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
+  differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
+  `drift with different input` naming the profile change, even when every response matches.
+  So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
+  `chain differs` line and `drift with different input`, not a `regression`.
+  `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
-  alike (two non-zero numbers, or two non-empty strings of the same shape): an id that became
-  `""`, null, `0`, `undefined` or a different JSON kind, or disappeared, is reported. Anything else that differs every
+  alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
+  before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). Anything else that differs every
   run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
   replay reports a regression that is not one. The price is that a wrong id that is still
   id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
   approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
-  it hid, until a run under the wider mask is proposed with `-supersede` and approved. The report
-  counts the values volatile paths kept out; `verify -masked` lists them. This is per-chain work and it is why paving the corpus is not a bulk
+  it hid, until a run under the wider mask is proposed with `-supersede` and approved. A `redact` path is a mask too: a
+  redacted response value is blanked in the safe spot and the replay alike, so it is never
+  compared; `confirm` lists such fields and `verify` counts and names them. The report
+  counts the values it kept out, both kinds; `verify -masked` lists every one of them, the
+  volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
@@ -744,7 +772,10 @@ shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest,
 It reports step status changes, where the first failing step moved, steps reached in one run and
 not the other (a step `-keep-going` held back as `skipped` counts as not reached), and response
 differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
-ones in today's config and chain file, so a pattern you add after the runs still applies. It also
+ones in today's config and chain file, so a pattern you add after the runs still applies. When
+those patterns cover every response field of a step (`volatile: ["**"]`), the report opens with a
+`WARNING` naming the steps it compared nothing of (`fully_masked` under `-json`), because "no
+differences" then says nothing about them, as `confirm` warns for the same patterns. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
 camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is

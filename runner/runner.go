@@ -41,6 +41,7 @@ type AuthBinding struct {
 	Sink        transport.TokenSink
 	EnvVars     []string
 	BodyFields  map[string]any
+	Header      string
 }
 
 type AuthBindings []*AuthBinding
@@ -310,6 +311,22 @@ func (b *buildTracker) observe(rec *Record, sr *StepRecord) {
 			"run: a deploy landed mid-chain, so steps before and after this one ran against different builds",
 			b.header, b.last, v))
 	}
+}
+
+const (
+	AuthRetryResent    = transport.AuthRetryResent
+	AuthRetryNotResent = transport.AuthRetryNotResent
+)
+
+func authRetryWarning(retry string) string {
+	if retry == AuthRetryResent {
+		return "the first attempt was answered unauthenticated, so the token was dropped, a fresh login made, " +
+			"and this call re-sent: the backend received it twice. It is a read (conventions.read_only_prefixes), " +
+			"so sending it again changes nothing; this record is the second answer"
+	}
+	return "answered unauthenticated, and not re-sent: this is not a read (conventions.read_only_prefixes), and " +
+		"the backend may already have performed it, so sending it again could perform it twice. The token was " +
+		"dropped, so the next call logs in fresh; re-run the chain if the token had simply expired"
 }
 
 func joinLines(a, b string) string {
@@ -685,6 +702,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := r.checkAuthEnv(c); err != nil {
 		return nil, err
 	}
+	if err := r.checkHandWrittenAuth(c); err != nil {
+		return nil, err
+	}
 	problems := c.PreflightProblems()
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
@@ -1005,6 +1025,10 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 	}
+	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
+		sr.AuthRetry = retry
+		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry))
+	}
 	if err != nil {
 		if transport.Unreachable(err) {
 			sr.unreachable = innermost(err)
@@ -1065,8 +1089,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		canonical = res.Body
 		populated = res.Body
 		staleOutput = true
-		sr.Warning = "response kept as sent, it does not match " + string(method.Output().FullName()) +
-			" (the descriptor may be stale): " + cerr.Error()
+		sr.Warning = joinLines(sr.Warning, "response kept as sent, it does not match "+string(method.Output().FullName())+
+			" (the descriptor may be stale): "+cerr.Error())
 	}
 
 	var decoded any
@@ -1108,11 +1132,12 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 
+	verdictDeclared := !staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))
 	if len(step.Expect) == 0 {
-		if warning := unassertedRefusalWarning(decoded); warning != "" {
+		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
-	} else if result, refused := unpinnedRefusal(decoded, step.Expect, redactor); refused {
+	} else if result, refused := unpinnedRefusal(scope, decoded, step.Expect, verdictDeclared, redactor); refused {
 		sr.Expect = append(sr.Expect, result)
 		sr.Status = StatusFailed
 	}
@@ -1127,7 +1152,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		default:
 			return fail(sr, itemErr)
 		}
-		if surprises := chain.UndeclaredRefusals(refusals, step.Expect); len(surprises) > 0 {
+		if surprises := chain.UndeclaredRefusals(refusals, boundExpect(scope, step.Expect)); len(surprises) > 0 {
 			got := make([]string, 0, len(surprises))
 			for _, r := range surprises {
 				line := r.String()
@@ -1211,17 +1236,21 @@ func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	}
 }
 
-func unassertedRefusalWarning(decoded any) string {
+func unassertedRefusalWarning(decoded any, verdictDeclared bool) string {
 	path := chain.EnvelopePath()
 	if path == "" {
 		return ""
 	}
-	code, ok := chain.Get(decoded, path)
-	if !ok || code == nil {
-		return ""
+	text, has := verdictText(decoded, path)
+	if !has {
+		if !verdictDeclared {
+			return ""
+		}
+		return fmt.Sprintf("the response carries no verdict at %s (absent or empty, where this rpc's response "+
+			"message declares one), and this step declares no expect, so it is recorded passed with nothing "+
+			"checked; nothing says the backend did what was asked", path)
 	}
-	text := fmt.Sprint(code)
-	if text == "" || text == chain.EnvelopeOK() {
+	if text == chain.EnvelopeOK() {
 		return ""
 	}
 	return fmt.Sprintf("refused in-band (%s = %s, not %s), and this step declares no expect, so it is "+
@@ -1230,17 +1259,32 @@ func unassertedRefusalWarning(decoded any) string {
 		chain.EnvelopeOK(), path, text)
 }
 
-func unpinnedRefusal(decoded any, expect []chain.Expectation, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
-	path := chain.EnvelopePath()
-	if path == "" || pinsVerdict(expect) {
-		return chain.ExpectResult{}, false
-	}
+func verdictText(decoded any, path string) (string, bool) {
 	code, ok := chain.Get(decoded, path)
 	if !ok || code == nil {
-		return chain.ExpectResult{}, false
+		return "", false
 	}
 	text := fmt.Sprint(code)
-	if text == "" || text == chain.EnvelopeOK() {
+	return text, text != ""
+}
+
+func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+	path := chain.EnvelopePath()
+	if path == "" || pinsVerdict(scope, expect) {
+		return chain.ExpectResult{}, false
+	}
+	text, has := verdictText(decoded, path)
+	if !has {
+		if !verdictDeclared {
+			return chain.ExpectResult{}, false
+		}
+		detail := fmt.Sprintf("the response carries no verdict at %s: it is absent or empty, though this rpc's "+
+			"response message declares it, and no expectation on this step pins the verdict, so the ones that "+
+			"held read zero values nothing vouches for. If an absent verdict is what this rpc answers, pin it "+
+			"(%s exists: false); if not, the backend did not say it did what was asked", path, path)
+		return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: "", Passed: false, Detail: detail}, true
+	}
+	if text == chain.EnvelopeOK() {
 		return chain.ExpectResult{}, false
 	}
 	detail := fmt.Sprintf("refused in-band (%s = %s, not %s), and no expectation on this step pins the verdict, "+
@@ -1252,16 +1296,49 @@ func unpinnedRefusal(decoded any, expect []chain.Expectation, redactor *pathmask
 	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
 }
 
-func pinsVerdict(expect []chain.Expectation) bool {
-	for _, e := range expect {
-		if chain.IsTransportPath(e.Path) {
-			return true
-		}
-		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "") {
-			return true
+func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
+	okEnvelope := okAnswer(chain.EnvelopePath(), chain.EnvelopeOK())
+	okTransport := chain.TransportOutcome(200, "", "")
+	for _, e := range boundExpect(scope, expect) {
+		switch {
+		case chain.IsTransportPath(e.Path):
+			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
+				return true
+			}
+		case chain.IsEnvelopePath(e.Path):
+			if e.Equals != nil || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func boundExpect(scope *chain.Scope, expect []chain.Expectation) []chain.Expectation {
+	out := make([]chain.Expectation, len(expect))
+	for i, e := range expect {
+		out[i] = e
+		if bound, err := e.ResolveWith(scope); err == nil {
+			out[i] = bound
+		}
+	}
+	return out
+}
+
+func okAnswer(path, ok string) map[string]any {
+	segs := chain.SplitPath(path)
+	root := map[string]any{}
+	node := root
+	for i, seg := range segs {
+		if i == len(segs)-1 {
+			node[seg] = ok
+			break
+		}
+		next := map[string]any{}
+		node[seg] = next
+		node = next
+	}
+	return root
 }
 
 func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {

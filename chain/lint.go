@@ -593,6 +593,14 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 						"fail is the one fault no gate downstream can see — a green step proves nothing. "+
 						"Assert the value this step should have produced", e.Path, why)})
 			}
+			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" && EnvelopeOK() != "" {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
+					"expect on %q says not_equal \"\", which holds on the ok value %s and on every refusal alike: "+
+						"no answer that carries a verdict can fail it, so it declares neither success nor a refusal, "+
+						"and the runner does not accept it as pinning the verdict. Write equals: %s for a call that "+
+						"must succeed, or the refusal code for one that must be refused",
+					e.Path, EnvelopeOK(), EnvelopeOK())})
+			}
 			continue
 		}
 		if absent {

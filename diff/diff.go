@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -44,6 +45,10 @@ type Report struct {
 	Masked         int      `json:"masked"`
 	VolatileMasked int      `json:"volatile_masked"`
 	VolatilePaths  []string `json:"volatile_paths,omitempty"`
+	VolatileValues []Change `json:"volatile_values,omitempty"`
+	ShapeMasked    []Change `json:"shape_masked,omitempty"`
+	Redacted       int      `json:"redacted"`
+	RedactedPaths  []string `json:"redacted_paths,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
@@ -52,6 +57,17 @@ type Report struct {
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
+
+const AuthProfilePath = "auth_profile"
+
+func (r *Report) PrincipalChanged() bool {
+	for _, c := range r.RequestChanges {
+		if c.Path == AuthProfilePath {
+			return true
+		}
+	}
+	return false
+}
 
 func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 	return CompareMasking(spot, rec, nil)
@@ -111,17 +127,29 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		if !StepReached(rec, got) {
 			continue
 		}
+		gotRedacted := map[string]bool{}
+		for _, p := range pathmask.RedactedPaths(got.Response) {
+			gotRedacted[p] = true
+		}
+		for _, p := range pathmask.RedactedPaths(want.Response) {
+			if gotRedacted[p] {
+				rep.Redacted++
+				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
+			}
+		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
 		for _, c := range compareStep(want, got) {
 			switch {
 			case c.Path != "response" && maskedAt(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
+				rep.VolatileValues = append(rep.VolatileValues, c)
 				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
 			case c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got):
 				rep.Masked++
+				rep.ShapeMasked = append(rep.ShapeMasked, c)
 			default:
 				rep.Changes = append(rep.Changes, c)
 			}
@@ -147,11 +175,57 @@ func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []strin
 	return rep
 }
 
+func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
+	out := []Change{}
+	if c == nil {
+		return out
+	}
+	now := map[string]*chain.Step{}
+	nowOrder := []string{}
+	for _, s := range c.Steps {
+		if s != nil {
+			now[s.ID] = s
+			nowOrder = append(nowOrder, s.ID)
+		}
+	}
+	was := map[string]bool{}
+	wasOrder := []string{}
+	for _, st := range spot.Steps {
+		was[st.ID] = true
+		wasOrder = append(wasOrder, st.ID)
+		s, ok := now[st.ID]
+		switch {
+		case !ok:
+			out = append(out, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call,
+				Detail: "the chain no longer has this step"})
+		case s.Call != st.Call:
+			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
+		}
+	}
+	for _, id := range nowOrder {
+		if !was[id] {
+			out = append(out, Change{Step: id, Path: "step", Kind: KindUnexpected, Got: now[id].Call,
+				Detail: "the chain has a step the confirmed run did not"})
+		}
+	}
+	if len(out) == 0 && strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+		out = append(out, Change{Step: "-", Path: "steps", Kind: KindOrder,
+			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+	}
+	return out
+}
+
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
 	out := []Change{}
 	for i := range min(len(spot.Steps), len(rec.Steps)) {
 		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+		if want.ID != got.ID {
+			continue
+		}
+		if want.AuthProfile != "" && got.AuthProfile != "" && want.AuthProfile != got.AuthProfile {
+			out = append(out, Change{Step: want.ID, Path: AuthProfilePath, Kind: KindChanged, Want: want.AuthProfile, Got: got.AuthProfile})
+		}
+		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
 		}
 		a, errA := decode(want.Request)
@@ -412,6 +486,22 @@ func withKind(v any) string {
 	return fmt.Sprintf("%s %v", jsonKind(v), v)
 }
 
+func (r *Report) MaskedList() string {
+	var b strings.Builder
+	section := func(title string, cs []Change) {
+		if len(cs) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "%s, not compared:\n", title)
+		for _, c := range cs {
+			fmt.Fprintf(&b, "  %s %s (%s)\n", c.Step, c.Path, c.Transition())
+		}
+	}
+	section("values under volatile paths", r.VolatileValues)
+	section("id- or timestamp-shaped values", r.ShapeMasked)
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func (r *Report) Text() string {
 	parts := []string{}
 	if r.Masked > 0 {
@@ -441,8 +531,16 @@ func (r *Report) Text() string {
 			}
 		}
 	}
+	if r.Redacted > 0 {
+		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in both records and were never compared, "+
+			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
+	}
 	for _, c := range r.RequestChanges {
-		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
+		what := "request"
+		if c.Path == "step" || c.Path == "steps" || c.Path == "call" {
+			what = "chain"
+		}
+		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
@@ -451,6 +549,11 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: %s\n",
 			len(r.RequestChanges), r.SafeSpotID, cause)
+	}
+	if r.Clean() && r.PrincipalChanged() {
+		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile than the confirmed run, "+
+			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
+		return b.String()
 	}
 	if r.Clean() {
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)

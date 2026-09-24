@@ -21,7 +21,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `description` | string |  | What state this chain reproduces, for the next reader. |
 | `vars` | map string → any |  | Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var. |
 | `volatile` | list of string |  | Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value. |
-| `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). |
+| `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). A redacted response value is blanked in the safe spot and in every replay alike, so `shrt verify` and `shrt diff` never compare it: `confirm` lists those fields under **Redacted, never compared by `shrt verify`**, and `verify` counts them and names each one (`redacted`, `redacted_paths` under `-json`) without failing. Redact only what must not be stored; a business field redacted here is a field no safe spot guards, so assert it in the chain if it matters. |
 | `steps` | list of step | + | Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it. |
 
 ### Step
@@ -32,7 +32,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `description` | string |  | Why this step is here and what its assertions mean — the place to record a judgement a reader would otherwise re-derive from the body. |
 | `call` | string | + | `package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. |
 | `body` | map string → any |  | Validated against the proto request message before anything is sent. |
-| `headers` | map string → string |  | Per-step header overrides. |
+| `headers` | map string → string |  | Per-step header overrides. Not the auth header: when the config declares auth, a hand-written `Authorization` (or the covering profile's `header`) on a step an auth profile covers, or with `skip_auth`, is a lint error, and `shrt run` refuses the chain before sending anything, since the header would be overwritten by the profile's token, or would pin one principal into one step. Name the principal with `auth: <profile>`. |
 | `expect` | list of expectation |  | Assertions on this step's response. Each entry needs exactly one rule, and nearly always a `path`: an entry with no `path` tests the whole response. |
 | `export` | map string → string |  | `name: response.path`. Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error, since the bare `${name}` would then mean two things; a name another step also exports is a lint warning (`export-overwritten`, failed by `-strict`), since the later write silently replaces the earlier. |
 | `auth` | string |  | Named auth profile from `.shrt/config.yaml`. Contradicts `skip_auth`; lint rejects both. The reserved value `invalid` sends a token the backend never issued, in the header and scheme of the profile that would otherwise cover the call, and never re-logs in on the 401 — the probe for "an invalid token is refused". Lint rejects it with `export`; `shrt run` refuses it when the config declares no auth. |
@@ -252,13 +252,13 @@ Produced by resolving each form against a fixture scope:
 | `paths` | paths | + | Where chains, runs and safe spots live. |
 | `conventions` | conventions |  | Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded. |
 | `volatile` | list of string |  | Volatile paths applied to every chain. |
-| `redact` | list of string |  | Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0 of any numeric type — an int64's `"0"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. Paths are not the only guard: the runner also scrubs by VALUE, replacing with `<redacted>`, wherever it appears in the record (request, response, each expectation's `want`, `got` and detail, errors, warnings, notes, exports), every auth body value in a field these patterns cover (the password, not the username or another login field they do not cover), every `${env.*}` value a step body reads into a field these patterns cover (an in-chain login's password), every token a login returned (a profile's login, or a step calling a login rpc, its `token_path` and every value its response holds under these patterns, however a later step reads it), and every value a step exports from a redacted path, so the proposal report and the safe spot built from the record never carry them either. A value shorter than 4 characters is replaced only where it is the whole string. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
+| `redact` | list of string |  | Paths blanked in every run record, and so never compared by `shrt verify` (see `redact` in §1). Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `**.*password`, `**.access_token`, `**.refresh_token`, `**.token`, `**.*secret`, `**.*pin`, `**.*pin_code`, `**.*passcode`, `**.*otp`, `**.api_key`, `**.authorization`. A bool is never masked, and neither is an empty value (`""`, 0 of any numeric type — an int64's `"0"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. Paths are not the only guard: the runner also scrubs by VALUE, replacing with `<redacted>`, wherever it appears in the record (request, response, each expectation's `want`, `got` and detail, errors, warnings, notes, exports), every auth body value in a field these patterns cover (the password, not the username or another login field they do not cover), every `${env.*}` value a step body reads into a field these patterns cover (an in-chain login's password), every token a login returned (a profile's login, or a step calling a login rpc, its `token_path` and every value its response holds under these patterns, however a later step reads it), and every value a step exports from a redacted path, so the proposal report and the safe spot built from the record never carry them either. A value shorter than 4 characters is replaced only where it is the whole string. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand. |
 
 ### `target`
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `base_url` | string | + | Scheme and host of the backend. |
+| `base_url` | string | + | Scheme and host of the backend. Redirects are never followed: a 3xx answer, to the login call or any other, is a transport error naming its `Location`, so no request body, credential or token is re-sent elsewhere. Point `base_url` at the final address. |
 | `host_override` | string |  | Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification. |
 | `headers` | map string → string |  | Headers added to every request. |
 | `timeout` | string |  | Per-request timeout, e.g. `30s`. Defaults to 30s. |
@@ -279,7 +279,7 @@ Produced by resolving each form against a fixture scope:
 | `call` | string | + | The login rpc. |
 | `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run. |
 | `token_path` | string | + | Response path holding the token. |
-| `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401. |
+| `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401, and a 401 re-sends only a read (see `auth_retry` in §5): a write answered 401 fails its step. |
 | `header` | string |  | Defaults to `Authorization`. |
 | `scheme` | string |  | Defaults to `Bearer`. |
 | `skip_calls` | list of string |  | Calls that carry no token. Read only at the top level of `auth:`, where it applies to every profile; inside an entry of `auth.profiles` it is accepted and ignored. |
@@ -341,17 +341,18 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `id` | string | The step id. |
 | `call` | string | As written in the chain. |
 | `procedure` | string | The resolved `/package.Service/Rpc`. |
-| `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. |
+| `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. `shrt verify` compares it with the safe spot's value for the same step as part of the input (§7): a step that now runs under another profile is reported as `request differs ... auth_profile (default -> clerk)` and fails verify with `drift with different input`, even when every response matches. A record that does not say which profile ran (no `auth:` block, or recorded before this field) is not compared. |
+| `auth_retry` | string | Set when the call was answered unauthenticated (HTTP 401, or `unauthenticated` at the envelope path) and the token dropped. `resent`: the call is a read (`conventions.read_only_prefixes`), so a fresh login was made and it was sent again; the backend received it twice and this record is the second answer. `not_resent`: it is not a read, so it was NOT sent again, because the backend may already have performed it and a second send could perform it twice; the step shows the refusal, and the next call logs in fresh. Both carry a `warning`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. A `-keep-going` step after one that could not connect to the target at all is `skipped` too, its `error` naming the unreachable target. |
 | `http_status` | int | Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal. |
 | `latency_ms` | int | Per-step wall time. |
 | `request` | JSON | What was sent, AFTER reference resolution and redaction. |
 | `response` | JSON | What came back, RE-ENCODED through the response message and then redacted — not the wire bytes. Field names are the proto ones, every declared scalar and list field is present at its zero value if the server omitted it (an unset nested message is `null`, so assert `exists: false` on the message itself rather than on a path inside it), and an int64 is a JSON string whatever the server sent. That is what gives `shrt verify` a stable shape to diff across runs, and it is why a scalar's absence cannot be read out of this field: see the second table in §1 on `exists`. When the descriptor cannot decode the body it is stored as sent instead, and the step carries a `warning` saying so, so the shape of this field depends on descriptor freshness. |
 | `transport_error` | transporterror | Set when the backend answered with a Connect error (any non-200) instead of a response message. `transport.code` and `transport.message` read it. |
-| `expect` | list of expectresult | One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), and has no expectation pinning the verdict (a value rule on the envelope, or a `transport.*` path) — that step is `failed`, because the assertions that held read the zero values a refusal leaves. |
+| `expect` | list of expectresult | One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), or answered with no verdict (the envelope absent or empty, though the response message declares it), and has no expectation pinning the verdict (an `equals` on the envelope, or a rule on the envelope or a `transport.*` path that would fail on a successful answer; `not_equal: ""` or `not_equal` a misspelt code holds on the refusal and on the ok value alike and pins nothing) — that step is `failed`, because the assertions that held read the zero values a refusal leaves. |
 | `exported` | map string → any | What this step published. |
 | `error` | string | Why this step failed or could not run. |
-| `warning` | string | Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`), which stays `passed` with a warning saying so. |
+| `warning` | string | Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`) or answered with no verdict, which stays `passed` with a warning saying so. |
 | `note` | string | Runner commentary, e.g. that a login seeded a profile's token — or did NOT, because it sent other credentials than that profile's `body`. A login seeds a profile only when its request equals that profile's resolved body, so a chain that logs in as someone else never changes whose token later steps carry. |
 | `volatile` | list of string | Step-level volatile patterns. |
 | `drift` | bool | The response did not match its proto message while `conventions.validate_output` was on. The step is `failed`, not `error`: the request was sent and answered. No expectation was evaluated, so nothing in this step is evidence about the rpc — rebuild the descriptor first. `allow_fail` does not swallow a step carrying it. |
@@ -415,14 +416,25 @@ whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`
 `token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not
 reported; the report says how many it masked. In this example 2 value(s) were masked. A name alone
 is not enough: both values must look alike, two non-zero numbers or two non-empty strings of the
-same shape (`ord-819dac5f23ba` and `ord-0123456789ab`). An id that became `""`, null, `0`, `undefined`,
-a number where a string was, or disappeared, is reported. Declare
+same shape (`ord-819dac5f23ba` and `ord-0123456789ab`), including the same letters before the first
+separator, so an id of another kind (`cus-...` became `prd-...`) is reported. An id that became `""`,
+null, `0`, `undefined`, a number where a string was, or disappeared, is reported too. `shrt verify
+-masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
+
+A value under a `redact` path (§1, §4) is blanked to `<redacted>` in the safe spot and the replay
+alike, so it is never compared: a change there is invisible to verify. Verify does not fail on it;
+it counts those values and names each one (`N redacted response value(s) ... never compared`), and
+`shrt confirm` lists them before approval, so redact only what must not be stored.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
-every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input. When the input
+every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
+`auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
+verify with `drift with different input` even when every response matches. So is the chain's list of
+steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
+from the confirmed run at <step> ...`, and the change of step count it causes is not a regression. When the input
 differs, the response changes are reported as coming with different input, not as a backend
 regression, and verify fails with `drift with different input` instead of `regression`.
 

@@ -312,6 +312,10 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 			fmt.Fprintf(&b, "- `%s`\n", u)
 		}
 	}
+	if redacted := redactedSummary(rec); len(redacted) > 0 {
+		fmt.Fprintf(&b, "\n**Redacted, never compared by `shrt verify`:** %s. A `redact` path blanks the value in every run record, "+
+			"so the safe spot holds no value there and verify cannot see it change; assert it in the chain if it matters.\n", strings.Join(redacted, ", "))
+	}
 	patterns := volatileSummary(rec)
 	if len(patterns) == 0 {
 		b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
@@ -324,6 +328,16 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	}
 	b.WriteString("\nApproving makes every response field above that no volatile pattern covers, not only the asserted ones, the baseline `shrt verify` compares against.\n")
 	return b.String()
+}
+
+func redactedSummary(rec *runner.Record) []string {
+	out := []string{}
+	for _, st := range rec.Steps {
+		for _, p := range pathmask.RedactedPaths(st.Response) {
+			out = append(out, "`"+st.ID+" "+p+"`")
+		}
+	}
+	return out
 }
 
 func volatileSummary(rec *runner.Record) []string {
