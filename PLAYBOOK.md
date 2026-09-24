@@ -927,7 +927,7 @@ creates a safe spot, so a refactor often has to be checked with none:
 ```bash
 shrt run <name>                                  # before the change
 shrt run <name>                                  # after it
-shrt diff <name>                                 # latest~1 against latest
+shrt diff <name>                                 # the two latest runs that are not verify replays
 shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest, latest~N
 ```
 

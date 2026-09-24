@@ -1061,6 +1061,14 @@ with 2 changes and `[..] not_reached 8 step(s)`. A step never sent is not a chan
 reached are still listed, but the change count and the verdict leave them out, and the header says
 `N step(s) not reached are listed below and not counted`.
 
+`shrt diff <chain>` right after a gate compared the gate's `shrt run` with that gate's `shrt verify`
+replay: `latest~1` against `latest`, two runs against the same backend build a few seconds apart,
+so it showed nothing but `-keep-going` and fixture differences. A live verify replay now records
+`replay_of: <safe spot run>`, and `shrt diff <chain>` with no run arguments skips such records,
+compares the two latest runs that carry none, and prints which two it picked and which replays it
+skipped. Explicit ids, `latest` and `latest~N` still count every record; a replay recorded before
+`replay_of` existed is not recognised as one.
+
 ---
 
 # Decisions, so they are not relitigated

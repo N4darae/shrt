@@ -35,6 +35,7 @@ type Record struct {
 	Status      string         `json:"status"`
 	DryRun      bool           `json:"dry_run,omitempty"`
 	KeepGoing   bool           `json:"keep_going,omitempty"`
+	ReplayOf    string         `json:"replay_of,omitempty"`
 	Vars        map[string]any `json:"vars,omitempty"`
 	Exports     map[string]any `json:"exports,omitempty"`
 	Volatile    []string       `json:"volatile,omitempty"`

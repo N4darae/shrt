@@ -115,7 +115,7 @@ kit's.
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints the summary table to show the user and writes a full report. It writes no safe spot |
 | `shrt confirm <c> -approve -by <user email>` | write the safe spot, only after the user said yes to that proposal in the conversation; `-reject` discards it, `-pending` lists proposals |
 | `shrt verify <c>` | replay and diff against the safe spot, masking volatile paths and id- or timestamp-shaped values, and counting both. A replay against another target than the safe spot's is said first (`targets differ: ...`). A volatile pattern the safe spot did not approve (added to the config or chain after approval) fails it, naming what the pattern hid (a value that only echoes a fixture name or a renamed id is not listed, since verify masks it anyway; a stale echo, a value still holding the confirmed run's fixture name although this run sent another, is listed, since without the pattern it is a change); `-masked` lists every masked value, volatile and id- or timestamp-shaped alike, with its path and both values. It replays as `-keep-going` does, so every step a failure does not block is compared; a step held back behind a failure is reported `not_reached`, not as a change of length, and the report names the first failing step. A `not_reached` step is listed but is not a change: it is left out of the change count and the verdict, live and under `-run` alike (a run recorded without `-keep-going` stops at its first failure, and the steps after it are `not_reached`), and the header says how many were left out |
-| `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs of one chain step by step — status changes, where the first failure moved, steps no longer reached, response fields — with declared volatile paths, ids and timestamps masked. Needs no safe spot, and is a comparison between two runs, not a verdict. `shrt diff <c>` is `latest~1` against `latest` |
+| `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs of one chain step by step — status changes, where the first failure moved, steps no longer reached, response fields — with declared volatile paths, ids and timestamps masked. Needs no safe spot, and is a comparison between two runs, not a verdict. `shrt diff <c>` compares the two latest runs that are not `shrt verify` replays (a replay records `replay_of`), and says which two it picked, so a gate's own run is not compared with that gate's replay against the same backend; `latest` and `latest~N` count replays too |
 
 ### Exit codes
 
@@ -262,7 +262,7 @@ recorded run offline, so the check costs no extra traffic. When a refactor moves
 names the rpc instead of leaving you a failure somewhere downstream. `PLAYBOOK.md` §9.
 
 **No safe spot yet? `shrt diff` compares two runs instead.** `shrt diff <name>` compares the
-last two recorded runs of a chain (`shrt diff <name> <run-a> <run-b>` for any two; ids, `latest`,
+last two recorded runs of a chain that are not `shrt verify` replays, naming both (`shrt diff <name> <run-a> <run-b>` for any two; ids, `latest`,
 `latest~N`): which step changed status, where the first failure moved, which steps are no longer
 reached, and which response fields differ, with the chain's `volatile` paths, ids and timestamps
 masked. Each difference is labelled with its kind (`changed`, `type`, `length`, `missing`, ...,
