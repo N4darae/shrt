@@ -858,7 +858,10 @@ Three things that decide whether this works for a given chain:
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
   it hid, until a run under the wider mask is proposed with `-supersede` and approved. A `redact` path is a mask too: a
   redacted response value is blanked in the safe spot and the replay alike, so it is never
-  compared; `confirm` lists such fields and `verify` counts and names them. The report
+  compared; `confirm` lists such fields and `verify` counts and names them. A `redact` pattern
+  added after approval blanks values the safe spot holds in the clear: `verify` does not compare
+  them and fails naming the pattern and each value, like an unapproved volatile pattern, until a
+  run under it is proposed with `-supersede` and approved. The report
   counts the values it kept out, both kinds; `verify -masked` lists every one of them, the
   volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose

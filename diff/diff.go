@@ -60,6 +60,8 @@ type Report struct {
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
+	UnapprovedRedact   []string `json:"unapproved_redact,omitempty"`
+	UnapprovedRedacted []string `json:"unapproved_redacted,omitempty"`
 	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
 	Reordered          []string `json:"reordered_lists,omitempty"`
 
@@ -70,7 +72,53 @@ type Report struct {
 	reordered         []stepPath
 }
 
-func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
+func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
+
+func (r *Report) NoteApprovedRedact(approved []string, rec *runner.Record) {
+	had := map[string]bool{}
+	for _, p := range approved {
+		had[p] = true
+	}
+	for _, p := range rec.Redacted {
+		if !had[p] {
+			r.addUnapprovedRedact(p)
+		}
+	}
+}
+
+func (r *Report) addUnapprovedRedact(pattern string) {
+	for _, p := range r.UnapprovedRedact {
+		if p == pattern {
+			return
+		}
+	}
+	r.UnapprovedRedact = append(r.UnapprovedRedact, pattern)
+}
+
+func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
+	if c.Kind != KindChanged && c.Kind != KindType {
+		return false
+	}
+	if w, ok := c.Want.(string); ok && w == pathmask.MaskRedacted {
+		r.RedactedPaths = append(r.RedactedPaths, c.Step+" "+c.Path)
+		r.Redacted++
+		return true
+	}
+	if g, ok := c.Got.(string); !ok || g != pathmask.MaskRedacted {
+		return false
+	}
+	covered := false
+	for _, p := range patterns {
+		if maskedAt(pathmask.NewMasker([]string{p}), c) {
+			covered = true
+			r.addUnapprovedRedact(p)
+		}
+	}
+	if covered {
+		r.UnapprovedRedacted = append(r.UnapprovedRedacted, c.Step+" "+c.Path)
+	}
+	return covered
+}
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
@@ -191,6 +239,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		}
 		for _, c := range stepChanges {
 			switch {
+			case rep.oneSidedRedaction(c, rec.Redacted):
 			case c.Path != "response" && maskedAt(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
@@ -459,6 +508,9 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 				return
 			}
 			if derived == nil && c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+				return
+			}
+			if (c.Kind == KindChanged || c.Kind == KindType) && (c.Want == pathmask.MaskRedacted || c.Got == pathmask.MaskRedacted) {
 				return
 			}
 			c.Step = want.ID
@@ -827,7 +879,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
 			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
 	}
-	if r.Widened() {
+	if len(r.UnapprovedVolatile) > 0 {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
 			len(r.UnapprovedVolatile), r.SafeSpotID, strings.Join(r.UnapprovedVolatile, ", "))
 		if len(r.UnapprovedMasked) == 0 {
@@ -839,8 +891,20 @@ func (r *Report) Text() string {
 			}
 		}
 	}
+	if len(r.UnapprovedRedact) > 0 {
+		fmt.Fprintf(&b, "the replay was redacted with %d redact pattern(s) the safe spot %s did not have: %s\n",
+			len(r.UnapprovedRedact), r.SafeSpotID, strings.Join(r.UnapprovedRedact, ", "))
+		if len(r.UnapprovedRedacted) == 0 {
+			b.WriteString("  they blanked no value the safe spot holds this time, but a change there is not compared\n")
+		} else {
+			fmt.Fprintf(&b, "  they blanked %d value(s) the safe spot holds in the clear, which were not compared (not a backend change):\n", len(r.UnapprovedRedacted))
+			for _, p := range r.UnapprovedRedacted {
+				fmt.Fprintf(&b, "    %s\n", p)
+			}
+		}
+	}
 	if r.Redacted > 0 {
-		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in both records and were never compared, "+
+		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in the run records and were never compared, "+
 			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
 	}
 	if len(r.ScrubbedPaths) > 0 {
