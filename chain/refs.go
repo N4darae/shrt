@@ -134,6 +134,27 @@ func IsStableRef(s string) bool {
 
 func HasReference(s string) bool { return refPattern.MatchString(s) }
 
+func CanonicalRefs(text string) string {
+	return refPattern.ReplaceAllStringFunc(text, func(m string) string {
+		return "${" + CanonicalRef(refPattern.FindStringSubmatch(m)[1]) + "}"
+	})
+}
+
+func CanonicalRef(expr string) string {
+	r := ParseRef(expr)
+	if r.Kind != RefStep || r.Err != nil || r.Head == "" {
+		return r.Expr
+	}
+	section, tail := "response", r.Rest
+	if first, sub, _ := strings.Cut(r.Rest, "."); first == "request" || first == "response" {
+		section, tail = first, sub
+	}
+	if tail == "" {
+		return "steps." + r.Head + "." + section
+	}
+	return "steps." + r.Head + "." + section + "." + tail
+}
+
 func (s *Step) SendReferences() []string {
 	if s == nil {
 		return nil

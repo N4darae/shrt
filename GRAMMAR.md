@@ -477,7 +477,9 @@ request value the chain builds from another step's output or from `${uuid}` / `$
 every run and is skipped, but the REFERENCE itself is not: the safe spot keeps each step's body
 references as written (`body_refs`), and a body field that now reads another step or field, or
 stopped or started reading one, is printed as `chain differs from the confirmed run at <step>
-body.<path> (${a.x} -> ${b.x})`. For a safe spot approved before shrt kept them, verify resolves
+body.<path> (${a.x} -> ${b.x})`. References are compared in one canonical spelling, so a
+respelling that reads the same field (`${a.x}` -> `${steps.a.response.x}`, §2) is no chain change.
+For a safe spot approved before shrt kept them, verify resolves
 the chain's reference against the safe spot's own responses, and a field it would not have sent the
 recorded value to is that same chain change, naming the step field that held the recorded value.
 A value built from `${uuid}` or a clock form, whole or inside other text
