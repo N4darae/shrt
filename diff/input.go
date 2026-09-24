@@ -47,10 +47,14 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		}
 	}
 	from := -1
+	firstEdited := -1
 	edited := map[string]bool{}
 	for _, c := range material {
 		if c.Path == ExpectPath {
 			edited[c.Step] = true
+			if i, ok := index[c.Step]; ok && (firstEdited < 0 || i < firstEdited) {
+				firstEdited = i
+			}
 			continue
 		}
 		i, ok := index[c.Step]
@@ -71,6 +75,9 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			c.WithInput = !ok || i >= from
 		}
 		if c.Kind == KindStatus && edited[c.Step] {
+			c.WithInput = true
+		}
+		if i, ok := index[c.Step]; c.Kind == KindNotReached && firstEdited >= 0 && ok && i > firstEdited {
 			c.WithInput = true
 		}
 		kept = append(kept, c)

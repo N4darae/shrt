@@ -781,7 +781,7 @@ request values, `qty=2, confirmed with 3`, instead of blaming the chain's input;
 file changed too (a step's `auth:`, the step list, an expectation), it names that edit as well,
 and never says the chain file is not what differs. An expectation added, removed or edited since
 approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
-step, not a response change. A response that
+step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
 it `volatile`.
 

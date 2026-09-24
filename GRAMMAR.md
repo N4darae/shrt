@@ -467,7 +467,8 @@ from the confirmed run at <step> ...`, and the change of step count it causes is
 An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
 `${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
 printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
-at that step and nothing else. When vars and the chain file both differ, verify names both.
+at that step, and the later steps the run then did not reach, and nothing else. When vars and the chain file
+both differ, verify names both.
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
 compares like with like. A var names fixtures only when the chain reads it inside other text in at least
