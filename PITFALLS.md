@@ -854,6 +854,11 @@ every token a login returned, and every value exported from a redacted path, whe
 the record; the report and safe spot are built from the record. A value shorter than 4 characters
 is replaced only where it is the whole string, so a one-letter username does not shred the record.
 
+Only secrets are scrubbed by value: an auth body value counts when its field is covered by `redact`
+(the password), not a username or another login field no pattern covers. Before this, the username
+`clerk` was scrubbed too, so a request `name: "clerk made"` was stored as `"<redacted> made"`. A safe
+spot approved with such a mangled request shows it once as a request difference in `verify`.
+
 ---
 
 # Decisions, so they are not relitigated

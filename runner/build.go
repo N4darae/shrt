@@ -107,6 +107,7 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 			Body:        spec.Body,
 			Sink:        src,
 			EnvVars:     chain.AuthBodyEnvNames(orEmpty(auth.Body)),
+			BodyFields:  orEmpty(auth.Body),
 		})
 		owns, err := matcher(auth.Calls, cat)
 		if err != nil {

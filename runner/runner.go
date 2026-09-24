@@ -40,6 +40,7 @@ type AuthBinding struct {
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
 	EnvVars     []string
+	BodyFields  map[string]any
 }
 
 type AuthBindings []*AuthBinding
@@ -138,15 +139,32 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 	return out
 }
 
-func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker, env func(string) (string, bool)) {
+func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	for _, b := range bs {
 		if b == nil {
 			continue
 		}
-		for _, name := range b.EnvVars {
-			if v, ok := env(name); ok {
-				redactor.AddSecret(v)
-			}
+		learnMaskedTemplate(redactor, b.BodyFields, "")
+	}
+}
+
+func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	default:
+		if !redactor.Masks(path) {
+			return
+		}
+		resolved, err := chain.AuthBodyScope().ResolveValue(t)
+		if err == nil && redactor.MasksValue(path, resolved) {
+			learnSecret(redactor, resolved)
 		}
 	}
 }
@@ -621,7 +639,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if r.Now != nil {
 		scope.Now = r.Now
 	}
-	r.Auth.learnSecrets(redactor, scope.Env)
+	r.Auth.learnSecrets(redactor)
 	r.Auth.learnTokens(redactor)
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
