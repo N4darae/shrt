@@ -313,9 +313,14 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 			fmt.Fprintf(&b, "- `%s`\n", u)
 		}
 	}
-	if redacted := redactedSummary(rec); len(redacted) > 0 {
+	redacted, scrubbed := redactedSummary(rec)
+	if len(redacted) > 0 {
 		fmt.Fprintf(&b, "\n**Redacted, never compared by `shrt verify`:** %s. A `redact` path blanks the value in every run record, "+
 			"so the safe spot holds no value there and verify cannot see it change; assert it in the chain if it matters.\n", strings.Join(redacted, ", "))
+	}
+	if len(scrubbed) > 0 {
+		fmt.Fprintf(&b, "\n**Scrubbed by value, never compared by `shrt verify`:** %s. No `redact` path covers them: each held a secret "+
+			"the run knew (a credential or token it sent), so the value was blanked; stop echoing the secret there if the field matters.\n", strings.Join(scrubbed, ", "))
 	}
 	patterns := volatileSummary(rec)
 	if len(patterns) == 0 {
@@ -331,14 +336,19 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	return b.String()
 }
 
-func redactedSummary(rec *runner.Record) []string {
-	out := []string{}
+func redactedSummary(rec *runner.Record) ([]string, []string) {
+	paths := pathmask.NewMasker(rec.Redacted)
+	redacted, scrubbed := []string{}, []string{}
 	for _, st := range rec.Steps {
 		for _, p := range pathmask.RedactedPaths(st.Response) {
-			out = append(out, "`"+st.ID+" "+p+"`")
+			if len(rec.Redacted) > 0 && !paths.Masks(p) {
+				scrubbed = append(scrubbed, "`"+st.ID+" "+p+"`")
+				continue
+			}
+			redacted = append(redacted, "`"+st.ID+" "+p+"`")
 		}
 	}
-	return out
+	return redacted, scrubbed
 }
 
 func volatileSummary(rec *runner.Record) []string {

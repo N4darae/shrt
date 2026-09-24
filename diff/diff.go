@@ -53,6 +53,7 @@ type Report struct {
 	ShapeMasked    []Change `json:"shape_masked,omitempty"`
 	Redacted       int      `json:"redacted"`
 	RedactedPaths  []string `json:"redacted_paths,omitempty"`
+	ScrubbedPaths  []string `json:"scrubbed_paths,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
@@ -100,6 +101,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	}
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
+	redactPaths := pathmask.NewMasker(rec.Redacted)
 	pairs, structural, tail := alignSteps(spot.Steps, rec.Steps, stoppedEarly)
 	rep.Changes = append(rep.Changes, structural...)
 	for _, p := range pairs {
@@ -133,7 +135,11 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			gotRedacted[p] = true
 		}
 		for _, p := range pathmask.RedactedPaths(want.Response) {
-			if gotRedacted[p] {
+			switch {
+			case !gotRedacted[p]:
+			case len(rec.Redacted) > 0 && !redactPaths.Masks(p):
+				rep.ScrubbedPaths = append(rep.ScrubbedPaths, want.ID+" "+p)
+			default:
 				rep.Redacted++
 				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
 			}
@@ -676,6 +682,11 @@ func (r *Report) Text() string {
 	if r.Redacted > 0 {
 		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in both records and were never compared, "+
 			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
+	}
+	if len(r.ScrubbedPaths) > 0 {
+		fmt.Fprintf(&b, "%d response value(s) under no redact path were scrubbed by value, blanked in both records because they held "+
+			"a secret the run knew (a credential or token it sent), and were never compared, so a change there is invisible to verify: %s\n",
+			len(r.ScrubbedPaths), strings.Join(r.ScrubbedPaths, ", "))
 	}
 	for _, c := range r.RequestChanges {
 		what := "request"
