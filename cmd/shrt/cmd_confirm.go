@@ -54,6 +54,9 @@ func runConfirm(ctx context.Context, args []string) error {
 		return errors.New(confirmUsage)
 	}
 	name := rest[0]
+	if err := e.knownChain(name); err != nil {
+		return err
+	}
 	switch {
 	case *approve && *reject:
 		return errors.New("-approve and -reject together say nothing; pick one")

@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
@@ -72,7 +73,30 @@ func Resolve(dir, ref string) (*Chain, error) {
 			return LoadFile(p)
 		}
 	}
-	return nil, fmt.Errorf("chain %q not found in %s", ref, dir)
+	return nil, fmt.Errorf("chain %q not found in %s%s", ref, dir, DidYouMean(ref, Names(dir)))
+}
+
+func Names(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := []string{}
+	for _, e := range entries {
+		ext := filepath.Ext(e.Name())
+		if !e.IsDir() && (ext == ".yaml" || ext == ".yml") {
+			out = append(out, strings.TrimSuffix(e.Name(), ext))
+		}
+	}
+	return out
+}
+
+func DidYouMean(ref string, names []string) string {
+	near := namecase.Closest(ref, names, 1)
+	if len(near) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (did you mean %q?)", near[0])
 }
 
 func (c *Chain) Marshal() ([]byte, error) {

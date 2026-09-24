@@ -49,6 +49,9 @@ func runVerify(ctx context.Context, args []string) error {
 		return err
 	}
 	name := rest[0]
+	if err := e.knownChain(name); err != nil {
+		return err
+	}
 	spot, err := e.store.LoadSafeSpot(name)
 	if err != nil {
 		if e.store.HasProposal(name) {

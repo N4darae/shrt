@@ -48,6 +48,11 @@ func compareRuns(_ context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if len(rest) == 1 || len(rest) == 3 {
+		if err := e.knownChain(rest[0]); err != nil {
+			return err
+		}
+	}
 	var a, b *runner.Record
 	switch len(rest) {
 	case 1:

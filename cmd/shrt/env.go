@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -62,6 +63,33 @@ func configLoadError(wd string, err error) error {
 }
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }
+
+func (e *env) knownChain(name string) error {
+	if strings.ContainsAny(name, "/\\") || e.store.HasProposal(name) {
+		return nil
+	}
+	known := chain.Names(e.chainsDir())
+	for _, n := range known {
+		if n == name {
+			return nil
+		}
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.Abs(e.cfg.Paths.Runs), name)); err == nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.Abs(e.cfg.Paths.SafeSpots), name+".json")); err == nil {
+		return nil
+	}
+	if entries, err := os.ReadDir(e.cfg.Abs(e.cfg.Paths.Runs)); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				known = append(known, entry.Name())
+			}
+		}
+	}
+	return fmt.Errorf("chain %q not found: no chain file in %s and no run, safe spot or proposal recorded for it%s",
+		name, e.chainsDir(), chain.DidYouMean(name, known))
+}
 
 func emitJSON(v any) error {
 	enc := json.NewEncoder(os.Stdout)
