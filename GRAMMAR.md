@@ -317,7 +317,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `run_id` | string | Timestamp-prefixed, e.g. `20260911T104434Z-e94560bd`. `-run latest` picks the newest by that prefix; runs started in the same second are ordered by `started_at`, then by file time. |
 | `chain` | string | Chain name, which is also the run directory and the safe-spot key. |
 | `chain_source` | string | Path the chain was loaded from. |
-| `target` | string | The base_url this ran against. A receipt quoted without it says nothing about which box answered. |
+| `target` | string | The base_url this ran against. A receipt quoted without it says nothing about which box answered. A run recorded against another base_url than the config's is not pinned from: `chain slice -mode pin` refuses it (exit 3 under `-verify`, nothing sent), a closure `-verify` whose verdict differs from it is `INCONCLUSIVE` naming both targets, and `chain which` cites no such run. |
 | `build` | string | Which build of the target answered: the `shrt run -build` label, else the value of `target.build_header`. Absent when neither is set, and then two builds behind one `target` are indistinguishable — do not compare such records across a deploy. |
 | `started_at` | time | UTC start time. |
 | `duration_ms` | int | Whole-run wall time. |

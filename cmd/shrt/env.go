@@ -64,6 +64,15 @@ func configLoadError(wd string, err error) error {
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }
 
+func (e *env) targetURL() string {
+	return strings.TrimRight(strings.TrimSpace(e.cfg.Target.BaseURL), "/")
+}
+
+func (e *env) otherTarget(recorded string) bool {
+	now := e.targetURL()
+	return recorded != "" && now != "" && strings.TrimRight(recorded, "/") != now
+}
+
 func (e *env) knownChain(name string) error {
 	if strings.ContainsAny(name, "/\\") || e.store.HasProposal(name) {
 		return nil

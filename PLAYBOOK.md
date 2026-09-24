@@ -896,7 +896,7 @@ shrt chain which -code 1218 -json
    other way round: a step whose newest reaching run FAILED there ranks first (one that still got
    the asserted envelope code before one that did not), then observed steps that passed, then
    steps no run reached, and the first `reproduce:` line slices the red step instead of a green
-   one. Run records are gitignored and machine-local, so a
+   one. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads
@@ -1023,7 +1023,11 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
      `-var name=<fresh>`. Only a flag that cannot be parsed exits 1.
-   - `INCONCLUSIVE` (3): the verdicts match, but the slice dropped write steps. A match can come
+   - `INCONCLUSIVE` (3), also when the source run was recorded against another target than the
+     config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
+     `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict
+     can come from the target. Run the chain here and slice from that run (`-run latest`).
+     Otherwise: the verdicts match, but the slice dropped write steps. A match can come
      from state the slice never built (a limit the dropped writes would have reached, say), so it
      is not a receipt. The output ends with a `next:` line —
      `shrt chain slice <src> -step <t> -run <source-run> -keep writes -verify -write` —

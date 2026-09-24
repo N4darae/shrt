@@ -36,7 +36,8 @@ const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
 	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
 	"     a missing or not-fresh -var name=<fresh>), so nothing was verified\n" +
-	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s)\n"
+	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s), or the source run was\n" +
+	"     recorded against another target than the config's (under -mode pin nothing is sent then)\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
@@ -116,6 +117,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		if err != nil {
 			return err
 		}
+		if err := foreignSourceRun(e, rec, *mode, *verify); err != nil {
+			return err
+		}
 		opts.RunID = rec.RunID
 		opts.Value = recordValues(rec)
 		opts.RunVars = recordVars(rec)
@@ -170,6 +174,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		}
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
 			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
+			otherTarget: sourceTargetDiffers(e, rec),
 			reslice: func(keep []string) *chain.SliceResult {
 				o := opts
 				o.Keep = keep
@@ -459,6 +464,7 @@ type sliceVerdict struct {
 	Differences  []string      `json:"differences,omitempty"`
 	Next         string        `json:"next,omitempty"`
 	NotKeepable  []string      `json:"not_keepable,omitempty"`
+	OtherTarget  string        `json:"source_target_differs,omitempty"`
 	Recorded     string        `json:"verdict_written_to,omitempty"`
 }
 
@@ -483,6 +489,29 @@ type sliceVerifyArgs struct {
 	keep    []string
 	build   string
 	reslice func(keep []string) *chain.SliceResult
+
+	otherTarget string
+}
+
+func sourceTargetDiffers(e *env, rec *runner.Record) string {
+	if rec == nil || !e.otherTarget(rec.Target) {
+		return ""
+	}
+	return fmt.Sprintf("the source run was recorded against %s, this target is %s", rec.Target, e.targetURL())
+}
+
+func foreignSourceRun(e *env, rec *runner.Record, mode string, verify bool) error {
+	where := sourceTargetDiffers(e, rec)
+	if where == "" || mode != chain.SliceModePin {
+		return nil
+	}
+	msg := fmt.Sprintf("%s: -mode pin would send the ids and values run %s was given there, which this target never issued,\n"+
+		"so its answer (a not-found) would say nothing about step behaviour. Slice with -mode closure, which rebuilds every\n"+
+		"producer on this target, or run the chain here (shrt run %s) and pin from that run: -run latest", where, rec.RunID, rec.Chain)
+	if verify {
+		return exitWith(3, "INCONCLUSIVE, nothing was sent: %s", msg)
+	}
+	return errors.New(msg)
 }
 
 func (v *sliceVerdict) text() string {
@@ -560,6 +589,9 @@ func (v *sliceVerdict) err() error {
 	case sliceDidNotRun:
 		return exitWith(2, "the slice DID NOT RUN step %s, so nothing was verified", v.Step)
 	case sliceInconclusive:
+		if v.OtherTarget != "" {
+			return exitWith(3, "step %s: INCONCLUSIVE, %s", v.Step, v.OtherTarget)
+		}
 		return exitWith(3, "step %s: INCONCLUSIVE, the verdict matched but the slice dropped write step(s)", v.Step)
 	}
 	return nil
@@ -611,6 +643,12 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	v.Replay = verdictOf(replay)
 	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToIDs)
 	switch {
+	case len(v.Differences) > 0 && a.otherTarget != "":
+		v.Outcome = sliceInconclusive
+		v.OtherTarget = a.otherTarget
+		v.Reason = a.otherTarget + ": the verdict differs, and the difference can come from the target (its data, build\n" +
+			"or configuration) rather than from what the slice left out. Run the chain on this target (shrt run " + rec.Chain + ")\n" +
+			"and verify the slice against that run: -run latest"
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
 		if res.UnderIncluded {
@@ -636,6 +674,9 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	default:
 		v.Outcome = sliceReproduced
 		v.Reproduced = true
+		if a.otherTarget != "" {
+			v.Reason = a.otherTarget + ": the slice gave step " + res.Target + " the verdict it had there"
+		}
 	}
 	return v, v.err()
 }
