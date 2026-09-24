@@ -684,7 +684,11 @@ what the backend answered (for a batch, with the per-item verdicts `conventions.
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
 uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
-id-shaped ones (`order.total_minor=4548`). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
+assert that still become the baseline verify compares (`also baselined: order.total_minor=300
+order.lines.0.qty=1`), leaving out ids, timestamps, volatile paths, empty strings and values
+echoing a var, shallow paths first, capped with `+N more`; read those too, since approving signs
+them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is
