@@ -58,6 +58,8 @@ type Options struct {
 	Ignored  func(root string, paths []string) (map[string]bool, error)
 	Rebuild  func(ctx context.Context, cfg *config.Config) ([]byte, error)
 	Catalog  func(cfg *config.Config) (*catalog.Catalog, error)
+
+	TokenKeys func(cfg *config.Config, target string) []string
 }
 
 func (o Options) withDefaults() Options {
@@ -89,6 +91,7 @@ var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkAuth,
 	checkConventions,
 	checkContracts,
+	checkUpgrade,
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) *Report {

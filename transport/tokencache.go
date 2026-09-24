@@ -21,6 +21,12 @@ func (s *LoginTokenSource) UseCache(path, profile string) {
 	s.cacheProfile = profile
 }
 
+func (s *LoginTokenSource) CacheKey() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cacheKey()
+}
+
 func (s *LoginTokenSource) cacheKey() string {
 	sum := sha256.New()
 	sum.Write([]byte(s.spec.Target))
