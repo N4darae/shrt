@@ -764,7 +764,9 @@ the safe spot's run sent, and prints each difference before the response changes
 another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. Two
 kinds of request difference are printed on one line but are NOT different input: a fixture name,
 a string that interpolates a var inside other text (`sku-${vars.tag}`, `Widget ${vars.tag}`), and a
-value under a `volatile` path. That is what a fresh `-var tag` changes, so a CI replay with a new
+value under a `volatile` path. A var is a fixture name only where it isolates: the chain reads it
+inside other text in some field that is not an id, and never next to digits alone; `qty: "${vars.q}0"`
+and `id_customer: cus-${vars.n}` are input. That is what a fresh `-var tag` changes, so a CI replay with a new
 tag is still compared like with like, and a response value that only echoes the new name (the
 confirmed value with the old name swapped for the new) is masked and counted. Every other request
 difference is input, and it explains only the response changes at its own step or later ones:
