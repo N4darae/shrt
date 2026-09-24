@@ -431,6 +431,14 @@ func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
 	if !ok {
 		return nil, false
 	}
+	if name, isHeader := strings.CutPrefix(path, diff.HeadersPathPrefix); isHeader {
+		for k, v := range s.Headers {
+			if strings.EqualFold(k, name) {
+				return v, true
+			}
+		}
+		return nil, false
+	}
 	return chain.Get(s.Body, path)
 }
 

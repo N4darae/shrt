@@ -615,6 +615,7 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 		g, has := got.Headers[k]
 		switch {
 		case had && has && w == g:
+		case had && has && (w == pathmask.MaskRedacted && runner.HeaderDigested(g) || g == pathmask.MaskRedacted && runner.HeaderDigested(w)):
 		case had && has:
 			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g})
 		case had:
