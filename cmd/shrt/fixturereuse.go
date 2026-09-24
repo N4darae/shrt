@@ -23,10 +23,19 @@ type fixtureReuse struct {
 	run    string
 	repeat string
 	before []string
+	unique []string
 }
 
 func (f *fixtureReuse) finding() bool {
-	return f != nil && f.repeat != ""
+	return f != nil && f.repeat != "" && len(f.unique) > 0
+}
+
+func (f *fixtureReuse) builtFrom() string {
+	parts := append([]string{}, f.vars...)
+	if len(f.unique) > 0 {
+		parts = append(parts, "${uuid} or a clock value ("+strings.Join(f.unique, ", ")+")")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func (f *fixtureReuse) verdict() string {
@@ -39,16 +48,24 @@ func (f *fixtureReuse) verdict() string {
 func (f *fixtureReuse) line() string {
 	if f.finding() {
 		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from %s, and the previous run "+
-			"%s of this chain was refused there the same way with %s, a different value no recorded run had created: two "+
-			"fresh values in a row cannot both collide with leftover fixtures, so the backend refuses the create itself. "+
+			"%s of this chain was refused there the same way with %s: a value built from ${uuid} or a clock value is unique to "+
+			"its run, so neither can collide with leftover fixtures or another client, and the backend refuses the create itself. "+
 			"This is a finding about the backend, not a fixture collision",
-			f.step, f.why, strings.Join(f.vars, ", "), f.repeat, strings.Join(f.before, ", "))
+			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
+	}
+	if f.run == "" && f.repeat != "" {
+		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
+			"and the previous run %s of this chain was refused there the same way with %s, also a value no recorded run had "+
+			"created: a repeat with fresh values points at the backend unless another client uses the same values (two "+
+			"pipelines deriving the tag from one commit SHA do), and shrt cannot tell which, so this is not a finding. Build "+
+			"the field from ${uuid} to have a repeat reported as one",
+			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
 	}
 	if f.run == "" {
 		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
 			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
 			"(another chain with the same value, another client, or a shared backend)",
-			f.step, f.why, strings.Join(f.vars, ", "))
+			f.step, f.why, f.builtFrom())
 	}
 	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
 		"and run %s of this chain already used that value, so the backend still holds what that run created",
@@ -93,8 +110,10 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	fields := []fixtureField{}
+	generated := generatedRequestPath(c)
 	visitLeaves(req, "", func(path string) {
-		if !named(first.ID, path) {
+		unique := generated(first.ID, path)
+		if !named(first.ID, path) && !unique {
 			return
 		}
 		v, ok := requestTemplate(c, first.ID, path)
@@ -102,7 +121,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		if !ok || !isText {
 			return
 		}
-		f := fixtureField{path: path}
+		f := fixtureField{path: path, unique: unique}
 		if sent, ok := chain.Get(req, path); ok {
 			f.sent = fmt.Sprint(sent)
 		}
@@ -114,10 +133,21 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		fields = append(fields, f)
 	})
 	fed := map[string]bool{}
-	for _, f := range conflictingFields(fields, why) {
+	conflicting := conflictingFields(fields, why)
+	unique := []string{}
+	for _, f := range conflicting {
 		for _, n := range f.vars {
 			fed[n] = true
 		}
+		if f.unique {
+			unique = append(unique, f.path+"="+f.sent)
+		}
+	}
+	if len(unique) != len(conflicting) {
+		unique = nil
+	}
+	if len(unique) > 0 {
+		return uniqueCollision(e, rec, first, index, why, conflicting, unique)
 	}
 	if len(fed) == 0 {
 		return nil
@@ -169,6 +199,38 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	return f
 }
 
+func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, fields []fixtureField, unique []string) *fixtureReuse {
+	f := &fixtureReuse{step: first.ID, index: index, why: why, unique: unique}
+	for _, field := range fields {
+		for _, n := range field.vars {
+			if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+				f.vars = append(f.vars, fmt.Sprintf("%s=%v", n, v))
+			}
+		}
+	}
+	prev := previousRunSending(e, rec, first.ID)
+	if prev == nil {
+		return f
+	}
+	st, ok := prev.Step(first.ID)
+	if !ok || st.Call != first.Call || !uniquenessConflict.MatchString(stepRefusalText(st)) {
+		return f
+	}
+	var req any
+	if json.Unmarshal(st.Request, &req) != nil {
+		return f
+	}
+	for _, field := range fields {
+		if v, ok := chain.Get(req, field.path); ok {
+			f.before = append(f.before, fmt.Sprintf("%s=%v", field.path, v))
+		}
+	}
+	if len(f.before) > 0 {
+		f.repeat = prev.RunID
+	}
+	return f
+}
+
 func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string) []string {
 	out := []string{}
 	for _, n := range names {
@@ -197,9 +259,10 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 }
 
 type fixtureField struct {
-	path string
-	sent string
-	vars []string
+	path   string
+	sent   string
+	vars   []string
+	unique bool
 }
 
 func conflictingFields(fields []fixtureField, why string) []fixtureField {

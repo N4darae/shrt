@@ -50,8 +50,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     and nothing drifted before it\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
 	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
-	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
-	"     with another fresh value: two fresh values in a row are not fixture noise;\n" +
+	"     also when a fixture collision on a field built from ${uuid} or a clock value follows a\n" +
+	"     previous run refused at the same step the same way: such values are unique to their run (a\n" +
+	"     repeat on var values stays exit 3, since another client may use the same values);\n" +
 	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
 	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
 	"     from the service), which keeps it exit 3\n" +
