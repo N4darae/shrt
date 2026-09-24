@@ -215,6 +215,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, rep.renames)
 	rep.Masked += len(renamed)
 	rep.ShapeMasked = append(rep.ShapeMasked, renamed...)
+	rep.dropEchoedUnapproved(rep.renames)
 	if len(tail) > 0 {
 		why := "the run stopped before this step"
 		if first != nil {
