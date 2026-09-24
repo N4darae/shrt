@@ -170,12 +170,18 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 			return nil, fmt.Errorf("POST %s: the target could not be reached (%w): the backend is down or not started, "+
 				"so nothing reached it and this is not a backend defect", url, err)
 		}
+		if ConnectionClosed(err) {
+			return nil, fmt.Errorf("POST %s: %w", url, closedError(err))
+		}
 		return nil, fmt.Errorf("POST %s: %w", url, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
+		if ConnectionClosed(err) {
+			return nil, fmt.Errorf("read %s: %w", url, closedError(err))
+		}
 		return nil, fmt.Errorf("read %s: %w", url, err)
 	}
 	res := &Result{

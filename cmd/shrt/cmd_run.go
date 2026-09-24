@@ -117,8 +117,8 @@ const runExitCodes = "\nexit codes:\n" +
 	"     descriptor that does not load, a conventions path no response declares, a step body the\n" +
 	"     proto rejects, checked for every step up front as -dry-run does)\n" +
 	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
-	"     a real response gave, target unreachable, login failed), so the run is not a verdict about\n" +
-	"     the backend\n"
+	"     a real response gave, target unreachable, the connection closed before a response because\n" +
+	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.Status {
