@@ -1043,6 +1043,12 @@ anything, a file given by path whose `name:` is that of a chain in `paths.chains
 chain's own file, and says to rename it. Refusing was chosen over storing such runs apart: every
 reader of `.shrt/runs/<name>` would have to learn a second place, and a rename is one line.
 
+A run record stripped of its seal and of every sealing-only field was refused when its `started_at`
+was after the first sealing build, but backdating `started_at` alone got it read as predating seals,
+so `verify -run` accepted an edited record. The run id's timestamp is checked too, and the later of
+the two decides: a record whose run id is dated after the cut-off is refused as edited whatever its
+`started_at` says.
+
 ---
 
 # Decisions, so they are not relitigated
