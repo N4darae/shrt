@@ -105,6 +105,12 @@ func runRun(ctx context.Context, args []string) error {
 		return runVerdict(rec)
 	}
 	fmt.Println(summary(rec, *dry))
+	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
+		fmt.Println("  " + loss.line())
+		if loss.finding() && rec.KeptRed == "" {
+			return fmt.Errorf("chain %s: %s", rec.Chain, loss.line())
+		}
+	}
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
 		if reuse := detectFixtureReuse(e, c, rec); reuse != nil {
 			fmt.Printf("  %s; re-run with a fresh value: shrt run %s %s\n", reuse.line(), rest[0], reuse.fresh())
@@ -135,7 +141,10 @@ const runExitCodes = "\nexit codes:\n" +
 	"     a real response gave, target unreachable, the connection closed before a response because\n" +
 	"     the backend stopped or crashed, a gateway answered for the service with a Connect unavailable\n" +
 	"     or a bare HTTP 502/503/504, login failed), so the run is not a verdict about the backend;\n" +
-	"     but a token a login in this run had just issued and the backend refused is reported as a\n" +
+	"     a token the backend accepted earlier in the run and then refused reads as a likely restart\n" +
+	"     mid-run, and exits 1 as a finding when the previous run that sent that step was refused\n" +
+	"     there the same way; a token a login in this run had just issued and the backend refused on\n" +
+	"     its first use is reported as a\n" +
 	"     possible auth regression\n"
 
 func runVerdict(rec *runner.Record) error {

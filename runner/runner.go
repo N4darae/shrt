@@ -412,14 +412,19 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 		return
 	}
 	sr.Status = StatusError
+	if fresh == transport.FreshTokenAccepted {
+		sr.Error = joinLines(sr.Error, "the backend refused a token that a login in this run issued and that it had accepted on an "+
+			"earlier call of this run: it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
+			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
+			"reported as a finding. Only a token refused on its first use "+
+			"suggests the backend refuses valid tokens")
+		return
+	}
 	evidence := ""
 	switch fresh {
 	case transport.FreshTokenRelogin:
 		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
 			"was re-sent with the new token, and the backend refused that too"
-	case transport.FreshTokenAccepted:
-		evidence = "the backend refused a token that a login in this run had just issued and that it had accepted on an " +
-			"earlier call of this run"
 	case transport.FreshTokenMinted:
 		evidence = "the backend refused a token that a login in this run had just issued"
 	}

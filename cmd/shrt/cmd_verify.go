@@ -40,8 +40,10 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     used, so something else created the record (fixture collision: re-run with a fresh -var);\n" +
 	"     or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
-	"     backend refused a token a login in this run had just issued, the credentials work and it\n" +
-	"     says this may be an auth regression\n"
+	"     backend refused a token a login in this run had just issued, on its first use, the\n" +
+	"     credentials work and it says this may be an auth regression\n" +
+	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
+	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -159,7 +161,7 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
-	loss := detectSessionLoss(rec)
+	loss := examineSessionLoss(e, rec)
 	var reuse *fixtureReuse
 	if !report.Clean() {
 		reuse = detectFixtureReuse(e, c, rec)
@@ -179,7 +181,9 @@ func runVerify(ctx context.Context, args []string) error {
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
-		if loss != nil {
+		if loss.finding() {
+			fmt.Println("FINDING: " + loss.line())
+		} else if loss != nil {
 			fmt.Println("WARNING: " + loss.line())
 		}
 		if !unanswered || anyAnswered(rec) {
@@ -194,6 +198,9 @@ func runVerify(ctx context.Context, args []string) error {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
+	}
+	if loss.finding() && !driftedBefore(rec, report, loss.index) {
+		return fmt.Errorf("%s: %s", name, loss.line())
 	}
 	if loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index) {
 		return exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+

@@ -372,11 +372,16 @@ perform the call); the step records `auth_retry: resent` with a warning. A write
 token the backend already accepted in this run is not re-sent, since the backend may already have
 performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
 fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
-When the refused token came from a login in THIS run (re-sent after a fresh login and refused again,
-or a write refused with a token just issued, perhaps accepted by earlier calls), the credentials
-work, so the step's error and `verify` both say it `may be an auth regression` in the backend with
-that evidence, instead of pointing at the credentials. It still exits 3; re-run, and report a
-repeat as a finding.
+When the refused token came from a login in THIS run and was refused on its first use (re-sent
+after a fresh login and refused again, or a write refused with a token just issued), the
+credentials work, so the step's error and `verify` both say it `may be an auth regression` in the
+backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run, and
+report a repeat as a finding. A token the backend accepted on earlier calls of this run and then
+refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
+error and `verify`'s `WARNING` say so and it exits 3; when data created before the refusal is still
+there after the re-login, that line says so too. When the previous run that sent the step was
+refused at the same step the same way, a restart does not explain it: `run` and `verify` print
+`auth refused at <rpc> ... a finding about the backend` and exit 1.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
