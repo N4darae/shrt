@@ -722,7 +722,7 @@ field that collided so the author can see which it means.
 
 ## 32. A whole corpus asserting an envelope this backend does not have
 
-**Symptom.** `shrt init` prints `17 of your 17 response message(s) carry a field at "status.code"`
+**Symptom.** `shrt init` prints `17 of your 17 rpc(s) answer with a message carrying a field at "status.code"`
 and asks you to paste a `conventions:` block. You are mid-adoption and do not. Nothing mentions it
 again — `shrt doctor` reports every check ok — and every chain you write asserts `error.code`, a path
 no response carries.

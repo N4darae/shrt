@@ -441,7 +441,7 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	best := found[0]
 	r.add(CheckConventions, LevelWarn,
 		fmt.Sprintf("no conventions.envelope_path is set, so the default %q is in force — but %d of "+
-			"your %d response message(s) carry a verdict at %q instead and none carries the default",
+			"your %d rpc(s) answer with a message carrying a verdict at %q instead and none carries the default",
 			chain.DefaultEnvelopePath, best.Count, len(cat.Methods()), best.Path),
 		"Check it against one response you know was refused, then set it:\n"+
 			"    conventions:\n        envelope_path: "+best.Path+"\n        envelope_ok: <the value there meaning success>\n"+
