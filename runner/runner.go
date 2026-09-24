@@ -19,6 +19,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/transport"
 )
@@ -1116,6 +1117,18 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
+	if key, repeated := repeatedKey(res.Body); repeated {
+		var last any
+		if err := json.Unmarshal(res.Body, &last); err == nil {
+			sr.Response = mustJSON(redactor.Apply(last), res.Body)
+		}
+		sr.Status = StatusFailed
+		sr.Expect = unevaluated(step.Expect, redactor)
+		sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
+			"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
+			"were not evaluated. A backend that writes a key twice is the defect to report", key)
+		return sr
+	}
 	canonical, populated, cerr := r.Catalog.CanonicalizeWithPresence(method.Output(), res.Body)
 	staleOutput := false
 	switch {
@@ -1179,7 +1192,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 
-	verdictDeclared := !staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))
+	verdictDeclared := (!staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))) ||
+		verdictBlocked(decoded, chain.EnvelopePath())
 	if len(step.Expect) == 0 {
 		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
@@ -1306,6 +1320,68 @@ func unassertedRefusalWarning(decoded any, verdictDeclared bool) string {
 		chain.EnvelopeOK(), path, text)
 }
 
+func verdictBlocked(decoded any, path string) bool {
+	segs := chain.SplitPath(path)
+	cur := decoded
+	for i, seg := range segs {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return i > 0 && cur != nil
+		}
+		key, ok := namecase.LookupKey(m, seg)
+		if !ok {
+			return false
+		}
+		cur = m[key]
+	}
+	return false
+}
+
+func repeatedKey(raw []byte) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var walk func(path string) (string, bool, error)
+	walk = func(path string) (string, bool, error) {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false, err
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return "", false, nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for dec.More() {
+				keyTok, err := dec.Token()
+				if err != nil {
+					return "", false, err
+				}
+				key, _ := keyTok.(string)
+				child := pathmask.Join(path, key)
+				if seen[key] {
+					return child, true, nil
+				}
+				seen[key] = true
+				if at, found, err := walk(child); found || err != nil {
+					return at, found, err
+				}
+			}
+		case '[':
+			for i := 0; dec.More(); i++ {
+				if at, found, err := walk(pathmask.Join(path, pathmask.IndexKey(i))); found || err != nil {
+					return at, found, err
+				}
+			}
+		}
+		_, err = dec.Token()
+		return "", false, err
+	}
+	at, found, _ := walk("")
+	return at, found
+}
+
 func verdictText(decoded any, path string) (string, bool) {
 	code, ok := chain.Get(decoded, path)
 	if !ok || code == nil {
@@ -1328,8 +1404,11 @@ func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation
 		if !verdictDeclared {
 			return chain.ExpectResult{}, false
 		}
-		detail := fmt.Sprintf("the response carries no verdict at %s: it is absent or empty, though this rpc's "+
-			"response message declares it, and no expectation on this step pins the verdict, so the ones that "+
+		why := "it is absent or empty, though this rpc's response message declares it"
+		if verdictBlocked(decoded, path) {
+			why = "a value on the way to it is not an object (as in a string status), so no code can be read there"
+		}
+		detail := fmt.Sprintf("the response carries no verdict at %s: "+why+", and no expectation on this step pins the verdict, so the ones that "+
 			"held read zero values nothing vouches for. If an absent verdict is what this rpc answers, pin it "+
 			"(%s exists: false); if not, the backend did not say it did what was asked", path, path)
 		return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: "", Passed: false, Detail: detail}, true
