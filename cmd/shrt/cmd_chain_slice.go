@@ -1047,10 +1047,10 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 		}
 		reused = append(reused, name)
 		switch v, ok := res.Chain.Vars[name]; {
+		case rec != nil && rec.Vars[name] != nil:
+			from = append(from, fmt.Sprintf("%s=%v, the value run %s used", name, rec.Vars[name], rec.RunID))
 		case !ok:
 			from = append(from, name+" unset")
-		case rec != nil && rec.Vars[name] != nil && fmt.Sprint(rec.Vars[name]) == fmt.Sprint(v):
-			from = append(from, fmt.Sprintf("%s=%v, the value run %s used", name, v, rec.RunID))
 		case fmt.Sprint(source.Vars[name]) == fmt.Sprint(v):
 			from = append(from, fmt.Sprintf("%s=%v, the default %s declares", name, v, source.Name))
 		default:

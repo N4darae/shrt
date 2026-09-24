@@ -101,8 +101,28 @@ func scrubValue(v any, secrets []string) any {
 		return t
 	case map[string]any:
 		out := make(map[string]any, len(t))
-		for k, item := range t {
-			out[k] = scrubValue(item, secrets)
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if scrubText(k, secrets) == k {
+				out[k] = scrubValue(t[k], secrets)
+			}
+		}
+		for _, k := range keys {
+			key := scrubText(k, secrets)
+			if key == k {
+				continue
+			}
+			for n := 2; ; n++ {
+				if _, taken := out[key]; !taken {
+					break
+				}
+				key = scrubText(k, secrets) + "#" + strconv.Itoa(n)
+			}
+			out[key] = scrubValue(t[k], secrets)
 		}
 		return out
 	case []any:

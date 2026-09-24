@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/namecase"
 )
 
 type exportOrigin struct {
@@ -22,6 +23,26 @@ func noteExports(s *Step, into map[string]exportOrigin) {
 var numericKinds = map[string]bool{
 	"int32": true, "int64": true, "uint32": true, "uint64": true, "sint32": true, "sint64": true,
 	"fixed32": true, "fixed64": true, "sfixed32": true, "sfixed64": true, "float": true, "double": true,
+}
+
+var dynamicWellKnown = map[string]bool{
+	"google.protobuf.Value": true, "google.protobuf.ListValue": true, "google.protobuf.Any": true,
+	"google.protobuf.Struct": true,
+}
+
+func isMessage(f *catalog.Field) bool {
+	return f.Kind == "message" || f.Kind == "group"
+}
+
+func collectionKind(f *catalog.Field) string {
+	elem := f.Kind
+	if isMessage(f) && f.Message != "" {
+		elem = f.Message
+	}
+	if f.MapKey != "" {
+		return "map"
+	}
+	return "repeated " + elem
 }
 
 var numericWellKnown = map[string]bool{
@@ -53,13 +74,35 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 	if s == nil || m == nil {
 		return nil, nil
 	}
-	walkTypedBody(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, target *catalog.Field, value string) {
+	walkTypedBody(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, target *catalog.Field, value string, whole bool) {
 		refs := collectRefs(value)
 		if len(refs) != 1 || strings.TrimSpace(value) != "${"+refs[0]+"}" {
 			return
 		}
-		src, where, ok := refSourceField(ParseRef(refs[0]), responses, exports)
+		src, where, collection, ok := refSourceField(ParseRef(refs[0]), responses, exports)
 		if !ok {
+			return
+		}
+		targetKind := target.Kind
+		if whole {
+			targetKind = collectionKind(target)
+		}
+		if whole || collection {
+			if whole == collection || dynamicWellKnown[src.Message] || (!whole && isMessage(target)) ||
+				(whole && target.MapKey != "" && isMessage(src)) {
+				return
+			}
+			sourceKind := src.Kind
+			if collection {
+				sourceKind = collectionKind(src)
+			}
+			never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a list or map "+
+				"cannot be sent as a single value, nor a single value as a list or map, so the request would be "+
+				"rejected after every earlier step had already hit the backend, and shrt run refuses the chain "+
+				"before sending anything", refs[0], path, targetKind, where, sourceKind))
+			return
+		}
+		if !numericKinds[target.Kind] {
 			return
 		}
 		kind, isNever, isMaybe := cannotBeNumber(src)
@@ -78,21 +121,21 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 	return never, maybe
 }
 
-func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool) {
+func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool, bool) {
 	if r.Err != nil {
-		return nil, "", false
+		return nil, "", false, false
 	}
 	step, rest := "", ""
 	if name, ok := r.ExportName(); ok {
 		if r.Kind == RefExports {
 			if _, sub, _ := strings.Cut(r.Rest, "."); sub != "" {
-				return nil, "", false
+				return nil, "", false, false
 			}
 		}
 		origin, known := exports[name]
 		if !known {
 			if r.Kind == RefExports {
-				return nil, "", false
+				return nil, "", false, false
 			}
 		} else {
 			step, rest = origin.step, strings.TrimPrefix(origin.path, "response.")
@@ -100,13 +143,13 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 	}
 	if step == "" {
 		if r.Kind != RefStep {
-			return nil, "", false
+			return nil, "", false, false
 		}
 		step, rest = r.Head, r.Rest
 	}
 	m, ok := responses[step]
 	if !ok || m == nil || rest == "" {
-		return nil, "", false
+		return nil, "", false, false
 	}
 	fields := catalog.DescribeMessage(m.Output()).Fields
 	msg := m.Output().FullName()
@@ -117,16 +160,20 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 	}
 	segs := SplitPath(rest)
 	f, found := catalog.ResponseFieldAt(fields, segs)
-	if !found || f == nil || f.Truncated || f.MapKey != "" {
-		return nil, "", false
+	if !found || f == nil || f.Truncated || len(segs) == 0 {
+		return nil, "", false, false
 	}
-	if f.Repeated && !isIndex(segs[len(segs)-1]) {
-		return nil, "", false
+	last := segs[len(segs)-1]
+	if f.MapKey != "" {
+		if !namecase.Equal(f.Name, last) {
+			return nil, "", false, false
+		}
+		return f, fmt.Sprintf("%s.%s", msg, rest), true, true
 	}
-	return f, fmt.Sprintf("%s.%s", msg, rest), true
+	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !isIndex(last), true
 }
 
-func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string)) {
+func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string, bool)) {
 	body, ok := v.(map[string]any)
 	if !ok {
 		return
@@ -138,19 +185,24 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 	sort.Strings(keys)
 	for _, key := range keys {
 		f, found := catalog.ResponseFieldAt(fields, []string{key})
-		if !found || f == nil || f.Truncated || f.MapKey != "" {
+		if !found || f == nil || f.Truncated {
 			continue
 		}
 		path := key
 		if prefix != "" {
 			path = prefix + "." + key
 		}
+		if text, isText := body[key].(string); isText && (f.Repeated || f.MapKey != "") {
+			fn(path, f, text, true)
+			continue
+		}
+		if f.MapKey != "" {
+			continue
+		}
 		visit := func(p string, item any) {
 			switch t := item.(type) {
 			case string:
-				if numericKinds[f.Kind] {
-					fn(p, f, t)
-				}
+				fn(p, f, t, false)
 			case map[string]any:
 				walkTypedBody(t, f.Fields, p, fn)
 			}

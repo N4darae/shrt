@@ -719,7 +719,9 @@ it still tolerates a refusal. A dead cached token therefore costs one extra logi
 whose connection closed mid-flight passed with the write performed twice and nothing recorded. shrt
 now never lets the transport re-send a request whose body was sent: such a drop is a step `error`
 saying whether the call took effect is unknown. A request that provably never left (nothing written
-on a stale idle connection) is still retried on a fresh connection.
+on a stale idle connection) is still retried on a fresh connection. Under `shrt verify` that step is
+judged like a refused authentication: the changes at or after it, which the lost call may explain,
+make `could not verify` (exit 3), not `regression`, unless a step before it drifted.
 
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
@@ -942,6 +944,9 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
+while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
+the same text are kept apart as `<redacted>` and `<redacted>#2`.
 
 ---
 

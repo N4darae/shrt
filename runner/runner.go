@@ -22,6 +22,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/transport"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type Runner struct {
@@ -1135,7 +1136,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
-	if key, repeated := repeatedKey(res.Body); repeated {
+	if key, repeated := repeatedKey(res.Body, method.Output()); repeated {
 		var last any
 		if err := json.Unmarshal(res.Body, &last); err == nil {
 			sr.Response = mustJSON(redactor.Apply(last), res.Body)
@@ -1355,11 +1356,11 @@ func verdictBlocked(decoded any, path string) bool {
 	return false
 }
 
-func repeatedKey(raw []byte) (string, bool) {
+func repeatedKey(raw []byte, md protoreflect.MessageDescriptor) (string, bool) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
-	var walk func(path string) (string, bool, error)
-	walk = func(path string) (string, bool, error) {
+	var walk func(path string, md protoreflect.MessageDescriptor, fd protoreflect.FieldDescriptor) (string, bool, error)
+	walk = func(path string, md protoreflect.MessageDescriptor, fd protoreflect.FieldDescriptor) (string, bool, error) {
 		tok, err := dec.Token()
 		if err != nil {
 			return "", false, err
@@ -1370,7 +1371,15 @@ func repeatedKey(raw []byte) (string, bool) {
 		}
 		switch delim {
 		case '{':
-			seen := map[string]bool{}
+			var fields protoreflect.FieldDescriptors
+			var mapValue protoreflect.FieldDescriptor
+			switch {
+			case fd != nil && fd.IsMap():
+				mapValue = fd.MapValue()
+			case md != nil && !strings.HasPrefix(string(md.FullName()), "google.protobuf."):
+				fields = md.Fields()
+			}
+			seen := map[string]string{}
 			for dec.More() {
 				keyTok, err := dec.Token()
 				if err != nil {
@@ -1378,17 +1387,42 @@ func repeatedKey(raw []byte) (string, bool) {
 				}
 				key, _ := keyTok.(string)
 				child := pathmask.Join(path, key)
-				if seen[key] {
+				identity := key
+				var childField protoreflect.FieldDescriptor
+				if mapValue != nil {
+					childField = mapValue
+				} else if fields != nil {
+					if f := fields.ByJSONName(key); f != nil {
+						childField = f
+					} else if f := fields.ByName(protoreflect.Name(key)); f != nil {
+						childField = f
+					}
+					if childField != nil {
+						identity = string(childField.Name())
+					}
+				}
+				if first, dup := seen[identity]; dup {
+					if first != key {
+						return child + " (also spelt " + first + ")", true, nil
+					}
 					return child, true, nil
 				}
-				seen[key] = true
-				if at, found, err := walk(child); found || err != nil {
+				seen[identity] = key
+				var childMsg protoreflect.MessageDescriptor
+				if childField != nil && !childField.IsMap() {
+					childMsg = childField.Message()
+				}
+				if at, found, err := walk(child, childMsg, childField); found || err != nil {
 					return at, found, err
 				}
 			}
 		case '[':
+			var elem protoreflect.MessageDescriptor
+			if fd != nil && fd.IsList() {
+				elem = fd.Message()
+			}
 			for i := 0; dec.More(); i++ {
-				if at, found, err := walk(pathmask.Join(path, pathmask.IndexKey(i))); found || err != nil {
+				if at, found, err := walk(pathmask.Join(path, pathmask.IndexKey(i)), elem, nil); found || err != nil {
 					return at, found, err
 				}
 			}
@@ -1396,7 +1430,7 @@ func repeatedKey(raw []byte) (string, bool) {
 		_, err = dec.Token()
 		return "", false, err
 	}
-	at, found, _ := walk("")
+	at, found, _ := walk("", md, nil)
 	return at, found
 }
 

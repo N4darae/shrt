@@ -117,7 +117,8 @@ const runExitCodes = "\nexit codes:\n" +
 	"     the producing step's message does not declare or a request path its request does not\n" +
 	"     declare, a reference whose declared type cannot fill the numeric field it is sent in (a\n" +
 	"     bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint\n" +
-	"     warning), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a\n" +
+	"     warning), a whole list or map into a single-valued field or a single value into a list or\n" +
+	"     map, an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a\n" +
 	"     config or descriptor that does not load, a conventions path no response declares, a step\n" +
 	"     body the proto rejects, checked for every step up front as -dry-run does)\n" +
 	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
