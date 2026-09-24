@@ -369,7 +369,7 @@ and both are removed on approval or `-reject`.
 | `proposed_by` | string | Who proposed the run with `shrt confirm -note`; `agent` unless `-by` named someone. |
 | `proposed_at` | time | When it was proposed. |
 | `supersedes` | string | The run id this replaced, when proposed with `-supersede`. |
-| `volatile` | list of string | Patterns masked before comparison. |
+| `volatile` | list of string | The volatile patterns approved with the run (config and chain), masked before comparison together with each step's own `volatile`. A replay masked with any other pattern, one added to the config or chain after approval, fails `shrt verify`, which names each such pattern and every value it hid, until a run under the wider mask is proposed with `-supersede` and approved. |
 | `digest` | string | Fingerprint of the confirmed steps. |
 | `steps` | list of steprecord | The confirmed step records, which a replay is diffed against. |
 

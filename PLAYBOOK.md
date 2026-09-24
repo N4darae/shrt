@@ -676,7 +676,11 @@ Three things that decide whether this works for a given chain:
   `""`, null, `0`, `undefined` or a different JSON kind, or disappeared, is reported. Anything else that differs every
   run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
   replay reports a regression that is not one. The price is that a wrong id that is still
-  id-shaped is not caught by `verify`; assert on it if it matters. This is per-chain work and it is why paving the corpus is not a bulk
+  id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
+  approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
+  the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
+  it hid, until a run under the wider mask is proposed with `-supersede` and approved. The report
+  counts the values volatile paths kept out; `verify -masked` lists them. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,

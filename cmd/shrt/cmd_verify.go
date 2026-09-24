@@ -36,6 +36,7 @@ func runVerify(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
+	listMasked := fs.Bool("masked", false, "list every response value a volatile pattern kept out of the comparison")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -101,7 +102,10 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		fmt.Println(report.Text())
-		if report.Clean() {
+		if *listMasked && len(report.VolatilePaths) > 0 {
+			fmt.Printf("values under volatile paths, not compared:\n  %s\n", strings.Join(report.VolatilePaths, "\n  "))
+		}
+		if report.Clean() && !report.Widened() {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 		}
 	}
@@ -117,6 +121,12 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
+	}
+	if report.Widened() {
+		return fmt.Errorf("the replay was masked with volatile pattern(s) the safe spot did not approve: %s.\n"+
+			"Remove them from the chain and config, or, if they are intended, run the chain and propose that run\n"+
+			"in place of the safe spot so a person approves the wider mask: shrt confirm %s -supersede -note \"...\"",
+			strings.Join(report.UnapprovedVolatile, ", "), name)
 	}
 	if !rec.Passed() {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)

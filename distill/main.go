@@ -185,7 +185,7 @@ var notes = map[string]string{
 	"SafeSpot.confirmed_at": "When.",
 	"SafeSpot.note":         "What makes this run correct: the approver's `-note`, else the proposer's.",
 	"SafeSpot.supersedes":   "The run id this replaced, when proposed with `-supersede`.",
-	"SafeSpot.volatile":     "Patterns masked before comparison.",
+	"SafeSpot.volatile":     "The volatile patterns approved with the run (config and chain), masked before comparison together with each step's own `volatile`. A replay masked with any other pattern, one added to the config or chain after approval, fails `shrt verify`, which names each such pattern and every value it hid, until a run under the wider mask is proposed with `-supersede` and approved.",
 	"SafeSpot.digest":       "Fingerprint of the confirmed steps.",
 	"SafeSpot.steps":        "The confirmed step records, which a replay is diffed against.",
 
