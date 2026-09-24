@@ -133,9 +133,11 @@ verify` recognises that case: when the first failing step is refused as a unique
 (`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
 of the chain already used (a run counts only if that step was answered and not refused there, so it
 created the record), it prints `fixture reused: ...` and, unless a step before it drifted,
-exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
-the chain used that value, the other record came from somewhere else (another chain with the same
-tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
+exits 3 with `could not verify <chain>: fixture reused`, not `regression`. It is also `fixture
+reused`, naming the chain and run, when a recorded run of ANOTHER chain of this repo sent the same
+value in a step that created it (`happy` and `cust2` both creating `c-${vars.tag}@...` under one
+tag). When no recorded run of any chain used that value, the other record came from somewhere else
+(another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
 way, with the same fresh `-var` hint. When the previous run of the chain that sent that step was
 refused there the same way with a different value that no recorded run had created, two fresh
 values in a row collided: that points at the backend unless another client uses the same values
