@@ -21,6 +21,9 @@ var ErrRunUnsealed = errors.New("the run record predates sealed run records")
 
 func SealState(rec *runner.Record) error {
 	if rec.Seal == "" {
+		if rec.Format != 0 {
+			return ErrRunEdited
+		}
 		return ErrRunUnsealed
 	}
 	seal, err := runSeal(rec)
@@ -35,6 +38,9 @@ func SealState(rec *runner.Record) error {
 
 func (s *Store) vouch(path string, rec *runner.Record) error {
 	switch err := SealState(rec); {
+	case errors.Is(err, ErrRunEdited) && rec.Seal == "":
+		return fmt.Errorf("%w: %s was written by a build that seals run records (it carries record format %d) but its seal was removed, so "+
+			"it is not what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.Format)
 	case errors.Is(err, ErrRunEdited):
 		return fmt.Errorf("%w: %s was changed after shrt wrote it (its content no longer matches its seal %s), so it is not "+
 			"what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.Seal)
@@ -52,6 +58,7 @@ func (s *Store) vouch(path string, rec *runner.Record) error {
 
 func (s *Store) SaveRun(rec *runner.Record) (string, error) {
 	path := s.runPath(rec.Chain, rec.RunID)
+	rec.Format = runner.RecordFormat
 	seal, err := runSeal(rec)
 	if err != nil {
 		return "", err
@@ -88,6 +95,10 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 	disk := &runner.Record{}
 	if err := readJSON(path, disk); err != nil {
 		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
+	}
+	if disk.Seal == "" && disk.Format != 0 {
+		return fmt.Errorf("%w: %s was written by a build that seals run records (it carries record format %d) but its seal was "+
+			"removed, so it is not what ran. Run the chain again and propose the new run", ErrRunEdited, path, disk.Format)
 	}
 	if disk.Seal == "" {
 		return fmt.Errorf("%w: run %s has no seal, because it was written before shrt sealed run records (or its seal was "+

@@ -726,7 +726,9 @@ what ran. A record written before seals existed is refused too, with a message t
 (`the run record predates sealed run records`) rather than calling it tampered; run the chain again
 and propose the new run. `diff`, `verify -run`, `chain slice`, `chain which` and `chain hollow`
 refuse an edited record too (`which` and `hollow` leave it out and name it), and read an unsealed
-older one as recorded after one `note:` line saying it predates seals. The seal catches an edit, not a forger who recomputes it: it is a checksum,
+older one as recorded after one `note:` line saying it predates seals. Deleting `seal` does not make
+a record look older: every sealing build also writes `format`, and a record that has `format` but no
+`seal` is refused everywhere as edited (`its seal was removed`). The seal catches an edit, not a forger who recomputes it: it is a checksum,
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
