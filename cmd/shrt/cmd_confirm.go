@@ -190,14 +190,14 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		return nil
 	}
 	var derived func(step, path string) bool
-	if c, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
+	c, cerr := chain.Resolve(e.chainsDir(), rec.Chain)
+	if cerr == nil {
 		derived = derivedRequestPath(c)
+	} else {
+		c = nil
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
-	out := []store.Differ{}
-	for _, p := range rep.UnapprovedVolatile {
-		out = append(out, store.Differ{Step: "-", Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
-	}
+	out := unapprovedVolatileDiffers(rep.UnapprovedVolatile, rec, c)
 	for _, c := range rep.RequestChanges {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}
@@ -211,6 +211,45 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 			side, c.Step = "run", "-"
 		}
 		out = append(out, store.Differ{Step: c.Step, Side: side, Path: c.Path, Delta: c.Transition()})
+	}
+	return out
+}
+
+func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.Chain) []store.Differ {
+	owners := map[string][]string{}
+	own := func(step string, ps []string) {
+		for _, p := range ps {
+			if !slices.Contains(owners[p], step) {
+				owners[p] = append(owners[p], step)
+			}
+		}
+	}
+	for _, st := range rec.Steps {
+		own(st.ID, st.Volatile)
+	}
+	if c != nil {
+		for _, st := range c.Steps {
+			own(st.ID, st.Volatile)
+		}
+	}
+	chainWide := map[string]bool{}
+	for _, p := range rec.Volatile {
+		chainWide[p] = true
+	}
+	if c != nil {
+		for _, p := range c.Volatile {
+			chainWide[p] = true
+		}
+	}
+	out := []store.Differ{}
+	for _, p := range patterns {
+		steps := owners[p]
+		if len(steps) == 0 || chainWide[p] {
+			steps = []string{"-"}
+		}
+		for _, step := range steps {
+			out = append(out, store.Differ{Step: step, Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
+		}
 	}
 	return out
 }
