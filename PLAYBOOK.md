@@ -734,8 +734,10 @@ shrt chain which -code 1218 -json
    absent the line says `got X at <path> (nothing at <asserted path>)`. A step that failed says
    `step FAILED`, followed by one `failed: <path> want=… got=…` line per failing expectation. When
    the newest run did not reach the step, a `newest run <id> did not reach it: step <status>` line
-   follows. `-json` carries the same facts as `asserts`, `observed` (with `holds`,
-   `asserted_path`, `failures` and `newer_runs_not_reaching`) and `newest_unreached`.
+   follows, or `newest run <id> did not reach it: run stopped at step <id> (<status>)` when that
+   run ended before the step was recorded at all. `-json` carries the same facts as `asserts`,
+   `observed` (with `holds`, `asserted_path`, `failures` and `newer_runs_not_reaching`) and
+   `newest_unreached` (with `stopped_at` and `stopped_status` for a run that ended earlier).
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
    `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
    contradicting one), because pinning that run's values is the cheaper reproduction of the same

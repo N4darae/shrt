@@ -50,8 +50,10 @@ type WhichEvidence struct {
 }
 
 type WhichNewest struct {
-	Run    string `json:"run"`
-	Status string `json:"status"`
+	Run           string `json:"run"`
+	Status        string `json:"status"`
+	StoppedAt     string `json:"stopped_at,omitempty"`
+	StoppedStatus string `json:"stopped_status,omitempty"`
 }
 
 type WhichStep struct {
@@ -159,7 +161,7 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		for i := range matches {
 			assert, _ := PrimaryAssertion(matches[i].Asserts, q.Code)
 			matches[i].Observed = evidenceFor(byStep[matches[i].Step], order, paths, assert, q.Code != "")
-			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order)
+			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, lastStepOf(c.Name, opts.Observations))
 			if matches[i].Observed != nil {
 				hit.Observed = true
 			}
@@ -272,7 +274,18 @@ func evidenceFor(list []Observation, order []string, paths []string, assert Code
 
 const statusPassed = "passed"
 
-func newestUnreached(list []Observation, order []string) *WhichNewest {
+func lastStepOf(chainName string, load func(string) []Observation) map[string]Observation {
+	last := map[string]Observation{}
+	if load == nil {
+		return last
+	}
+	for _, o := range load(chainName) {
+		last[o.Run] = o
+	}
+	return last
+}
+
+func newestUnreached(list []Observation, order []string, last map[string]Observation) *WhichNewest {
 	if len(order) == 0 {
 		return nil
 	}
@@ -290,7 +303,11 @@ func newestUnreached(list []Observation, order []string) *WhichNewest {
 		}
 		return &WhichNewest{Run: newest, Status: status}
 	}
-	return &WhichNewest{Run: newest, Status: "not in run"}
+	out := &WhichNewest{Run: newest, Status: "not in run"}
+	if o, ok := last[newest]; ok {
+		out.StoppedAt, out.StoppedStatus = o.Step, o.Status
+	}
+	return out
 }
 
 func codeIn(response any, paths []string) (string, string, bool) {
