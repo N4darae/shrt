@@ -154,7 +154,7 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	}
 }
 
-func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
+func (bs AuthBindings) principals() map[string]string {
 	defaults := pathmask.NewRedactor(config.DefaultRedact())
 	out := map[string]string{}
 	for _, b := range bs {
@@ -163,7 +163,7 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 		}
 		fields := map[string]any{}
 		for k, v := range b.BodyFields {
-			if redactor.Masks(k) || defaults.Masks(k) {
+			if defaults.Masks(k) {
 				continue
 			}
 			resolved, err := chain.AuthBodyScope().ResolveValue(v)
@@ -171,10 +171,7 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 				fields = nil
 				break
 			}
-			if redactor.MasksValue(k, resolved) {
-				continue
-			}
-			fields[k] = resolved
+			fields[k] = withoutSecrets(defaults, resolved, k)
 		}
 		if fields == nil {
 			continue
@@ -187,6 +184,28 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 		out[b.Profile] = hex.EncodeToString(sum[:8])
 	}
 	return out
+}
+
+func withoutSecrets(secrets *pathmask.Masker, v any, path string) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, item := range t {
+			sub := pathmask.Join(path, k)
+			if secrets.Masks(sub) {
+				continue
+			}
+			out[k] = withoutSecrets(secrets, item, sub)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for i, item := range t {
+			out = append(out, withoutSecrets(secrets, item, pathmask.Join(path, pathmask.IndexKey(i))))
+		}
+		return out
+	}
+	return v
 }
 
 func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
@@ -780,7 +799,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		scope.Now = r.Now
 	}
 	r.Auth.learnSecrets(redactor)
-	opts.principals = r.Auth.principals(redactor)
+	opts.principals = r.Auth.principals()
 	for _, step := range c.Steps {
 		if step != nil {
 			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
