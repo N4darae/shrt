@@ -37,6 +37,7 @@ type Report struct {
 	RunID          string   `json:"run_id"`
 	FirstFailure   string   `json:"first_failure,omitempty"`
 	RequestChanges []Change `json:"request_changes,omitempty"`
+	InputCause     string   `json:"input_cause,omitempty"`
 	Changes        []Change `json:"changes"`
 	Masked         int      `json:"masked"`
 }
@@ -353,8 +354,12 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
 	}
 	if len(r.RequestChanges) > 0 {
-		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: its input changed since it was confirmed\n",
-			len(r.RequestChanges), r.SafeSpotID)
+		cause := "its input changed since it was confirmed"
+		if r.InputCause != "" {
+			cause = r.InputCause
+		}
+		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: %s\n",
+			len(r.RequestChanges), r.SafeSpotID, cause)
 	}
 	if r.Clean() {
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)

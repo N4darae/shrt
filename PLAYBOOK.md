@@ -653,7 +653,9 @@ the safe spot's run sent, and prints each difference before the response changes
 another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. With a
 request difference the verdict is `drift with different input`, not `regression`: the backend was
 asked something else. Restore the input, or, when the edit is intended, bring the expectations in
-line, run it green, and propose that run with `shrt confirm <name> -supersede`.
+line, run it green, and propose that run with `shrt confirm <name> -supersede`. When the
+difference comes from vars rather than the chain file (a `-var` on this verify, or a `-run` recorded
+with other vars), verify names them, `qty=2, confirmed with 3`, instead of blaming the chain's input.
 
 Three things that decide whether this works for a given chain:
 

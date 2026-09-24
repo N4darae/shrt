@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -98,6 +100,21 @@ func runVerify(ctx context.Context, args []string) error {
 	if c != nil {
 		report.RequestChanges = diff.CompareRequests(spot, rec, derivedRequestPath(c))
 	}
+	varDrift := ""
+	if len(report.RequestChanges) > 0 {
+		only := map[string]any(vars)
+		if *useRun != "" {
+			only = nil
+		}
+		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only)
+	}
+	if varDrift != "" {
+		how := "set by -var; the chain file is not what differs"
+		if *useRun != "" {
+			how = "as run " + rec.RunID + " was recorded"
+		}
+		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
+	}
 	if *asJSON {
 		if err := emitJSON(map[string]any{"run": rec, "diff": report}); err != nil {
 			return err
@@ -116,6 +133,16 @@ func runVerify(ctx context.Context, args []string) error {
 		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
 			"This is not a verdict about the backend: start or reach the target and run verify again", name, step, why)
 	}
+	if !report.Clean() && varDrift != "" {
+		fix := "Verify without that -var to compare like with like"
+		if *useRun != "" {
+			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
+		}
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed because this run's vars differ from the confirmed run's (%s).\n"+
+			"%s; if the new value is intended, run the chain with it until it passes,\n"+
+			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			len(report.Changes), len(report.RequestChanges), varDrift, fix, name)
+	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
 			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
@@ -129,6 +156,46 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 	}
 	return nil
+}
+
+func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any) string {
+	var confirmed map[string]any
+	if prev, err := e.store.LoadRun(rec.Chain, spotRun); err == nil {
+		confirmed = prev.Vars
+	} else if c != nil {
+		redact := append(append([]string{}, e.cfg.Redact...), c.Redact...)
+		confirmed, _ = pathmask.NewRedactor(redact).Apply(c.Vars).(map[string]any)
+	} else {
+		return ""
+	}
+	names := []string{}
+	for k := range rec.Vars {
+		names = append(names, k)
+	}
+	for k := range confirmed {
+		if _, ok := rec.Vars[k]; !ok {
+			names = append(names, k)
+		}
+	}
+	sort.Strings(names)
+	out := []string{}
+	for _, k := range names {
+		if _, supplied := only[k]; only != nil && !supplied {
+			continue
+		}
+		now, had := rec.Vars[k], confirmed[k]
+		_, inNow := rec.Vars[k]
+		_, inBefore := confirmed[k]
+		switch {
+		case inNow && !inBefore:
+			out = append(out, fmt.Sprintf("%s=%v, confirmed without it", k, now))
+		case !inNow && inBefore:
+			out = append(out, fmt.Sprintf("%s unset, confirmed with %v", k, had))
+		case fmt.Sprint(now) != fmt.Sprint(had):
+			out = append(out, fmt.Sprintf("%s=%v, confirmed with %v", k, now, had))
+		}
+	}
+	return strings.Join(out, "; ")
 }
 
 func orUnknown(s string) string {
