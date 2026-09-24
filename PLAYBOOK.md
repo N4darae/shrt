@@ -131,7 +131,8 @@ chain lints without a warning and its first run needs no `-var`. The second run 
 values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt
 verify` recognises that case: when the first failing step is refused as a uniqueness conflict
 (`already exists`, `SkuTaken`, `duplicate`) on a field built from a var whose value a recorded run
-of the chain already used, it prints `fixture reused: ...` and, unless a step before it drifted,
+of the chain already used (a run counts only if that step was answered and not refused there, so it
+created the record), it prints `fixture reused: ...` and, unless a step before it drifted,
 exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
 the chain used that value, the other record came from somewhere else (another chain with the same
 tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same

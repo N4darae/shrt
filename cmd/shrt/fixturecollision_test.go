@@ -73,3 +73,22 @@ func TestRunPrintsTheFixtureCollisionHint(t *testing.T) {
 		t.Fatalf("run must name the fixture collision and suggest a fresh -var:\n%s", out)
 	}
 }
+
+func TestAnEarlierRefusedRunDidNotUseTheFixture(t *testing.T) {
+	srv := newUniqueNameBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
+	ctx := context.Background()
+	approveUniqueChain(t, ctx)
+	createForeignThing(t, srv.URL, "widget dup")
+	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=dup"}) })
+	var err error
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-unique", "-quiet", "-var", "tag=dup"}) })
+	if err == nil || strings.Contains(err.Error(), "fixture reused") {
+		t.Fatalf("the earlier run's create was refused, so it created nothing and did not use the value: %v\n%s", err, out)
+	}
+	if !strings.Contains(err.Error(), "fixture collision") {
+		t.Fatalf("with no own run having created the record, it is a fixture collision: %v", err)
+	}
+}

@@ -108,7 +108,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun {
+		if err != nil || prev.DryRun || !createdBy(prev, first.ID) {
 			continue
 		}
 		same := []string{}
@@ -133,6 +133,16 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	return &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+}
+
+func createdBy(rec *runner.Record, step string) bool {
+	for _, st := range rec.Steps {
+		if st == nil || st.ID != step {
+			continue
+		}
+		return st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
+	}
+	return false
 }
 
 func stepRefusalText(st *runner.StepRecord) string {
