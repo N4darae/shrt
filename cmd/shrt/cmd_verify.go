@@ -17,6 +17,7 @@ import (
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 	"github.com/N4darae/shrt/transport"
+	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -436,7 +437,44 @@ func isolationVars(c *chain.Chain) map[string]bool {
 }
 
 func requestFixtures(c *chain.Chain) diff.Fixtures {
-	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c)}
+	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c), Var: fixtureOnlyVar(c)}
+}
+
+func fixtureOnlyVar(c *chain.Chain) func(string) bool {
+	isolating := isolationVars(c)
+	fixture := fixtureTemplate(c)
+	disqualified := map[string]bool{}
+	var visit func(v any)
+	visit = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			for _, x := range t {
+				visit(x)
+			}
+		case []any:
+			for _, x := range t {
+				visit(x)
+			}
+		case string:
+			refs := requestRef.FindAllStringSubmatch(t, -1)
+			if len(refs) == 0 || fixture(t) {
+				return
+			}
+			for _, m := range refs {
+				if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+					disqualified[n[1]] = true
+				}
+			}
+		}
+	}
+	raw, err := c.Marshal()
+	var doc map[string]any
+	if err != nil || yaml.Unmarshal(raw, &doc) != nil {
+		return func(string) bool { return false }
+	}
+	delete(doc, "vars")
+	visit(doc)
+	return func(name string) bool { return isolating[name] && !disqualified[name] }
 }
 
 func generatedRequestPath(c *chain.Chain) func(step, path string) bool {

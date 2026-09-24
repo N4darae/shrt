@@ -24,9 +24,10 @@ type StepStatus struct {
 }
 
 type VarChange struct {
-	Name string `json:"name"`
-	A    any    `json:"a"`
-	B    any    `json:"b"`
+	Name    string `json:"name"`
+	A       any    `json:"a"`
+	B       any    `json:"b"`
+	Fixture bool   `json:"fixture,omitempty"`
 }
 
 type RunReport struct {
@@ -104,6 +105,11 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		rep.KeepGoingA, rep.KeepGoingB = a.KeepGoing, b.KeepGoing
 	}
 	rep.VarChanges = varChanges(a.Vars, b.Vars)
+	if fx.Var != nil {
+		for i := range rep.VarChanges {
+			rep.VarChanges[i].Fixture = fx.Var(rep.VarChanges[i].Name)
+		}
+	}
 	byID := map[string]*runner.StepRecord{}
 	allB := map[string]*runner.StepRecord{}
 	for _, s := range b.Steps {
@@ -436,11 +442,21 @@ func (r *RunReport) Text() string {
 		}
 	}
 	if len(r.VarChanges) > 0 {
-		parts := make([]string, 0, len(r.VarChanges))
+		parts, fixtures := []string{}, []string{}
 		for _, v := range r.VarChanges {
-			parts = append(parts, fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B)))
+			part := fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B))
+			if v.Fixture {
+				fixtures = append(fixtures, part)
+			} else {
+				parts = append(parts, part)
+			}
 		}
-		fmt.Fprintf(&b, "\nthe runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
+		if len(parts) > 0 {
+			fmt.Fprintf(&b, "\nthe runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
+		}
+		if len(fixtures) > 0 {
+			fmt.Fprintf(&b, "\nfixture vars differ, echoes masked: %s\n", strings.Join(fixtures, "; "))
+		}
 	}
 	if r.FirstFailureA != r.FirstFailureB {
 		fmt.Fprintf(&b, "\nfirst failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
