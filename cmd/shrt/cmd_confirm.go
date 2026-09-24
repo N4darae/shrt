@@ -164,15 +164,24 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 		if err != nil || !prev.Passed() || prev.DryRun || prev.Target != rec.Target {
 			continue
 		}
-		base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
-		rep := diff.CompareMasking(base, rec, currentVolatile(e, rec.Chain))
-		out := []string{}
-		for _, c := range rep.Changes {
-			out = append(out, c.Step+" "+c.Path)
-		}
-		return prev.RunID, out
+		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
+		return prev.RunID, unstableAgainst(prev, rec, currentVolatile(e, rec.Chain), c)
 	}
 	return "", nil
+}
+
+func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain) []string {
+	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
+	rep := diff.CompareMasking(base, rec, volatile)
+	if c != nil {
+		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
+		rep.SeparateInput(base, rec, volatile, fixtureRequestPath(c))
+	}
+	out := []string{}
+	for _, ch := range rep.Changes {
+		out = append(out, ch.Step+" "+ch.Path)
+	}
+	return out
 }
 
 func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {

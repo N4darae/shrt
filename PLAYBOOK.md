@@ -702,7 +702,10 @@ language, give:
    response): approving sets no baseline for it, so narrow the pattern unless that is intended.
    The summary compares the run with the previous passing run of the chain against the same
    target (a run against another backend says nothing about this one) and lists each field
-   that differed and is not masked: every `verify` would report those as drift. Pass the warning
+   that differed and is not masked the way `verify` masks it: every `verify` would report those
+   as drift. An id, a timestamp, and a value that only echoes a fixture name (a response `sku`,
+   `name` or `email` that follows the run's `sku-${vars.tag}`) are masked by `verify` and are not
+   listed, so do not declare them volatile. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
