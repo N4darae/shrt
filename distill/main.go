@@ -730,6 +730,11 @@ func exerciseDiff() (string, error) {
 	fmt.Fprintf(&b, "(a path the baseline did not have), `%s` (same JSON type, different value), `%s` (different JSON\n", diff.KindChanged, diff.KindType)
 	fmt.Fprintf(&b, "type), `%s` (a list or the step count has a different number of items), `%s` (a step id or rpc\n", diff.KindLength, diff.KindOrder)
 	fmt.Fprintf(&b, "differs at that position), `%s` (the step's pass/fail status changed).\n", diff.KindStatus)
+	b.WriteString("`shrt verify` pairs the safe spot's steps with the run's by step id when every id is unique, so a\n")
+	b.WriteString("step removed from the middle is one `missing` change at `step`, an added one one `unexpected`, the\n")
+	b.WriteString("steps after it are still compared with their own records, and `order` at `steps` is printed once,\n")
+	b.WriteString("only when the steps both runs have come in another order. The input line counts chain changes and\n")
+	b.WriteString("request values apart (`1 chain change(s) since the safe spot's run ...`).\n")
 	return b.String(), nil
 }
 

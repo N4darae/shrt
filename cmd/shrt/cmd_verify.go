@@ -184,10 +184,10 @@ func runVerify(ctx context.Context, args []string) error {
 		if len(edits) > 0 {
 			fix += ", and restore the chain's edit (" + strings.Join(edits, ", ") + ")"
 		}
-		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed because this run's vars differ from the confirmed run's (%s).\n"+
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s because this run's vars differ from the confirmed run's (%s).\n"+
 			"%s; if the new value is intended, run the chain with it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
-			len(report.Changes), len(report.RequestChanges), varDrift, fix, name)
+			len(report.Changes), report.InputSummary(), varDrift, fix, name)
 	}
 	if report.PrincipalChanged() {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile than the confirmed run (%s).\n"+
@@ -196,10 +196,10 @@ func runVerify(ctx context.Context, args []string) error {
 			len(report.Changes), principalChanges(report), name)
 	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
-		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s since it was confirmed.\n"+
 			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
-			len(report.Changes), len(report.RequestChanges), name)
+			len(report.Changes), report.InputSummary(), name)
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))

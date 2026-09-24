@@ -100,15 +100,10 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	}
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
-	if len(spot.Steps) != len(rec.Steps) && !stoppedEarly {
-		rep.Changes = append(rep.Changes, Change{
-			Path: "steps", Kind: KindLength,
-			Want: len(spot.Steps), Got: len(rec.Steps),
-		})
-	}
-	n := min(len(spot.Steps), len(rec.Steps))
-	for i := range n {
-		want, got := spot.Steps[i], rec.Steps[i]
+	pairs, structural, tail := alignSteps(spot.Steps, rec.Steps, stoppedEarly)
+	rep.Changes = append(rep.Changes, structural...)
+	for _, p := range pairs {
+		i, want, got := p.i, p.want, p.got
 		if want.ID != got.ID || want.Call != got.Call {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: fmt.Sprintf("steps.%d", i), Kind: KindOrder,
@@ -161,18 +156,93 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			}
 		}
 	}
-	if stoppedEarly {
+	if len(tail) > 0 {
 		why := "the run stopped before this step"
 		if first != nil {
 			why = fmt.Sprintf("the run stopped at step %d %s", first.Index, first.ID)
 		}
-		for _, want := range spot.Steps[n:] {
+		for _, want := range tail {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached, Want: want.Status, Detail: why,
 			})
 		}
 	}
 	return rep
+}
+
+type stepPair struct {
+	i         int
+	want, got *runner.StepRecord
+}
+
+func uniqueIDs(steps []*runner.StepRecord) bool {
+	seen := map[string]bool{}
+	for _, st := range steps {
+		if st.ID == "" || seen[st.ID] {
+			return false
+		}
+		seen[st.ID] = true
+	}
+	return true
+}
+
+func alignSteps(spot, rec []*runner.StepRecord, stoppedEarly bool) ([]stepPair, []Change, []*runner.StepRecord) {
+	pairs, structural, tail := []stepPair{}, []Change{}, []*runner.StepRecord{}
+	if !uniqueIDs(spot) || !uniqueIDs(rec) {
+		if len(spot) != len(rec) && !stoppedEarly {
+			structural = append(structural, Change{Path: "steps", Kind: KindLength, Want: len(spot), Got: len(rec)})
+		}
+		n := min(len(spot), len(rec))
+		for i := range n {
+			pairs = append(pairs, stepPair{i, spot[i], rec[i]})
+		}
+		if stoppedEarly {
+			tail = spot[n:]
+		}
+		return pairs, structural, tail
+	}
+	recAt := map[string]int{}
+	for j, st := range rec {
+		recAt[st.ID] = j
+	}
+	inSpot := map[string]bool{}
+	lastPresent := -1
+	for i, st := range spot {
+		inSpot[st.ID] = true
+		if _, ok := recAt[st.ID]; ok {
+			lastPresent = i
+		}
+	}
+	for i, st := range spot {
+		j, ok := recAt[st.ID]
+		switch {
+		case ok:
+			pairs = append(pairs, stepPair{i, st, rec[j]})
+		case stoppedEarly && i > lastPresent:
+			tail = append(tail, st)
+		default:
+			structural = append(structural, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call, Detail: "this run has no such step"})
+		}
+	}
+	for _, st := range rec {
+		if !inSpot[st.ID] {
+			structural = append(structural, Change{Step: st.ID, Path: "step", Kind: KindUnexpected, Got: st.Call, Detail: "the safe spot has no such step"})
+		}
+	}
+	wasOrder := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		wasOrder = append(wasOrder, p.want.ID)
+	}
+	nowOrder := make([]string, 0, len(pairs))
+	for _, st := range rec {
+		if inSpot[st.ID] {
+			nowOrder = append(nowOrder, st.ID)
+		}
+	}
+	if strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+		structural = append(structural, Change{Step: "-", Path: "steps", Kind: KindOrder, Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+	}
+	return pairs, structural, tail
 }
 
 func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []string, derived func(step, path string) bool) *Report {
@@ -288,6 +358,25 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 		})
 	}
 	return out
+}
+
+func (r *Report) InputSummary() string {
+	requests, edits := 0, 0
+	for _, c := range r.RequestChanges {
+		if chainLevel(c) || c.Path == ExpectPath {
+			edits++
+		} else {
+			requests++
+		}
+	}
+	parts := []string{}
+	if requests > 0 {
+		parts = append(parts, fmt.Sprintf("%d request value(s) differ", requests))
+	}
+	if edits > 0 {
+		parts = append(parts, fmt.Sprintf("%d chain change(s)", edits))
+	}
+	return strings.Join(parts, " and ")
 }
 
 func (c Change) Transition() string {
@@ -509,6 +598,12 @@ func (c Change) describeValues() string {
 	if c.Kind == KindLength {
 		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
 	}
+	if c.Path == "step" && c.Kind == KindMissing {
+		return fmt.Sprintf("want=%v got=absent", c.Want)
+	}
+	if c.Path == "step" && c.Kind == KindUnexpected {
+		return fmt.Sprintf("want=absent got=%v", c.Got)
+	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
 	}
@@ -602,8 +697,7 @@ func (r *Report) Text() string {
 		if r.InputCause != "" {
 			cause = r.InputCause
 		}
-		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: %s\n",
-			len(r.RequestChanges), r.SafeSpotID, cause)
+		fmt.Fprintf(&b, "%s since the safe spot's run %s: %s\n", r.InputSummary(), r.SafeSpotID, cause)
 	}
 	if r.Clean() && r.PrincipalChanged() {
 		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile than the confirmed run, "+

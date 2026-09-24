@@ -451,6 +451,11 @@ Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON
 type), `length` (a list or the step count has a different number of items), `order` (a step id or rpc
 differs at that position), `status` (the step's pass/fail status changed).
+`shrt verify` pairs the safe spot's steps with the run's by step id when every id is unique, so a
+step removed from the middle is one `missing` change at `step`, an added one one `unexpected`, the
+steps after it are still compared with their own records, and `order` at `steps` is printed once,
+only when the steps both runs have come in another order. The input line counts chain changes and
+request values apart (`1 chain change(s) since the safe spot's run ...`).
 
 ## 8. Closed vocabularies
 
