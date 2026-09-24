@@ -71,6 +71,7 @@ func runConfirm(ctx context.Context, args []string) error {
 		return nil
 	}
 
+	e.store.Notes = nil
 	rec, err := e.store.LoadRun(name, *runID)
 	if err != nil {
 		return err

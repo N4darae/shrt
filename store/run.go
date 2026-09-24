@@ -90,8 +90,9 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
 	}
 	if disk.Seal == "" {
-		return fmt.Errorf("%w: run %s has no seal, so an edit to it cannot be ruled out: it was written before run "+
-			"records were sealed, or its seal was removed. Run the chain again and propose the new run", ErrRunEdited, rec.RunID)
+		return fmt.Errorf("%w: run %s has no seal, because it was written before shrt sealed run records (or its seal was "+
+			"removed), so it cannot be checked for edits and cannot be proposed. Run the chain again and propose the new run: "+
+			"shrt run %s, then shrt confirm %s -note \"...\"", ErrRunUnsealed, rec.RunID, rec.Chain, rec.Chain)
 	}
 	seal, err := runSeal(disk)
 	if err != nil {

@@ -67,8 +67,11 @@ func TestAnUnsealedRunRecordCannotBeProposed(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = s.Propose(loaded, store.ProposalInput{Checked: "looks right"})
-	if !errors.Is(err, store.ErrRunEdited) || !strings.Contains(strings.ToLower(err.Error()), "run the chain again") {
-		t.Fatalf("a record with no seal cannot be told from an edited one, so it is refused with a way out; got %v", err)
+	if !errors.Is(err, store.ErrRunUnsealed) || !strings.Contains(strings.ToLower(err.Error()), "run the chain again") {
+		t.Fatalf("a record with no seal cannot be checked for edits, so it is refused with a way out; got %v", err)
+	}
+	if !strings.HasPrefix(err.Error(), "the run record predates sealed run records") || strings.Contains(err.Error(), "not the one shrt wrote") {
+		t.Fatalf("an unsealed record is refused first as predating seals, not as tampered; got %v", err)
 	}
 }
 
