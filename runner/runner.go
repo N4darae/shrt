@@ -459,8 +459,8 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	}
 	sr.Status = StatusError
 	if fresh == transport.FreshTokenAccepted {
-		sr.Error = joinLines(sr.Error, "the backend refused a token that a login in this run issued and that it had accepted on an "+
-			"earlier call of this run: it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
+		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run (issued by a "+
+			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
 			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
 			"reported as a finding. Only a token refused on its first use "+
 			"suggests the backend refuses valid tokens")
@@ -477,14 +477,21 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	if evidence != "" {
 		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
 			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
-			"because the rpc itself never answered; re-run to confirm, and treat a repeat as a finding")
+			"because the rpc itself never answered; re-run to confirm: refused again at the same step, each time with a freshly "+
+			"issued token, run and verify report it as a finding")
 		return
 	}
 	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
 		"check the credentials of the step's auth profile and re-run")
 }
 
-func authRetryWarning(retry string, cached bool) string {
+func authRetryWarning(retry string, cached, freshRefused bool) string {
+	if retry == AuthRetryResent && cached && freshRefused {
+		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
+			"and was refused at authentication, so the token was dropped, a fresh login made, and this call re-sent; the " +
+			"backend refused the token that login had just issued too, so a stale cached token does not explain the " +
+			"refusal. This record is the second answer"
+	}
 	if retry == AuthRetryResent && cached {
 		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
 			"and the backend refused it at authentication (a restart or a revoke), so it did not perform the call: the " +
@@ -1221,7 +1228,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
 		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
-		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached))
+		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
+		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached, fresh == transport.FreshTokenRelogin))
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
 		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)

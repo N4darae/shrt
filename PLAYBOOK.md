@@ -136,7 +136,10 @@ created the record), it prints `fixture reused: ...` and, unless a step before i
 exits 3 with `could not verify <chain>: fixture reused`, not `regression`. When no recorded run of
 the chain used that value, the other record came from somewhere else (another chain with the same
 tag, another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
-way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
+way, with the same fresh `-var` hint. When the previous run of the chain that sent that step was
+refused there the same way with a different value that no recorded run had created, two fresh
+values in a row collided, which leftover fixtures cannot explain: it prints `FINDING: ...` naming
+both values and exits 1, a finding about the backend. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
 `email`); when it names none, every fixture field of the step counts. A var that
@@ -366,22 +369,32 @@ attaches the header, re-logging in on expiry — a chain that passes today must 
 from an expired token, because that is a false fail, not a regression. With `expires_path` the
 refresh happens before the call goes out. A call answered unauthenticated (401, or the envelope
 saying so) drops the token either way and makes a fresh login. The call is then re-sent when it is a
-READ (`conventions.read_only_prefixes`), or when its token came from the on-disk cache and no call
-in this run had used it yet (the backend restarted and refused it at authentication, so it did not
-perform the call); the step records `auth_retry: resent` with a warning. A write refused with a
-token the backend already accepted in this run is not re-sent, since the backend may already have
+READ (`conventions.read_only_prefixes`), or when its token came from the on-disk cache, no call
+in this run had used it yet, and the answer was HTTP 401 (the backend restarted and refused it at
+authentication, before the handler, so it did not perform the call); the step records
+`auth_retry: resent` with a warning. A write refused with a token the backend already accepted in
+this run, or refused in-band (HTTP 200 with `unauthenticated` at the envelope path, which means the
+handler ran) even with an untried cached token, is not re-sent, since the backend may already have
 performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
 fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
 When the refused token came from a login in THIS run and was refused on its first use (re-sent
 after a fresh login and refused again, or a write refused with a token just issued), the
 credentials work, so the step's error and `verify` both say it `may be an auth regression` in the
-backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run, and
-report a repeat as a finding. A token the backend accepted on earlier calls of this run and then
+backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run. When the
+previous run that sent the step was refused there the same way, each time with the token its own
+login had just issued, `run` and `verify` print `auth refused at <rpc> ... a finding about the
+backend` and exit 1. A cached token refused and re-sent after a fresh login that is refused too
+does not blame the cache: its warning says a stale cached token does not explain the refusal. A token the backend accepted on earlier calls of this run and then
 refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
-error and `verify`'s `WARNING` say so and it exits 3; when data created before the refusal is still
-there after the re-login, that line says so too. When the previous run that sent the step was
+error and `verify`'s `WARNING` say so and it exits 3, whether the token came from a login in this
+run or from the on-disk cache; when data created before the refusal is still there after the
+re-login (a later step answered with an id created before it, not merely answered), that line says
+so too. When the previous run that sent the step was
 refused at the same step the same way, a restart does not explain it: `run` and `verify` print
-`auth refused at <rpc> ... a finding about the backend` and exit 1.
+`auth refused at <rpc> ... a finding about the backend` and exit 1. Evidence of a restart in either
+run overrides that repeat: data created before the refusal gone after the re-login (a later step
+reading it was refused naming its id, or as not found), or a step before the refusal that got no
+answer from the service (a gateway answer, a dropped connection). Then it stays a restart, exit 3.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
