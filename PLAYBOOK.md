@@ -675,7 +675,8 @@ Three things that decide whether this works for a given chain:
   first red (`-run <id>` of a run made without `-keep-going`) reports every step after the stop
   as `not_reached`.
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
-  credential, so the after-check costs one run, not two. It is also how you investigate a drift
+  credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
+  copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
   without spending another live run.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
