@@ -381,6 +381,9 @@ Produced by running `diff.Compare` on a fabricated safe spot and replay:
 | `qty` went from `1` to `2` | **yes** |
 | `created_at` changed, and is `volatile` | no |
 | `note` did not change | no |
+| `owner_id` changed, NOT volatile, but its name is id-shaped | no |
+| `seen` changed, NOT volatile, but both values are timestamps | no |
+| `lines` went from 2 items to 1 | **yes** |
 | `qty` went from the STRING `"1"` to the NUMBER `1` | **yes** |
 
 The last row is reported as a `type` change rather than a `changed` one, and the report
@@ -389,6 +392,17 @@ like a false positive. Until 2026-09-22 it was NOT reported at all: scalars were
 as formatted text, so a money field that started arriving as a number instead of a string
 passed `verify` silently. `1.0` against `1` is still clean, because JSON has no separate
 integer type and both decode to the same float64.
+
+Beyond `volatile`, verify also masks values that differ every run by shape: a changed value
+whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`, `*At`, `*_time`,
+`token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not
+reported; the report says how many it masked. In this example 2 value(s) were masked. Declare
+a path `volatile` when its value changes every run without being id- or timestamp-shaped.
+
+Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
+(a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON
+type), `length` (a list or the step count has a different number of items), `order` (a step id or rpc
+differs at that position), `status` (the step's pass/fail status changed).
 
 ## 8. Closed vocabularies
 

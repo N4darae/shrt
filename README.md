@@ -157,7 +157,8 @@ names the rpc instead of leaving you a failure somewhere downstream. `PLAYBOOK.m
 last two recorded runs of a chain (`shrt diff <name> <run-a> <run-b>` for any two; ids, `latest`,
 `latest~N`): which step changed status, where the first failure moved, which steps are no longer
 reached, and which response fields differ, with the chain's `volatile` paths, ids and timestamps
-masked. It sends nothing and needs no human. It is a comparison between two runs, NOT a verdict
+masked. Each difference is labelled with its kind (`changed`, `type`, `length`, `missing`, ...,
+listed in `GRAMMAR.md` §7). It sends nothing and needs no human. It is a comparison between two runs, NOT a verdict
 against a confirmed baseline: if run A was already wrong, "no differences" means B is wrong the
 same way. `PLAYBOOK.md` §9.
 

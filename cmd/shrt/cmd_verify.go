@@ -86,6 +86,9 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		fmt.Println(report.Text())
+		if report.Clean() {
+			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
+		}
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))

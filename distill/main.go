@@ -642,7 +642,7 @@ func exerciseDiff() (string, error) {
 	spot := &store.SafeSpot{
 		Chain: "demo", RunID: "SPOT",
 		Steps: []*runner.StepRecord{
-			step("a", "S/A", runner.StatusPassed, `{"qty":1,"created_at":"T0","note":"x"}`),
+			step("a", "S/A", runner.StatusPassed, `{"qty":1,"created_at":"T0","note":"x","owner_id":"u-1","seen":"2026-09-01T10:00:00Z","lines":[1,2]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":"1"}`),
 		},
 		Volatile: []string{"**.created_at"},
@@ -650,7 +650,7 @@ func exerciseDiff() (string, error) {
 	rec := &runner.Record{
 		RunID: "REPLAY",
 		Steps: []*runner.StepRecord{
-			step("a", "S/A", runner.StatusPassed, `{"qty":2,"created_at":"T1","note":"x"}`),
+			step("a", "S/A", runner.StatusPassed, `{"qty":2,"created_at":"T1","note":"x","owner_id":"u-2","seen":"2026-09-02T11:30:00Z","lines":[1]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":1}`),
 		},
 	}
@@ -664,6 +664,9 @@ func exerciseDiff() (string, error) {
 	fmt.Fprintf(&b, "| `qty` went from `1` to `2` | %s |\n", yesNo(seen["a|qty"]))
 	fmt.Fprintf(&b, "| `created_at` changed, and is `volatile` | %s |\n", yesNo(seen["a|created_at"]))
 	fmt.Fprintf(&b, "| `note` did not change | %s |\n", yesNo(seen["a|note"]))
+	fmt.Fprintf(&b, "| `owner_id` changed, NOT volatile, but its name is id-shaped | %s |\n", yesNo(seen["a|owner_id"]))
+	fmt.Fprintf(&b, "| `seen` changed, NOT volatile, but both values are timestamps | %s |\n", yesNo(seen["a|seen"]))
+	fmt.Fprintf(&b, "| `lines` went from 2 items to 1 | %s |\n", yesNo(seen["a|lines"]))
 	fmt.Fprintf(&b, "| `qty` went from the STRING `\"1\"` to the NUMBER `1` | %s |\n", yesNo(seen["b|qty"]))
 	b.WriteString("\nThe last row is reported as a `type` change rather than a `changed` one, and the report\n")
 	b.WriteString("names both kinds — `want=string \"1\" got=number 1` — because printing `want=1 got=1` reads\n")
@@ -671,6 +674,15 @@ func exerciseDiff() (string, error) {
 	b.WriteString("as formatted text, so a money field that started arriving as a number instead of a string\n")
 	b.WriteString("passed `verify` silently. `1.0` against `1` is still clean, because JSON has no separate\n")
 	b.WriteString("integer type and both decode to the same float64.\n")
+	b.WriteString("\nBeyond `volatile`, verify also masks values that differ every run by shape: a changed value\n")
+	b.WriteString("whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`, `*At`, `*_time`,\n")
+	b.WriteString("`token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not\n")
+	fmt.Fprintf(&b, "reported; the report says how many it masked. In this example %d value(s) were masked. Declare\n", rep.Masked)
+	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped.\n")
+	fmt.Fprintf(&b, "\nChange kinds `shrt verify` and `shrt diff` print: `%s` (a path the baseline had is gone), `%s`\n", diff.KindMissing, diff.KindUnexpected)
+	fmt.Fprintf(&b, "(a path the baseline did not have), `%s` (same JSON type, different value), `%s` (different JSON\n", diff.KindChanged, diff.KindType)
+	fmt.Fprintf(&b, "type), `%s` (a list or the step count has a different number of items), `%s` (a step id or rpc\n", diff.KindLength, diff.KindOrder)
+	fmt.Fprintf(&b, "differs at that position), `%s` (the step's pass/fail status changed).\n", diff.KindStatus)
 	return b.String(), nil
 }
 

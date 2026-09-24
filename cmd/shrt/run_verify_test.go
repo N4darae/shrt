@@ -210,7 +210,7 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 		}
 	})
 	if !strings.Contains(out, "NOT a safe spot yet") || !strings.Contains(out, "-approve -by <their email>") ||
-		!strings.Contains(out, "| # | step | asserted, all held | backend answered |") {
+		!strings.Contains(out, "| # | step | sent | asserted, all held | backend answered |") {
 		t.Fatalf("the proposal must say it is not a safe spot and how a person decides:\n%s", out)
 	}
 	if _, err := os.Stat(spot); err == nil {

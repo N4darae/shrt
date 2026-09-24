@@ -57,8 +57,10 @@ server did not crash.
   the proto changed, rebuild it with `shrt catalog build`.
 - **What `shrt chain lint` checks:** every body against its proto message, `${...}` references to
   steps that do not run earlier, and exports reading response fields that do not exist.
-- **What a `shrt verify` diff tells you:** each change names the step, the JSON path, the confirmed
-  value and the value now returned — so a non-empty diff points at an RPC, not at a chain.
+- **What a `shrt verify` diff tells you:** each change names the step, its kind, the JSON path, the
+  confirmed value and the value now returned — so a non-empty diff points at an RPC, not at a chain.
+  Volatile paths and id- or timestamp-shaped values are masked. A clean verify covers only the steps
+  of that chain's safe spot, not paths no safe spot exercises.
 - **No safe spot? `shrt diff <chain>` compares the last two runs** (or `shrt diff <chain> <run-a>
   <run-b>`): status changes, where the first failure moved, steps no longer reached, response
   fields, with volatile paths, ids and timestamps masked. It is a comparison between two runs, not

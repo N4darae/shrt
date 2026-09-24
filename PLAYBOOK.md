@@ -147,6 +147,9 @@ comments can commit it as written.
 
 ## 4. Assert something that can fail
 
+The examples in this section and §5 use the default envelope, `error.code` with `OK` for success.
+Substitute your `conventions.envelope_path` and `conventions.envelope_ok` (§3b) wherever they appear.
+
 A step whose only expectation is `error.code == OK` asserts that the server did not crash. Say what
 the call *did*:
 
@@ -224,11 +227,11 @@ and `not_equal: SUCCESS`.
   covers (the id, when the total was wrong) is still sent.
 - Assert on `error.details.0.app_code` **and** `reason` — but **only for a named business failure**.
   `error.code` alone is a Connect code that a dozen unrelated refusals share.
-- **A shape error has no `app_code` and no `reason` to assert on.** `errmsg.NewShape` and
-  `errmsg.NewAuth` both build the envelope with `Detail: nil`, so `details` comes back `[]`. Not a
-  rare case but close to half the surface — **336 of the 738 declared failures in
-  `.shrt/contracts/` carried no numeric `code` on 2026-09-12**, and every one of them is this shape.
-  The count moves with every contract edit, so re-derive it rather than quote this line:
+- **A shape error has no `app_code` and no `reason` to assert on.** A refusal raised by request
+  validation or by auth, before any business rule ran, usually carries only a code and a message:
+  `details` comes back `[]`. Such failures can be a large share of the declared surface, so count
+  the declared failures with no numeric `code` in your own contracts rather than assuming they are
+  rare (in the development repo they were close to half):
 
   ```bash
   python3 -c 'import yaml,glob; fs=[f for p in glob.glob(".shrt/contracts/*.yaml") for d in [yaml.safe_load(open(p)) or {}] for f in (d.get("failures") or [])+[g for s in (d.get("rpcs") or {}).values() for g in (s.get("failures") or [])]]; print(sum(1 for f in fs if not f.get("code")), "of", len(fs))'
@@ -424,12 +427,11 @@ the read's only edges point at other reads. A `no_producer:` of three words or m
 **Row 5 charges silence, not a wrong role list.** Nothing in the descriptor says which roles a
 procedure needs — that lives in the backend's policy rows — so the score can see the key's absence
 and nothing more. `requires_role:` is what makes `plan` print `caller must hold role …`; without it
-a chain author meets app code **1603** at run time instead. Measured 2026-09-12: 12 of 124 rpcs
-declared nothing, of which 4 were real omissions (`FetchInstrumentAccess` needs ACCOUNTING+ADMIN per
-migration `000047`; `FetchManagementCash` and `RecordMovementFeePayment` need MANAGER+ACCOUNTING per
-`000195`; `ChangeStaffPassword` is granted to all four staff roles per `000042`) and 8 were the
-partner surface plus staff `Login`, which reach no staff role gate at all and now say so with
-`requires_role: [NONE]`. `NONE` beside a real role is a lint error.
+a chain author meets a permission refusal at run time instead. Fill it from wherever your backend
+keeps its role grants (policy rows, migrations, middleware config), and for an rpc that reaches no role
+gate at all, such as a login or a surface for callers outside the staff roles, say so with
+`requires_role: [NONE]`. `NONE` beside a real role is a lint error. In the development repo, a third
+of the rpcs that declared nothing were real omissions the migrations answered.
 
 **The three exemptions are deliberately different keys, and must stay different.** Row 6 is spared by
 `no_producer:`, row 5 by the literal `NONE` inside `requires_role:`, and row 7 by the literal `NONE`
@@ -555,15 +557,19 @@ nearly always evidence about your fixture rather than the backend: most of the t
 sent. Read the step's `error` line before deciding which. That trap is `PITFALLS.md` §4; the vocabulary
 it belongs to is `GRAMMAR.md` §8.
 
-Then propose the run and put the decision to the user:
+Then propose the run and put the decision to the user. **Run the chain twice before proposing**:
+the warning about fields that will drift compares the proposed run with an earlier passing run of
+the same chain, so with only one run it is not made.
 
 ```
 shrt confirm <name> -run <run-id> -note "what you inspected in the responses, and why it is right"
 ```
 
 This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `<name>.md`, and
-prints a summary table: one row per step with what it asserted and what the backend answered. It
-writes no safe spot, and `shrt verify` still has nothing to compare against.
+prints a summary table: one row per step with an excerpt of what was sent, what it asserted and
+what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
+reads). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+again for the same chain replaces the pending proposal and its report; there is only ever one.
 
 **Present the proposal in the conversation; do not send the user to a file.** In the user's
 language, give:
@@ -606,8 +612,10 @@ shrt run <name>                                  # a fresh receipt on today's bi
 shrt verify <name> -run <run-id>                 # does it still match the safe spot?
 ```
 
-After you touch it, the same two lines. A drift report names the step, the path, `want` and `got`,
-so a regression arrives as *which rpc changed* instead of a failing test somewhere downstream.
+After you touch it, the same two lines. A drift report names the step, the path, the change kind
+(listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
+of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
+spot, and says so: a regression in a path no safe spot exercises is not seen.
 
 Three things that decide whether this works for a given chain:
 
@@ -740,7 +748,9 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    With `-run`, a dropped write whose step in that run was refused (a transport error, an envelope
    code other than `envelope_ok`) or never sent wrote nothing: it is listed under
    `wrote nothing in run <id>` and does not count. A write that succeeded, including an idempotent
-   replay, still counts.
+   replay, still counts. A step calling a login rpc the config names (`auth.call` or a profile's
+   `call`, typically a `skip_auth` step) is never counted: shrt logs in itself per auth profile, and
+   a login builds no state the target depends on.
 3. **`-write [name]` then `chain lint` it.** A slice that does not lint is a failed slice, not a
    smaller chain. Without `-write` nothing is written and the YAML goes to stdout, and `-verify`
    still runs the slice but keeps no run record, since the record would name a chain that does not
@@ -775,8 +785,8 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      and a receipt. When you want both, write the minimal chain by hand (only the steps the
      defect needs, its own writes included), run it, and `slice -verify` the target on THAT
      chain: nothing is dropped, so the verdict can be `reproduced`.
-   Until you have a `reproduced`, the slice is a hypothesis, and every slice prints a line saying
-   so.
+   Until you have a verdict, the slice is a hypothesis, and every slice prints a line saying so;
+   when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line.
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**
    A producer whose only contribution was a VALUE is dropped and its value pinned into `vars:`,
    with every reference rewritten to `${vars.<name>}`. A `from` or `same_as` contract edge exists to

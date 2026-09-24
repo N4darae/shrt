@@ -259,9 +259,9 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	if p.Build != "" {
 		fmt.Fprintf(&b, ", build `%s`", p.Build)
 	}
-	b.WriteString("\n\n| # | step | asserted, all held | backend answered |\n|---|---|---|---|\n")
+	b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")
 	for _, st := range rec.Steps {
-		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", st.Index, cell(st.ID), cell(assertedSummary(st)), cell(answerSummary(st)))
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), cell(answerSummary(st)))
 	}
 	if p.Replaces != "" {
 		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
@@ -282,14 +282,82 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	return b.String()
 }
 
-const summaryCell = 90
+const (
+	summaryCell   = 90
+	summaryValue  = 24
+	assertedCell  = 320
+	sentFieldsMax = 6
+)
 
 func cell(s string) string {
-	s = strings.Join(strings.Fields(strings.ReplaceAll(s, "|", "/")), " ")
-	if len([]rune(s)) > summaryCell {
-		s = string([]rune(s)[:summaryCell]) + "…"
+	return clip(flat(s), summaryCell)
+}
+
+func flat(s string) string {
+	return strings.Join(strings.Fields(strings.ReplaceAll(s, "|", "/")), " ")
+}
+
+func clip(s string, n int) string {
+	if len([]rune(s)) > n {
+		s = string([]rune(s)[:n]) + "…"
 	}
 	return s
+}
+
+func shortValue(v any) string {
+	if b, err := json.Marshal(v); err == nil {
+		if _, isString := v.(string); !isString {
+			return clip(flat(string(b)), summaryValue)
+		}
+	}
+	return clip(flat(fmt.Sprint(v)), summaryValue)
+}
+
+func sentSummary(st *runner.StepRecord) string {
+	var body any
+	if len(st.Request) == 0 || json.Unmarshal(st.Request, &body) != nil {
+		return "-"
+	}
+	leaves := []string{}
+	var walk func(prefix string, v any)
+	walk = func(prefix string, v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				walk(joinKey(prefix, k), t[k])
+			}
+		case []any:
+			if len(t) == 0 {
+				leaves = append(leaves, prefix+"=[]")
+			}
+			for i, e := range t {
+				walk(joinKey(prefix, fmt.Sprint(i)), e)
+			}
+		default:
+			leaves = append(leaves, prefix+"="+shortValue(t))
+		}
+	}
+	walk("", body)
+	if len(leaves) == 0 {
+		return "{}"
+	}
+	out := leaves
+	if len(out) > sentFieldsMax {
+		out = append(append([]string(nil), out[:sentFieldsMax]...), fmt.Sprintf("+%d more", len(leaves)-sentFieldsMax))
+	}
+	return strings.Join(out, " ")
+}
+
+func joinKey(prefix, k string) string {
+	if prefix == "" {
+		return k
+	}
+	return prefix + "." + k
 }
 
 func assertedSummary(st *runner.StepRecord) string {
@@ -298,13 +366,24 @@ func assertedSummary(st *runner.StepRecord) string {
 	}
 	parts := make([]string, 0, len(st.Expect))
 	for _, e := range st.Expect {
+		part := e.Path + " " + e.Rule
 		if e.Want != nil {
-			parts = append(parts, fmt.Sprintf("%s %s %v", e.Path, e.Rule, e.Want))
-		} else {
-			parts = append(parts, e.Path+" "+e.Rule)
+			part += " " + shortValue(e.Want)
 		}
+		parts = append(parts, flat(part))
 	}
-	return strings.Join(parts, "; ")
+	out := ""
+	for i, part := range parts {
+		next := part
+		if i > 0 {
+			next = out + "; " + part
+		}
+		if i > 0 && len([]rune(next)) > assertedCell {
+			return out + fmt.Sprintf("; +%d more", len(parts)-i)
+		}
+		out = next
+	}
+	return out
 }
 
 func answerSummary(st *runner.StepRecord) string {
@@ -319,19 +398,59 @@ func answerSummary(st *runner.StepRecord) string {
 		return st.Status
 	}
 	path := chain.EnvelopePath()
-	verdict, ok := chain.Get(body, path)
+	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
 	if !ok {
 		return "answered, nothing at " + path
+	}
+	if items := itemsSummary(body); items != "" {
+		out += "; items: " + items
+	}
+	return out
+}
+
+func verdictText(body any, path string, extra ...string) (string, bool) {
+	verdict, ok := chain.Get(body, path)
+	if !ok {
+		return "", false
 	}
 	out := fmt.Sprint(verdict)
 	parent := ""
 	if i := strings.LastIndex(path, "."); i > 0 {
 		parent = path[:i] + "."
 	}
-	for _, field := range []string{"details.0.app_code", "details.0.reason", "message"} {
+	for _, field := range extra {
 		if v, ok := chain.Get(body, parent+field); ok && fmt.Sprint(v) != "" {
 			out += " " + fmt.Sprint(v)
 		}
 	}
-	return out
+	return out, true
+}
+
+func itemsSummary(body any) string {
+	list, field, ok := strings.Cut(chain.ItemEnvelope(), "[].")
+	if !ok {
+		return ""
+	}
+	rows, found := chain.Get(body, strings.TrimSuffix(list, "."))
+	items, isList := rows.([]any)
+	if !found || !isList || len(items) == 0 {
+		return ""
+	}
+	order := []string{}
+	counts := map[string]int{}
+	for _, item := range items {
+		text, ok := verdictText(item, field, "details.0.app_code", "details.0.reason")
+		if !ok {
+			text = "no verdict"
+		}
+		if counts[text] == 0 {
+			order = append(order, text)
+		}
+		counts[text]++
+	}
+	parts := make([]string, 0, len(order))
+	for _, text := range order {
+		parts = append(parts, fmt.Sprintf("%d %s", counts[text], text))
+	}
+	return strings.Join(parts, ", ")
 }

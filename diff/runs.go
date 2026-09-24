@@ -282,6 +282,9 @@ func (r *RunReport) Text() string {
 }
 
 func (c Change) describeRuns() string {
+	if c.Kind == KindLength {
+		return fmt.Sprintf("a=%v item(s) b=%v item(s)", c.Want, c.Got)
+	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("a=%v b=%v", c.Want, c.Got)
 	}

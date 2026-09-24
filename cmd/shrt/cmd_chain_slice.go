@@ -58,7 +58,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		return err
 	}
 
-	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: *keep, Vars: vars}
+	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: *keep, Vars: vars, IsLogin: isLoginStep(e)}
 	lib, _, libErr := e.library()
 	if libErr == nil && lib != nil {
 		opts.Prereqs = contract.PrereqsFor(lib)
@@ -107,8 +107,10 @@ func chainSlice(ctx context.Context, args []string) error {
 		if verdict == nil {
 			return verifyErr
 		}
-		if verdict.Outcome == sliceReproduced && written != "" {
+		if verdict.Outcome == sliceReproduced {
 			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, time.Now())
+		}
+		if verdict.Outcome == sliceReproduced && written != "" {
 			if err := writeSliceFile(written, res.Chain); err != nil {
 				return err
 			}
@@ -121,8 +123,11 @@ func chainSlice(ctx context.Context, args []string) error {
 			*chain.SliceResult
 			Written    string        `json:"written,omitempty"`
 			Verify     *sliceVerdict `json:"verify,omitempty"`
-			Hypothesis string        `json:"hypothesis"`
-		}{SliceResult: res, Written: written, Verify: verdict, Hypothesis: hypothesisLine}
+			Hypothesis string        `json:"hypothesis,omitempty"`
+		}{SliceResult: res, Written: written, Verify: verdict}
+		if !verdict.settled() {
+			payload.Hypothesis = hypothesisLine
+		}
 		if err := emitJSON(payload); err != nil {
 			return err
 		}
@@ -221,7 +226,9 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 		}
 	}
 	fmt.Printf("\n%d of %d steps\n", len(res.Kept), res.Total)
-	fmt.Printf("%s\n", hypothesisLine)
+	if !verdict.settled() {
+		fmt.Printf("%s\n", hypothesisLine)
+	}
 	if written != "" {
 		fmt.Printf("wrote %s\n", written)
 	}
@@ -245,6 +252,26 @@ func rpcOf(e *env) func(*chain.Step) string {
 			return ""
 		}
 		return m.FullName
+	}
+}
+
+func isLoginStep(e *env) func(*chain.Step) bool {
+	logins := map[string]bool{}
+	for _, p := range e.cfg.AuthProfiles() {
+		if p == nil || p.Call == "" {
+			continue
+		}
+		logins[p.Call] = true
+		if m, err := e.cat.Lookup(p.Call); err == nil {
+			logins[m.FullName] = true
+		}
+	}
+	rpc := rpcOf(e)
+	return func(s *chain.Step) bool {
+		if len(logins) == 0 {
+			return false
+		}
+		return logins[s.Call] || logins[rpc(s)]
 	}
 }
 
@@ -362,6 +389,10 @@ func (v *sliceVerdict) text() string {
 		}
 	}
 	return b.String()
+}
+
+func (v *sliceVerdict) settled() bool {
+	return v != nil && v.Outcome != sliceDidNotRun
 }
 
 func (v *sliceVerdict) err() error {

@@ -64,6 +64,7 @@ type SliceOptions struct {
 	Vars    map[string]any
 	RunVars map[string]any
 	Refused func(stepID string) (string, bool)
+	IsLogin func(*Step) bool
 }
 
 type Keep struct {
@@ -277,6 +278,9 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			continue
 		}
 		if !isWriteCall(s.Call) {
+			continue
+		}
+		if opts.IsLogin != nil && opts.IsLogin(s) {
 			continue
 		}
 		d := Dropped{Index: i + 1, ID: s.ID, Call: s.Call}

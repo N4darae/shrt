@@ -17,6 +17,7 @@ const (
 	KindChanged    = "changed"
 	KindType       = "type"
 	KindOrder      = "order"
+	KindLength     = "length"
 	KindStatus     = "status"
 )
 
@@ -48,7 +49,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 
 	if len(spot.Steps) != len(rec.Steps) {
 		rep.Changes = append(rep.Changes, Change{
-			Path: "steps", Kind: KindOrder,
+			Path: "steps", Kind: KindLength,
 			Want: len(spot.Steps), Got: len(rec.Steps),
 		})
 	}
@@ -133,7 +134,7 @@ func walk(want, got any, path string, emit func(Change)) {
 			return
 		}
 		if len(w) != len(g) {
-			emit(Change{Path: pathOr(path), Kind: KindOrder, Want: len(w), Got: len(g)})
+			emit(Change{Path: pathOr(path), Kind: KindLength, Want: len(w), Got: len(g)})
 		}
 		for i := range min(len(w), len(g)) {
 			walk(w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)), emit)
@@ -205,6 +206,9 @@ func pathOr(p string) string {
 }
 
 func (c Change) describe() string {
+	if c.Kind == KindLength {
+		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
+	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
 	}
