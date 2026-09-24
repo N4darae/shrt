@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 )
@@ -160,6 +162,14 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	start := time.Now()
 	resp, err := c.http.Do(req)
 	if err != nil {
+		var urlErr *neturl.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		if Unreachable(err) {
+			return nil, fmt.Errorf("POST %s: the target could not be reached (%w): the backend is down or not started, "+
+				"so nothing reached it and this is not a backend defect", url, err)
+		}
 		return nil, fmt.Errorf("POST %s: %w", url, err)
 	}
 	defer resp.Body.Close()

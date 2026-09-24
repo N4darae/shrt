@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -53,6 +54,9 @@ func runVerify(ctx context.Context, args []string) error {
 		return err
 	}
 	spot, err := e.store.LoadSafeSpot(name)
+	if errors.Is(err, os.ErrNotExist) {
+		err = fmt.Errorf("chain %s has no safe spot: nothing is confirmed at %s", name, e.store.SafeSpotPath(name))
+	}
 	if err != nil {
 		if e.store.HasProposal(name) {
 			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
