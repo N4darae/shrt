@@ -9,6 +9,7 @@ func TestRunHelpListsEveryRefusalTheReadmeLists(t *testing.T) {
 	out := strings.Join(strings.Fields(helpOf(t, "run")), " ")
 	for _, want := range []string{
 		"a response field the producing step's message does not declare",
+		"a request path its request does not declare",
 		"the login body of an auth profile a step runs under",
 	} {
 		if !strings.Contains(out, want) {
@@ -18,6 +19,7 @@ func TestRunHelpListsEveryRefusalTheReadmeLists(t *testing.T) {
 	readme := strings.Join(strings.Fields(string(mustRead(t, "../../README.md"))), " ")
 	for _, want := range []string{
 		"or to a response field the producing step's message does not declare",
+		"a request path its request does not declare",
 		"an unset env var read by a step or by the login body of an auth profile a step runs under",
 	} {
 		if !strings.Contains(readme, want) {

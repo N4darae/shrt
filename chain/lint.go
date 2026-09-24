@@ -475,12 +475,15 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	if !bad {
 		return Issue{}, false
 	}
+	hint := ". An export under that name is a different thing: write ${exports.<name>} for that"
+	if strings.HasPrefix(r.Rest, "request.") {
+		hint = ". A request path names a field of the request message that step sends, not of its response"
+	}
 	return Issue{
 		Step:     stepID,
 		Severity: SeverityError,
 		Kind:     KindDeadRef,
-		Message: fmt.Sprintf("${%s} %s. An export under that name is a different thing: write ${exports.<name>} for that",
-			r.Expr, why),
+		Message:  fmt.Sprintf("${%s} %s%s", r.Expr, why, hint),
 	}, true
 }
 
@@ -493,8 +496,16 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 		return "", false
 	}
 	rest := r.Rest
-	if strings.HasPrefix(rest, "request.") || rest == "request" {
+	if rest == "request" {
 		return "", false
+	}
+	if path, ok := strings.CutPrefix(rest, "request."); ok {
+		if catalog.HasResponsePath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path)) {
+			return "", false
+		}
+		return fmt.Sprintf("reads request path %q, which is not a field of %s — step %q never sends it, so the run "+
+			"would die resolving it after every earlier step had already hit the backend, and shrt run refuses "+
+			"the chain before sending anything", path, m.Input().FullName(), r.Head), true
 	}
 	rest = strings.TrimPrefix(rest, "response.")
 	if rest == "" || rest == "response" {
