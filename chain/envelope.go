@@ -224,6 +224,68 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 
 const NoItemVerdict = "(no verdict)"
 
+type MisspeltItemVerdict struct {
+	Refusal ItemRefusal
+	Key     string
+	Want    string
+}
+
+func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
+	if ItemEnvelope() == "" {
+		return nil
+	}
+	listPath, field, err := splitItemEnvelope()
+	if err != nil {
+		return nil
+	}
+	fieldSegs := SplitPath(field)
+	var out []MisspeltItemVerdict
+	seen := map[string]bool{}
+	for _, u := range unknown {
+		rest, ok := strings.CutPrefix(u, listPath+"[].")
+		if !ok {
+			continue
+		}
+		segs := strings.Split(rest, ".")
+		depth := len(segs) - 1
+		if depth >= len(fieldSegs) || !namecase.Equal(segs[depth], fieldSegs[depth]) || segs[depth] == fieldSegs[depth] {
+			continue
+		}
+		if strings.Join(segs[:depth], ".") != strings.Join(fieldSegs[:depth], ".") {
+			continue
+		}
+		rows, _ := Get(sent, listPath)
+		items, _ := rows.([]any)
+		for i, item := range items {
+			parent := item
+			if depth > 0 {
+				parent, _ = Get(item, strings.Join(fieldSegs[:depth], "."))
+			}
+			obj, ok := parent.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, exact := obj[fieldSegs[depth]]; exact {
+				continue
+			}
+			if _, variant := obj[segs[depth]]; !variant {
+				continue
+			}
+			line := fmt.Sprintf("%s.%d", listPath, i)
+			if seen[line] {
+				continue
+			}
+			seen[line] = true
+			out = append(out, MisspeltItemVerdict{
+				Refusal: ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line},
+				Key:     strings.Join(append(append([]string{}, segs[:depth]...), segs[depth]), "."),
+				Want:    strings.Join(fieldSegs[:depth+1], "."),
+			})
+		}
+	}
+	return out
+}
+
 func itemIndex(line string) int {
 	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
 	return n
