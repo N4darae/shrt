@@ -839,6 +839,12 @@ verdict (`equals`, `not_equal` or `contains` on the envelope, or a `transport.*`
 with an `envelope` entry naming the refusal. Assert `status.code equals: SUCCESS` on a call that must
 succeed, or the refusal code on one that must be refused.
 
+The same hole was open through a response with no verdict at all: `{}` or `status: {}` has
+`status.code == ""`, which is not a refusal code, so `qty_on_hand equals: ""` passed on it. Since
+2026-09-24 an absent or empty verdict, on an rpc whose response message declares the envelope
+path, is treated like a refusal: the step fails with an `envelope` entry saying no verdict was
+sent, unless an expectation pins the envelope (`exists: false` included) or the transport.
+
 ## 38. A password or a token in clear in a run record, though `redact` covers its field
 
 **Symptom.** `**.*password` and `**.access_token` are redacted, yet the run record, the pending

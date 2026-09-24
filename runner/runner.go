@@ -904,11 +904,12 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 
+	verdictDeclared := !staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))
 	if len(step.Expect) == 0 {
-		if warning := unassertedRefusalWarning(decoded); warning != "" {
+		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
-	} else if result, refused := unpinnedRefusal(decoded, step.Expect, redactor); refused {
+	} else if result, refused := unpinnedRefusal(decoded, step.Expect, verdictDeclared, redactor); refused {
 		sr.Expect = append(sr.Expect, result)
 		sr.Status = StatusFailed
 	}
@@ -1007,17 +1008,21 @@ func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	}
 }
 
-func unassertedRefusalWarning(decoded any) string {
+func unassertedRefusalWarning(decoded any, verdictDeclared bool) string {
 	path := chain.EnvelopePath()
 	if path == "" {
 		return ""
 	}
-	code, ok := chain.Get(decoded, path)
-	if !ok || code == nil {
-		return ""
+	text, has := verdictText(decoded, path)
+	if !has {
+		if !verdictDeclared {
+			return ""
+		}
+		return fmt.Sprintf("the response carries no verdict at %s (absent or empty, where this rpc's response "+
+			"message declares one), and this step declares no expect, so it is recorded passed with nothing "+
+			"checked; nothing says the backend did what was asked", path)
 	}
-	text := fmt.Sprint(code)
-	if text == "" || text == chain.EnvelopeOK() {
+	if text == chain.EnvelopeOK() {
 		return ""
 	}
 	return fmt.Sprintf("refused in-band (%s = %s, not %s), and this step declares no expect, so it is "+
@@ -1026,17 +1031,32 @@ func unassertedRefusalWarning(decoded any) string {
 		chain.EnvelopeOK(), path, text)
 }
 
-func unpinnedRefusal(decoded any, expect []chain.Expectation, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+func verdictText(decoded any, path string) (string, bool) {
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return "", false
+	}
+	text := fmt.Sprint(code)
+	return text, text != ""
+}
+
+func unpinnedRefusal(decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
 	path := chain.EnvelopePath()
 	if path == "" || pinsVerdict(expect) {
 		return chain.ExpectResult{}, false
 	}
-	code, ok := chain.Get(decoded, path)
-	if !ok || code == nil {
-		return chain.ExpectResult{}, false
+	text, has := verdictText(decoded, path)
+	if !has {
+		if !verdictDeclared {
+			return chain.ExpectResult{}, false
+		}
+		detail := fmt.Sprintf("the response carries no verdict at %s: it is absent or empty, though this rpc's "+
+			"response message declares it, and no expectation on this step pins the verdict, so the ones that "+
+			"held read zero values nothing vouches for. If an absent verdict is what this rpc answers, pin it "+
+			"(%s exists: false); if not, the backend did not say it did what was asked", path, path)
+		return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: "", Passed: false, Detail: detail}, true
 	}
-	text := fmt.Sprint(code)
-	if text == "" || text == chain.EnvelopeOK() {
+	if text == chain.EnvelopeOK() {
 		return chain.ExpectResult{}, false
 	}
 	detail := fmt.Sprintf("refused in-band (%s = %s, not %s), and no expectation on this step pins the verdict, "+
@@ -1053,7 +1073,7 @@ func pinsVerdict(expect []chain.Expectation) bool {
 		if chain.IsTransportPath(e.Path) {
 			return true
 		}
-		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "") {
+		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "" || e.Exists != nil) {
 			return true
 		}
 	}
