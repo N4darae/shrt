@@ -69,6 +69,7 @@ type Report struct {
 
 	inputSeparated    bool
 	compared          []comparedStep
+	approvedMask      *pathmask.Masker
 	renames           [][2]string
 	reorderCandidates []stepPath
 	reordered         []stepPath
@@ -160,6 +161,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		approvedPatterns = append(approvedPatterns, st.Volatile...)
 	}
 	approved := pathmask.NewMasker(approvedPatterns)
+	rep.approvedMask = approved
 	rep.UnapprovedVolatile = unapproved(approvedPatterns, rec, extra)
 	first := firstRed(rec)
 	if first != nil {

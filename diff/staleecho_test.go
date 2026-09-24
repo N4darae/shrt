@@ -55,3 +55,17 @@ func TestAResponseStillCarryingTheConfirmedFixtureNameIsAChange(t *testing.T) {
 		})
 	}
 }
+
+func TestAStaleEchoUnderAnUnapprovedVolatileIsAHiddenValue(t *testing.T) {
+	fixture := func(step, path string) bool { return step == "cust" && path == "email" }
+	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: staleSteps("w-g1@example.test", "w-g1@example.test", "ok")}
+	rec := &runner.Record{RunID: "run", Chain: "c", Status: runner.StatusPassed, Volatile: []string{"**.email"},
+		Steps: staleSteps("w-px3@example.test", "w-g1@example.test", "ok")}
+	rep := diff.CompareMasking(spot, rec, nil)
+	rep.RequestChanges = diff.CompareRequests(spot, rec, nil)
+	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Named: fixture})
+	text := rep.Text()
+	if strings.Contains(text, "they hid no value this time") || !strings.Contains(text, "cust customer.email") {
+		t.Fatalf("the unapproved **.email hid the stale echo customer.email, so it hid a value:\n%s", text)
+	}
+}
