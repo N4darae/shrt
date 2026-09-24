@@ -344,6 +344,28 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	return step
 }
 
+func (p *Plan) UnfilledCount() int {
+	n := 0
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") {
+			n++
+		}
+	}
+	for _, pc := range p.pending {
+		for _, name := range pc.contract.Required {
+			if IsRequiredLiteral(name) {
+				continue
+			}
+			if v, ok := bodyValue(pc.step.Body, name); ok {
+				if _, empty := emptyDeclaredVar(p.Chain, v); empty {
+					n++
+				}
+			}
+		}
+	}
+	return n
+}
+
 func (p *Plan) note(format string, args ...any) {
 	p.Notes = append(p.Notes, fmt.Sprintf(format, args...))
 }

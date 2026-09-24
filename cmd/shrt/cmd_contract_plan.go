@@ -51,7 +51,7 @@ func contractPlan(args []string) error {
 		for _, n := range plan.Notes {
 			fmt.Printf("# note: %s\n", n)
 		}
-		if n := unfilledCount(plan); n > 0 {
+		if n := plan.UnfilledCount(); n > 0 {
 			fmt.Printf("# %d required field(s) carry no test data yet — chain lint ERRORs on each until "+
 				"filled. The plan derives order and wiring; the values are yours.\n", n)
 		}
@@ -72,7 +72,7 @@ func contractPlan(args []string) error {
 	for _, n := range plan.Notes {
 		fmt.Printf("  note: %s\n", n)
 	}
-	if n := unfilledCount(plan); n > 0 {
+	if n := plan.UnfilledCount(); n > 0 {
 		fmt.Printf("\n%d required field(s) still carry no test data. 'shrt chain lint' will report an ERROR "+
 			"for each until you fill them, and that is the division of labour: the plan derives the ORDER and "+
 			"the WIRING, you supply the VALUES. The note lines above name every one.\n", n)
@@ -104,16 +104,6 @@ func planChainName(targets []string, lib *contract.Library, e *env) (string, err
 		parts = append(parts, part)
 	}
 	return domain + "-" + strings.Join(parts, "-"), nil
-}
-
-func unfilledCount(plan *contract.Plan) int {
-	n := 0
-	for _, note := range plan.Notes {
-		if strings.Contains(note, "has no usable value") {
-			n++
-		}
-	}
-	return n
 }
 
 func shortNames(rpcs []string) []string {

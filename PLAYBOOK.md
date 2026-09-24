@@ -30,6 +30,12 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
 # 3 required field(s) carry no test data yet — chain lint ERRORs on each until filled. The plan derives order and wiring; the values are yours.
 ```
 
+The count on that last line is every required field with no usable value, including a required
+field on either side of a `same_as:` pair that sends the shared `${vars.<producer>_<field>}` while
+`vars:` declares it empty (the producer's contract gave it no `value:`). That pair gets one
+`must send the same value` note naming the var rather than a `fill it` note per side, but each
+required side is counted, because `chain lint` errors on each until the var has a value.
+
 - **The `# order:` line is the claim to check.** `plan` wires what the contracts say to wire; it
   cannot tell that a movement in one asset should not discharge an obligation in another. A plan
   that lints clean and runs green can still reproduce a meaningless state. Grep it as
