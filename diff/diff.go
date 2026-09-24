@@ -1075,6 +1075,9 @@ func (r *Report) Text() string {
 		return b.String()
 	}
 	if r.Clean() {
+		if r.Chain != "" {
+			fmt.Fprintf(&b, "%s: ", r.Chain)
+		}
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
 		return b.String()
 	}
