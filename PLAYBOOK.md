@@ -623,7 +623,9 @@ proposal. The email is the user's own, as the session knows it; if you do not kn
 bare name is refused. `-reject` discards the proposal. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
-request, response, http status and transport error), not only the responses. `-pending` lists what awaits
+request, response, http status and transport error), not only the responses. The safe spot
+keeps that digest, and `verify` refuses a safe spot whose content no longer matches it: a hand
+edit is not what a person approved. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
 on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe

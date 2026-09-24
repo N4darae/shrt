@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -56,6 +57,12 @@ func runVerify(ctx context.Context, args []string) error {
 			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
 		}
 		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
+	}
+	if !spot.DigestMatches() {
+		return fmt.Errorf("safe spot %s was changed after it was approved: its digest %s does not match its content, so it is not what a person approved.\n"+
+			"Restore the file (from version control or %s), or re-approve: run the chain, check the responses, "+
+			"propose it with 'shrt confirm %s -supersede -note \"...\"', and a person approves it",
+			rel(e.cfg.Root, e.store.SafeSpotPath(name)), spot.Digest, rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "archive")), name)
 	}
 
 	var rec *runner.Record

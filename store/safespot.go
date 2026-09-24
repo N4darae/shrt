@@ -91,7 +91,7 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 		at := c.Proposal.ProposedAt
 		spot.ProposedBy, spot.ProposedAt = c.Proposal.ProposedBy, &at
 	}
-	spot.Digest = spotDigest(spot)
+	spot.Digest = spot.ComputeDigest()
 	if err := writeJSON(path, spot); err != nil {
 		return nil, "", err
 	}
@@ -138,7 +138,11 @@ func (s *Store) archive(chainName string, prev *SafeSpot) error {
 	return writeJSON(path, prev)
 }
 
-func spotDigest(spot *SafeSpot) string {
+func (spot *SafeSpot) DigestMatches() bool {
+	return spot.Digest == spot.ComputeDigest() || spot.Digest == legacyDigest(spot.Steps)
+}
+
+func (spot *SafeSpot) ComputeDigest() string {
 	return hashJSON(struct {
 		Chain, RunID, Target, Build string
 		Volatile                    []string
@@ -153,6 +157,16 @@ func recordDigest(rec *runner.Record) string {
 		Vars                        map[string]any
 		Steps                       []*runner.StepRecord
 	}{rec.Chain, rec.RunID, rec.Target, rec.Build, rec.Volatile, rec.Vars, rec.Steps})
+}
+
+func legacyDigest(steps []*runner.StepRecord) string {
+	h := sha256.New()
+	for _, st := range steps {
+		fmt.Fprintf(h, "%s|%s|", st.ID, st.Call)
+		raw, _ := json.Marshal(st.Response)
+		h.Write(raw)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 func hashJSON(v any) string {
