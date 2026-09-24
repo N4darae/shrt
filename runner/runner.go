@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -173,6 +174,7 @@ type Options struct {
 	KeepGoing bool
 	Build     string
 	heldBack  map[int]string
+	chain     *chain.Chain
 }
 
 type buildTracker struct {
@@ -215,7 +217,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, "expectation failed"))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, firstFailedExpectation(sr)))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -448,7 +450,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 		if text == ok {
 			return ""
 		}
-		if !assertedValue(sr.Expect, path) {
+		if !assertedValue(sr.Expect, path) && !assertsTransport(sr.Expect) {
 			counts[text]++
 		}
 	}
@@ -456,13 +458,59 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 		return ""
 	}
 	seen := make([]string, 0, len(counts))
+	verdicts, refusals := true, true
 	for text, n := range counts {
-		seen = append(seen, fmt.Sprintf("%s (%d)", text, n))
+		shown := text
+		if !looksLikeVerdict(text) {
+			shown = strconv.Quote(text)
+			verdicts = false
+		}
+		if !looksLikeRefusal(text) {
+			refusals = false
+		}
+		seen = append(seen, fmt.Sprintf("%s (%d)", shown, n))
 	}
 	sort.Strings(seen)
+	if !verdicts {
+		return fmt.Sprintf("no response in this run carried %s = %s, and the values found at %s were %s, which "+
+			"do not look like verdict codes. conventions.envelope_path in .shrt/config.yaml most likely names "+
+			"the wrong field: point it at the field that carries the verdict", path, ok, path, strings.Join(seen, ", "))
+	}
+	if refusals {
+		return ""
+	}
 	return fmt.Sprintf("no response in this run carried %s = %s, the configured success value; the values seen "+
 		"were %s. If one of those is how this backend spells success, conventions.envelope_ok in "+
 		".shrt/config.yaml is wrong, and every success is being read as a refusal", path, ok, strings.Join(seen, ", "))
+}
+
+func assertsTransport(results []chain.ExpectResult) bool {
+	for _, e := range results {
+		if chain.IsTransportPath(e.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	verdictShape = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,40}$`)
+	refusalWords = []string{"REJECT", "ERROR", "FAIL", "DENIED", "FORBIDDEN", "INVALID", "UNAUTH", "NOT_FOUND",
+		"NOTFOUND", "REFUSE", "DECLINE", "CONFLICT", "ABORT", "EXPIRED"}
+)
+
+func looksLikeVerdict(text string) bool {
+	return verdictShape.MatchString(text)
+}
+
+func looksLikeRefusal(text string) bool {
+	upper := strings.ToUpper(text)
+	for _, w := range refusalWords {
+		if strings.Contains(upper, w) {
+			return true
+		}
+	}
+	return false
 }
 
 func assertedValue(results []chain.ExpectResult, path string) bool {
@@ -538,11 +586,14 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	broken := map[string]*StepRecord{}
 	exporter := exportSources{}
 	failures := []string{}
+	failedCount := 0
+	said := map[string]int{}
+	repeats := map[int][]string{}
 	var dead *StepRecord
 	unreached := 0
 	for i, step := range c.Steps {
 		var sr *StepRecord
-		behind := false
+		behind, behindOn := false, ""
 		if dead != nil {
 			sr = r.skippedUnreachable(i, step, dead)
 			rec.Steps = append(rec.Steps, sr)
@@ -556,11 +607,12 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if opts.KeepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
-				behind = true
+				behind, behindOn = true, producer.ID
 			}
 		}
 		if sr == nil {
 			stepOpts := opts
+			stepOpts.chain = c
 			if opts.KeepGoing {
 				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
 			}
@@ -594,13 +646,30 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		broken[step.ID] = sr
 		rec.FailedSteps = append(rec.FailedSteps, step.ID)
-		failures = append(failures, failure)
+		key := strings.TrimPrefix(failure, fmt.Sprintf("step %q: ", sr.ID))
+		if behind {
+			key = "behind " + behindOn
+		}
+		failedCount++
+		if at, ok := said[key]; ok {
+			repeats[at] = append(repeats[at], sr.ID)
+		} else {
+			said[key] = len(failures)
+			failures = append(failures, failure)
+		}
 		if sr.unreachable != "" {
 			dead = sr
 		}
 	}
+	for at, ids := range repeats {
+		quoted := make([]string, 0, len(ids))
+		for _, id := range ids {
+			quoted = append(quoted, strconv.Quote(id))
+		}
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
+	}
 	if len(failures) > 0 {
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", len(failures)+unreached, len(c.Steps)) +
+		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}
 	if unreached > 0 {
@@ -632,7 +701,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
 	body, err := json.Marshal(resolved)
@@ -643,7 +712,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 
 	if r.ValidateInput {
@@ -764,6 +833,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
 			result.Detail = refusalContext(decoded, e.Path, redactor)
 		}
+		if !result.Passed && result.Detail == "" && chain.IsTransportPath(e.Path) {
+			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
+		}
 		if why, held := opts.heldBack[i]; held {
 			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
 		}
@@ -851,6 +923,25 @@ func unassertedRefusalWarning(decoded any) string {
 		"recorded passed with nothing checked. If the refusal is the point, assert it (%s equals: %s); if "+
 		"not, the backend rejected this call and later steps that read its response read zero values", path, text,
 		chain.EnvelopeOK(), path, text)
+}
+
+func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {
+	path := chain.EnvelopePath()
+	if path == "" {
+		return ""
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return ""
+	}
+	said := fmt.Sprintf("the envelope said %s = %v", path, code)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		said += " " + context
+	}
+	if status, ok := chain.Get(outcome, "transport.http_status"); ok {
+		return fmt.Sprintf("answered with HTTP %v, so the transport did not refuse it; %s", status, said)
+	}
+	return said
 }
 
 func refusalContext(decoded any, codePath string, redactor *pathmask.Masker) string {
@@ -1153,6 +1244,30 @@ func firstNonEmpty(vals ...string) string {
 
 func newRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
+}
+
+func capIDs(ids []string, max int) string {
+	if len(ids) <= max {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
+}
+
+func firstFailedExpectation(sr *StepRecord) string {
+	failed := []chain.ExpectResult{}
+	for _, e := range sr.Expect {
+		if !e.Passed {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) == 0 {
+		return "expectation failed"
+	}
+	out := "expectation failed: " + chain.DescribeFailure(failed[0])
+	if len(failed) > 1 {
+		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
+	}
+	return out
 }
 
 func failedExpectations(sr *StepRecord) string {

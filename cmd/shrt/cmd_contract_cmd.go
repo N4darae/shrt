@@ -101,6 +101,7 @@ func contractInit(args []string) error {
 	if err != nil {
 		return err
 	}
+	todos := 0
 	for _, domain := range targets {
 		methods, ok := byDomain[domain]
 		if !ok {
@@ -125,10 +126,16 @@ func contractInit(args []string) error {
 		if err := os.WriteFile(path, raw, 0o644); err != nil {
 			return err
 		}
-		fmt.Printf("wrote %s (%d rpc(s))\n", rel(e.cfg.Root, path), len(methods))
+		n := strings.Count(string(raw), contract.TodoMarker)
+		todos += n
+		fmt.Printf("wrote %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
 	}
 	if !*stdout {
-		fmt.Printf("\nfill every %s, then: shrt contract lint\n", contract.TodoMarker)
+		if todos == 0 {
+			fmt.Printf("\nno %s left in what was written; check it: shrt contract lint\n", contract.TodoMarker)
+		} else {
+			fmt.Printf("\nfill the %d %s(s), then: shrt contract lint\n", todos, contract.TodoMarker)
+		}
 	}
 	return nil
 }

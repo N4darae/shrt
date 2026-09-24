@@ -20,6 +20,10 @@ func chainHollow(args []string) error {
 	runsPath := fs.String("runs", "", "runs directory to read (default paths.runs from the config)")
 	gate := fs.Bool("gate", false, "ratchet the reported count against -baseline: fail if it rises, and fail if it falls without the baseline being lowered")
 	baseline := fs.String("baseline", "", "file holding the reported count the ratchet holds to")
+	setUsage(fs, "usage: shrt chain hollow [flags]   read steps in the local run records that passed while the response carried nothing",
+		"\nexit codes:\n  0  no unexplained hollow read; under -gate, at the baseline\n"+
+			"  1  hollow reads reported; under -gate, worse or better than the baseline\n"+
+			"  2  no run records to read\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

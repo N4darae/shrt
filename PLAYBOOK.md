@@ -188,7 +188,8 @@ them rather than describing them. The one that catches people — `not_empty` wr
 was meant — is `PITFALLS.md` §3.
 
 **The read that passed and found nothing is the version of this you cannot see by reading the
-chain.** `error.code == OK` on a `Fetch`/`List`/`Get`/`Search`/`Preview` whose body came back empty
+chain.** `error.code == OK` on a read rpc — one whose name starts with a prefix in
+`conventions.read_only_prefixes` (default list in `GRAMMAR.md`) — whose body came back empty
 is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
 names every one:
 
@@ -308,8 +309,9 @@ from an expired token, because that is a false fail, not a regression.
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
 - A login step is optional. Write one only when the chain is *testing* login, or when the flow
-  reads better with it — put it first, give it `skip_auth: true`, and its token seeds the cache so
-  later steps do not log in twice. It seeds only a profile whose `body` it sent verbatim; a login as
+  reads better with it — put it first; it needs no `skip_auth`, since a call to a configured login
+  rpc never carries a token (its `auth_profile` is `none`), and its token seeds the cache so later
+  steps do not log in twice. It seeds only a profile whose `body` it sent verbatim; a login as
   anyone else seeds nothing, and its `note` says so. Each step's `auth_profile` in the run record
   names the profile it ran under.
 - Never `skip_auth` plus a hand-written `Authorization` header. That is the workaround profiles
@@ -430,7 +432,8 @@ reverse. Curate happy first: a domain at happy-0 composes and runs, and nothing 
 failure rows changes that. The default is still every row, so a gate pinned to a baseline is
 unaffected.
 
-Read-only rpcs (`Fetch`/`List`/`Get`/`Search`) are exempt from rows 2 and 3: an unwired read filter
+Read-only rpcs (a name starting with a prefix in `conventions.read_only_prefixes`; default list in
+`GRAMMAR.md`) are exempt from rows 2 and 3: an unwired read filter
 is a filter left off, and every rpc in this corpus with no `failures:` of its own is a read that
 refuses only in the domain-wide ways. Row 6 is the mirror of that exemption and applies only to
 reads.
@@ -746,8 +749,10 @@ shrt chain which -code 1218 -json
    absent the line says `got X at <path> (nothing at <asserted path>)`. A step that failed says
    `step FAILED`, followed by one `failed: <path> want=… got=…` line per failing expectation. When
    the newest run did not reach the step, a `newest run <id> did not reach it: step <status>` line
-   follows. `-json` carries the same facts as `asserts`, `observed` (with `holds`,
-   `asserted_path`, `failures` and `newer_runs_not_reaching`) and `newest_unreached`.
+   follows, or `newest run <id> did not reach it: run stopped at step <id> (<status>)` when that
+   run ended before the step was recorded at all. `-json` carries the same facts as `asserts`,
+   `observed` (with `holds`, `asserted_path`, `failures` and `newer_runs_not_reaching`) and
+   `newest_unreached` (with `stopped_at` and `stopped_status` for a run that ended earlier).
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
    `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
    contradicting one), because pinning that run's values is the cheaper reproduction of the same

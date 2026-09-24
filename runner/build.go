@@ -152,7 +152,7 @@ func authSpec(profile string, auth *config.Auth, cat *catalog.Catalog) (*transpo
 			return cat.Canonicalize(m.Output(), raw)
 		},
 		Body: func() ([]byte, error) {
-			resolved, err := chain.AuthBodyScope().ResolveValue(body)
+			resolved, err := chain.ResolveAuthBody(body)
 			if err != nil {
 				return nil, err
 			}

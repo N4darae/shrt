@@ -169,7 +169,7 @@ func contractQuality(args []string) error {
 	fs := flag.NewFlagSet("contract quality", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	only := fs.String("domain", "", "measure only this domain")
-	gate := fs.Bool("gate", false, "ratchet the total score against -baseline: fail if it rises, and fail if it falls without the baseline being lowered")
+	gate := fs.Bool("gate", false, "ratchet the total score against -baseline: the score counts gaps, so lower is better; fail if it rises, and fail if it falls without the baseline being lowered")
 	baseline := fs.String("baseline", "", "file holding the score the ratchet holds to")
 	limit := fs.Int("limit", 40, "list at most this many rpcs, worst first")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")

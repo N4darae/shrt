@@ -116,7 +116,8 @@ Judgement the key tables do not carry:
    when you have answered it, and remove the TODO entry from `required:` when you fill that list. Do **not** delete a `fields:` entry
    to make it quiet: a request field in neither `fields:` nor `required:` is scored as undocumented,
    so deleting costs you 2 where an honest "could not determine, and here is what I checked" costs
-   nothing.
+   nothing. Nor delete an `exports:` line nothing consumes: move it to `terminal:`, since a response
+   field in no `exports`/`terminal`/`soft_signals` is scored too.
 5. `shrt contract lint -domain <yours>` — the filter keeps other authors' in-progress files out of
    your report. It checks every name against the descriptor, flags undeclared aliases and armed
    `oneof` groups, and reports dependency cycles.
@@ -131,8 +132,10 @@ Judgement the key tables do not carry:
 
 Not "when it looks filled in" — run them and paste the output:
 
-1. `shrt contract lint -domain <yours>` reports **0 errors and 0 warnings**. Exit 0 alone is not the
-   bar: it exits 0 with warnings outstanding, and an unfilled `TODO` is a warning.
+1. `shrt contract lint -domain <yours>` reports **0 errors, and no warning but a `required: [UNKNOWN]`
+   you name under item 4**. Exit 0 alone is not the bar: it exits 0 with warnings outstanding, and an
+   unfilled `TODO` is a warning. The one warning that may stay is `required is UNKNOWN`, for an rpc
+   whose handler you could not find (item 4).
 2. `shrt contract quality -domain <yours> -phase happy` reports **score 0** for your domain, or you
    can name each remaining point and say why it is right to leave it. **`-phase happy` is the bar,
    not the bare command**: it scores the seven terms a working chain needs and leaves the three that

@@ -38,6 +38,8 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
+	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ\n"+
+		"  2  could not compare: an unknown run, runs of two chains, or bad usage\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -118,10 +120,14 @@ func selectRun(e *env, chainName, sel string) (*runner.Record, error) {
 				sel, chainName, found[0].Chain)
 		}
 		ids, _ := e.store.ListRuns(chainName)
-		if len(ids) > 3 {
-			ids = ids[len(ids)-3:]
+		newest := []string{}
+		for i := len(ids) - 1; i >= 0 && len(newest) < 3; i-- {
+			newest = append(newest, ids[i])
 		}
-		return nil, fmt.Errorf("chain %s has no run %s (newest recorded: %s)", chainName, sel, strings.Join(ids, ", "))
+		if len(newest) == 0 {
+			return nil, fmt.Errorf("chain %s has no run %s, and no runs are recorded for it", chainName, sel)
+		}
+		return nil, fmt.Errorf("chain %s has no run %s (recorded, newest first: %s)", chainName, sel, strings.Join(newest, ", "))
 	}
 	ids, err := e.store.ListRuns(chainName)
 	if err != nil {

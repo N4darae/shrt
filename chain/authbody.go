@@ -3,10 +3,36 @@ package chain
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 func AuthBodyScope() *Scope {
 	return NewScope(nil)
+}
+
+func ResolveAuthBody(body map[string]any) (any, error) {
+	scope := AuthBodyScope()
+	seen := map[string]bool{}
+	unset := []string{}
+	for _, ref := range collectRefs(body) {
+		r := ParseRef(ref)
+		if r.Kind != RefEnv || seen[r.Rest] {
+			continue
+		}
+		seen[r.Rest] = true
+		if _, ok := scope.env(r.Rest); !ok {
+			unset = append(unset, r.Rest)
+		}
+	}
+	if len(unset) > 1 {
+		sort.Strings(unset)
+		refs := make([]string, 0, len(unset))
+		for _, name := range unset {
+			refs = append(refs, "${env."+name+"}")
+		}
+		return nil, fmt.Errorf("unresolved references %s: env %s are not set", strings.Join(refs, ", "), strings.Join(unset, ", "))
+	}
+	return scope.ResolveValue(body)
 }
 
 func AuthBodyReferenceProblems(body map[string]any) []string {

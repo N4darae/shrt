@@ -1,6 +1,17 @@
 package main
 
-import "flag"
+import (
+	"flag"
+	"fmt"
+)
+
+func setUsage(fs *flag.FlagSet, usage, tail string) {
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), usage)
+		fs.PrintDefaults()
+		fmt.Fprint(fs.Output(), tail)
+	}
+}
 
 func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 	positional := []string{}

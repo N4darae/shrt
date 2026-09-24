@@ -44,6 +44,8 @@ func runCatalog(ctx context.Context, args []string) error {
 
 func catalogBuild(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("catalog build", flag.ContinueOnError)
+	setUsage(fs, "usage: shrt catalog build\n"+
+		"rebuild descriptor.file from descriptor.source with descriptor.binary, after a proto change", "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

@@ -207,7 +207,7 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 			if m.Observed == nil {
 				fmt.Println(line)
 				if m.Newest != nil {
-					fmt.Printf("    no local run reached it; newest run %s: step %s\n", m.Newest.Run, m.Newest.Status)
+					fmt.Printf("    no local run reached it; newest run %s: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 				}
 				continue
 			}
@@ -217,7 +217,7 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 				fmt.Printf("    failed: %s\n", chain.DescribeFailure(f))
 			}
 			if m.Newest != nil {
-				fmt.Printf("    newest run %s did not reach it: step %s\n", m.Newest.Run, m.Newest.Status)
+				fmt.Printf("    newest run %s did not reach it: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 			}
 		}
 		fmt.Printf("  reproduce: %s\n", h.Command)
@@ -229,6 +229,13 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 		"Run records are machine-local.\n",
 		whichMarkClaim, whichMarkSeen)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
+}
+
+func whyNewestUnreached(n *chain.WhichNewest) string {
+	if n.StoppedAt != "" {
+		return fmt.Sprintf("run stopped at step %s (%s)", n.StoppedAt, n.StoppedStatus)
+	}
+	return "step " + n.Status
 }
 
 func whichSeenCell(o *chain.WhichEvidence) string {

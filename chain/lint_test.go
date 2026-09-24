@@ -98,11 +98,11 @@ func TestLintCatchesForwardStepReference(t *testing.T) {
 	}
 }
 
-func TestLintWarnsOnAnExportThatCannotExist(t *testing.T) {
+func TestLintFailsOnAnExportThatCannotExist(t *testing.T) {
 	issues := lintOf(t, &chain.Step{ID: "create", Call: "ThingService/Create",
 		Body: map[string]any{"name": "w"}, Export: map[string]string{"x": "not_a_field"}})
-	if len(issues) != 1 || issues[0].Severity != chain.SeverityWarn {
-		t.Fatalf("want one warning, got %v", issues)
+	if len(issues) != 1 || issues[0].Severity != chain.SeverityError {
+		t.Fatalf("want one error, got %v", issues)
 	}
 }
 

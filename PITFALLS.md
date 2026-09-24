@@ -91,8 +91,8 @@ right and the *name* was written from memory. And `:line-range` suffixes across 
 every time a file is split, which is why the parent repo's own rule is to anchor on function names.
 
 **Fix.** Resolve every `source:` path before committing it — strip the `:line-range` first. Anchor
-prose on names, not line numbers. Re-derive with this, run from the shrt repo root — `source:`
-paths are relative to the backend repo, which is shrt's parent directory:
+prose on names, not line numbers. Re-derive with this, run from your repo root — the directory
+that holds `.shrt/` — since `source:` paths are relative to it:
 
 ```bash
 python3 - <<'EOF'
@@ -102,7 +102,7 @@ for p in glob.glob('.shrt/contracts/*.yaml'):
     for rpc, spec in (d.get('rpcs') or {}).items():
         for f in (spec.get('source') or []):
             path = re.sub(r':[0-9,\-]+$', '', f.strip())
-            if not os.path.exists(os.path.join('..', path)):
+            if not os.path.exists(path):
                 print(os.path.basename(p), rpc.split('/')[-1], f)
 EOF
 ```
@@ -230,8 +230,9 @@ refusal (`contract/chainbodies.go`).
 which is the natural way to write a probe, and is how this was found: the skeleton in `PLAYBOOK.md`
 §5 was written without it and produced 8 spurious errors on its own self-test.
 
-**Fix.** State the refusal on `error.code` as well as the app code. Both lines earn their place:
-`error.code` is what the lint reads, the app code is what makes the receipt mean something.
+**Fix.** State the refusal on the envelope path (`conventions.envelope_path`, default `error.code`)
+as well as the app code. Both lines earn their place: the envelope path is what the lint reads, the
+app code is what makes the receipt mean something.
 
 ---
 
@@ -289,10 +290,12 @@ were allowed in comparison values, **48.7% of steps in this corpus asserted only
 envelope**, because that was the only thing an assertion could reach (`chain/expect.go`). It
 is no longer the only thing, and the share has barely moved: **817 of 1887 steps, 43.3%, on
 2026-09-12**. Neither number is worth quoting a day later. Re-derive — a step counts when every one
-of its expectations names a path under `error`:
+of its expectations names a path under the envelope field, the first segment of
+`conventions.envelope_path` (`error` by default, `status` for `status.code`). Run it from the
+directory holding `.shrt/`; it reads the envelope path and `paths.chains` from `.shrt/config.yaml`:
 
 ```bash
-python3 -c 'import yaml,glob; st=[s for p in glob.glob(".shrt/chains/*.yaml") for s in ((yaml.safe_load(open(p)) or {}).get("steps") or [])]; e=[s for s in st if (s.get("expect") or []) and all(str(x.get("path","")).startswith("error") for x in s["expect"])]; print(len(e), "of", len(st))'
+python3 -c 'import yaml,glob; c=yaml.safe_load(open(".shrt/config.yaml")) or {}; f=((c.get("conventions") or {}).get("envelope_path") or "error.code").split(".")[0]; d=(c.get("paths") or {}).get("chains") or ".shrt/chains"; st=[s for p in glob.glob(d+"/*.yaml") for s in ((yaml.safe_load(open(p)) or {}).get("steps") or [])]; e=[s for s in st if (s.get("expect") or []) and all(str(x.get("path","")).split(".")[0]==f for x in s["expect"])]; print(len(e), "of", len(st))'
 ```
 
 What to write instead is `PLAYBOOK.md` §4.
@@ -524,7 +527,8 @@ this grew up against uses none of those features.
 
 ## 24. A read step that passed, and the response was empty
 
-**Symptom.** A `Fetch`/`List`/`Get`/`Search`/`Preview` step asserts `error.code == OK`, passes, and
+**Symptom.** A read step (an rpc whose name starts with a prefix in
+`conventions.read_only_prefixes`; default list in `GRAMMAR.md`) asserts `error.code == OK`, passes, and
 the body is `{"rows": []}`. The step is green, the chain is green, the sweep is green — and the step
 proved the opposite of what its author meant: the server answered, and there was nothing there.
 This is the operational shape of §19's blind spot, a chain that creates the entity but never fires
@@ -718,7 +722,7 @@ field that collided so the author can see which it means.
 
 ## 32. A whole corpus asserting an envelope this backend does not have
 
-**Symptom.** `shrt init` prints `17 of your 17 response message(s) carry a field at "status.code"`
+**Symptom.** `shrt init` prints `17 of your 17 rpc(s) answer with a message carrying a field at "status.code"`
 and asks you to paste a `conventions:` block. You are mid-adoption and do not. Nothing mentions it
 again — `shrt doctor` reports every check ok — and every chain you write asserts `error.code`, a path
 no response carries.

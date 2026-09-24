@@ -273,6 +273,8 @@ func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	strict := fs.Bool("strict", false, "treat assertion-quality warnings — an assertion that cannot fail, a step asserting nothing, an allow_fail that does nothing — as errors")
+	setUsage(fs, "usage: shrt chain lint [<chain>...] [flags]   every chain under paths.chains when none is named",
+		"\nexit codes:\n  0  no lint error\n  1  a lint error, or under -strict an assertion-quality warning\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -311,6 +313,7 @@ func chainLint(args []string) error {
 	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
 		opts.Chain.AuthHeader = covers
 	}
+	opts.Chain.AuthProfiles = append([]string{}, e.cfg.AuthProfileNames()...)
 	if authIssues := lintAuthBodies(e.cfg); len(authIssues) > 0 {
 		errCount += len(authIssues)
 		reports = append(reports, report{Chain: "<config>", Issues: authIssues})

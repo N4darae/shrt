@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -108,8 +111,9 @@ func runRun(ctx context.Context, args []string) error {
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated)\n" +
 	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
-	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var, a config\n" +
-	"     or descriptor that does not load, a conventions path no response declares)\n" +
+	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
+	"     an unknown auth profile, a config or descriptor that does not load, a conventions path no\n" +
+	"     response declares)\n" +
 	"  3  error: a step could not complete (unresolved reference, invalid request, target unreachable,\n" +
 	"     login failed), so the run is not a verdict about the backend\n"
 
@@ -201,7 +205,7 @@ func summary(rec *runner.Record, dry bool) string {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
 	if len(rec.FailedSteps) > 0 {
-		fmt.Fprintf(&b, "\n  did not pass: %s", strings.Join(rec.FailedSteps, ", "))
+		fmt.Fprintf(&b, "\n  did not pass: %s", capList(rec.FailedSteps, 10))
 	}
 	if rec.Failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(rec.Failure, "\n", "\n  "))
@@ -210,10 +214,37 @@ func summary(rec *runner.Record, dry bool) string {
 		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
 	}
 	if len(rec.Exports) > 0 {
+		names := make([]string, 0, len(rec.Exports))
+		for k := range rec.Exports {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		if dry {
+			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
+				strings.Join(names, ", "))
+			return b.String()
+		}
 		b.WriteString("\n  exports:")
-		for k, v := range rec.Exports {
-			fmt.Fprintf(&b, " %s=%v", k, v)
+		for _, k := range names {
+			fmt.Fprintf(&b, " %s=%s", k, exportJSON(rec.Exports[k]))
 		}
 	}
 	return b.String()
+}
+
+func capList(items []string, max int) string {
+	if len(items) <= max {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(items[:max], ", "), len(items)-max)
+}
+
+func exportJSON(v any) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return fmt.Sprint(v)
+	}
+	return strings.TrimRight(buf.String(), "\n")
 }

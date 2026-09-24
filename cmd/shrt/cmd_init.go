@@ -29,7 +29,7 @@ func runInit(ctx context.Context, args []string) error {
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
 	build := fs.Bool("build", true, "build the descriptor now")
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
-	force := fs.Bool("force", false, "overwrite the installed docs and agent kit, which are build output")
+	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -58,7 +58,7 @@ func runInit(ctx context.Context, args []string) error {
 	if _, err := os.Stat(cfgPath); err == nil && !*forceConfig {
 		fmt.Printf("keep  %s (already exists)\n", rel(root, cfgPath))
 		if *force {
-			fmt.Println("      -force refreshes the docs and agent kit only. Your config is yours: it holds " +
+			fmt.Println("      -force refreshes the docs, the agent kit and .shrt/chains/example.yaml.template only. Your config is yours: it holds " +
 				"auth, conventions and volatile paths that no default can reconstruct, and rewriting it " +
 				"silently is how a declared convention disappears and a red chain turns green. " +
 				"Pass -force-config if you really want it rebuilt from defaults.")
@@ -75,12 +75,24 @@ func runInit(ctx context.Context, args []string) error {
 		return err
 	}
 
-	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, ".shrt/contracts"} {
+	kept := []string{}
+	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, loaded.Paths.Contracts} {
+		if dir == "" {
+			continue
+		}
+		shown := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/"
+		if info, err := os.Stat(loaded.Abs(dir)); err == nil && info.IsDir() {
+			kept = append(kept, shown)
+			continue
+		}
 		if err := os.MkdirAll(loaded.Abs(dir), 0o755); err != nil {
 			return err
 		}
+		fmt.Printf("write %s\n", shown)
 	}
-	fmt.Printf("write %s/{chains,runs,safespots}/\n", config.DirName)
+	if len(kept) > 0 {
+		fmt.Printf("keep  %s (already present)\n", strings.Join(kept, ", "))
+	}
 
 	docs, err := agentkit.Install(root, agentkit.DocAssets(), *force)
 	if err != nil {
@@ -140,6 +152,19 @@ func runInit(ctx context.Context, args []string) error {
 	reportEnvelope(loaded)
 	if err := writeExampleChain(root, loaded, *force); err != nil {
 		return err
+	}
+
+	if !wroteConfig {
+		fmt.Println("\nthis repo was already set up: init kept what it says it kept and wrote only the lines marked write.")
+		if baseURLGiven && loaded.Target.BaseURL != *baseURL {
+			printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
+		}
+		if loaded.Auth == nil {
+			fmt.Printf("  %s/%s still declares no auth:, so every authenticated call is a 401\n",
+				config.DirName, config.FileName)
+		}
+		fmt.Println("next: shrt doctor   # check this installation before you trust a green")
+		return nil
 	}
 
 	fmt.Println("\nnext:")
@@ -303,7 +328,7 @@ func reportEnvelope(cfg *config.Config) {
 		return
 	}
 	best := found[0]
-	fmt.Printf("\n%d of your %d response message(s) carry a field at %q; the default is %q.\n",
+	fmt.Printf("\n%d of your %d rpc(s) answer with a message carrying a field at %q; the default is %q.\n",
 		best.Count, len(cat.Methods()), best.Path, chain.DefaultEnvelopePath)
 	fmt.Printf("shrt GUESSED that from FIELD NAMES alone and cannot tell a verdict from business data\n" +
 		"that happens to be named that way, and it cannot guess envelope_ok at all — the success value\n" +

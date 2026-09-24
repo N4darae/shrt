@@ -47,7 +47,8 @@ shrt catalog ls -filter <word>
 **`shrt doctor` is the check to run before you trust a green.** The four files you are reading are
 installed build output, copied out of the binary by `shrt init`; upgrade the binary and the copy
 stays where it was, so the rules you are reading can be older than the rules being enforced.
-Nothing else notices that. `doctor` compares them, and in the same pass reports which build of
+Nothing else notices that. `doctor` compares them, and the agent kit `init` installed under
+`.claude/` (the skill and the contract-author subagent), and in the same pass reports which build of
 shrt is running, checks the descriptor against a rebuild, the paths that must never be committed
 against `.gitignore`, the token cache's mode, the `auth:` profiles (a literal credential, a body
 reference it cannot resolve, an environment variable that is not exported), and whether
@@ -86,7 +87,7 @@ kit's.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the Claude skill and subagent |
 | `shrt version` | which build this is — version, commit, build time, and the four docs it carries; `-short` prints the version alone |
-| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
+| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the RPC surface |
 | `shrt catalog describe <rpc>` | request and response schemas with proto doc comments |
@@ -97,7 +98,7 @@ kit's.
 | `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
-| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, a reference nothing can produce, an export reading a field the response does not have, an `allow_fail` that does nothing), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs, are not promoted. An expect path that can never match, and `exists: false` on a path the message has no field for, are errors with or without `-strict` |
+| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, a reference nothing can produce, an `allow_fail` that does nothing), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs, are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, and an export reading a field the response does not have (the run fails that step), are errors with or without `-strict` |
 | `shrt chain ls` | one line per chain, marking which have a safe spot; `-long` for full descriptions |
 | `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match. Under `-code`, when no chain asserts the code but a local run record carried it, it lists those steps with a reproduce command instead of failing |
 | `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in, `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way, comparing also the value a failing expectation got (the slice's run record is kept only with `-write`). `-run latest` with `-mode pin` or `-verify` uses the newest run that reached the step; when the slice keeps every step, `-write` records the verdict in that chain instead of writing a copy |

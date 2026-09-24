@@ -28,33 +28,35 @@ type VarChange struct {
 }
 
 type RunReport struct {
-	Note            string       `json:"note"`
-	Chain           string       `json:"chain"`
-	RunA            string       `json:"run_a"`
-	RunB            string       `json:"run_b"`
-	StatusA         string       `json:"status_a"`
-	StatusB         string       `json:"status_b"`
-	TargetA         string       `json:"target_a,omitempty"`
-	TargetB         string       `json:"target_b,omitempty"`
-	BuildA          string       `json:"build_a,omitempty"`
-	BuildB          string       `json:"build_b,omitempty"`
-	KeepGoingA      bool         `json:"keep_going_a,omitempty"`
-	KeepGoingB      bool         `json:"keep_going_b,omitempty"`
-	VarChanges      []VarChange  `json:"var_changes,omitempty"`
-	FirstFailureA   string       `json:"first_failure_a,omitempty"`
-	FirstFailureB   string       `json:"first_failure_b,omitempty"`
-	StatusChanges   []StepStatus `json:"status_changes,omitempty"`
-	NoLongerReached []string     `json:"no_longer_reached,omitempty"`
-	NewlyReached    []string     `json:"newly_reached,omitempty"`
-	WhyNotReached   []StepStatus `json:"why_not_reached,omitempty"`
-	Changes         []Change     `json:"changes,omitempty"`
-	Masked          int          `json:"masked"`
+	Note             string       `json:"note"`
+	Chain            string       `json:"chain"`
+	RunA             string       `json:"run_a"`
+	RunB             string       `json:"run_b"`
+	StatusA          string       `json:"status_a"`
+	StatusB          string       `json:"status_b"`
+	TargetA          string       `json:"target_a,omitempty"`
+	TargetB          string       `json:"target_b,omitempty"`
+	BuildA           string       `json:"build_a,omitempty"`
+	BuildB           string       `json:"build_b,omitempty"`
+	KeepGoingA       bool         `json:"keep_going_a,omitempty"`
+	KeepGoingB       bool         `json:"keep_going_b,omitempty"`
+	VarChanges       []VarChange  `json:"var_changes,omitempty"`
+	FirstFailureA    string       `json:"first_failure_a,omitempty"`
+	FirstFailureB    string       `json:"first_failure_b,omitempty"`
+	StatusChanges    []StepStatus `json:"status_changes,omitempty"`
+	NoLongerReached  []string     `json:"no_longer_reached,omitempty"`
+	NewlyReached     []string     `json:"newly_reached,omitempty"`
+	WhyNotReached    []StepStatus `json:"why_not_reached,omitempty"`
+	ErrorChanges     []StepStatus `json:"error_changes,omitempty"`
+	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
+	Changes          []Change     `json:"changes,omitempty"`
+	Masked           int          `json:"masked"`
 }
 
 func (r *RunReport) Same() bool {
 	return r.StatusA == r.StatusB && r.FirstFailureA == r.FirstFailureB &&
 		len(r.StatusChanges) == 0 && len(r.NoLongerReached) == 0 &&
-		len(r.NewlyReached) == 0 && len(r.Changes) == 0
+		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0
 }
 
 func CompareRuns(a, b *runner.Record) *RunReport {
@@ -121,6 +123,30 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
 		rep.compareResponses(sa, sb, masker)
+	}
+	for _, sa := range a.Steps {
+		sb := allB[sa.ID]
+		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
+			continue
+		}
+		if ea, eb := firstLineOf(sa.Error), firstLineOf(sb.Error); ea != eb {
+			rep.ErrorChanges = append(rep.ErrorChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status, ErrorA: ea, ErrorB: eb})
+		}
+	}
+	if a.KeepGoing != b.KeepGoing {
+		kept, other := a, b
+		if b.KeepGoing {
+			kept, other = b, a
+		}
+		otherSteps := map[string]*runner.StepRecord{}
+		for _, s := range other.Steps {
+			otherSteps[s.ID] = s
+		}
+		for _, s := range kept.Steps {
+			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !reached(other, o)) {
+				rep.SkippedKeepGoing = append(rep.SkippedKeepGoing, s.ID)
+			}
+		}
 	}
 	for _, sb := range b.Steps {
 		if reached(b, sb) && !inA[sb.ID] {
@@ -259,12 +285,22 @@ func (r *RunReport) Text() string {
 		fmt.Fprintf(&b, "\nbuilds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
 	}
 	if r.KeepGoingA != r.KeepGoingB {
-		with, without, red := "B", "A", r.FirstFailureA
+		with, without, red, only := "B", "A", r.FirstFailureA, r.NewlyReached
 		if r.KeepGoingA {
-			with, without, red = "A", "B", r.FirstFailureB
+			with, without, red, only = "A", "B", r.FirstFailureB, r.NoLongerReached
 		}
 		if red != "" {
-			fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so steps past %s's first red (%s) are reached in %s only\n", with, without, without, red, with)
+			fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so %s went on past %s's first red (%s)", with, without, with, without, red)
+			if len(only) > 0 {
+				fmt.Fprintf(&b, "; reached in %s only: %s", with, strings.Join(only, ", "))
+			}
+			if len(r.SkippedKeepGoing) > 0 {
+				fmt.Fprintf(&b, "; skipped in %s as well, and a skipped step is not reached: %s", with, strings.Join(r.SkippedKeepGoing, ", "))
+			}
+			if len(only) == 0 && len(r.SkippedKeepGoing) == 0 {
+				fmt.Fprintf(&b, ", yet reached no step %s did not", without)
+			}
+			b.WriteString("\n")
 		}
 	}
 	if len(r.VarChanges) > 0 {
@@ -293,6 +329,12 @@ func (r *RunReport) Text() string {
 	}
 	for _, s := range r.WhyNotReached {
 		fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
+	}
+	if len(r.ErrorChanges) > 0 {
+		b.WriteString("\nsteps that errored in both runs, for different reasons (A -> B):\n")
+		for _, s := range r.ErrorChanges {
+			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
+		}
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))

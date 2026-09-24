@@ -22,6 +22,7 @@ import (
 
 const (
 	CheckDocs       = "docs"
+	CheckKit        = "agentkit"
 	CheckDescriptor = "descriptor"
 	CheckIgnored    = "gitignore"
 	CheckTokens     = "tokens"
@@ -73,6 +74,44 @@ func checkDocs(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(missing) == 0 && len(drifted) == 0 {
 		r.add(CheckDocs, LevelOK,
 			fmt.Sprintf("%d installed doc(s) match the copy embedded in this binary", len(opts.DocNames)), "")
+	}
+}
+
+const reinstallKit = `rm -f .claude/skills/shrt/SKILL.md .claude/agents/shrt-contract-author.md && shrt init -build=false
+init keeps an existing .shrt/config.yaml, so this rewrites only the agent kit files you removed.`
+
+func checkKit(_ context.Context, cfg *config.Config, opts Options, r *Report) {
+	if len(opts.Kit) == 0 {
+		return
+	}
+	missing, drifted := []string{}, []string{}
+	for _, f := range opts.Kit {
+		got, err := os.ReadFile(cfg.Abs(filepath.FromSlash(f.Path)))
+		switch {
+		case err != nil:
+			missing = append(missing, f.Path)
+		case !bytes.Equal(got, f.Want):
+			drifted = append(drifted, f.Path)
+		}
+	}
+	if len(missing) == len(opts.Kit) {
+		r.add(CheckKit, LevelOK, "no agent kit installed under .claude/ (init -agents=false), so there is none to drift", "")
+		return
+	}
+	if len(missing) > 0 {
+		r.add(CheckKit, LevelError,
+			fmt.Sprintf("the agent kit is missing %s while the rest of it is installed", strings.Join(missing, ", ")),
+			reinstallKit)
+	}
+	if len(drifted) > 0 {
+		r.add(CheckKit, LevelError,
+			fmt.Sprintf("the agent kit has drifted from this binary in %s", strings.Join(drifted, ", ")),
+			"The skill and subagent are what an agent follows, and this binary enforces its own rules.\n"+
+				"Where they disagree the agent writes chains and contracts this build rejects or misreads.\n"+reinstallKit)
+	}
+	if len(missing) == 0 && len(drifted) == 0 {
+		r.add(CheckKit, LevelOK,
+			fmt.Sprintf("%d installed agent kit file(s) match the copy embedded in this binary", len(opts.Kit)), "")
 	}
 }
 
@@ -402,7 +441,7 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	best := found[0]
 	r.add(CheckConventions, LevelWarn,
 		fmt.Sprintf("no conventions.envelope_path is set, so the default %q is in force — but %d of "+
-			"your %d response message(s) carry a verdict at %q instead and none carries the default",
+			"your %d rpc(s) answer with a message carrying a verdict at %q instead and none carries the default",
 			chain.DefaultEnvelopePath, best.Count, len(cat.Methods()), best.Path),
 		"Check it against one response you know was refused, then set it:\n"+
 			"    conventions:\n        envelope_path: "+best.Path+"\n        envelope_ok: <the value there meaning success>\n"+
