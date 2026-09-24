@@ -642,7 +642,10 @@ shrt confirm <name> -run <run-id> -note "what you inspected in the responses, an
 This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `<name>.md`, and
 prints a summary table: one row per step with an excerpt of what was sent, what it asserted and
 what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
-reads). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
+uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
+cell gives the verdict, then the value the backend returned at every path the step asserts, except
+id-shaped ones (`order.total_minor=4548`). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is

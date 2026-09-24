@@ -40,10 +40,10 @@ func TestProposalSummaryShowsPerItemOutcomeSentAndReadableAssertions(t *testing.
 	if !strings.Contains(text, "| # | step | sent | asserted, all held | backend answered |") {
 		t.Fatalf("the table must carry a sent column:\n%s", text)
 	}
-	if !strings.Contains(text, "SUCCESS; items: 1 SUCCESS, 2 REJECTED 1203 InvalidQty |") {
+	if !strings.Contains(text, "SUCCESS; items: 1 SUCCESS, 2 REJECTED 1203 InvalidQty;") {
 		t.Fatalf("a batch whose items were refused must say so, not only SUCCESS:\n%s", text)
 	}
-	if !strings.Contains(text, "| lines.0.id_product=prd-36a53e2c593c lines.0.qty=6 lines.1.id_product=") {
+	if !strings.Contains(text, "| lines.0.qty=6 lines.1.qty=0 lines.0.id_product=prd-36a53e2c593c") {
 		t.Fatalf("the sent column must excerpt the request:\n%s", text)
 	}
 	if !strings.Contains(text, "results.1.status.details.0.app_code equals 1203") {
