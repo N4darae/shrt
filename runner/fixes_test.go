@@ -221,8 +221,8 @@ func TestSeededTokenStillRefreshesWhenRejected(t *testing.T) {
 		Steps: []*chain.Step{
 			{ID: "login", Call: "AuthService/Login", SkipAuth: true,
 				Body: map[string]any{"username": "staff", "password": "secret"}},
-			{ID: "create", Call: "ThingService/Create",
-				Body:   map[string]any{"name": "widget", "kind": "KIND_A"},
+			{ID: "fetch", Call: "ThingService/Fetch",
+				Body:   map[string]any{"id": "t-1"},
 				Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
 		},
 	}

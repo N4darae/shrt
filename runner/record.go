@@ -53,6 +53,7 @@ type StepRecord struct {
 	Call        string               `json:"call"`
 	Procedure   string               `json:"procedure"`
 	AuthProfile string               `json:"auth_profile,omitempty"`
+	AuthRetry   string               `json:"auth_retry,omitempty"`
 	Status      string               `json:"status"`
 	HTTPStatus  int                  `json:"http_status,omitempty"`
 	LatencyMS   int64                `json:"latency_ms"`

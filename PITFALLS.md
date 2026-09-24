@@ -678,6 +678,13 @@ envelope path on a 200 body. A dead token now costs one extra login instead of a
 `doctor` still cannot tell you is whether a cached token is live — only the backend knows that, so
 its line says so rather than implying `0 expired` means healthy.
 
+**Changed 2026-09-24:** the re-send is now for reads only. A backend that performs a write and then
+answers 401 had it performed twice, and the step record did not say the call went out twice. A call
+answered unauthenticated still drops the token; a read (`conventions.read_only_prefixes`) is re-sent
+after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step fails with
+`auth_retry: not_resent` and a warning, and the next run logs in fresh. A dead cached token therefore
+costs one red write step, not a doubled write.
+
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
 **Symptom.** You turn on `conventions.validate_output`, a response fails to match its proto message,

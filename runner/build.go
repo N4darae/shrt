@@ -76,6 +76,7 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 	router := &transport.AuthRouter{
 		Default:  config.DefaultAuthProfile,
 		Envelope: transport.EnvelopeCodeReader(envelopePath),
+		Resend:   chain.IsReadOnlyCall,
 	}
 	deps.Sources = map[string]*transport.LoginTokenSource{}
 	deps.Profiles = cfg.AuthProfileNames()

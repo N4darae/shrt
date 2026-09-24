@@ -308,7 +308,12 @@ in the contract say it is not, and why.
 
 Auth is a **chain-level** concern. `.shrt/config.yaml` declares the login once and the runner
 attaches the header, re-logging in on expiry — a chain that passes today must not fail tomorrow
-from an expired token, because that is a false fail, not a regression.
+from an expired token, because that is a false fail, not a regression. With `expires_path` the
+refresh happens before the call goes out. A call answered unauthenticated (401, or the envelope
+saying so) drops the token either way; only a READ (`conventions.read_only_prefixes`) is then
+re-sent after a fresh login, and its step records `auth_retry: resent` with a warning. A write is
+never re-sent automatically, since the backend may already have performed it: the step fails
+with `auth_retry: not_resent` and a warning, and the next call or run logs in fresh.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.

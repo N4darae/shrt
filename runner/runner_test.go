@@ -105,7 +105,7 @@ func TestRunStopsAtFirstFailedStep(t *testing.T) {
 	}
 }
 
-func TestExpiredTokenRefreshesInsteadOfFailing(t *testing.T) {
+func TestARejectedTokenOnAWriteIsDroppedAndTheNextRunLogsInFresh(t *testing.T) {
 	srv := newFakeServer()
 	defer srv.Close()
 
@@ -116,8 +116,16 @@ func TestExpiredTokenRefreshesInsteadOfFailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	if rec.Passed() || rec.Steps[0].AuthRetry != runner.AuthRetryNotResent {
+		t.Fatalf("a write answered 401 is not re-sent, since the backend may have performed it; got %s, auth_retry=%q",
+			rec.Status, rec.Steps[0].AuthRetry)
+	}
+	rec, err = r.Run(context.Background(), testChain(), runner.Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
 	if !rec.Passed() {
-		t.Fatalf("an expired token must not fail the chain, got %s: %s", rec.Status, rec.Failure)
+		t.Fatalf("the rejected token was dropped, so the next run must log in fresh and pass, got %s: %s", rec.Status, rec.Failure)
 	}
 	if srv.loginCount() != 2 {
 		t.Fatalf("want a second login after the rejection, got %d", srv.loginCount())

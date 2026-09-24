@@ -236,6 +236,22 @@ func (b *buildTracker) observe(rec *Record, sr *StepRecord) {
 	}
 }
 
+const (
+	AuthRetryResent    = transport.AuthRetryResent
+	AuthRetryNotResent = transport.AuthRetryNotResent
+)
+
+func authRetryWarning(retry string) string {
+	if retry == AuthRetryResent {
+		return "the first attempt was answered unauthenticated, so the token was dropped, a fresh login made, " +
+			"and this call re-sent: the backend received it twice. It is a read (conventions.read_only_prefixes), " +
+			"so sending it again changes nothing; this record is the second answer"
+	}
+	return "answered unauthenticated, and not re-sent: this is not a read (conventions.read_only_prefixes), and " +
+		"the backend may already have performed it, so sending it again could perform it twice. The token was " +
+		"dropped, so the next call logs in fresh; re-run the chain if the token had simply expired"
+}
+
 func joinLines(a, b string) string {
 	if a == "" {
 		return b
@@ -802,6 +818,10 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 	}
+	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
+		sr.AuthRetry = retry
+		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry))
+	}
 	if err != nil {
 		if transport.Unreachable(err) {
 			sr.unreachable = innermost(err)
@@ -862,8 +882,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		canonical = res.Body
 		populated = res.Body
 		staleOutput = true
-		sr.Warning = "response kept as sent, it does not match " + string(method.Output().FullName()) +
-			" (the descriptor may be stale): " + cerr.Error()
+		sr.Warning = joinLines(sr.Warning, "response kept as sent, it does not match "+string(method.Output().FullName())+
+			" (the descriptor may be stale): "+cerr.Error())
 	}
 
 	var decoded any

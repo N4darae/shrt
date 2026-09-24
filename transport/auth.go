@@ -205,6 +205,7 @@ type AuthRouter struct {
 	Default  string
 	Skip     func(procedure string) bool
 	Envelope func(body []byte) string
+	Resend   func(procedure string) bool
 }
 
 func (r AuthRouter) byName(name string) *AuthProfile {
@@ -275,9 +276,14 @@ func WithAuthRouter(router AuthRouter) Middleware {
 				return res, err
 			}
 			profile.Source.Invalidate()
+			if router.Resend == nil || !router.Resend(call.Procedure) {
+				call.Meta[MetaAuthRetry] = AuthRetryNotResent
+				return res, nil
+			}
 			if err := apply(ctx, profile.Source, call, header, scheme); err != nil {
 				return nil, err
 			}
+			call.Meta[MetaAuthRetry] = AuthRetryResent
 			return next(ctx, call)
 		}
 	}
@@ -294,6 +300,12 @@ func WithAuth(src TokenSource, spec AuthSpec, skip func(procedure string) bool) 
 const DefaultProfile = "default"
 
 const MetaAuthProfile = "auth_profile"
+
+const (
+	MetaAuthRetry      = "auth_retry"
+	AuthRetryResent    = "resent"
+	AuthRetryNotResent = "not_resent"
+)
 
 func noteProfile(call *Call, name string) {
 	if call.Meta == nil {
