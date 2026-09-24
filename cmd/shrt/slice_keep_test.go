@@ -131,3 +131,21 @@ func TestCLISliceNextKeepsTheWritePathTheUserGave(t *testing.T) {
 		t.Fatalf("next must write where the user asked, not into .shrt/chains:\n%s", out)
 	}
 }
+
+func TestCLISliceRecordsAnInconclusiveVerdictInPlaceOfTheHypothesis(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeNoisyChain(t, "widget")
+	if err := runRun(context.Background(), []string{"cli-noisy-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	out, err := sliceVerify(t, "-write", ".shrt/scratch/noisy-repro.yaml")
+	if exitCodeOf(err) != 3 {
+		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
+	}
+	written := string(mustRead(t, ".shrt/scratch/noisy-repro.yaml"))
+	if !strings.Contains(written, "INCONCLUSIVE by 'shrt chain slice -verify'") || strings.Contains(written, "HYPOTHESIS") {
+		t.Fatalf("the INCONCLUSIVE verdict replaces the hypothesis paragraph:\n%s", written)
+	}
+}

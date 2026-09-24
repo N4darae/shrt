@@ -1135,7 +1135,11 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      INCONCLUSIVE. With `-keep writes` nothing that wrote state is dropped, so the verdict can be
      `reproduced`, and when the slice keeps every step `-write` records it in the chain itself.
    Until you have a verdict, the slice is a hypothesis, and every slice prints a line saying so;
-   when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line.
+   when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line, in the
+   output and in the written slice's description: `VERIFIED`, `NOT REPRODUCED` or `INCONCLUSIVE by
+   'shrt chain slice -verify': ...`, never next to the hypothesis paragraph. Re-verifying a slice
+   file that keeps every step records a `RE-RUN by ...` line against its own run, which replaces the
+   hypothesis paragraph and any earlier `RE-RUN` line, whatever the new verdict.
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**
    A producer whose only contribution was a VALUE is dropped and its value pinned into `vars:`,
    with every reference rewritten to `${vars.<name>}`. A `from` or `same_as` contract edge exists to
