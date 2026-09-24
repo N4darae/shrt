@@ -279,9 +279,10 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(unset) > 0 {
 		r.add(CheckAuth, LevelWarn,
 			fmt.Sprintf("unset in this shell: %s", strings.Join(unset, ", ")),
-			"A run dies with status error at the FIRST STEP THAT NEEDS one of these profiles' tokens: the\n"+
-				"steps before it are sent, that step and (without -keep-going) every later one are not. That is\n"+
-				"a fixture problem, not a backend one. Export them before 'shrt run'.")
+			"'shrt run' of a chain with a step under one of these profiles refuses the chain before sending anything:\n"+
+				"it exits 1, writes no run record, and says 'step \"<id>\" (step N) runs under auth profile\n"+
+				"\"<profile>\", whose login body reads ${env.NAME}, and env NAME is not set, so nothing was sent'.\n"+
+				"That is a fixture problem, not a backend one. Export them before 'shrt run'.")
 	}
 	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 {
 		r.add(CheckAuth, LevelOK,

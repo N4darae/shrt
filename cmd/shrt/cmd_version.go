@@ -21,6 +21,8 @@ func init() {
 func runVersion(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	short := fs.Bool("short", false, "print the version alone, for a script")
+	setUsage(fs, "usage: shrt version [-short]   which build this is: version, commit, build time and the docs it carries",
+		"\nexit codes:\n  0  printed\n  1  a flag that cannot be parsed\n")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}

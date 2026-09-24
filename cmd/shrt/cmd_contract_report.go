@@ -29,6 +29,10 @@ func contractStatus(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry) and 'no path to' (a contract, but in no multi-step plan), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
+	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
+		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
+			"  1  a flag or -phase that cannot be parsed, a contract overlay that does not parse, or a setup that\n"+
+			"     cannot load (no .shrt/config.yaml, a missing descriptor)\n")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
@@ -40,14 +44,9 @@ func contractStatus(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, brokenOverlays, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
-	}
-	if len(brokenOverlays) > 0 {
-		return fmt.Errorf("%d overlay(s) did not parse, so every rpc they cover is counted as having no "+
-			"contract at all. This table would report that as coverage you do not have — run "+
-			"'shrt contract lint' to see which, and fix them before reading these numbers", len(brokenOverlays))
 	}
 	todos := map[string]int{}
 	for _, i := range contract.LintTodos(lib) {
@@ -190,14 +189,9 @@ func contractQuality(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, brokenOverlays, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
-	}
-	if len(brokenOverlays) > 0 {
-		return fmt.Errorf("%d overlay(s) did not parse, so every rpc they cover is absent from this score. "+
-			"A score computed over half a library is not a lower score, it is a different question — run "+
-			"'shrt contract lint' to see which, and fix them before reading this number", len(brokenOverlays))
 	}
 	report := contract.MeasurePhase(lib, e.cat, *only, *phase)
 

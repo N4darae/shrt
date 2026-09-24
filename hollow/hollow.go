@@ -34,18 +34,19 @@ type Finding struct {
 }
 
 type Report struct {
-	RunsDir       string    `json:"runs_dir"`
-	Records       int       `json:"records"`
-	ReadSteps     int       `json:"read_steps"`
-	EnvelopeOnly  int       `json:"envelope_only"`
-	HollowRecords int       `json:"hollow_step_records"`
-	DistinctSteps int       `json:"distinct_steps"`
-	ChainFixed    int       `json:"chain_asserts_data"`
-	Allowed       int       `json:"allowlisted"`
-	Unallowed     int       `json:"reported"`
-	Findings      []Finding `json:"findings"`
-	Orphans       []string  `json:"orphan_run_dirs,omitempty"`
-	OrphanRecords int       `json:"orphan_records,omitempty"`
+	RunsDir        string    `json:"runs_dir"`
+	Records        int       `json:"records"`
+	ReadSteps      int       `json:"read_steps"`
+	EnvelopeOnly   int       `json:"envelope_only"`
+	AssertsNothing int       `json:"asserts_nothing"`
+	HollowRecords  int       `json:"hollow_step_records"`
+	DistinctSteps  int       `json:"distinct_steps"`
+	ChainFixed     int       `json:"chain_asserts_data"`
+	Allowed        int       `json:"allowlisted"`
+	Unallowed      int       `json:"reported"`
+	Findings       []Finding `json:"findings"`
+	Orphans        []string  `json:"orphan_run_dirs,omitempty"`
+	OrphanRecords  int       `json:"orphan_records,omitempty"`
 }
 
 func IsReadProcedure(procedure string) bool {
@@ -351,7 +352,11 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 			if !assertsOnlyEnvelope(step) {
 				continue
 			}
-			rep.EnvelopeOnly++
+			if len(step.Expect) == 0 {
+				rep.AssertsNothing++
+			} else {
+				rep.EnvelopeOnly++
+			}
 			if DeclaresRefusal(step.Expect) || !BodyIsEmpty(step.Response) {
 				continue
 			}

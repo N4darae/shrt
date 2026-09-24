@@ -53,9 +53,18 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   may carry `@alias`, and the aliased step is built with that alias's field overrides (an undeclared
   alias is refused with the list of declared ones). All targets go into one chain in dependency
   order, and a node reached twice appears once.
-- If you find yourself adding a step by hand, the contract is missing an edge — fix the contract,
-  then re-plan. That is the difference between composing one chain and making every future chain
-  compose itself.
+- If you find yourself adding a step by hand for an rpc the plan left out, the contract is missing
+  an edge — fix the contract, then re-plan. That is the difference between composing one chain and
+  making every future chain compose itself.
+- **The exception is the same rpc twice**, typically a read before and after a write, so the chain
+  can compare the two. `plan` puts each node in once, so a second plain `GetProduct` target is
+  silently dropped (`plan GetProduct AddStock GetProduct` plans one read); no edge is missing.
+  Declare one alias per instance on the read (`aliases: {before: {note: ...}, after: {note: ...}}`),
+  then name them around the write:
+  `shrt contract plan GetProduct@before AddStock GetProduct@after -write`. Targets that no edge
+  orders keep the order you name them in, so read the printed `order:` line; to make the contract
+  itself pin the read ahead of the write, list `GetProduct@before` in the write's `needs:`, and name
+  the after-read after the write (`shrt contract plan AddStock GetProduct@after`).
 
 ## 2. Compose a chain — no contract yet
 
@@ -102,29 +111,36 @@ constraint, and it is why a sweep over the corpus generates a random tag per cha
 refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
 run onto one key), so a sweep passes `-var tag=...` only to the chains that read `${vars.tag}`:
 check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which lists the vars the
-chain does read.
+chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
+interpolate (`sku-${vars.tag}`) under `vars:`, with the chain's name as its value, so a planned
+chain lints without a warning and its first run needs no `-var`. The second run sends the same
+values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. A var that
+is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
 
 `.shrt/config.yaml` carries a `conventions:` block. Six keys, all optional, and the defaults
 describe a Connect-style backend that reports its verdict at `error.code` with `OK` meaning success.
 The block below is NOT the defaults: it is an example for a backend that answers
-`{"status": {"code": "SUCCESS"}}`, with every key set to show its shape. It carries no comment
-lines, so it pastes into a repo whose hook rejects them:
+`{"status": {"code": "SUCCESS"}}`, and whose batch rpcs answer
+`{"status": {...}, "results": [{"status": {"code": "SUCCESS"}, ...}]}`, with every key set to show
+its shape. It carries no comment lines, so it pastes into a repo whose hook rejects them:
 
 ```yaml
 conventions:
   read_only_prefixes: [Fetch, Get, List, Query, Read]
   envelope_path: status.code
   envelope_ok: SUCCESS
-  item_envelope_path: results[].error.code
+  item_envelope_path: results[].status.code
   code_fields: [app_code, reason, error_code]
   validate_output: true
 ```
 
 Key by key: `read_only_prefixes` says which rpc names are reads; `envelope_path` is where a
 response states its verdict, and `envelope_ok` the value there meaning success;
-`item_envelope_path` is a BATCH rpc's per-item verdict; `code_fields` are the detail fields
+`item_envelope_path` is a BATCH rpc's per-item verdict, a path that must exist in your response
+messages (`results[].error.code` on a backend like this one makes `shrt run` refuse every chain,
+because no response declares it); `code_fields` are the detail fields
 `chain which -code` searches; and with `validate_output: true` a response the descriptor rejects
 FAILS its step.
 
@@ -205,7 +221,9 @@ rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
 `<chain> <step-id> <reason>`; an entry without a reason is
 refused. `PITFALLS.md` §24. The summary's `asserting only the envelope verdict` count is the reads
 whose expectations touch nothing but the envelope; a refusal probe that pins a detail code field
-under it (`error.details.0.app_code`, `reason`) asserts the refusal's detail and is not counted.
+under it (`error.details.0.app_code`, `reason`) asserts the refusal's detail and is not counted. A
+read with no `expect:` at all is counted apart, as `asserting nothing`; both kinds can be hollow,
+and `of those hollow` counts the two together.
 
 ## 5. Probe one failure code
 

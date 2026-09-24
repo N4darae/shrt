@@ -31,6 +31,12 @@ func runInit(ctx context.Context, args []string) error {
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
 	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
+	setUsage(fs, "usage: shrt init [flags]   write .shrt/, build the descriptor, install the Claude skill and subagent; "+
+		"re-running keeps your config and chains",
+		"\nexit codes:\n  0  .shrt/ written, or already there and refreshed\n"+
+			"  1  init stopped: a flag that cannot be parsed, a .shrt/config.yaml that does not parse, a file it\n"+
+			"     could not write\n"+
+			"  2  the files were written but the descriptor did not build; fix the cause and run 'shrt catalog build'\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

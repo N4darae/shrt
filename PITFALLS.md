@@ -71,8 +71,9 @@ status words could not express. See entry 29.
 
 ## 5. A cached, still-valid token that shrt refuses to use
 
-**Symptom.** A token in `.shrt/tokens.json` has not expired, yet the run dies at step 1 with
-`auth body: unresolved reference ${env.API_PASSWORD}`.
+**Symptom.** A token in `.shrt/tokens.json` has not expired, yet `shrt run` exits 1 before sending
+anything, with no run record: `step "<id>" (step 1) runs under auth profile "<profile>", whose login
+body reads ${env.API_PASSWORD}, and env API_PASSWORD is not set, so nothing was sent`.
 
 **Cause.** Deliberate, not a bug: the cache key is a hash of the target (`target.base_url`, and
 `host_override` when set), the login procedure **and the resolved request body**, so a token minted

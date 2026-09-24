@@ -92,10 +92,11 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 
 	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: *keep, Vars: vars, IsLogin: isLoginStep(e)}
-	lib, _, libErr := e.library()
-	if libErr == nil && lib != nil {
-		opts.Prereqs = contract.PrereqsFor(lib)
+	lib, err := e.library()
+	if err != nil {
+		return err
 	}
+	opts.Prereqs = contract.PrereqsFor(lib)
 	var rec *runner.Record
 	if *runID == "" {
 		if err := runRequired(*mode, *verify); err != nil {

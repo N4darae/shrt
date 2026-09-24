@@ -27,7 +27,7 @@ func contractPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, _, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
 	}

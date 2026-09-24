@@ -219,7 +219,7 @@ func TestPlanDoesNotCallAnExplicitTargetADuplicate(t *testing.T) {
 	}
 }
 
-func TestPlanNotesAVarItsValuesReadButTheChainDoesNotDeclare(t *testing.T) {
+func TestPlanDeclaresAndNotesAVarItsValuesInterpolate(t *testing.T) {
 	cat := catalogtest.Shop()
 	overlay := strings.Replace(shopCatalogOverlay, "value: SKU-1", "value: SKU-${vars.tag}", 1)
 	if overlay == shopCatalogOverlay {
@@ -230,7 +230,10 @@ func TestPlanNotesAVarItsValuesReadButTheChainDoesNotDeclare(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !anyNote(plan.Notes, "${vars.tag}") || !anyNote(plan.Notes, "-var tag=...") {
-		t.Fatalf("a planned chain that cannot run without -var tag must say so: %v", plan.Notes)
+	if plan.Chain.Vars["tag"] != "tagged" {
+		t.Fatalf("a var the contract's values interpolate must be declared, got vars %v", plan.Chain.Vars)
+	}
+	if !anyNote(plan.Notes, "${vars.tag}") || !anyNote(plan.Notes, "-var tag=<fresh>") {
+		t.Fatalf("a planned chain whose re-run needs a fresh -var tag must say so: %v", plan.Notes)
 	}
 }

@@ -38,15 +38,19 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
-	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ\n"+
-		"  2  could not compare: an unknown run, runs of two chains, or bad usage\n")
+	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ; also, as for every command, "+
+		"a flag that cannot be parsed or a setup that cannot load\n"+
+		"  2  could not compare: an unknown run, runs of two chains, or the wrong number of arguments\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
-		return err
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return &exitError{code: 1, err: err}
 	}
 	e, err := loadEnv(false)
 	if err != nil {
-		return err
+		return &exitError{code: 1, err: err}
 	}
 	if len(rest) == 1 || len(rest) == 3 {
 		if err := e.knownChain(rest[0]); err != nil {

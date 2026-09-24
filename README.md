@@ -39,10 +39,16 @@ files into every repo that adopts shrt, so nothing here may assume one machine's
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+shrt init -agents=false -build=false # only if .shrt/docs/ is missing, as on a fresh clone
 shrt catalog build                   # the descriptor; without it every catalog command fails
 shrt doctor                          # is this installation sound?
 shrt catalog ls -filter <word>
 ```
+
+`.shrt/docs/` is gitignored build output too, so on a fresh clone `doctor` FAILs with `.shrt/docs/
+is missing README.md, GRAMMAR.md, PLAYBOOK.md, PITFALLS.md` until the first line writes them from
+the copy embedded in the binary. It touches nothing that already exists, though on a clone missing
+them it can also add `.gitignore` entries or a `.shrt/config.yaml`.
 
 **`shrt doctor` is the check to run before you trust a green.** The four files you are reading are
 installed build output, copied out of the binary by `shrt init`; upgrade the binary and the copy
@@ -74,8 +80,10 @@ before the first run. If nothing looked like a login it writes no block at all a
 
 Either way, `auth.body` names the environment variables the login reads. **Read those names out of
 `.shrt/config.yaml` rather than assuming them** — they differ per repo — and export them before the
-run. Without them a run dies at the first step that needs a token, with status `error`, and that
-step **sends nothing**, which is a fixture problem, not a backend one.
+run. Without them `shrt run` refuses the chain **before sending anything**: it exits 1, writes no
+run record, and says `step "<id>" (step N) runs under auth profile "<profile>", whose login body
+reads ${env.NAME}, and env NAME is not set, so nothing was sent`. That is a fixture problem, not a
+backend one.
 
 If the target is a remote box whose credential must not be copied around, run shrt on that box
 instead of forwarding the secret; where that is written down is this repo's business, not the
@@ -113,7 +121,9 @@ kit's.
 
 A gate reads these, so they are part of the interface. Any command also exits 2 for an unknown
 command or group subcommand, 1 for a flag it cannot parse or a setup it cannot load (no
-`.shrt/config.yaml`, a config that does not parse, a missing descriptor), and 0 for `-h`.
+`.shrt/config.yaml`, a config that does not parse, a missing descriptor, and, in every command that
+reads contracts, an overlay under `paths.contracts` that does not parse, named with its parse
+error), and 0 for `-h`.
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
@@ -122,12 +132,45 @@ command or group subcommand, 1 for a flag it cannot parse or a setup it cannot l
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice` (no `-verify`) | the slice was printed or written | a refusal: an unknown chain or step, `-mode pin` without `-run`, an unknown run, a slice file `-write` would overwrite. The same refusal exits 2 under `-verify`, where 1 would read as `NOT REPRODUCED` | — | — |
 | `chain slice -verify` | `reproduced` | `NOT REPRODUCED` | `DID NOT RUN`; also a refusal before anything was sent (an unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh `-var name=<fresh>`), so nothing was verified | `INCONCLUSIVE` |
-| `diff` | the two runs do not differ | they differ | could not compare (unknown run, runs of two chains, usage) | — |
+| `diff` | the two runs do not differ | they differ | could not compare (unknown run, runs of two chains, the wrong number of arguments) | — |
 | `chain hollow` | no unexplained hollow read; under `-gate`, at the baseline | hollow reads reported; under `-gate`, worse or better than the baseline | no run records to read | — |
 | `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
 | `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
 | `contract lint` | no contract error (warnings allowed) | a contract error, an overlay that does not parse, or no overlay to check | — | — |
 | `contract quality -gate` | the score equals the baseline | the score is worse than the baseline, better without the baseline being lowered, or the baseline file is missing | — | — |
+
+### CI gate
+
+In this order, under `set -e` or with each exit checked, and with every env var the `auth:`
+bodies read exported first (a missing one makes `doctor -strict` warn and `run` refuse):
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+[ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
+shrt catalog build
+shrt doctor -strict
+shrt contract lint
+shrt contract quality -gate -baseline .shrt/quality-baseline
+shrt chain lint -strict
+tag="ci$(date +%s)$RANDOM"
+shopt -s nullglob
+for f in .shrt/chains/*.yaml; do
+  c="$(basename "$f" .yaml)"
+  if grep -q 'vars\.tag' "$f"; then shrt run "$c" -quiet -var "tag=$tag-$c"; else shrt run "$c" -quiet; fi
+done
+for s in .shrt/safespots/*.json; do
+  c="$(basename "$s" .json)"
+  if grep -q 'vars\.tag' ".shrt/chains/$c.yaml"; then shrt verify "$c" -quiet -var "tag=$tag-v-$c"; else shrt verify "$c" -quiet; fi
+done
+shrt chain hollow -gate -baseline .shrt/hollow-baseline
+```
+
+Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
+uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
+a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is the gate's
+to list: expect exit 1 from its run, and treat exit 0 (the defect is gone) or 3 (no verdict) as a
+failure. Each baseline file holds one number, the score the gate must equal; write the current
+score into it once (a missing file fails the gate), and change it only as a reviewed edit.
 
 ## The loop
 

@@ -88,8 +88,8 @@ func chainHollow(args []string) error {
 		}
 		fmt.Printf("HOLLOW %-40s %-54s %-30s %s (%d record(s))\n", f.Chain, f.Step, f.RPC, f.RunID, f.Occurrences)
 	}
-	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the envelope verdict, %d of those hollow\n",
-		rep.Records, rep.ReadSteps, rep.EnvelopeOnly, rep.HollowRecords)
+	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the envelope verdict, %d asserting nothing, %d of those hollow\n",
+		rep.Records, rep.ReadSteps, rep.EnvelopeOnly, rep.AssertsNothing, rep.HollowRecords)
 	fmt.Printf("%d distinct (chain, step): %d reported, %d allowlisted, %d whose chain now asserts a data path\n",
 		rep.DistinctSteps, rep.Unallowed, rep.Allowed, rep.ChainFixed)
 	reportOrphans(rep)

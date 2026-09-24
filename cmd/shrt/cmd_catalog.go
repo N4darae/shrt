@@ -70,6 +70,9 @@ func catalogList(args []string) error {
 	filter := fs.String("filter", "", "case-insensitive substring filter on the rpc name")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	services := fs.Bool("services", false, "list services only")
+	setUsage(fs, "usage: shrt catalog ls [-filter <word>] [-services] [-json]   list the RPC surface",
+		"\nexit codes:\n  0  listed, including a filter that matches nothing\n"+
+			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml, a missing descriptor)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

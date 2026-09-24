@@ -160,3 +160,26 @@ rpcs:
 		t.Fatalf("plan: %v", err)
 	}
 }
+
+func TestSameAsKeepsTheProducersTemplatedValue(t *testing.T) {
+	cat := catalogtest.New()
+	raw := strings.Replace(sharesARequestValue, "        required: [username]\n",
+		"        required: [username]\n        fields:\n            username:\n                value: user-${vars.tag}\n", 1)
+	p, err := BuildPlan("shrt.test.v1.ThingService/Create", libraryFrom(t, raw), cat, "demo")
+	if err != nil {
+		t.Fatalf("BuildPlan: %v", err)
+	}
+	login, create := p.stepByID("login"), p.stepByID("create")
+	if login == nil || create == nil {
+		t.Fatalf("steps are %v", p.Order)
+	}
+	if got := login.Body["username"]; got != "user-${vars.tag}" {
+		t.Errorf("producer sends %v, want the contract's value: user-${vars.tag}", got)
+	}
+	if got := create.Body["name"]; got != "${steps.login.request.username}" {
+		t.Errorf("consumer sends %v, want a reference to what the producer sent", got)
+	}
+	if v, declared := p.Chain.Vars["login_username"]; declared {
+		t.Errorf("no var is needed when the consumer reads the producer's request, got vars %v (login_username=%q)", p.Chain.Vars, v)
+	}
+}
