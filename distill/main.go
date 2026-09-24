@@ -37,6 +37,7 @@ var notes = map[string]string{
 	"Chain.volatile":    "Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value.",
 	"Chain.redact":      "Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). A redacted response value is blanked in the safe spot and in every replay alike, so `shrt verify` and `shrt diff` never compare it: `confirm` lists those fields under **Redacted, never compared by `shrt verify`**, and `verify` counts them and names each one (`redacted`, `redacted_paths` under `-json`) without failing. Redact only what must not be stored; a business field redacted here is a field no safe spot guards, so assert it in the chain if it matters.",
 	"Chain.steps":       "Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it.",
+	"Chain.kept_red":    "Pins a known defect this chain is kept red on purpose to show: WHERE it fails (a step) and HOW (an expectation path on that step, optionally the value it got). `shrt run` then exits 0 when the chain fails exactly as pinned — every pinned expectation failed, with the pinned `got` when one is given, and no other step or expectation failed — and exits 1 when it fails anywhere else or differently (a regression in an earlier step, a pinned path that held, another value), or passes, which says the defect is gone. An `error` run still exits 3. The run record keeps `status: failed` and says which in `kept_red`, so such a run is never proposed as a safe spot. Each entry must name a step of this chain and a path one of its expectations asserts, or the chain does not load. A CI gate needs no list of red chains beside it: every `shrt run` must exit 0.",
 
 	"Step.id":          "Unique; later steps reference it. Derived from the rpc name when omitted.",
 	"Step.description": "Why this step is here and what its assertions mean — the place to record a judgement a reader would otherwise re-derive from the body.",
@@ -130,25 +131,27 @@ var notes = map[string]string{
 	"Descriptor.source": "What `shrt catalog build` compiles, passed to the descriptor binary.",
 	"Descriptor.binary": "The compiler, normally `buf`.",
 
-	"Record.run_id":       "Timestamp-prefixed, e.g. `20260911T104434Z-e94560bd`. `-run latest` picks the newest by that prefix; runs started in the same second are ordered by `started_at`, then by file time.",
-	"Record.chain":        "Chain name, which is also the run directory and the safe-spot key.",
-	"Record.chain_source": "Path the chain was loaded from.",
-	"Record.dry_run":      "True when `-dry-run` produced this record: every step resolved and validated, none was sent. `status` is still `passed` on success, so a gate that reads only `status` cannot tell a dry run from a real one — read this field too. Dry runs are never saved, so it is absent from every record under `.shrt/runs/`.",
-	"Record.target":       "The base_url this ran against. A receipt quoted without it says nothing about which box answered. A run recorded against another base_url than the config's is not pinned from: `chain slice -mode pin` refuses it (exit 3 under `-verify`, nothing sent), a closure `-verify` whose verdict differs from it is `INCONCLUSIVE` naming both targets, and `chain which` cites no such run.",
-	"Record.build":        "Which build of the target answered: the `shrt run -build` label, else the value of `target.build_header`. Absent when neither is set, and then two builds behind one `target` are indistinguishable — do not compare such records across a deploy.",
-	"Record.started_at":   "UTC start time.",
-	"Record.duration_ms":  "Whole-run wall time.",
-	"Record.status":       "`passed`, `failed` or `error` — never `skipped`; that is a step status.",
-	"Record.vars":         "The resolved vars this run used, so a replay can be reproduced. A var whose name a `redact` pattern covers is `<redacted>`, and so is the value of any var a step body reads into a field `redact` covers (`password: ${vars.pw}` with `-var pw=...`): that value is scrubbed by value from the whole record, so `shrt confirm` cannot show it either.",
-	"Record.exports":      "Everything any step exported.",
-	"Record.volatile":     "Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record.",
-	"Record.redacted":     "Redact patterns in force. The values themselves are already masked in `request`/`response`.",
-	"Record.steps":        "One entry per step, in order.",
-	"Record.failure":      "Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass; when a step could not connect to the target at all (connection refused, a dial or DNS failure — not a Connect error), every later step is recorded `skipped` unsent and this carries ONE line naming the unreachable target, instead of one per step.",
-	"Record.warning":      "A run-level warning. Today: every response carrying `conventions.envelope_path` had a value other than `conventions.envelope_ok` (refusals a step asserted with `equals`, and steps asserting `transport.*`, aside). When the values seen do not look like verdict codes it points at `envelope_path`; when some look like codes that are not refusals it points at `envelope_ok`; when all look like refusals (REJECTED, PERMISSION_DENIED, ...) it stays silent, since that is a refused principal, not a config problem. It names the values seen, quoting any that are not code-shaped.",
-	"Record.seal":         "A checksum of this record that shrt writes with it. `shrt confirm` refuses to propose, and `-approve` to approve, a record whose content no longer matches it, or that has none (written before seals existed, or with the seal removed): run the chain again and propose the new run. Every other command that reads a record as evidence (`diff`, `verify -run`, `chain slice`, `chain which`, `chain hollow`) refuses one whose content no longer matches its seal (`which` and `hollow` leave it out and name it), and reads one with no seal as recorded after one line saying it predates seals and cannot be checked. It detects a hand edit, such as a failed step flipped to `passed`; it is not a signature, and cannot stop someone who recomputes it.",
-	"Record.keep_going":   "True when `shrt run -keep-going` produced this record: steps after a failure were still run, so a later red may be a consequence of an earlier one.",
-	"Record.failed_steps": "Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag.",
+	"Record.run_id":        "Timestamp-prefixed, e.g. `20260911T104434Z-e94560bd`. `-run latest` picks the newest by that prefix; runs started in the same second are ordered by `started_at`, then by file time.",
+	"Record.chain":         "Chain name, which is also the run directory and the safe-spot key.",
+	"Record.chain_source":  "Path the chain was loaded from.",
+	"Record.dry_run":       "True when `-dry-run` produced this record: every step resolved and validated, none was sent. `status` is still `passed` on success, so a gate that reads only `status` cannot tell a dry run from a real one — read this field too. Dry runs are never saved, so it is absent from every record under `.shrt/runs/`.",
+	"Record.target":        "The base_url this ran against. A receipt quoted without it says nothing about which box answered. A run recorded against another base_url than the config's is not pinned from: `chain slice -mode pin` refuses it (exit 3 under `-verify`, nothing sent), a closure `-verify` whose verdict differs from it is `INCONCLUSIVE` naming both targets, and `chain which` cites no such run.",
+	"Record.build":         "Which build of the target answered: the `shrt run -build` label, else the value of `target.build_header`. Absent when neither is set, and then two builds behind one `target` are indistinguishable — do not compare such records across a deploy.",
+	"Record.started_at":    "UTC start time.",
+	"Record.duration_ms":   "Whole-run wall time.",
+	"Record.status":        "`passed`, `failed` or `error` — never `skipped`; that is a step status.",
+	"Record.vars":          "The resolved vars this run used, so a replay can be reproduced. A var whose name a `redact` pattern covers is `<redacted>`, and so is the value of any var a step body reads into a field `redact` covers (`password: ${vars.pw}` with `-var pw=...`): that value is scrubbed by value from the whole record, so `shrt confirm` cannot show it either.",
+	"Record.exports":       "Everything any step exported.",
+	"Record.volatile":      "Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record.",
+	"Record.redacted":      "Redact patterns in force. The values themselves are already masked in `request`/`response`.",
+	"Record.steps":         "One entry per step, in order.",
+	"Record.failure":       "Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass; when a step could not connect to the target at all (connection refused, a dial or DNS failure — not a Connect error), every later step is recorded `skipped` unsent and this carries ONE line naming the unreachable target, instead of one per step.",
+	"Record.warning":       "A run-level warning. Today: every response carrying `conventions.envelope_path` had a value other than `conventions.envelope_ok` (refusals a step asserted with `equals`, and steps asserting `transport.*`, aside). When the values seen do not look like verdict codes it points at `envelope_path`; when some look like codes that are not refusals it points at `envelope_ok`; when all look like refusals (REJECTED, PERMISSION_DENIED, ...) it stays silent, since that is a refused principal, not a config problem. It names the values seen, quoting any that are not code-shaped.",
+	"Record.seal":          "A checksum of this record that shrt writes with it. `shrt confirm` refuses to propose, and `-approve` to approve, a record whose content no longer matches it, or that has none (written before seals existed, or with the seal removed): run the chain again and propose the new run. Every other command that reads a record as evidence (`diff`, `verify -run`, `chain slice`, `chain which`, `chain hollow`) refuses one whose content no longer matches its seal (`which` and `hollow` leave it out and name it), and reads one with no seal as recorded after one line saying it predates seals and cannot be checked. It detects a hand edit, such as a failed step flipped to `passed`; it is not a signature, and cannot stop someone who recomputes it.",
+	"Record.keep_going":    "True when `shrt run -keep-going` produced this record: steps after a failure were still run, so a later red may be a consequence of an earlier one.",
+	"Record.kept_red":      "Set only for a chain with `kept_red` that was answered: `as_pinned` (it failed exactly as pinned; `shrt run` exits 0), `not_as_pinned` (it failed elsewhere or differently; exit 1) or `defect_gone` (it passed; exit 1). Absent on a dry run and on an `error` run.",
+	"Record.kept_red_note": "What `kept_red` found: the pins, and for `not_as_pinned` each step or expectation that failed where nothing is pinned, each pinned path that held, and each pinned `got` that differed.",
+	"Record.failed_steps":  "Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag.",
 
 	"StepRecord.index":           "Position in the chain, from 1.",
 	"StepRecord.id":              "The step id.",
@@ -170,6 +173,10 @@ var notes = map[string]string{
 	"StepRecord.auth_principal":  "Which principal the step's profile logged in as: a digest of the profile's login call and the resolved login-body fields `redact` does not cover (the username, not the password), so no secret is in it and a rotated password keeps it. Absent when no token was attached or the login body could not be resolved. `shrt verify` compares it like `auth_profile`: the same profile name logging in as another account (`API_USER=clerk` behind `default`) is reported as `request differs ... auth_principal` and fails verify with `drift with different input`. A run record without it is not compared. A safe spot without it (confirmed before shrt recorded principals) cannot vouch for one: verify prints `principal checking is off for safe spot <run>` next to the verdict, with the `shrt confirm <chain> -supersede` that turns it on once a person approves, and a drift against it is `drift, principal not checked`, not `regression` (still exit 1), because shrt cannot tell whether this run logged in as the account it was confirmed with.",
 	"StepRecord.volatile":        "Step-level volatile patterns.",
 	"StepRecord.drift":           "The response did not match its proto message while `conventions.validate_output` was on. The step is `failed`, not `error`: the request was sent and answered. No expectation was evaluated, so nothing in this step is evidence about the rpc — rebuild the descriptor first. `allow_fail` does not swallow a step carrying it.",
+
+	"Pin.step": "The step the defect shows at.",
+	"Pin.path": "An expectation path of that step that must fail. List one entry per failing expectation; an expectation of the step on any other path must hold.",
+	"Pin.got":  "The value the failed expectation must have got, compared as text. Omit it to pin only where the chain fails.",
 
 	"ExpectResult.path":   "The path asserted.",
 	"ExpectResult.rule":   "Which rule actually fired — the one to read when two rules were written.",
@@ -267,6 +274,8 @@ func render() ([]byte, error) {
 
 	b.WriteString("\n### Reserved `transport.*` paths — the call's transport outcome\n\n")
 	b.WriteString(exerciseTransport())
+	b.WriteString("\n### `kept_red[]` — a known defect the chain pins\n\n")
+	writeTable(&b, "Pin", reflect.TypeOf(chain.Pin{}))
 
 	b.WriteString("\n## 2. References — `${...}`\n\n")
 	b.WriteString("Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains`.\n")
@@ -707,7 +716,11 @@ func exerciseDiff() (string, error) {
 	b.WriteString("across the whole record: each id of the safe spot must become one value in the new run, wherever it\n")
 	b.WriteString("appears, and no two ids of the safe spot may become the same one. An order whose `id_customer` no\n")
 	b.WriteString("longer names the customer the run created, or an id unchanged in one step and renamed in another,\n")
-	b.WriteString("is reported as `changed` at that path, naming the step and path that set the renaming. A list whose\n")
+	b.WriteString("is reported as `changed` at that path, naming the step and path that set the renaming. The same\n")
+	b.WriteString("renaming is applied inside every other string before it is compared: a message that names a renamed\n")
+	b.WriteString("id (`not enough stock for prd-847c…` against `… prd-b770…`) is equal, and counted with the masked\n")
+	b.WriteString("ids, when the only difference is that id (a string id of at least 4 characters the renaming mapped\n")
+	b.WriteString("one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'s warning apply it too. A list whose\n")
 	b.WriteString("order is not stable across runs pairs ids by position, so declare it `volatile`. `shrt verify\n")
 	b.WriteString("-masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare\n")
 	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped.\n")
@@ -721,7 +734,10 @@ func exerciseDiff() (string, error) {
 	b.WriteString("\nBefore the responses, verify compares each step's recorded REQUEST with the safe spot's and prints\n")
 	b.WriteString("every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A\n")
 	b.WriteString("request value the chain builds from another step's output or from `${uuid}` / `${now}` differs\n")
-	b.WriteString("every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's\n")
+	b.WriteString("every run and is skipped. A value built from `${uuid}` or a clock form, whole or inside other text\n")
+	b.WriteString("(`id_order: ${uuid}`, `email: m-${uuid}@example.test`), is treated like a fixture name below: a\n")
+	b.WriteString("response value that only echoes it (`no order <uuid>`, the email) is masked and counted, by `shrt\n")
+	b.WriteString("diff` too. A literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's\n")
 	b.WriteString("`auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails\n")
 	b.WriteString("verify with `drift with different input` even when every response matches. The chain's list of steps\n")
 	b.WriteString("is compared too: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs\n")
@@ -729,13 +745,23 @@ func exerciseDiff() (string, error) {
 	b.WriteString("An expectation added, removed or edited since approval (its path, its rule, or a literal value; a\n")
 	b.WriteString("`${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is\n")
 	b.WriteString("printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change\n")
-	b.WriteString("at that step and nothing else. A step or expectation edit is a CHAIN change, not an input change: the\n")
+	b.WriteString("at that step, and the later steps the run then did not reach, and nothing else. A step or expectation\n")
+	b.WriteString("edit is a CHAIN change, not an input change: the\n")
 	b.WriteString("summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was\n")
 	b.WriteString("confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`\n")
 	b.WriteString("(exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.\n")
 	b.WriteString("A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request\n")
 	b.WriteString("value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`\n")
-	b.WriteString("compares like with like; a response value that only echoes the new fixture name is masked and counted.\n")
+	b.WriteString("compares like with like. A var names fixtures only when the chain reads it inside other text in at least\n")
+	b.WriteString("one field that is not an id (`id`, `*_id`, `id_*`, `idempotency_key`), and never inside text that is\n")
+	b.WriteString("otherwise only digits; every in-text read of such a var is a fixture name, an id field included\n")
+	b.WriteString("(`idempotency_key: k1-${vars.tag}`). A var feeding a number (`qty: \"${vars.q}0\"`) or read only in an id\n")
+	b.WriteString("field (`id_customer: cus-${vars.n}`) is input, and `shrt diff` shows its request difference.\n")
+	b.WriteString("A response value that only echoes the new fixture name is masked and counted,\n")
+	b.WriteString("by `shrt diff` and `confirm`'s drift warning as well. The comparison is made against what an echo\n")
+	b.WriteString("of THIS run's input would read: a response value that still carries the confirmed run's fixture name\n")
+	b.WriteString("(or a renamed id) while this run sent another, such as the old customer's email or a refusal naming\n")
+	b.WriteString("the old sku, is reported as `changed` with `want` the renamed value, even though it equals the safe spot.\n")
 	b.WriteString("Any other request difference is input and explains the response changes at its step and after it:\n")
 	b.WriteString("when every response change comes at or after the first step whose input differs, they are reported as\n")
 	b.WriteString("coming with different input and verify fails with `drift with different input`; a change at an earlier\n")

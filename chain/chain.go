@@ -15,6 +15,7 @@ type Chain struct {
 	Volatile    []string       `yaml:"volatile,omitempty" json:"volatile,omitempty"`
 	Redact      []string       `yaml:"redact,omitempty" json:"redact,omitempty"`
 	Steps       []*Step        `yaml:"steps" json:"steps"`
+	KeptRed     []Pin          `yaml:"kept_red,omitempty" json:"kept_red,omitempty"`
 
 	SourcePath string `yaml:"-" json:"-"`
 }
@@ -31,6 +32,12 @@ type Step struct {
 	SkipAuth    bool              `yaml:"skip_auth,omitempty" json:"skip_auth,omitempty"`
 	AllowFail   bool              `yaml:"allow_fail,omitempty" json:"allow_fail,omitempty"`
 	Volatile    []string          `yaml:"volatile,omitempty" json:"volatile,omitempty"`
+}
+
+type Pin struct {
+	Step string  `yaml:"step" json:"step"`
+	Path string  `yaml:"path" json:"path"`
+	Got  *string `yaml:"got,omitempty" json:"got,omitempty"`
 }
 
 func (c *Chain) Step(id string) (*Step, bool) {
@@ -67,6 +74,26 @@ func (c *Chain) Normalize() error {
 			return fmt.Errorf("duplicate step id %q", s.ID)
 		}
 		seen[s.ID] = true
+	}
+	return c.checkKeptRed()
+}
+
+func (c *Chain) checkKeptRed() error {
+	for i, k := range c.KeptRed {
+		s, ok := c.Step(k.Step)
+		if !ok {
+			return fmt.Errorf("kept_red[%d]: no step %q in this chain", i, k.Step)
+		}
+		found := false
+		for _, e := range s.Expect {
+			if e.Path == k.Path {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("kept_red[%d]: step %q has no expectation on path %q, so it can never fail there", i, k.Step, k.Path)
+		}
 	}
 	return nil
 }

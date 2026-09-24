@@ -77,6 +77,10 @@ func idNamed(key string) bool {
 	return false
 }
 
+func IDNamedPath(path string) bool {
+	return idNamed(lastKey(path))
+}
+
 func idKey(v any) string {
 	return jsonKind(v) + ":" + fmt.Sprint(v)
 }

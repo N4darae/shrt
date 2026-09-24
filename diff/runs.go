@@ -51,9 +51,14 @@ type RunReport struct {
 	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
 	RequestChanges   []Change     `json:"request_changes,omitempty"`
 	FixtureRequests  int          `json:"fixture_requests,omitempty"`
+	FixtureEchoed    int          `json:"fixture_echoed,omitempty"`
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
+
+	compared     []comparedStep
+	idPairs      []idPair
+	fixturePairs [][2]string
 }
 
 func (r *RunReport) Same() bool {
@@ -78,10 +83,10 @@ func stepError(s *runner.StepRecord) string {
 }
 
 func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
-	return CompareRunsSkipping(a, b, extra, nil)
+	return CompareRunsSkipping(a, b, extra, Fixtures{})
 }
 
-func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step, path string) bool) *RunReport {
+func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
 	rep := &RunReport{
 		Note: RunComparisonNote, Chain: a.Chain,
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status,
@@ -129,12 +134,20 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step,
 				ErrorA: stepError(sa), ErrorB: stepError(sb)})
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
-		rep.compareRequests(sa, sb, masker, fixture)
+		rep.compareRequests(sa, sb, masker, fx)
 		rep.compareResponses(sa, sb, masker)
 		if everyFieldMasked(masker, sa.Response) && everyFieldMasked(masker, sb.Response) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
 		}
 	}
+	renames := idRenames(rep.idPairs)
+	var renamed, echoed []Change
+	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
+	rep.Masked += len(renamed)
+	var stale []Change
+	rep.Changes, echoed, stale = splitStaleEchoes(rep.Changes, rep.compared, append(rep.fixturePairs, renames...))
+	rep.FixtureEchoed += len(echoed)
+	rep.Changes = append(rep.Changes, stale...)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
@@ -204,6 +217,8 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		}
 		return
 	}
+	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
+	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
 	walk(x, y, "", func(c Change) {
 		if underMask(masker, c.Path) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
@@ -214,7 +229,7 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 	})
 }
 
-func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.Masker, fixture func(step, path string) bool) {
+func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.Masker, fx Fixtures) {
 	if !SameCall(sa, sb) {
 		r.RequestChanges = append(r.RequestChanges, Change{Step: sa.ID, Path: "call", Kind: KindChanged, Want: sa.Call, Got: sb.Call})
 	}
@@ -229,13 +244,19 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 	if errA != nil || errB != nil {
 		return
 	}
+	r.fixturePairs = append(r.fixturePairs, generatedPairs([]*runner.StepRecord{sa}, []*runner.StepRecord{sb}, fx.Generated)...)
 	walk(a, b, "", func(c Change) {
 		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
 			return
 		}
-		if fixture != nil && fixture(sa.ID, c.Path) {
+		if (fx.Named != nil && fx.Named(sa.ID, c.Path)) || (fx.Generated != nil && fx.Generated(sa.ID, c.Path)) {
 			r.FixtureRequests++
+			if x, ok := c.Want.(string); ok && len(x) >= minFixtureEcho {
+				if y, ok := c.Got.(string); ok {
+					r.fixturePairs = append(r.fixturePairs, [2]string{x, y})
+				}
+			}
 			return
 		}
 		c.Step = sa.ID
@@ -452,13 +473,16 @@ func (r *RunReport) Text() string {
 		}
 	}
 	if r.FixtureRequests > 0 {
-		fmt.Fprintf(&b, "\n%d request value(s) differ only in a fixture name built from a var inside other text (`sku-${vars.tag}`), not shown\n", r.FixtureRequests)
+		fmt.Fprintf(&b, "\n%d request value(s) differ only in a fixture name built from a var inside other text (`sku-${vars.tag}`) or from `${uuid}` or the clock, not shown\n", r.FixtureRequests)
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))
 		for _, c := range r.Changes {
 			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
 		}
+	}
+	if r.FixtureEchoed > 0 {
+		fmt.Fprintf(&b, "\n%d response value(s) differ only by echoing the fixture name the run sent, as `shrt verify` masks them, not shown\n", r.FixtureEchoed)
 	}
 	if r.Masked > 0 {
 		fmt.Fprintf(&b, "\n%d differing value(s) not shown: declared volatile paths, ids and timestamps differ every run\n", r.Masked)

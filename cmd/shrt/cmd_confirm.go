@@ -165,15 +165,24 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 		if err != nil || !prev.Passed() || prev.DryRun || prev.Target != rec.Target {
 			continue
 		}
-		base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
-		rep := diff.CompareMasking(base, rec, currentVolatile(e, rec.Chain))
-		out := []string{}
-		for _, c := range rep.Changes {
-			out = append(out, c.Step+" "+c.Path)
-		}
-		return prev.RunID, out
+		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
+		return prev.RunID, unstableAgainst(prev, rec, currentVolatile(e, rec.Chain), c)
 	}
 	return "", nil
+}
+
+func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain) []string {
+	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
+	rep := diff.CompareMasking(base, rec, volatile)
+	if c != nil {
+		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
+		rep.SeparateInput(base, rec, volatile, requestFixtures(c))
+	}
+	out := []string{}
+	for _, ch := range rep.Changes {
+		out = append(out, ch.Step+" "+ch.Path)
+	}
+	return out
 }
 
 func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
@@ -182,21 +191,19 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		return nil
 	}
 	var derived func(step, path string) bool
-	var c *chain.Chain
-	if resolved, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
-		c = resolved
+	c, cerr := chain.Resolve(e.chainsDir(), rec.Chain)
+	if cerr == nil {
 		derived = derivedRequestPath(c)
+	} else {
+		c = nil
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
-	out := []store.Differ{}
+	out := unapprovedVolatileDiffers(rep.UnapprovedVolatile, rec, c)
 	if spot.Target != rec.Target {
 		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})
 	}
 	for _, ch := range diff.ChainChanges(spot, c) {
 		out = append(out, store.Differ{Step: ch.Step, Side: "chain", Path: ch.Path, Delta: ch.Transition()})
-	}
-	for _, p := range rep.UnapprovedVolatile {
-		out = append(out, store.Differ{Step: "-", Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
 	}
 	for _, c := range rep.RequestChanges {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
@@ -211,6 +218,45 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 			side, c.Step = "run", "-"
 		}
 		out = append(out, store.Differ{Step: c.Step, Side: side, Path: c.Path, Delta: c.Transition()})
+	}
+	return out
+}
+
+func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.Chain) []store.Differ {
+	owners := map[string][]string{}
+	own := func(step string, ps []string) {
+		for _, p := range ps {
+			if !slices.Contains(owners[p], step) {
+				owners[p] = append(owners[p], step)
+			}
+		}
+	}
+	for _, st := range rec.Steps {
+		own(st.ID, st.Volatile)
+	}
+	if c != nil {
+		for _, st := range c.Steps {
+			own(st.ID, st.Volatile)
+		}
+	}
+	chainWide := map[string]bool{}
+	for _, p := range rec.Volatile {
+		chainWide[p] = true
+	}
+	if c != nil {
+		for _, p := range c.Volatile {
+			chainWide[p] = true
+		}
+	}
+	out := []store.Differ{}
+	for _, p := range patterns {
+		steps := owners[p]
+		if len(steps) == 0 || chainWide[p] {
+			steps = []string{"-"}
+		}
+		for _, step := range steps {
+			out = append(out, store.Differ{Step: step, Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
+		}
 	}
 	return out
 }

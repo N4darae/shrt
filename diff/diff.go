@@ -61,6 +61,8 @@ type Report struct {
 	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
 
 	inputSeparated bool
+	compared       []comparedStep
+	renames        [][2]string
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
@@ -174,10 +176,16 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		if a, errA := decode(want.Response); errA == nil {
 			if b, errB := decode(got.Response); errB == nil {
 				collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
+				rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, mask: stepMask})
 			}
 		}
 	}
 	rep.applyRenaming(idPairs)
+	rep.renames = idRenames(idPairs)
+	var renamed []Change
+	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, rep.renames)
+	rep.Masked += len(renamed)
+	rep.ShapeMasked = append(rep.ShapeMasked, renamed...)
 	if len(tail) > 0 {
 		why := "the run stopped before this step"
 		if first != nil {

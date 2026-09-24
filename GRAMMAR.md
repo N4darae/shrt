@@ -23,6 +23,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `volatile` | list of string |  | Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value. |
 | `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). A redacted response value is blanked in the safe spot and in every replay alike, so `shrt verify` and `shrt diff` never compare it: `confirm` lists those fields under **Redacted, never compared by `shrt verify`**, and `verify` counts them and names each one (`redacted`, `redacted_paths` under `-json`) without failing. Redact only what must not be stored; a business field redacted here is a field no safe spot guards, so assert it in the chain if it matters. |
 | `steps` | list of step | + | Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it. |
+| `kept_red` | list of pin |  | Pins a known defect this chain is kept red on purpose to show: WHERE it fails (a step) and HOW (an expectation path on that step, optionally the value it got). `shrt run` then exits 0 when the chain fails exactly as pinned — every pinned expectation failed, with the pinned `got` when one is given, and no other step or expectation failed — and exits 1 when it fails anywhere else or differently (a regression in an earlier step, a pinned path that held, another value), or passes, which says the defect is gone. An `error` run still exits 3. The run record keeps `status: failed` and says which in `kept_red`, so such a run is never proposed as a safe spot. Each entry must name a step of this chain and a path one of its expectations asserts, or the chain does not load. A CI gate needs no list of red chains beside it: every `shrt run` must exit 0. |
 
 ### Step
 
@@ -132,6 +133,14 @@ without `allow_fail`. A different refusal, or a success, fails it, with or witho
 Lint rejects any other name under `transport.`, and calls `exists: true` / `not_empty` on
 `transport.code` or `transport.http_status` unfailable — every answered call has both.
 
+### `kept_red[]` — a known defect the chain pins
+
+| key | type | req | meaning |
+|---|---|---|---|
+| `step` | string | + | The step the defect shows at. |
+| `path` | string | + | An expectation path of that step that must fail. List one entry per failing expectation; an expectation of the step on any other path must hold. |
+| `got` | string |  | The value the failed expectation must have got, compared as text. Omit it to pin only where the chain fails. |
+
 ## 2. References — `${...}`
 
 Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains`.
@@ -174,7 +183,7 @@ Produced by resolving each form against a fixture scope:
 | `${now-86400}` | `"2026-09-10T10:44:34Z"` | the same offset in RFC3339; the unit is always SECONDS |
 | `${today}` | `"1789084800"` | the UTC midnight of this run — a business date, already a multiple of 86400 |
 | `${today-86400}` | `"1788998400"` | the business date before it |
-| `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys |
+| `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys; verify and diff mask a response that only echoes it |
 | `deal-${create_deal.id_deal}-x` | `"deal-d-9-x"` | interpolated inside a longer string, so the result is text |
 | `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` now rejects it |
 
@@ -332,6 +341,8 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `failure` | string | Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass; when a step could not connect to the target at all (connection refused, a dial or DNS failure — not a Connect error), every later step is recorded `skipped` unsent and this carries ONE line naming the unreachable target, instead of one per step. |
 | `failed_steps` | list of string | Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag. |
 | `warning` | string | A run-level warning. Today: every response carrying `conventions.envelope_path` had a value other than `conventions.envelope_ok` (refusals a step asserted with `equals`, and steps asserting `transport.*`, aside). When the values seen do not look like verdict codes it points at `envelope_path`; when some look like codes that are not refusals it points at `envelope_ok`; when all look like refusals (REJECTED, PERMISSION_DENIED, ...) it stays silent, since that is a refused principal, not a config problem. It names the values seen, quoting any that are not code-shaped. |
+| `kept_red` | string | Set only for a chain with `kept_red` that was answered: `as_pinned` (it failed exactly as pinned; `shrt run` exits 0), `not_as_pinned` (it failed elsewhere or differently; exit 1) or `defect_gone` (it passed; exit 1). Absent on a dry run and on an `error` run. |
+| `kept_red_note` | string | What `kept_red` found: the pins, and for `not_as_pinned` each step or expectation that failed where nothing is pinned, each pinned path that held, and each pinned `got` that differed. |
 | `seal` | string | A checksum of this record that shrt writes with it. `shrt confirm` refuses to propose, and `-approve` to approve, a record whose content no longer matches it, or that has none (written before seals existed, or with the seal removed): run the chain again and propose the new run. Every other command that reads a record as evidence (`diff`, `verify -run`, `chain slice`, `chain which`, `chain hollow`) refuses one whose content no longer matches its seal (`which` and `hollow` leave it out and name it), and reads one with no seal as recorded after one line saying it predates seals and cannot be checked. It detects a hand edit, such as a failed step flipped to `passed`; it is not a signature, and cannot stop someone who recomputes it. |
 
 ### Each entry of `steps`
@@ -425,7 +436,11 @@ string was, or disappeared, is reported too. Masking an id is a renaming, and it
 across the whole record: each id of the safe spot must become one value in the new run, wherever it
 appears, and no two ids of the safe spot may become the same one. An order whose `id_customer` no
 longer names the customer the run created, or an id unchanged in one step and renamed in another,
-is reported as `changed` at that path, naming the step and path that set the renaming. A list whose
+is reported as `changed` at that path, naming the step and path that set the renaming. The same
+renaming is applied inside every other string before it is compared: a message that names a renamed
+id (`not enough stock for prd-847c…` against `… prd-b770…`) is equal, and counted with the masked
+ids, when the only difference is that id (a string id of at least 4 characters the renaming mapped
+one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'s warning apply it too. A list whose
 order is not stable across runs pairs ids by position, so declare it `volatile`. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
@@ -441,7 +456,10 @@ in `-json`), so a field the backend echoes a credential into is not mistaken for
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
-every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
+every run and is skipped. A value built from `${uuid}` or a clock form, whole or inside other text
+(`id_order: ${uuid}`, `email: m-${uuid}@example.test`), is treated like a fixture name below: a
+response value that only echoes it (`no order <uuid>`, the email) is masked and counted, by `shrt
+diff` too. A literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
 verify with `drift with different input` even when every response matches. The chain's list of steps
 is compared too: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
@@ -449,13 +467,23 @@ from the confirmed run at <step> ...`, and the change of step count it causes is
 An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
 `${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
 printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
-at that step and nothing else. A step or expectation edit is a CHAIN change, not an input change: the
+at that step, and the later steps the run then did not reach, and nothing else. A step or expectation
+edit is a CHAIN change, not an input change: the
 summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
 confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
 (exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
-compares like with like; a response value that only echoes the new fixture name is masked and counted.
+compares like with like. A var names fixtures only when the chain reads it inside other text in at least
+one field that is not an id (`id`, `*_id`, `id_*`, `idempotency_key`), and never inside text that is
+otherwise only digits; every in-text read of such a var is a fixture name, an id field included
+(`idempotency_key: k1-${vars.tag}`). A var feeding a number (`qty: "${vars.q}0"`) or read only in an id
+field (`id_customer: cus-${vars.n}`) is input, and `shrt diff` shows its request difference.
+A response value that only echoes the new fixture name is masked and counted,
+by `shrt diff` and `confirm`'s drift warning as well. The comparison is made against what an echo
+of THIS run's input would read: a response value that still carries the confirmed run's fixture name
+(or a renamed id) while this run sent another, such as the old customer's email or a refusal naming
+the old sku, is reported as `changed` with `want` the renamed value, even though it equals the safe spot.
 Any other request difference is input and explains the response changes at its step and after it:
 when every response change comes at or after the first step whose input differs, they are reported as
 coming with different input and verify fails with `drift with different input`; a change at an earlier

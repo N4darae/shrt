@@ -704,7 +704,10 @@ language, give:
    response): approving sets no baseline for it, so narrow the pattern unless that is intended.
    The summary compares the run with the previous passing run of the chain against the same
    target (a run against another backend says nothing about this one) and lists each field
-   that differed and is not masked: every `verify` would report those as drift. Pass the warning
+   that differed and is not masked the way `verify` masks it: every `verify` would report those
+   as drift. An id, a timestamp, and a value that only echoes a fixture name (a response `sku`,
+   `name` or `email` that follows the run's `sku-${vars.tag}`) are masked by `verify` and are not
+   listed, so do not declare them volatile. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
@@ -768,7 +771,9 @@ the safe spot's run sent, and prints each difference before the response changes
 another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. Two
 kinds of request difference are printed on one line but are NOT different input: a fixture name,
 a string that interpolates a var inside other text (`sku-${vars.tag}`, `Widget ${vars.tag}`), and a
-value under a `volatile` path. That is what a fresh `-var tag` changes, so a CI replay with a new
+value under a `volatile` path. A var is a fixture name only where it isolates: the chain reads it
+inside other text in some field that is not an id, and never next to digits alone; `qty: "${vars.q}0"`
+and `id_customer: cus-${vars.n}` are input. That is what a fresh `-var tag` changes, so a CI replay with a new
 tag is still compared like with like, and a response value that only echoes the new name (the
 confirmed value with the old name swapped for the new) is masked and counted. Every other request
 difference is input, and it explains only the response changes at its own step or later ones:
@@ -783,7 +788,7 @@ request values, `qty=2, confirmed with 3`, instead of blaming the chain's input;
 file changed too (a step's `auth:`, the step list, an expectation), it names that edit as well,
 and never says the chain file is not what differs. An expectation added, removed or edited since
 approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
-step, not a response change. A response that
+step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
 it `volatile`.
 
@@ -833,8 +838,12 @@ Three things that decide whether this works for a given chain:
   volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
-- **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
-  so a safe spot would freeze the bug as ground truth. `PITFALLS.md` §11.
+- **A chain kept red on purpose must NEVER be confirmed.** Such a chain asserts the correct
+  behaviour and pins the known defect it shows with `kept_red` (a step, an expectation path, and
+  the value it got when that is stable); a safe spot would freeze the bug as ground truth. Pin
+  every expectation that fails today, and nothing more: `shrt run` exits 0 only while the chain
+  fails exactly there, and 1 when an earlier step regresses, the failure changes, or the defect is
+  gone. `PITFALLS.md` §11.
 
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:
@@ -860,10 +869,13 @@ opens its report for a `no drift` it reached the same way. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
 camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
-shown. Values derived
-from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
-(an error message naming the product) is not masked either; declare that path volatile too, knowing
-it also hides a genuine change of that message. The report says how many values it hid, and names
+shown. A value derived
+from a run tag (a response sku, name or email that echoes the `sku-${vars.tag}` the run sent) is
+masked the way `verify` masks it and counted (`N response value(s) differ only by echoing the fixture
+name`), so it needs no `volatile`; a value that differs in anything else is shown. An id inside a longer string
+(an error message naming the product) is compared after the same renaming: the message is equal when
+the only difference is an id the two runs renamed one-to-one, and any other change of its text is shown,
+so it needs no `volatile`. The report says how many values it hid, and names
 the two runs' `build` labels and any var that differed, since a difference that follows a changed
 `-var` comes from the input, not the backend. It exits 1 when the runs differ and 2 when it could not compare them (an unknown run, runs of two chains). It is a
 comparison between two runs, not a verdict: it cannot tell you which of the two is right, only

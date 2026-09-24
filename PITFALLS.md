@@ -185,6 +185,12 @@ chain's own tag isolates.
 PASS means the fix that made it fail has fallen off the target — a deploy regression, not a chain
 bug.
 
+In a shrt corpus the same chain declares `kept_red`, and its run says so itself: `kept red
+(defect_gone)` and exit 1. The opposite failure is quieter and worse: a gate that only checks a
+kept-red chain exits 1 stays green when a regression makes the chain fail EARLIER, at a step the
+defect never touched (`create_order` total wrong, so `confirm_order` is never reached). `kept_red`
+pins the step and path, so that run says `not_as_pinned` and exits 1.
+
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
 stamped: set `target.build_header` if the server reports its version in a header, or pass

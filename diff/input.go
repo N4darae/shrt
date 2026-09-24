@@ -1,8 +1,6 @@
 package diff
 
 import (
-	"strings"
-
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -10,8 +8,14 @@ import (
 
 const minFixtureEcho = 3
 
-func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fixture func(step, path string) bool) {
+type Fixtures struct {
+	Named     func(step, path string) bool
+	Generated func(step, path string) bool
+}
+
+func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
+	fixture := fx.Named
 	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)
 	stepVolatile := map[string][]string{}
 	for _, st := range append(append([]*runner.StepRecord{}, spot.Steps...), rec.Steps...) {
@@ -35,6 +39,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		material = append(material, c)
 	}
 	r.RequestChanges = material
+	pairs = append(pairs, generatedPairs(spot.Steps, rec.Steps, fx.Generated)...)
 	index := map[string]int{}
 	for i, st := range spot.Steps {
 		if _, seen := index[st.ID]; !seen {
@@ -42,10 +47,14 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		}
 	}
 	from := -1
+	firstEdited := -1
 	edited := map[string]bool{}
 	for _, c := range material {
 		if c.Path == ExpectPath {
 			edited[c.Step] = true
+			if i, ok := index[c.Step]; ok && (firstEdited < 0 || i < firstEdited) {
+				firstEdited = i
+			}
 			continue
 		}
 		i, ok := index[c.Step]
@@ -56,17 +65,19 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			from = i
 		}
 	}
+	remaining, echoed, stale := splitStaleEchoes(r.Changes, r.compared, append(pairs, r.renames...))
+	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
+	remaining = append(remaining, stale...)
 	kept := []Change{}
-	for _, c := range r.Changes {
-		if echoesFixture(c, pairs) {
-			r.FixtureEchoed = append(r.FixtureEchoed, c)
-			continue
-		}
+	for _, c := range remaining {
 		if from >= 0 {
 			i, ok := index[c.Step]
 			c.WithInput = !ok || i >= from
 		}
 		if c.Kind == KindStatus && edited[c.Step] {
+			c.WithInput = true
+		}
+		if i, ok := index[c.Step]; c.Kind == KindNotReached && firstEdited >= 0 && ok && i > firstEdited {
 			c.WithInput = true
 		}
 		kept = append(kept, c)
@@ -101,17 +112,37 @@ func chainLevel(c Change) bool {
 	return c.Path == "step" || c.Path == "steps" || c.Path == "call"
 }
 
-func echoesFixture(c Change, pairs [][2]string) bool {
-	if c.Kind != KindChanged || len(pairs) == 0 {
-		return false
+func generatedPairs(was, now []*runner.StepRecord, generated func(step, path string) bool) [][2]string {
+	if generated == nil {
+		return nil
 	}
-	want, okA := c.Want.(string)
-	got, okB := c.Got.(string)
-	if !okA || !okB {
-		return false
+	byID := map[string]*runner.StepRecord{}
+	for _, st := range now {
+		if _, seen := byID[st.ID]; !seen {
+			byID[st.ID] = st
+		}
 	}
-	for _, p := range pairs {
-		want = strings.ReplaceAll(want, p[0], p[1])
+	out := [][2]string{}
+	for _, a := range was {
+		b, ok := byID[a.ID]
+		if !ok || len(a.Request) == 0 || len(b.Request) == 0 {
+			continue
+		}
+		x, errA := decode(a.Request)
+		y, errB := decode(b.Request)
+		if errA != nil || errB != nil {
+			continue
+		}
+		walk(x, y, "", func(c Change) {
+			if c.Kind != KindChanged || !generated(a.ID, c.Path) {
+				return
+			}
+			if w, ok := c.Want.(string); ok && len(w) >= minFixtureEcho {
+				if g, ok := c.Got.(string); ok {
+					out = append(out, [2]string{w, g})
+				}
+			}
+		})
 	}
-	return want == got
+	return out
 }

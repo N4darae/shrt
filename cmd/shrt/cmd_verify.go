@@ -119,7 +119,7 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
 		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
-		report.SeparateInput(spot, rec, currentVolatile(e, name), fixtureRequestPath(c))
+		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
 	varDrift, edits := "", []string{}
 	if len(report.RequestChanges) > 0 {
@@ -146,6 +146,7 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
+	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
 	if *asJSON {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
@@ -161,16 +162,18 @@ func runVerify(ctx context.Context, args []string) error {
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
-		fmt.Println(report.Text())
-		if list := report.MaskedList(); *listMasked && list != "" {
-			fmt.Println(list)
-		}
-		if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
-			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
+		if !unanswered || anyAnswered(rec) {
+			fmt.Println(report.Text())
+			if list := report.MaskedList(); *listMasked && list != "" {
+				fmt.Println(list)
+			}
+			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
+				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
+			}
 		}
 	}
-	if step, why, ok := unansweredOnly(rec, report); ok {
-		return couldNotVerify(name, step, why, rec)
+	if unanswered {
+		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
@@ -302,6 +305,7 @@ func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
 }
 
 func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
+	isolating := isolationVars(c)
 	return func(step, path string) bool {
 		v, ok := requestTemplate(c, step, path)
 		if !ok {
@@ -312,15 +316,88 @@ func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
 			return false
 		}
 		refs := requestRef.FindAllStringSubmatch(text, -1)
-		if len(refs) == 0 || strings.TrimSpace(requestRef.ReplaceAllString(text, "")) == "" {
+		if len(refs) == 0 || !namedAround(text) {
 			return false
 		}
 		for _, m := range refs {
-			if head, _, _ := strings.Cut(strings.TrimSpace(m[1]), "."); head != "vars" {
+			n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
+			if n == nil || !isolating[n[1]] {
 				return false
 			}
 		}
 		return true
+	}
+}
+
+func namedAround(text string) bool {
+	rest := strings.TrimSpace(requestRef.ReplaceAllString(text, ""))
+	return strings.Trim(rest, "0123456789.+-") != ""
+}
+
+func isolationVars(c *chain.Chain) map[string]bool {
+	named, numeric := map[string]bool{}, map[string]bool{}
+	var visit func(v any, path string)
+	visit = func(v any, path string) {
+		switch t := v.(type) {
+		case map[string]any:
+			for k, x := range t {
+				visit(x, pathmask.Join(path, k))
+			}
+		case []any:
+			for i, x := range t {
+				visit(x, pathmask.Join(path, pathmask.IndexKey(i)))
+			}
+		case string:
+			refs := requestRef.FindAllStringSubmatch(t, -1)
+			if len(refs) == 0 || strings.TrimSpace(requestRef.ReplaceAllString(t, "")) == "" {
+				return
+			}
+			for _, m := range refs {
+				n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
+				switch {
+				case n == nil:
+				case !namedAround(t):
+					numeric[n[1]] = true
+				case !diff.IDNamedPath(path):
+					named[n[1]] = true
+				}
+			}
+		}
+	}
+	for _, s := range c.Steps {
+		if s != nil {
+			visit(s.Body, "")
+		}
+	}
+	out := map[string]bool{}
+	for v := range named {
+		if !numeric[v] {
+			out[v] = true
+		}
+	}
+	return out
+}
+
+func requestFixtures(c *chain.Chain) diff.Fixtures {
+	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c)}
+}
+
+func generatedRequestPath(c *chain.Chain) func(step, path string) bool {
+	return func(step, path string) bool {
+		v, ok := requestTemplate(c, step, path)
+		if !ok {
+			return false
+		}
+		text, ok := v.(string)
+		if !ok {
+			return false
+		}
+		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+			if k := chain.ParseRef(m[1]).Kind; k == chain.RefUUID || k == chain.RefClock {
+				return true
+			}
+		}
+		return false
 	}
 }
 
@@ -376,6 +453,15 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 		}
 		return false
 	}
+}
+
+func anyAnswered(rec *runner.Record) bool {
+	for _, st := range rec.Steps {
+		if st.HTTPStatus != 0 || len(st.Response) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
