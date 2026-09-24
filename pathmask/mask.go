@@ -1,9 +1,13 @@
 package pathmask
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/N4darae/shrt/namecase"
 )
@@ -13,6 +17,12 @@ type Masker struct {
 	value       string
 	secretsOnly bool
 	numeric     func(path string) bool
+	secrets     *secretSet
+}
+
+type secretSet struct {
+	mu     sync.Mutex
+	values []string
 }
 
 func NewMasker(patterns []string) *Masker {
@@ -20,7 +30,116 @@ func NewMasker(patterns []string) *Masker {
 }
 
 func NewRedactor(patterns []string) *Masker {
-	return &Masker{patterns: patterns, value: MaskRedacted, secretsOnly: true}
+	return &Masker{patterns: patterns, value: MaskRedacted, secretsOnly: true, secrets: &secretSet{}}
+}
+
+const minSubstringSecret = 4
+
+func (m *Masker) AddSecret(v string) {
+	if m == nil || m.secrets == nil || v == "" || v == MaskRedacted {
+		return
+	}
+	m.secrets.mu.Lock()
+	defer m.secrets.mu.Unlock()
+	for _, have := range m.secrets.values {
+		if have == v {
+			return
+		}
+	}
+	m.secrets.values = append(m.secrets.values, v)
+	sort.SliceStable(m.secrets.values, func(i, j int) bool { return len(m.secrets.values[i]) > len(m.secrets.values[j]) })
+}
+
+func (m *Masker) knownSecrets() []string {
+	if m == nil || m.secrets == nil {
+		return nil
+	}
+	m.secrets.mu.Lock()
+	defer m.secrets.mu.Unlock()
+	return append([]string(nil), m.secrets.values...)
+}
+
+func (m *Masker) ScrubText(s string) string {
+	return scrubText(s, m.knownSecrets())
+}
+
+func scrubText(s string, secrets []string) string {
+	if s == "" || len(secrets) == 0 {
+		return s
+	}
+	parts := strings.Split(s, MaskRedacted)
+	for i, part := range parts {
+		for _, secret := range secrets {
+			switch {
+			case part == secret:
+				part = MaskRedacted
+			case len(secret) >= minSubstringSecret:
+				part = strings.ReplaceAll(part, secret, MaskRedacted)
+			}
+		}
+		parts[i] = part
+	}
+	return strings.Join(parts, MaskRedacted)
+}
+
+func (m *Masker) ScrubValue(v any) any {
+	secrets := m.knownSecrets()
+	if len(secrets) == 0 {
+		return v
+	}
+	return scrubValue(v, secrets)
+}
+
+func scrubValue(v any, secrets []string) any {
+	switch t := v.(type) {
+	case string:
+		return scrubText(t, secrets)
+	case json.Number:
+		if scrubbed := scrubText(string(t), secrets); scrubbed != string(t) {
+			return scrubbed
+		}
+		return t
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, item := range t {
+			out[k] = scrubValue(item, secrets)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for _, item := range t {
+			out = append(out, scrubValue(item, secrets))
+		}
+		return out
+	}
+	return v
+}
+
+func (m *Masker) ScrubJSON(raw json.RawMessage) json.RawMessage {
+	secrets := m.knownSecrets()
+	if len(raw) == 0 || len(secrets) == 0 {
+		return raw
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		if text := scrubText(string(raw), secrets); text != string(raw) {
+			return json.RawMessage(strconv.Quote(text))
+		}
+		return raw
+	}
+	scrubbed := scrubValue(v, secrets)
+	if reflect.DeepEqual(scrubbed, v) {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(scrubbed); err != nil {
+		return json.RawMessage(strconv.Quote(MaskRedacted))
+	}
+	return json.RawMessage(bytes.TrimSpace(buf.Bytes()))
 }
 
 func (m *Masker) WithNumeric(numeric func(path string) bool) *Masker {

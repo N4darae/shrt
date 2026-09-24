@@ -35,7 +35,7 @@ var notes = map[string]string{
 	"Chain.description": "What state this chain reproduces, for the next reader.",
 	"Chain.vars":        "Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var.",
 	"Chain.volatile":    "Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value.",
-	"Chain.redact":      "Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`.",
+	"Chain.redact":      "Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2).",
 	"Chain.steps":       "Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it.",
 
 	"Step.id":          "Unique; later steps reference it. Derived from the rpc name when omitted.",
@@ -107,7 +107,7 @@ var notes = map[string]string{
 	"Config.paths":       "Where chains, runs and safe spots live.",
 	"Config.conventions": "Naming and envelope conventions of THIS backend. Every key optional. The envelope defaults are what shrt assumed before the block existed; the read-name default is wider than the five prefixes that used to be hard-coded.",
 	"Config.volatile":    "Volatile paths applied to every chain.",
-	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0 of any numeric type — an int64's `\"0\"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
+	"Config.redact":      "Paths blanked in every run record. Credentials belong here. Without the key the defaults apply, and `shrt init` writes them out: `" + strings.Join(config.DefaultRedact(), "`, `") + "`. A bool is never masked, and neither is an empty value (`\"\"`, 0 of any numeric type — an int64's `\"0\"` included —, null, `[]`, `{}`): masking it would hide that nothing was sent. Paths are not the only guard: the runner also scrubs by VALUE, replacing with `<redacted>`, wherever it appears in the record (request, response, each expectation's `want`, `got` and detail, errors, warnings, notes, exports), every value an auth body reads from `${env.*}` (username included), every token a login returned, and every value a step exports from a redacted path, so the proposal report and the safe spot built from the record never carry them either. A value shorter than 4 characters is replaced only where it is the whole string. An explicit list REPLACES the defaults rather than adding to them, so a config written before a default was added does not get it — add the pattern by hand.",
 
 	"Target.base_url":      "Scheme and host of the backend.",
 	"Target.host_override": "Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification.",

@@ -37,6 +37,7 @@ type AuthBinding struct {
 	ExpiresPath string
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
+	EnvVars     []string
 }
 
 type AuthBindings []*AuthBinding
@@ -133,6 +134,30 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 		}
 	}
 	return out
+}
+
+func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker, env func(string) (string, bool)) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		for _, name := range b.EnvVars {
+			if v, ok := env(name); ok {
+				redactor.AddSecret(v)
+			}
+		}
+	}
+}
+
+func (bs AuthBindings) learnTokens(redactor *pathmask.Masker) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		if holder, ok := b.Sink.(interface{ CurrentToken() string }); ok {
+			redactor.AddSecret(holder.CurrentToken())
+		}
+	}
 }
 
 func (bs AuthBindings) profiles() []string {
@@ -587,6 +612,8 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if r.Now != nil {
 		scope.Now = r.Now
 	}
+	r.Auth.learnSecrets(redactor, scope.Env)
+	r.Auth.learnTokens(redactor)
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
@@ -624,6 +651,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
 		}
+		scrubStep(sr, redactor)
 		for name, path := range step.Export {
 			exporter[name] = exportSource{step: step.ID, path: path}
 		}
@@ -689,6 +717,14 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if masked, ok := redactor.Apply(rec.Vars).(map[string]any); ok {
 		rec.Vars = masked
 	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Exports).(map[string]any); ok && rec.Exports != nil {
+		rec.Exports = scrubbed
+	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Vars).(map[string]any); ok && rec.Vars != nil {
+		rec.Vars = scrubbed
+	}
+	rec.Failure = redactor.ScrubText(rec.Failure)
+	rec.Warning = redactor.ScrubText(rec.Warning)
 	rec.DurationMS = r.clock().Sub(now).Milliseconds()
 	return rec, nil
 }
@@ -753,6 +789,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
 	res, err := r.Client.Do(ctx, call)
+	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 	}
@@ -913,6 +950,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			}
 			scope.Exports[name] = v
 			if redactor.MasksValue(path, v) {
+				learnSecret(redactor, v)
 				sr.Exported[name] = pathmask.MaskRedacted
 				continue
 			}
@@ -920,6 +958,44 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 	return sr
+}
+
+func learnSecret(redactor *pathmask.Masker, v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case []any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case string:
+		redactor.AddSecret(t)
+	case nil, bool:
+	default:
+		redactor.AddSecret(fmt.Sprint(t))
+	}
+}
+
+func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
+	sr.Request = redactor.ScrubJSON(sr.Request)
+	sr.Response = redactor.ScrubJSON(sr.Response)
+	for i := range sr.Expect {
+		e := &sr.Expect[i]
+		e.Want = redactor.ScrubValue(e.Want)
+		e.Got = redactor.ScrubValue(e.Got)
+		e.Detail = redactor.ScrubText(e.Detail)
+	}
+	if scrubbed, ok := redactor.ScrubValue(sr.Exported).(map[string]any); ok && sr.Exported != nil {
+		sr.Exported = scrubbed
+	}
+	sr.Error = redactor.ScrubText(sr.Error)
+	sr.Warning = redactor.ScrubText(sr.Warning)
+	sr.Note = redactor.ScrubText(sr.Note)
+	if sr.Transport != nil {
+		sr.Transport.Message = redactor.ScrubText(sr.Transport.Message)
+	}
 }
 
 func unassertedRefusalWarning(decoded any) string {

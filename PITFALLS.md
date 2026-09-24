@@ -837,6 +837,21 @@ verdict (`equals`, `not_equal` or `contains` on the envelope, or a `transport.*`
 with an `envelope` entry naming the refusal. Assert `status.code equals: SUCCESS` on a call that must
 succeed, or the refusal code on one that must be refused.
 
+## 38. A password or a token in clear in a run record, though `redact` covers its field
+
+**Symptom.** `**.*password` and `**.access_token` are redacted, yet the run record, the pending
+proposal and the safe spot show the password and the live token: in a request built from
+`${env.API_PASSWORD}` or `${tok}` (an export of `access_token`), in a response echoing them, and in an
+expectation's `want`/`got`.
+
+**Cause.** Redaction matched paths only. A secret copied into a field with an innocent name — a
+customer `name`, a product id, a message — was not under any redacted path.
+
+**Fix.** 2026-09-24: the runner also scrubs by value every value an auth body reads from `${env.*}`,
+every token a login returned, and every value exported from a redacted path, wherever it appears in
+the record; the report and safe spot are built from the record. A value shorter than 4 characters
+is replaced only where it is the whole string, so a one-letter username does not shred the record.
+
 ---
 
 # Decisions, so they are not relitigated

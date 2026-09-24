@@ -84,6 +84,12 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	s.expiresAt = expiresAt
 }
 
+func (s *LoginTokenSource) CurrentToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.token
+}
+
 func (s *LoginTokenSource) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
