@@ -519,6 +519,9 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 		}
 		absent := e.Exists != nil && !*e.Exists
 		if catalog.HasResponsePath(schema.Fields, SplitPath(e.Path)) {
+			if exact, inexact := inexactPath(schema.Fields, e.Path); inexact {
+				issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("expect path %q", e.Path), exact, m))
+			}
 			if at, ok := catalog.ResponseMissingIndex(schema.Fields, SplitPath(e.Path)); ok {
 				if absent {
 					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnfailable, Message: fmt.Sprintf(
@@ -574,7 +577,16 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := catalog.DescribeMessage(m.Output())
-	for name, path := range s.Export {
+	names := make([]string, 0, len(s.Export))
+	for name := range s.Export {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		path := s.Export[name]
+		if exact, inexact := inexactPath(schema.Fields, path); inexact {
+			issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("export %q reads %q", name, path), exact, m))
+		}
 		if !catalog.HasResponsePath(schema.Fields, SplitPath(path)) {
 			issues = append(issues, Issue{
 				Step:     s.ID,
@@ -619,6 +631,50 @@ func lintExportNames(c *Chain) []Issue {
 		}
 	}
 	return issues
+}
+
+func inexactPath(fields []*catalog.Field, path string) (string, bool) {
+	segs := SplitPath(path)
+	out := make([]string, 0, len(segs))
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			out = append(out, seg)
+			continue
+		}
+		var f *catalog.Field
+		for _, candidate := range fields {
+			if candidate.Name == seg {
+				f = candidate
+				break
+			}
+		}
+		if f == nil {
+			for _, candidate := range fields {
+				if namecase.Equal(candidate.Name, seg) {
+					f = candidate
+					break
+				}
+			}
+		}
+		if f == nil {
+			return "", false
+		}
+		out = append(out, f.Name)
+		if f.Truncated || f.MapKey != "" {
+			out = append(out, segs[i+1:]...)
+			break
+		}
+		fields = f.Fields
+	}
+	exact := strings.Join(out, ".")
+	return exact, exact != strings.Join(segs, ".")
+}
+
+func inexactPathIssue(stepID, what, exact string, m *catalog.Method) Issue {
+	return Issue{Step: stepID, Severity: SeverityWarn, Kind: KindInexactPath, Message: fmt.Sprintf(
+		"%s, which matches a field of %s only by folding case and separators; the field is %q. It resolves "+
+			"at run time, but a reader, a grep and a diff against the proto see a name the message does not "+
+			"declare: write %q", what, m.Output().FullName(), exact, exact)}
 }
 
 func isIndex(s string) bool {
@@ -881,6 +937,7 @@ const (
 	KindBadExport   = "export-reads-nonfield"
 
 	KindExportOverwritten = "export-overwritten"
+	KindInexactPath       = "inexact-path"
 
 	KindInertAllowFail = "inert-allow-fail"
 )
