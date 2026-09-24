@@ -862,6 +862,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if warning := unassertedRefusalWarning(decoded); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
+	} else if result, refused := unpinnedRefusal(decoded, step.Expect, redactor); refused {
+		sr.Expect = append(sr.Expect, result)
+		sr.Status = StatusFailed
 	}
 
 	if chain.ItemEnvelope() != "" && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
@@ -936,6 +939,40 @@ func unassertedRefusalWarning(decoded any) string {
 		"recorded passed with nothing checked. If the refusal is the point, assert it (%s equals: %s); if "+
 		"not, the backend rejected this call and later steps that read its response read zero values", path, text,
 		chain.EnvelopeOK(), path, text)
+}
+
+func unpinnedRefusal(decoded any, expect []chain.Expectation, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+	path := chain.EnvelopePath()
+	if path == "" || pinsVerdict(expect) {
+		return chain.ExpectResult{}, false
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return chain.ExpectResult{}, false
+	}
+	text := fmt.Sprint(code)
+	if text == "" || text == chain.EnvelopeOK() {
+		return chain.ExpectResult{}, false
+	}
+	detail := fmt.Sprintf("refused in-band (%s = %s, not %s), and no expectation on this step pins the verdict, "+
+		"so the ones that held read the zero values a refusal leaves. If the refusal is the point, assert it "+
+		"(%s equals: %s); if not, the backend rejected this call", path, text, chain.EnvelopeOK(), path, text)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		detail += " (" + context + ")"
+	}
+	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
+}
+
+func pinsVerdict(expect []chain.Expectation) bool {
+	for _, e := range expect {
+		if chain.IsTransportPath(e.Path) {
+			return true
+		}
+		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "") {
+			return true
+		}
+	}
+	return false
 }
 
 func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {

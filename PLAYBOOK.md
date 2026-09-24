@@ -573,7 +573,10 @@ unresolved reference, a body the proto rejects, a transport failure), `SKIP` not
 `-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
 anything is sent, with the `-var` flags it needs. A step with no `expect` that the backend refuses
-in-band stays `passed` with a warning under it; only `chain lint -strict` stops it.
+in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
+declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
+`not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
+holds on the zero a refusal leaves, and must not turn the step green.
 
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
 nearly always evidence about your fixture rather than the backend: most of the time no request was

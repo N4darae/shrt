@@ -824,6 +824,19 @@ rule; with `exists: false` it is reported as an assertion that cannot fail. `exi
 the message declares is still the way to assert absence. If the field is genuinely new, the
 descriptor is stale: `shrt catalog build`.
 
+## 37. A refused call, green because its data assertion read the zero value
+
+**Symptom.** `AddStock` with `qty: 0` is answered `status.code: REJECTED` (`InvalidQty`). The step
+asserts only `qty_on_hand equals: 0` and is `ok`, with no warning.
+
+**Cause.** A refusal leaves every data field at its zero value, so an assertion that the value is
+zero holds on the refusal. Nothing on the step said the call had to succeed or had to be refused.
+
+**Fix.** 2026-09-24: a step that declares expectations, is refused in-band, and has none pinning the
+verdict (`equals`, `not_equal` or `contains` on the envelope, or a `transport.*` path) is `failed`,
+with an `envelope` entry naming the refusal. Assert `status.code equals: SUCCESS` on a call that must
+succeed, or the refusal code on one that must be refused.
+
 ---
 
 # Decisions, so they are not relitigated
