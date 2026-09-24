@@ -75,12 +75,24 @@ func runInit(ctx context.Context, args []string) error {
 		return err
 	}
 
-	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, ".shrt/contracts"} {
+	kept := []string{}
+	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, loaded.Paths.Contracts} {
+		if dir == "" {
+			continue
+		}
+		shown := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/"
+		if info, err := os.Stat(loaded.Abs(dir)); err == nil && info.IsDir() {
+			kept = append(kept, shown)
+			continue
+		}
 		if err := os.MkdirAll(loaded.Abs(dir), 0o755); err != nil {
 			return err
 		}
+		fmt.Printf("write %s\n", shown)
 	}
-	fmt.Printf("write %s/{chains,runs,safespots}/\n", config.DirName)
+	if len(kept) > 0 {
+		fmt.Printf("keep  %s (already present)\n", strings.Join(kept, ", "))
+	}
 
 	docs, err := agentkit.Install(root, agentkit.DocAssets(), *force)
 	if err != nil {
@@ -140,6 +152,19 @@ func runInit(ctx context.Context, args []string) error {
 	reportEnvelope(loaded)
 	if err := writeExampleChain(root, loaded, *force); err != nil {
 		return err
+	}
+
+	if !wroteConfig {
+		fmt.Println("\nthis repo was already set up: init kept what it says it kept and wrote only the lines marked write.")
+		if baseURLGiven && loaded.Target.BaseURL != *baseURL {
+			printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
+		}
+		if loaded.Auth == nil {
+			fmt.Printf("  %s/%s still declares no auth:, so every authenticated call is a 401\n",
+				config.DirName, config.FileName)
+		}
+		fmt.Println("next: shrt doctor   # check this installation before you trust a green")
+		return nil
 	}
 
 	fmt.Println("\nnext:")

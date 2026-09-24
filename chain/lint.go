@@ -507,9 +507,8 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnreachable, Message: fmt.Sprintf(
 					"expect on %q reads THROUGH the repeated field %q without saying which element, so it "+
 						"can never match: a list is indexed, and %q is a list of objects rather than an "+
-						"object. Write %s. 'shrt contract show' printed the un-indexed form until "+
-						"2026-09-22, so a path pasted from it lints clean and fails at run time with "+
-						"'path not present in response'", e.Path, at, at, indexedForm(e.Path, at))})
+						"object. Write %s. Unindexed, the path is never present in a response, and the step "+
+						"fails at run time with 'path not present in response'", e.Path, at, at, indexedForm(e.Path, at))})
 				continue
 			}
 			if why := EnumTautologyReason(e, enumValuesAt(schema.Fields, SplitPath(e.Path))); why != "" {
