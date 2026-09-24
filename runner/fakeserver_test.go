@@ -26,6 +26,7 @@ type fakeServer struct {
 	rejectAll     bool
 	drift         string
 	unknownField  bool
+	tokenKey      bool
 	batchUnset    bool
 	refuseLogin   bool
 	inBand        bool
@@ -189,6 +190,9 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		if f.unknownField {
 			out["no_such_field_in_the_proto"] = "x"
+		}
+		if f.tokenKey {
+			out[strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")] = 1
 		}
 		writeJSON(w, 200, out)
 	default:

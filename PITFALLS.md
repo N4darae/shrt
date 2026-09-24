@@ -942,6 +942,9 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
+while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
+the same text are kept apart as `<redacted>` and `<redacted>#2`.
 
 ---
 
