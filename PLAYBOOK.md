@@ -168,7 +168,8 @@ conventions:
   validate_output: true
 ```
 
-Key by key: `read_only_prefixes` says which rpc names are reads; `envelope_path` is where a
+Key by key: `read_only_prefixes` says which rpc names are reads, a prefix counting only at a word
+boundary (`Get` covers `GetProduct`, not `Getaway`; `Show` not `ShowcaseProduct`); `envelope_path` is where a
 response states its verdict, and `envelope_ok` the value there meaning success;
 `item_envelope_path` is a BATCH rpc's per-item verdict, a path that must exist in your response
 messages (`results[].error.code` on a backend like this one makes `shrt run` refuse every chain,

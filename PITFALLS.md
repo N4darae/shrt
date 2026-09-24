@@ -728,6 +728,11 @@ answered unauthenticated still drops the token; a read (`conventions.read_only_p
 after a fresh login and records `auth_retry: resent`, and a write is not re-sent: its step records
 `auth_retry: not_resent` and a warning, and the next run logs in fresh.
 
+**Changed later 2026-09-24:** a prefix matched anywhere a name began with it, so `ShowcaseProduct`
+counted as a `Show` read and `Getaway` as a `Get` read: a write refused in-band was re-sent with
+`sending it again changes nothing`. A prefix now counts only at a word boundary: the name ends
+there or goes on with anything but a lowercase letter (`GetProduct`, `Get2Product`, `Get_product`).
+
 **Changed again 2026-09-24:** that rule made the first write after every deploy fail, because the
 backend restart forgot the cached token, and every step reading that write was skipped: the first
 `verify` after a deploy reported a pile of failures, or `regression`, and hid the real change until

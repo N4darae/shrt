@@ -35,11 +35,19 @@ func IsReadOnlyCall(call string) bool {
 		name = call[i+1:]
 	}
 	for _, p := range ReadOnlyPrefixes() {
-		if strings.HasPrefix(name, p) {
+		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
 			return true
 		}
 	}
 	return false
+}
+
+func wordBoundaryAt(name string, at int) bool {
+	if at >= len(name) {
+		return true
+	}
+	c := name[at]
+	return c < 'a' || c > 'z'
 }
 
 type Prereq struct {
