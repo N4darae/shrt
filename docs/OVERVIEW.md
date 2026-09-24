@@ -38,7 +38,7 @@ Before a chain has a safe spot, `shrt diff` compares two of its recorded runs.
 
 Unary RPCs only. `shrt catalog ls`, `shrt catalog describe` and `shrt contract show` mark a
 streaming rpc as out of scope, `shrt chain new` refuses to scaffold one, and `shrt chain lint`
-rejects a step that calls one.
+rejects a step that calls one, and `shrt run` refuses a chain with one before sending anything.
 
 Every step runs, in order. shrt has no notion of an external side effect, so a chain that takes
 payments, sends mail or calls a third party needs a test environment that can absorb it or be reset.

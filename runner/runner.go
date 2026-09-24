@@ -1095,9 +1095,13 @@ func (r *Runner) checkCalls(c *chain.Chain) error {
 		return nil
 	}
 	for i, step := range c.Steps {
-		if _, err := r.Catalog.Lookup(step.Call); err != nil {
+		method, err := r.Catalog.Lookup(step.Call)
+		if err != nil {
 			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
 				step.ID, i+1, step.Call, err)
+		}
+		if method.Streaming() {
+			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, method.StreamRefusal())
 		}
 	}
 	return nil

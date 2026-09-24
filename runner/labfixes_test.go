@@ -42,15 +42,11 @@ func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 			Expect: []chain.Expectation{{Path: "transport.code", Equals: "http_415"}},
 		}}})
 		rec, err := r.Run(context.Background(), c, runner.Options{DryRun: dry})
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatalf("dry=%v: a streaming rpc is a static refusal; want the chain refused before sending, got a record with status %s", dry, rec.Status)
 		}
-		sr := rec.Steps[0]
-		if rec.Passed() || sr.Status != runner.StatusError {
-			t.Errorf("dry=%v: a streaming rpc cannot be one POST; want the step refused as an error, got %s", dry, sr.Status)
-		}
-		if sr.Error != method.StreamRefusal() {
-			t.Errorf("dry=%v: want lint's StreamRefusal sentence, got %q", dry, sr.Error)
+		if !strings.Contains(err.Error(), method.StreamRefusal()) || !strings.Contains(err.Error(), "nothing was sent") {
+			t.Errorf("dry=%v: want lint's StreamRefusal sentence and that nothing was sent, got %q", dry, err)
 		}
 	}
 	if n := atomic.LoadInt32(&hits); n != 0 {

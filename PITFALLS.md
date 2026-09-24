@@ -506,8 +506,10 @@ the tool had no way to say so.
 **Fix.** `catalog.Method` carries `ClientStreaming` / `ServerStreaming` from the descriptor.
 `shrt catalog ls` and `shrt catalog describe` mark such an rpc, `shrt contract show` prints a
 `STREAMING` line, `shrt chain new` refuses to scaffold one, `shrt chain lint` reports a step
-that calls one as an ERROR, and `shrt run` and `-dry-run` refuse the step before anything is sent
-(until 2026-09-24 they did not: dry-run printed `DRY-RUN OK` and a run sent it). `shrt contract plan` refuses a streaming target, and any plan whose graph pulls one in, with the same sentence (it used to write a chain that could never lint), and `contract status` never counts one as REACHED. `describe`, `chain new` and `chain lint` carry the same sentence, which
+that calls one as an ERROR, and `shrt run` and `-dry-run` refuse the whole chain before anything is sent,
+exit 1 with no run record, like any other static refusal (until 2026-09-24 they did not: dry-run
+printed `DRY-RUN OK` and a run sent it; after that, the step was recorded ERROR, exit 3, with a run
+record saved, and earlier steps had already been sent). `shrt contract plan` refuses a streaming target, and any plan whose graph pulls one in, with the same sentence (it used to write a chain that could never lint), and `contract status` never counts one as REACHED. `describe`, `chain new` and `chain lint` carry the same sentence, which
 names the rpc, the kind of streaming, and the unary shape that cannot carry it; `catalog ls` and
 `contract show` print a shorter `OUT OF SCOPE` marker. An adopting repo with streaming methods
 learns they are out of scope from the tool, not from a confusing runtime parse failure.
