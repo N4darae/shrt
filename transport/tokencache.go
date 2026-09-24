@@ -23,6 +23,8 @@ func (s *LoginTokenSource) UseCache(path, profile string) {
 
 func (s *LoginTokenSource) cacheKey() string {
 	sum := sha256.New()
+	sum.Write([]byte(s.spec.Target))
+	sum.Write([]byte{0})
 	sum.Write([]byte(s.spec.Procedure))
 	sum.Write([]byte{0})
 	if s.spec.Body != nil {

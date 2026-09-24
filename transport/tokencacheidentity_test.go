@@ -52,3 +52,24 @@ func TestTokenCache_TwoProfilesWithTheSameCredentialStayApart(t *testing.T) {
 		t.Fatal("two different profiles must not share a cache entry")
 	}
 }
+
+func TestTokenCache_ATokenIsNeverHandedToAnotherTarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	body := func() ([]byte, error) { return []byte(`{"username":"admin","password":"p"}`), nil }
+
+	issuer := NewLoginTokenSource(AuthSpec{Procedure: "svc/Login", Body: body, Target: "http://127.0.0.1:18099"}, nil)
+	issuer.UseCache(path, "default")
+	issuer.writeCache("token-from-18099", time.Now().Add(time.Hour))
+
+	other := NewLoginTokenSource(AuthSpec{Procedure: "svc/Login", Body: body, Target: "http://127.0.0.1:18777"}, nil)
+	other.UseCache(path, "default")
+	if tok, _, ok := other.readCache(); ok {
+		t.Fatalf("a token minted by one backend must not be sent to another: got %q for a different target", tok)
+	}
+
+	same := NewLoginTokenSource(AuthSpec{Procedure: "svc/Login", Body: body, Target: "http://127.0.0.1:18099"}, nil)
+	same.UseCache(path, "default")
+	if tok, _, ok := same.readCache(); !ok || tok != "token-from-18099" {
+		t.Fatalf("the same target must still hit the cache, got %q ok=%v", tok, ok)
+	}
+}

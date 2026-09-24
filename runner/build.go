@@ -85,6 +85,10 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 		if err != nil {
 			return nil, err
 		}
+		spec.Target = strings.TrimRight(strings.TrimSpace(cfg.Target.BaseURL), "/")
+		if host := strings.TrimSpace(cfg.Target.HostOverride); host != "" {
+			spec.Target += " host=" + host
+		}
 		src := transport.NewLoginTokenSource(*spec, invoke)
 		if cfg.Root != "" && os.Getenv("SHRT_TOKEN_CACHE") != "0" {
 			src.UseCache(filepath.Join(cfg.Root, config.DirName, config.TokensFile), name)

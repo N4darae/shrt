@@ -73,9 +73,10 @@ status words could not express. See entry 29.
 **Symptom.** A token in `.shrt/tokens.json` has not expired, yet the run dies at step 1 with
 `auth body: unresolved reference ${env.API_PASSWORD}`.
 
-**Cause.** Deliberate, not a bug: the cache key is a hash of the login procedure **and the resolved
-request body** (`cacheKey` in `transport/tokencache.go`), so a token minted for one credential can
-never be handed to another. Resolving the body is therefore a precondition of *reading* the cache,
+**Cause.** Deliberate, not a bug: the cache key is a hash of the target (`target.base_url`, and
+`host_override` when set), the login procedure **and the resolved request body**, so a token minted
+for one credential is never handed to another, and a token one backend issued is never sent to a
+different one after `base_url` changes. Resolving the body is therefore a precondition of *reading* the cache,
 and an unresolvable body returns an empty key — a miss.
 
 **Fix.** Supply the credential. There is no path that runs a chain from the cache alone, by design.

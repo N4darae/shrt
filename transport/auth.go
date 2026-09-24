@@ -26,6 +26,7 @@ type TokenSink interface {
 type AuthSpec struct {
 	Profile      string
 	EnvRefs      []string
+	Target       string
 	Procedure    string
 	Canonicalize func([]byte) ([]byte, error)
 	Body         func() ([]byte, error)
