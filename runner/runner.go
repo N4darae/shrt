@@ -1312,8 +1312,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			string(method.Output().FullName()) + ": " + cerr.Error() +
 			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
 			". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
-			"the body they would read could not be decoded. Rebuild the descriptor ('shrt catalog " +
-			"build') and re-run before reading it as a backend defect."
+			"the body they would read could not be decoded. If 'shrt doctor' says the descriptor does not match a " +
+			"rebuild, rebuild it ('shrt catalog build') and re-run; if it matches, the backend sends what the proto " +
+			"does not declare."
 		return sr
 	case len(unknown) > 0:
 		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))

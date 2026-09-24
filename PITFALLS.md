@@ -780,6 +780,16 @@ rpc. When the first failing step failed only by drift and nothing drifted before
 exits 3, `could not verify <chain>: the response at <step> does not match the descriptor (unknown
 field "traceHint"); rebuild it with shrt catalog build, or turn validate_output off`.
 
+2026-09-24, later: that exit 3 hid a real regression. A proxy that added an undeclared `warehouse`
+to `GetProduct` and changed `qty_on_hand` 7 -> 99 got `could not verify`, while `verify -json`
+listed the qty change. "Failed only by drift" is now checked against the declared fields: the
+response is already re-encoded without the undeclared field, so when a declared value differs from
+the safe spot's, verify exits 1, `regression: ... including get_product product.qty_on_hand 7 -> 99
+in the declared fields of the response at get_product, which also does not match the descriptor`,
+with the drift as a note. The advice no longer says to rebuild when a rebuild would change nothing:
+verify rebuilds as `shrt doctor` does, and when the descriptor matches it says the backend sends
+fields the proto does not declare.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says
