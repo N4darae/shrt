@@ -39,7 +39,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
 	"     backend refused a token a login in this run had just issued, the credentials work and it\n" +
-	"     says this may be an auth regression\n"
+	"     says this may be an auth regression; or the first failing step failed only because its\n" +
+	"     response does not match the descriptor (validate_output, drift) and nothing drifted before it\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -199,6 +200,11 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if unanswered {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	}
+	if step, why, at := firstFailureIsDrift(rec); step != "" && !report.Clean() && !driftedBefore(rec, report, at) {
+		return exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); rebuild it with shrt catalog build, "+
+			"or turn validate_output off. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, step, why)
 	}
 	if reuse != nil && !driftedBefore(rec, report, reuse.index) {
 		return exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
@@ -561,6 +567,25 @@ func anyAnswered(rec *runner.Record) bool {
 		}
 	}
 	return false
+}
+
+var descriptorMismatch = regexp.MustCompile(`does not match [^:\s]+: (?:proto: )?(?:\(line [^)]*\): )?([^\n]*)`)
+
+func firstFailureIsDrift(rec *runner.Record) (string, string, int) {
+	for i, st := range rec.Steps {
+		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
+			continue
+		}
+		if !st.Drift {
+			return "", "", 0
+		}
+		why := "its body does not decode as the response message"
+		if m := descriptorMismatch.FindStringSubmatch(st.Error); m != nil && strings.TrimSpace(m[1]) != "" {
+			why = strings.TrimSpace(m[1])
+		}
+		return st.ID, why, i
+	}
+	return "", "", 0
 }
 
 func couldNotVerify(name, step, why string, rec *runner.Record) error {

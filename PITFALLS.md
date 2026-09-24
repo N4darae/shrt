@@ -771,6 +771,12 @@ record keeps proto names and zero values. With `validate_output` on the step sti
 its expectations say the backend answered, and `response` holds the re-encoded body without the
 undeclared field, so verify's change list is the status change, not a rename of every field.
 
+Later the same day: `shrt verify` still read that drift as `regression: N change(s)` (16 in a chain
+whose later steps were then never reached), though nothing in a drifted step is evidence about the
+rpc. When the first failing step failed only by drift and nothing drifted before it, verify now
+exits 3, `could not verify <chain>: the response at <step> does not match the descriptor (unknown
+field "traceHint"); rebuild it with shrt catalog build, or turn validate_output off`.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says
