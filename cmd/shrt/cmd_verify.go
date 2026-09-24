@@ -390,10 +390,14 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
 	}
 	if len(report.UnapprovedRedact) > 0 {
-		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; the value(s) they blanked were not compared, "+
+		blanked := "the value(s) they blanked were not compared"
+		if len(report.UnapprovedRedacted) == 0 {
+			blanked = "they hid nothing this run, but a change under them would not be compared"
+		}
+		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; %s, "+
 			"and this is not a backend change.\nRemove them from the chain and config, or, if they are intended, run the chain and propose that run\n"+
 			"in place of the safe spot so a person approves the new redaction: shrt confirm %s -supersede -note \"...\"",
-			strings.Join(report.UnapprovedRedact, ", "), name)
+			strings.Join(report.UnapprovedRedact, ", "), blanked, name)
 	}
 	if report.Widened() {
 		return fmt.Errorf("the replay was masked with volatile pattern(s) the safe spot did not approve: %s.\n"+

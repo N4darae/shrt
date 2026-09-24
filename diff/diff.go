@@ -1047,7 +1047,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "the replay was redacted with %d redact pattern(s) the safe spot %s did not have: %s\n",
 			len(r.UnapprovedRedact), r.SafeSpotID, strings.Join(r.UnapprovedRedact, ", "))
 		if len(r.UnapprovedRedacted) == 0 {
-			b.WriteString("  they blanked no value the safe spot holds this time, but a change there is not compared\n")
+			b.WriteString("  they hid nothing this run (they blanked no value the safe spot holds), but a change there is not compared\n")
 		} else {
 			fmt.Fprintf(&b, "  they blanked %d value(s) the safe spot holds in the clear, which were not compared (not a backend change):\n", len(r.UnapprovedRedacted))
 			for _, p := range r.UnapprovedRedacted {
