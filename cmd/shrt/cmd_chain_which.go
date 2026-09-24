@@ -225,7 +225,8 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 	fmt.Printf("\n%d chain(s), %d with a local run record that reached a matching step.\n", len(hits), observed)
 	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
 		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
-		"and its failing expectations follow. Steps whose newest reaching run contradicts the assertion rank last.\n"+
+		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
+		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last.\n"+
 		"Run records are machine-local.\n",
 		whichMarkClaim, whichMarkSeen)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")

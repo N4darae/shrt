@@ -835,14 +835,16 @@ shrt chain which -code 1218 -json
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
-   applied to discovery. Matches rank in three tiers: observed and holding, then asserted only, then
-   observed but contradicted (under `-code`, the newest reaching run got a different code at the
-   asserted path; under `-rpc` alone, the step FAILED). Within the first tier a step that passed
-   outranks one that failed while still answering the code, and within the last a step that
-   passed outranks one that failed, so a chain whose best match failed never heads the list
-   while passing evidence exists elsewhere. The order is this because a
-   chain the backend has stopped answering that way is the least likely to reproduce it, though it
-   is often the regression you want to see. Run records are gitignored and machine-local, so a
+   applied to discovery. Under `-code` matches rank in three tiers: observed and holding, then
+   asserted only, then observed but contradicted (the newest reaching run got a different code at
+   the asserted path). Within the first tier a step that passed outranks one that failed while
+   still answering the code, and within the last a step that passed outranks one that failed,
+   because a chain the backend has stopped answering with that code is the least likely to
+   reproduce it. Under `-rpc` alone the question is an incident at that rpc, so the order is the
+   other way round: a step whose newest reaching run FAILED there ranks first (one that still got
+   the asserted envelope code before one that did not), then observed steps that passed, then
+   steps no run reached, and the first `reproduce:` line slices the red step instead of a green
+   one. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads

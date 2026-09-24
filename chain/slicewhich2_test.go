@@ -211,7 +211,7 @@ func TestWhichNeverReportsTransportOKAsTheFallbackCode(t *testing.T) {
 	}
 }
 
-func TestWhichRPCRanksAFailedStepAfterAnAssertedOne(t *testing.T) {
+func TestWhichRPCRanksAFailedStepBeforeAPassingOne(t *testing.T) {
 	c := &chain.Chain{Name: "stock", Steps: []*chain.Step{
 		{ID: "stock_after_cancel", Call: "pkg.Svc/GetProduct", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}, {Path: "qty", Equals: 10}}},
 		{ID: "stock_unrun", Call: "pkg.Svc/GetProduct", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
@@ -232,8 +232,8 @@ func TestWhichRPCRanksAFailedStepAfterAnAssertedOne(t *testing.T) {
 	for _, m := range hits[0].Matches {
 		got = append(got, m.Step)
 	}
-	if strings.Join(got, ",") != "stock_ok,stock_unrun,stock_after_cancel" {
-		t.Fatalf("a step that FAILED contradicts the chain and ranks last, as -code ranks it, got %v", got)
+	if strings.Join(got, ",") != "stock_after_cancel,stock_ok,stock_unrun" {
+		t.Fatalf("under -rpc a step whose newest run FAILED there is the incident to slice and ranks first, got %v", got)
 	}
 }
 

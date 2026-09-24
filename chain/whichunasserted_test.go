@@ -45,7 +45,7 @@ func TestWhichReportsACodeRunsObservedThatNoChainAssertsByNumber(t *testing.T) {
 	}
 }
 
-func TestWhichByRPCRanksAChainWhoseBestStepFailedBelowOneThatPassed(t *testing.T) {
+func TestWhichByRPCRanksAChainWhoseBestStepFailedAboveOneThatPassed(t *testing.T) {
 	chains := []*chain.Chain{
 		{Name: "a-small", Steps: []*chain.Step{
 			{ID: "fetch", Call: "shop.v1.S/Fetch", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
@@ -64,7 +64,7 @@ func TestWhichByRPCRanksAChainWhoseBestStepFailedBelowOneThatPassed(t *testing.T
 		return []chain.Observation{{Run: "r-" + name, Step: "fetch", Status: status, Reached: true, Response: okResponse()}}
 	}
 	hits := chain.Which(chains, chain.WhichQuery{RPC: "shop.v1.S/Fetch"}, chain.WhichOptions{Observations: obs})
-	if len(hits) != 2 || hits[0].Chain != "b-large" {
-		t.Fatalf("the chain whose step passed is the better evidence, even though the other is smaller: %+v", hits)
+	if len(hits) != 2 || hits[0].Chain != "a-small" {
+		t.Fatalf("under -rpc the chain whose newest run failed at the rpc is the incident to slice and ranks first: %+v", hits)
 	}
 }
