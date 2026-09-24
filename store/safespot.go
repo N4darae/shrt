@@ -120,8 +120,21 @@ func (s *Store) SafeSpotPath(chainName string) string {
 }
 
 func (s *Store) archive(chainName string, prev *SafeSpot) error {
-	stamp := prev.ConfirmedAt.UTC().Format("20060102T150405Z")
-	path := filepath.Join(s.SafeSpotsDir, "archive", slug(chainName), stamp+".json")
+	base := prev.RunID
+	if base == "" {
+		base = prev.ConfirmedAt.UTC().Format("20060102T150405Z")
+	}
+	if strings.ContainsAny(base, `/\:*?"<>| `) || strings.HasPrefix(base, ".") {
+		base = slug(base)
+	}
+	dir := filepath.Join(s.SafeSpotsDir, "archive", slug(chainName))
+	path := filepath.Join(dir, base+".json")
+	for i := 2; ; i++ {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		path = filepath.Join(dir, fmt.Sprintf("%s-%d.json", base, i))
+	}
 	return writeJSON(path, prev)
 }
 

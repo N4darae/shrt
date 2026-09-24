@@ -615,7 +615,9 @@ proposal. The email is the user's own, as the session knows it; if you do not kn
 bare name is refused. `-reject` discards the proposal. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
-on the proposal, and the old one is archived on approval.
+on the proposal, and the old one is archived on approval as
+`.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
+spot's `supersedes` names; a run archived twice gets a `-2` suffix).
 
 ## 9. Refactor and test against a safe spot
 
