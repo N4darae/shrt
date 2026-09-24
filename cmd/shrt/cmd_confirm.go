@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"net/mail"
+	"slices"
 	"strings"
 	"time"
 
@@ -103,6 +104,12 @@ func approverEmail(by string) (string, error) {
 	addr, err := mail.ParseAddress(by)
 	if err != nil || addr.Address != by || addr.Name != "" {
 		return "", fmt.Errorf("%w: -by %q is not an email address; approval is recorded under the email of the user who said yes", store.ErrNotConfirmed, by)
+	}
+	domain := by[strings.LastIndex(by, "@")+1:]
+	labels := strings.Split(domain, ".")
+	if len(labels) < 2 || slices.Contains(labels, "") {
+		return "", fmt.Errorf("%w: -by %q has no dotted domain after the @ (like example.com), so it is not an address "+
+			"anyone can be reached at; approval is recorded under the email of the user who said yes", store.ErrNotConfirmed, by)
 	}
 	return by, nil
 }
