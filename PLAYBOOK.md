@@ -53,9 +53,18 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   may carry `@alias`, and the aliased step is built with that alias's field overrides (an undeclared
   alias is refused with the list of declared ones). All targets go into one chain in dependency
   order, and a node reached twice appears once.
-- If you find yourself adding a step by hand, the contract is missing an edge — fix the contract,
-  then re-plan. That is the difference between composing one chain and making every future chain
-  compose itself.
+- If you find yourself adding a step by hand for an rpc the plan left out, the contract is missing
+  an edge — fix the contract, then re-plan. That is the difference between composing one chain and
+  making every future chain compose itself.
+- **The exception is the same rpc twice**, typically a read before and after a write, so the chain
+  can compare the two. `plan` puts each node in once, so a second plain `GetProduct` target is
+  silently dropped (`plan GetProduct AddStock GetProduct` plans one read); no edge is missing.
+  Declare one alias per instance on the read (`aliases: {before: {note: ...}, after: {note: ...}}`),
+  then name them around the write:
+  `shrt contract plan GetProduct@before AddStock GetProduct@after -write`. Targets that no edge
+  orders keep the order you name them in, so read the printed `order:` line; to make the contract
+  itself pin the read ahead of the write, list `GetProduct@before` in the write's `needs:`, and name
+  the after-read after the write (`shrt contract plan AddStock GetProduct@after`).
 
 ## 2. Compose a chain — no contract yet
 
