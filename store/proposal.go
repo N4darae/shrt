@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
@@ -440,7 +441,33 @@ func cell(s string) string {
 }
 
 func flat(s string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(s, "|", "/")), " ")
+	var b strings.Builder
+	quoted, escaped, space := false, false, false
+	for _, r := range strings.ReplaceAll(s, "|", "/") {
+		white := unicode.IsSpace(r)
+		switch {
+		case quoted && r == ' ':
+			b.WriteRune(r)
+			continue
+		case white:
+			space = b.Len() > 0
+			continue
+		}
+		if space {
+			b.WriteByte(' ')
+			space = false
+		}
+		b.WriteRune(r)
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\' && quoted:
+			escaped = true
+		case r == '"':
+			quoted = !quoted
+		}
+	}
+	return b.String()
 }
 
 func clip(s string, n int) string {
