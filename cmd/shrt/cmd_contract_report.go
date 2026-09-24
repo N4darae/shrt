@@ -201,15 +201,21 @@ func contractQuality(args []string) error {
 	}
 	report := contract.MeasurePhase(lib, e.cat, *only, *phase)
 
+	if *gate && *phase != "" && *phase != contract.PhaseAll {
+		return fmt.Errorf("-gate scores every phase, and %s records no phase, so pinning it to a "+
+			"-phase %s number would ratchet the full score against a partial one — drop -phase, or "+
+			"keep the phase view for reading rather than gating", *baseline, *phase)
+	}
 	if *asJSON {
-		return emitJSON(report)
+		if err := emitJSON(report); err != nil {
+			return err
+		}
+		if *gate {
+			return qualityGate(report.TotalScore, *baseline)
+		}
+		return nil
 	}
 	if *gate {
-		if *phase != "" && *phase != contract.PhaseAll {
-			return fmt.Errorf("-gate scores every phase, and %s records no phase, so pinning it to a "+
-				"-phase %s number would ratchet the full score against a partial one — drop -phase, or "+
-				"keep the phase view for reading rather than gating", *baseline, *phase)
-		}
 		return qualityGate(report.TotalScore, *baseline)
 	}
 
