@@ -287,6 +287,21 @@ func (r *Report) dropEchoedUnapproved(pairs [][2]string) {
 		}
 	}
 	r.UnapprovedMasked = kept
+	if r.approvedMask == nil {
+		return
+	}
+	values, paths := r.VolatileValues[:0], r.VolatilePaths[:0]
+	for _, c := range r.VolatileValues {
+		key := c.Step + " " + c.Path
+		if echo[key] && !maskedAt(r.approvedMask, c) {
+			r.VolatileMasked--
+			r.FixtureEchoed = append(r.FixtureEchoed, c)
+			continue
+		}
+		values = append(values, c)
+		paths = append(paths, key)
+	}
+	r.VolatileValues, r.VolatilePaths = values, paths
 }
 
 func (r *Report) noteHiddenStaleEchoes(pairs [][2]string) {

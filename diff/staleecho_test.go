@@ -65,7 +65,7 @@ func TestAStaleEchoUnderAnUnapprovedVolatileIsAHiddenValue(t *testing.T) {
 	rep.RequestChanges = diff.CompareRequests(spot, rec, nil)
 	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Named: fixture})
 	text := rep.Text()
-	if strings.Contains(text, "they hid no value this time") || !strings.Contains(text, "cust customer.email") {
+	if strings.Contains(text, "they hid nothing this run") || !strings.Contains(text, "cust customer.email") {
 		t.Fatalf("the unapproved **.email hid the stale echo customer.email, so it hid a value:\n%s", text)
 	}
 }

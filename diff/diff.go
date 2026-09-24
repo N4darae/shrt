@@ -1035,7 +1035,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
 			len(r.UnapprovedVolatile), r.SafeSpotID, strings.Join(r.UnapprovedVolatile, ", "))
 		if len(r.UnapprovedMasked) == 0 {
-			b.WriteString("  they hid no value this time, but they would hide a change there\n")
+			b.WriteString("  they hid nothing this run, but they would hide a change there\n")
 		} else {
 			fmt.Fprintf(&b, "  they hid %d value(s) the approved mask compares:\n", len(r.UnapprovedMasked))
 			for _, p := range r.UnapprovedMasked {
