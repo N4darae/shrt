@@ -186,7 +186,7 @@ var notes = map[string]string{
 	"SafeSpot.note":         "What makes this run correct: the approver's `-note`, else the proposer's.",
 	"SafeSpot.supersedes":   "The run id this replaced, when proposed with `-supersede`.",
 	"SafeSpot.volatile":     "The volatile patterns approved with the run (config and chain), masked before comparison together with each step's own `volatile`. A replay masked with any other pattern, one added to the config or chain after approval, fails `shrt verify`, which names each such pattern and every value it hid, until a run under the wider mask is proposed with `-supersede` and approved.",
-	"SafeSpot.digest":       "Fingerprint of the confirmed steps.",
+	"SafeSpot.digest":       "Fingerprint of the chain, run id, target, build, volatile patterns and full step records.",
 	"SafeSpot.steps":        "The confirmed step records, which a replay is diffed against.",
 
 	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve.",

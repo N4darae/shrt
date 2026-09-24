@@ -605,7 +605,10 @@ language, give:
    what came back, and whether that is right;
 3. the one or two facts that carry the verdict (a stock level read back after a partial batch, say),
    and anything you corrected or are unsure of;
-4. what approving means: every response field becomes the baseline `shrt verify` compares against.
+4. what approving means: every response field becomes the baseline `shrt verify` compares against,
+   except what a volatile pattern covers. The summary lists those patterns, and warns by name
+   about a step whose every response field is volatile (a `**`, or a pattern covering the whole
+   response): approving sets no baseline for it, so narrow the pattern unless that is intended.
    The summary compares the run with the previous passing run of the chain and lists each field
    that differed and is not masked: every `verify` would report those as drift. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
@@ -618,7 +621,9 @@ language, give:
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
 proposal. The email is the user's own, as the session knows it; if you do not know it, ask. A
 bare name is refused. `-reject` discards the proposal. Approval refuses a run record rewritten
-after the proposal, since the user approved what the summary showed. `-pending` lists what awaits
+after the proposal, since the user approved what the summary showed: the proposal's digest covers
+everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
+request, response, http status and transport error), not only the responses. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
 on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe

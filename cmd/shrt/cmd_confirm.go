@@ -176,6 +176,9 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
 	out := []store.Differ{}
+	for _, p := range rep.UnapprovedVolatile {
+		out = append(out, store.Differ{Step: "-", Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
+	}
 	for _, c := range rep.RequestChanges {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}
