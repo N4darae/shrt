@@ -29,7 +29,9 @@ const doctorHelpTail = "\nchecks:\n" +
 	"  agentkit     the .claude/ agent kit init installed, against the copy in the binary\n" +
 	"  descriptor   the descriptor file against a rebuild from descriptor.source\n" +
 	"  gitignore    .gitignore against the paths that must never be committed\n" +
-	"  tokens       the token cache's file mode, and how many entries serve this target's logins\n" +
+	"  tokens       the token cache's file mode, and how many entries serve this target's logins;\n" +
+	"               how a cached token is dropped and re-minted is explained only when one is expired,\n" +
+	"               from another base_url, or for another login\n" +
 	"  auth         the auth profiles and every ${env.*} they read\n" +
 	"  conventions  the envelope conventions against the response messages\n" +
 	"  upgrade      records from an older build or another target: unsealed runs, safe spots with no\n" +

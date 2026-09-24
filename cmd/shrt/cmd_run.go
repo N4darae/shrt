@@ -110,8 +110,8 @@ func runRun(ctx context.Context, args []string) error {
 
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated); for a chain with kept_red, failed\n" +
-	"     exactly as kept_red pins, every pin evaluated (the run goes past a pinned failure as\n" +
-	"     -keep-going does) and no step left unsent\n" +
+	"     exactly as kept_red pins, every pin evaluated (the run goes past every failure, pinned or\n" +
+	"     not, as -keep-going does) and no step left unsent\n" +
 	"  1  failed: a step was answered and an expectation did not hold (for a chain with kept_red: it\n" +
 	"     failed anywhere else or differently, or passed, so the pinned defect is gone); also a refusal before anything\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
@@ -137,6 +137,9 @@ func runVerdict(rec *runner.Record) error {
 	case runner.KeptRedAsPinned:
 		return nil
 	case runner.KeptRedNotAsPinned:
+		if rec.KeptRedNew != "" {
+			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, rec.KeptRedNew)
+		}
 		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
 	case runner.KeptRedGone:
 		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
@@ -251,7 +254,13 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.KeptRed == runner.KeptRedAsPinned {
 		verdict = "FAILED AS PINNED (kept red)"
 	}
+	if rec.KeptRed == runner.KeptRedNotAsPinned {
+		verdict = "FAILED, NOT AS PINNED (kept red)"
+	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
+	if rec.KeptRedNew != "" {
+		fmt.Fprintf(&b, "\n  %s", rec.KeptRedNew)
+	}
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}

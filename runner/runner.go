@@ -844,11 +844,8 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	repeats := map[int][]string{}
 	var dead *StepRecord
 	unreached := 0
-	keepGoing, pastPins := opts.KeepGoing, false
-	pinned := map[string]bool{}
-	for _, k := range c.KeptRed {
-		pinned[k.Step] = true
-	}
+	pastPins := len(c.KeptRed) > 0 && !opts.DryRun
+	keepGoing := opts.KeepGoing || pastPins
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind, behindOn := false, ""
@@ -892,9 +889,6 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			continue
 		}
 		failure := failureOf(step, sr)
-		if !keepGoing && pinned[step.ID] && sr.Status == StatusFailed && !opts.DryRun {
-			keepGoing, pastPins = true, true
-		}
 		if !keepGoing {
 			rec.Status = sr.Status
 			rec.Failure = failure
@@ -939,7 +933,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	case pastPins && len(failures) == 1 && failedCount == 1 && unreached == 0:
 		rec.Failure = failures[0]
 	case pastPins && len(failures) > 0:
-		rec.Failure = fmt.Sprintf("kept_red: ran past the pinned failure(s), as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
+		rec.Failure = fmt.Sprintf("kept_red: ran every step, as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	case len(failures) > 0:
 		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
@@ -965,8 +959,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	rec.Failure = redactor.ScrubText(rec.Failure)
 	rec.Warning = redactor.ScrubText(rec.Warning)
 	if !opts.DryRun {
-		rec.KeptRed, rec.KeptRedNote = keptRedVerdict(c, rec)
+		rec.KeptRed, rec.KeptRedNote, rec.KeptRedNew = keptRedVerdict(c, rec)
 		rec.KeptRedNote = redactor.ScrubText(rec.KeptRedNote)
+		rec.KeptRedNew = redactor.ScrubText(rec.KeptRedNew)
 	}
 	rec.DurationMS = r.clock().Sub(now).Milliseconds()
 	return rec, nil

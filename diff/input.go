@@ -14,6 +14,7 @@ const minFixtureEcho = 3
 type Fixtures struct {
 	Named     func(step, path string) bool
 	Generated func(step, path string) bool
+	Var       func(name string) bool
 }
 
 func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {

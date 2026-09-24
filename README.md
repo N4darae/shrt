@@ -185,17 +185,24 @@ field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `ver
 fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0,
 and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
-§1): its run goes past a failure at a pinned step as `-keep-going` would, with no flag, so every pin
-and every later step is evaluated; it exits 0 only when it fails exactly there, and exits 1 when it
+§1): its run goes past every failure, pinned or not, as `-keep-going` would, with no flag, so every
+pin and every later step is evaluated even after an unpinned failure (a step that reads a failed
+step is not sent, and says so); it exits 0 only when it fails exactly there, and exits 1 when it
 fails anywhere else, fails differently, leaves a step unsent, or passes (the defect is gone), so a
 regression in an earlier or a later step of that chain fails the gate instead of hiding behind the
-known red. A list of red chain names beside the gate, checked
+known red; the run names that regression under its verdict line and in its exit message, e.g.
+`NEW FAILURE outside the pinned defect: create_order order.total_minor want=1250 got=500`. A list
+of red chain names beside the gate, checked
 only for exit 1, cannot tell those apart: do not keep one.
 
-The loop runs every file in `.shrt/chains`, and that is where `shrt chain slice -write` writes, so a
-written slice joins the gate at once (`slice -write` says so). Keep a slice you want gated there,
-with `kept_red` if it is red on purpose; move an exploratory one out, to `.shrt/scratch/`, which
-no sweep reads, and run it by path: `shrt run .shrt/scratch/<name>.yaml`.
+The loop runs every file directly in `.shrt/chains` (the glob does not descend), and that is where
+`shrt chain slice -write <name>` writes, so a slice written by name joins the gate at once
+(`slice -write` says so). Keep a slice you want gated there, with `kept_red` if it is red on
+purpose. Write an exploratory one outside it by giving `-write` a path, a value with a slash or
+ending in `.yaml`, which is written exactly there, relative to the current directory, and never
+over a file that is not the same slice: `shrt chain slice <chain> -step <id> -write
+.shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`; run it by path:
+`shrt run .shrt/scratch/<name>.yaml`.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a
 missing file fails the gate. Create them once, before the first gate run: write `0` into each

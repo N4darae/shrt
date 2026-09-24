@@ -196,7 +196,14 @@ pins the step and path, so that run says `not_as_pinned` and exits 1. Until 2026
 still stopped at the first pinned failure, so a second pin was "never answered" (`not_as_pinned`
 on a correct chain) and a regression in a step AFTER the pinned one was never sent (`as_pinned`,
 exit 0). A kept-red chain now runs past its pinned failures as `-keep-going` does, and a step left
-unsent behind a failure keeps it from `as_pinned`.
+unsent behind a failure keeps it from `as_pinned`. It still stopped at an UNPINNED failure, so the
+later pinned steps were never sent and the note said they were "never answered"; it now runs every
+step past any failure, and a pinned step it could not send, because it reads a failed step, is
+reported "not sent". A pin with no `got` also took a transport refusal (a 500 `internal: panic`,
+a 404, a 403, an HTML 503) at its step as the pinned failure, because the refusal leaves every
+expectation `unevaluated` and so failed: `as_pinned`, exit 0, over a crashed rpc. Only an
+expectation evaluated against an answered response satisfies a pin now; a refusal there is
+`not_as_pinned`, "the pinned step was refused at transport".
 
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
@@ -763,6 +770,12 @@ as renamed. Unknown fields are now discarded before decoding and listed in the s
 record keeps proto names and zero values. With `validate_output` on the step still fails as drift,
 its expectations say the backend answered, and `response` holds the re-encoded body without the
 undeclared field, so verify's change list is the status change, not a rename of every field.
+
+Later the same day: `shrt verify` still read that drift as `regression: N change(s)` (16 in a chain
+whose later steps were then never reached), though nothing in a drifted step is evidence about the
+rpc. When the first failing step failed only by drift and nothing drifted before it, verify now
+exits 3, `could not verify <chain>: the response at <step> does not match the descriptor (unknown
+field "traceHint"); rebuild it with shrt catalog build, or turn validate_output off`.
 
 ## 30. A path copied out of `contract show` that can never match
 

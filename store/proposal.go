@@ -291,7 +291,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\n\n| # | step | sent | asserted, all held | backend answered | vs replaced safe spot `%s` |\n|---|---|---|---|---|---|\n", p.Replaces)
 	}
 	for _, st := range rec.Steps {
-		answered := clip(flat(answerSummary(st)), answeredCell)
+		answered := answeredSummary(st)
 		if also := alsoBaselined(rec, st); also != "" {
 			answered += "; also baselined: " + also
 		}
@@ -585,29 +585,50 @@ func assertedSummary(st *runner.StepRecord) string {
 	return out
 }
 
-func answerSummary(st *runner.StepRecord) string {
+func answeredSummary(st *runner.StepRecord) string {
+	head, pairs := answerParts(st)
+	out := clip(flat(head), answeredCell)
+	for i, pair := range pairs {
+		pair = flat(pair)
+		sep := " "
+		if i == 0 {
+			sep = "; "
+		}
+		rest := ""
+		if i < len(pairs)-1 {
+			rest = fmt.Sprintf(" +%d more", len(pairs)-i-1)
+		}
+		if len([]rune(out+sep+pair+rest)) > answeredCell {
+			if i == 0 {
+				return out + fmt.Sprintf("; +%d more", len(pairs))
+			}
+			return out + fmt.Sprintf(" +%d more", len(pairs)-i)
+		}
+		out += sep + pair
+	}
+	return out
+}
+
+func answerParts(st *runner.StepRecord) (string, []string) {
 	if st.Transport != nil {
 		if st.HTTPStatus != 0 {
-			return fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message)
+			return fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message), nil
 		}
-		return st.Transport.Code + ": " + st.Transport.Message
+		return st.Transport.Code + ": " + st.Transport.Message, nil
 	}
 	var body any
 	if json.Unmarshal(st.Response, &body) != nil {
-		return st.Status
+		return st.Status, nil
 	}
 	path := chain.EnvelopePath()
 	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
 	if !ok {
-		return "answered, nothing at " + path
+		return "answered, nothing at " + path, nil
 	}
 	if items := itemsSummary(body); items != "" {
 		out += "; items: " + items
 	}
-	if values := assertedValues(st, path); values != "" {
-		out += "; " + values
-	}
-	return out
+	return out, assertedValues(st, path)
 }
 
 func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
@@ -688,7 +709,7 @@ func baselineNoise(v any, fixtures []string) bool {
 	return false
 }
 
-func assertedValues(st *runner.StepRecord, envelope string) string {
+func assertedValues(st *runner.StepRecord, envelope string) []string {
 	seen := map[string]bool{envelope: true}
 	parts := []string{}
 	for _, e := range st.Expect {
@@ -702,7 +723,7 @@ func assertedValues(st *runner.StepRecord, envelope string) string {
 		}
 		parts = append(parts, e.Path+"="+shortValue(e.Got))
 	}
-	return strings.Join(parts, " ")
+	return parts
 }
 
 func verdictText(body any, path string, extra ...string) (string, bool) {
