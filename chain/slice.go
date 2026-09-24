@@ -3,6 +3,7 @@ package chain
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -821,16 +822,32 @@ func rewriteString(in string, pins map[string]string) string {
 }
 
 type Verdict struct {
-	Step      string         `json:"step"`
-	Status    string         `json:"status"`
-	ErrorCode string         `json:"error_code"`
-	Expect    []ExpectResult `json:"expect"`
+	Step      string            `json:"step"`
+	Status    string            `json:"status"`
+	ErrorCode string            `json:"error_code"`
+	Refusal   map[string]string `json:"refusal,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+	Expect    []ExpectResult    `json:"expect"`
 }
 
 func CompareVerdicts(source, replay Verdict) []string {
+	return CompareVerdictsMasking(source, replay, nil)
+}
+
+func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool) []string {
+	alike := func(path string, a, b any) bool { return same != nil && same(path, a, b) }
 	diffs := []string{}
 	if source.ErrorCode != replay.ErrorCode {
 		diffs = append(diffs, fmt.Sprintf("%s: source %q, slice %q", EnvelopePath(), source.ErrorCode, replay.ErrorCode))
+	}
+	if source.Transport != replay.Transport {
+		diffs = append(diffs, fmt.Sprintf("transport: source %s, slice %s", orNoRefusal(source.Transport), orNoRefusal(replay.Transport)))
+	}
+	for _, field := range refusalFields(source.Refusal, replay.Refusal) {
+		a, b := source.Refusal[field], replay.Refusal[field]
+		if a != b && !alike(field, a, b) {
+			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, slice %s", field, orNoRefusal(strconv.Quote(a)), orNoRefusal(strconv.Quote(b))))
+		}
 	}
 	if source.Status != replay.Status {
 		diffs = append(diffs, fmt.Sprintf("step status: source %q, slice %q", source.Status, replay.Status))
@@ -849,12 +866,29 @@ func CompareVerdicts(source, replay Verdict) []string {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
 			continue
 		}
-		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) {
+		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
 				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
 		}
 	}
 	return diffs
+}
+
+func refusalFields(a, b map[string]string) []string {
+	out := []string{}
+	for _, field := range []string{"message", "reason", "app_code"} {
+		if a[field] != "" || b[field] != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func orNoRefusal(s string) string {
+	if s == "" || s == `""` {
+		return "none"
+	}
+	return s
 }
 
 func verdictText(v any) string {

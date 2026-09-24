@@ -227,6 +227,10 @@ var (
 	digitsOnly = regexp.MustCompile(`^[0-9]+$`)
 )
 
+func LooksVolatile(path string, a, b any) bool {
+	return looksVolatile(path, a, b)
+}
+
 func looksVolatile(path string, a, b any) bool {
 	key := lastKey(path)
 	lower := strings.ToLower(key)

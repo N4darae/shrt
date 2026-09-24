@@ -845,9 +845,13 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    HYPOTHESIS paragraph, or a previous VERIFIED line, else appended). `-write <name>` still
    writes a copy under that name.
 4. **`-verify -run <id|latest>` is what turns the claim into a receipt.** It runs the slice and
-   compares the TARGET step's verdict — the code at `conventions.envelope_path`, the pass/fail
-   of every expectation, and for an expectation that failed in both runs against the same want,
-   the value it got — against that same step in the source run. `-verify` is what needs `-run`;
+   compares the TARGET step's verdict — the code at `conventions.envelope_path`, the refusal
+   beside it (its `message`, and `reason` and `app_code` at `details.0.` or beside the code, the
+   ones `shrt run` prints), a transport refusal (HTTP status and code), the pass/fail of every
+   expectation, and for an expectation that failed in both runs against the same want, the value
+   it got — against that same step in the source run. Values that differ every run are masked
+   as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
+   differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
@@ -858,10 +862,13 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      the written slice's `description:` (VERIFIED, both run ids, the date).
    - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. That
      includes the same expectation failing with a different value: source `got 2`, slice `got 0`
-     is two different failures, and the difference line says both values. When the
+     is two different failures, and the difference line says both values. So is the same
+     envelope code with another reason (`InvalidQty`/1203 against `PermissionDenied`/1603), and
+     a target the backend refused at the transport (a 403) when the source got an answer: it was
+     sent, so it ran. When the
      slice dropped writes it also ends with the `next:` `-keep` command below, since the
      difference can come from state those writes built.
-   - `DID NOT RUN` (2): the target was never sent — an unset `${env.X}`, a login that failed, a
+   - `DID NOT RUN` (2): the target was never sent or never got an answer — an unset `${env.X}`, a login that failed, a
      step before it that errored or failed its expectations. `-verify` stops at the first kept
      step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and

@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
+	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"gopkg.in/yaml.v3"
@@ -435,11 +437,11 @@ func (v *sliceVerdict) text() string {
 		slice = "none"
 	}
 	fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s\n", head, v.Step, v.SourceRun, slice)
-	fmt.Fprintf(&b, "  source: status %s, %s %q\n", v.Source.Status, v.EnvelopePath, v.Source.ErrorCode)
+	fmt.Fprintf(&b, "  source: status %s, %s %q%s\n", v.Source.Status, v.EnvelopePath, v.Source.ErrorCode, refusalText(v.Source))
 	if v.Outcome == sliceDidNotRun {
 		fmt.Fprintf(&b, "  slice:  step %s was never sent, so there is no verdict to compare\n", v.Step)
 	} else {
-		fmt.Fprintf(&b, "  slice:  status %s, %s %q\n", v.Replay.Status, v.EnvelopePath, v.Replay.ErrorCode)
+		fmt.Fprintf(&b, "  slice:  status %s, %s %q%s\n", v.Replay.Status, v.EnvelopePath, v.Replay.ErrorCode, refusalText(v.Replay))
 	}
 	for _, d := range v.Differences {
 		fmt.Fprintf(&b, "  %s\n", d)
@@ -464,6 +466,22 @@ func (v *sliceVerdict) text() string {
 		}
 	}
 	return b.String()
+}
+
+func refusalText(v chain.Verdict) string {
+	out := ""
+	if m := v.Refusal["message"]; m != "" {
+		out += " message=" + strconv.Quote(m)
+	}
+	for _, field := range []string{"reason", "app_code"} {
+		if s := v.Refusal[field]; s != "" {
+			out += " " + field + "=" + s
+		}
+	}
+	if v.Transport != "" {
+		out += ", transport " + v.Transport
+	}
+	return out
 }
 
 func (v *sliceVerdict) settled() bool {
@@ -516,15 +534,16 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		return didNotRun(fmt.Sprintf("the slice run stopped before step %q (%s): %s",
 			res.Target, replayRec.Status, replayRec.Failure))
 	}
-	if replay.Status == runner.StatusError || replay.Status == runner.StatusSkipped {
+	answered := replay.HTTPStatus != 0 || len(replay.Response) > 0
+	if replay.Status == runner.StatusSkipped || (replay.Status == runner.StatusError && !answered) {
 		return didNotRun(fmt.Sprintf("step %q was never sent (%s): %s", res.Target, replay.Status, replay.Error))
 	}
-	if replay.Transport != nil {
+	if replay.Transport != nil && !answered {
 		return didNotRun(fmt.Sprintf("step %q never reached the backend (%s: %s)",
 			res.Target, replay.Transport.Code, replay.Transport.Message))
 	}
 	v.Replay = verdictOf(replay)
-	v.Differences = chain.CompareVerdicts(v.Source, v.Replay)
+	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToIDs)
 	switch {
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
@@ -580,11 +599,64 @@ func verdictOf(sr *runner.StepRecord) chain.Verdict {
 	if len(sr.Response) > 0 {
 		_ = json.Unmarshal(sr.Response, &response)
 	}
+	path := chain.EnvelopePath()
 	code := ""
-	if v, ok := chain.Get(response, chain.EnvelopePath()); ok {
+	if v, ok := chain.Get(response, path); ok {
 		code = fmt.Sprintf("%v", v)
 	}
-	return chain.Verdict{Step: sr.ID, Status: sr.Status, ErrorCode: code, Expect: sr.Expect}
+	parent := ""
+	if i := strings.LastIndex(path, "."); i >= 0 {
+		parent = path[:i+1]
+	}
+	refusal := map[string]string{}
+	for field, paths := range map[string][]string{
+		"message":  {parent + "message"},
+		"reason":   {parent + "details.0.reason", parent + "reason"},
+		"app_code": {parent + "details.0.app_code", parent + "app_code"},
+	} {
+		for _, p := range paths {
+			if v, ok := chain.Get(response, p); ok && v != nil && fmt.Sprint(v) != "" {
+				refusal[field] = fmt.Sprint(v)
+				break
+			}
+		}
+	}
+	if len(refusal) == 0 {
+		refusal = nil
+	}
+	transport := ""
+	if sr.Transport != nil {
+		transport = sr.Transport.Code + ": " + sr.Transport.Message
+		if sr.HTTPStatus != 0 {
+			transport = fmt.Sprintf("HTTP %d %s", sr.HTTPStatus, transport)
+		}
+	}
+	return chain.Verdict{Step: sr.ID, Status: sr.Status, ErrorCode: code, Refusal: refusal, Transport: transport, Expect: sr.Expect}
+}
+
+func sameUpToIDs(path string, a, b any) bool {
+	if diff.LooksVolatile(path, a, b) {
+		return true
+	}
+	x, ok1 := a.(string)
+	y, ok2 := b.(string)
+	if !ok1 || !ok2 {
+		return false
+	}
+	wx, wy := strings.Fields(x), strings.Fields(y)
+	if len(wx) != len(wy) || len(wx) < 2 {
+		return false
+	}
+	for i := range wx {
+		if wx[i] != wy[i] && !(idToken(wx[i]) && idToken(wy[i]) && diff.LooksVolatile("id", wx[i], wy[i])) {
+			return false
+		}
+	}
+	return true
+}
+
+func idToken(s string) bool {
+	return strings.ContainsAny(s, "0123456789") && strings.IndexFunc(s, func(r rune) bool { return r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' }) >= 0
 }
 
 func freshSet(res *chain.SliceResult) map[string]bool {
