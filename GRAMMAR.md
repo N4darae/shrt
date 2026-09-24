@@ -485,7 +485,10 @@ every run and is skipped, but the REFERENCE itself is not: the safe spot keeps e
 references as written (`body_refs`), and a body field that now reads another step or field, or
 stopped or started reading one, is printed as `chain differs from the confirmed run at <step>
 body.<path> (${a.x} -> ${b.x})`. References are compared in one canonical spelling, so a
-respelling that reads the same field (`${a.x}` -> `${steps.a.response.x}`, §2) is no chain change.
+respelling that reads the same field (`${a.x}` -> `${steps.a.response.x}`, §2) is no chain change,
+nor is a field path respelt in case or as its JSON name (`${c.customer.id_customer}` ->
+`${c.customer.idCustomer}`), which resolves to the same field. Expectation, `kept_red` and
+`unordered` paths are matched the same way, so `order.totalMinor` for `order.total_minor` is no edit.
 For a safe spot approved before shrt kept them, verify resolves
 the chain's reference against the safe spot's own responses, and a field it would not have sent the
 recorded value to is that same chain change, naming the step field that held the recorded value.

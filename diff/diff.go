@@ -9,6 +9,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -475,14 +476,14 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	paths := []string{}
 	seen := map[string]bool{}
 	for _, r := range declared {
-		if !seen[r.Path] {
-			seen[r.Path] = true
+		if !seen[namecase.Fold(r.Path)] {
+			seen[namecase.Fold(r.Path)] = true
 			paths = append(paths, r.Path)
 		}
 	}
 	for _, w := range was.Expect {
-		if !seen[w.Path] {
-			seen[w.Path] = true
+		if !seen[namecase.Fold(w.Path)] {
+			seen[namecase.Fold(w.Path)] = true
 			paths = append(paths, w.Path)
 		}
 	}
@@ -494,7 +495,7 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	}
 	for _, path := range paths {
 		for i, w := range was.Expect {
-			if w.Path != path {
+			if !namecase.Equal(w.Path, path) {
 				continue
 			}
 			j := pairs[i]
@@ -515,7 +516,7 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 			}
 		}
 		for j, r := range declared {
-			if r.Path == path && !matched[j] {
+			if namecase.Equal(r.Path, path) && !matched[j] {
 				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: shown(j)})
 			}
 		}
@@ -535,7 +536,7 @@ func pairExpectations(was, now []chain.ExpectResult) []int {
 				continue
 			}
 			for j, r := range now {
-				if taken[j] || r.Path != w.Path || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
+				if taken[j] || !namecase.Equal(r.Path, w.Path) || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
 					continue
 				}
 				pairs[i], taken[j] = j, true

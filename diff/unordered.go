@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -32,7 +33,7 @@ func unorderedSet(lists ...[]string) map[string]bool {
 	for _, l := range lists {
 		for _, p := range l {
 			if n := listPath(p); n != "" {
-				out[n] = true
+				out[namecase.Fold(n)] = true
 			}
 		}
 	}
@@ -60,7 +61,7 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 		if !ok {
 			return got
 		}
-		if declared[listPath(path)] {
+		if declared[namecase.Fold(listPath(path))] {
 			g = permuted(g, pairItems(w, g, r))
 		}
 		out := make([]any, len(g))
@@ -95,7 +96,7 @@ func reorderCandidates(want, got any, path string, declared map[string]bool, r *
 		if !ok {
 			return
 		}
-		if !declared[listPath(path)] && len(w) > 1 && len(w) == len(g) {
+		if !declared[namecase.Fold(listPath(path))] && len(w) > 1 && len(w) == len(g) {
 			order := pairItems(w, g, r)
 			for i, j := range order {
 				if i != j {
@@ -309,7 +310,7 @@ func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
 
 func containsString(list []string, s string) bool {
 	for _, x := range list {
-		if x == s {
+		if namecase.Equal(x, s) {
 			return true
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 )
 
 const (
@@ -84,7 +85,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 		}
 		matched := false
 		for i, k := range want {
-			if k.Path != ex.Path {
+			if !namecase.Equal(k.Path, ex.Path) {
 				continue
 			}
 			matched = true
@@ -121,7 +122,7 @@ func pinnedRefusal(sr *StepRecord, want []chain.Pin) string {
 			continue
 		}
 		for _, k := range want {
-			if k.Path == ex.Path {
+			if namecase.Equal(k.Path, ex.Path) {
 				return firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
 			}
 		}

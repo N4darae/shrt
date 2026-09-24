@@ -3,6 +3,8 @@ package chain
 import (
 	"fmt"
 	"strings"
+
+	"github.com/N4darae/shrt/namecase"
 )
 
 const APIVersion = "shrt/v1"
@@ -88,7 +90,7 @@ func (c *Chain) checkKeptRed() error {
 		}
 		found := false
 		for _, e := range s.Expect {
-			if e.Path == k.Path {
+			if namecase.Equal(e.Path, k.Path) {
 				found = true
 				break
 			}

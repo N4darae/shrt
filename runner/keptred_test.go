@@ -70,3 +70,15 @@ func TestADryRunOfAKeptRedChainHasNoKeptRedVerdict(t *testing.T) {
 		t.Fatalf("a dry run sends nothing and cannot show the defect, got %q", rec.KeptRed)
 	}
 }
+
+func TestAKeptRedPinPathMatchesItsExpectationWhateverTheCase(t *testing.T) {
+	c := keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qtyOnHand"})
+	r := rawStockRunner(t, `{"status":{"code":"SUCCESS"},"qtyOnHand":"5"}`)
+	rec, err := r.Run(context.Background(), normalized(t, c), runner.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.KeptRed != runner.KeptRedAsPinned {
+		t.Fatalf("qtyOnHand pins qty_on_hand, as an expectation path would read it: %q %s", rec.KeptRed, rec.KeptRedNote)
+	}
+}
