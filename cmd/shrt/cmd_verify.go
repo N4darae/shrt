@@ -228,6 +228,9 @@ func runVerify(ctx context.Context, args []string) error {
 			if list := affectedSteps(rec, report); list != "" {
 				fmt.Println("  affected step(s), not judged: " + list)
 			}
+			if loss != nil {
+				fmt.Println("WARNING: " + loss.line())
+			}
 		case loss.finding():
 			fmt.Println("FINDING: " + loss.line())
 		case loss != nil:

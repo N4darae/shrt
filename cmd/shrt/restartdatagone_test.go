@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -113,5 +115,50 @@ func TestAnAnsweredReadWithoutTheCreatedIDIsNotDataStillThere(t *testing.T) {
 	rec = restartRecord("20990101T000000Z-found1", createdThing(), refusedFetch(), found)
 	if got := readBackAfter(rec, 1); got != "list" {
 		t.Fatalf("a read answering with the id created before the refusal read it back, got %q", got)
+	}
+}
+
+func TestVerifyPrintsAWarningLineNamingTheRestartStep(t *testing.T) {
+	srv := newEchoNameBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	ctx := context.Background()
+	captureStdout(t, func() {
+		if err := runRun(ctx, []string{"cli-thing-flow", "-quiet"}); err != nil {
+			t.Fatalf("shrt run: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-thing-flow", "-note", "baseline"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	e, err := loadEnv(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spot, err := e.store.LoadSafeSpot("cli-thing-flow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := e.store.LoadRun("cli-thing-flow", spot.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saveRefusedAtFetch(t, e, base, "20990101T000000Z-warn1")
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-thing-flow", "-quiet", "-run", "20990101T000000Z-warn1"}) })
+	var coded *exitError
+	if !errors.As(err, &coded) || coded.code != 3 {
+		t.Fatalf("a mid-run restart is could-not-verify, exit 3: %v\n%s", err, out)
+	}
+	found := false
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "WARNING: ") && strings.Contains(line, "step 2 fetch") && strings.Contains(line, "restarted mid-run") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("README promises a WARNING line naming the step for a mid-run restart:\n%s", out)
 	}
 }
