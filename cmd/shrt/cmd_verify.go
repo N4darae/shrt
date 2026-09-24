@@ -120,18 +120,28 @@ func runVerify(ctx context.Context, args []string) error {
 		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), fixtureRequestPath(c))
 	}
-	varDrift := ""
+	varDrift, edits := "", []string{}
 	if len(report.RequestChanges) > 0 {
 		only := map[string]any(vars)
 		if *useRun != "" {
 			only = nil
 		}
 		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
+		fedByVars := func(ch diff.Change) bool {
+			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, []diff.Change{ch})) != ""
+		}
+		for _, ch := range report.ChainEdits(fedByVars) {
+			edits = append(edits, ch.Step+" "+ch.Path)
+		}
 	}
 	if varDrift != "" {
 		how := "set by -var; the chain file is not what differs"
 		if *useRun != "" {
 			how = "as run " + rec.RunID + " was recorded"
+		}
+		if len(edits) > 0 {
+			how = strings.TrimSuffix(how, "; the chain file is not what differs") +
+				", and the chain file changed since it was confirmed (" + strings.Join(edits, ", ") + ")"
 		}
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
@@ -170,6 +180,9 @@ func runVerify(ctx context.Context, args []string) error {
 		fix := "Verify without that -var to compare like with like"
 		if *useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
+		}
+		if len(edits) > 0 {
+			fix += ", and restore the chain's edit (" + strings.Join(edits, ", ") + ")"
 		}
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed because this run's vars differ from the confirmed run's (%s).\n"+
 			"%s; if the new value is intended, run the chain with it until it passes,\n"+

@@ -206,6 +206,8 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 				Detail: "the chain no longer has this step"})
 		case s.Call != st.Call:
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
+		default:
+			out = append(out, expectChanges(st, s)...)
 		}
 	}
 	for _, id := range nowOrder {
@@ -219,6 +221,41 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
 	}
 	return out
+}
+
+const ExpectPath = "expect"
+
+func expectChanges(was *runner.StepRecord, now *chain.Step) []Change {
+	out := []Change{}
+	for i := range max(len(was.Expect), len(now.Expect)) {
+		switch {
+		case i >= len(now.Expect):
+			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(was.Expect[i].Path, was.Expect[i].Rule, was.Expect[i].Want)})
+		case i >= len(was.Expect):
+			r := now.Expect[i].Evaluate(nil)
+			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: expectText(r.Path, r.Rule, r.Want)})
+		default:
+			w, r := was.Expect[i], now.Expect[i].Evaluate(nil)
+			if w.Rule == "unevaluated" {
+				continue
+			}
+			same := w.Path == r.Path && w.Rule == r.Rule
+			if text, templated := r.Want.(string); same && !(templated && strings.Contains(text, "${")) && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
+				same = fmt.Sprint(w.Want) == fmt.Sprint(r.Want)
+			}
+			if !same {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: expectText(r.Path, r.Rule, r.Want)})
+			}
+		}
+	}
+	return out
+}
+
+func expectText(path, rule string, want any) string {
+	if want == nil {
+		return path + " " + rule
+	}
+	return fmt.Sprintf("%s %s %v", path, rule, want)
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
@@ -547,7 +584,7 @@ func (r *Report) Text() string {
 	}
 	for _, c := range r.RequestChanges {
 		what := "request"
-		if c.Path == "step" || c.Path == "steps" || c.Path == "call" {
+		if chainLevel(c) || c.Path == ExpectPath {
 			what = "chain"
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())

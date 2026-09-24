@@ -730,7 +730,11 @@ read, `-var total=6250`) is not input at all. Restore the input, or, when the ed
 bring the expectations in line, run it green, and propose that run with `shrt confirm <name>
 -supersede`. When the difference comes from vars rather than the chain file (a `-var` on this
 verify, or a `-run` recorded with other vars), verify names the vars that feed the differing
-request values, `qty=2, confirmed with 3`, instead of blaming the chain's input. A response that
+request values, `qty=2, confirmed with 3`, instead of blaming the chain's input; when the chain
+file changed too (a step's `auth:`, the step list, an expectation), it names that edit as well,
+and never says the chain file is not what differs. An expectation added, removed or edited since
+approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
+step, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
 it `volatile`.
 

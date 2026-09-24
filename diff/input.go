@@ -20,7 +20,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	material := []Change{}
 	pairs := [][2]string{}
 	for _, c := range r.RequestChanges {
-		if c.Path != AuthProfilePath && !chainLevel(c) {
+		if c.Path != AuthProfilePath && c.Path != ExpectPath && !chainLevel(c) {
 			m := pathmask.NewMasker(mergePatterns(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
@@ -42,7 +42,12 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		}
 	}
 	from := -1
+	edited := map[string]bool{}
 	for _, c := range material {
+		if c.Path == ExpectPath {
+			edited[c.Step] = true
+			continue
+		}
 		i, ok := index[c.Step]
 		if chainLevel(c) || !ok {
 			i = 0
@@ -61,6 +66,9 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			i, ok := index[c.Step]
 			c.WithInput = !ok || i >= from
 		}
+		if c.Kind == KindStatus && edited[c.Step] {
+			c.WithInput = true
+		}
 		kept = append(kept, c)
 	}
 	r.Changes = kept
@@ -73,6 +81,16 @@ func (r *Report) Unexplained() []Change {
 	out := []Change{}
 	for _, c := range r.Changes {
 		if !c.WithInput {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
+	out := []Change{}
+	for _, c := range r.RequestChanges {
+		if c.Path == AuthProfilePath || c.Path == ExpectPath || chainLevel(c) || fedByVars == nil || !fedByVars(c) {
 			out = append(out, c)
 		}
 	}
