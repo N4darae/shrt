@@ -8,8 +8,14 @@ import (
 
 const minFixtureEcho = 3
 
-func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fixture func(step, path string) bool) {
+type Fixtures struct {
+	Named     func(step, path string) bool
+	Generated func(step, path string) bool
+}
+
+func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
+	fixture := fx.Named
 	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)
 	stepVolatile := map[string][]string{}
 	for _, st := range append(append([]*runner.StepRecord{}, spot.Steps...), rec.Steps...) {
@@ -33,6 +39,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		material = append(material, c)
 	}
 	r.RequestChanges = material
+	pairs = append(pairs, generatedPairs(spot.Steps, rec.Steps, fx.Generated)...)
 	index := map[string]int{}
 	for i, st := range spot.Steps {
 		if _, seen := index[st.ID]; !seen {
@@ -96,4 +103,39 @@ func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
 
 func chainLevel(c Change) bool {
 	return c.Path == "step" || c.Path == "steps" || c.Path == "call"
+}
+
+func generatedPairs(was, now []*runner.StepRecord, generated func(step, path string) bool) [][2]string {
+	if generated == nil {
+		return nil
+	}
+	byID := map[string]*runner.StepRecord{}
+	for _, st := range now {
+		if _, seen := byID[st.ID]; !seen {
+			byID[st.ID] = st
+		}
+	}
+	out := [][2]string{}
+	for _, a := range was {
+		b, ok := byID[a.ID]
+		if !ok || len(a.Request) == 0 || len(b.Request) == 0 {
+			continue
+		}
+		x, errA := decode(a.Request)
+		y, errB := decode(b.Request)
+		if errA != nil || errB != nil {
+			continue
+		}
+		walk(x, y, "", func(c Change) {
+			if c.Kind != KindChanged || !generated(a.ID, c.Path) {
+				return
+			}
+			if w, ok := c.Want.(string); ok && len(w) >= minFixtureEcho {
+				if g, ok := c.Got.(string); ok {
+					out = append(out, [2]string{w, g})
+				}
+			}
+		})
+	}
+	return out
 }

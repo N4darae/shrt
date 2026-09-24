@@ -25,7 +25,7 @@ func TestARemovedMiddleStepIsOneChangeAndTheRestAreStillCompared(t *testing.T) {
 	now := &chain.Chain{Name: "c", Steps: []*chain.Step{{ID: "create", Call: "S/Create"}, {ID: "get", Call: "S/Get"}, {ID: "list", Call: "S/List"}}}
 	rep := diff.CompareMasking(spot, rec, nil)
 	rep.RequestChanges = diff.ChainChanges(spot, now)
-	rep.SeparateInput(spot, rec, nil, nil)
+	rep.SeparateInput(spot, rec, nil, diff.Fixtures{})
 	kinds := []string{}
 	for _, c := range rep.Changes {
 		kinds = append(kinds, c.Step+":"+c.Kind+":"+c.Path)

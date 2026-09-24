@@ -32,7 +32,7 @@ func TestAResponseStillCarryingTheConfirmedFixtureNameIsAChange(t *testing.T) {
 			rec := &runner.Record{RunID: "run", Chain: "c", Status: runner.StatusPassed, Steps: staleSteps("w-px3@example.test", tc.echoed, tc.message)}
 			rep := diff.CompareMasking(spot, rec, nil)
 			rep.RequestChanges = diff.CompareRequests(spot, rec, nil)
-			rep.SeparateInput(spot, rec, nil, fixture)
+			rep.SeparateInput(spot, rec, nil, diff.Fixtures{Named: fixture})
 			got := []string{}
 			for _, c := range rep.Changes {
 				got = append(got, c.Step+" "+c.Path)
@@ -44,7 +44,7 @@ func TestAResponseStillCarryingTheConfirmedFixtureNameIsAChange(t *testing.T) {
 				t.Fatalf("the change says what an echo of this run's input would read:\n%s", rep.Text())
 			}
 			a := &runner.Record{RunID: "a", Chain: "c", Status: runner.StatusPassed, Steps: spot.Steps}
-			runs := diff.CompareRunsSkipping(a, rec, nil, fixture)
+			runs := diff.CompareRunsSkipping(a, rec, nil, diff.Fixtures{Named: fixture})
 			got = got[:0]
 			for _, c := range runs.Changes {
 				got = append(got, c.Step+" "+c.Path)

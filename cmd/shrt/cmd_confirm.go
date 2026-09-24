@@ -175,7 +175,7 @@ func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain
 	rep := diff.CompareMasking(base, rec, volatile)
 	if c != nil {
 		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
-		rep.SeparateInput(base, rec, volatile, fixtureRequestPath(c))
+		rep.SeparateInput(base, rec, volatile, requestFixtures(c))
 	}
 	out := []string{}
 	for _, ch := range rep.Changes {

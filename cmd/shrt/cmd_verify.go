@@ -118,7 +118,7 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
 		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
-		report.SeparateInput(spot, rec, currentVolatile(e, name), fixtureRequestPath(c))
+		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
 	varDrift, edits := "", []string{}
 	if len(report.RequestChanges) > 0 {
@@ -312,6 +312,29 @@ func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
 			}
 		}
 		return true
+	}
+}
+
+func requestFixtures(c *chain.Chain) diff.Fixtures {
+	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c)}
+}
+
+func generatedRequestPath(c *chain.Chain) func(step, path string) bool {
+	return func(step, path string) bool {
+		v, ok := requestTemplate(c, step, path)
+		if !ok {
+			return false
+		}
+		text, ok := v.(string)
+		if !ok {
+			return false
+		}
+		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+			if k := chain.ParseRef(m[1]).Kind; k == chain.RefUUID || k == chain.RefClock {
+				return true
+			}
+		}
+		return false
 	}
 }
 

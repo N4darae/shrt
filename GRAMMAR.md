@@ -183,7 +183,7 @@ Produced by resolving each form against a fixture scope:
 | `${now-86400}` | `"2026-09-10T10:44:34Z"` | the same offset in RFC3339; the unit is always SECONDS |
 | `${today}` | `"1789084800"` | the UTC midnight of this run — a business date, already a multiple of 86400 |
 | `${today-86400}` | `"1788998400"` | the business date before it |
-| `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys |
+| `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys; verify and diff mask a response that only echoes it |
 | `deal-${create_deal.id_deal}-x` | `"deal-d-9-x"` | interpolated inside a longer string, so the result is text |
 | `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` now rejects it |
 
@@ -456,7 +456,10 @@ in `-json`), so a field the backend echoes a credential into is not mistaken for
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
-every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
+every run and is skipped. A value built from `${uuid}` or a clock form, whole or inside other text
+(`id_order: ${uuid}`, `email: m-${uuid}@example.test`), is treated like a fixture name below: a
+response value that only echoes it (`no order <uuid>`, the email) is masked and counted, by `shrt
+diff` too. A literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
 verify with `drift with different input` even when every response matches. So is the chain's list of
 steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs

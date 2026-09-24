@@ -18,14 +18,14 @@ func fixtureRun(id, tag, message string) *runner.Record {
 
 func TestDiffMasksAResponseValueThatOnlyEchoesTheFixtureName(t *testing.T) {
 	fixture := func(step, path string) bool { return step == "create" && path == "sku" }
-	rep := diff.CompareRunsSkipping(fixtureRun("a", "first", "ok"), fixtureRun("b", "second", "ok"), nil, fixture)
+	rep := diff.CompareRunsSkipping(fixtureRun("a", "first", "ok"), fixtureRun("b", "second", "ok"), nil, diff.Fixtures{Named: fixture})
 	if len(rep.Changes) != 0 {
 		t.Fatalf("both response values only echo the new sku, as verify masks them; want no change, got %d:\n%s", len(rep.Changes), rep.Text())
 	}
 	if !strings.Contains(rep.Text(), "2 response value(s) differ only by echoing the fixture name") {
 		t.Fatalf("the report counts the echoes:\n%s", rep.Text())
 	}
-	rep = diff.CompareRunsSkipping(fixtureRun("a", "first", "ok"), fixtureRun("b", "second", "late"), nil, fixture)
+	rep = diff.CompareRunsSkipping(fixtureRun("a", "first", "ok"), fixtureRun("b", "second", "late"), nil, diff.Fixtures{Named: fixture})
 	if len(rep.Changes) != 1 || rep.Changes[0].Path != "note" {
 		t.Fatalf("a real response difference is still shown: %+v\n%s", rep.Changes, rep.Text())
 	}

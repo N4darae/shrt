@@ -87,11 +87,11 @@ func compareRuns(_ context.Context, args []string) error {
 	if a.RunID == b.RunID {
 		return fmt.Errorf("both sides are run %s: comparing a record with itself says nothing", a.RunID)
 	}
-	var fixture func(step, path string) bool
+	var fx diff.Fixtures
 	if c, err := chain.Resolve(e.chainsDir(), a.Chain); err == nil {
-		fixture = fixtureRequestPath(c)
+		fx = requestFixtures(c)
 	}
-	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fixture)
+	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
 	if *asJSON {
 		if err := emitJSON(rep); err != nil {
 			return err

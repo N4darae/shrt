@@ -23,7 +23,7 @@ var ReferenceExamples = []ReferenceExample{
 	{"${now-86400}", "the same offset in RFC3339; the unit is always SECONDS"},
 	{"${today}", "the UTC midnight of this run — a business date, already a multiple of 86400"},
 	{"${today-86400}", "the business date before it"},
-	{"${uuid}", "fresh per reference — idempotency keys"},
+	{"${uuid}", "fresh per reference — idempotency keys; verify and diff mask a response that only echoes it"},
 	{"deal-${create_deal.id_deal}-x", "interpolated inside a longer string, so the result is text"},
 	{"${vars.ref_in_a_var}", "a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` now rejects it"},
 }
