@@ -88,7 +88,7 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 	if exitCodeOf(err) != 3 {
 		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
 	}
-	want := "next: shrt chain slice cli-noisy-flow -step fetch -run " + source + " -keep fill -verify -write"
+	want := "next: shrt chain slice cli-noisy-flow -step fetch -run " + source + " -keep writes -verify -write"
 	if !strings.Contains(out, want) {
 		t.Fatalf("the INCONCLUSIVE advice must name a runnable command\nwant %q in:\n%s", want, out)
 	}

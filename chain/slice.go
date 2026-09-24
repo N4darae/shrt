@@ -20,6 +20,8 @@ const (
 	KeepAsked    = "requested"
 )
 
+const SliceKeepWrites = "writes"
+
 func DefaultReadOnlyPrefixes() []string {
 	return []string{
 		"Fetch", "Get", "List", "Preview", "Search",
@@ -173,8 +175,22 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	add(at, KeepTarget, KeepTarget)
 	for _, id := range opts.Keep {
 		j, ok := idx.byID[id]
+		if !ok && id == SliceKeepWrites {
+			for w, s := range c.Steps[:at] {
+				if !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+					continue
+				}
+				if opts.Refused != nil {
+					if _, refused := opts.Refused(s.ID); refused {
+						continue
+					}
+				}
+				add(w, KeepAsked, "kept by -keep writes")
+			}
+			continue
+		}
 		if !ok {
-			return nil, fmt.Errorf("chain %q has no step %q to keep\nvalid step ids:\n  %s", c.Name, id, strings.Join(idx.ids(), "\n  "))
+			return nil, fmt.Errorf("chain %q has no step %q to keep (-keep %s keeps every earlier write step)\nvalid step ids:\n  %s", c.Name, id, SliceKeepWrites, strings.Join(idx.ids(), "\n  "))
 		}
 		if j > at {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)

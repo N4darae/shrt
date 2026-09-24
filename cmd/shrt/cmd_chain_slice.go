@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,7 +62,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	write := &optionalString{}
 	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>")
 	keep := &stepList{}
-	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`")
+	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
 	setUsage(fs, sliceUsage, sliceExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -654,7 +655,7 @@ func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a
 			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
 		return
 	}
-	v.Next = keepWritesCommand(res, rec.RunID, a, usable)
+	v.Next = keepWritesCommand(res, rec.RunID, a, usable, len(blocked) == 0 && keepsEveryWriteCleanly(res, rec, a))
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
@@ -735,9 +736,34 @@ func freshSet(res *chain.SliceResult) map[string]bool {
 	return out
 }
 
-func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string) string {
+func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs) bool {
+	if a.reslice == nil {
+		return false
+	}
+	next := a.reslice(append(append([]string{}, a.keep...), chain.SliceKeepWrites))
+	if next == nil || len(next.DroppedWrites) > 0 {
+		return false
+	}
+	for _, k := range next.Kept {
+		if k.ID == res.Target {
+			continue
+		}
+		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) {
+			return false
+		}
+	}
+	return true
+}
+
+func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string, allWrites bool) string {
 	keep := append([]string{}, a.keep...)
-	keep = append(keep, dropped...)
+	if allWrites {
+		if !slices.Contains(keep, chain.SliceKeepWrites) {
+			keep = append(keep, chain.SliceKeepWrites)
+		}
+	} else {
+		keep = append(keep, dropped...)
+	}
 	parts := []string{"shrt chain slice", res.Source, "-step", res.Target}
 	if res.Mode != chain.SliceModeClosure {
 		parts = append(parts, "-mode", res.Mode)

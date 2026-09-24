@@ -98,7 +98,7 @@ func TestCLISlicePinNextCommandAsksForAFreshVarTheKeptWritesWillInterpolate(t *t
 			next = l
 		}
 	}
-	if !strings.Contains(next, "-keep create") {
+	if !strings.Contains(next, "-keep writes") {
 		t.Fatalf("pin mode dropped the write create, so verify must end with a -keep command:\n%s", out)
 	}
 	if !strings.Contains(next, "-var tag=<fresh>") {
