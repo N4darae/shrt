@@ -380,6 +380,9 @@ func chainLint(args []string) error {
 
 func lintAuthBodies(cfg *config.Config) []chain.Issue {
 	issues := []chain.Issue{}
+	if names := cfg.HandWrittenAuthHeaders(); len(names) > 0 {
+		issues = append(issues, chain.Issue{Severity: chain.SeverityError, Message: config.HandWrittenAuthProblem(names)})
+	}
 	profiles := cfg.AuthProfiles()
 	for _, name := range cfg.AuthProfileNames() {
 		p := profiles[name]

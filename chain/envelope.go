@@ -179,6 +179,7 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 	accounted := 0
 	explicitOK := false
 	unset := []int{}
+	empty := []int{}
 	for i, item := range items {
 		v, found := Get(item, field)
 		if !found || v == nil {
@@ -190,21 +191,28 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 		}
 		accounted++
 		code := stringify(v)
-		if code == EnvelopeOK() {
+		switch code {
+		case EnvelopeOK():
 			explicitOK = true
-		}
-		if code != "" && code != EnvelopeOK() {
+		case "":
+			empty = append(empty, i)
+		default:
 			line := fmt.Sprintf("%s.%d", listPath, i)
 			out = append(out, ItemRefusal{Path: line + "." + field, Code: code, Line: line})
 		}
 	}
-	if explicitOK {
-		for _, i := range unset {
-			line := fmt.Sprintf("%s.%d", listPath, i)
-			out = append(out, ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line})
-		}
-		sort.SliceStable(out, func(a, b int) bool { return itemIndex(out[a].Line) < itemIndex(out[b].Line) })
+	missing := []int{}
+	if explicitOK || len(out) > 0 {
+		missing = append(missing, empty...)
 	}
+	if explicitOK {
+		missing = append(missing, unset...)
+	}
+	for _, i := range missing {
+		line := fmt.Sprintf("%s.%d", listPath, i)
+		out = append(out, ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line})
+	}
+	sort.SliceStable(out, func(a, b int) bool { return itemIndex(out[a].Line) < itemIndex(out[b].Line) })
 	if len(items) > 0 && accounted == 0 {
 		return nil, fmt.Errorf("conventions.item_envelope_path expects each %s[] to carry %q, and none of "+
 			"the %d item(s) declares it at all. The per-item verdict is NOT being checked: a batch refusing "+
@@ -412,6 +420,24 @@ func SetEnvelope(path, ok string) {
 
 func IsEnvelopePath(path string) bool {
 	return path == EnvelopeField() || strings.HasPrefix(path, EnvelopeField()+".")
+}
+
+func CoversVerdict(path string) bool {
+	verdict := SplitPath(EnvelopePath())
+	segs := SplitPath(path)
+	if len(segs) == 0 || len(segs) > len(verdict) {
+		return false
+	}
+	for i, seg := range segs {
+		if !namecase.Equal(seg, verdict[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func IsVerdictItself(path string) bool {
+	return CoversVerdict(path) && len(SplitPath(path)) == len(SplitPath(EnvelopePath()))
 }
 
 func IsPagingFieldName(name string) bool {

@@ -53,7 +53,7 @@ func TestAnEnvelopePathOnAFreeTextFieldBlamesEnvelopePathAndShowsEmptyValues(t *
 	srv := newFakeServer()
 	defer srv.Close()
 
-	rec, err := newRunner(t, srv).Run(context.Background(), testChain(), runner.Options{})
+	rec, err := newRunner(t, srv).Run(context.Background(), testChain(), runner.Options{KeepGoing: true})
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}

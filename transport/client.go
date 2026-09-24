@@ -163,11 +163,16 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	}
 
 	start := time.Now()
-	resp, err := c.http.Do(req)
+	hc := *c.http
+	hc.Transport = noResend{next: c.http.Transport}
+	resp, err := hc.Do(req)
 	if err != nil {
 		var urlErr *neturl.Error
 		if errors.As(err, &urlErr) {
 			err = urlErr.Err
+		}
+		if errors.Is(err, errResendRefused) {
+			return nil, fmt.Errorf("POST %s: %w", url, closedError(err))
 		}
 		if Unreachable(err) {
 			return nil, fmt.Errorf("POST %s: the target could not be reached (%w): the backend is down or not started, "+
@@ -202,6 +207,29 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 		res.Error = decodeError(resp.StatusCode, raw)
 	}
 	return res, nil
+}
+
+var errResendRefused = errors.New("the request had already been sent and shrt never re-sends one")
+
+func refuseResend() (io.ReadCloser, error) {
+	return nil, errResendRefused
+}
+
+type noResend struct {
+	next http.RoundTripper
+}
+
+func (n noResend) RoundTrip(req *http.Request) (*http.Response, error) {
+	next := n.next
+	if next == nil {
+		next = http.DefaultTransport
+	}
+	if req.Body != nil && req.Body != http.NoBody {
+		clone := *req
+		clone.GetBody = refuseResend
+		req = &clone
+	}
+	return next.RoundTrip(req)
 }
 
 func refuseRedirect(*http.Request, []*http.Request) error {

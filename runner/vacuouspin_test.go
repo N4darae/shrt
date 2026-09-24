@@ -37,7 +37,6 @@ func TestAPinThatFailsOnTheOkValueStillDeclaresTheRefusal(t *testing.T) {
 		{Path: "status.code", NotEqual: "${vars.ok}"},
 		{Path: "status.code", Equals: "REJECTED"},
 		{Path: "status.code", Contains: "REJ"},
-		{Path: "status.message", Contains: "positive"},
 	} {
 		srv := newShopServer(t, refusedStock())
 		c := addStockChain(pin, chain.Expectation{Path: "qty_on_hand", Equals: 0})

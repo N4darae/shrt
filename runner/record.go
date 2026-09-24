@@ -36,6 +36,7 @@ type Record struct {
 	Failure     string         `json:"failure,omitempty"`
 	FailedSteps []string       `json:"failed_steps,omitempty"`
 	Warning     string         `json:"warning,omitempty"`
+	Seal        string         `json:"seal,omitempty"`
 }
 
 func (s *StepRecord) AssertionFailed() bool {
@@ -48,25 +49,26 @@ func (s *StepRecord) AssertionFailed() bool {
 }
 
 type StepRecord struct {
-	Index       int                  `json:"index"`
-	ID          string               `json:"id"`
-	Call        string               `json:"call"`
-	Procedure   string               `json:"procedure"`
-	AuthProfile string               `json:"auth_profile,omitempty"`
-	AuthRetry   string               `json:"auth_retry,omitempty"`
-	Status      string               `json:"status"`
-	HTTPStatus  int                  `json:"http_status,omitempty"`
-	LatencyMS   int64                `json:"latency_ms"`
-	Request     json.RawMessage      `json:"request,omitempty"`
-	Response    json.RawMessage      `json:"response,omitempty"`
-	Transport   *TransportError      `json:"transport_error,omitempty"`
-	Expect      []chain.ExpectResult `json:"expect,omitempty"`
-	Exported    map[string]any       `json:"exported,omitempty"`
-	Error       string               `json:"error,omitempty"`
-	Warning     string               `json:"warning,omitempty"`
-	Note        string               `json:"note,omitempty"`
-	Volatile    []string             `json:"volatile,omitempty"`
-	Drift       bool                 `json:"drift,omitempty"`
+	Index         int                  `json:"index"`
+	ID            string               `json:"id"`
+	Call          string               `json:"call"`
+	Procedure     string               `json:"procedure"`
+	AuthProfile   string               `json:"auth_profile,omitempty"`
+	AuthPrincipal string               `json:"auth_principal,omitempty"`
+	AuthRetry     string               `json:"auth_retry,omitempty"`
+	Status        string               `json:"status"`
+	HTTPStatus    int                  `json:"http_status,omitempty"`
+	LatencyMS     int64                `json:"latency_ms"`
+	Request       json.RawMessage      `json:"request,omitempty"`
+	Response      json.RawMessage      `json:"response,omitempty"`
+	Transport     *TransportError      `json:"transport_error,omitempty"`
+	Expect        []chain.ExpectResult `json:"expect,omitempty"`
+	Exported      map[string]any       `json:"exported,omitempty"`
+	Error         string               `json:"error,omitempty"`
+	Warning       string               `json:"warning,omitempty"`
+	Note          string               `json:"note,omitempty"`
+	Volatile      []string             `json:"volatile,omitempty"`
+	Drift         bool                 `json:"drift,omitempty"`
 
 	serverBuild string
 	unreachable string

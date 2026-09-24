@@ -70,6 +70,9 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	if !rec.Passed() {
 		return nil, notPassed(rec)
 	}
+	if err := s.checkSealed(rec); err != nil {
+		return nil, err
+	}
 	replaces := ""
 	prev, err := s.LoadSafeSpot(rec.Chain)
 	switch {
@@ -124,6 +127,9 @@ func (s *Store) Approve(chainName string, c Confirmation) (*SafeSpot, string, er
 	}
 	if recordDigest(rec) != p.Digest {
 		return nil, "", fmt.Errorf("%w: run %s was rewritten after it was proposed", ErrProposalChanged, p.RunID)
+	}
+	if err := s.checkSealed(rec); err != nil {
+		return nil, "", fmt.Errorf("%w: %w", ErrProposalChanged, err)
 	}
 	if strings.TrimSpace(c.Note) == "" {
 		c.Note = p.Checked

@@ -3,6 +3,8 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,8 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/transport"
 )
@@ -149,6 +153,41 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	}
 }
 
+func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
+	defaults := pathmask.NewRedactor(config.DefaultRedact())
+	out := map[string]string{}
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		fields := map[string]any{}
+		for k, v := range b.BodyFields {
+			if redactor.Masks(k) || defaults.Masks(k) {
+				continue
+			}
+			resolved, err := chain.AuthBodyScope().ResolveValue(v)
+			if err != nil {
+				fields = nil
+				break
+			}
+			if redactor.MasksValue(k, resolved) {
+				continue
+			}
+			fields[k] = resolved
+		}
+		if fields == nil {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{"call": b.Procedure, "fields": fields})
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(raw)
+		out[b.Profile] = hex.EncodeToString(sum[:8])
+	}
+	return out
+}
+
 func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
 	login := false
 	for _, b := range bs {
@@ -182,26 +221,32 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
-func learnMaskedEnv(redactor *pathmask.Masker, v any, path string, env func(string) (string, bool)) {
+func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, item := range t {
-			learnMaskedEnv(redactor, item, pathmask.Join(path, k), env)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope)
 		}
 	case []any:
 		for i, item := range t {
-			learnMaskedEnv(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), env)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope)
 		}
 	case string:
 		if !redactor.Masks(path) {
 			return
 		}
+		env := scope.Env
 		if env == nil {
 			env = os.LookupEnv
 		}
 		for _, name := range chain.AuthBodyEnvNames(map[string]any{"v": t}) {
 			if value, ok := env(name); ok {
 				redactor.AddSecret(value)
+			}
+		}
+		for _, ref := range chain.VarRefs(t) {
+			if value, err := scope.ResolveValue(ref); err == nil {
+				learnSecret(redactor, value)
 			}
 		}
 	}
@@ -271,14 +316,15 @@ func expiryOf(response any, path string) time.Time {
 }
 
 type Options struct {
-	Vars      map[string]any
-	Volatile  []string
-	Redact    []string
-	DryRun    bool
-	KeepGoing bool
-	Build     string
-	heldBack  map[int]string
-	chain     *chain.Chain
+	Vars       map[string]any
+	Volatile   []string
+	Redact     []string
+	DryRun     bool
+	KeepGoing  bool
+	Build      string
+	heldBack   map[int]string
+	principals map[string]string
+	chain      *chain.Chain
 }
 
 type buildTracker struct {
@@ -732,9 +778,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		scope.Now = r.Now
 	}
 	r.Auth.learnSecrets(redactor)
+	opts.principals = r.Auth.principals(redactor)
 	for _, step := range c.Steps {
 		if step != nil {
-			learnMaskedEnv(redactor, orEmpty(step.Body), "", scope.Env)
+			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
 		}
 	}
 	r.Auth.learnTokens(redactor)
@@ -1038,6 +1085,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
+		sr.AuthPrincipal = opts.principals[profile]
 	}
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
@@ -1087,6 +1135,18 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
+	if key, repeated := repeatedKey(res.Body); repeated {
+		var last any
+		if err := json.Unmarshal(res.Body, &last); err == nil {
+			sr.Response = mustJSON(redactor.Apply(last), res.Body)
+		}
+		sr.Status = StatusFailed
+		sr.Expect = unevaluated(step.Expect, redactor)
+		sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
+			"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
+			"were not evaluated. A backend that writes a key twice is the defect to report", key)
+		return sr
+	}
 	canonical, populated, cerr := r.Catalog.CanonicalizeWithPresence(method.Output(), res.Body)
 	staleOutput := false
 	switch {
@@ -1150,7 +1210,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 
-	verdictDeclared := !staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))
+	verdictDeclared := (!staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))) ||
+		verdictBlocked(decoded, chain.EnvelopePath())
 	if len(step.Expect) == 0 {
 		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
@@ -1277,6 +1338,68 @@ func unassertedRefusalWarning(decoded any, verdictDeclared bool) string {
 		chain.EnvelopeOK(), path, text)
 }
 
+func verdictBlocked(decoded any, path string) bool {
+	segs := chain.SplitPath(path)
+	cur := decoded
+	for i, seg := range segs {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return i > 0 && cur != nil
+		}
+		key, ok := namecase.LookupKey(m, seg)
+		if !ok {
+			return false
+		}
+		cur = m[key]
+	}
+	return false
+}
+
+func repeatedKey(raw []byte) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var walk func(path string) (string, bool, error)
+	walk = func(path string) (string, bool, error) {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false, err
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return "", false, nil
+		}
+		switch delim {
+		case '{':
+			seen := map[string]bool{}
+			for dec.More() {
+				keyTok, err := dec.Token()
+				if err != nil {
+					return "", false, err
+				}
+				key, _ := keyTok.(string)
+				child := pathmask.Join(path, key)
+				if seen[key] {
+					return child, true, nil
+				}
+				seen[key] = true
+				if at, found, err := walk(child); found || err != nil {
+					return at, found, err
+				}
+			}
+		case '[':
+			for i := 0; dec.More(); i++ {
+				if at, found, err := walk(pathmask.Join(path, pathmask.IndexKey(i))); found || err != nil {
+					return at, found, err
+				}
+			}
+		}
+		_, err = dec.Token()
+		return "", false, err
+	}
+	at, found, _ := walk("")
+	return at, found
+}
+
 func verdictText(decoded any, path string) (string, bool) {
 	code, ok := chain.Get(decoded, path)
 	if !ok || code == nil {
@@ -1288,16 +1411,22 @@ func verdictText(decoded any, path string) (string, bool) {
 
 func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
 	path := chain.EnvelopePath()
-	if path == "" || pinsVerdict(scope, expect) {
+	if path == "" {
 		return chain.ExpectResult{}, false
 	}
 	text, has := verdictText(decoded, path)
+	if pinsVerdict(scope, expect, !has) {
+		return chain.ExpectResult{}, false
+	}
 	if !has {
 		if !verdictDeclared {
 			return chain.ExpectResult{}, false
 		}
-		detail := fmt.Sprintf("the response carries no verdict at %s: it is absent or empty, though this rpc's "+
-			"response message declares it, and no expectation on this step pins the verdict, so the ones that "+
+		why := "it is absent or empty, though this rpc's response message declares it"
+		if verdictBlocked(decoded, path) {
+			why = "a value on the way to it is not an object (as in a string status), so no code can be read there"
+		}
+		detail := fmt.Sprintf("the response carries no verdict at %s: "+why+", and no expectation on this step pins the verdict, so the ones that "+
 			"held read zero values nothing vouches for. If an absent verdict is what this rpc answers, pin it "+
 			"(%s exists: false); if not, the backend did not say it did what was asked", path, path)
 		return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: "", Passed: false, Detail: detail}, true
@@ -1314,7 +1443,7 @@ func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation
 	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
 }
 
-func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
+func pinsVerdict(scope *chain.Scope, expect []chain.Expectation, absent bool) bool {
 	okEnvelope := okAnswer(chain.EnvelopePath(), chain.EnvelopeOK())
 	okTransport := chain.TransportOutcome(200, "", "")
 	for _, e := range boundExpect(scope, expect) {
@@ -1323,8 +1452,11 @@ func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
 			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
 				return true
 			}
-		case chain.IsEnvelopePath(e.Path):
-			if e.Equals != nil || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
+		case chain.CoversVerdict(e.Path):
+			if absent && e.NotEqual != nil {
+				continue
+			}
+			if (e.Equals != nil && chain.IsVerdictItself(e.Path)) || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
 				return true
 			}
 		}

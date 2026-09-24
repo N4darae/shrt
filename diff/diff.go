@@ -66,11 +66,14 @@ func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
-const AuthProfilePath = "auth_profile"
+const (
+	AuthProfilePath   = "auth_profile"
+	AuthPrincipalPath = "auth_principal"
+)
 
 func (r *Report) PrincipalChanged() bool {
 	for _, c := range r.RequestChanges {
-		if c.Path == AuthProfilePath {
+		if c.Path == AuthProfilePath || c.Path == AuthPrincipalPath {
 			return true
 		}
 	}
@@ -103,6 +106,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
 	redactPaths := pathmask.NewMasker(rec.Redacted)
+	idPairs := []idPair{}
 	pairs, structural, tail := alignSteps(spot.Steps, rec.Steps, stoppedEarly)
 	rep.Changes = append(rep.Changes, structural...)
 	for _, p := range pairs {
@@ -165,7 +169,13 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 				rep.Changes = append(rep.Changes, c)
 			}
 		}
+		if a, errA := decode(want.Response); errA == nil {
+			if b, errB := decode(got.Response); errB == nil {
+				collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
+			}
+		}
 	}
+	rep.applyRenaming(idPairs)
 	if len(tail) > 0 {
 		why := "the run stopped before this step"
 		if first != nil {
@@ -253,6 +263,27 @@ func alignSteps(spot, rec []*runner.StepRecord, stoppedEarly bool) ([]stepPair, 
 		structural = append(structural, Change{Step: "-", Path: "steps", Kind: KindOrder, Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
 	}
 	return pairs, structural, tail
+}
+
+func (r *Report) applyRenaming(pairs []idPair) {
+	broken := renamingViolations(pairs)
+	if len(broken) == 0 {
+		return
+	}
+	at := map[string]bool{}
+	for _, c := range broken {
+		at[c.Step+" "+c.Path] = true
+	}
+	kept := r.ShapeMasked[:0]
+	for _, c := range r.ShapeMasked {
+		if at[c.Step+" "+c.Path] {
+			r.Masked--
+			continue
+		}
+		kept = append(kept, c)
+	}
+	r.ShapeMasked = kept
+	r.Changes = append(r.Changes, broken...)
 }
 
 func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []string, derived func(step, path string) bool) *Report {
@@ -369,6 +400,9 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 		}
 		if want.AuthProfile != "" && got.AuthProfile != "" && want.AuthProfile != got.AuthProfile {
 			out = append(out, Change{Step: want.ID, Path: AuthProfilePath, Kind: KindChanged, Want: want.AuthProfile, Got: got.AuthProfile})
+		} else if want.AuthPrincipal != "" && got.AuthPrincipal != "" && want.AuthPrincipal != got.AuthPrincipal {
+			out = append(out, Change{Step: want.ID, Path: AuthPrincipalPath, Kind: KindChanged, Want: want.AuthPrincipal, Got: got.AuthPrincipal,
+				Detail: fmt.Sprintf("auth profile %q logged in as another principal: its login body's non-secret fields differ", got.AuthProfile)})
 		}
 		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
@@ -742,7 +776,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "%s since the safe spot's run %s: %s\n", r.InputSummary(), r.SafeSpotID, cause)
 	}
 	if r.Clean() && r.PrincipalChanged() {
-		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile than the confirmed run, "+
+		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile or principal than the confirmed run, "+
 			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
 		return b.String()
 	}

@@ -701,6 +701,13 @@ A call still refused after all this is `error`, not `failed`: `shrt run` exits 3
 says `could not verify` unless a step before it drifted. A step with `allow_fail` keeps `failed`, so
 it still tolerates a refusal. A dead cached token therefore costs one extra login, not a red step.
 
+**Also 2026-09-24:** Go's HTTP client silently re-sent a POST carrying an `Idempotency-Key` or
+`X-Idempotency-Key` header when a reused connection dropped after the request went out, so a step
+whose connection closed mid-flight passed with the write performed twice and nothing recorded. shrt
+now never lets the transport re-send a request whose body was sent: such a drop is a step `error`
+saying whether the call took effect is unknown. A request that provably never left (nothing written
+on a stale idle connection) is still retried on a fresh connection.
+
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
 **Symptom.** You turn on `conventions.validate_output`, a response fails to match its proto message,
@@ -880,6 +887,16 @@ references; the same rule already held for a batch line's verdict. `chain lint` 
 (`unfailable-assertion`, failed by `-strict`) on `not_equal: ""` on the envelope; a misspelt code on
 a string-typed envelope cannot be told from a real one statically, so only the runner catches it.
 
+And through a rule next to the verdict rather than on it: the ok value used for "would fail on
+success" is a bare `status.code: SUCCESS`, so `status.message not_equal: boom`,
+`status.details.0.app_code not_equal: 9999` or `status.message equals: ""` "failed" on it for want
+of the field and counted as pins, and a refused step passed. Since 2026-09-24 only a rule on the
+envelope path itself (or one of its parents, such as `status exists: false`) pins it, with path
+segments compared case-insensitively, so `Status.Code not_equal: SUCCESS` pins a refusal exactly as
+`status.code` does instead of being a false red. On an absent or empty verdict a `not_equal` pins
+nothing: `status.code not_equal: SUCCESS` holds on `""`, so pin an absent verdict with `exists:
+false` or `equals: ""`.
+
 ## 38. A password or a token in clear in a run record, though `redact` covers its field
 
 **Symptom.** `**.*password` and `**.access_token` are redacted, yet the run record, the pending
@@ -908,6 +925,10 @@ under a redacted path as secrets, whichever step called it.
 Likewise an env credential a STEP body read (`password: ${env.CLERK_PW}` in an in-chain login) was
 path-redacted in that step but stayed in clear wherever it was echoed. Every `${env.*}` value a step
 body reads into a field covered by `redact` is now scrubbed by value in the whole record.
+The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the request field, but
+the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
+Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
+in the whole record the same way, so the proposal shows `pw=<redacted>`.
 
 ---
 

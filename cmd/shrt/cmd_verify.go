@@ -190,8 +190,8 @@ func runVerify(ctx context.Context, args []string) error {
 			len(report.Changes), report.InputSummary(), varDrift, fix, name)
 	}
 	if report.PrincipalChanged() {
-		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile than the confirmed run (%s).\n"+
-			"Restore the step's auth; if the new principal is intended, run the chain until it passes,\n"+
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile or principal than the confirmed run (%s).\n"+
+			"Restore the step's auth and credentials; if the new principal is intended, run the chain until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
 			len(report.Changes), principalChanges(report), name)
 	}
@@ -262,8 +262,11 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 func principalChanges(report *diff.Report) string {
 	out := []string{}
 	for _, c := range report.RequestChanges {
-		if c.Path == diff.AuthProfilePath {
+		switch c.Path {
+		case diff.AuthProfilePath:
 			out = append(out, fmt.Sprintf("%s: %v -> %v", c.Step, c.Want, c.Got))
+		case diff.AuthPrincipalPath:
+			out = append(out, fmt.Sprintf("%s: principal %v -> %v", c.Step, c.Want, c.Got))
 		}
 	}
 	return strings.Join(out, ", ")
