@@ -96,6 +96,7 @@ func runVerify(ctx context.Context, args []string) error {
 	var rec *runner.Record
 	var c *chain.Chain
 	if *useRun != "" {
+		*useRun = store.RunID(*useRun)
 		if *useRun == spot.RunID {
 			fmt.Fprintf(os.Stderr,
 				"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+

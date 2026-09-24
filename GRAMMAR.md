@@ -606,6 +606,7 @@ run 'shrt <command> -h' for command flags
 Every command prints its own flags with `-h`. `run` and `verify` take `-var key=value`
 (repeatable) and `-json`; `verify` also takes `-run <id>`, which re-diffs a recorded run
 **without touching the backend** — the one way to investigate a drift on a live-run budget.
+A run id is accepted with or without its file extension (`20260924T205643Z-8800eb1b.json`), wherever one is taken.
 `verify` replays as `-keep-going` does, so every step a failure does not block is still compared; a
 step held back behind one, or never reached by a recorded run that stopped early, is reported
 `not_reached` rather than as a change of length, and the report names the first failing step.

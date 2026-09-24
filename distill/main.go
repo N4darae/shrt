@@ -858,6 +858,7 @@ func exerciseCLI() (string, error) {
 	b.WriteString("\nEvery command prints its own flags with `-h`. `run` and `verify` take `-var key=value`\n")
 	b.WriteString("(repeatable) and `-json`; `verify` also takes `-run <id>`, which re-diffs a recorded run\n")
 	b.WriteString("**without touching the backend** — the one way to investigate a drift on a live-run budget.\n")
+	b.WriteString("A run id is accepted with or without its file extension (`20260924T205643Z-8800eb1b.json`), wherever one is taken.\n")
 	b.WriteString("`verify` replays as `-keep-going` does, so every step a failure does not block is still compared; a\n")
 	b.WriteString("step held back behind one, or never reached by a recorded run that stopped early, is reported\n")
 	b.WriteString("`not_reached` rather than as a change of length, and the report names the first failing step.\n")

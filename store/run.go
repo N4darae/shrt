@@ -119,7 +119,12 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 	return nil
 }
 
+func RunID(id string) string {
+	return strings.TrimSuffix(strings.TrimSpace(id), ".json")
+}
+
 func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
+	runID = RunID(runID)
 	if runID == "" || runID == "latest" {
 		return s.LatestRun(chainName)
 	}
@@ -189,6 +194,7 @@ func (s *Store) sortByStart(chainName string, ids []string) {
 }
 
 func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
+	runID = RunID(runID)
 	entries, err := os.ReadDir(s.RunsDir)
 	if os.IsNotExist(err) {
 		return nil, nil
