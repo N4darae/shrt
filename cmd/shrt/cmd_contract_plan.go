@@ -15,6 +15,7 @@ func contractPlan(args []string) error {
 	name := fs.String("name", "", "chain name, defaults to one derived from the rpc")
 	write := fs.Bool("write", false, "write the composed chain into the chains directory")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
+	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]]", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

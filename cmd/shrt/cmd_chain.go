@@ -65,6 +65,7 @@ func chainNew(args []string) error {
 	desc := fs.String("description", "", "what state this chain reproduces")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
 	stdout := fs.Bool("stdout", false, "print to stdout instead of writing a file")
+	setUsage(fs, "usage: shrt chain new -name <chain> <rpc>... [flags]   one step per rpc, in the order given", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

@@ -85,6 +85,7 @@ func contractInit(args []string) error {
 	all := fs.Bool("all", false, "scaffold every domain in the catalog")
 	force := fs.Bool("force", false, "discard existing curation instead of carrying it forward")
 	stdout := fs.Bool("stdout", false, "print instead of writing")
+	setUsage(fs, "usage: shrt contract init <domain>... | -all [flags]   with no domain, lists the domains in the catalog", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -161,6 +162,9 @@ func contractLint(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	only := fs.String("domain", "", "report only this domain, ignoring the rest of the library")
 	quiet := fs.Bool("errors-only", false, "suppress warnings")
+	setUsage(fs, "usage: shrt contract lint [<domain>] [flags]   every overlay under paths.contracts when no domain is named",
+		"\nexit codes:\n  0  no contract error (warnings allowed)\n"+
+			"  1  a contract error, an overlay that does not parse, no overlay to check, or bad flags\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

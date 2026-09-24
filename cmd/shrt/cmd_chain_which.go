@@ -16,6 +16,8 @@ func chainWhich(args []string) error {
 	rpc := fs.String("rpc", "", "chains with a step calling this rpc, as package.Service/Rpc, Service/Rpc or a bare Rpc")
 	code := fs.String("code", "", "chains asserting this app_code, envelope code or failure reason")
 	asJSON := fs.Bool("json", false, "emit JSON")
+	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json]   which chains, or local run records, exercise an rpc or a failure code",
+		"\nexit codes:\n  0  a chain or run record matched\n  1  nothing matched, or bad flags (neither -rpc nor -code, an unknown rpc)\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

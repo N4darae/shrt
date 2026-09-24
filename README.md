@@ -125,6 +125,8 @@ command or group subcommand, 1 for a flag it cannot parse or a setup it cannot l
 | `chain hollow` | no unexplained hollow read; under `-gate`, at the baseline | hollow reads reported; under `-gate`, worse or better than the baseline | no run records to read | — |
 | `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
 | `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
+| `contract lint` | no contract error (warnings allowed) | a contract error, an overlay that does not parse, or no overlay to check | — | — |
+| `contract quality -gate` | the score equals the baseline | the score is worse than the baseline, better without the baseline being lowered, or the baseline file is missing | — | — |
 
 ## The loop
 

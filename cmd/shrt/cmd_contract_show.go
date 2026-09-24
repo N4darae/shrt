@@ -14,6 +14,7 @@ func contractShow(args []string) error {
 	fs := flag.NewFlagSet("contract show", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	filter := fs.String("filter", "", "show every rpc whose name contains this substring")
+	setUsage(fs, "usage: shrt contract show <rpc>... | -filter <substring> [-json]", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

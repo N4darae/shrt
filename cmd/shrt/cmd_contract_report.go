@@ -173,6 +173,12 @@ func contractQuality(args []string) error {
 	baseline := fs.String("baseline", "", "file holding the score the ratchet holds to")
 	limit := fs.Int("limit", 40, "list at most this many rpcs, worst first")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
+	setUsage(fs, "usage: shrt contract quality [-domain <d>] [-phase happy|failure|all] [-gate -baseline <file>] [-json]",
+		"\nexit codes:\n"+
+			"  0  the score was printed; under -gate, the score equals the baseline\n"+
+			"  1  under -gate: the score is worse (higher) than the baseline, better without the baseline\n"+
+			"     being lowered, or the baseline file is missing or unreadable; also an overlay that does\n"+
+			"     not parse, or bad flags\n")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}

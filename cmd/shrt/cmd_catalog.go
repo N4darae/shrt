@@ -133,6 +133,7 @@ func catalogList(args []string) error {
 func catalogDescribe(args []string) error {
 	fs := flag.NewFlagSet("catalog describe", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
+	setUsage(fs, "usage: shrt catalog describe <rpc> [-json]", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

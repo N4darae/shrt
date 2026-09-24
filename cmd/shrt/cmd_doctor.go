@@ -20,10 +20,24 @@ func init() {
 	})
 }
 
+const doctorHelpTail = "\nchecks:\n" +
+	"  build        which shrt build is running\n" +
+	"  docs         the installed README, GRAMMAR, PLAYBOOK and PITFALLS against the copy in the binary\n" +
+	"  agentkit     the .claude/ agent kit init installed, against the copy in the binary\n" +
+	"  descriptor   the descriptor file against a rebuild from descriptor.source\n" +
+	"  gitignore    .gitignore against the paths that must never be committed\n" +
+	"  tokens       the token cache's file mode\n" +
+	"  auth         the auth profiles and every ${env.*} they read\n" +
+	"  conventions  the envelope conventions against the response messages\n" +
+	"\nexit codes:\n" +
+	"  0  no FAIL (warnings allowed)\n" +
+	"  1  a FAIL, or a warning under -strict; also a config that does not load\n"
+
 func runDoctor(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	strict := fs.Bool("strict", false, "exit non-zero on warnings too, for a CI job that refuses them")
 	asJSON := fs.Bool("json", false, "emit the findings as JSON")
+	setUsage(fs, "usage: shrt doctor [flags]   check this repo's .shrt/ installation, one line per finding (OK, WARN or FAIL)", doctorHelpTail)
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
