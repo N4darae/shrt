@@ -100,6 +100,9 @@ func New(opts Options) *Client {
 			}
 		}
 	}
+	shallow := *hc
+	shallow.CheckRedirect = refuseRedirect
+	hc = &shallow
 	c := &Client{
 		baseURL:  strings.TrimRight(opts.BaseURL, "/"),
 		http:     hc,
@@ -178,6 +181,11 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", url, err)
 	}
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return nil, fmt.Errorf("POST %s: the target answered %d with Location %q; shrt never follows redirects, "+
+			"because following one would re-send the request body and the Authorization header to wherever it points "+
+			"and record another service's answer as the target's: point target.base_url at the final address", url, resp.StatusCode, resp.Header.Get("Location"))
+	}
 	res := &Result{
 		Status:  resp.StatusCode,
 		Body:    raw,
@@ -188,6 +196,10 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 		res.Error = decodeError(resp.StatusCode, raw)
 	}
 	return res, nil
+}
+
+func refuseRedirect(*http.Request, []*http.Request) error {
+	return http.ErrUseLastResponse
 }
 
 func decodeError(status int, raw []byte) *Error {

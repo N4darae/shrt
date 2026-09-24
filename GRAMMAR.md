@@ -258,7 +258,7 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `base_url` | string | + | Scheme and host of the backend. |
+| `base_url` | string | + | Scheme and host of the backend. Redirects are never followed: a 3xx answer, to the login call or any other, is a transport error naming its `Location`, so no request body, credential or token is re-sent elsewhere. Point `base_url` at the final address. |
 | `host_override` | string |  | Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification. |
 | `headers` | map string → string |  | Headers added to every request. |
 | `timeout` | string |  | Per-request timeout, e.g. `30s`. Defaults to 30s. |
