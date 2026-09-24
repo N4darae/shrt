@@ -109,8 +109,10 @@ func runRun(ctx context.Context, args []string) error {
 }
 
 const runExitCodes = "\nexit codes:\n" +
-	"  0  passed (a -dry-run: every request resolved and validated)\n" +
-	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
+	"  0  passed (a -dry-run: every request resolved and validated); for a chain with kept_red, failed\n" +
+	"     exactly as kept_red pins\n" +
+	"  1  failed: a step was answered and an expectation did not hold (for a chain with kept_red: it\n" +
+	"     failed anywhere else or differently, or passed, so the pinned defect is gone); also a refusal before anything\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
 	"     an unset env var read by a step or by the login body of an auth profile a step runs under,\n" +
 	"     a reference to a step or export that does not exist or runs later, or to a response field\n" +
@@ -125,6 +127,14 @@ const runExitCodes = "\nexit codes:\n" +
 	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend\n"
 
 func runVerdict(rec *runner.Record) error {
+	switch rec.KeptRed {
+	case runner.KeptRedAsPinned:
+		return nil
+	case runner.KeptRedNotAsPinned:
+		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
+	case runner.KeptRedGone:
+		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
+	}
 	switch rec.Status {
 	case runner.StatusPassed:
 		return nil
@@ -207,6 +217,9 @@ func summary(rec *runner.Record, dry bool) string {
 	if dry && rec.Passed() {
 		verdict = "DRY-RUN OK (resolved and validated, nothing sent)"
 	}
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		verdict = "FAILED AS PINNED (kept red)"
+	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
@@ -216,6 +229,9 @@ func summary(rec *runner.Record, dry bool) string {
 	}
 	if rec.Failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(rec.Failure, "\n", "\n  "))
+	}
+	if rec.KeptRedNote != "" {
+		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)
 	}
 	if rec.Warning != "" {
 		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)

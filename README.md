@@ -127,7 +127,7 @@ error), and 0 for `-h`.
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare or a request path its request does not declare, a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint warning), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, or the connection closed before a response because the backend stopped or crashed), so the run is not a verdict about the backend |
+| `run` | passed; a `-dry-run` resolved and validated; a chain with `kept_red` failed exactly as it pins | `failed`: an expectation did not hold (for a chain with `kept_red`: it failed anywhere else or differently than pinned, or passed, so the pinned defect is gone); also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare or a request path its request does not declare, a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint warning), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, or the connection closed before a response because the backend stopped or crashed), so the run is not a verdict about the backend |
 | `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | could not verify: a step never got an answer (target unreachable, login failed) and nothing else drifted |
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice` (no `-verify`) | the slice was printed or written | a refusal: an unknown chain or step, `-mode pin` without `-run`, an unknown run, a slice file `-write` would overwrite. The same refusal exits 2 under `-verify`, where 1 would read as `NOT REPRODUCED` | — | — |
@@ -155,7 +155,6 @@ shrt doctor -strict
 shrt contract lint
 shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
-is_red() { [ -f .shrt/expect-red.txt ] && grep -qxF "$1" .shrt/expect-red.txt; }
 tag="ci$(date +%s)$RANDOM"
 fail=0
 shopt -s nullglob
@@ -164,11 +163,7 @@ for f in .shrt/chains/*.yaml; do
   args=(-quiet)
   if grep -q 'vars\.tag' "$f"; then args+=(-var "tag=$tag-$c"); fi
   rc=0; shrt run "$c" "${args[@]}" || rc=$?
-  if is_red "$c"; then
-    [ "$rc" -eq 1 ] || { echo "gate: $c is kept red on purpose, but its run exited $rc" >&2; fail=1; }
-  elif [ "$rc" -ne 0 ]; then
-    echo "gate: run $c exited $rc" >&2; fail=1
-  fi
+  [ "$rc" -eq 0 ] || { echo "gate: run $c exited $rc" >&2; fail=1; }
 done
 for s in .shrt/safespots/*.json; do
   c="$(basename "$s" .json)"
@@ -184,9 +179,12 @@ exit "$fail"
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is listed by
-name, one per line, in `.shrt/expect-red.txt`: its run must exit 1, and exit 0 (the defect is gone)
-or 3 (no verdict) fails the gate. Any other chain must exit 0, and so must every `verify`.
+a `-var` the chain never reads. Every run must exit 0, and so must every `verify`. A chain kept
+red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
+§1): its run exits 0 only when it fails exactly there, and exits 1 when it fails anywhere else, fails
+differently, or passes (the defect is gone), so a regression in an earlier step of that chain fails
+the gate instead of hiding behind the known red. A list of red chain names beside the gate, checked
+only for exit 1, cannot tell those apart: do not keep one.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a
 missing file fails the gate. Create them once, before the first gate run: write `0` into each

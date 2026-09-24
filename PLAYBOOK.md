@@ -821,8 +821,12 @@ Three things that decide whether this works for a given chain:
   volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
-- **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
-  so a safe spot would freeze the bug as ground truth. `PITFALLS.md` §11.
+- **A chain kept red on purpose must NEVER be confirmed.** Such a chain asserts the correct
+  behaviour and pins the known defect it shows with `kept_red` (a step, an expectation path, and
+  the value it got when that is stable); a safe spot would freeze the bug as ground truth. Pin
+  every expectation that fails today, and nothing more: `shrt run` exits 0 only while the chain
+  fails exactly there, and 1 when an earlier step regresses, the failure changes, or the defect is
+  gone. `PITFALLS.md` §11.
 
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:

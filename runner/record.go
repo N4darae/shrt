@@ -36,6 +36,8 @@ type Record struct {
 	Failure     string         `json:"failure,omitempty"`
 	FailedSteps []string       `json:"failed_steps,omitempty"`
 	Warning     string         `json:"warning,omitempty"`
+	KeptRed     string         `json:"kept_red,omitempty"`
+	KeptRedNote string         `json:"kept_red_note,omitempty"`
 	Seal        string         `json:"seal,omitempty"`
 }
 
