@@ -164,6 +164,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return nil, err
 	}
 	if !quiet {
+		idWidth := longestStepID(c)
 		unreachableShown := false
 		r.OnStep = func(sr *runner.StepRecord) {
 			if sr.NotSentUnreachable() {
@@ -173,7 +174,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				}
 				return
 			}
-			fmt.Println(progressLine(sr, opts.DryRun))
+			fmt.Println(progressLine(sr, opts.DryRun, idWidth))
 			for _, ex := range sr.Expect {
 				if !ex.Passed {
 					fmt.Printf("       %s\n", ex.String())
@@ -190,8 +191,22 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	return r.Run(ctx, c, opts)
 }
 
-func progressLine(sr *runner.StepRecord, dry bool) string {
-	return fmt.Sprintf("%-5s %2d %-24s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, sr.ID, sr.Call, sr.LatencyMS)
+func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
+	w := 24
+	if len(idWidth) > 0 && idWidth[0] > w {
+		w = idWidth[0]
+	}
+	return fmt.Sprintf("%-5s %2d %-*s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, w, sr.ID, sr.Call, sr.LatencyMS)
+}
+
+func longestStepID(c *chain.Chain) int {
+	n := 0
+	for _, s := range c.Steps {
+		if s != nil && len(s.ID) > n {
+			n = len(s.ID)
+		}
+	}
+	return n
 }
 
 func statusMark(s string, dry bool) string {

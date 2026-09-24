@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
@@ -290,7 +291,11 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\n\n| # | step | sent | asserted, all held | backend answered | vs replaced safe spot `%s` |\n|---|---|---|---|---|---|\n", p.Replaces)
 	}
 	for _, st := range rec.Steps {
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), clip(flat(answerSummary(st)), answeredCell))
+		answered := clip(flat(answerSummary(st)), answeredCell)
+		if also := alsoBaselined(rec, st); also != "" {
+			answered += "; also baselined: " + also
+		}
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), answered)
 		if p.Replaces != "" {
 			fmt.Fprintf(&b, " %s |", cell(replacedSummary(p.Replaced, st.ID)))
 		}
@@ -427,6 +432,8 @@ const (
 	summaryValue  = 24
 	assertedCell  = 320
 	sentFieldsMax = 6
+
+	alsoBaselinedMax = 4
 )
 
 func cell(s string) string {
@@ -434,7 +441,33 @@ func cell(s string) string {
 }
 
 func flat(s string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(s, "|", "/")), " ")
+	var b strings.Builder
+	quoted, escaped, space := false, false, false
+	for _, r := range strings.ReplaceAll(s, "|", "/") {
+		white := unicode.IsSpace(r)
+		switch {
+		case quoted && r == ' ':
+			b.WriteRune(r)
+			continue
+		case white:
+			space = b.Len() > 0
+			continue
+		}
+		if space {
+			b.WriteByte(' ')
+			space = false
+		}
+		b.WriteRune(r)
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\' && quoted:
+			escaped = true
+		case r == '"':
+			quoted = !quoted
+		}
+	}
+	return b.String()
 }
 
 func clip(s string, n int) string {
@@ -575,6 +608,84 @@ func answerSummary(st *runner.StepRecord) string {
 		out += "; " + values
 	}
 	return out
+}
+
+func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
+	var body any
+	if st.Transport != nil || len(st.Response) == 0 || json.Unmarshal(st.Response, &body) != nil {
+		return ""
+	}
+	asserted := map[string]bool{chain.EnvelopePath(): true}
+	for _, e := range st.Expect {
+		asserted[e.Path] = true
+	}
+	volatile := pathmask.NewMasker(append(append([]string{}, rec.Volatile...), st.Volatile...))
+	fixtures := []string{}
+	for _, v := range rec.Vars {
+		if text, ok := v.(string); ok && len(text) >= 2 && strings.Trim(text, "0123456789.-") != "" {
+			fixtures = append(fixtures, text)
+		}
+	}
+	type leaf struct {
+		path  string
+		depth int
+		value any
+	}
+	leaves := []leaf{}
+	var walk func(path string, depth int, v any)
+	walk = func(path string, depth int, v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			for k, x := range t {
+				walk(joinKey(path, k), depth+1, x)
+			}
+		case []any:
+			for i, x := range t {
+				walk(joinKey(path, fmt.Sprint(i)), depth+1, x)
+			}
+		case nil:
+		default:
+			if asserted[path] || volatile.Masks(path) || referenceLike(path, t) || baselineNoise(t, fixtures) {
+				return
+			}
+			leaves = append(leaves, leaf{path, depth, t})
+		}
+	}
+	walk("", 0, body)
+	sort.Slice(leaves, func(i, j int) bool {
+		if leaves[i].depth != leaves[j].depth {
+			return leaves[i].depth < leaves[j].depth
+		}
+		return leaves[i].path < leaves[j].path
+	})
+	parts := []string{}
+	for i, l := range leaves {
+		if i == alsoBaselinedMax {
+			parts = append(parts, fmt.Sprintf("+%d more", len(leaves)-i))
+			break
+		}
+		parts = append(parts, l.path+"="+shortValue(l.value))
+	}
+	return strings.Join(parts, " ")
+}
+
+func baselineNoise(v any, fixtures []string) bool {
+	text, ok := v.(string)
+	if !ok {
+		return false
+	}
+	if text == "" || strings.Contains(text, pathmask.MaskRedacted) {
+		return true
+	}
+	if _, err := time.Parse(time.RFC3339Nano, text); err == nil {
+		return true
+	}
+	for _, f := range fixtures {
+		if strings.Contains(text, f) {
+			return true
+		}
+	}
+	return false
 }
 
 func assertedValues(st *runner.StepRecord, envelope string) string {

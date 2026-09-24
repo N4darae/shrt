@@ -118,7 +118,9 @@ func runVerify(ctx context.Context, args []string) error {
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
-		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
+		edited := diff.ChainChanges(spot, c)
+		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
+		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
 	varDrift, edits := "", []string{}
@@ -176,6 +178,13 @@ func runVerify(ctx context.Context, args []string) error {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
+		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
+			return fmt.Errorf("regression: %d change(s) vs safe spot; the expectation change since it was confirmed explains none of them", n)
+		}
+		if report.OnlyExpectationsEdited() {
+			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
+				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
+		}
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
 			"(%d more come at or after it)", n, len(report.Changes)-n)
 	}
@@ -329,6 +338,23 @@ func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
 	}
 }
 
+func fixtureTemplate(c *chain.Chain) func(string) bool {
+	isolating := isolationVars(c)
+	return func(text string) bool {
+		refs := requestRef.FindAllStringSubmatch(text, -1)
+		if len(refs) == 0 || !namedAround(text) {
+			return false
+		}
+		for _, m := range refs {
+			n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
+			if n == nil || !isolating[n[1]] {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 func namedAround(text string) bool {
 	rest := strings.TrimSpace(requestRef.ReplaceAllString(text, ""))
 	return strings.Trim(rest, "0123456789.+-") != ""
@@ -428,6 +454,10 @@ func inputVars(c *chain.Chain, changes []diff.Change) map[string]bool {
 		}
 	}
 	for _, ch := range changes {
+		if ch.Path == diff.ExpectValuePath {
+			collect(ch.Detail)
+			continue
+		}
 		if v, ok := requestTemplate(c, ch.Step, ch.Path); ok {
 			collect(v)
 		}

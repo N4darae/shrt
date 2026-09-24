@@ -13,6 +13,21 @@ type Expectation struct {
 	Contains string `yaml:"contains,omitempty" json:"contains,omitempty"`
 	Exists   *bool  `yaml:"exists,omitempty" json:"exists,omitempty"`
 	NotEmpty bool   `yaml:"not_empty,omitempty" json:"not_empty,omitempty"`
+
+	vacuous string
+}
+
+func (e Expectation) VacuousRule() string { return e.vacuous }
+
+func (e Expectation) vacuousWhy() string {
+	switch e.vacuous {
+	case `contains: ""`:
+		return `contains: "", which every value contains, so it can never fail; write the text the value must contain`
+	case "not_empty: false":
+		return "not_empty: false, which asks for nothing (only not_empty: true is a check), so it can never fail; " +
+			"write not_empty: true, or exists: false for a field that must be absent"
+	}
+	return ""
 }
 
 type ExpectResult struct {
@@ -93,6 +108,9 @@ func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectRe
 		}
 		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
 	default:
+		if why := e.vacuousWhy(); why != "" {
+			return result(e.Path, "invalid", nil, nil, false, "not evaluated, the expectation is "+why)
+		}
 		return result(e.Path, "invalid", nil, nil, false, "expectation has no rule")
 	}
 }

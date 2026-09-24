@@ -317,7 +317,7 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 	}
 	was := map[string]bool{}
 	wasOrder := []string{}
-	for _, st := range spot.Steps {
+	for i, st := range spot.Steps {
 		was[st.ID] = true
 		wasOrder = append(wasOrder, st.ID)
 		s, ok := now[st.ID]
@@ -329,6 +329,7 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
 		default:
 			out = append(out, expectChanges(st, s)...)
+			out = append(out, refChanges(spot.Steps[:i], st, s)...)
 		}
 	}
 	for _, id := range nowOrder {
@@ -463,28 +464,34 @@ func (r *Report) principalCaveat() string {
 		r.SafeSpotID, strings.Join(r.PrincipalUnchecked, ", "), r.Chain)
 }
 
-func (r *Report) inputCounts() (int, int) {
-	requests, edits := 0, 0
+func (r *Report) inputCounts() (int, int, int) {
+	requests, edits, values := 0, 0, 0
 	for _, c := range r.RequestChanges {
-		if chainLevel(c) || c.Path == ExpectPath {
+		switch {
+		case chainLevel(c) || c.Path == ExpectPath:
 			edits++
-		} else {
+		case c.Path == ExpectValuePath:
+			values++
+		default:
 			requests++
 		}
 	}
-	return requests, edits
+	return requests, edits, values
 }
 
 func (r *Report) OnlyChainChanged() bool {
-	requests, edits := r.inputCounts()
-	return requests == 0 && edits > 0
+	requests, edits, values := r.inputCounts()
+	return requests == 0 && values == 0 && edits > 0
 }
 
 func (r *Report) InputSummary() string {
-	requests, edits := r.inputCounts()
+	requests, edits, values := r.inputCounts()
 	parts := []string{}
 	if requests > 0 {
 		parts = append(parts, fmt.Sprintf("%d request value(s) differ", requests))
+	}
+	if values > 0 {
+		parts = append(parts, fmt.Sprintf("%d expectation value(s) differ", values))
 	}
 	if edits > 0 {
 		parts = append(parts, fmt.Sprintf("%d chain change(s)", edits))
@@ -805,6 +812,10 @@ func (r *Report) Text() string {
 		if chainLevel(c) || c.Path == ExpectPath {
 			what = "chain"
 		}
+		if c.Path == ExpectValuePath {
+			fmt.Fprintf(&b, "expectation differs from the confirmed run at %s: %v -> %v (%s)\n", c.Step, c.Want, c.Got, c.Detail)
+			continue
+		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
 	if len(r.FixtureInput) > 0 {
@@ -818,8 +829,8 @@ func (r *Report) Text() string {
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
-			cause = "the chain changed since it was confirmed; a step or expectation edit is a chain change, not an input change, " +
-				"and an expectation edit explains a status change at its own step only"
+			cause = "the chain changed since it was confirmed; a step, expectation or body reference edit is a chain change, not an input change, " +
+				"and an expectation edit explains a status change at its own step only, and only when the edited expectation failed"
 		}
 		if r.InputCause != "" {
 			cause = r.InputCause
@@ -838,7 +849,15 @@ func (r *Report) Text() string {
 	}
 	unexplained := len(r.Unexplained())
 	mixed := len(r.RequestChanges) > 0 && unexplained > 0
+	expectOnly := r.OnlyExpectationsEdited()
 	switch {
+	case mixed && expectOnly && unexplained == len(r.Changes):
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: the expectation change explains none of them, since it explains only a failure of the "+
+			"changed expectation itself, so they are evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
+	case mixed && expectOnly:
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are not explained by the expectation change, which explains only its own step's "+
+			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
+			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
 			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
@@ -867,6 +886,9 @@ func (r *Report) Text() string {
 		after := ""
 		if mixed && c.WithInput {
 			after = " (after different input)"
+			if expectOnly {
+				after = " (explained by the failed changed expectation)"
+			}
 		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}

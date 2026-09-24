@@ -1,6 +1,9 @@
 package diff
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -24,7 +27,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	material := []Change{}
 	pairs := [][2]string{}
 	for _, c := range r.RequestChanges {
-		if c.Path != AuthProfilePath && c.Path != ExpectPath && !chainLevel(c) {
+		if c.Path != AuthProfilePath && !expectationChange(c) && !chainLevel(c) {
 			m := pathmask.NewMasker(mergePatterns(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
@@ -50,7 +53,10 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	firstEdited := -1
 	edited := map[string]bool{}
 	for _, c := range material {
-		if c.Path == ExpectPath {
+		if expectationChange(c) {
+			if !editedExpectFailed(rec, c) {
+				continue
+			}
 			edited[c.Step] = true
 			if i, ok := index[c.Step]; ok && (firstEdited < 0 || i < firstEdited) {
 				firstEdited = i
@@ -58,7 +64,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			continue
 		}
 		i, ok := index[c.Step]
-		if chainLevel(c) || !ok {
+		if stepLevel(c) || !ok {
 			i = 0
 		}
 		if from < 0 || i < from {
@@ -108,7 +114,44 @@ func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
 	return out
 }
 
+func editedExpectFailed(rec *runner.Record, c Change) bool {
+	if c.Kind == KindMissing {
+		return false
+	}
+	text := c.Got
+	if c.Path == ExpectValuePath {
+		text = c.Want
+	}
+	path, _, _ := strings.Cut(fmt.Sprint(text), " ")
+	st, ok := rec.Step(c.Step)
+	if !ok {
+		return false
+	}
+	for _, r := range st.Expect {
+		if !r.Passed && r.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Report) OnlyExpectationsEdited() bool {
+	if len(r.RequestChanges) == 0 {
+		return false
+	}
+	for _, c := range r.RequestChanges {
+		if !expectationChange(c) {
+			return false
+		}
+	}
+	return true
+}
+
 func chainLevel(c Change) bool {
+	return stepLevel(c) || refChange(c)
+}
+
+func stepLevel(c Change) bool {
 	return c.Path == "step" || c.Path == "steps" || c.Path == "call"
 }
 

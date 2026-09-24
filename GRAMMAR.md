@@ -360,6 +360,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `http_status` | int | Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal. |
 | `latency_ms` | int | Per-step wall time. |
 | `request` | JSON | What was sent, AFTER reference resolution and redaction. |
+| `body_refs` | map string → string | **UNDOCUMENTED — a field exists in code with no entry in `distill/main.go`** |
 | `response` | JSON | What came back, RE-ENCODED through the response message and then redacted — not the wire bytes. Field names are the proto ones, every declared scalar and list field is present at its zero value if the server omitted it (an unset nested message is `null`, so assert `exists: false` on the message itself rather than on a path inside it), and an int64 is a JSON string whatever the server sent. That is what gives `shrt verify` a stable shape to diff across runs, and it is why a scalar's absence cannot be read out of this field: see the second table in §1 on `exists`. When the descriptor cannot decode the body it is stored as sent instead, and the step carries a `warning` saying so, so the shape of this field depends on descriptor freshness. A body kept as sent whose envelope field is not an object (`"status": "SUCCESS"`) has no verdict at the envelope path, and is judged as an absent verdict (see `expect`). A body that repeats a key (`status` twice, at any depth), or writes one field under both its JSON and its proto name (`priceMinor` and `price_minor`, matched through the response message; map keys are compared as written), fails the step without evaluating its expectations, since decoders disagree on which value counts; this field then holds the last value and `error` names the repeated key. |
 | `transport_error` | transporterror | Set when the backend answered with a Connect error (any non-200) instead of a response message. `transport.code` and `transport.message` read it. |
 | `expect` | list of expectresult | One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), or answered with no verdict (the envelope absent or empty, though the response message declares it), and has no expectation pinning the verdict (an `equals` on the envelope path itself, or a rule on the envelope path, one of its parents, or a `transport.*` path that would fail on a successful answer; path segments match case-insensitively, so `Status.Code` is `status.code`. A rule on a sibling such as `status.message` or `status.details.0.reason` pins nothing, whatever it asserts; `not_equal: ""` or `not_equal` a misspelt code holds on the refusal and on the ok value alike and pins nothing; and on an absent or empty verdict no `not_equal` pins it, since `not_equal: SUCCESS` holds on `""` too) — that step is `failed`, because the assertions that held read the zero values a refusal leaves. |
@@ -456,7 +457,13 @@ in `-json`), so a field the backend echoes a credential into is not mistaken for
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
-every run and is skipped. A value built from `${uuid}` or a clock form, whole or inside other text
+every run and is skipped, but the REFERENCE itself is not: the safe spot keeps each step's body
+references as written (`body_refs`), and a body field that now reads another step or field, or
+stopped or started reading one, is printed as `chain differs from the confirmed run at <step>
+body.<path> (${a.x} -> ${b.x})`. For a safe spot approved before shrt kept them, verify resolves
+the chain's reference against the safe spot's own responses, and a field it would not have sent the
+recorded value to is that same chain change, naming the step field that held the recorded value.
+A value built from `${uuid}` or a clock form, whole or inside other text
 (`id_order: ${uuid}`, `email: m-${uuid}@example.test`), is treated like a fixture name below: a
 response value that only echoes it (`no order <uuid>`, the email) is masked and counted, by `shrt
 diff` too. A literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
@@ -467,8 +474,16 @@ from the confirmed run at <step> ...`, and the change of step count it causes is
 An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
 `${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
 printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
-at that step, and the later steps the run then did not reach, and nothing else. A step or expectation
-edit is a CHAIN change, not an input change: the
+at that step, and the later steps the run then did not reach, and nothing else, and only when the
+edited expectation itself failed in this run: an edit whose expectation held explains no change, so
+every drift beside it is a `regression` (`the expectation change ... explains none of them`), never
+worded as different input. An expectation whose `${vars.x}` / `${env.X}` value resolves otherwise than
+the one in force at approval (`-var left=4` against a safe spot confirmed with 3) is not an edit but
+different INPUT to the check: it is printed as `expectation differs from the confirmed run at <step>:
+<path> <rule> 3 -> 4 (${vars.left})`, explains its own step's status change the same way, only when
+it failed, and a drift it explains fails with `drift with different input` naming the var, not
+`regression`. A fixture name inside an expected value (`cust-${vars.tag}@...`) is not counted. A step, expectation
+or body reference edit is a CHAIN change, not an input change: the
 summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
 confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
 (exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.

@@ -684,7 +684,11 @@ what the backend answered (for a batch, with the per-item verdicts `conventions.
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
 uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
-id-shaped ones (`order.total_minor=4548`). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
+assert that still become the baseline verify compares (`also baselined: order.total_minor=300
+order.lines.0.qty=1`), leaving out ids, timestamps, volatile paths, empty strings and values
+echoing a var, shallow paths first, capped with `+N more`; read those too, since approving signs
+them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is
@@ -768,7 +772,11 @@ spot, and says so: a regression in a path no safe spot exercises is not seen.
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:
 `request differs from the confirmed run at create_order lines.0.qty (3 -> 4)`. Values built from
-another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. Two
+another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run; the
+reference itself is not. Rewire `id_customer: ${create_customer.customer.id_customer}` to
+`${create_customer_2...}` and verify prints `chain differs from the confirmed run at create_order
+body.id_customer (${create_customer.customer.id_customer} -> ${create_customer_2.customer.id_customer})`
+and fails with `drift after a chain change`, not `regression`. Two
 kinds of request difference are printed on one line but are NOT different input: a fixture name,
 a string that interpolates a var inside other text (`sku-${vars.tag}`, `Widget ${vars.tag}`), and a
 value under a `volatile` path. A var is a fixture name only where it isolates: the chain reads it
@@ -816,7 +824,7 @@ Three things that decide whether this works for a given chain:
   `drift, principal not checked` (exit 1), not `regression`. Turn it on with
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   The chain's step list and expectations are compared too: a step removed, added, moved or
-  re-pointed, or an expectation edited, since approval is a `chain differs` line, a chain change
+  re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
   `procedure` decides.
