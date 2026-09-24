@@ -166,6 +166,7 @@ var notes = map[string]string{
 	"StepRecord.latency_ms":      "Per-step wall time.",
 	"StepRecord.request":         "What was sent, AFTER reference resolution and redaction.",
 	"StepRecord.response":        "What came back, RE-ENCODED through the response message and then redacted — not the wire bytes. Field names are the proto ones, every declared scalar and list field is present at its zero value if the server omitted it (an unset nested message is `null`, so assert `exists: false` on the message itself rather than on a path inside it), and an int64 is a JSON string whatever the server sent. That is what gives `shrt verify` a stable shape to diff across runs, and it is why a scalar's absence cannot be read out of this field: see the second table in §1 on `exists`. A field the response message does not declare (a backend that added an optional field) is discarded, the rest is re-encoded as above, and the step carries a `warning` naming the discarded field(s). When the descriptor cannot decode the body for any other reason it is stored as sent instead, and the step carries a `warning` saying so, so the shape of this field depends on descriptor freshness. A body kept as sent whose envelope field is not an object (`\"status\": \"SUCCESS\"`) has no verdict at the envelope path, and is judged as an absent verdict (see `expect`). A body that repeats a key (`status` twice, at any depth), or writes one field under both its JSON and its proto name (`priceMinor` and `price_minor`, matched through the response message; map keys are compared as written), fails the step without evaluating its expectations, since decoders disagree on which value counts; this field then holds the last value and `error` names the repeated key.",
+	"StepRecord.body_refs":       "Each request field the step's body filled from another step's response or exports, by its path in the body, with the reference exactly as written in the chain (`id_order: ${order.order.id_order}`). Only references to a step or an export are kept, not vars, env or generated values. `shrt verify` compares them with the chain as it is now, so a body rewired to read another step or field since the safe spot was confirmed is reported as a chain change (`the step's body reads another step or field than the confirmed run did`) rather than as drift; a record without it (older builds) has the rewiring inferred from the recorded requests.",
 	"StepRecord.transport_error": "Set when the backend answered with a Connect error (any non-200) instead of a response message. `transport.code` and `transport.message` read it.",
 	"StepRecord.expect":          "One entry per expectation, with the rule that fired and whether it held. Read this, not just the step status. The runner may append entries of its own: `item_envelope` for a batch line refused unannounced, and `envelope` for a step that declares expectations, was refused in-band (the envelope code is not `envelope_ok`), or answered with no verdict (the envelope absent or empty, though the response message declares it), and has no expectation pinning the verdict (an `equals` on the envelope path itself, or a rule on the envelope path, one of its parents, or a `transport.*` path that would fail on a successful answer; path segments match case-insensitively, so `Status.Code` is `status.code`. A rule on a sibling such as `status.message` or `status.details.0.reason` pins nothing, whatever it asserts; `not_equal: \"\"` or `not_equal` a misspelt code holds on the refusal and on the ok value alike and pins nothing; and on an absent or empty verdict no `not_equal` pins it, since `not_equal: SUCCESS` holds on `\"\"` too) — that step is `failed`, because the assertions that held read the zero values a refusal leaves.",
 	"StepRecord.exported":        "What this step published.",
@@ -249,11 +250,14 @@ func main() {
 	fmt.Printf("distill: wrote %s (%d bytes)\n", target, len(out))
 }
 
+var undocumented []string
+
 func render() ([]byte, error) {
+	undocumented = nil
 	var b strings.Builder
 	b.WriteString("# GRAMMAR — every key shrt accepts\n\n")
 	b.WriteString("**Generated from the Go structs by `go run ./distill`. Do not edit.**\n")
-	b.WriteString("`go run ./distill -check` fails when a key added in code is missing here. Nothing in the module runs it for you, so run it before you commit a change to a key.\n\n")
+	b.WriteString("`go run ./distill -check` fails when a key added in code is missing here, and both it and `go run ./distill` refuse a key or field with no note in `distill/main.go`, so no row ships undocumented (`go test ./distill` checks the same). Nothing in the module runs it for you, so run it before you commit a change to a key.\n\n")
 	b.WriteString("Why this file exists: the loaders reject unknown keys (`KnownFields(true)`), but only since\n")
 	b.WriteString("2026-09-11. Before that a misspelled key was silently dropped and `lint` still said `ok` —\n")
 	b.WriteString("`one_of:` instead of a real rule meant a step asserted nothing while reading as checked.\n")
@@ -401,6 +405,10 @@ func render() ([]byte, error) {
 	b.WriteString("alike. That is what makes `**.*password` in `.shrt/config.yaml` cover every password-shaped\n")
 	b.WriteString("field whatever it is called — and why a redact pattern written without a `*` can silently\n")
 	b.WriteString("mask nothing while looking careful.\n")
+	if len(undocumented) > 0 {
+		return nil, fmt.Errorf("%d key(s) or field(s) exist in code with no entry in distill/main.go's notes, so GRAMMAR.md would ship them undocumented: %s",
+			len(undocumented), strings.Join(undocumented, ", "))
+	}
 	return []byte(b.String()), nil
 }
 
@@ -427,7 +435,7 @@ func writeTable(b *strings.Builder, name string, t reflect.Type) {
 	for _, r := range rows {
 		note := r.note
 		if note == "" {
-			note = "**UNDOCUMENTED — a key exists in code with no entry in `distill/main.go`**"
+			undocumented = append(undocumented, name+"."+r.key)
 		}
 		fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n", r.key, r.typ, r.req, note)
 	}
@@ -666,7 +674,7 @@ func writeJSONTable(b *strings.Builder, name string, t reflect.Type) {
 		}
 		note := notes[name+"."+key]
 		if note == "" {
-			note = "**UNDOCUMENTED — a field exists in code with no entry in `distill/main.go`**"
+			undocumented = append(undocumented, name+"."+key)
 		}
 		fmt.Fprintf(b, "| `%s` | %s | %s |\n", key, yamlType(f.Type), note)
 	}
