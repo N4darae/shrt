@@ -89,11 +89,28 @@ func assertsOnlyEnvelope(rec *runner.StepRecord) bool {
 		if AssertsAbsence(e) || IsVacuousResult(e) {
 			continue
 		}
-		if !IsMetadataAssertion(e.Path, e.Rule) {
+		if !IsMetadataAssertion(e.Path, e.Rule) || pinsEnvelopeDetail(e) {
 			return false
 		}
 	}
 	return true
+}
+
+func pinsEnvelopeDetail(e chain.ExpectResult) bool {
+	if e.Rule != "equals" || fmt.Sprint(e.Want) == "" || e.Want == nil || !IsEnvelopePath(e.Path) {
+		return false
+	}
+	if strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath() {
+		return false
+	}
+	segs := chain.SplitPath(e.Path)
+	last := segs[len(segs)-1]
+	for _, name := range chain.CodeFields() {
+		if last == name {
+			return true
+		}
+	}
+	return false
 }
 
 func AssertsAbsenceExpectation(e chain.Expectation) bool {

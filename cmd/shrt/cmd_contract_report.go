@@ -27,7 +27,7 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the rpcs that have no curated contract")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry) and 'no path to' (a contract, but in no multi-step plan), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
@@ -142,7 +142,12 @@ func printStatusGaps(rows []statusRow) {
 	}
 	if n == 0 {
 		fmt.Println("no gaps: every rpc has a contract, and every unary one appears in some multi-step plan")
+		return
 	}
+	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
+		"no path to   it has a contract, but appears in no multi-step plan: nothing it needs is declared and\n" +
+		"             nothing declares it as a producer. Right for a login or a read taking no id from elsewhere;\n" +
+		"             a missing 'needs:' or 'from:' for a write that cannot run on its own.\n")
 }
 
 func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) map[string]bool {

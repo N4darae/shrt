@@ -32,8 +32,8 @@ repo. They are cited as provenance — how a rule came to be known — never as 
 
 ## Before the first command
 
-`shrt init` adds `.shrt/descriptor.binpb`, `.shrt/docs/`, `.shrt/runs/` and `.shrt/tokens.json` to
-`.gitignore`, so a fresh clone has no descriptor and no installed docs. The binary is not in the repo
+`shrt init` adds `.shrt/descriptor.binpb`, `.shrt/docs/`, `.shrt/runs/`, `.shrt/tokens.json` and
+`.shrt/safespots/pending/` (safe-spot proposals, per-machine review material) to `.gitignore`, so a fresh clone has no descriptor and no installed docs. The binary is not in the repo
 at all. Build the descriptor from the repo root, wherever that clone lives — `shrt init` copies these
 files into every repo that adopts shrt, so nothing here may assume one machine's path:
 
@@ -94,19 +94,36 @@ kit's.
 | `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter <word>` for every rpc whose name contains the word |
 | `shrt contract lint` | validate contracts against the descriptor |
 | `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
-| `shrt contract status [-gaps]` | contract coverage per domain |
+| `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
-| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail, a step asserting nothing, an expect path that can never match, a reference nothing can produce, an export reading a field the response does not have, an `allow_fail` that does nothing), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs, are not promoted |
+| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, a reference nothing can produce, an export reading a field the response does not have, an `allow_fail` that does nothing), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs, are not promoted. An expect path that can never match, and `exists: false` on a path the message has no field for, are errors with or without `-strict` |
 | `shrt chain ls` | one line per chain, marking which have a safe spot; `-long` for full descriptions |
-| `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match |
-| `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in, `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way (the slice's run record is kept only with `-write`) |
+| `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match. Under `-code`, when no chain asserts the code but a local run record carried it, it lists those steps with a reproduce command instead of failing |
+| `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in, `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way, comparing also the value a failing expectation got (the slice's run record is kept only with `-write`). `-run latest` with `-mode pin` or `-verify` uses the newest run that reached the step; when the slice keeps every step, `-write` records the verdict in that chain instead of writing a copy |
 | `shrt chain hollow` | read steps that passed while the response carried nothing |
 | `shrt run <c>` | execute in order and record |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints the summary table to show the user and writes a full report. It writes no safe spot |
 | `shrt confirm <c> -approve -by <user email>` | write the safe spot, only after the user said yes to that proposal in the conversation; `-reject` discards it, `-pending` lists proposals |
-| `shrt verify <c>` | replay and diff against the safe spot, masking volatile paths and id- or timestamp-shaped values |
+| `shrt verify <c>` | replay and diff against the safe spot, masking volatile paths and id- or timestamp-shaped values. It replays as `-keep-going` does, so every step a failure does not block is compared; a step held back behind a failure is reported `not_reached`, not as a change of length, and the report names the first failing step |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs of one chain step by step — status changes, where the first failure moved, steps no longer reached, response fields — with declared volatile paths, ids and timestamps masked. Needs no safe spot, and is a comparison between two runs, not a verdict. `shrt diff <c>` is `latest~1` against `latest` |
+
+### Exit codes
+
+A gate reads these, so they are part of the interface. Any command also exits 2 for an unknown
+command or group subcommand, 1 for a flag it cannot parse or a setup it cannot load (no
+`.shrt/config.yaml`, a config that does not parse, a missing descriptor), and 0 for `-h`.
+
+| command | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unknown auth profile, a conventions path no response declares) | — | `error`: a step could not complete (unresolved reference, invalid request, login failed, target unreachable), so the run is not a verdict about the backend |
+| `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | — |
+| `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
+| `chain slice -verify` | `reproduced` | `NOT REPRODUCED` | `DID NOT RUN` | `INCONCLUSIVE` |
+| `diff` | the two runs do not differ | they differ | could not compare (unknown run, runs of two chains, usage) | — |
+| `chain hollow` | no unexplained hollow read; under `-gate`, at the baseline | hollow reads reported; under `-gate`, worse or better than the baseline | no run records to read | — |
+| `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
+| `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
 
 ## The loop
 

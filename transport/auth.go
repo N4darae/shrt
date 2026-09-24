@@ -24,6 +24,8 @@ type TokenSink interface {
 }
 
 type AuthSpec struct {
+	Profile      string
+	EnvRefs      []string
 	Procedure    string
 	Canonicalize func([]byte) ([]byte, error)
 	Body         func() ([]byte, error)
@@ -111,6 +113,17 @@ func (s *LoginTokenSource) loginBackoff() time.Duration {
 	return 7 * time.Second
 }
 
+func (s *LoginTokenSource) whose() string {
+	if s.spec.Profile == "" {
+		return ""
+	}
+	out := fmt.Sprintf("\n       this was the login of auth profile %q", s.spec.Profile)
+	if len(s.spec.EnvRefs) > 0 {
+		out += ", whose body reads " + strings.Join(s.spec.EnvRefs, ", ") + ": check those are set to credentials this backend accepts"
+	}
+	return out
+}
+
 func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	body, err := s.spec.Body()
 	if err != nil {
@@ -146,7 +159,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	}
 	token, ok := lookupString(payload, s.spec.TokenPath)
 	if !ok || token == "" {
-		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s", s.spec.TokenPath, excerpt(raw, 300))
+		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s%s", s.spec.TokenPath, excerpt(raw, 300), s.whose())
 	}
 	s.token = token
 	s.expiresAt = time.Time{}

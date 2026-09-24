@@ -258,6 +258,27 @@ func ValidateItemEnvelopeIn(cat *catalog.Catalog, path string) error {
 		"this backend has no per-item verdict", path)
 }
 
+func ValidateEnvelopeIn(cat *catalog.Catalog, path string) error {
+	path = strings.TrimSpace(path)
+	if path == "" || cat == nil || len(cat.Methods()) == 0 {
+		return nil
+	}
+	segs := SplitPath(path)
+	for _, m := range cat.Methods() {
+		if catalog.HasResponsePath(catalog.DescribeMessage(m.Output()).Fields, segs) {
+			return nil
+		}
+	}
+	hint := ""
+	if found := catalog.DetectEnvelope(cat); len(found) > 0 {
+		hint = fmt.Sprintf(" The response messages carry %q; if that is the verdict, set envelope_path: %s.", found[0].Path, found[0].Path)
+	}
+	return fmt.Errorf("conventions.envelope_path is %q, and no response message in the descriptor declares "+
+		"that field, so nothing was sent: every step asserting the envelope would compare against a path "+
+		"that is never present, and an in-band refusal would pass unseen.%s Fix the path against the "+
+		"descriptor ('shrt doctor' checks it)", path, hint)
+}
+
 func joinDataPath(path string) string {
 	segs := SplitPath(path)
 	kept := make([]string, 0, len(segs))

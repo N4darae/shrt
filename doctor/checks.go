@@ -90,7 +90,8 @@ func checkDescriptor(ctx context.Context, cfg *config.Config, opts Options, r *R
 	have, err := os.ReadFile(file)
 	if err != nil {
 		r.add(CheckDescriptor, LevelError,
-			fmt.Sprintf("%s is missing, so every catalog, contract and chain command fails", cfg.Descriptor.File),
+			fmt.Sprintf("%s is missing, so run, verify, chain new/lint/slice/which and every catalog and contract "+
+				"command (except catalog build) fails; chain ls, chain hollow, diff and confirm still work", cfg.Descriptor.File),
 			"shrt catalog build")
 		return
 	}
@@ -239,8 +240,9 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(unset) > 0 {
 		r.add(CheckAuth, LevelWarn,
 			fmt.Sprintf("unset in this shell: %s", strings.Join(unset, ", ")),
-			"A run dies at step 1 with status error and SENDS NOTHING, which is a fixture problem and\n"+
-				"not a backend one. Export them before 'shrt run'.")
+			"A run dies with status error at the FIRST STEP THAT NEEDS one of these profiles' tokens: the\n"+
+				"steps before it are sent, that step and (without -keep-going) every later one are not. That is\n"+
+				"a fixture problem, not a backend one. Export them before 'shrt run'.")
 	}
 	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 {
 		r.add(CheckAuth, LevelOK,

@@ -35,6 +35,7 @@ type Record struct {
 	Steps       []*StepRecord  `json:"steps"`
 	Failure     string         `json:"failure,omitempty"`
 	FailedSteps []string       `json:"failed_steps,omitempty"`
+	Warning     string         `json:"warning,omitempty"`
 }
 
 func (s *StepRecord) AssertionFailed() bool {
@@ -67,6 +68,11 @@ type StepRecord struct {
 	Drift       bool                 `json:"drift,omitempty"`
 
 	serverBuild string
+	unreachable string
+}
+
+func (s *StepRecord) NotSentUnreachable() bool {
+	return s.unreachable != "" && s.Status == StatusSkipped
 }
 
 type TransportError struct {

@@ -233,9 +233,9 @@ func TestAnUnsetAuthEnvVarWarnsAndNamesTheProfileItBelongsTo(t *testing.T) {
 	if !strings.Contains(got.Detail, "PARTNER_PASSWORD") || !strings.Contains(got.Detail, "partner") {
 		t.Errorf("a repo with six profiles needs to know WHICH one is unexported: %q", got.Detail)
 	}
-	if !strings.Contains(got.Remedy, "SENDS NOTHING") {
-		t.Errorf("the remedy has to say the run dies before it sends anything, so the reader stops "+
-			"blaming the backend: %q", got.Remedy)
+	if !strings.Contains(got.Remedy, "FIRST STEP THAT NEEDS") || strings.Contains(got.Remedy, "SENDS NOTHING") {
+		t.Errorf("the remedy has to say the run dies at the first step needing the profile, having sent "+
+			"the steps before it: %q", got.Remedy)
 	}
 }
 
@@ -329,6 +329,9 @@ func TestAMissingDescriptorFailsAndSaysWhichCommandBuildsIt(t *testing.T) {
 
 	if got.Level != doctor.LevelError || !strings.Contains(got.Remedy, "catalog build") {
 		t.Fatalf("want a FAIL pointing at 'shrt catalog build', got %s: %s / %s", got.Level, got.Detail, got.Remedy)
+	}
+	if strings.Contains(got.Detail, "every catalog, contract and chain command") || !strings.Contains(got.Detail, "chain ls, chain hollow") {
+		t.Fatalf("chain ls and chain hollow do not read the descriptor, and the finding must not claim they fail: %s", got.Detail)
 	}
 }
 

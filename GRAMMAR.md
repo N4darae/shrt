@@ -285,8 +285,8 @@ Produced by resolving each form against a fixture scope:
 | key | type | req | meaning |
 |---|---|---|---|
 | `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve. |
-| `envelope_path` | string |  | JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead. |
-| `envelope_ok` | string |  | The `envelope_path` value that means success. Default `OK`. |
+| `envelope_path` | string |  | JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead. A path set here that no response message in the descriptor declares fails `shrt run` before any traffic is sent, as `shrt doctor` fails it. |
+| `envelope_ok` | string |  | The `envelope_path` value that means success. Default `OK`. A run in which responses carried the envelope but none carried this value ends with a `warning` naming the values seen; a batch whose items "refuse" with the very value the top-level envelope carries says to check this key. |
 | `item_envelope_path` | string |  | Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent. |
 | `code_fields` | list of string |  | Detail-field names that carry a backend's OWN numeric or symbolic code, searched by `shrt chain which -code`. Default `app_code`, `reason`, `error_code`. An explicit list REPLACES the defaults. The envelope's own leaf is not listed here — it follows `envelope_path`, so a deployment answering at `status.code` is searched there without any setting. Nothing enforces these names; a code this list cannot reach makes `chain which` answer "no chain asserts it" for a corpus that does. |
 | `validate_output` | bool |  | When true, a response that does not match its proto message FAILS the step. Default false: the response is kept as sent and a warning is recorded, so a descriptor that has drifted from the deployed binary degrades quietly rather than failing every chain. Turn it on once your descriptor build and your deploy are in step. |
@@ -313,8 +313,9 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `volatile` | list of string | Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record. |
 | `redacted` | list of string | Redact patterns in force. The values themselves are already masked in `request`/`response`. |
 | `steps` | list of steprecord | One entry per step, in order. |
-| `failure` | string | Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass. |
+| `failure` | string | Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass; when a step could not connect to the target at all (connection refused, a dial or DNS failure — not a Connect error), every later step is recorded `skipped` unsent and this carries ONE line naming the unreachable target, instead of one per step. |
 | `failed_steps` | list of string | Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag. |
+| `warning` | string | A run-level warning. Today: every response carrying `conventions.envelope_path` had a value other than `conventions.envelope_ok` (refusals a step asserted with `equals` aside), which usually means `envelope_ok` spells success wrongly for this backend; it names the values seen. |
 
 ### Each entry of `steps`
 
@@ -325,7 +326,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `call` | string | As written in the chain. |
 | `procedure` | string | The resolved `/package.Service/Rpc`. |
 | `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. |
-| `status` | string | `passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. |
+| `status` | string | `passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. A `-keep-going` step after one that could not connect to the target at all is `skipped` too, its `error` naming the unreachable target. |
 | `http_status` | int | Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal. |
 | `latency_ms` | int | Per-step wall time. |
 | `request` | JSON | What was sent, AFTER reference resolution and redaction. |
@@ -469,6 +470,9 @@ run 'shrt <command> -h' for command flags
 Every command prints its own flags with `-h`. `run` and `verify` take `-var key=value`
 (repeatable) and `-json`; `verify` also takes `-run <id>`, which re-diffs a recorded run
 **without touching the backend** — the one way to investigate a drift on a live-run budget.
+`verify` replays as `-keep-going` does, so every step a failure does not block is still compared; a
+step held back behind one, or never reached by a recorded run that stopped early, is reported
+`not_reached` rather than as a change of length, and the report names the first failing step.
 
 ## 10. Volatile and redact patterns
 

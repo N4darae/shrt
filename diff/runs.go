@@ -14,9 +14,11 @@ import (
 const RunComparisonNote = "this compares two recorded runs with each other; it is not a verdict against a confirmed safe spot (that is 'shrt verify')"
 
 type StepStatus struct {
-	Step string `json:"step"`
-	A    string `json:"a"`
-	B    string `json:"b"`
+	Step   string `json:"step"`
+	A      string `json:"a"`
+	B      string `json:"b"`
+	ErrorA string `json:"error_a,omitempty"`
+	ErrorB string `json:"error_b,omitempty"`
 }
 
 type VarChange struct {
@@ -44,6 +46,7 @@ type RunReport struct {
 	StatusChanges   []StepStatus `json:"status_changes,omitempty"`
 	NoLongerReached []string     `json:"no_longer_reached,omitempty"`
 	NewlyReached    []string     `json:"newly_reached,omitempty"`
+	WhyNotReached   []StepStatus `json:"why_not_reached,omitempty"`
 	Changes         []Change     `json:"changes,omitempty"`
 	Masked          int          `json:"masked"`
 }
@@ -59,7 +62,14 @@ func CompareRuns(a, b *runner.Record) *RunReport {
 }
 
 func reached(rec *runner.Record, s *runner.StepRecord) bool {
-	return s.Status != runner.StatusSkipped || rec.DryRun
+	return StepReached(rec, s)
+}
+
+func stepError(s *runner.StepRecord) string {
+	if s == nil || (s.Status != runner.StatusError && s.Status != runner.StatusSkipped && s.Transport == nil) {
+		return ""
+	}
+	return firstLineOf(s.Error)
 }
 
 func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
@@ -79,10 +89,16 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 	}
 	rep.VarChanges = varChanges(a.Vars, b.Vars)
 	byID := map[string]*runner.StepRecord{}
+	allB := map[string]*runner.StepRecord{}
 	for _, s := range b.Steps {
+		allB[s.ID] = s
 		if reached(b, s) {
 			byID[s.ID] = s
 		}
+	}
+	allA := map[string]*runner.StepRecord{}
+	for _, s := range a.Steps {
+		allA[s.ID] = s
 	}
 	inA := map[string]bool{}
 	base := mergePatterns(a.Volatile, b.Volatile, extra)
@@ -94,10 +110,14 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 		sb, ok := byID[sa.ID]
 		if !ok {
 			rep.NoLongerReached = append(rep.NoLongerReached, sa.ID)
+			if why := stepError(allB[sa.ID]); why != "" {
+				rep.WhyNotReached = append(rep.WhyNotReached, StepStatus{Step: sa.ID, A: sa.Status, B: allB[sa.ID].Status, ErrorB: why})
+			}
 			continue
 		}
 		if sa.Status != sb.Status {
-			rep.StatusChanges = append(rep.StatusChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status})
+			rep.StatusChanges = append(rep.StatusChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status,
+				ErrorA: stepError(sa), ErrorB: stepError(sb)})
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
 		rep.compareResponses(sa, sb, masker)
@@ -105,6 +125,9 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 	for _, sb := range b.Steps {
 		if reached(b, sb) && !inA[sb.ID] {
 			rep.NewlyReached = append(rep.NewlyReached, sb.ID)
+			if why := stepError(allA[sb.ID]); why != "" {
+				rep.WhyNotReached = append(rep.WhyNotReached, StepStatus{Step: sb.ID, A: allA[sb.ID].Status, B: sb.Status, ErrorA: why})
+			}
 		}
 	}
 	return rep
@@ -236,11 +259,13 @@ func (r *RunReport) Text() string {
 		fmt.Fprintf(&b, "\nbuilds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
 	}
 	if r.KeepGoingA != r.KeepGoingB {
-		with, without := "B", "A"
+		with, without, red := "B", "A", r.FirstFailureA
 		if r.KeepGoingA {
-			with, without = "A", "B"
+			with, without, red = "A", "B", r.FirstFailureB
 		}
-		fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so steps past the first red are reached in %s only\n", with, without, with)
+		if red != "" {
+			fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so steps past %s's first red (%s) are reached in %s only\n", with, without, without, red, with)
+		}
 	}
 	if len(r.VarChanges) > 0 {
 		parts := make([]string, 0, len(r.VarChanges))
@@ -257,7 +282,7 @@ func (r *RunReport) Text() string {
 	if len(r.StatusChanges) > 0 {
 		b.WriteString("\nstep status changes (A -> B):\n")
 		for _, s := range r.StatusChanges {
-			fmt.Fprintf(&b, "  %s  %s -> %s\n", s.Step, s.A, s.B)
+			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
 	}
 	if len(r.NoLongerReached) > 0 {
@@ -265,6 +290,9 @@ func (r *RunReport) Text() string {
 	}
 	if len(r.NewlyReached) > 0 {
 		fmt.Fprintf(&b, "\nreached in B, not reached in A: %s\n", strings.Join(r.NewlyReached, ", "))
+	}
+	for _, s := range r.WhyNotReached {
+		fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 	}
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))
@@ -279,6 +307,17 @@ func (r *RunReport) Text() string {
 		b.WriteString("\nno differences between the two runs\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func (s StepStatus) errors() string {
+	out := ""
+	if s.ErrorA != "" {
+		out += "\n      A: " + s.ErrorA
+	}
+	if s.ErrorB != "" {
+		out += "\n      B: " + s.ErrorB
+	}
+	return out
 }
 
 func (c Change) describeRuns() string {

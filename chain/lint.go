@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -40,6 +41,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
+	idx := newRefIndex(c)
 	for _, s := range c.Steps {
 		m, err := cat.Lookup(s.Call)
 		if err != nil {
@@ -49,12 +51,12 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		}
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
-		issues = append(issues, lintRefs(s, known, knownExports, responses)...)
+		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintExports(s, m)...)
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
 		issues = append(issues, lintTransport(s, m)...)
-		issues = append(issues, lintExpectRefs(s, known, knownExports)...)
+		issues = append(issues, lintExpectRefs(s, known, knownExports, idx)...)
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
@@ -75,7 +77,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 // The referenced step must still run EARLIER, checked against the same `known` set body references
 // use: an expect naming a later step would resolve to nothing and the assertion would compare
 // against emptiness while looking deliberate.
-func lintExpectRefs(s *Step, known, knownExports map[string]bool) []Issue {
+func lintExpectRefs(s *Step, known, knownExports map[string]bool, idx *refIndex) []Issue {
 	issues := []Issue{}
 	for _, e := range s.Expect {
 		for _, ref := range collectRefs([]any{e.Path}) {
@@ -92,7 +94,7 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool) []Issue {
 				}
 				continue
 			}
-			if why := referenceProblem(r, known, knownExports); why != "" {
+			if why := referenceProblem(r, known, knownExports, idx); why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
 			}
@@ -118,23 +120,94 @@ func ownStepProblem(stepID string, r Ref, knownExports map[string]bool) (string,
 		"earlier step's response", stepID, stepID), true
 }
 
-func referenceProblem(r Ref, known, knownExports map[string]bool) string {
+type refIndex struct {
+	steps      []string
+	stepAt     map[string]int
+	exports    []string
+	exportedBy map[string]int
+	exporter   map[string]string
+}
+
+func newRefIndex(c *Chain) *refIndex {
+	idx := &refIndex{stepAt: map[string]int{}, exportedBy: map[string]int{}, exporter: map[string]string{}}
+	for i, s := range c.Steps {
+		idx.steps = append(idx.steps, s.ID)
+		if _, seen := idx.stepAt[s.ID]; !seen {
+			idx.stepAt[s.ID] = i + 1
+		}
+		names := make([]string, 0, len(s.Export))
+		for name := range s.Export {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			if _, seen := idx.exportedBy[name]; !seen {
+				idx.exportedBy[name] = i + 1
+				idx.exporter[name] = s.ID
+				idx.exports = append(idx.exports, name)
+			}
+		}
+	}
+	return idx
+}
+
+func (x *refIndex) laterStep(id string) string {
+	if at, ok := x.stepAt[id]; ok {
+		return fmt.Sprintf("refers to step %q (step %d), which does not run before this step", id, at)
+	}
+	return ""
+}
+
+func (x *refIndex) laterExport(name string) string {
+	if at, ok := x.exportedBy[name]; ok {
+		return fmt.Sprintf("reads export %q, exported by %s at step %d, which runs later, so it has no value yet",
+			name, x.exporter[name], at)
+	}
+	return ""
+}
+
+func didYouMean(name string, candidates []string) string {
+	near := namecase.Closest(name, candidates, 3)
+	if len(near) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(near))
+	for _, n := range near {
+		quoted = append(quoted, strconv.Quote(n))
+	}
+	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+}
+
+func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex) string {
 	if r.Err != nil {
 		return "cannot resolve: " + r.Err.Error()
 	}
 	switch r.Kind {
 	case RefStep:
 		if !known[r.Head] {
-			return fmt.Sprintf("refers to step %q which does not run before this step", r.Head)
+			if why := idx.laterStep(r.Head); why != "" {
+				return why
+			}
+			return fmt.Sprintf("refers to step %q, which does not exist in this chain%s", r.Head, didYouMean(r.Head, idx.steps))
 		}
 	case RefExports:
 		if name, ok := r.ExportName(); ok && !knownExports[name] {
-			return "reads an export no earlier step declares. Export names come from a step's " +
-				"export: block, so a typo resolves to nothing and the run dies on it"
+			if why := idx.laterExport(name); why != "" {
+				return why
+			}
+			return "reads an export no step in this chain declares" + didYouMean(name, idx.exports) + ". Export " +
+				"names come from a step's export: block, so a typo resolves to nothing and the run dies on it"
 		}
 	case RefBare:
 		if !known[r.Head] && !knownExports[r.Head] {
-			return "names neither a step that runs before this step nor an export any earlier step declares"
+			if why := idx.laterExport(r.Head); why != "" {
+				return why
+			}
+			if why := idx.laterStep(r.Head); why != "" {
+				return why
+			}
+			return "names neither a step nor an export of this chain" +
+				didYouMean(r.Head, append(append([]string{}, idx.steps...), idx.exports...))
 		}
 	}
 	return ""
@@ -297,12 +370,12 @@ func placeholder(f *catalog.Field) any {
 	}
 }
 
-func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method) []Issue {
+func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method, idx *refIndex) []Issue {
 	issues := []Issue{}
 	refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
 	for _, ref := range refs {
 		r := ParseRef(ref)
-		if why := referenceProblem(r, known, knownExports); why != "" {
+		if why := referenceProblem(r, known, knownExports, idx); why != "" {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf("${%s} %s", ref, why)})
 			continue
 		}
@@ -325,7 +398,7 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	if rest == "" || strings.HasPrefix(rest, "request") {
 		return Issue{}, false
 	}
-	if catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, SplitPath(rest)) {
+	if catalog.HasResponsePath(catalog.DescribeMessage(m.Output()).Fields, SplitPath(rest)) {
 		return Issue{}, false
 	}
 	return Issue{
@@ -398,8 +471,8 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 			continue
 		}
 		absent := e.Exists != nil && !*e.Exists
-		if catalog.HasPath(schema.Fields, SplitPath(e.Path)) {
-			if at, ok := catalog.MissingIndex(schema.Fields, SplitPath(e.Path)); ok {
+		if catalog.HasResponsePath(schema.Fields, SplitPath(e.Path)) {
+			if at, ok := catalog.ResponseMissingIndex(schema.Fields, SplitPath(e.Path)); ok {
 				if absent {
 					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnfailable, Message: fmt.Sprintf(
 						"expect on %q says 'exists: false' on a path that reads THROUGH the repeated field %q "+
@@ -456,7 +529,7 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := catalog.DescribeMessage(m.Output())
 	for name, path := range s.Export {
-		if !catalog.HasPath(schema.Fields, SplitPath(path)) {
+		if !catalog.HasResponsePath(schema.Fields, SplitPath(path)) {
 			issues = append(issues, Issue{
 				Step:     s.ID,
 				Severity: SeverityWarn,

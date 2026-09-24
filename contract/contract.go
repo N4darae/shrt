@@ -31,17 +31,24 @@ type ExportHint struct {
 func For(m *catalog.Method) *Contract { return ForPreferring(m, nil) }
 
 func ForCurated(m *catalog.Method, lib *Library, cat *catalog.Catalog) *Contract {
+	c, _ := ForCuratedWithNotes(m, lib, cat)
+	return c
+}
+
+func ForCuratedWithNotes(m *catalog.Method, lib *Library, cat *catalog.Catalog) (*Contract, []string) {
 	c := ForPreferring(m, ArmedOneofMembersOf(lib, m.FullName))
 	if lib == nil || cat == nil {
-		return c
+		return c, nil
 	}
-	if node := ScaffoldStep(m, defaultID(m.Name), lib, cat); node != nil {
-		seq := &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}}
-		if raw, err := yaml.Marshal(seq); err == nil {
-			c.StepYAML = string(raw)
-		}
+	nodes, notes, err := ScaffoldSteps([]string{m.FullName}, []string{defaultID(m.Name)}, lib, cat)
+	if err != nil || len(nodes) == 0 {
+		return c, nil
 	}
-	return c
+	seq := &yaml.Node{Kind: yaml.SequenceNode, Content: nodes[:1]}
+	if raw, err := yaml.Marshal(seq); err == nil {
+		c.StepYAML = string(raw)
+	}
+	return c, notes
 }
 
 func ForPreferring(m *catalog.Method, prefer []string) *Contract {

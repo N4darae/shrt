@@ -19,22 +19,25 @@ const (
 	KindOrder      = "order"
 	KindLength     = "length"
 	KindStatus     = "status"
+	KindNotReached = "not_reached"
 )
 
 type Change struct {
-	Step string `json:"step,omitempty"`
-	Path string `json:"path"`
-	Kind string `json:"kind"`
-	Want any    `json:"want,omitempty"`
-	Got  any    `json:"got,omitempty"`
+	Step   string `json:"step,omitempty"`
+	Path   string `json:"path"`
+	Kind   string `json:"kind"`
+	Want   any    `json:"want,omitempty"`
+	Got    any    `json:"got,omitempty"`
+	Detail string `json:"detail,omitempty"`
 }
 
 type Report struct {
-	Chain      string   `json:"chain"`
-	SafeSpotID string   `json:"safe_spot_run_id"`
-	RunID      string   `json:"run_id"`
-	Changes    []Change `json:"changes"`
-	Masked     int      `json:"masked"`
+	Chain        string   `json:"chain"`
+	SafeSpotID   string   `json:"safe_spot_run_id"`
+	RunID        string   `json:"run_id"`
+	FirstFailure string   `json:"first_failure,omitempty"`
+	Changes      []Change `json:"changes"`
+	Masked       int      `json:"masked"`
 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
@@ -46,8 +49,16 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
 	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
+	first := firstRed(rec)
+	if first != nil {
+		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
+		if why := firstLineOf(first.Error); why != "" {
+			rep.FirstFailure += ": " + why
+		}
+	}
+	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
-	if len(spot.Steps) != len(rec.Steps) {
+	if len(spot.Steps) != len(rec.Steps) && !stoppedEarly {
 		rep.Changes = append(rep.Changes, Change{
 			Path: "steps", Kind: KindLength,
 			Want: len(spot.Steps), Got: len(rec.Steps),
@@ -63,11 +74,22 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			})
 			continue
 		}
-		if want.Status != got.Status {
+		if StepReached(rec, want) && !StepReached(rec, got) && got != first {
 			rep.Changes = append(rep.Changes, Change{
-				Step: want.ID, Path: "status", Kind: KindStatus,
-				Want: want.Status, Got: got.Status,
+				Step: want.ID, Path: "status", Kind: KindNotReached,
+				Want: want.Status, Got: got.Status, Detail: firstLineOf(got.Error),
 			})
+			continue
+		}
+		if want.Status != got.Status {
+			change := Change{Step: want.ID, Path: "status", Kind: KindStatus, Want: want.Status, Got: got.Status}
+			if got.Status == runner.StatusError || got.Transport != nil {
+				change.Detail = firstLineOf(got.Error)
+			}
+			rep.Changes = append(rep.Changes, change)
+		}
+		if !StepReached(rec, got) {
+			continue
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
 		for _, c := range compareStep(want, got, stepMask) {
@@ -78,7 +100,45 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			rep.Changes = append(rep.Changes, c)
 		}
 	}
+	if stoppedEarly {
+		why := "the run stopped before this step"
+		if first != nil {
+			why = fmt.Sprintf("the run stopped at step %d %s", first.Index, first.ID)
+		}
+		for _, want := range spot.Steps[n:] {
+			rep.Changes = append(rep.Changes, Change{
+				Step: want.ID, Path: "status", Kind: KindNotReached, Want: want.Status, Detail: why,
+			})
+		}
+	}
 	return rep
+}
+
+func StepReached(rec *runner.Record, s *runner.StepRecord) bool {
+	if rec.DryRun {
+		return true
+	}
+	switch s.Status {
+	case runner.StatusSkipped:
+		return false
+	case runner.StatusError:
+		return s.HTTPStatus != 0 || len(s.Response) > 0
+	}
+	return true
+}
+
+func firstRed(rec *runner.Record) *runner.StepRecord {
+	for _, s := range rec.Steps {
+		if s.Status == runner.StatusFailed || s.Status == runner.StatusError {
+			return s
+		}
+	}
+	return nil
+}
+
+func firstLineOf(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return strings.TrimSpace(line)
 }
 
 func compareStep(want, got *runner.StepRecord, masker *pathmask.Masker) []Change {
@@ -206,6 +266,20 @@ func pathOr(p string) string {
 }
 
 func (c Change) describe() string {
+	out := c.describeValues()
+	if c.Detail != "" {
+		out += " (" + c.Detail + ")"
+	}
+	return out
+}
+
+func (c Change) describeValues() string {
+	if c.Kind == KindNotReached {
+		if c.Got == nil {
+			return fmt.Sprintf("want=%v got=not recorded", c.Want)
+		}
+		return fmt.Sprintf("want=%v got=%v, not sent", c.Want, c.Got)
+	}
 	if c.Kind == KindLength {
 		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
 	}
@@ -232,6 +306,9 @@ func (r *Report) Text() string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
+	if r.FirstFailure != "" {
+		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
+	}
 	for _, c := range r.Changes {
 		step := c.Step
 		if step == "" {

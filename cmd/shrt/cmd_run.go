@@ -53,7 +53,12 @@ func runRun(ctx context.Context, args []string) error {
 	asJSON := fs.Bool("json", false, "emit the run record as JSON")
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	build := fs.String("build", "", buildFlagUsage)
-	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent, unless it reads a field no failed expectation covers; the run stays failed")
+	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent, unless it reads a field no failed expectation covers; once the target is unreachable (connection refused, dial or DNS failure) nothing more is sent; the run stays failed")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "usage: shrt run <chain> [flags]")
+		fs.PrintDefaults()
+		fmt.Fprint(fs.Output(), runExitCodes)
+	}
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -91,13 +96,31 @@ func runRun(ctx context.Context, args []string) error {
 		}
 	}
 	if *asJSON {
-		return emitJSON(rec)
+		if err := emitJSON(rec); err != nil {
+			return err
+		}
+		return runVerdict(rec)
 	}
 	fmt.Println(summary(rec, *dry))
-	if !rec.Passed() {
-		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
+	return runVerdict(rec)
+}
+
+const runExitCodes = "\nexit codes:\n" +
+	"  0  passed (a -dry-run: every request resolved and validated)\n" +
+	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
+	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var, a config\n" +
+	"     or descriptor that does not load, a conventions path no response declares)\n" +
+	"  3  error: a step could not complete (unresolved reference, invalid request, target unreachable,\n" +
+	"     login failed), so the run is not a verdict about the backend\n"
+
+func runVerdict(rec *runner.Record) error {
+	switch rec.Status {
+	case runner.StatusPassed:
+		return nil
+	case runner.StatusError:
+		return exitWith(3, "chain %s: %s", rec.Chain, rec.Status)
 	}
-	return nil
+	return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 }
 
 func unusedVarError(unused []string, chainName string, reads []string) error {
@@ -119,7 +142,15 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return nil, err
 	}
 	if !quiet {
+		unreachableShown := false
 		r.OnStep = func(sr *runner.StepRecord) {
+			if sr.NotSentUnreachable() {
+				if !unreachableShown {
+					unreachableShown = true
+					fmt.Printf("%-5s %2d.. every remaining step %s\n", statusMark(sr.Status, opts.DryRun), sr.Index, sr.Error)
+				}
+				return
+			}
 			fmt.Println(progressLine(sr, opts.DryRun))
 			for _, ex := range sr.Expect {
 				if !ex.Passed {
@@ -174,6 +205,9 @@ func summary(rec *runner.Record, dry bool) string {
 	}
 	if rec.Failure != "" {
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(rec.Failure, "\n", "\n  "))
+	}
+	if rec.Warning != "" {
+		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
 	}
 	if len(rec.Exports) > 0 {
 		b.WriteString("\n  exports:")

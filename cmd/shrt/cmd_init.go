@@ -93,7 +93,7 @@ func runInit(ctx context.Context, args []string) error {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
 
-	switch added, err := ensureGitignore(root, loaded.NeverCommit()); {
+	switch added, err := ensureGitignore(root, initGitignore(loaded)); {
 	case err != nil:
 		return err
 	case added:
@@ -176,6 +176,21 @@ func printBaseURLNext(have, flagValue string, given bool) {
 	default:
 		fmt.Printf("  check target.base_url in %s: every run and confirm goes to %s\n", where, have)
 	}
+}
+
+func initGitignore(cfg *config.Config) []string {
+	out := cfg.NeverCommit()
+	dir := cfg.Paths.SafeSpots
+	if dir == "" || filepath.IsAbs(dir) {
+		dir = config.DirName + "/safespots"
+	}
+	pending := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/pending/"
+	for _, line := range out {
+		if line == pending {
+			return out
+		}
+	}
+	return append(out, pending)
 }
 
 func ensureGitignore(root string, want []string) (bool, error) {
@@ -319,11 +334,13 @@ func exampleEnvelope(cfg *config.Config) (path, ok string) {
 	return chain.DefaultEnvelopePath, chain.DefaultEnvelopeOK
 }
 
+const exampleOKPlaceholder = "REPLACE_ME_SUCCESS_VALUE"
+
 func renderExampleChain(template []byte, path, ok string) []byte {
-	expect := "      - path: " + path + "\n        not_empty: true\n"
-	if ok != "" {
-		expect = "      - path: " + path + "\n        equals: " + ok + "\n"
+	if ok == "" {
+		ok = exampleOKPlaceholder
 	}
+	expect := "      - path: " + path + "\n        equals: " + ok + "\n"
 	return []byte(strings.ReplaceAll(string(template), exampleEnvelopeExpect, expect))
 }
 
@@ -341,9 +358,10 @@ func writeExampleChain(root string, cfg *config.Config, force bool) error {
 		return err
 	}
 	fmt.Printf("write %s\n", rel(root, example))
+	fmt.Println("      every REPLACE_ME in it is a placeholder for your rpcs and fields; copy it to <name>.yaml and fill them in")
 	if ok == "" {
-		fmt.Printf("      its steps assert only that %s is present: envelope_ok is not declared, and the\n"+
-			"      success value is data shrt will not guess. Once it is, write equals: <that value>\n", path)
+		fmt.Printf("      its steps assert %s equals %s: envelope_ok is not declared, and the\n"+
+			"      success value is data shrt will not guess. Declare it, then write that value there\n", path, exampleOKPlaceholder)
 	}
 	return nil
 }

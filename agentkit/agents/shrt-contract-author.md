@@ -83,7 +83,9 @@ Judgement the key tables do not carry:
 
 ## Method
 
-1. `shrt contract show <rpc>` for the shape.
+1. `shrt contract show <rpc>` for the shape. Its CHAIN STEP leaves a field it cannot wire as an
+   empty value and names the missing producer in a `note:` on stderr (`wants X but that rpc is
+   not in the plan`); read those notes, they are the `from:` edges the chain will need.
 2. **Find the handler.** You are probably in a repo you have never read. The RPC's fully-qualified
    name is the only anchor you are given, and the last segment of it is the Go/Java/TS method name
    the server implements, so start there and widen only if it misses:

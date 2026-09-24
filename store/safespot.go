@@ -51,7 +51,7 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 		return nil, "", ErrNotConfirmed
 	}
 	if !rec.Passed() {
-		return nil, "", fmt.Errorf("%w: status=%s", ErrRunNotPassed, rec.Status)
+		return nil, "", notPassed(rec)
 	}
 	path := s.SafeSpotPath(rec.Chain)
 	prev, err := s.LoadSafeSpot(rec.Chain)
@@ -133,4 +133,21 @@ func digest(steps []*runner.StepRecord) string {
 		h.Write(raw)
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+func notPassed(rec *runner.Record) error {
+	failing := []string{}
+	for _, st := range rec.Steps {
+		if st.Status == runner.StatusFailed || st.Status == runner.StatusError {
+			failing = append(failing, fmt.Sprintf("%s (%s)", st.ID, st.Status))
+		}
+	}
+	if len(failing) == 0 {
+		failing = append(failing, rec.FailedSteps...)
+	}
+	where := ""
+	if len(failing) > 0 {
+		where = ", failing step(s): " + strings.Join(failing, ", ")
+	}
+	return fmt.Errorf("%w: run %s status=%s%s", ErrRunNotPassed, rec.RunID, rec.Status, where)
 }

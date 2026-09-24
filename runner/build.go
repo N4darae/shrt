@@ -145,6 +145,8 @@ func authSpec(profile string, auth *config.Auth, cat *catalog.Catalog) (*transpo
 	}
 	header, scheme := auth.HeaderScheme()
 	return &transport.AuthSpec{
+		Profile:   profile,
+		EnvRefs:   chain.AuthBodyEnvRefs(body),
 		Procedure: m.Procedure(),
 		Canonicalize: func(raw []byte) ([]byte, error) {
 			return cat.Canonicalize(m.Output(), raw)
@@ -221,6 +223,9 @@ func NewFromConfig(ctx context.Context, cfg *config.Config, cat *catalog.Catalog
 	chain.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
 	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
 	chain.ApplyCodeFields(cfg.Conventions.CodeFields)
+	if err := chain.ValidateEnvelopeIn(cat, cfg.Conventions.EnvelopePath); err != nil {
+		return nil, Options{}, err
+	}
 	if err := chain.ValidateItemEnvelope(cat); err != nil {
 		return nil, Options{}, err
 	}

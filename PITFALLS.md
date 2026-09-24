@@ -238,7 +238,7 @@ which is the natural way to write a probe, and is how this was found: the skelet
 # Green things that are not evidence
 
 The entries above are ways to be wrong that eventually go red. §14 to §17 pass **every** check —
-`lint ok`, `dry-run PASSED`, a green run record — and still assert nothing. They are the reason this
+`lint ok`, a green `DRY-RUN OK`, a green run record — and still assert nothing. They are the reason this
 document exists, so they get their own heading. Entries found later were added after them.
 
 ## 14. Two rules on one expectation: the second replaces the first
@@ -278,8 +278,8 @@ directly in the body that needs it, or supply the value with `-var key=...` at r
 Dry run resolves and validates, but there are no responses to resolve from, so every cross-step
 reference resolves against a scaffold of the response message: `""` for a string, `"0"` for an
 int64, `0`, `false`, the first enum member. A step whose body is `{ids: ["${create.id}"]}` dry-runs
-as `{ids: [""]}` — a value the server rejects — and the dry run reports `PASSED`, with every step
-recorded as `skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
+as `{ids: [""]}` — a value the server rejects — and the dry run prints
+`DRY-RUN OK (resolved and validated, nothing sent)`, with every step recorded as `skipped`. Dry run proves the chain's **shape**, and proves the first step's body. It cannot prove
 any body downstream of a reference.
 
 ## 17. A step that only asserts `error.code == OK`
@@ -631,9 +631,12 @@ default is right while you are authoring, when the chain is half-written by defi
 for a gate, and the gate is what a team copies out of the docs.
 
 **Fix.** `shrt chain lint -strict` promotes the assertion-quality warnings to errors and exits
-non-zero: an assertion that cannot fail, a step asserting nothing, a path that can never match, a
-reference nothing can produce, an export reading a field the response does not have, and an
-`allow_fail` on a step with expectations, where it does nothing. It has
+non-zero: an assertion that cannot fail (the kinds still reported as warnings, such as an enum
+comparison every value satisfies), a step asserting nothing, a reference nothing can produce, an
+export reading a field the response does not have, and an `allow_fail` on a step with
+expectations, where it does nothing. An expect path that can never match is not on that list
+because it needs no promoting: it is an error with or without `-strict` (§36), and so is
+`exists: false` on a path the message has no field for. It has
 existed since the flag was added, but no document mentioned it, so an adopter reading the four docs
 end to end would not learn it was there — one did not, and wired up the weak gate. The development
 repo's `scripts/check.sh` runs the strict form. Since 2026-09-22 the non-strict run also prints, after the warnings, that
@@ -755,7 +758,8 @@ zero value — including the ones whose answer was sitting in `.shrt/contracts/`
 **Fix.** 2026-09-22: both use the same contract-aware builder `plan` uses. `value:` is applied.
 `from:` is resolved **between the steps you asked for** — `chain new a b` wires b's input to a's
 output when the contract says so — and a producer that is not among them is reported by name on
-stderr rather than left as a silent empty string. The summary becomes the step description and the
+stderr rather than left as a silent empty string (`contract show` since 2026-09-24; before that
+its CHAIN STEP left the empty string without a word). The summary becomes the step description and the
 contract's `exports:` are written out.
 
 Measured on the backend this kit was first written for, `chain new` over CreateBook + CreateAsset + CreateDeal: 14 lint errors before, 10

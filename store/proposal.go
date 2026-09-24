@@ -52,7 +52,7 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 		return nil, ErrNoEvidence
 	}
 	if !rec.Passed() {
-		return nil, fmt.Errorf("%w: status=%s", ErrRunNotPassed, rec.Status)
+		return nil, notPassed(rec)
 	}
 	replaces := ""
 	prev, err := s.LoadSafeSpot(rec.Chain)

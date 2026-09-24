@@ -41,10 +41,13 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
   `caller must hold role`, and above all `required is an unfilled TODO, so this plan cannot say what
   the server rejects without — treat the body as unverified`. That last one means the plan is
-  guessing, which is the opposite of test data you owe. Ten is a count of call sites on
-  2026-09-17 and it grows whenever `plan` learns to say something new — re-derive with
-  `grep -c 'p.note(' contract/plan.go` in the shrt module, which matches the calls and not the definition
-  (`func (p *Plan) note(`).
+  guessing, which is the opposite of test data you owe. Ten was the count on 2026-09-17 and it
+  grows whenever `plan` learns to say something new, so read every note that is not the
+  fill-it kind rather than matching the ones listed here.
+- **In a repo whose hook rejects new comment lines, use `-write`.** The printed plan's header is
+  `# ` lines, so pasting or redirecting stdout into a chain file adds comment lines the hook
+  refuses. `-write` writes the chain with no comment lines and prints the header to the terminal
+  instead (the `  order:` / `  note:` form above).
 - **Compose a whole flow from the contract, not one rpc at a time:**
   `shrt contract plan ConfirmOrder FetchOrder ListOrders CancelOrder@confirmed -write`. Each target
   may carry `@alias`, and the aliased step is built with that alias's field overrides (an undeclared
@@ -72,8 +75,8 @@ nothing; the same work written into the overlay composes the next ten chains.
 repeated field whose entries are all blank all count as **no usable value**.
 
 **`shrt chain lint` is deliberately laxer than `plan` about one case, so do not read a green lint
-as "the header is dealt with".** Both sides share `HasUsableValue` in the `contract` package, but they
-call it with different `Strictness`: `plan` reads a body **it just generated**, where a `"0"` can
+as "the header is dealt with".** Both sides apply the same usable-value test, at
+different strictness: `plan` reads a body **it just generated**, where a `"0"` can
 only be the scaffold's own filler, so it says fill it; `lint` reads a body **a human edited**,
 where `"0"` may be meant — `short_limit_qty: "0"` in
 `dealing-createdeal-positionlimit-enforcement-probe` is a real limit of zero, and an int64 zero and
@@ -95,25 +98,35 @@ Three habits that keep a chain re-runnable:
 | a name or code that must be fresh per run | `${vars.tag}` interpolated, and pass `-var tag=...` at run time |
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
-constraint, and it is why the development repo's `scripts/verify-all-flows.sh` generates a random
-tag per chain.
+constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
+refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
+run onto one key), so a sweep passes `-var tag=...` only to the chains that read `${vars.tag}`:
+check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which lists the vars the
+chain does read.
 
 ## 3b. Tell shrt how YOUR backend answers
 
 `.shrt/config.yaml` carries a `conventions:` block. Six keys, all optional, and the defaults
 describe a Connect-style backend that reports its verdict at `error.code` with `OK` meaning success.
 The block below is NOT the defaults: it is an example for a backend that answers
-`{"status": {"code": "SUCCESS"}}`, with every key set to show its shape:
+`{"status": {"code": "SUCCESS"}}`, with every key set to show its shape. It carries no comment
+lines, so it pastes into a repo whose hook rejects them:
 
 ```yaml
 conventions:
-  read_only_prefixes: [Fetch, Get, List, Query, Read]  # which rpc names are reads
-  envelope_path: status.code                           # where a response states its verdict
-  envelope_ok: SUCCESS                                 # the value there meaning success
-  item_envelope_path: results[].error.code             # a BATCH rpc's per-item verdict
-  code_fields: [app_code, reason, error_code]          # detail fields `chain which -code` searches
-  validate_output: true                                # a response the descriptor rejects FAILS
+  read_only_prefixes: [Fetch, Get, List, Query, Read]
+  envelope_path: status.code
+  envelope_ok: SUCCESS
+  item_envelope_path: results[].error.code
+  code_fields: [app_code, reason, error_code]
+  validate_output: true
 ```
+
+Key by key: `read_only_prefixes` says which rpc names are reads; `envelope_path` is where a
+response states its verdict, and `envelope_ok` the value there meaning success;
+`item_envelope_path` is a BATCH rpc's per-item verdict; `code_fields` are the detail fields
+`chain which -code` searches; and with `validate_output: true` a response the descriptor rejects
+FAILS its step.
 
 **`item_envelope_path` is the one to check first on any backend with batch rpcs.** A batch call can
 answer `OK` at the top level while refusing every line it was given; unset, a step asserting only the
@@ -188,12 +201,20 @@ Fix one by asserting what the read should have found. A probe that pins a non-OK
 is the answer and are not reported. For any other case where empty is right — a cap, a filter that
 rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
 `<chain> <step-id> <reason>`; an entry without a reason is
-refused. `PITFALLS.md` §24.
+refused. `PITFALLS.md` §24. The summary's `asserting only the envelope verdict` count is the reads
+whose expectations touch nothing but the envelope; a refusal probe that pins a detail code field
+under it (`error.details.0.app_code`, `reason`) asserts the refusal's detail and is not counted.
 
 ## 5. Probe one failure code
 
 The unit of failure coverage is a `(rpc, app_code)` pair that some run record has actually
-observed. To turn a declared code into an observed one:
+observed. No shrt command computes that coverage yet: there is no table of declared pairs against
+observed ones. Approximate it one pair at a time with `shrt chain which -rpc R -code C`: an
+`OBSERVED` line whose step passed is a covered pair, `asserted` alone means a chain claims it but
+no local run has reached it, and an error means nothing asserts it — unless run records carried
+the code on a step that asserts something else, which `chain which` then lists (§10). Loop it over
+the `failures:` your contracts declare to get the whole list. To turn a declared code into an
+observed one:
 
 ```yaml
     - id: confirm_twice
@@ -392,16 +413,15 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
 | — | — | — | codes the backend raises that no contract declares at all |
 
-The ten scored rows come from `QualityTerms()` in `contract/quality.go`, which is what
-`shrt contract status` prints in its footer and what computes the score — so run the command for
-today's list, and read the rows below for the reasoning a one-line label cannot carry. In the
-development repo a guard test and `TestPlaybookQualityTableMatchesTheCode` fail the build when this
-table and `QualityTerms()` disagree; neither ships in the module, so here the command's footer is
-the authority.
+The ten scored rows are the terms `shrt contract status` prints in its footer, the same list
+that computes the score — so run the command for today's list, and read the rows below for the
+reasoning a one-line label cannot carry. In shrt's own development repo a test fails the build
+when this table and the scored terms disagree; that test does not ship with the binary, so here
+the command's footer is the authority.
 
 **An unfilled `TODO` scores nothing.** It is listed beside the score as a hint, never charged. The
-row that used to claim `1 per unfilled TODO` was wrong for as long as it stood: no `QualityTerm`
-counts `UnfilledTodos`, so clearing every TODO in a file moves the score only where clearing it also
+row that used to claim `1 per unfilled TODO` was wrong for as long as it stood: no scored row
+counts unfilled TODOs, so clearing every TODO in a file moves the score only where clearing it also
 answers one of the ten rows above.
 
 **The phase column is what `-phase` filters.** `shrt contract quality -phase happy` scores the seven
@@ -444,7 +464,7 @@ cannot read it.
 absence — so accepting one as the explanation would make row 6 fire on nothing.
 
 **One undocumented exemption, now documented: a response field that is a non-repeated message is
-not counted by row 9.** `referenceableResponseField` in `contract/quality.go` skips the envelope field (`error` by default),
+not counted by row 9.** Row 9 skips the envelope field (`error` by default),
 and skips message-typed fields unless they are `repeated`, because a bare nested message has no
 scalar to reference and `exports:` names paths a later step can read. So a score of 0 guarantees
 every SCALAR and every REPEATED response field is accounted for in `exports:`/`terminal:`/
@@ -570,6 +590,9 @@ prints a summary table: one row per step with an excerpt of what was sent, what 
 what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
 reads). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
+`shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
+that made it, and only the approved safe spot beside it is committed. A run that did not pass is
+refused, and the refusal names the run and each step that failed or errored.
 
 **Present the proposal in the conversation; do not send the user to a file.** In the user's
 language, give:
@@ -619,6 +642,14 @@ spot, and says so: a regression in a path no safe spot exercises is not seen.
 
 Three things that decide whether this works for a given chain:
 
+- **`verify` compares every step the run reached, not only the steps before the first red.** A
+  live `shrt verify <name>` runs the chain the way `shrt run -keep-going` does, so a red step does
+  not hide the drift behind it: every step that was sent is diffed against the safe spot, and a
+  step that was not (held back as `skipped` because it reads the failed step, or never sent
+  because the run stopped) is reported as `not_reached` rather than as a status change or a
+  shorter chain. The report names the first failing step. A recorded run that stopped at its
+  first red (`-run <id>` of a run made without `-keep-going`) reports every step after the stop
+  as `not_reached`.
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
   credential, so the after-check costs one run, not two. It is also how you investigate a drift
   without spending another live run.
@@ -690,7 +721,10 @@ shrt chain which -code 1218 -json
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
    applied to discovery. Matches rank in three tiers: observed and holding, then asserted only, then
    observed but contradicted (under `-code`, the newest reaching run got a different code at the
-   asserted path; under `-rpc` alone, the step FAILED), because a
+   asserted path; under `-rpc` alone, the step FAILED). Within the first tier a step that passed
+   outranks one that failed while still answering the code, and within the last a step that
+   passed outranks one that failed, so a chain whose best match failed never heads the list
+   while passing evidence exists elsewhere. The order is this because a
    chain the backend has stopped answering that way is the least likely to reproduce it, though it
    is often the regression you want to see. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
@@ -715,6 +749,11 @@ shrt chain which -code 1218 -json
    `-mode pin` can only drop steps, never add them.
 5. **No match exits non-zero and says so.** An empty list and a green exit is the failure this repo
    cares most about, so "the corpus does not exercise it yet" is an error, not a quiet success.
+   One exception under `-code`: when no chain asserts the code but a local run record carried it
+   at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
+   the `reason`), the command lists those steps instead, each with the run, the path, and a
+   `reproduce:` slice command, and exits 0. The backend exercises the code; no chain pins it, so a
+   change to that answer goes unnoticed until you assert it there.
 
 ## 11. A step failed: get the minimal reproduction
 
@@ -758,14 +797,28 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    and prerequisites. `-write` refuses to replace an existing chain file unless `-force`, except a
    slice this command wrote of the same chain and step (its description starts
    `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
+   When the slice keeps EVERY step of the chain (slicing a chain that is itself a slice, or a
+   hand-written minimal chain, or a `next:` command that keeps every dropped write of a chain
+   whose target is its last step), the slice is that chain: `-write` with no name writes no
+   `<chain>-slice-<step>.yaml` copy, the `-verify` run record is kept under the chain itself, and
+   a `reproduced` verdict is recorded in that chain's own `description:` (replacing its
+   HYPOTHESIS paragraph, or a previous VERIFIED line, else appended). `-write <name>` still
+   writes a copy under that name.
 4. **`-verify -run <id|latest>` is what turns the claim into a receipt.** It runs the slice and
-   compares the TARGET step's verdict — the code at `conventions.envelope_path` and the pass/fail
-   of every expectation — against that same step in the source run. It prints one of four
+   compares the TARGET step's verdict — the code at `conventions.envelope_path`, the pass/fail
+   of every expectation, and for an expectation that failed in both runs against the same want,
+   the value it got — against that same step in the source run. `-verify` is what needs `-run`;
+   closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
+   that REACHED the target (its step passed or failed) and say on stderr when that is not the
+   newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
+   that reached it. It prints one of four
    outcomes, each with its own exit code:
    - `reproduced` (0): the verdicts match and the slice dropped no write step that wrote
      something in the source run. With `-write`, the verdict replaces the HYPOTHESIS paragraph in
      the written slice's `description:` (VERIFIED, both run ids, the date).
-   - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. When the
+   - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. That
+     includes the same expectation failing with a different value: source `got 2`, slice `got 0`
+     is two different failures, and the difference line says both values. When the
      slice dropped writes it also ends with the `next:` `-keep` command below, since the
      difference can come from state those writes built.
    - `DID NOT RUN` (2): the target was never sent — an unset `${env.X}`, a login that failed, a
@@ -778,7 +831,11 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      is not a receipt. The output ends with a `next:` line —
      `shrt chain slice <src> -step <t> -run <source-run> -keep <dropped writes> -verify -write` —
      which keeps every dropped write and so can give a real verdict. A var interpolated into a
-     name is printed as `<fresh>`: the run above already used its value, so give a new one. Only
+     name is printed as `<fresh>`: the run above already used its value, so give a new one. A
+     dropped write whose step failed or errored in the source run (a `-keep-going` run) is left
+     out of `next:` and named with its status: keeping it would stop the slice there, before the
+     target, so the command could only return DID NOT RUN. When every dropped write failed there
+     is no `next:` line, and the output says why. Only
      the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
      again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
      needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
@@ -796,6 +853,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    mode from the source run's `vars`, and written into the slice's `vars:`. Closure mode never
    reuses the run's value: it re-creates what the run created, so a tag interpolated into a name
    would collide, and `-verify` refuses up front and prints the `-var name=<fresh>` flags to add.
+   The same refusal covers a var the chain DECLARES: when it is interpolated into a name and the
+   source run used its declared default, closure `-verify` would re-send that value, so it
+   refuses and prints `-var name=<fresh>` unless you pass `-var name=...`. A string that also
+   carries `${uuid}` or `${now}` is fresh on every run and does not count.
    Pin mode needs a run record and refuses without `-run` rather than quietly falling back to
    closure.
 6. **A pinned slice reproduces one incident, not the flow.** Its ids are the ids of that run, so it

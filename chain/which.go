@@ -3,6 +3,7 @@ package chain
 import (
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -362,8 +363,10 @@ func evidenceRank(m WhichStep) int {
 		return 0
 	case m.Observed.Holds:
 		return 1
-	default:
+	case m.Observed.Status == statusPassed:
 		return 3
+	default:
+		return 4
 	}
 }
 
@@ -402,4 +405,91 @@ func sliceRank(n int) int {
 		return 1 << 30
 	}
 	return n
+}
+
+type WhichUnasserted struct {
+	Chain   string `json:"chain"`
+	Step    string `json:"step"`
+	Index   int    `json:"index"`
+	Call    string `json:"call"`
+	Run     string `json:"run"`
+	Status  string `json:"status"`
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Command string `json:"command"`
+}
+
+func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichUnasserted {
+	out := []WhichUnasserted{}
+	if q.Code == "" || opts.Observations == nil {
+		return out
+	}
+	for _, c := range chains {
+		byStep, _ := observationsFor(c.Name, opts.Observations)
+		for i, s := range c.Steps {
+			if q.RPC != "" && !stepCalls(s, q.RPC, opts.RPCOf) {
+				continue
+			}
+			if assertsCode(assertedCodes(s), q.Code) {
+				continue
+			}
+			var hit *WhichUnasserted
+			for _, o := range byStep[s.ID] {
+				if !o.Reached {
+					continue
+				}
+				path, ok := findCode(o.Response, q.Code, "")
+				if !ok {
+					continue
+				}
+				hit = &WhichUnasserted{Chain: c.Name, Step: s.ID, Index: i + 1, Call: s.Call, Run: o.Run, Status: o.Status, Path: path, Code: q.Code}
+			}
+			if hit == nil {
+				continue
+			}
+			hit.Command = "shrt chain slice " + c.Name + " -step " + s.ID + " -mode pin -run " + hit.Run
+			out = append(out, *hit)
+		}
+	}
+	return out
+}
+
+func findCode(v any, code, prefix string) (string, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			path := k
+			if prefix != "" {
+				path = prefix + "." + k
+			}
+			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {
+				return path, true
+			}
+		}
+		for _, k := range keys {
+			path := k
+			if prefix != "" {
+				path = prefix + "." + k
+			}
+			if p, ok := findCode(t[k], code, path); ok {
+				return p, true
+			}
+		}
+	case []any:
+		for i, item := range t {
+			path := strconv.Itoa(i)
+			if prefix != "" {
+				path = prefix + "." + path
+			}
+			if p, ok := findCode(item, code, path); ok {
+				return p, true
+			}
+		}
+	}
+	return "", false
 }

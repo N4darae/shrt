@@ -356,6 +356,35 @@ func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
 	}
 }
 
+const (
+	hypothesisParagraph = "\nThis slice is a HYPOTHESIS until it is run. A dependency that is state rather than a\n" +
+		"reference leaves no trace in the YAML, so a slice can be too small and still go green.\n"
+	verifiedPrefix = "VERIFIED by 'shrt chain slice -verify': "
+)
+
+func verifiedLine(verified string) string {
+	return verifiedPrefix + verified + ".\n"
+}
+
+func RecordVerified(description, verified string) string {
+	line := verifiedLine(verified)
+	if strings.Contains(description, hypothesisParagraph) {
+		return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
+	}
+	if i := strings.Index(description, verifiedPrefix); i >= 0 {
+		end := strings.Index(description[i:], "\n")
+		if end < 0 {
+			return description[:i] + line
+		}
+		return description[:i] + line + description[i+end+1:]
+	}
+	description = strings.TrimRight(description, "\n")
+	if description == "" {
+		return line
+	}
+	return description + "\n\n" + line
+}
+
 func listSome(names []string, max int) string {
 	if len(names) <= max {
 		return strings.Join(names, ", ")
@@ -398,10 +427,9 @@ func sliceDescription(res *SliceResult) string {
 		}
 	}
 	if res.Verified != "" {
-		fmt.Fprintf(&b, "\nVERIFIED by 'shrt chain slice -verify': %s.\n", res.Verified)
+		b.WriteString("\n" + verifiedLine(res.Verified))
 	} else {
-		b.WriteString("\nThis slice is a HYPOTHESIS until it is run. A dependency that is state rather than a\n")
-		b.WriteString("reference leaves no trace in the YAML, so a slice can be too small and still go green.\n")
+		b.WriteString(hypothesisParagraph)
 	}
 	if len(res.DroppedWrites) > 0 {
 		names := make([]string, 0, len(res.DroppedWrites))
@@ -733,7 +761,19 @@ func CompareVerdicts(source, replay Verdict) []string {
 		}
 		if want.Passed != got.Passed {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
+			continue
+		}
+		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) {
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
 		}
 	}
 	return diffs
+}
+
+func verdictText(v any) string {
+	if v == nil {
+		return "nothing"
+	}
+	return scalarText(v)
 }

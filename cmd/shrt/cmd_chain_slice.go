@@ -16,6 +16,7 @@ import (
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"gopkg.in/yaml.v3"
 )
 
 func chainSlice(ctx context.Context, args []string) error {
@@ -64,11 +65,21 @@ func chainSlice(ctx context.Context, args []string) error {
 		opts.Prereqs = contract.PrereqsFor(lib)
 	}
 	var rec *runner.Record
-	if (*mode == chain.SliceModePin || *verify) && *runID == "" {
-		return fmt.Errorf("-run <run-id|latest> is required by -mode %s and by -verify: without a run record there is nothing to pin or to compare against", *mode)
+	if *runID == "" {
+		if err := runRequired(*mode, *verify); err != nil {
+			return err
+		}
 	}
 	if *runID != "" {
-		rec, err = e.store.LoadRun(c.Name, *runID)
+		needStep := *mode == chain.SliceModePin || *verify
+		if _, known := c.Step(*step); !known {
+			needStep = false
+		}
+		if needStep {
+			rec, err = loadRunReaching(e, c.Name, *runID, *step)
+		} else {
+			rec, err = e.store.LoadRun(c.Name, *runID)
+		}
 		if err != nil {
 			return err
 		}
@@ -85,9 +96,27 @@ func chainSlice(ctx context.Context, args []string) error {
 	if *verify && len(res.MissingVars) > 0 {
 		return missingVarsError(res, rec)
 	}
+	if *verify {
+		if err := reusedDeclaredVarsError(res, c, rec, vars); err != nil {
+			return err
+		}
+	}
 
+	whole := write.set && name == "" && len(res.Kept) == res.Total && c.SourcePath != ""
+	if whole {
+		res.Chain.Name = c.Name
+	}
 	written := ""
-	if write.set {
+	if whole {
+		if !*asJSON {
+			fmt.Printf("the slice keeps all %d steps of %s, so it is %s itself: no %s.yaml written",
+				res.Total, c.Name, c.Name, chain.DefaultSliceName(c.Name, *step))
+			if *verify {
+				fmt.Printf(", and a reproduced verdict is recorded in %s", c.SourcePath)
+			}
+			fmt.Println()
+		}
+	} else if write.set {
 		path := filepath.Join(e.chainsDir(), res.Chain.Name+".yaml")
 		if err := mayOverwriteSlice(path, res, *force); err != nil {
 			return err
@@ -115,6 +144,12 @@ func chainSlice(ctx context.Context, args []string) error {
 				return err
 			}
 			verdict.Recorded = written
+		}
+		if verdict.Outcome == sliceReproduced && whole {
+			if err := recordVerdictIn(c.SourcePath, res.Verified); err != nil {
+				return err
+			}
+			verdict.Recorded = c.SourcePath
 		}
 	}
 
@@ -323,6 +358,7 @@ type sliceVerdict struct {
 	Replay       chain.Verdict `json:"replay"`
 	Differences  []string      `json:"differences,omitempty"`
 	Next         string        `json:"next,omitempty"`
+	NotKeepable  []string      `json:"not_keepable,omitempty"`
 	Recorded     string        `json:"verdict_written_to,omitempty"`
 }
 
@@ -459,7 +495,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
 				"against the same source run; if the verdict then matches, drop ids from -keep to find the one\n"+
 				"the target needs.", len(names), strings.Join(names, ", "))
-			v.Next = keepWritesCommand(res, rec.RunID, a, names)
+			v.suggestKeep(res, rec, a, names)
 		}
 	case res.UnderIncluded:
 		v.Outcome = sliceInconclusive
@@ -468,12 +504,28 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			"A match can come from state the slice never built, so it is not evidence that the slice reproduces\n"+
 			"the failure. Keep the writes and verify again against the same source run; drop ids from -keep\n"+
 			"to test which of them the target needs.", len(names), strings.Join(names, ", "))
-		v.Next = keepWritesCommand(res, rec.RunID, a, names)
+		v.suggestKeep(res, rec, a, names)
 	default:
 		v.Outcome = sliceReproduced
 		v.Reproduced = true
 	}
 	return v, v.err()
+}
+
+func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, names []string) {
+	usable, blocked := failedInSource(rec, names)
+	v.NotKeepable = blocked
+	if len(blocked) > 0 {
+		v.Reason += fmt.Sprintf("\nLeft out of next: %s did not pass in source run %s. A slice that keeps it stops there\n"+
+			"(-verify has no -keep-going), so step %s is never sent and the verdict can only be DID NOT RUN.",
+			strings.Join(blocked, ", "), rec.RunID, res.Target)
+	}
+	if len(usable) == 0 {
+		v.Reason += "\nNo -keep command can reproduce this target: every dropped write it would need failed in the source run.\n" +
+			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
+		return
+	}
+	v.Next = keepWritesCommand(res, rec.RunID, a, usable)
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
@@ -488,7 +540,10 @@ func verdictOf(sr *runner.StepRecord) chain.Verdict {
 	return chain.Verdict{Step: sr.ID, Status: sr.Status, ErrorCode: code, Expect: sr.Expect}
 }
 
-var interpolatedRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+var (
+	interpolatedRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+	freshPerRun     = regexp.MustCompile(`\$\{\s*(uuid|now|nowunix)\b`)
+)
 
 func interpolatedVars(c *chain.Chain) map[string]bool {
 	out := map[string]bool{}
@@ -499,6 +554,9 @@ func interpolatedVars(c *chain.Chain) map[string]bool {
 	walk = func(v any) {
 		switch t := v.(type) {
 		case string:
+			if freshPerRun.MatchString(t) {
+				return
+			}
 			for _, m := range interpolatedRef.FindAllStringSubmatchIndex(t, -1) {
 				if m[0] != 0 || m[1] != len(t) {
 					out[t[m[2]:m[3]]] = true
@@ -655,4 +713,162 @@ func missingVarsError(res *chain.SliceResult, rec *runner.Record) error {
 			"the backend has not seen: reusing run %s's value collides with what that run made (a duplicate key refusal)", res.Run)
 	}
 	return fmt.Errorf("%s.\nPass: %s", msg, strings.Join(flags, " "))
+}
+
+func runRequired(mode string, verify bool) error {
+	switch {
+	case mode == chain.SliceModePin && verify:
+		return fmt.Errorf("-mode pin and -verify need -run <run-id|latest>: pin mode pins values from that run, and -verify compares the target's verdict against it")
+	case mode == chain.SliceModePin:
+		return fmt.Errorf("-mode pin needs -run <run-id|latest>: it pins the values that run's steps produced, so without one there is nothing to pin")
+	case verify:
+		return fmt.Errorf("-verify needs -run <run-id|latest>: it compares the target's verdict against that run's, so without one there is nothing to compare against")
+	}
+	return nil
+}
+
+func reachedStep(rec *runner.Record, step string) (bool, string) {
+	sr, ok := rec.Step(step)
+	if !ok {
+		return false, "not in run, " + rec.Status
+	}
+	if sr.Status == runner.StatusPassed || sr.Status == runner.StatusFailed {
+		return true, sr.Status
+	}
+	return false, sr.Status
+}
+
+func newestRunReaching(e *env, chainName, step, skip string) (*runner.Record, error) {
+	ids, err := e.store.ListRuns(chainName)
+	if err != nil {
+		return nil, err
+	}
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] == skip {
+			continue
+		}
+		rec, err := e.store.LoadRun(chainName, ids[i])
+		if err != nil {
+			continue
+		}
+		if ok, _ := reachedStep(rec, step); ok {
+			return rec, nil
+		}
+	}
+	return nil, nil
+}
+
+func loadRunReaching(e *env, chainName, runID, step string) (*runner.Record, error) {
+	if runID == "latest" {
+		latest, err := e.store.LatestRun(chainName)
+		if err != nil {
+			return nil, err
+		}
+		if ok, _ := reachedStep(latest, step); ok {
+			return latest, nil
+		}
+		_, why := reachedStep(latest, step)
+		rec, err := newestRunReaching(e, chainName, step, latest.RunID)
+		if err != nil {
+			return nil, err
+		}
+		if rec == nil {
+			return nil, fmt.Errorf("no recorded run of %s reached step %q (the newest, %s, stopped before it: %s), so there is no value to pin and no verdict to compare.\n"+
+				"Run the chain until it reaches the step: shrt run %s", chainName, step, latest.RunID, why, chainName)
+		}
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest run of %s that reached step %s; the newest run, %s, did not (%s)\n",
+			rec.RunID, chainName, step, latest.RunID, why)
+		return rec, nil
+	}
+	rec, err := e.store.LoadRun(chainName, runID)
+	if err != nil {
+		return nil, err
+	}
+	ok, why := reachedStep(rec, step)
+	if ok {
+		return rec, nil
+	}
+	msg := fmt.Sprintf("run %s did not reach step %q (%s), so it has no value to pin and no verdict to compare", rec.RunID, step, why)
+	other, err := newestRunReaching(e, chainName, step, rec.RunID)
+	if err != nil {
+		return nil, err
+	}
+	if other == nil {
+		return nil, fmt.Errorf("%s, and no recorded run of %s reached it.\nRun the chain until it reaches the step: shrt run %s", msg, chainName, chainName)
+	}
+	return nil, fmt.Errorf("%s.\nRun %s did: pass -run %s (or -run latest, which picks the newest run that reached the step)", msg, other.RunID, other.RunID)
+}
+
+func reusedDeclaredVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Record, supplied varFlags) error {
+	if res.Mode != chain.SliceModeClosure || rec == nil {
+		return nil
+	}
+	reused := []string{}
+	for name := range interpolatedVars(res.Chain) {
+		if _, given := supplied[name]; given {
+			continue
+		}
+		declared, ok := source.Vars[name]
+		if !ok {
+			continue
+		}
+		used, ok := rec.Vars[name]
+		if !ok || fmt.Sprint(used) != fmt.Sprint(declared) {
+			continue
+		}
+		reused = append(reused, name)
+	}
+	if len(reused) == 0 {
+		return nil
+	}
+	sort.Strings(reused)
+	flags := make([]string, 0, len(reused))
+	for _, name := range reused {
+		flags = append(flags, "-var "+name+"=<fresh>")
+	}
+	return fmt.Errorf("the slice interpolates var(s) %s into what it creates, and %s declares them with the value run %s used, so -verify would re-send it.\n"+
+		"Closure mode re-creates what the source run created, and reusing that value collides with what that run made (a duplicate key refusal).\n"+
+		"Pass: %s, replacing each <fresh> with a value this backend has not seen",
+		strings.Join(reused, ", "), source.Name, rec.RunID, strings.Join(flags, " "))
+}
+
+func recordVerdictIn(path, verified string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	doc := &yaml.Node{}
+	if err := yaml.Unmarshal(raw, doc); err != nil {
+		return err
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return fmt.Errorf("%s is not a chain mapping, so the verdict cannot be recorded in it", path)
+	}
+	top := doc.Content[0]
+	current := ""
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		if top.Content[i].Value == "description" {
+			current = top.Content[i+1].Value
+		}
+	}
+	value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: chain.RecordVerified(current, verified), Style: yaml.LiteralStyle}
+	setKey(top, "description", value)
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, out, 0o644)
+}
+
+func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
+	usable, blocked := []string{}, []string{}
+	for _, id := range ids {
+		sr, ok := rec.Step(id)
+		if ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) {
+			blocked = append(blocked, id+" ("+sr.Status+")")
+			continue
+		}
+		usable = append(usable, id)
+	}
+	return usable, blocked
 }

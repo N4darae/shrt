@@ -102,11 +102,15 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 	if !strings.Contains(again, "verify reproduced") {
 		t.Errorf("with the write kept the verdict is a receipt:\n%s", again)
 	}
-	if _, err := os.Stat(".shrt/chains/cli-noisy-flow-slice-fetch.yaml"); err != nil {
-		t.Errorf("-write must keep the slice: %v", err)
+	if _, err := os.Stat(".shrt/chains/cli-noisy-flow-slice-fetch.yaml"); err == nil {
+		t.Errorf("with every write kept the slice is the chain itself, so -write records the verdict there instead of copying it")
 	}
-	entries, err := os.ReadDir(".shrt/runs/cli-noisy-flow-slice-fetch")
-	if err != nil || len(entries) != 1 {
-		t.Errorf("a written slice keeps its verify run record next to its chain: %v, %d", err, len(entries))
+	raw, err := os.ReadFile(".shrt/chains/cli-noisy-flow.yaml")
+	if err != nil || !strings.Contains(string(raw), "VERIFIED by 'shrt chain slice -verify'") {
+		t.Errorf("the verdict must be recorded in the chain the slice equals: %v\n%s", err, raw)
+	}
+	entries, err := os.ReadDir(".shrt/runs/cli-noisy-flow")
+	if err != nil || len(entries) != 2 {
+		t.Errorf("the verify run record is kept next to the chain it ran: %v, %d", err, len(entries))
 	}
 }

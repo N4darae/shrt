@@ -144,7 +144,8 @@ var notes = map[string]string{
 	"Record.volatile":     "Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record.",
 	"Record.redacted":     "Redact patterns in force. The values themselves are already masked in `request`/`response`.",
 	"Record.steps":        "One entry per step, in order.",
-	"Record.failure":      "Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass.",
+	"Record.failure":      "Why the run stopped, when it did. Under `-keep-going`, one line per step that did not pass; when a step could not connect to the target at all (connection refused, a dial or DNS failure — not a Connect error), every later step is recorded `skipped` unsent and this carries ONE line naming the unreachable target, instead of one per step.",
+	"Record.warning":      "A run-level warning. Today: every response carrying `conventions.envelope_path` had a value other than `conventions.envelope_ok` (refusals a step asserted with `equals` aside), which usually means `envelope_ok` spells success wrongly for this backend; it names the values seen.",
 	"Record.keep_going":   "True when `shrt run -keep-going` produced this record: steps after a failure were still run, so a later red may be a consequence of an earlier one.",
 	"Record.failed_steps": "Under `-keep-going`, the id of every step that did not pass, in order — failed, error, and skipped behind one of those. `status` is the FIRST such step's status, the same verdict the run would have had without the flag.",
 
@@ -152,7 +153,7 @@ var notes = map[string]string{
 	"StepRecord.id":              "The step id.",
 	"StepRecord.call":            "As written in the chain.",
 	"StepRecord.procedure":       "The resolved `/package.Service/Rpc`.",
-	"StepRecord.status":          "`passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error.",
+	"StepRecord.status":          "`passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. A `-keep-going` step after one that could not connect to the target at all is `skipped` too, its `error` naming the unreachable target.",
 	"StepRecord.http_status":     "Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal.",
 	"StepRecord.latency_ms":      "Per-step wall time.",
 	"StepRecord.request":         "What was sent, AFTER reference resolution and redaction.",
@@ -189,8 +190,8 @@ var notes = map[string]string{
 	"SafeSpot.steps":        "The confirmed step records, which a replay is diffed against.",
 
 	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve.",
-	"Conventions.envelope_path":      "JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead.",
-	"Conventions.envelope_ok":        "The `envelope_path` value that means success. Default `OK`.",
+	"Conventions.envelope_path":      "JSON path at which a response reports its own verdict. Default `error.code`. Set it to MOVE the envelope, never to remove it: an explicit empty value is indistinguishable from an absent key and falls back to the default. A backend with no in-body envelope needs no setting — a response carrying no field of that name gets a scaffolded assertion on a real response field instead. A path set here that no response message in the descriptor declares fails `shrt run` before any traffic is sent, as `shrt doctor` fails it.",
+	"Conventions.envelope_ok":        "The `envelope_path` value that means success. Default `OK`. A run in which responses carried the envelope but none carried this value ends with a `warning` naming the values seen; a batch whose items \"refuse\" with the very value the top-level envelope carries says to check this key.",
 	"Conventions.item_envelope_path": "Per-item verdict in a BATCH response, as `<list>[].<path>` (e.g. `results[].error.code`). A batch rpc can answer `OK` at the top level while refusing every line; without this the runner cannot see that, and a step asserting only the envelope passes having achieved nothing. Unset means the backend has no per-item envelope. Checked only on rpcs whose response message declares that list with that field, so a list of atomic receipts carrying no verdict is left alone; a refusal the step pins with `equals`, `not_equal` or `contains` on that line's verdict path, or on one of that line's code fields (`conventions.code_fields`), is declared, not reported, while `exists` and `not_empty` declare nothing; a path no response message declares fails `shrt run` before any traffic is sent.",
 	"Conventions.code_fields":        "Detail-field names that carry a backend's OWN numeric or symbolic code, searched by `shrt chain which -code`. Default `app_code`, `reason`, `error_code`. An explicit list REPLACES the defaults. The envelope's own leaf is not listed here — it follows `envelope_path`, so a deployment answering at `status.code` is searched there without any setting. Nothing enforces these names; a code this list cannot reach makes `chain which` answer \"no chain asserts it\" for a corpus that does.",
 	"Conventions.validate_output":    "When true, a response that does not match its proto message FAILS the step. Default false: the response is kept as sent and a warning is recorded, so a descriptor that has drifted from the deployed binary degrades quietly rather than failing every chain. Turn it on once your descriptor build and your deploy are in step.",
@@ -725,6 +726,9 @@ func exerciseCLI() (string, error) {
 	b.WriteString("\nEvery command prints its own flags with `-h`. `run` and `verify` take `-var key=value`\n")
 	b.WriteString("(repeatable) and `-json`; `verify` also takes `-run <id>`, which re-diffs a recorded run\n")
 	b.WriteString("**without touching the backend** — the one way to investigate a drift on a live-run budget.\n")
+	b.WriteString("`verify` replays as `-keep-going` does, so every step a failure does not block is still compared; a\n")
+	b.WriteString("step held back behind one, or never reached by a recorded run that stopped early, is reported\n")
+	b.WriteString("`not_reached` rather than as a change of length, and the report names the first failing step.\n")
 	return b.String(), nil
 }
 

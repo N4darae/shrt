@@ -25,3 +25,16 @@ func AuthBodyReferenceProblems(body map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+func AuthBodyEnvRefs(body map[string]any) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, ref := range collectRefs(body) {
+		if r := ParseRef(ref); r.Kind == RefEnv && !seen[ref] {
+			seen[ref] = true
+			out = append(out, "${"+ref+"}")
+		}
+	}
+	sort.Strings(out)
+	return out
+}

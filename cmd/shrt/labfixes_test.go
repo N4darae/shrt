@@ -47,8 +47,14 @@ func TestInitExampleChainUsesTheDetectedEnvelopeWithoutGuessingItsValue(t *testi
 	if strings.Contains(text, "error.code") || strings.Contains(text, "equals: OK") {
 		t.Fatalf("init detected the verdict at status.code, yet the example asserts error.code: OK:\n%s", text)
 	}
-	if !strings.Contains(text, "- path: status.code\n        not_empty: true") {
-		t.Fatalf("the example must point at the detected envelope without asserting a guessed value:\n%s", text)
+	if !strings.Contains(text, "- path: status.code\n        equals: REPLACE_ME_SUCCESS_VALUE") {
+		t.Fatalf("the example must point at the detected envelope with a named placeholder, not a guessed value:\n%s", text)
+	}
+	if strings.Contains(text, "not_empty: true\n") && strings.Contains(text, "status.code\n        not_empty") {
+		t.Fatalf("not_empty on the envelope passes on every refusal too, so the example must not teach it:\n%s", text)
+	}
+	if strings.Contains(text, "acme.") {
+		t.Fatalf("the example names placeholder rpcs, not another company's services:\n%s", text)
 	}
 	if !strings.Contains(out, "target.base_url") {
 		t.Fatalf("init's next: list must say to set target.base_url:\n%s", out)
@@ -160,5 +166,17 @@ func TestContractStatusGapsPrintsOnlyTheGaps(t *testing.T) {
 	if strings.Contains(out, "no path to   shop.orders.v1.OrderService/WatchOrder") ||
 		!strings.Contains(out, "streaming    shop.orders.v1.OrderService/WatchOrder") {
 		t.Fatalf("a streaming rpc is out of scope, not a missing edge:\n%s", out)
+	}
+	if !strings.Contains(out, "no path to   it has a contract, but appears in no multi-step plan") {
+		t.Fatalf("-gaps must say what a 'no path to' line means, since it is not a missing contract:\n%s", out)
+	}
+}
+
+func TestContractStatusGapsHelpNamesBothKindsOfGap(t *testing.T) {
+	defer shopStatusWorkspace(t)()
+	var err error
+	out := captureStderr(t, func() { err = contractStatus([]string{"-h"}) })
+	if !strings.Contains(out, "'no contract'") || !strings.Contains(out, "'no path to'") {
+		t.Fatalf("-gaps help must describe what -gaps prints (%v):\n%s", err, out)
 	}
 }

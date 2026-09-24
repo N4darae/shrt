@@ -232,11 +232,26 @@ func failureOf(step *chain.Step, sr *StepRecord) string {
 	return failure
 }
 
-func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+type exportSource struct {
+	step string
+	path string
+}
+
+type exportSources map[string]exportSource
+
+func (x exportSources) steps() map[string]string {
+	out := make(map[string]string, len(x))
+	for name, src := range x {
+		out[name] = src.step
+	}
+	return out
+}
+
+func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
 	return readsBrokenIn(step.SendReferences(), broken, exporter)
 }
 
-func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) map[int]string {
+func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
 	held := map[int]string{}
 	for i, e := range step.Expect {
 		if ref, producer, ok := readsBrokenIn(e.References(), broken, exporter); ok {
@@ -246,9 +261,10 @@ func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, expor
 	return held
 }
 
-func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
+	steps := exporter.steps()
 	for _, ref := range refs {
-		producer := producerOf(ref, exporter)
+		producer := producerOf(ref, steps)
 		sr, isBroken := broken[producer]
 		if producer == "" || !isBroken {
 			continue
@@ -256,7 +272,7 @@ func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter map[st
 		if readsRequest(ref) && sr.Request != nil {
 			continue
 		}
-		if readsSoundField(ref, sr) {
+		if readsSoundField(exportedPath(ref, exporter), sr) {
 			continue
 		}
 		return ref, sr, true
@@ -285,6 +301,28 @@ func readsSoundField(ref string, sr *StepRecord) bool {
 		}
 	}
 	return true
+}
+
+func exportedPath(ref string, exporter exportSources) string {
+	r := chain.ParseRef(ref)
+	name := ""
+	switch r.Kind {
+	case chain.RefExports:
+		name = r.Rest
+	case chain.RefBare:
+		name = r.Head
+	default:
+		return ref
+	}
+	name, tail, _ := strings.Cut(name, ".")
+	src, ok := exporter[name]
+	if !ok || src.path == "" {
+		return ref
+	}
+	if tail != "" {
+		return src.step + "." + src.path + "." + tail
+	}
+	return src.step + "." + src.path
 }
 
 func responsePathOf(ref string) (string, bool) {
@@ -340,6 +378,30 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 	return sr
 }
 
+func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
+	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
+	if method, err := r.Catalog.Lookup(step.Call); err == nil {
+		sr.Procedure = method.Procedure()
+	}
+	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
+	return sr
+}
+
+func unreachableReason(target string, dead *StepRecord) string {
+	return fmt.Sprintf("the target %s is unreachable (%s at step %q), so -keep-going stopped sending",
+		target, dead.unreachable, dead.ID)
+}
+
+func innermost(err error) string {
+	for {
+		next := errors.Unwrap(err)
+		if next == nil {
+			return err.Error()
+		}
+		err = next
+	}
+}
+
 func whyNotReadable(sr *StepRecord) string {
 	switch {
 	case sr.Status == StatusSkipped:
@@ -362,6 +424,54 @@ func whyNotReadable(sr *StepRecord) string {
 	}
 	return "did not pass (" + firstLine(firstNonEmpty(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
+}
+
+func envelopeOKNeverSeen(steps []*StepRecord) string {
+	path, ok := chain.EnvelopePath(), chain.EnvelopeOK()
+	if path == "" {
+		return ""
+	}
+	counts := map[string]int{}
+	for _, sr := range steps {
+		if sr.Transport != nil || sr.Drift || len(sr.Response) == 0 {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(sr.Response, &v); err != nil {
+			continue
+		}
+		code, found := chain.Get(v, path)
+		if !found || code == nil {
+			continue
+		}
+		text := fmt.Sprint(code)
+		if text == ok {
+			return ""
+		}
+		if !assertedValue(sr.Expect, path) {
+			counts[text]++
+		}
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	seen := make([]string, 0, len(counts))
+	for text, n := range counts {
+		seen = append(seen, fmt.Sprintf("%s (%d)", text, n))
+	}
+	sort.Strings(seen)
+	return fmt.Sprintf("no response in this run carried %s = %s, the configured success value; the values seen "+
+		"were %s. If one of those is how this backend spells success, conventions.envelope_ok in "+
+		".shrt/config.yaml is wrong, and every success is being read as a refusal", path, ok, strings.Join(seen, ", "))
+}
+
+func assertedValue(results []chain.ExpectResult, path string) bool {
+	for _, e := range results {
+		if e.Passed && e.Path == path && e.Rule == "equals" {
+			return true
+		}
+	}
+	return false
 }
 
 func inBandRefusal(response json.RawMessage) (string, bool) {
@@ -426,11 +536,23 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
-	exporter := map[string]string{}
+	exporter := exportSources{}
 	failures := []string{}
+	var dead *StepRecord
+	unreached := 0
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind := false
+		if dead != nil {
+			sr = r.skippedUnreachable(i, step, dead)
+			rec.Steps = append(rec.Steps, sr)
+			rec.FailedSteps = append(rec.FailedSteps, step.ID)
+			unreached++
+			if r.OnStep != nil {
+				r.OnStep(sr)
+			}
+			continue
+		}
 		if opts.KeepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
@@ -444,8 +566,8 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
 		}
-		for name := range step.Export {
-			exporter[name] = step.ID
+		for name, path := range step.Export {
+			exporter[name] = exportSource{step: step.ID, path: path}
 		}
 		builds.observe(rec, sr)
 		rec.Steps = append(rec.Steps, sr)
@@ -473,12 +595,21 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		broken[step.ID] = sr
 		rec.FailedSteps = append(rec.FailedSteps, step.ID)
 		failures = append(failures, failure)
+		if sr.unreachable != "" {
+			dead = sr
+		}
 	}
 	if len(failures) > 0 {
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", len(failures), len(c.Steps)) +
+		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", len(failures)+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}
+	if unreached > 0 {
+		rec.Failure += fmt.Sprintf("\n%d later step(s) not sent: %s", unreached, unreachableReason(r.Client.BaseURL(), dead))
+	}
 
+	if !opts.DryRun {
+		rec.Warning = envelopeOKNeverSeen(rec.Steps)
+	}
 	rec.Exports = maskExports(scope.Exports, c.Steps, redactor)
 	if masked, ok := redactor.Apply(rec.Vars).(map[string]any); ok {
 		rec.Vars = masked
@@ -548,6 +679,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 	}
 	if err != nil {
+		if transport.Unreachable(err) {
+			sr.unreachable = innermost(err)
+		}
 		return fail(sr, err)
 	}
 	sr.HTTPStatus = res.Status
@@ -592,7 +726,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Response = jsonBodyOrString(res.Body)
 		sr.Status = StatusFailed
 		sr.Drift = true
-		sr.Expect = unevaluated(step.Expect)
+		sr.Expect = unevaluated(step.Expect, redactor)
 		sr.Error = "conventions.validate_output is on and this response does not match " +
 			string(method.Output().FullName()) + ": " + cerr.Error() +
 			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
@@ -627,6 +761,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			response, presence = outcome, outcome
 		}
 		result := evaluate(scope, e, response, presence, redactor)
+		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
+			result.Detail = refusalContext(decoded, e.Path, redactor)
+		}
 		if why, held := opts.heldBack[i]; held {
 			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
 		}
@@ -655,7 +792,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if surprises := chain.UndeclaredRefusals(refusals, step.Expect); len(surprises) > 0 {
 			got := make([]string, 0, len(surprises))
 			for _, r := range surprises {
-				got = append(got, r.String())
+				line := r.String()
+				if why := refusalContext(decoded, r.Path, redactor); why != "" {
+					line += " (" + why + ")"
+				}
+				got = append(got, line)
 			}
 			sr.Expect = append(sr.Expect, chain.ExpectResult{
 				Path:   chain.ItemEnvelope(),
@@ -663,7 +804,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 				Want:   chain.EnvelopeOK(),
 				Got:    strings.Join(got, ", "),
 				Passed: false,
-				Detail: itemEnvelopeDetail(decoded),
+				Detail: itemEnvelopeDetail(decoded, surprises),
 			})
 			sr.Status = StatusFailed
 		}
@@ -712,10 +853,59 @@ func unassertedRefusalWarning(decoded any) string {
 		chain.EnvelopeOK(), path, text)
 }
 
-func itemEnvelopeDetail(decoded any) string {
+func refusalContext(decoded any, codePath string, redactor *pathmask.Masker) string {
+	parent := ""
+	if i := strings.LastIndex(codePath, "."); i >= 0 {
+		parent = codePath[:i+1]
+	}
+	parts := []string{}
+	seen := map[string]bool{}
+	add := func(label, path string) {
+		v, ok := chain.Get(decoded, path)
+		if !ok || v == nil {
+			return
+		}
+		text := fmt.Sprint(v)
+		if text == "" || seen[label] {
+			return
+		}
+		if redactor.MasksValue(path, v) {
+			text = pathmask.MaskRedacted
+		}
+		if len(text) > 200 {
+			text = text[:200] + "..."
+		}
+		seen[label] = true
+		if label == "message" {
+			text = strconv.Quote(text)
+		}
+		parts = append(parts, label+"="+text)
+	}
+	add("message", parent+"message")
+	for _, field := range []string{"reason", "app_code"} {
+		add(field, parent+"details.0."+field)
+		add(field, parent+field)
+	}
+	return strings.Join(parts, " ")
+}
+
+func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 	said := "no top-level verdict at " + chain.EnvelopePath()
 	if v, ok := chain.Get(decoded, chain.EnvelopePath()); ok && v != nil {
 		said = fmt.Sprintf("the top-level envelope said %v", v)
+		top := fmt.Sprint(v)
+		same := len(surprises) > 0
+		for _, r := range surprises {
+			if r.Code != top {
+				same = false
+			}
+		}
+		if same {
+			return fmt.Sprintf("these items carry %s, the very value the top-level envelope carries, and "+
+				"conventions.envelope_ok is %q, so every one counts as refused. If %s is this backend's success "+
+				"value, the items were not refused at all: set conventions.envelope_ok: %s in .shrt/config.yaml",
+				top, chain.EnvelopeOK(), top, top)
+		}
 	}
 	return "every item in a batch response carries its own verdict, and these were refused while " + said +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
@@ -747,7 +937,7 @@ func transportOutcome(res *transport.Result) map[string]any {
 }
 
 func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map[string]any, redactor *pathmask.Masker) []chain.ExpectResult {
-	out := unevaluated(expect)
+	out := unevaluated(expect, redactor)
 	for i, e := range expect {
 		if chain.IsTransportPath(e.Path) {
 			out[i] = evaluate(scope, e, outcome, outcome, redactor)
@@ -975,7 +1165,22 @@ func failedExpectations(sr *StepRecord) string {
 	return "expectation failed: " + strings.Join(parts, "; ")
 }
 
-func unevaluated(expect []chain.Expectation) []chain.ExpectResult {
+func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
+	declared := e.EvaluateIn(nil, nil)
+	want := declared.Want
+	if redactor.MasksValue(e.Path, want) {
+		want = pathmask.MaskRedacted
+	}
+	switch declared.Rule {
+	case "equals", "invalid":
+		return want
+	case "not_empty":
+		return "not_empty"
+	}
+	return declared.Rule + " " + fmt.Sprint(want)
+}
+
+func unevaluated(expect []chain.Expectation, redactor *pathmask.Masker) []chain.ExpectResult {
 	if len(expect) == 0 {
 		return nil
 	}
@@ -984,6 +1189,7 @@ func unevaluated(expect []chain.Expectation) []chain.ExpectResult {
 		out = append(out, chain.ExpectResult{
 			Path:   e.Path,
 			Rule:   "unevaluated",
+			Want:   declaredWant(e, redactor),
 			Passed: false,
 			Detail: "the call was refused before a response body existed, so this assertion never ran. " +
 				"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted " +

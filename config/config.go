@@ -163,6 +163,7 @@ func Default() *Config {
 func (c *Config) NeverCommit() []string {
 	runs := DirName + "/runs"
 	descriptor := DirName + "/descriptor.binpb"
+	safespots := DirName + "/safespots"
 	if c != nil {
 		if c.Paths.Runs != "" {
 			runs = c.Paths.Runs
@@ -170,12 +171,16 @@ func (c *Config) NeverCommit() []string {
 		if c.Descriptor.File != "" {
 			descriptor = c.Descriptor.File
 		}
+		if c.Paths.SafeSpots != "" {
+			safespots = c.Paths.SafeSpots
+		}
 	}
 	return []string{
 		strings.TrimSuffix(runs, "/") + "/",
 		descriptor,
 		DocsDir + "/",
 		DirName + "/" + TokensFile,
+		strings.TrimSuffix(safespots, "/") + "/pending/",
 	}
 }
 

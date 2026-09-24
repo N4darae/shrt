@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/N4darae/shrt/namecase"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -111,6 +112,14 @@ func (f *Field) WellKnownExample() (any, bool) {
 }
 
 func FieldAt(fields []*Field, segs []string) (*Field, bool) {
+	return fieldAt(fields, segs, false)
+}
+
+func ResponseFieldAt(fields []*Field, segs []string) (*Field, bool) {
+	return fieldAt(fields, segs, true)
+}
+
+func fieldAt(fields []*Field, segs []string, folded bool) (*Field, bool) {
 	var cur *Field
 	for len(segs) > 0 {
 		head := segs[0]
@@ -118,13 +127,7 @@ func FieldAt(fields []*Field, segs []string) (*Field, bool) {
 		if isIndex(head) {
 			continue
 		}
-		var next *Field
-		for _, f := range fields {
-			if f.Name == head {
-				next = f
-				break
-			}
-		}
+		next := fieldNamed(fields, head, folded)
 		if next == nil {
 			return nil, false
 		}
@@ -137,12 +140,42 @@ func FieldAt(fields []*Field, segs []string) (*Field, bool) {
 	return cur, true
 }
 
+func fieldNamed(fields []*Field, name string, folded bool) *Field {
+	for _, f := range fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	if !folded {
+		return nil
+	}
+	for _, f := range fields {
+		if namecase.Equal(f.Name, name) {
+			return f
+		}
+	}
+	return nil
+}
+
 func HasPath(fields []*Field, segs []string) bool {
 	_, ok := FieldAt(fields, segs)
 	return ok
 }
 
+func HasResponsePath(fields []*Field, segs []string) bool {
+	_, ok := ResponseFieldAt(fields, segs)
+	return ok
+}
+
 func MissingIndex(fields []*Field, segs []string) (string, bool) {
+	return missingIndex(fields, segs, false)
+}
+
+func ResponseMissingIndex(fields []*Field, segs []string) (string, bool) {
+	return missingIndex(fields, segs, true)
+}
+
+func missingIndex(fields []*Field, segs []string, folded bool) (string, bool) {
 	walked := make([]string, 0, len(segs))
 	for i := 0; i < len(segs); i++ {
 		head := segs[i]
@@ -150,13 +183,7 @@ func MissingIndex(fields []*Field, segs []string) (string, bool) {
 		if isIndex(head) {
 			continue
 		}
-		var next *Field
-		for _, f := range fields {
-			if f.Name == head {
-				next = f
-				break
-			}
-		}
+		next := fieldNamed(fields, head, folded)
 		if next == nil {
 			return "", false
 		}

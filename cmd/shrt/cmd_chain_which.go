@@ -43,14 +43,23 @@ func chainWhich(args []string) error {
 		}
 		q.RPC = m.FullName
 	}
-	hits := chain.Which(chains, q, chain.WhichOptions{
+	opts := chain.WhichOptions{
 		RPCOf:        rpcOf(e),
 		SliceOf:      sliceSizeOf(e),
 		Observations: runObservations(e),
 		FreshVars:    freshVarsOf(e),
-	})
+	}
+	hits := chain.Which(chains, q, opts)
 	if len(hits) == 0 {
-		return fmt.Errorf("no chain in %s %s\nnothing to slice: the corpus does not exercise it yet", e.chainsDir(), describeWhichQuery(q))
+		seen := chain.WhichObservedUnasserted(chains, q, opts)
+		if len(seen) == 0 {
+			return fmt.Errorf("no chain in %s %s, and no local run record observed it\nnothing to slice: the corpus does not exercise it yet", e.chainsDir(), describeWhichQuery(q))
+		}
+		if *asJSON {
+			return emitJSON(map[string]any{"chains": hits, "observed_unasserted": seen})
+		}
+		printObservedUnasserted(e.chainsDir(), q, seen)
+		return nil
 	}
 	if *asJSON {
 		return emitJSON(hits)
@@ -280,4 +289,19 @@ func whichCodeCell(m chain.WhichStep, q chain.WhichQuery) string {
 		return q.Code
 	}
 	return "-"
+}
+
+func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichUnasserted) {
+	fmt.Printf("no chain in %s %s, but local run records observed it on %d step(s) that do not assert it:\n\n", dir, describeWhichQuery(q), len(seen))
+	for _, s := range seen {
+		status := s.Status
+		if status != runner.StatusPassed {
+			status = strings.ToUpper(status)
+		}
+		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n    reproduce: %s\n",
+			s.Chain, s.Index, s.Step, shortCall(s.Call), s.Run, s.Code, s.Path, status, s.Command)
+	}
+	fmt.Printf("\nThe backend answered %s there, but no expectation pins it, so a change to that answer goes unnoticed.\n"+
+		"Assert it where it is the point of the step (path: the path above, equals: %s), and chain which lists the step.\n"+
+		"Run records are machine-local.\n", q.Code, q.Code)
 }

@@ -64,7 +64,7 @@ func runVerify(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		rec, err = executeChain(ctx, e, c, runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build}, *quiet || *asJSON)
+		rec, err = executeChain(ctx, e, c, runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, *quiet || *asJSON)
 		if err == nil && *save {
 			if _, serr := e.store.SaveRun(rec); serr != nil {
 				return serr

@@ -88,3 +88,33 @@ func TestKeepGoingSendsAStepReadingAFieldTheFailedStepDidNotFailOn(t *testing.T)
 		t.Fatalf("a step reading the very field that failed is still held back, got %s", rec.Steps[2].Status)
 	}
 }
+
+func TestKeepGoingSendsAStepReadingAnExportOfAFieldTheFailedStepDidNotFailOn(t *testing.T) {
+	srv := newFakeServer()
+	defer srv.Close()
+
+	c := normalized(t, &chain.Chain{Name: "keep-going-sound-export", Steps: []*chain.Step{
+		{ID: "create", Call: "ThingService/Create",
+			Body:   map[string]any{"name": "widget", "kind": "KIND_A"},
+			Expect: []chain.Expectation{{Path: "id", NotEmpty: true}, {Path: "name", Equals: "deliberately-wrong"}},
+			Export: map[string]string{"thing_id": "id", "thing_name": "name"}},
+		{ID: "fetch_by_bare_export", Call: "ThingService/Fetch",
+			Body: map[string]any{"id": "${thing_id}"}, Expect: okExpect()},
+		{ID: "fetch_by_export", Call: "ThingService/Fetch",
+			Body: map[string]any{"id": "${exports.thing_id}"}, Expect: okExpect()},
+		{ID: "fetch_by_failed_export", Call: "ThingService/Fetch",
+			Body: map[string]any{"id": "${thing_name}"}, Expect: okExpect()},
+	}})
+	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{KeepGoing: true})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	for _, i := range []int{1, 2} {
+		if rec.Steps[i].Status == runner.StatusSkipped {
+			t.Fatalf("%s reads an export of id, which create did not fail on, so it is sent: %s", rec.Steps[i].ID, rec.Steps[i].Error)
+		}
+	}
+	if rec.Steps[3].Status != runner.StatusSkipped {
+		t.Fatalf("an export of the very field that failed is still held back, got %s", rec.Steps[3].Status)
+	}
+}

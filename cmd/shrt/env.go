@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -26,7 +27,7 @@ func loadEnv(withCatalog bool) (*env, error) {
 	}
 	cfg, err := config.Load(wd)
 	if err != nil {
-		return nil, fmt.Errorf("%w\nrun 'shrt init' first", err)
+		return nil, configLoadError(wd, err)
 	}
 	contract.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
 	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
@@ -45,6 +46,16 @@ func loadEnv(withCatalog bool) (*env, error) {
 	}
 	e.cat = cat
 	return e, nil
+}
+
+func configLoadError(wd string, err error) error {
+	root, derr := config.Discover(wd)
+	if derr != nil {
+		return fmt.Errorf("%w\nrun 'shrt init' first", err)
+	}
+	return fmt.Errorf("%s exists but does not parse, so nothing was read from it: %w\n"+
+		"fix that line in the file; 'shrt init' would not help, it writes a fresh config and does not repair this one",
+		filepath.Join(root, config.DirName, config.FileName), err)
 }
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }

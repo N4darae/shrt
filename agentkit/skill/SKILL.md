@@ -20,12 +20,23 @@ Run from the repo root, whichever clone this is — nothing here assumes one mac
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+shrt init -agents=false -build=false # only if .shrt/docs/ is missing, as on a fresh clone
 shrt catalog build                   # the descriptor; without it every catalog command fails
 shrt catalog ls -filter invoice      # what rpcs exist
 ```
 
-The descriptor is build output and normally gitignored, so a fresh clone has none. Rebuild it
-after any proto change: it fails quietly rather than loudly, which is `.shrt/docs/PITFALLS.md` §2.
+`.shrt/docs/` is build output and gitignored, so a fresh clone has none of the four files this
+skill routes to. `shrt init -agents=false -build=false` writes them from the copy embedded in the
+binary and touches nothing that already exists, though on a clone missing them it can also add
+`.gitignore` entries or a `.shrt/config.yaml`; say so if it did. The descriptor is build output
+too, so a fresh clone has none. Rebuild it after any proto change: it fails quietly rather than
+loudly, which is `.shrt/docs/PITFALLS.md` §2.
+
+`.claude/` (this skill and the `shrt-contract-author` subagent) is the agent kit, and `shrt init`
+does not gitignore it. Commit it: an agent on a fresh clone finds shrt only through this file,
+and this file is what tells it to recover `.shrt/docs/`. A committed kit can drift from the
+binary, so after upgrading shrt refresh it with `shrt init -force -build=false`, which rewrites
+the docs and the kit but never your config, and commit the diff.
 
 `shrt` itself comes from `go install github.com/N4darae/shrt/cmd/shrt@latest`. Inside a
 clone of the shrt repo the binary is gitignored and built from source instead, and must be rebuilt

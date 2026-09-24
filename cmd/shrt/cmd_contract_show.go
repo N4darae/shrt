@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -63,9 +64,14 @@ func contractShow(args []string) error {
 		if i > 0 {
 			fmt.Println(strings.Repeat("-", 72))
 		}
-		generated := contract.ForCurated(m, lib, e.cat)
+		generated, notes := contract.ForCuratedWithNotes(m, lib, e.cat)
 		fmt.Print(generated.Text())
 		curated, hasCurated := lib.Get(m.FullName)
+		if hasCurated {
+			for _, n := range notes {
+				fmt.Fprintf(os.Stderr, "note: %s\n", n)
+			}
+		}
 		if !hasCurated {
 			fmt.Printf("\nNO CURATED CONTRACT\n  add one with: shrt contract init %s\n", contract.DomainOf(m))
 			continue
