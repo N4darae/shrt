@@ -170,8 +170,7 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 	}
 	if step, why, ok := unansweredOnly(rec, report); ok {
-		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
-			"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why)
+		return couldNotVerify(name, step, why, rec)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
@@ -365,6 +364,23 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 		}
 		return false
 	}
+}
+
+func couldNotVerify(name, step, why string, rec *runner.Record) error {
+	after, answered := false, 0
+	for _, st := range rec.Steps {
+		if after && (st.HTTPStatus != 0 || len(st.Response) > 0) {
+			answered++
+		}
+		after = after || st.ID == step
+	}
+	past := "nothing after it got an answer"
+	if answered > 0 {
+		past = fmt.Sprintf("the %d step(s) after it that got an answer were compared, but a change at or after it is "+
+			"not judged, since the unanswered call may explain it", answered)
+	}
+	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
+		"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why, past)
 }
 
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
