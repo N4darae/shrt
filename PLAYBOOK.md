@@ -1127,13 +1127,22 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
      again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
      needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
-     and a receipt. When you want both, write the minimal chain by hand (only the steps the
-     defect needs, its own writes included), run it, and verify the target on THAT chain with
+     and a receipt. A minimal chain you write by hand (only the steps the defect needs, its own
+     writes included) proves something narrower: run it, then verify the target on THAT chain with
      `shrt chain slice <minimal> -step <t> -run latest -keep writes -verify -write`. A plain
      `slice -verify` of it is not enough: closure still drops every write nothing references (an
      order created only so a list has something to filter), so it returns NOT REPRODUCED or
      INCONCLUSIVE. With `-keep writes` nothing that wrote state is dropped, so the verdict can be
-     `reproduced`, and when the slice keeps every step `-write` records it in the chain itself.
+     `reproduced`, and since that slice keeps every step, `-write` records it in the chain itself
+     as `RE-RUN ... own run`: the minimal chain reproduces its OWN failure, by itself and again. It is
+     not a receipt against the source run; nothing in it says the source chain failed the same way.
+     To also keep that receipt, make the minimal chain out of the source chain's own steps and
+     verify the source with them kept:
+     `shrt chain slice <src> -step <t> -run <source-run> -keep <ids of the minimal chain> -verify -write <name>`.
+     When that slice keeps no other write it can return `reproduced`, and its description records
+     `VERIFIED ... source run <source-run>`: that file is the minimal receipt. A hand-written step the
+     source chain does not have cannot be verified against its run; keep the two run ids (source and
+     minimal) in the minimal chain's description, and say that it was checked by hand.
    Until you have a verdict, the slice is a hypothesis, and every slice prints a line saying so;
    when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line, in the
    output and in the written slice's description: `VERIFIED`, `NOT REPRODUCED` or `INCONCLUSIVE by
