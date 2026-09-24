@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/N4darae/shrt/namecase"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -119,7 +121,7 @@ func (c *Catalog) Lookup(ref string) (*Method, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return nil, fmt.Errorf("unknown rpc %q: %w", ref, ErrNotFound)
+		return nil, fmt.Errorf("unknown rpc %q: %w%s", ref, ErrNotFound, c.closestRPC(ref))
 	default:
 		names := make([]string, 0, len(matches))
 		for _, m := range matches {
@@ -127,6 +129,36 @@ func (c *Catalog) Lookup(ref string) (*Method, error) {
 		}
 		return nil, fmt.Errorf("ambiguous rpc %q, candidates: %s", ref, strings.Join(names, ", "))
 	}
+}
+
+func (c *Catalog) closestRPC(ref string) string {
+	byForm := map[string][]string{}
+	forms := make([]string, 0, len(c.order))
+	for _, k := range c.order {
+		m := c.methods[k]
+		form := m.Name
+		switch {
+		case strings.Contains(ref, ".") && strings.Contains(ref, "/"):
+			form = m.FullName
+		case strings.Contains(ref, "/"):
+			form = shortService(m.Service) + "/" + m.Name
+		}
+		if _, seen := byForm[form]; !seen {
+			forms = append(forms, form)
+		}
+		byForm[form] = append(byForm[form], m.FullName)
+	}
+	near := namecase.Closest(ref, forms, 3)
+	if len(near) == 0 {
+		return ""
+	}
+	quoted := []string{}
+	for _, form := range near {
+		for _, full := range byForm[form] {
+			quoted = append(quoted, strconv.Quote(full))
+		}
+	}
+	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
 }
 
 func matchesRef(m *Method, ref string) bool {
