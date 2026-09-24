@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -70,7 +71,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	}
 	comparedTo, unstable := unstableFields(e, rec)
 	p, err := e.store.Propose(rec, store.ProposalInput{By: *by, Checked: *note, Supersede: *supersede, Now: time.Now(),
-		ComparedTo: comparedTo, Unstable: unstable})
+		ComparedTo: comparedTo, Unstable: unstable, Replaced: differsFromSafeSpot(e, rec)})
 	if errors.Is(err, store.ErrNoEvidence) {
 		return fmt.Errorf("%w: pass -note with what you inspected in the responses and why they are correct, not only that the run is green", err)
 	}
@@ -160,4 +161,32 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 		return prev.RunID, out
 	}
 	return "", nil
+}
+
+func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
+	spot, err := e.store.LoadSafeSpot(rec.Chain)
+	if err != nil {
+		return nil
+	}
+	var derived func(step, path string) bool
+	if c, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
+		derived = derivedRequestPath(c)
+	}
+	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
+	out := []store.Differ{}
+	for _, c := range rep.RequestChanges {
+		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
+	}
+	for _, c := range rep.Changes {
+		side := "response"
+		switch c.Kind {
+		case diff.KindStatus, diff.KindNotReached, diff.KindOrder:
+			side = "step"
+		}
+		if c.Step == "" {
+			side, c.Step = "run", "-"
+		}
+		out = append(out, store.Differ{Step: c.Step, Side: side, Path: c.Path, Delta: c.Transition()})
+	}
+	return out
 }

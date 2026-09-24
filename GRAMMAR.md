@@ -400,6 +400,13 @@ whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`
 reported; the report says how many it masked. In this example 2 value(s) were masked. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 
+Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
+every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
+request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
+every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input. When the input
+differs, the response changes are reported as coming with different input, not as a backend
+regression, and verify fails with `drift with different input` instead of `regression`.
+
 Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON
 type), `length` (a list or the step count has a different number of items), `order` (a step id or rpc

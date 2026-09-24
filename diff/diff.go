@@ -32,12 +32,13 @@ type Change struct {
 }
 
 type Report struct {
-	Chain        string   `json:"chain"`
-	SafeSpotID   string   `json:"safe_spot_run_id"`
-	RunID        string   `json:"run_id"`
-	FirstFailure string   `json:"first_failure,omitempty"`
-	Changes      []Change `json:"changes"`
-	Masked       int      `json:"masked"`
+	Chain          string   `json:"chain"`
+	SafeSpotID     string   `json:"safe_spot_run_id"`
+	RunID          string   `json:"run_id"`
+	FirstFailure   string   `json:"first_failure,omitempty"`
+	RequestChanges []Change `json:"request_changes,omitempty"`
+	Changes        []Change `json:"changes"`
+	Masked         int      `json:"masked"`
 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
@@ -112,6 +113,52 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		}
 	}
 	return rep
+}
+
+func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []string, derived func(step, path string) bool) *Report {
+	rep := CompareMasking(spot, rec, extra)
+	rep.RequestChanges = CompareRequests(spot, rec, derived)
+	return rep
+}
+
+func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
+	out := []Change{}
+	for i := range min(len(spot.Steps), len(rec.Steps)) {
+		want, got := spot.Steps[i], rec.Steps[i]
+		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+			continue
+		}
+		a, errA := decode(want.Request)
+		b, errB := decode(got.Request)
+		if errA != nil || errB != nil {
+			continue
+		}
+		walk(a, b, "", func(c Change) {
+			if derived != nil && derived(want.ID, c.Path) {
+				return
+			}
+			if derived == nil && c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+				return
+			}
+			c.Step = want.ID
+			out = append(out, c)
+		})
+	}
+	return out
+}
+
+func (c Change) Transition() string {
+	switch c.Kind {
+	case KindMissing:
+		return fmt.Sprintf("%v -> absent", c.Want)
+	case KindUnexpected:
+		return fmt.Sprintf("absent -> %v", c.Got)
+	case KindLength:
+		return fmt.Sprintf("%v item(s) -> %v item(s)", c.Want, c.Got)
+	case KindType:
+		return fmt.Sprintf("%s -> %s", withKind(c.Want), withKind(c.Got))
+	}
+	return fmt.Sprintf("%v -> %v", c.Want, c.Got)
 }
 
 func StepReached(rec *runner.Record, s *runner.StepRecord) bool {
@@ -301,11 +348,23 @@ func (r *Report) Text() string {
 	if r.Masked > 0 {
 		masked = fmt.Sprintf(" (%d id- or timestamp-shaped value(s) that differ every run were not counted)", r.Masked)
 	}
-	if r.Clean() {
-		return fmt.Sprintf("no drift vs safe spot %s%s", r.SafeSpotID, masked)
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
+	for _, c := range r.RequestChanges {
+		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
+	}
+	if len(r.RequestChanges) > 0 {
+		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: its input changed since it was confirmed\n",
+			len(r.RequestChanges), r.SafeSpotID)
+	}
+	if r.Clean() {
+		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
+		return b.String()
+	}
+	if len(r.RequestChanges) > 0 {
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
+	} else {
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
+	}
 	if r.FirstFailure != "" {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
 	}

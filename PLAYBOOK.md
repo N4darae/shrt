@@ -607,7 +607,9 @@ language, give:
    that differed and is not masked: every `verify` would report those as drift. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
-   the chain once more first;
+   the chain once more first. A `-supersede` proposal is also compared with the safe spot it
+   replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
+   column, and every request and response difference from it is listed under the table;
 5. the question: approve or reject.
 
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
@@ -641,6 +643,14 @@ After you touch it, the same two lines. A drift report names the step, the path,
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
 of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
 spot, and says so: a regression in a path no safe spot exercises is not seen.
+
+A drift can also come from the chain itself. `verify` first compares what each step SENT with what
+the safe spot's run sent, and prints each difference before the response changes:
+`request differs from the confirmed run at create_order lines.0.qty (3 -> 4)`. Values built from
+another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. With a
+request difference the verdict is `drift with different input`, not `regression`: the backend was
+asked something else. Restore the input, or, when the edit is intended, bring the expectations in
+line, run it green, and propose that run with `shrt confirm <name> -supersede`.
 
 Three things that decide whether this works for a given chain:
 

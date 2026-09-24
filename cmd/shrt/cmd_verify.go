@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
@@ -49,6 +51,7 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 
 	var rec *runner.Record
+	var c *chain.Chain
 	if *useRun != "" {
 		if *useRun == spot.RunID {
 			fmt.Fprintf(os.Stderr,
@@ -58,8 +61,10 @@ func runVerify(ctx context.Context, args []string) error {
 					"replay live.\n", *useRun)
 		}
 		rec, err = e.store.LoadRun(name, *useRun)
+		if resolved, resolveErr := chain.Resolve(e.chainsDir(), name); resolveErr == nil {
+			c = resolved
+		}
 	} else {
-		var c *chain.Chain
 		c, err = chain.Resolve(e.chainsDir(), name)
 		if err != nil {
 			return err
@@ -76,6 +81,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	if c != nil {
+		report.RequestChanges = diff.CompareRequests(spot, rec, derivedRequestPath(c))
+	}
 	if *asJSON {
 		if err := emitJSON(map[string]any{"run": rec, "diff": report}); err != nil {
 			return err
@@ -89,6 +97,12 @@ func runVerify(ctx context.Context, args []string) error {
 		if report.Clean() {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 		}
+	}
+	if !report.Clean() && len(report.RequestChanges) > 0 {
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
+			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
+			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			len(report.Changes), len(report.RequestChanges), name)
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
@@ -104,4 +118,30 @@ func orUnknown(s string) string {
 		return "(not recorded)"
 	}
 	return s
+}
+
+var requestRef = regexp.MustCompile(`\$\{\s*([^}]*)\}`)
+
+func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
+	return func(step, path string) bool {
+		s, ok := c.Step(step)
+		if !ok {
+			return false
+		}
+		v, ok := chain.Get(s.Body, path)
+		if !ok {
+			return false
+		}
+		text, ok := v.(string)
+		if !ok {
+			return false
+		}
+		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+			head, _, _ := strings.Cut(strings.TrimSpace(m[1]), ".")
+			if head != "vars" && head != "env" {
+				return true
+			}
+		}
+		return false
+	}
 }

@@ -35,6 +35,18 @@ type Proposal struct {
 	Report     string    `json:"report"`
 	ComparedTo string    `json:"compared_to,omitempty"`
 	Unstable   []string  `json:"unstable,omitempty"`
+	Replaced   []Differ  `json:"differs_from_replaced,omitempty"`
+}
+
+type Differ struct {
+	Step  string `json:"step"`
+	Side  string `json:"side"`
+	Path  string `json:"path"`
+	Delta string `json:"delta"`
+}
+
+func (d Differ) String() string {
+	return d.Side + " " + d.Path + " " + d.Delta
 }
 
 type ProposalInput struct {
@@ -44,6 +56,7 @@ type ProposalInput struct {
 	Now        time.Time
 	ComparedTo string
 	Unstable   []string
+	Replaced   []Differ
 }
 
 func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error) {
@@ -81,6 +94,9 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 		Supersede: in.Supersede, Replaces: replaces,
 		Digest: digest(rec.Steps), Report: s.ReportPath(rec.Chain),
 		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
+	}
+	if replaces != "" {
+		p.Replaced = in.Replaced
 	}
 	if err := os.MkdirAll(filepath.Dir(p.Report), 0o755); err != nil {
 		return nil, err
@@ -259,12 +275,28 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	if p.Build != "" {
 		fmt.Fprintf(&b, ", build `%s`", p.Build)
 	}
-	b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")
+	if p.Replaces == "" {
+		b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")
+	} else {
+		fmt.Fprintf(&b, "\n\n| # | step | sent | asserted, all held | backend answered | vs replaced safe spot `%s` |\n|---|---|---|---|---|---|\n", p.Replaces)
+	}
 	for _, st := range rec.Steps {
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |\n", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), cell(answerSummary(st)))
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), cell(answerSummary(st)))
+		if p.Replaces != "" {
+			fmt.Fprintf(&b, " %s |", cell(replacedSummary(p.Replaced, st.ID)))
+		}
+		b.WriteString("\n")
 	}
 	if p.Replaces != "" {
 		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
+		if len(p.Replaced) == 0 {
+			b.WriteString("It sent the same requests and got the same responses, beyond ids and timestamps.\n")
+		} else {
+			fmt.Fprintf(&b, "**%d difference(s) from the safe spot it replaces**, what approving signs off on:\n\n", len(p.Replaced))
+			for _, d := range p.Replaced {
+				fmt.Fprintf(&b, "- `%s` %s\n", d.Step, flat(d.String()))
+			}
+		}
 	}
 	switch {
 	case p.ComparedTo == "":
@@ -280,6 +312,19 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	}
 	b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
 	return b.String()
+}
+
+func replacedSummary(all []Differ, step string) string {
+	parts := []string{}
+	for _, d := range all {
+		if d.Step == step {
+			parts = append(parts, d.String())
+		}
+	}
+	if len(parts) == 0 {
+		return "same"
+	}
+	return strings.Join(parts, "; ")
 }
 
 const (
