@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
@@ -42,6 +43,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 	nodes := []string{}
 	labels := []string{}
 	seen := map[string]bool{}
+	repeats := map[string]int{}
 	for _, raw := range targets {
 		node, m, err := ResolveTarget(raw, lib, cat)
 		if err != nil {
@@ -51,6 +53,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, m.StreamRefusal())
 		}
 		if seen[node] {
+			repeats[node]++
 			continue
 		}
 		seen[node] = true
@@ -90,6 +93,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		p.stepOf[node] = id
 		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
 	}
+	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
 	if err := c.Normalize(); err != nil {
@@ -152,6 +156,9 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
 			continue
 		}
+		if !p.plainLooksDuplicate(rpc, nodes, edges[rpc]) {
+			continue
+		}
 		aliased := []string{}
 		ids := []string{p.stepOf[rpc]}
 		first := ""
@@ -172,6 +179,51 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 			"needs: instead",
 			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
 			strings.Join(aliased, ", "), shortNode(first))
+	}
+}
+
+func (p *Plan) plainLooksDuplicate(rpc string, nodes, via []string) bool {
+	onlyBefore := len(via) > 0
+	for _, edge := range via {
+		if !strings.Contains(edge, " before: ") {
+			onlyBefore = false
+		}
+	}
+	if onlyBefore {
+		return true
+	}
+	plain := p.stepByID(p.stepOf[rpc])
+	if plain == nil {
+		return false
+	}
+	for _, node := range nodes {
+		if node == rpc {
+			continue
+		}
+		if s := p.stepByID(p.stepOf[node]); s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {
+	for _, node := range nodes {
+		n := repeats[node]
+		if n == 0 {
+			continue
+		}
+		rpc, _ := SplitNode(node)
+		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
+			"as %s@after", shortNode(rpc), shortNode(rpc))
+		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
+			names := sortedAliasNames(c.Aliases)
+			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
+				shortNode(rpc), names[0], strings.Join(names, ", "))
+		}
+		p.note("%s is named %d times as a target, and a plan calls each target once, so the repeat(s) were "+
+			"merged into step %s. To call it again at another point in the chain, %s",
+			shortNode(node), n+1, p.stepOf[node], how)
 	}
 }
 
@@ -260,6 +312,14 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	if c.Summary != "" && !IsTodo(c.Summary) {
 		step.Description = firstSentence(c.Summary)
 	}
+	if a := c.Aliases[alias]; alias != "" && a != nil && strings.TrimSpace(a.Note) != "" && !IsTodo(a.Note) {
+		note := strings.Join(strings.Fields(a.Note), " ")
+		if step.Description == "" {
+			step.Description = note
+		} else {
+			step.Description = strings.TrimSuffix(step.Description, ".") + " — " + note
+		}
+	}
 	step.Auth = c.Auth
 	if alias != "" {
 		if _, declared := c.Aliases[alias]; !declared {
@@ -311,6 +371,28 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 		}
 	}
 	return step
+}
+
+func (p *Plan) UnfilledCount() int {
+	n := 0
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") {
+			n++
+		}
+	}
+	for _, pc := range p.pending {
+		for _, name := range pc.contract.Required {
+			if IsRequiredLiteral(name) {
+				continue
+			}
+			if v, ok := bodyValue(pc.step.Body, name); ok {
+				if _, empty := emptyDeclaredVar(p.Chain, v); empty {
+					n++
+				}
+			}
+		}
+	}
+	return n
 }
 
 func (p *Plan) note(format string, args ...any) {
@@ -747,6 +829,9 @@ func (p *Plan) noteRequirements() {
 				"with value: \"0\", because a note: describes the field and does not silence this. This line is the only "+
 				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
 				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
+		}
+		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
+			p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
 		}
 		if len(pc.contract.RequiresRole) > 0 && !pc.contract.DeclaresNoRole() {
 			p.note("step %s: caller must hold role %s", id, strings.Join(pc.contract.RequiresRole, " or "))

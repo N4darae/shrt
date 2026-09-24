@@ -30,6 +30,12 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
 # 3 required field(s) carry no test data yet — chain lint ERRORs on each until filled. The plan derives order and wiring; the values are yours.
 ```
 
+The count on that last line is every required field with no usable value, including a required
+field on either side of a `same_as:` pair that sends the shared `${vars.<producer>_<field>}` while
+`vars:` declares it empty (the producer's contract gave it no `value:`). That pair gets one
+`must send the same value` note naming the var rather than a `fill it` note per side, but each
+required side is counted, because `chain lint` errors on each until the var has a value.
+
 - **The `# order:` line is the claim to check.** `plan` wires what the contracts say to wire; it
   cannot tell that a movement in one asset should not discharge an obligation in another. A plan
   that lints clean and runs green can still reproduce a meaningless state. Grep it as
@@ -37,7 +43,9 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   is the printed form; with `-write` the same lines go to the terminal as `wrote <path>`, then
   `  order: ...` and `  note: ...`, indented two spaces with no `#`, so grep `'^  order:'` there.
 - **`plan` emits ten kinds of `# note:` and only one of them is test data you owe** — the
-  `is required and has no usable value — fill it` kind. Read the others rather than skimming past:
+  `is required and has no usable value — fill it` kind. One more is an assertion you owe:
+  `asserts only the verdict ... declares what its response carries (...)` names the facts to assert,
+  and `chain lint -strict` fails the step until you do (§4). Read the others rather than skimming past:
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
   `caller must hold role`, and above all `required is an unfilled TODO, so this plan cannot say what
   the server rejects without — treat the body as unverified`. That last one means the plan is
@@ -58,13 +66,19 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   making every future chain compose itself.
 - **The exception is the same rpc twice**, typically a read before and after a write, so the chain
   can compare the two. `plan` puts each node in once, so a second plain `GetProduct` target is
-  silently dropped (`plan GetProduct AddStock GetProduct` plans one read); no edge is missing.
+  merged into the first (`plan GetProduct AddStock GetProduct` plans one plain read, and a `note:`
+  line says so and names the aliases to use); no edge is missing.
   Declare one alias per instance on the read (`aliases: {before: {note: ...}, after: {note: ...}}`),
-  then name them around the write:
+  then name them around the write. Each aliased step's `description:` is the rpc's summary followed
+  by the alias `note:`, so the two reads say which is which:
   `shrt contract plan GetProduct@before AddStock GetProduct@after -write`. Targets that no edge
   orders keep the order you name them in, so read the printed `order:` line; to make the contract
   itself pin the read ahead of the write, list `GetProduct@before` in the write's `needs:`, and name
-  the after-read after the write (`shrt contract plan AddStock GetProduct@after`).
+  the after-read after the write (`shrt contract plan AddStock GetProduct@after`). That `needs:` is
+  on the write, so it pulls `GetProduct@before` into **every** plan containing `AddStock`, including
+  one for an rpc that only needs stock to exist (a `CreateOrder` whose `needs:` names `AddStock`
+  plans `CreateProduct -> GetProduct@before -> AddStock -> ...`, a read nothing compares against). Put the before-read in `needs:` only when every chain through the write
+  should compare against it; otherwise leave it out and name `GetProduct@before` as a target.
 
 ## 2. Compose a chain — no contract yet
 
@@ -180,7 +194,12 @@ The examples in this section and §5 use the default envelope, `error.code` with
 Substitute your `conventions.envelope_path` and `conventions.envelope_ok` (§3b) wherever they appear.
 
 A step whose only expectation is `error.code == OK` asserts that the server did not crash. Say what
-the call *did*:
+the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
+should have produced, so each planned step asserts only the verdict, and a `note:` names each step
+whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
+those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
+`-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are
+not flagged. `shrt chain hollow` counts the same read steps as `asserting only the envelope verdict`.
 
 ```yaml
 expect:
@@ -193,8 +212,15 @@ expect:
 ```
 
 A `${...}` in `equals` / `not_equal` / `contains` resolves at run time, which is what lets a chain
-state an invariant — *after == before*, *side A == side B*, *give + fees == get + margin* — instead
-of a hand-typed number that only encodes what its author expected.
+state an invariant between two values — *after == before*, *side A == side B* — instead of a
+hand-typed number that only encodes what its author expected. It compares one value with one
+value; it does no arithmetic. `equals: ${a.qty}+${b.qty}` resolves to the text `0+5`, which no
+number equals, so the step fails every time; `chain lint` warns on it against a numeric field
+(`interpolated-arithmetic`, failed by `-strict`). An invariant with arithmetic in it — *give + fees
+== get + margin*, *after == before + added* — is stated by pinning each side: choose the inputs
+(`vars:` or literal body values), work the expected result out, and assert it as a value
+(`equals: 5` on the after-read, `equals: ${vars.expected_total}`), or assert each term against the
+step that produced it.
 
 A `${...}` in `path` is a lint error: a path names a location in this step's own response, so there
 is nothing for it to resolve to.
@@ -444,11 +470,12 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 6 | 2 | happy | a READ rpc no write rpc can reach — unless `no_producer:` says why |
 | 7 | 2 | happy | an rpc with request fields and an empty `required:` — `NONE`, alone, says the server rejects nothing |
 | 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
-| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` |
+| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
+| 11 | 2 | happy | a unary rpc in the catalog that no overlay covers: it is scored as an empty entry (rows 1-10 as they apply) plus this row, so deleting an overlay or an entry raises the score instead of lowering it |
 | — | — | — | codes the backend raises that no contract declares at all |
 
-The ten scored rows are the terms `shrt contract status` prints in its footer, the same list
+The eleven scored rows are the terms `shrt contract status` prints in its footer, the same list
 that computes the score — so run the command for today's list, and read the rows below for the
 reasoning a one-line label cannot carry. In shrt's own development repo a test fails the build
 when this table and the scored terms disagree; that test does not ship with the binary, so here
@@ -457,9 +484,9 @@ the command's footer is the authority.
 **An unfilled `TODO` scores nothing.** It is listed beside the score as a hint, never charged. The
 row that used to claim `1 per unfilled TODO` was wrong for as long as it stood: no scored row
 counts unfilled TODOs, so clearing every TODO in a file moves the score only where clearing it also
-answers one of the ten rows above.
+answers one of the eleven rows above.
 
-**The phase column is what `-phase` filters.** `shrt contract quality -phase happy` scores the seven
+**The phase column is what `-phase` filters.** `shrt contract quality -phase happy` scores the eight
 rows a working chain needs and ignores the three that curate refusals; `-phase failure` does the
 reverse. Curate happy first: a domain at happy-0 composes and runs, and nothing about the three
 failure rows changes that. The default is still every row, so a gate pinned to a baseline is
@@ -578,7 +605,10 @@ Fill in this order — each step pays for the next:
 **`before:` always attaches the PLAIN rpc.** If the later rpc also `needs:` aliases of it
 (`needs: [AddStock@first, AddStock@second]`), the plan gets an extra unaliased step carrying the
 scaffold's empty strings and zeros, and `plan` flags it with a note naming every edge. Drop the
-`before:`: the `needs:` already orders the aliases.
+`before:`: the `needs:` already orders the aliases. The same note fires when a plain step sends
+exactly the body an aliased sibling sends. It does not fire when the plain rpc and its aliases are
+each wired on purpose with different values, such as order line 0 `from:` `CreateProduct` and line
+1 `from:` `CreateProduct@b` with its own sku and price: that is two products, not a duplicate.
 
 Leave `status: draft`. Only a human promotes to `verified`.
 
@@ -606,7 +636,13 @@ unresolved reference, a body the proto rejects, a transport failure), `SKIP` not
 `-keep-going` because it reads a step that did not pass, and `--` a `-dry-run` step that resolved and
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
 anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
-step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. So is
+step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`, or a request path the earlier step's
+request message does not declare, such as `${steps.create_order.request.id_custmer}`; so is one
+filling a numeric field with a reference whose declared type can never be a number, such as
+`qty: "${create_product.product.created_at}"` (a timestamp) into AddStock's int64 `qty`, or a bool,
+an enum or bytes. A string source, such as `.product.name`, is only a `chain lint` warning (not
+failed by `-strict`) and is sent: protojson accepts a digit string like `"5"` for an int64, and
+backends often carry numbers as strings. Refused as well is
 one whose step body the proto rejects (an unknown field, an enum value the message does not
 have) in any step, not only the first: `shrt run` validates every request up front as `-dry-run`
 does, with the same synthetic values for references to earlier responses, and exits 1. A body

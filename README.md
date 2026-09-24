@@ -95,7 +95,7 @@ kit's.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the Claude skill and subagent |
 | `shrt version` | which build this is — version, commit, build time, and the four docs it carries; `-short` prints the version alone |
-| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
+| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, the envelope conventions against the response messages, and the contract overlays (FAIL if one does not load or two define the same rpc, WARN for overlay files in a subdirectory, which are not loaded). `-strict` fails on warnings too |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the RPC surface |
 | `shrt catalog describe <rpc>` | request and response schemas with proto doc comments |
@@ -104,9 +104,9 @@ kit's.
 | `shrt contract lint` | validate contracts against the descriptor |
 | `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
 | `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
-| `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing |
+| `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing; an rpc in the catalog with no contract in any overlay is charged too, so deleting an overlay makes `-gate` fail |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
-| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, an `allow_fail` that does nothing, an export a later step silently overwrites), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs (including the env vars the login body of each auth profile the chain's steps run under reads), are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, an export reading a field the response does not have (the run fails that step), and a reference to a field an earlier step's response does not have (the run refuses the chain), are errors with or without `-strict` |
+| `shrt chain lint [<c>]` | static validation against the catalog; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, an `allow_fail` that does nothing, an export a later step silently overwrites, arithmetic such as `${a.qty}+${b.qty}` in an `equals` on a numeric field, which is compared as text and never computed, and a step expecting success that asserts only the verdict although its rpc's contract declares response facts, which is what every step `contract plan` writes starts as), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs (including the env vars the login body of each auth profile the chain's steps run under reads), are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, an export reading a field the response does not have (the run fails that step), and a reference to a field an earlier step's response does not have, or to a `request.` path its request message does not declare, and a whole-value reference whose declared type cannot fill the numeric field it is sent in, such as a timestamp (the run refuses the chain), are errors with or without `-strict` |
 | `shrt chain ls` | one line per chain, marking which have a safe spot; `-long` for full descriptions |
 | `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match. Under `-code`, when no chain asserts the code but a local run record carried it, it lists those steps with a reproduce command instead of failing |
 | `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in (`-keep writes` for every earlier write step the source run did not show refused, combinable with ids), `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way (`-build <id>` stamps that run, and the recorded verdict names the build), comparing also the refusal's message, reason and app_code, a transport refusal, and the value a failing expectation got (ids and timestamps masked as `verify` masks them) (the slice's run record is kept only with `-write`). `-run latest` with `-mode pin` or `-verify` uses the newest run that reached the step; when the slice keeps every step, `-write` records the verdict in that chain instead of writing a copy |
@@ -127,7 +127,7 @@ error), and 0 for `-h`.
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare, an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, or the connection closed before a response because the backend stopped or crashed), so the run is not a verdict about the backend |
+| `run` | passed; a `-dry-run` resolved and validated | `failed`: an expectation did not hold; also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare or a request path its request does not declare, a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint warning), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, or the connection closed before a response because the backend stopped or crashed), so the run is not a verdict about the backend |
 | `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | could not verify: a step never got an answer (target unreachable, login failed) and nothing else drifted |
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice` (no `-verify`) | the slice was printed or written | a refusal: an unknown chain or step, `-mode pin` without `-run`, an unknown run, a slice file `-write` would overwrite. The same refusal exits 2 under `-verify`, where 1 would read as `NOT REPRODUCED` | — | — |
@@ -141,10 +141,13 @@ error), and 0 for `-h`.
 
 ### CI gate
 
-In this order, under `set -e` or with each exit checked, and with every env var the `auth:`
-bodies read exported first (a missing one makes `doctor -strict` warn and `run` refuse):
+In this order, with every env var the `auth:` bodies read exported first (a missing one makes
+`doctor -strict` warn and `run` refuse). The static checks stop the gate at the first failure; the
+runs, replays and the hollow ratchet each have their exit checked, so one red chain does not hide
+the rest, and the gate fails at the end if any of them did:
 
 ```bash
+set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 [ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
 shrt catalog build
@@ -152,25 +155,47 @@ shrt doctor -strict
 shrt contract lint
 shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
+is_red() { [ -f .shrt/expect-red.txt ] && grep -qxF "$1" .shrt/expect-red.txt; }
 tag="ci$(date +%s)$RANDOM"
+fail=0
 shopt -s nullglob
 for f in .shrt/chains/*.yaml; do
   c="$(basename "$f" .yaml)"
-  if grep -q 'vars\.tag' "$f"; then shrt run "$c" -quiet -var "tag=$tag-$c"; else shrt run "$c" -quiet; fi
+  args=(-quiet)
+  if grep -q 'vars\.tag' "$f"; then args+=(-var "tag=$tag-$c"); fi
+  rc=0; shrt run "$c" "${args[@]}" || rc=$?
+  if is_red "$c"; then
+    [ "$rc" -eq 1 ] || { echo "gate: $c is kept red on purpose, but its run exited $rc" >&2; fail=1; }
+  elif [ "$rc" -ne 0 ]; then
+    echo "gate: run $c exited $rc" >&2; fail=1
+  fi
 done
 for s in .shrt/safespots/*.json; do
   c="$(basename "$s" .json)"
-  if grep -q 'vars\.tag' ".shrt/chains/$c.yaml"; then shrt verify "$c" -quiet -var "tag=$tag-v-$c"; else shrt verify "$c" -quiet; fi
+  args=(-quiet)
+  if grep -qs 'vars\.tag' ".shrt/chains/$c.yaml"; then args+=(-var "tag=$tag-v-$c"); fi
+  rc=0; shrt verify "$c" "${args[@]}" || rc=$?
+  [ "$rc" -eq 0 ] || { echo "gate: verify $c exited $rc" >&2; fail=1; }
 done
-shrt chain hollow -gate -baseline .shrt/hollow-baseline
+rc=0; shrt chain hollow -gate -baseline .shrt/hollow-baseline || rc=$?
+[ "$rc" -eq 0 ] || { echo "gate: chain hollow -gate exited $rc" >&2; fail=1; }
+exit "$fail"
 ```
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is the gate's
-to list: expect exit 1 from its run, and treat exit 0 (the defect is gone) or 3 (no verdict) as a
-failure. Each baseline file holds one number, the score the gate must equal; write the current
-score into it once (a missing file fails the gate), and change it only as a reviewed edit.
+a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is listed by
+name, one per line, in `.shrt/expect-red.txt`: its run must exit 1, and exit 0 (the defect is gone)
+or 3 (no verdict) fails the gate. Any other chain must exit 0, and so must every `verify`.
+
+Both baseline files are committed, and each holds one number, the score its gate must equal; a
+missing file fails the gate. Create them once, before the first gate run: write `0` into each
+(`echo 0 > .shrt/quality-baseline; echo 0 > .shrt/hollow-baseline`), run
+`shrt contract quality -gate -baseline .shrt/quality-baseline`, and if it fails, the message names
+the current score: read what it counts with `shrt contract quality` and write that number into the
+file. Do the same for `shrt chain hollow -gate -baseline .shrt/hollow-baseline` after running the
+chains, since it reads the run records they leave (run records are gitignored, so on a fresh clone
+the gate's own runs are what it reads). From then on, change a baseline only as a reviewed edit.
 
 ## The loop
 
@@ -245,7 +270,9 @@ rather than assuming it, and treat a wide gap as the normal early state, not a d
    (`shrt catalog describe`), never from recall. A plausible-looking body that lints is the most
    expensive kind of wrong.
 4. **Never leave a step asserting only that it did not crash.** `error.code == OK` is the floor,
-   not the assertion. What did the call *do*? See `PLAYBOOK.md` §4.
+   not the assertion. What did the call *do*? See `PLAYBOOK.md` §4. `contract plan` writes only the
+   floor, since it cannot know the values; `chain lint -strict` fails each such step whose contract
+   declares response facts until you assert one.
 
 ## Where the authority is
 

@@ -45,7 +45,7 @@ scaffold leaves it present-but-empty rather than absent.
 | key | type | req | meaning |
 |---|---|---|---|
 | `path` | string | + | JSON path into this step's own response, or one of the reserved `transport.*` paths (table below), which read the recorded transport result instead. `${...}` here is a lint ERROR: a path names a location, not a value. So is a path the response message has no field for, under every rule — `exists: false` included, since it could not fail. Field names match with case and separators folded (`qtyOnHand` reads `qty_on_hand`), and a path that matches only that way is a lint warning (`inexact-path`) naming the exact field; an `export` path is checked the same way. |
-| `equals` | any |  | Compared as text, so `1` matches `"1"`. May carry `${...}`: an earlier step, or this step's own request (`${steps.<this>.request.<field>}`); this step's own response is a lint error. |
+| `equals` | any |  | Compared as text, so `1` matches `"1"`. May carry `${...}`: an earlier step, or this step's own request (`${steps.<this>.request.<field>}`); this step's own response is a lint error. No arithmetic is done: `${a.qty}+${b.qty}` is the text `0+5`, and against a numeric field `chain lint` warns `interpolated-arithmetic`, which `-strict` fails. |
 | `not_equal` | any |  | The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`. |
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
@@ -292,7 +292,7 @@ Produced by resolving each form against a fixture scope:
 | key | type | req | meaning |
 |---|---|---|---|
 | `chains` | string | + | Chain YAML directory. |
-| `contracts` | string |  | Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`. |
+| `contracts` | string |  | Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`. Only the `.yaml`/`.yml` files at its top level are loaded, each holding one YAML document; `shrt doctor` warns about overlay files in a subdirectory, and an rpc defined in two files is an error naming both, since one would silently replace the other. |
 | `runs` | string | + | Run record directory. |
 | `safespots` | string | + | Safe spot directory. |
 

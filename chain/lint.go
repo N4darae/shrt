@@ -45,6 +45,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
+	exports := map[string]exportOrigin{}
 	idx := newRefIndex(c)
 	for _, s := range c.Steps {
 		m, err := cat.Lookup(s.Call)
@@ -57,6 +58,13 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
+		never, maybe := refTypeProblems(s, m, responses, exports)
+		for _, why := range never {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
+		}
+		for _, why := range maybe {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
+		}
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintExports(s, m)...)
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
@@ -68,6 +76,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintInertAllowFail(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
+		noteExports(s, exports)
 		for name := range s.Export {
 			knownExports[name] = true
 		}
@@ -475,12 +484,15 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	if !bad {
 		return Issue{}, false
 	}
+	hint := ". An export under that name is a different thing: write ${exports.<name>} for that"
+	if strings.HasPrefix(r.Rest, "request.") {
+		hint = ". A request path names a field of the request message that step sends, not of its response"
+	}
 	return Issue{
 		Step:     stepID,
 		Severity: SeverityError,
 		Kind:     KindDeadRef,
-		Message: fmt.Sprintf("${%s} %s. An export under that name is a different thing: write ${exports.<name>} for that",
-			r.Expr, why),
+		Message:  fmt.Sprintf("${%s} %s%s", r.Expr, why, hint),
 	}, true
 }
 
@@ -493,8 +505,16 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 		return "", false
 	}
 	rest := r.Rest
-	if strings.HasPrefix(rest, "request.") || rest == "request" {
+	if rest == "request" {
 		return "", false
+	}
+	if path, ok := strings.CutPrefix(rest, "request."); ok {
+		if catalog.HasResponsePath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path)) {
+			return "", false
+		}
+		return fmt.Sprintf("reads request path %q, which is not a field of %s — step %q never sends it, so the run "+
+			"would die resolving it after every earlier step had already hit the backend, and shrt run refuses "+
+			"the chain before sending anything", path, m.Input().FullName(), r.Head), true
 	}
 	rest = strings.TrimPrefix(rest, "response.")
 	if rest == "" || rest == "response" {
@@ -601,6 +621,9 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 						"must succeed, or the refusal code for one that must be refused",
 					e.Path, EnvelopeOK(), EnvelopeOK())})
 			}
+			if issue, bad := arithmeticIssue(s.ID, e, schema.Fields); bad {
+				issues = append(issues, issue)
+			}
 			continue
 		}
 		if absent {
@@ -629,6 +652,41 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 		})
 	}
 	return issues
+}
+
+func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Issue, bool) {
+	f, ok := catalog.ResponseFieldAt(fields, SplitPath(e.Path))
+	if !ok || f == nil || !numericKinds[f.Kind] {
+		return Issue{}, false
+	}
+	for _, rule := range []struct {
+		name  string
+		value any
+	}{{"equals", e.Equals}, {"not_equal", e.NotEqual}} {
+		text, isText := rule.value.(string)
+		if !isText || !HasReference(text) || IsStableRef(text) {
+			continue
+		}
+		rest := strings.TrimSpace(refPattern.ReplaceAllString(text, " "))
+		if !strings.ContainsAny(rest, "+-*/") {
+			continue
+		}
+		outcome := "no response can equal it, so the step always fails"
+		if rule.name == "not_equal" {
+			outcome = "every response differs from it, so the assertion cannot fail"
+		}
+		return Issue{
+			Step:     stepID,
+			Severity: SeverityWarn,
+			Kind:     KindArithmetic,
+			Message: fmt.Sprintf("expect on %q says %s: %q, and %s is declared %s: references are pasted into "+
+				"the text as they resolve and no arithmetic is done, so the run compares the number with a string "+
+				"such as \"0+5\" — %s. shrt cannot compute an invariant; pin each side instead, with a value you "+
+				"work out and state (equals: 5, or a vars: entry the chain supplies), or compare one reference to "+
+				"one field", e.Path, rule.name, text, e.Path, f.Kind, outcome),
+		}, true
+	}
+	return Issue{}, false
 }
 
 func lintExports(s *Step, m *catalog.Method) []Issue {
@@ -998,12 +1056,14 @@ const (
 	KindRefSyntax         = "reference-syntax"
 
 	KindInertAllowFail = "inert-allow-fail"
+	KindArithmetic     = "interpolated-arithmetic"
+	KindEnvelopeOnly   = "envelope-only"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
 	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
-		KindExportOverwritten:
+		KindExportOverwritten, KindArithmetic, KindEnvelopeOnly:
 		return true
 	}
 	return false

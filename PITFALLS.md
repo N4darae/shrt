@@ -157,8 +157,13 @@ than a deliberate duplicate.
 
 **Fix.** `same_as: <rpc>->request_path` reads what the producer was **called with**. Lint rejects a
 response-only field there with "not a REQUEST field", because naming one means you wanted `from`.
-At plan time both sites are rewritten onto one generated var, so they cannot drift apart — and that
-drift is silent, because the server answers `OK` and finds nothing.
+At plan time the two sites are tied together so they cannot drift apart — and that drift is silent,
+because the server answers `OK` and finds nothing. How depends on the producer's value
+(`GRAMMAR.md`, `same_as`): a single stable reference is copied onto both sites; a template such as
+`sku-${vars.tag}` or `${uuid}` stays on the producer and the consumer reads
+`${steps.<producer>.request.<field>}`; anything else, a literal or no value at all, puts both sites
+onto one generated var, `${vars.<producer>_<field>}`, declared empty and named in a note when the
+producer had no value.
 
 ## 10. A drift test that poisons the baseline
 
@@ -330,8 +335,16 @@ automated gates are satisfiable without doing any of the actual curation work."*
 
 **Fix.** The score now charges for omission too — a write rpc with no `failures:`, an id with no
 `from`/`same_as`/`value`, a response field in no `exports:`/`terminal:`/`soft_signals:`, an id wired
-with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. An unfilled `TODO` is not
-charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points. Same three
+with no `checked_by:`, and a missing `summary` at weight 2 instead of 0. An rpc in the catalog that no
+overlay covers at all is scored too, as an empty entry plus 2, so moving `orders.yaml` out of
+`.shrt/contracts/` raises the score and fails `quality -gate`; until 2026-09-24 an rpc with no entry
+was simply not measured, and deleting a whole overlay left the gate green at its baseline.
+`contract lint` still checks only what is written — it says `ok` for the overlays that remain — so
+the gate that catches lost coverage is `quality -gate`, and `contract status -gaps` lists each
+uncovered rpc as `no contract`. An unfilled `TODO` is not
+charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points; so
+does a `TODO` as the description of an `exports:`, `terminal:` or `soft_signals:` entry, which until
+2026-09-24 still counted as declaring the field. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
 scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
 or finds zero `errmsg.New` sites — run from a copy outside the backend it used to report `0
