@@ -289,7 +289,7 @@ func sameShape(a, b any) bool {
 	}
 	x, ok1 := a.(string)
 	y, ok2 := b.(string)
-	if !ok1 || !ok2 || x == "" || y == "" {
+	if !ok1 || !ok2 || x == "" || y == "" || zeroID(x) != zeroID(y) {
 		return false
 	}
 	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString) {

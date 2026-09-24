@@ -418,7 +418,13 @@ reported; the report says how many it masked. In this example 2 value(s) were ma
 is not enough: both values must look alike, two non-zero numbers or two non-empty strings of the
 same shape (`ord-819dac5f23ba` and `ord-0123456789ab`), including the same letters before the first
 separator, so an id of another kind (`cus-...` became `prd-...`) is reported. An id that became `""`,
-null, `0`, `undefined`, a number where a string was, or disappeared, is reported too. `shrt verify
+null, `0`, an all-zero id (`cus-0`, `cus-000000000000`, the nil UUID), `undefined`, a number where a
+string was, or disappeared, is reported too. Masking an id is a renaming, and it must be consistent
+across the whole record: each id of the safe spot must become one value in the new run, wherever it
+appears, and no two ids of the safe spot may become the same one. An order whose `id_customer` no
+longer names the customer the run created, or an id unchanged in one step and renamed in another,
+is reported as `changed` at that path, naming the step and path that set the renaming. A list whose
+order is not stable across runs pairs ids by position, so declare it `volatile`. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 

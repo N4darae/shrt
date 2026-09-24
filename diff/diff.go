@@ -101,6 +101,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		})
 	}
 	n := min(len(spot.Steps), len(rec.Steps))
+	pairs := []idPair{}
 	for i := range n {
 		want, got := spot.Steps[i], rec.Steps[i]
 		if want.ID != got.ID || want.Call != got.Call {
@@ -154,7 +155,13 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 				rep.Changes = append(rep.Changes, c)
 			}
 		}
+		if a, errA := decode(want.Response); errA == nil {
+			if b, errB := decode(got.Response); errB == nil {
+				collectIDPairs(want.ID, a, b, "", stepMask, &pairs)
+			}
+		}
 	}
+	rep.applyRenaming(pairs)
 	if stoppedEarly {
 		why := "the run stopped before this step"
 		if first != nil {
@@ -167,6 +174,27 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		}
 	}
 	return rep
+}
+
+func (r *Report) applyRenaming(pairs []idPair) {
+	broken := renamingViolations(pairs)
+	if len(broken) == 0 {
+		return
+	}
+	at := map[string]bool{}
+	for _, c := range broken {
+		at[c.Step+" "+c.Path] = true
+	}
+	kept := r.ShapeMasked[:0]
+	for _, c := range r.ShapeMasked {
+		if at[c.Step+" "+c.Path] {
+			r.Masked--
+			continue
+		}
+		kept = append(kept, c)
+	}
+	r.ShapeMasked = kept
+	r.Changes = append(r.Changes, broken...)
 }
 
 func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []string, derived func(step, path string) bool) *Report {
