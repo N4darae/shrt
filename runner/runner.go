@@ -1398,7 +1398,7 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 		}
 		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
 			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
-			"had already hit the backend. Export %s", step.ID, i+1, profileLabel(profile), strings.Join(refs, ", "),
+			"had already hit the backend. Export %s", step.ID, i+1, profile, strings.Join(refs, ", "),
 			strings.Join(unset, ", "), strings.Join(unset, ", "))
 	}
 	return nil
