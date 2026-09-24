@@ -384,11 +384,34 @@ const (
 	AuthRetryNotResent = transport.AuthRetryNotResent
 )
 
-func authRefusedIsNoVerdict(sr *StepRecord) {
+const freshTokenRefused = "may be an auth regression"
+
+func RefusedFreshToken(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
+}
+
+func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	if sr.Status != StatusFailed {
 		return
 	}
 	sr.Status = StatusError
+	evidence := ""
+	switch fresh {
+	case transport.FreshTokenRelogin:
+		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
+			"was re-sent with the new token, and the backend refused that too"
+	case transport.FreshTokenAccepted:
+		evidence = "the backend refused a token that a login in this run had just issued and that it had accepted on an " +
+			"earlier call of this run"
+	case transport.FreshTokenMinted:
+		evidence = "the backend refused a token that a login in this run had just issued"
+	}
+	if evidence != "" {
+		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
+			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
+			"because the rpc itself never answered; re-run to confirm, and treat a repeat as a finding")
+		return
+	}
 	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
 		"check the credentials of the step's auth profile and re-run")
 }
@@ -1118,7 +1141,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached))
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
-		defer authRefusedIsNoVerdict(sr)
+		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
+		defer authRefusedIsNoVerdict(sr, fresh)
 	}
 	if err != nil {
 		if transport.Unreachable(err) {

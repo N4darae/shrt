@@ -102,6 +102,15 @@ func (s *LoginTokenSource) UntriedCached(token string) bool {
 	return token != "" && token == s.token && s.fromCache && !s.accepted
 }
 
+func (s *LoginTokenSource) Minted(token string) (minted, accepted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token == "" || token != s.token || s.fromCache {
+		return false, false
+	}
+	return true, s.accepted
+}
+
 func (s *LoginTokenSource) CurrentToken() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -304,10 +313,20 @@ func WithAuthRouter(router AuthRouter) Middleware {
 				return res, nil
 			}
 			untried := tracked != nil && tracked.UntriedCached(token)
+			minted, accepted := false, false
+			if tracked != nil {
+				minted, accepted = tracked.Minted(token)
+			}
 			profile.Source.Invalidate()
 			if !untried && (router.Resend == nil || !router.Resend(call.Procedure)) {
 				call.Meta[MetaAuthRetry] = AuthRetryNotResent
 				call.Meta[MetaAuthRefused] = true
+				switch {
+				case minted && accepted:
+					call.Meta[MetaAuthRefusedFresh] = FreshTokenAccepted
+				case minted:
+					call.Meta[MetaAuthRefusedFresh] = FreshTokenMinted
+				}
 				return res, nil
 			}
 			token, err = apply(ctx, profile.Source, call, header, scheme)
@@ -324,6 +343,11 @@ func WithAuthRouter(router AuthRouter) Middleware {
 			}
 			if router.unauthenticated(res) {
 				call.Meta[MetaAuthRefused] = true
+				if tracked != nil {
+					if again, _ := tracked.Minted(token); again {
+						call.Meta[MetaAuthRefusedFresh] = FreshTokenRelogin
+					}
+				}
 			} else if tracked != nil {
 				tracked.Accepted(token)
 			}
@@ -345,16 +369,21 @@ const DefaultProfile = "default"
 const MetaAuthProfile = "auth_profile"
 
 const (
-	MetaAuthRetry       = "auth_retry"
-	MetaAuthRetryCached = "auth_retry_cached"
-	MetaAuthRefused     = "auth_refused"
-	AuthRetryResent     = "resent"
-	AuthRetryNotResent  = "not_resent"
+	MetaAuthRetry        = "auth_retry"
+	MetaAuthRetryCached  = "auth_retry_cached"
+	MetaAuthRefused      = "auth_refused"
+	MetaAuthRefusedFresh = "auth_refused_fresh"
+	FreshTokenMinted     = "minted"
+	FreshTokenAccepted   = "accepted"
+	FreshTokenRelogin    = "relogin"
+	AuthRetryResent      = "resent"
+	AuthRetryNotResent   = "not_resent"
 )
 
 type tokenProvenance interface {
 	Accepted(token string)
 	UntriedCached(token string) bool
+	Minted(token string) (minted, accepted bool)
 }
 
 func noteProfile(call *Call, name string) {
