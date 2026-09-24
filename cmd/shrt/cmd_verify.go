@@ -51,8 +51,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
 	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
 	"     with another fresh value: two fresh values in a row are not fixture noise;\n" +
-	"     unless either run shows a restart (data created before the refusal gone after the re-login,\n" +
-	"     or a step before it that got no answer from the service), which keeps it exit 3\n" +
+	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
+	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
+	"     from the service), which keeps it exit 3\n" +
 	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
 	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
 

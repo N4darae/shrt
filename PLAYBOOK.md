@@ -401,10 +401,16 @@ run or from the on-disk cache; when data created before the refusal is still the
 re-login (a later step answered with an id created before it, not merely answered), that line says
 so too. When the previous run that sent the step was
 refused at the same step the same way, a restart does not explain it: `run` and `verify` print
-`auth refused at <rpc> ... a finding about the backend` and exit 1. Evidence of a restart in either
-run overrides that repeat: data created before the refusal gone after the re-login (a later step
-reading it was refused naming its id, or as not found), or a step before the refusal that got no
-answer from the service (a gateway answer, a dropped connection). Then it stays a restart, exit 3.
+`auth refused at <rpc> ... a finding about the backend` and exit 1. That finding needs the refusal
+to persist after a fresh login, so evidence of a restart in either run overrides the repeat: a call
+refused at authentication, re-sent after a fresh login and accepted (a cached token refused on its
+first use counts; such a call is never `auth refused`), the refused rpc accepting a later call after
+the fresh login, data created before the refusal gone after the re-login (a later step reading it
+refused naming its id or as not found; a list
+answered with fewer items than the same call before the refusal; a step expecting a uniqueness
+conflict with a value created before the refusal accepted instead), or a step before the refusal
+that got no answer from the service (a gateway answer, a dropped connection). Then it stays a
+restart, exit 3.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
