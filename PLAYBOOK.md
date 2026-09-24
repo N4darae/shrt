@@ -853,7 +853,9 @@ Three things that decide whether this works for a given chain:
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
-  `procedure` decides.
+  `procedure` decides. Expectations are paired by path, then by rule, not by position, so one
+  added in the middle is one `absent -> <path> <rule> <value>` line; each path reports its own
+  added, removed or changed expectation, with values as the run resolved them.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped

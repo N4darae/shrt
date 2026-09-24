@@ -334,6 +334,10 @@ func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []strin
 }
 
 func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
+	return ChainChangesIn(spot, c, nil)
+}
+
+func ChainChangesIn(spot *store.SafeSpot, c *chain.Chain, rec *runner.Record) []Change {
 	out := []Change{}
 	if c == nil {
 		return out
@@ -359,7 +363,11 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 		case !callNames(s.Call, st.Call, st.Procedure):
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
 		default:
-			out = append(out, expectChanges(st, s)...)
+			var ran *runner.StepRecord
+			if rec != nil {
+				ran, _ = rec.Step(st.ID)
+			}
+			out = append(out, expectChanges(st, s, ran)...)
 			out = append(out, refChanges(spot.Steps[:i], st, s)...)
 		}
 	}
@@ -400,30 +408,92 @@ func callNames(call, recorded, procedure string) bool {
 
 const ExpectPath = "expect"
 
-func expectChanges(was *runner.StepRecord, now *chain.Step) []Change {
+func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepRecord) []Change {
 	out := []Change{}
-	for i := range max(len(was.Expect), len(now.Expect)) {
-		switch {
-		case i >= len(now.Expect):
-			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(was.Expect[i].Path, was.Expect[i].Rule, was.Expect[i].Want)})
-		case i >= len(was.Expect):
-			r := now.Expect[i].Evaluate(nil)
-			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: expectText(r.Path, r.Rule, r.Want)})
-		default:
-			w, r := was.Expect[i], now.Expect[i].Evaluate(nil)
+	declared := make([]chain.ExpectResult, len(now.Expect))
+	for i, e := range now.Expect {
+		declared[i] = e.Evaluate(nil)
+	}
+	shown := func(i int) string {
+		r := declared[i]
+		if ran != nil && i < len(ran.Expect) && ran.Expect[i].Path == r.Path && ran.Expect[i].Rule == r.Rule {
+			return expectText(r.Path, r.Rule, ran.Expect[i].Want)
+		}
+		return expectText(r.Path, r.Rule, r.Want)
+	}
+	pairs := pairExpectations(was.Expect, declared)
+	paths := []string{}
+	seen := map[string]bool{}
+	for _, r := range declared {
+		if !seen[r.Path] {
+			seen[r.Path] = true
+			paths = append(paths, r.Path)
+		}
+	}
+	for _, w := range was.Expect {
+		if !seen[w.Path] {
+			seen[w.Path] = true
+			paths = append(paths, w.Path)
+		}
+	}
+	matched := map[int]bool{}
+	for _, j := range pairs {
+		if j >= 0 {
+			matched[j] = true
+		}
+	}
+	for _, path := range paths {
+		for i, w := range was.Expect {
+			if w.Path != path {
+				continue
+			}
+			j := pairs[i]
+			if j < 0 {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(w.Path, w.Rule, w.Want)})
+				continue
+			}
+			r := declared[j]
 			if w.Rule == "unevaluated" {
 				continue
 			}
-			same := w.Path == r.Path && w.Rule == r.Rule
+			same := w.Rule == r.Rule
 			if text, templated := r.Want.(string); same && !(templated && strings.Contains(text, "${")) && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
 				same = fmt.Sprint(w.Want) == fmt.Sprint(r.Want)
 			}
 			if !same {
-				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: expectText(r.Path, r.Rule, r.Want)})
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: shown(j)})
+			}
+		}
+		for j, r := range declared {
+			if r.Path == path && !matched[j] {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: shown(j)})
 			}
 		}
 	}
 	return out
+}
+
+func pairExpectations(was, now []chain.ExpectResult) []int {
+	pairs := make([]int, len(was))
+	taken := make([]bool, len(now))
+	for i := range pairs {
+		pairs[i] = -1
+	}
+	for _, sameRule := range []bool{true, false} {
+		for i, w := range was {
+			if pairs[i] >= 0 {
+				continue
+			}
+			for j, r := range now {
+				if taken[j] || r.Path != w.Path || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
+					continue
+				}
+				pairs[i], taken[j] = j, true
+				break
+			}
+		}
+	}
+	return pairs
 }
 
 func expectText(path, rule string, want any) string {

@@ -130,7 +130,7 @@ func runVerify(ctx context.Context, args []string) error {
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
-		edited := diff.ChainChanges(spot, c)
+		edited := diff.ChainChangesIn(spot, c, rec)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
