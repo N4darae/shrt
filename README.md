@@ -185,8 +185,9 @@ field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `ver
 fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0,
 and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
-§1): its run goes past a failure at a pinned step as `-keep-going` would, with no flag, so every pin
-and every later step is evaluated; it exits 0 only when it fails exactly there, and exits 1 when it
+§1): its run goes past every failure, pinned or not, as `-keep-going` would, with no flag, so every
+pin and every later step is evaluated even after an unpinned failure (a step that reads a failed
+step is not sent, and says so); it exits 0 only when it fails exactly there, and exits 1 when it
 fails anywhere else, fails differently, leaves a step unsent, or passes (the defect is gone), so a
 regression in an earlier or a later step of that chain fails the gate instead of hiding behind the
 known red. A list of red chain names beside the gate, checked

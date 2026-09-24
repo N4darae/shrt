@@ -31,6 +31,8 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string) {
 		sr, ok := rec.Step(step.ID)
 		if !ok || sr.Status == StatusSkipped {
 			switch {
+			case len(want) > 0 && ok:
+				problems = append(problems, fmt.Sprintf("step %q was not sent (%s), so its pinned failure was not seen", step.ID, firstLine(sr.Error)))
 			case len(want) > 0:
 				problems = append(problems, fmt.Sprintf("step %q was never answered, so its pinned failure was not seen", step.ID))
 			case ok:

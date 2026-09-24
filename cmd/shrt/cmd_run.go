@@ -110,8 +110,8 @@ func runRun(ctx context.Context, args []string) error {
 
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated); for a chain with kept_red, failed\n" +
-	"     exactly as kept_red pins, every pin evaluated (the run goes past a pinned failure as\n" +
-	"     -keep-going does) and no step left unsent\n" +
+	"     exactly as kept_red pins, every pin evaluated (the run goes past every failure, pinned or\n" +
+	"     not, as -keep-going does) and no step left unsent\n" +
 	"  1  failed: a step was answered and an expectation did not hold (for a chain with kept_red: it\n" +
 	"     failed anywhere else or differently, or passed, so the pinned defect is gone); also a refusal before anything\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
