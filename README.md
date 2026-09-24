@@ -125,7 +125,7 @@ error), and 0 for `-h`.
 | `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | could not verify: a step never got an answer (target unreachable, login failed) and nothing else drifted |
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice -verify` | `reproduced` | `NOT REPRODUCED` | `DID NOT RUN`; also a refusal before anything was sent (an unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh `-var name=<fresh>`), so nothing was verified | `INCONCLUSIVE` |
-| `diff` | the two runs do not differ | they differ | could not compare (unknown run, runs of two chains, usage) | — |
+| `diff` | the two runs do not differ | they differ | could not compare (unknown run, runs of two chains, the wrong number of arguments) | — |
 | `chain hollow` | no unexplained hollow read; under `-gate`, at the baseline | hollow reads reported; under `-gate`, worse or better than the baseline | no run records to read | — |
 | `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
 | `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
