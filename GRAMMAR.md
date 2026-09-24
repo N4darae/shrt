@@ -269,7 +269,7 @@ Produced by resolving each form against a fixture scope:
 | key | type | req | meaning |
 |---|---|---|---|
 | `call` | string | + | The login rpc. |
-| `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. |
+| `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run. |
 | `token_path` | string | + | Response path holding the token. |
 | `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401. |
 | `header` | string |  | Defaults to `Authorization`. |

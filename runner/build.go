@@ -22,6 +22,7 @@ type Deps struct {
 	Sources  map[string]*transport.LoginTokenSource
 	Bindings AuthBindings
 	Profiles []string
+	Route    func(*chain.Step) (string, bool)
 }
 
 func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs func(transport.Event)) (*Deps, error) {
@@ -53,6 +54,7 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 			return nil, err
 		}
 		mws = append(mws, transport.WithAuthRouter(*router))
+		deps.Route = routeOf(router, cat)
 	}
 
 	deps.Client = transport.New(transport.Options{
@@ -244,6 +246,7 @@ func NewFromConfig(ctx context.Context, cfg *config.Config, cat *catalog.Catalog
 		ValidateInput:  true,
 		ValidateOutput: cfg.Conventions.ValidateOutput,
 		Auth:           deps.Bindings,
+		AuthRoute:      deps.Route,
 		BuildHeader:    strings.TrimSpace(cfg.Target.BuildHeader),
 	}
 	return r, Options{Volatile: cfg.Volatile, Redact: cfg.Redact}, nil

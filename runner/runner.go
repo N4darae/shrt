@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"sort"
@@ -27,6 +28,7 @@ type Runner struct {
 	ValidateOutput bool
 	OnStep         func(*StepRecord)
 	Auth           AuthBindings
+	AuthRoute      func(*chain.Step) (string, bool)
 	BuildHeader    string
 }
 
@@ -602,6 +604,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		return nil, err
 	}
 	if err := r.checkCalls(c); err != nil {
+		return nil, err
+	}
+	if err := r.checkAuthEnv(c); err != nil {
 		return nil, err
 	}
 	problems := c.PreflightProblems()
@@ -1269,6 +1274,46 @@ func (r *Runner) checkCalls(c *chain.Chain) error {
 			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
 				step.ID, i+1, step.Call, err)
 		}
+	}
+	return nil
+}
+
+func (r *Runner) checkAuthEnv(c *chain.Chain) error {
+	if r.AuthRoute == nil {
+		return nil
+	}
+	byProfile := map[string]*AuthBinding{}
+	for _, b := range r.Auth {
+		if b != nil {
+			byProfile[b.Profile] = b
+		}
+	}
+	for i, step := range c.Steps {
+		if step == nil || step.SkipAuth {
+			continue
+		}
+		profile, routed := r.AuthRoute(step)
+		b := byProfile[profile]
+		if !routed || b == nil {
+			continue
+		}
+		unset := []string{}
+		for _, name := range b.EnvVars {
+			if _, set := os.LookupEnv(name); !set {
+				unset = append(unset, name)
+			}
+		}
+		if len(unset) == 0 {
+			continue
+		}
+		refs := make([]string, 0, len(unset))
+		for _, name := range unset {
+			refs = append(refs, "${env."+name+"}")
+		}
+		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
+			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
+			"had already hit the backend. Export %s", step.ID, i+1, profileLabel(profile), strings.Join(refs, ", "),
+			strings.Join(unset, ", "), strings.Join(unset, ", "))
 	}
 	return nil
 }

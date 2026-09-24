@@ -28,6 +28,7 @@ const (
 type LintOptions struct {
 	AuthHeader   func(*Step) (profile, header string, covered bool)
 	AuthProfiles []string
+	AuthEnv      func(profile string) []string
 	Env          func(string) (string, bool)
 }
 
@@ -40,6 +41,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues = append(issues, lintVars(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
+	issues = append(issues, lintAuthEnv(c, opts)...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -693,6 +695,45 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 			"reads environment variables that are not exported in this shell: %s — shrt run refuses the "+
 				"chain before sending anything until they are set",
 			strings.Join(unset, ", "))})
+	}
+	return issues
+}
+
+func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
+	if opts.AuthHeader == nil || opts.AuthEnv == nil || opts.Env == nil {
+		return nil
+	}
+	firstStep := map[string]string{}
+	order := []string{}
+	for _, s := range c.Steps {
+		if s == nil || s.SkipAuth || s.Auth == InvalidTokenAuth {
+			continue
+		}
+		profile, _, covered := opts.AuthHeader(s)
+		if !covered {
+			continue
+		}
+		if _, seen := firstStep[profile]; !seen {
+			firstStep[profile] = s.ID
+			order = append(order, profile)
+		}
+	}
+	issues := []Issue{}
+	for _, profile := range order {
+		unset := []string{}
+		for _, name := range opts.AuthEnv(profile) {
+			if _, ok := opts.Env(name); !ok {
+				unset = append(unset, name)
+			}
+		}
+		if len(unset) == 0 {
+			continue
+		}
+		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
+			"from step %q on, this chain runs steps under auth profile %q, whose login body reads environment "+
+				"variables that are not exported in this shell: %s — shrt run refuses the chain before sending "+
+				"anything until they are set, since the login would fail after earlier steps had run",
+			firstStep[profile], profile, strings.Join(unset, ", "))})
 	}
 	return issues
 }

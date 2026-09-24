@@ -116,7 +116,7 @@ var notes = map[string]string{
 	"Target.build_header":  "A response header in which the server reports its own build or version, e.g. `X-Server-Version`. Its value is stamped into each run record as `build`, and a value that changes mid-run is recorded as `old -> new` with a warning on the step that first saw it. `shrt run -build <label>` overrides it, and a label the header contradicts is warned about. Unset, a record says only which `base_url` answered, not which build.",
 
 	"Auth.call":           "The login rpc.",
-	"Auth.body":           "Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references.",
+	"Auth.body":           "Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run.",
 	"Auth.token_path":     "Response path holding the token.",
 	"Auth.expires_path":   "Response path holding the expiry. Without it the token is refreshed only on a 401.",
 	"Auth.header":         "Defaults to `Authorization`.",
