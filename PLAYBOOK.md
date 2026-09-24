@@ -874,7 +874,11 @@ depends on a fixture name other than by echoing it (a list sorted by name) is re
 it `volatile`. A list whose order the rpc does not promise is declared `unordered: [products]` on
 the step (or the chain): verify compares it as a multiset, pairing items by content. Without the
 declaration, the same items in another order are reported as `same items in another order`, and
-when that is every change verify fails with `order changed`, not `regression`.
+when that is every change verify fails with `order changed`, not `regression`, also when an
+expectation reading the list by position (`results.0.status.code`) failed because of it: that
+step's status change counts as the reorder, the failed expectations are named on the line and in
+the verdict, and the per-item changes (ids included) under the reordered list are not listed. The
+`first failing step` line names the first expectation that failed, with `-quiet` too.
 
 Three things that decide whether this works for a given chain:
 

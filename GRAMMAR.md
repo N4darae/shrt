@@ -464,7 +464,9 @@ than by position, so ids inside it are renamed by content and a changed item is 
 names the list without indices (`orders.lines` for every order's lines). Without the declaration, a
 list that holds the safe spot's items in another order is still drift, but verify says so (`same
 items in another order`), names the declaration, and fails with `order changed` instead of
-`regression` when that is every change. Expectations are not affected: `products.0` is still the
+`regression` when that is every change, the failed status of a step whose only response change is
+that reorder included; it names the expectations that read the list by position and failed, and
+does not list the per-item changes under it. Expectations are not affected: `products.0` is still the
 first item as sent. An `unordered` path added after approval is named as a chain change note
 (`chain change since the safe spot's run: ... added`); it can hide only a change of order, never a
 changed, added or removed item, so it does not fail verify. `shrt verify

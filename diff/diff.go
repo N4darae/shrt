@@ -73,6 +73,7 @@ type Report struct {
 	renames           [][2]string
 	reorderCandidates []stepPath
 	reordered         []stepPath
+	reorderExpect     map[string][]string
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
@@ -191,6 +192,8 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
 		if why := firstLineOf(first.Error); why != "" {
 			rep.FirstFailure += ": " + why
+		} else if failed := failedExpectation(first); failed != "" {
+			rep.FirstFailure += ": " + failed
 		}
 	}
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
@@ -1145,6 +1148,9 @@ func (r *Report) Text() string {
 			i += run - 1
 			continue
 		}
+		if r.underReordered(c) {
+			continue
+		}
 		after := ""
 		if mixed && c.WithInput {
 			after = " (after different input)"
@@ -1155,6 +1161,23 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func failedExpectation(st *runner.StepRecord) string {
+	failed := []string{}
+	for _, e := range st.Expect {
+		if !e.Passed {
+			failed = append(failed, chain.DescribeFailure(e))
+		}
+	}
+	if len(failed) == 0 {
+		return ""
+	}
+	out := "expectation failed: " + failed[0]
+	if len(failed) > 1 {
+		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
+	}
+	return out
 }
 
 func sameNotReached(changes []Change) int {

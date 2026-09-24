@@ -226,12 +226,53 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 		h.RequestChanges = append([]Change{}, requests...)
 		h.separateInput(spot, rec, extra, *fx)
 	}
+	r.reorderExpect = map[string][]string{}
 	for _, c := range r.reorderCandidates {
 		if changesUnder(r.Changes, c) > 0 && changesUnder(h.Changes, c) == 0 {
 			r.Reordered = append(r.Reordered, c.step+" "+c.path)
 			r.reordered = append(r.reordered, c)
+			if st, ok := rec.Step(c.step); ok {
+				for _, e := range st.Expect {
+					if p := listPath(e.Path); !e.Passed && (p == c.path || strings.HasPrefix(p, c.path+".")) {
+						r.reorderExpect[c.step] = append(r.reorderExpect[c.step], chain.DescribeFailure(e))
+					}
+				}
+			}
 		}
 	}
+}
+
+func (r *Report) underReordered(c Change) bool {
+	for _, at := range r.reordered {
+		if changesUnder([]Change{c}, at) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Report) reorderOnlyStep(step string) bool {
+	found := false
+	for _, c := range r.Changes {
+		if c.Step != step || c.Kind == KindStatus {
+			continue
+		}
+		if !r.underReordered(c) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func (r *Report) ReorderedExpectations() []string {
+	out := []string{}
+	for _, at := range r.reordered {
+		for _, e := range r.reorderExpect[at.step] {
+			out = append(out, at.step+" "+e)
+		}
+	}
+	return out
 }
 
 func changesUnder(changes []Change, at stepPath) int {
@@ -252,14 +293,11 @@ func (r *Report) OnlyReordered() bool {
 		return false
 	}
 	for _, c := range r.Changes {
-		under := false
-		for _, at := range r.reordered {
-			if changesUnder([]Change{c}, at) > 0 {
-				under = true
-				break
-			}
-		}
-		if !under {
+		switch {
+		case r.underReordered(c):
+		case c.Kind == KindStatus && r.reorderOnlyStep(c.Step):
+		case c.Kind == KindNotReached:
+		default:
 			return false
 		}
 	}
@@ -274,7 +312,11 @@ func (r *Report) reorderedText() string {
 	for _, at := range r.reordered {
 		b.WriteString("  " + at.step + " " + at.path + ": same items in another order: it holds what the safe spot holds, in another order. " +
 			"If the rpc promises no order, declare `unordered: [" + at.path + "]` on step " + at.step +
-			" (or at chain level), and verify compares that list as a multiset, pairing items by content\n")
+			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
+		if failed := r.reorderExpect[at.step]; len(failed) > 0 {
+			b.WriteString("; the expectation(s) reading it by position failed: " + strings.Join(failed, "; "))
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
