@@ -199,6 +199,9 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		c = nil
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
+	if c != nil {
+		rep.SeparateInput(spot, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
+	}
 	out := unapprovedVolatileDiffers(rep.UnapprovedVolatile, rec, c)
 	if !config.SameTarget(spot.Target, rec.Target) {
 		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})

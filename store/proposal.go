@@ -304,7 +304,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	if p.Replaces != "" {
 		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
 		if len(p.Replaced) == 0 {
-			b.WriteString("It sent the same requests and got the same responses, beyond ids and timestamps.\n")
+			b.WriteString("It sent the same requests and got the same responses, beyond ids, timestamps and values that only echo a fixture name (`sku-${vars.tag}`), which verify masks too.\n")
 		} else {
 			fmt.Fprintf(&b, "**%d difference(s) from the safe spot it replaces**, what approving signs off on:\n\n", len(p.Replaced))
 			for _, d := range p.Replaced {
