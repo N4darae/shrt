@@ -190,7 +190,8 @@ was meant — is `PITFALLS.md` §3.
 **The read that passed and found nothing is the version of this you cannot see by reading the
 chain.** `error.code == OK` on a read rpc — one whose name starts with a prefix in
 `conventions.read_only_prefixes` (default list in `GRAMMAR.md`) — whose body came back empty
-is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
+(every field at its zero value: `""`, `0`, `false`, `null`, `[]`, `{}`, or a list whose every item is
+itself all zeros, like `products: [{}]`) is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
 names every one:
 
 ```bash
