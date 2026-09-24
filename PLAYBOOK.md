@@ -609,7 +609,8 @@ language, give:
    except what a volatile pattern covers. The summary lists those patterns, and warns by name
    about a step whose every response field is volatile (a `**`, or a pattern covering the whole
    response): approving sets no baseline for it, so narrow the pattern unless that is intended.
-   The summary compares the run with the previous passing run of the chain and lists each field
+   The summary compares the run with the previous passing run of the chain against the same
+   target (a run against another backend says nothing about this one) and lists each field
    that differed and is not masked: every `verify` would report those as drift. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run

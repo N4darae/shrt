@@ -151,7 +151,7 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || !prev.Passed() || prev.DryRun {
+		if err != nil || !prev.Passed() || prev.DryRun || prev.Target != rec.Target {
 			continue
 		}
 		base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
