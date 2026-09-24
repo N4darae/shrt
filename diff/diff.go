@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -133,7 +134,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			})
 			continue
 		}
-		if StepReached(rec, want) && !StepReached(rec, got) && got != first {
+		if StepReached(rec, want) && !StepReached(rec, got) && got != first && !sentUnanswered(got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached,
 				Want: want.Status, Got: got.Status, Detail: firstLineOf(got.Error),
@@ -500,7 +501,7 @@ func expectText(path, rule string, want any) string {
 	if want == nil {
 		return path + " " + rule
 	}
-	return fmt.Sprintf("%s %s %v", path, rule, want)
+	return fmt.Sprintf("%s %s %s", path, rule, show(want))
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
@@ -603,15 +604,15 @@ func (r *Report) InputSummary() string {
 func (c Change) Transition() string {
 	switch c.Kind {
 	case KindMissing:
-		return fmt.Sprintf("%v -> absent", c.Want)
+		return fmt.Sprintf("%s -> absent", show(c.Want))
 	case KindUnexpected:
-		return fmt.Sprintf("absent -> %v", c.Got)
+		return fmt.Sprintf("absent -> %s", show(c.Got))
 	case KindLength:
-		return fmt.Sprintf("%v item(s) -> %v item(s)", c.Want, c.Got)
+		return fmt.Sprintf("%s item(s) -> %s item(s)", show(c.Want), show(c.Got))
 	case KindType:
 		return fmt.Sprintf("%s -> %s", withKind(c.Want), withKind(c.Got))
 	}
-	return fmt.Sprintf("%v -> %v", c.Want, c.Got)
+	return fmt.Sprintf("%s -> %s", show(c.Want), show(c.Got))
 }
 
 func StepReached(rec *runner.Record, s *runner.StepRecord) bool {
@@ -812,26 +813,43 @@ func (c Change) describe() string {
 func (c Change) describeValues() string {
 	if c.Kind == KindNotReached {
 		if c.Got == nil {
-			return fmt.Sprintf("want=%v got=not recorded", c.Want)
+			return fmt.Sprintf("want=%s got=not recorded", show(c.Want))
 		}
-		return fmt.Sprintf("want=%v got=%v, %s", c.Want, c.Got, sentOrNot(c.Detail))
+		return fmt.Sprintf("want=%s got=%s, %s", show(c.Want), show(c.Got), sentOrNot(c.Detail))
 	}
 	if c.Kind == KindLength {
-		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
+		return fmt.Sprintf("want=%s item(s) got=%s item(s)", show(c.Want), show(c.Got))
 	}
 	if c.Path == "step" && c.Kind == KindMissing {
-		return fmt.Sprintf("want=%v got=absent", c.Want)
+		return fmt.Sprintf("want=%s got=absent", show(c.Want))
 	}
 	if c.Path == "step" && c.Kind == KindUnexpected {
-		return fmt.Sprintf("want=absent got=%v", c.Got)
+		return fmt.Sprintf("want=absent got=%s", show(c.Got))
 	}
 	if c.Kind == KindChanged && fmt.Sprint(c.Want) == fmt.Sprint(c.Got) {
 		return fmt.Sprintf("want=%s got=%s, the same text, so the change is that it did not change", withKind(c.Want), withKind(c.Got))
 	}
 	if c.Kind != KindType {
-		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
+		return fmt.Sprintf("want=%s got=%s", show(c.Want), show(c.Got))
 	}
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
+}
+
+func show(v any) string {
+	switch v.(type) {
+	case map[string]any, []any:
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err == nil {
+			return strings.TrimRight(buf.String(), "\n")
+		}
+	}
+	return fmt.Sprint(v)
+}
+
+func sentUnanswered(st *runner.StepRecord) bool {
+	return st.Status == runner.StatusError && strings.Contains(st.Error, transport.NoAnswerBeforeTimeout)
 }
 
 func sentOrNot(detail string) string {
@@ -852,7 +870,7 @@ func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
 	}
-	return fmt.Sprintf("%s %v", jsonKind(v), v)
+	return fmt.Sprintf("%s %s", jsonKind(v), show(v))
 }
 
 func (r *Report) MaskedList() string {

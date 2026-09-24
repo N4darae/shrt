@@ -32,7 +32,8 @@ func TestVerifyLabelsATimedOutStepAsSentNotNotSent(t *testing.T) {
 	if strings.Contains(text, "not sent") {
 		t.Fatalf("a step that went out and timed out was sent:\n%s", text)
 	}
-	if !strings.Contains(text, "[fetch] not_reached status want=passed got=error, sent, no answer before target.timeout") {
+	if strings.Contains(text, "[fetch] not_reached") || !strings.Contains(text, "[fetch] status     status want=passed got=error (POST") ||
+		!strings.Contains(text, "sent, no answer before target.timeout") {
 		t.Fatalf("the timed-out step must say it was sent and got no answer in time:\n%s", text)
 	}
 }

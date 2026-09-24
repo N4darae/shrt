@@ -68,7 +68,7 @@ func TestVerifySaysTheBackendLostItsSessionMidRun(t *testing.T) {
 		t.Fatalf("want could not verify, exit 3, got %v", err)
 	}
 	want := "the backend refused a token it had accepted earlier in this run at step 2"
-	if !strings.Contains(out, want) || !strings.Contains(err.Error(), "restarted mid-run") {
+	if !strings.Contains(err.Error(), want) || !strings.Contains(out, "likely restarted mid-run") {
 		t.Fatalf("verify must say the backend lost its session state mid-run, want %q:\n%s\n%v", want, out, err)
 	}
 }

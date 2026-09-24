@@ -166,6 +166,30 @@ func runVerify(ctx context.Context, args []string) error {
 	if !report.Clean() {
 		reuse = detectFixtureReuse(e, c, rec)
 	}
+	var nonBackend error
+	headline := ""
+	switch {
+	case loss.finding():
+	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
+		headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
+	case unanswered:
+		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
+		switch {
+		case strings.Contains(unansweredWhy, transport.NoAnswerBeforeTimeout):
+			headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", unansweredStep)
+		case strings.Contains(unansweredWhy, "a gateway answered for the service"):
+			headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", unansweredStep)
+		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
+			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
+		}
+		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+	case reuse != nil && !driftedBefore(rec, report, reuse.index):
+		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
+	}
 	if *asJSON {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
@@ -175,18 +199,26 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 	} else {
 		fmt.Println()
+		if nonBackend != nil {
+			fmt.Printf("could not verify %s: %s; this is not a verdict about the backend (why below)\n", name, headline)
+		}
 		if olderSpot != "" {
 			fmt.Println(olderSpot)
 		}
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
-		if loss.finding() {
+		switch {
+		case nonBackend != nil:
+			if list := affectedSteps(rec, report); list != "" {
+				fmt.Println("  affected step(s), not judged: " + list)
+			}
+		case loss.finding():
 			fmt.Println("FINDING: " + loss.line())
-		} else if loss != nil {
+		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
-		if !unanswered || anyAnswered(rec) {
+		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
@@ -209,16 +241,8 @@ func runVerify(ctx context.Context, args []string) error {
 	if loss.finding() && !driftedBefore(rec, report, loss.index) {
 		return fmt.Errorf("%s: %s", name, loss.line())
 	}
-	if loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index) {
-		return exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
-	}
-	if unanswered {
-		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
-	}
-	if reuse != nil && !driftedBefore(rec, report, reuse.index) {
-		return exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
+	if nonBackend != nil {
+		return nonBackend
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -619,4 +643,27 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 		return "", "", false
 	}
 	return first, unanswered[first], true
+}
+
+func affectedSteps(rec *runner.Record, report *diff.Report) string {
+	status := map[string]string{}
+	for _, st := range rec.Steps {
+		if st != nil {
+			status[st.ID] = st.Status
+		}
+	}
+	seen := map[string]bool{}
+	out := []string{}
+	for _, c := range report.Changes {
+		if c.Step == "" || seen[c.Step] {
+			continue
+		}
+		seen[c.Step] = true
+		st := status[c.Step]
+		if st == "" {
+			st = "not run"
+		}
+		out = append(out, c.Step+" ("+st+")")
+	}
+	return capList(out, 6)
 }
