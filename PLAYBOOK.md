@@ -708,7 +708,9 @@ Three things that decide whether this works for a given chain:
   id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
   approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
-  it hid, until a run under the wider mask is proposed with `-supersede` and approved. The report
+  it hid, until a run under the wider mask is proposed with `-supersede` and approved. A `redact` path is a mask too: a
+  redacted response value is blanked in the safe spot and the replay alike, so it is never
+  compared; `confirm` lists such fields and `verify` counts and names them. The report
   counts the values it kept out, both kinds; `verify -masked` lists every one of them, the
   volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose

@@ -46,6 +46,8 @@ type Report struct {
 	VolatilePaths  []string `json:"volatile_paths,omitempty"`
 	VolatileValues []Change `json:"volatile_values,omitempty"`
 	ShapeMasked    []Change `json:"shape_masked,omitempty"`
+	Redacted       int      `json:"redacted"`
+	RedactedPaths  []string `json:"redacted_paths,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
@@ -112,6 +114,16 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		}
 		if !StepReached(rec, got) {
 			continue
+		}
+		gotRedacted := map[string]bool{}
+		for _, p := range pathmask.RedactedPaths(got.Response) {
+			gotRedacted[p] = true
+		}
+		for _, p := range pathmask.RedactedPaths(want.Response) {
+			if gotRedacted[p] {
+				rep.Redacted++
+				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
+			}
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
 		for _, c := range compareStep(want, got) {
@@ -460,6 +472,10 @@ func (r *Report) Text() string {
 				fmt.Fprintf(&b, "    %s\n", p)
 			}
 		}
+	}
+	if r.Redacted > 0 {
+		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in both records and were never compared, "+
+			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
 	}
 	for _, c := range r.RequestChanges {
 		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
