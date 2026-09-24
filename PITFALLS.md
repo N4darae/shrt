@@ -1069,6 +1069,12 @@ compares the two latest runs that carry none, and prints which two it picked and
 skipped. Explicit ids, `latest` and `latest~N` still count every record; a replay recorded before
 `replay_of` existed is not recognised as one.
 
+The `shrt confirm` summary table clipped values mid-word and mid-id: `order is alr…dy confirmed`,
+`cust-pre2-or…example.test` (the `@` lost, so the email no longer read as one), and a cell cut off
+inside an id (`prd-3b0…`). A value is now clipped at word boundaries (`order is … confirmed`), an
+email keeps its `@domain` whole (`cust-pre2-…@example.test`), an id keeps its tail segments, and a
+cell that is too long ends at the last whole word or id segment before the `…`.
+
 ---
 
 # Decisions, so they are not relitigated
