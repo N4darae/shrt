@@ -43,7 +43,7 @@ func runVerify(ctx context.Context, args []string) error {
 	spot, err := e.store.LoadSafeSpot(name)
 	if err != nil {
 		if e.store.HasProposal(name) {
-			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <name>, or -reject", err, name, name)
+			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
 		}
 		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
 	}
