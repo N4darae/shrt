@@ -710,12 +710,23 @@ spot, and says so: a regression in a path no safe spot exercises is not seen.
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:
 `request differs from the confirmed run at create_order lines.0.qty (3 -> 4)`. Values built from
-another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. With a
-request difference the verdict is `drift with different input`, not `regression`: the backend was
-asked something else. Restore the input, or, when the edit is intended, bring the expectations in
-line, run it green, and propose that run with `shrt confirm <name> -supersede`. When the
-difference comes from vars rather than the chain file (a `-var` on this verify, or a `-run` recorded
-with other vars), verify names them, `qty=2, confirmed with 3`, instead of blaming the chain's input.
+another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. Two
+kinds of request difference are printed on one line but are NOT different input: a fixture name,
+a string that interpolates a var inside other text (`sku-${vars.tag}`, `Widget ${vars.tag}`), and a
+value under a `volatile` path. That is what a fresh `-var tag` changes, so a CI replay with a new
+tag is still compared like with like, and a response value that only echoes the new name (the
+confirmed value with the old name swapped for the new) is masked and counted. Every other request
+difference is input, and it explains only the response changes at its own step or later ones:
+with a request difference the verdict is `drift with different input`, not `regression`, when
+every response change comes at or after the first step whose input differs; a change at an
+earlier step is still a `regression`. A `-var` that changes no request (a var only expectations
+read, `-var total=6250`) is not input at all. Restore the input, or, when the edit is intended,
+bring the expectations in line, run it green, and propose that run with `shrt confirm <name>
+-supersede`. When the difference comes from vars rather than the chain file (a `-var` on this
+verify, or a `-run` recorded with other vars), verify names the vars that feed the differing
+request values, `qty=2, confirmed with 3`, instead of blaming the chain's input. A response that
+depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
+it `volatile`.
 
 Three things that decide whether this works for a given chain:
 

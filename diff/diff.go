@@ -30,6 +30,8 @@ type Change struct {
 	Want   any    `json:"want,omitempty"`
 	Got    any    `json:"got,omitempty"`
 	Detail string `json:"detail,omitempty"`
+
+	WithInput bool `json:"with_different_input,omitempty"`
 }
 
 type Report struct {
@@ -41,6 +43,8 @@ type Report struct {
 	FirstFailure   string   `json:"first_failure,omitempty"`
 	RequestChanges []Change `json:"request_changes,omitempty"`
 	InputCause     string   `json:"input_cause,omitempty"`
+	FixtureInput   []Change `json:"fixture_input,omitempty"`
+	FixtureEchoed  []Change `json:"fixture_echoed,omitempty"`
 	Changes        []Change `json:"changes"`
 	Masked         int      `json:"masked"`
 	VolatileMasked int      `json:"volatile_masked"`
@@ -52,6 +56,8 @@ type Report struct {
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
+
+	inputSeparated bool
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
@@ -499,6 +505,7 @@ func (r *Report) MaskedList() string {
 	}
 	section("values under volatile paths", r.VolatileValues)
 	section("id- or timestamp-shaped values", r.ShapeMasked)
+	section("values echoing a fixture name", r.FixtureEchoed)
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -509,6 +516,9 @@ func (r *Report) Text() string {
 	}
 	if r.VolatileMasked > 0 {
 		parts = append(parts, fmt.Sprintf("%d value(s) under volatile paths", r.VolatileMasked))
+	}
+	if len(r.FixtureEchoed) > 0 {
+		parts = append(parts, fmt.Sprintf("%d value(s) echoing a fixture name", len(r.FixtureEchoed)))
 	}
 	masked := ""
 	if len(parts) > 0 {
@@ -542,6 +552,14 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
+	if len(r.FixtureInput) > 0 {
+		names := []string{}
+		for _, c := range r.FixtureInput {
+			names = append(names, c.Step+" "+c.Path)
+		}
+		fmt.Fprintf(&b, "%d request value(s) differ from the confirmed run only in a fixture name (a var inside other text, `sku-${vars.tag}`) "+
+			"or under a volatile path, so they are not counted as different input: %s\n", len(r.FixtureInput), strings.Join(names, ", "))
+	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.InputCause != "" {
@@ -559,9 +577,15 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
 		return b.String()
 	}
-	if len(r.RequestChanges) > 0 {
+	unexplained := len(r.Unexplained())
+	mixed := len(r.RequestChanges) > 0 && unexplained > 0
+	switch {
+	case mixed:
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
+			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
-	} else {
+	default:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
 	}
 	if r.FirstFailure != "" {
@@ -579,7 +603,11 @@ func (r *Report) Text() string {
 			i += run - 1
 			continue
 		}
-		fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", step, c.Kind, c.Path, c.describe())
+		after := ""
+		if mixed && c.WithInput {
+			after = " (after different input)"
+		}
+		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

@@ -434,9 +434,14 @@ every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, an
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
 verify with `drift with different input` even when every response matches. So is the chain's list of
 steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
-from the confirmed run at <step> ...`, and the change of step count it causes is not a regression. When the input
-differs, the response changes are reported as coming with different input, not as a backend
-regression, and verify fails with `drift with different input` instead of `regression`.
+from the confirmed run at <step> ...`, and the change of step count it causes is not a regression.
+A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
+value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
+compares like with like; a response value that only echoes the new fixture name is masked and counted.
+Any other request difference is input and explains the response changes at its step and after it:
+when every response change comes at or after the first step whose input differs, they are reported as
+coming with different input and verify fails with `drift with different input`; a change at an earlier
+step fails verify with `regression`. A `-var` that changes no request value is not input.
 
 Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON

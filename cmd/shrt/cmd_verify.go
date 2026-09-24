@@ -118,6 +118,7 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
 		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
+		report.SeparateInput(spot, rec, currentVolatile(e, name), fixtureRequestPath(c))
 	}
 	varDrift := ""
 	if len(report.RequestChanges) > 0 {
@@ -125,7 +126,7 @@ func runVerify(ctx context.Context, args []string) error {
 		if *useRun != "" {
 			only = nil
 		}
-		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only)
+		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
 	}
 	if varDrift != "" {
 		how := "set by -var; the chain file is not what differs"
@@ -160,6 +161,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if step, why, ok := unansweredOnly(rec, report); ok {
 		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
 			"This is not a verdict about the backend: start or reach the target and run verify again", name, step, why)
+	}
+	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
+		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
+			"(%d more come at or after it)", n, len(report.Changes)-n)
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
@@ -198,7 +203,7 @@ func runVerify(ctx context.Context, args []string) error {
 	return nil
 }
 
-func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any) string {
+func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {
 	var confirmed map[string]any
 	if prev, err := e.store.LoadRun(rec.Chain, spotRun); err == nil {
 		confirmed = prev.Vars
@@ -221,6 +226,9 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 	out := []string{}
 	for _, k := range names {
 		if _, supplied := only[k]; only != nil && !supplied {
+			continue
+		}
+		if fed != nil && !fed[k] {
 			continue
 		}
 		now, had := rec.Vars[k], confirmed[k]
@@ -257,13 +265,74 @@ func orUnknown(s string) string {
 
 var requestRef = regexp.MustCompile(`\$\{\s*([^}]*)\}`)
 
-func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
+func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
+	s, ok := c.Step(step)
+	if !ok {
+		return nil, false
+	}
+	return chain.Get(s.Body, path)
+}
+
+func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
 	return func(step, path string) bool {
-		s, ok := c.Step(step)
+		v, ok := requestTemplate(c, step, path)
 		if !ok {
 			return false
 		}
-		v, ok := chain.Get(s.Body, path)
+		text, ok := v.(string)
+		if !ok {
+			return false
+		}
+		refs := requestRef.FindAllStringSubmatch(text, -1)
+		if len(refs) == 0 || strings.TrimSpace(requestRef.ReplaceAllString(text, "")) == "" {
+			return false
+		}
+		for _, m := range refs {
+			if head, _, _ := strings.Cut(strings.TrimSpace(m[1]), "."); head != "vars" {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+var varName = regexp.MustCompile(`^vars\.([A-Za-z0-9_-]+)`)
+
+func inputVars(c *chain.Chain, changes []diff.Change) map[string]bool {
+	if c == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	var collect func(v any)
+	collect = func(v any) {
+		switch t := v.(type) {
+		case string:
+			for _, m := range requestRef.FindAllStringSubmatch(t, -1) {
+				if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+					out[n[1]] = true
+				}
+			}
+		case map[string]any:
+			for _, x := range t {
+				collect(x)
+			}
+		case []any:
+			for _, x := range t {
+				collect(x)
+			}
+		}
+	}
+	for _, ch := range changes {
+		if v, ok := requestTemplate(c, ch.Step, ch.Path); ok {
+			collect(v)
+		}
+	}
+	return out
+}
+
+func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
+	return func(step, path string) bool {
+		v, ok := requestTemplate(c, step, path)
 		if !ok {
 			return false
 		}
