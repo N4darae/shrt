@@ -328,10 +328,13 @@ Auth is a **chain-level** concern. `.shrt/config.yaml` declares the login once a
 attaches the header, re-logging in on expiry — a chain that passes today must not fail tomorrow
 from an expired token, because that is a false fail, not a regression. With `expires_path` the
 refresh happens before the call goes out. A call answered unauthenticated (401, or the envelope
-saying so) drops the token either way; only a READ (`conventions.read_only_prefixes`) is then
-re-sent after a fresh login, and its step records `auth_retry: resent` with a warning. A write is
-never re-sent automatically, since the backend may already have performed it: the step fails
-with `auth_retry: not_resent` and a warning, and the next call or run logs in fresh.
+saying so) drops the token either way and makes a fresh login. The call is then re-sent when it is a
+READ (`conventions.read_only_prefixes`), or when its token came from the on-disk cache and no call
+in this run had used it yet (the backend restarted and refused it at authentication, so it did not
+perform the call); the step records `auth_retry: resent` with a warning. A write refused with a
+token the backend already accepted in this run is not re-sent, since the backend may already have
+performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
+fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -639,7 +642,10 @@ shrt confirm <name> -run <run-id> -note "what you inspected in the responses, an
 This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `<name>.md`, and
 prints a summary table: one row per step with an excerpt of what was sent, what it asserted and
 what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
-reads). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
+uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
+cell gives the verdict, then the value the backend returned at every path the step asserts, except
+id-shaped ones (`order.total_minor=4548`). It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is
@@ -710,12 +716,27 @@ spot, and says so: a regression in a path no safe spot exercises is not seen.
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:
 `request differs from the confirmed run at create_order lines.0.qty (3 -> 4)`. Values built from
-another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. With a
-request difference the verdict is `drift with different input`, not `regression`: the backend was
-asked something else. Restore the input, or, when the edit is intended, bring the expectations in
-line, run it green, and propose that run with `shrt confirm <name> -supersede`. When the
-difference comes from vars rather than the chain file (a `-var` on this verify, or a `-run` recorded
-with other vars), verify names them, `qty=2, confirmed with 3`, instead of blaming the chain's input.
+another step's output or from `${uuid}` / `${now}` are skipped, since they differ every run. Two
+kinds of request difference are printed on one line but are NOT different input: a fixture name,
+a string that interpolates a var inside other text (`sku-${vars.tag}`, `Widget ${vars.tag}`), and a
+value under a `volatile` path. That is what a fresh `-var tag` changes, so a CI replay with a new
+tag is still compared like with like, and a response value that only echoes the new name (the
+confirmed value with the old name swapped for the new) is masked and counted. Every other request
+difference is input, and it explains only the response changes at its own step or later ones:
+with a request difference the verdict is `drift with different input`, not `regression`, when
+every response change comes at or after the first step whose input differs; a change at an
+earlier step is still a `regression`. A `-var` that changes no request (a var only expectations
+read, `-var total=6250`) is not input at all. Restore the input, or, when the edit is intended,
+bring the expectations in line, run it green, and propose that run with `shrt confirm <name>
+-supersede`. When the difference comes from vars rather than the chain file (a `-var` on this
+verify, or a `-run` recorded with other vars), verify names the vars that feed the differing
+request values, `qty=2, confirmed with 3`, instead of blaming the chain's input; when the chain
+file changed too (a step's `auth:`, the step list, an expectation), it names that edit as well,
+and never says the chain file is not what differs. An expectation added, removed or edited since
+approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
+step, not a response change. A response that
+depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
+it `volatile`.
 
 Three things that decide whether this works for a given chain:
 
@@ -737,7 +758,9 @@ Three things that decide whether this works for a given chain:
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
   `drift with different input` naming the profile change, even when every response matches.
   So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
-  `chain differs` line and `drift with different input`, not a `regression`.
+  `chain differs` line and `drift with different input`, not a `regression`. A call respelled to
+  the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
+  `procedure` decides.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
@@ -770,12 +793,16 @@ shrt diff <name> <run-a> <run-b>                 # or any two runs; ids, latest,
 ```
 
 It reports step status changes, where the first failing step moved, steps reached in one run and
-not the other (a step `-keep-going` held back as `skipped` counts as not reached), and response
-differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
+not the other (a step `-keep-going` held back as `skipped` counts as not reached), and, in steps
+both reached, what each SENT (request values, the `auth_profile` a step ran as, and the rpc, where
+`ListProducts` and `shop.catalog.v1.ProductService/ListProducts` are the same call) before the
+response differences. A request value that only differs in a fixture name (`sku-${vars.tag}`) is
+counted, not listed, as verify does. It masks the `volatile` patterns stored in each record plus the
 ones in today's config and chain file, so a pattern you add after the runs still applies. When
 those patterns cover every response field of a step (`volatile: ["**"]`), the report opens with a
 `WARNING` naming the steps it compared nothing of (`fully_masked` under `-json`), because "no
-differences" then says nothing about them, as `confirm` warns for the same patterns. It also
+differences" then says nothing about them, as `confirm` warns for the same patterns and `verify`
+opens its report for a `no drift` it reached the same way. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
 camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
@@ -818,14 +845,16 @@ shrt chain which -code 1218 -json
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
-   applied to discovery. Matches rank in three tiers: observed and holding, then asserted only, then
-   observed but contradicted (under `-code`, the newest reaching run got a different code at the
-   asserted path; under `-rpc` alone, the step FAILED). Within the first tier a step that passed
-   outranks one that failed while still answering the code, and within the last a step that
-   passed outranks one that failed, so a chain whose best match failed never heads the list
-   while passing evidence exists elsewhere. The order is this because a
-   chain the backend has stopped answering that way is the least likely to reproduce it, though it
-   is often the regression you want to see. Run records are gitignored and machine-local, so a
+   applied to discovery. Under `-code` matches rank in three tiers: observed and holding, then
+   asserted only, then observed but contradicted (the newest reaching run got a different code at
+   the asserted path). Within the first tier a step that passed outranks one that failed while
+   still answering the code, and within the last a step that passed outranks one that failed,
+   because a chain the backend has stopped answering with that code is the least likely to
+   reproduce it. Under `-rpc` alone the question is an incident at that rpc, so the order is the
+   other way round: a step whose newest reaching run FAILED there ranks first (one that still got
+   the asserted envelope code before one that did not), then observed steps that passed, then
+   steps no run reached, and the first `reproduce:` line slices the red step instead of a green
+   one. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads
@@ -919,8 +948,14 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    compares the TARGET step's verdict — the code at `conventions.envelope_path`, the refusal
    beside it (its `message`, and `reason` and `app_code` at `details.0.` or beside the code, the
    ones `shrt run` prints), a transport refusal (HTTP status and code), the pass/fail of every
-   expectation, and for an expectation that failed in both runs against the same want, the value
-   it got — against that same step in the source run. Values that differ every run are masked
+   expectation, and for an expectation that failed in both runs, its want and the value it got —
+   against that same step in the source run. A failure against another want, or with another got,
+   is NOT REPRODUCED (`failed in both, with other values: source want 3697 got 1995, slice want 4548
+   got 6250`): it is not the same failure. So that like is compared with like, `-verify` writes the
+   source run's value of every declared var into the slice, in closure mode too (listed under `vars
+   written with the value run <id> used`), except the fresh vars a kept write interpolates; a
+   `-var` still overrides, and when the verdicts then differ the verdict names each var that differs
+   from the source run's. Values that differ every run are masked
    as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
    differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run

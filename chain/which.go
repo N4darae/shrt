@@ -171,13 +171,13 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 				}
 			}
 		}
-		sortMatches(matches)
+		sortMatches(matches, q.Code == "")
 		hit.Matches = matches
 		hit.Best = matches[0].Step
 		hit.Command = reproCommand(c, matches[0], opts.FreshVars)
 		out = append(out, hit)
 	}
-	sortWhich(out)
+	sortWhich(out, q.Code == "")
 	return out
 }
 
@@ -378,7 +378,19 @@ func stepCalls(s *Step, rpc string, rpcOf func(*Step) string) bool {
 	return strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(rpcOf(s)), "/"), want)
 }
 
-func evidenceRank(m WhichStep) int {
+func evidenceRank(m WhichStep, failingFirst bool) int {
+	if failingFirst {
+		switch {
+		case m.Observed == nil:
+			return 3
+		case m.Observed.Status != statusPassed && m.Observed.Holds:
+			return 0
+		case m.Observed.Status != statusPassed:
+			return 1
+		default:
+			return 2
+		}
+	}
 	switch {
 	case m.Observed == nil:
 		return 2
@@ -393,10 +405,10 @@ func evidenceRank(m WhichStep) int {
 	}
 }
 
-func sortMatches(m []WhichStep) {
+func sortMatches(m []WhichStep, failingFirst bool) {
 	sort.SliceStable(m, func(i, j int) bool {
 		a, b := m[i], m[j]
-		if ra, rb := evidenceRank(a), evidenceRank(b); ra != rb {
+		if ra, rb := evidenceRank(a, failingFirst), evidenceRank(b, failingFirst); ra != rb {
 			return ra < rb
 		}
 		if a.SliceSteps != b.SliceSteps {
@@ -406,10 +418,10 @@ func sortMatches(m []WhichStep) {
 	})
 }
 
-func sortWhich(h []WhichChain) {
+func sortWhich(h []WhichChain, failingFirst bool) {
 	sort.SliceStable(h, func(i, j int) bool {
 		a, b := h[i], h[j]
-		if ra, rb := evidenceRank(a.Matches[0]), evidenceRank(b.Matches[0]); ra != rb {
+		if ra, rb := evidenceRank(a.Matches[0], failingFirst), evidenceRank(b.Matches[0], failingFirst); ra != rb {
 			return ra < rb
 		}
 		as, bs := sliceRank(a.Matches[0].SliceSteps), sliceRank(b.Matches[0].SliceSteps)

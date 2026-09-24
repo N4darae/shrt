@@ -46,6 +46,8 @@ type LoginTokenSource struct {
 	mu           sync.Mutex
 	token        string
 	expiresAt    time.Time
+	fromCache    bool
+	accepted     bool
 	logins       int
 	cachePath    string
 	cacheProfile string
@@ -67,6 +69,7 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 	if token, expiresAt, ok := s.readCache(); ok {
 		s.token, s.expiresAt = token, expiresAt
 		if !s.stale() {
+			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
 		s.token, s.expiresAt = "", time.Time{}
@@ -82,6 +85,21 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	defer s.mu.Unlock()
 	s.token = token
 	s.expiresAt = expiresAt
+	s.fromCache, s.accepted = false, false
+}
+
+func (s *LoginTokenSource) Accepted(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token != "" && token == s.token {
+		s.accepted = true
+	}
+}
+
+func (s *LoginTokenSource) UntriedCached(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return token != "" && token == s.token && s.fromCache && !s.accepted
 }
 
 func (s *LoginTokenSource) CurrentToken() string {
@@ -95,6 +113,7 @@ func (s *LoginTokenSource) Invalidate() {
 	defer s.mu.Unlock()
 	s.token = ""
 	s.expiresAt = time.Time{}
+	s.fromCache, s.accepted = false, false
 	s.dropCache()
 }
 
@@ -170,6 +189,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	}
 	s.token = token
 	s.expiresAt = time.Time{}
+	s.fromCache, s.accepted = false, false
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
 			s.expiresAt = time.Unix(unix, 0)
@@ -268,23 +288,46 @@ func WithAuthRouter(router AuthRouter) Middleware {
 			}
 			noteProfile(call, profile.Name)
 			header, scheme := profile.headerScheme()
-			if err := apply(ctx, profile.Source, call, header, scheme); err != nil {
+			token, err := apply(ctx, profile.Source, call, header, scheme)
+			if err != nil {
 				return nil, err
 			}
 			res, err := next(ctx, call)
-			if err != nil || !router.unauthenticated(res) {
+			if err != nil {
 				return res, err
 			}
-			profile.Source.Invalidate()
-			if router.Resend == nil || !router.Resend(call.Procedure) {
-				call.Meta[MetaAuthRetry] = AuthRetryNotResent
+			tracked, _ := profile.Source.(tokenProvenance)
+			if !router.unauthenticated(res) {
+				if tracked != nil {
+					tracked.Accepted(token)
+				}
 				return res, nil
 			}
-			if err := apply(ctx, profile.Source, call, header, scheme); err != nil {
+			untried := tracked != nil && tracked.UntriedCached(token)
+			profile.Source.Invalidate()
+			if !untried && (router.Resend == nil || !router.Resend(call.Procedure)) {
+				call.Meta[MetaAuthRetry] = AuthRetryNotResent
+				call.Meta[MetaAuthRefused] = true
+				return res, nil
+			}
+			token, err = apply(ctx, profile.Source, call, header, scheme)
+			if err != nil {
 				return nil, err
 			}
 			call.Meta[MetaAuthRetry] = AuthRetryResent
-			return next(ctx, call)
+			if untried {
+				call.Meta[MetaAuthRetryCached] = true
+			}
+			res, err = next(ctx, call)
+			if err != nil {
+				return res, err
+			}
+			if router.unauthenticated(res) {
+				call.Meta[MetaAuthRefused] = true
+			} else if tracked != nil {
+				tracked.Accepted(token)
+			}
+			return res, nil
 		}
 	}
 }
@@ -302,10 +345,17 @@ const DefaultProfile = "default"
 const MetaAuthProfile = "auth_profile"
 
 const (
-	MetaAuthRetry      = "auth_retry"
-	AuthRetryResent    = "resent"
-	AuthRetryNotResent = "not_resent"
+	MetaAuthRetry       = "auth_retry"
+	MetaAuthRetryCached = "auth_retry_cached"
+	MetaAuthRefused     = "auth_refused"
+	AuthRetryResent     = "resent"
+	AuthRetryNotResent  = "not_resent"
 )
+
+type tokenProvenance interface {
+	Accepted(token string)
+	UntriedCached(token string) bool
+}
 
 func noteProfile(call *Call, name string) {
 	if call.Meta == nil {
@@ -367,10 +417,10 @@ func callAuthProfile(call *Call) string {
 	return strings.TrimSpace(s)
 }
 
-func apply(ctx context.Context, src TokenSource, call *Call, header, scheme string) error {
+func apply(ctx context.Context, src TokenSource, call *Call, header, scheme string) (string, error) {
 	token, err := src.Token(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if call.Header == nil {
 		call.Header = map[string][]string{}
@@ -380,7 +430,7 @@ func apply(ctx context.Context, src TokenSource, call *Call, header, scheme stri
 		value = scheme + " " + token
 	}
 	call.Header.Set(header, value)
-	return nil
+	return token, nil
 }
 
 func isUnauthenticated(res *Result) bool {

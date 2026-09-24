@@ -118,7 +118,7 @@ var notes = map[string]string{
 	"Auth.call":           "The login rpc.",
 	"Auth.body":           "Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run.",
 	"Auth.token_path":     "Response path holding the token.",
-	"Auth.expires_path":   "Response path holding the expiry. Without it the token is refreshed only on a 401, and a 401 re-sends only a read (see `auth_retry` in §5): a write answered 401 fails its step.",
+	"Auth.expires_path":   "Response path holding the expiry. Without it the token is refreshed only on a 401, and a 401 re-sends a read or a call whose cached token no call in the run had used yet (see `auth_retry` in §5): a write answered 401 with a token already accepted in the run is not re-sent, and its step is `error`.",
 	"Auth.header":         "Defaults to `Authorization`.",
 	"Auth.scheme":         "Defaults to `Bearer`.",
 	"Auth.skip_calls":     "Calls that carry no token. Read only at the top level of `auth:`, where it applies to every profile; inside an entry of `auth.profiles` it is accepted and ignored.",
@@ -164,7 +164,7 @@ var notes = map[string]string{
 	"StepRecord.error":           "Why this step failed or could not run.",
 	"StepRecord.warning":         "Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`) or answered with no verdict, which stays `passed` with a warning saying so.",
 	"StepRecord.note":            "Runner commentary, e.g. that a login seeded a profile's token — or did NOT, because it sent other credentials than that profile's `body`. A login seeds a profile only when its request equals that profile's resolved body, so a chain that logs in as someone else never changes whose token later steps carry.",
-	"StepRecord.auth_retry":      "Set when the call was answered unauthenticated (HTTP 401, or `unauthenticated` at the envelope path) and the token dropped. `resent`: the call is a read (`conventions.read_only_prefixes`), so a fresh login was made and it was sent again; the backend received it twice and this record is the second answer. `not_resent`: it is not a read, so it was NOT sent again, because the backend may already have performed it and a second send could perform it twice; the step shows the refusal, and the next call logs in fresh. Both carry a `warning`.",
+	"StepRecord.auth_retry":      "Set when the call was answered unauthenticated (HTTP 401, or `unauthenticated` at the envelope path) and the token dropped. `resent`: a fresh login was made and the call sent again, because it is a read (`conventions.read_only_prefixes`), or because its token came from the on-disk cache and no call in this run had used it yet, so the backend refused it at authentication (a restart, a revoke) and did not perform it; this record is the second answer. `not_resent`: a write refused with a token the backend already accepted in this run was NOT sent again, because the backend may already have performed it and a second send could perform it twice; the next call logs in fresh. Both carry a `warning`. A step still refused authentication is `error`, not `failed`, unless it has `allow_fail`.",
 	"StepRecord.auth_profile":    "The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. `shrt verify` compares it with the safe spot's value for the same step as part of the input (§7): a step that now runs under another profile is reported as `request differs ... auth_profile (default -> clerk)` and fails verify with `drift with different input`, even when every response matches. A record that does not say which profile ran (no `auth:` block, or recorded before this field) is not compared.",
 	"StepRecord.volatile":        "Step-level volatile patterns.",
 	"StepRecord.drift":           "The response did not match its proto message while `conventions.validate_output` was on. The step is `failed`, not `error`: the request was sent and answered. No expectation was evaluated, so nothing in this step is evidence about the rpc — rebuild the descriptor first. `allow_fail` does not swallow a step carrying it.",
@@ -706,7 +706,10 @@ func exerciseDiff() (string, error) {
 	b.WriteString("\nA value under a `redact` path (§1, §4) is blanked to `<redacted>` in the safe spot and the replay\n")
 	b.WriteString("alike, so it is never compared: a change there is invisible to verify. Verify does not fail on it;\n")
 	b.WriteString("it counts those values and names each one (`N redacted response value(s) ... never compared`), and\n")
-	b.WriteString("`shrt confirm` lists them before approval, so redact only what must not be stored.\n")
+	b.WriteString("`shrt confirm` lists them before approval, so redact only what must not be stored. A value under no\n")
+	b.WriteString("redact path that held a secret the run knew (a credential or token it sent) is scrubbed by value to\n")
+	b.WriteString("`<redacted>` just the same; verify and confirm name it apart, as `scrubbed by value` (`scrubbed_paths`\n")
+	b.WriteString("in `-json`), so a field the backend echoes a credential into is not mistaken for a redact pattern.\n")
 	b.WriteString("\nBefore the responses, verify compares each step's recorded REQUEST with the safe spot's and prints\n")
 	b.WriteString("every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A\n")
 	b.WriteString("request value the chain builds from another step's output or from `${uuid}` / `${now}` differs\n")
@@ -714,13 +717,27 @@ func exerciseDiff() (string, error) {
 	b.WriteString("`auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails\n")
 	b.WriteString("verify with `drift with different input` even when every response matches. So is the chain's list of\n")
 	b.WriteString("steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs\n")
-	b.WriteString("from the confirmed run at <step> ...`, and the change of step count it causes is not a regression. When the input\n")
-	b.WriteString("differs, the response changes are reported as coming with different input, not as a backend\n")
-	b.WriteString("regression, and verify fails with `drift with different input` instead of `regression`.\n")
+	b.WriteString("from the confirmed run at <step> ...`, and the change of step count it causes is not a regression.\n")
+	b.WriteString("An expectation added, removed or edited since approval (its path, its rule, or a literal value; a\n")
+	b.WriteString("`${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is\n")
+	b.WriteString("printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change\n")
+	b.WriteString("at that step and nothing else. When vars and the chain file both differ, verify names both.\n")
+	b.WriteString("A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request\n")
+	b.WriteString("value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`\n")
+	b.WriteString("compares like with like; a response value that only echoes the new fixture name is masked and counted.\n")
+	b.WriteString("Any other request difference is input and explains the response changes at its step and after it:\n")
+	b.WriteString("when every response change comes at or after the first step whose input differs, they are reported as\n")
+	b.WriteString("coming with different input and verify fails with `drift with different input`; a change at an earlier\n")
+	b.WriteString("step fails verify with `regression`. A `-var` that changes no request value is not input.\n")
 	fmt.Fprintf(&b, "\nChange kinds `shrt verify` and `shrt diff` print: `%s` (a path the baseline had is gone), `%s`\n", diff.KindMissing, diff.KindUnexpected)
 	fmt.Fprintf(&b, "(a path the baseline did not have), `%s` (same JSON type, different value), `%s` (different JSON\n", diff.KindChanged, diff.KindType)
 	fmt.Fprintf(&b, "type), `%s` (a list or the step count has a different number of items), `%s` (a step id or rpc\n", diff.KindLength, diff.KindOrder)
 	fmt.Fprintf(&b, "differs at that position), `%s` (the step's pass/fail status changed).\n", diff.KindStatus)
+	b.WriteString("`shrt verify` pairs the safe spot's steps with the run's by step id when every id is unique, so a\n")
+	b.WriteString("step removed from the middle is one `missing` change at `step`, an added one one `unexpected`, the\n")
+	b.WriteString("steps after it are still compared with their own records, and `order` at `steps` is printed once,\n")
+	b.WriteString("only when the steps both runs have come in another order. The input line counts chain changes and\n")
+	b.WriteString("request values apart (`1 chain change(s) since the safe spot's run ...`).\n")
 	return b.String(), nil
 }
 

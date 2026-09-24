@@ -30,6 +30,8 @@ type Change struct {
 	Want   any    `json:"want,omitempty"`
 	Got    any    `json:"got,omitempty"`
 	Detail string `json:"detail,omitempty"`
+
+	WithInput bool `json:"with_different_input,omitempty"`
 }
 
 type Report struct {
@@ -41,6 +43,8 @@ type Report struct {
 	FirstFailure   string   `json:"first_failure,omitempty"`
 	RequestChanges []Change `json:"request_changes,omitempty"`
 	InputCause     string   `json:"input_cause,omitempty"`
+	FixtureInput   []Change `json:"fixture_input,omitempty"`
+	FixtureEchoed  []Change `json:"fixture_echoed,omitempty"`
 	Changes        []Change `json:"changes"`
 	Masked         int      `json:"masked"`
 	VolatileMasked int      `json:"volatile_masked"`
@@ -49,9 +53,13 @@ type Report struct {
 	ShapeMasked    []Change `json:"shape_masked,omitempty"`
 	Redacted       int      `json:"redacted"`
 	RedactedPaths  []string `json:"redacted_paths,omitempty"`
+	ScrubbedPaths  []string `json:"scrubbed_paths,omitempty"`
+	FullyMasked    []string `json:"fully_masked,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
+
+	inputSeparated bool
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
@@ -94,16 +102,12 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	}
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
-	if len(spot.Steps) != len(rec.Steps) && !stoppedEarly {
-		rep.Changes = append(rep.Changes, Change{
-			Path: "steps", Kind: KindLength,
-			Want: len(spot.Steps), Got: len(rec.Steps),
-		})
-	}
-	n := min(len(spot.Steps), len(rec.Steps))
-	for i := range n {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || want.Call != got.Call {
+	redactPaths := pathmask.NewMasker(rec.Redacted)
+	pairs, structural, tail := alignSteps(spot.Steps, rec.Steps, stoppedEarly)
+	rep.Changes = append(rep.Changes, structural...)
+	for _, p := range pairs {
+		i, want, got := p.i, p.want, p.got
+		if want.ID != got.ID || !SameCall(want, got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: fmt.Sprintf("steps.%d", i), Kind: KindOrder,
 				Want: want.ID + " " + want.Call, Got: got.ID + " " + got.Call,
@@ -132,12 +136,19 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			gotRedacted[p] = true
 		}
 		for _, p := range pathmask.RedactedPaths(want.Response) {
-			if gotRedacted[p] {
+			switch {
+			case !gotRedacted[p]:
+			case len(rec.Redacted) > 0 && !redactPaths.Masks(p):
+				rep.ScrubbedPaths = append(rep.ScrubbedPaths, want.ID+" "+p)
+			default:
 				rep.Redacted++
 				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
 			}
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
+		if everyFieldMasked(stepMask, want.Response) && everyFieldMasked(stepMask, got.Response) {
+			rep.FullyMasked = append(rep.FullyMasked, want.ID)
+		}
 		for _, c := range compareStep(want, got) {
 			switch {
 			case c.Path != "response" && maskedAt(stepMask, c):
@@ -155,18 +166,93 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			}
 		}
 	}
-	if stoppedEarly {
+	if len(tail) > 0 {
 		why := "the run stopped before this step"
 		if first != nil {
 			why = fmt.Sprintf("the run stopped at step %d %s", first.Index, first.ID)
 		}
-		for _, want := range spot.Steps[n:] {
+		for _, want := range tail {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached, Want: want.Status, Detail: why,
 			})
 		}
 	}
 	return rep
+}
+
+type stepPair struct {
+	i         int
+	want, got *runner.StepRecord
+}
+
+func uniqueIDs(steps []*runner.StepRecord) bool {
+	seen := map[string]bool{}
+	for _, st := range steps {
+		if st.ID == "" || seen[st.ID] {
+			return false
+		}
+		seen[st.ID] = true
+	}
+	return true
+}
+
+func alignSteps(spot, rec []*runner.StepRecord, stoppedEarly bool) ([]stepPair, []Change, []*runner.StepRecord) {
+	pairs, structural, tail := []stepPair{}, []Change{}, []*runner.StepRecord{}
+	if !uniqueIDs(spot) || !uniqueIDs(rec) {
+		if len(spot) != len(rec) && !stoppedEarly {
+			structural = append(structural, Change{Path: "steps", Kind: KindLength, Want: len(spot), Got: len(rec)})
+		}
+		n := min(len(spot), len(rec))
+		for i := range n {
+			pairs = append(pairs, stepPair{i, spot[i], rec[i]})
+		}
+		if stoppedEarly {
+			tail = spot[n:]
+		}
+		return pairs, structural, tail
+	}
+	recAt := map[string]int{}
+	for j, st := range rec {
+		recAt[st.ID] = j
+	}
+	inSpot := map[string]bool{}
+	lastPresent := -1
+	for i, st := range spot {
+		inSpot[st.ID] = true
+		if _, ok := recAt[st.ID]; ok {
+			lastPresent = i
+		}
+	}
+	for i, st := range spot {
+		j, ok := recAt[st.ID]
+		switch {
+		case ok:
+			pairs = append(pairs, stepPair{i, st, rec[j]})
+		case stoppedEarly && i > lastPresent:
+			tail = append(tail, st)
+		default:
+			structural = append(structural, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call, Detail: "this run has no such step"})
+		}
+	}
+	for _, st := range rec {
+		if !inSpot[st.ID] {
+			structural = append(structural, Change{Step: st.ID, Path: "step", Kind: KindUnexpected, Got: st.Call, Detail: "the safe spot has no such step"})
+		}
+	}
+	wasOrder := make([]string, 0, len(pairs))
+	for _, p := range pairs {
+		wasOrder = append(wasOrder, p.want.ID)
+	}
+	nowOrder := make([]string, 0, len(pairs))
+	for _, st := range rec {
+		if inSpot[st.ID] {
+			nowOrder = append(nowOrder, st.ID)
+		}
+	}
+	if strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+		structural = append(structural, Change{Step: "-", Path: "steps", Kind: KindOrder, Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+	}
+	return pairs, structural, tail
 }
 
 func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []string, derived func(step, path string) bool) *Report {
@@ -198,8 +284,10 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 		case !ok:
 			out = append(out, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call,
 				Detail: "the chain no longer has this step"})
-		case s.Call != st.Call:
+		case !callNames(s.Call, st.Call, st.Procedure):
 			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
+		default:
+			out = append(out, expectChanges(st, s)...)
 		}
 	}
 	for _, id := range nowOrder {
@@ -213,6 +301,63 @@ func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
 			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
 	}
 	return out
+}
+
+func SameCall(a, b *runner.StepRecord) bool {
+	if a.Call == b.Call {
+		return true
+	}
+	if a.Procedure != "" && b.Procedure != "" {
+		return strings.EqualFold(a.Procedure, b.Procedure)
+	}
+	return callNames(a.Call, b.Call, b.Procedure) || callNames(b.Call, a.Call, a.Procedure)
+}
+
+func callNames(call, recorded, procedure string) bool {
+	if call == recorded {
+		return true
+	}
+	if procedure == "" {
+		return false
+	}
+	c := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(call), "/"))
+	p := strings.ToLower(strings.TrimPrefix(procedure, "/"))
+	return c != "" && (c == p || strings.HasSuffix(p, "/"+c) || strings.HasSuffix(p, "."+c))
+}
+
+const ExpectPath = "expect"
+
+func expectChanges(was *runner.StepRecord, now *chain.Step) []Change {
+	out := []Change{}
+	for i := range max(len(was.Expect), len(now.Expect)) {
+		switch {
+		case i >= len(now.Expect):
+			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindMissing, Want: expectText(was.Expect[i].Path, was.Expect[i].Rule, was.Expect[i].Want)})
+		case i >= len(was.Expect):
+			r := now.Expect[i].Evaluate(nil)
+			out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: expectText(r.Path, r.Rule, r.Want)})
+		default:
+			w, r := was.Expect[i], now.Expect[i].Evaluate(nil)
+			if w.Rule == "unevaluated" {
+				continue
+			}
+			same := w.Path == r.Path && w.Rule == r.Rule
+			if text, templated := r.Want.(string); same && !(templated && strings.Contains(text, "${")) && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
+				same = fmt.Sprint(w.Want) == fmt.Sprint(r.Want)
+			}
+			if !same {
+				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: expectText(r.Path, r.Rule, r.Want)})
+			}
+		}
+	}
+	return out
+}
+
+func expectText(path, rule string, want any) string {
+	if want == nil {
+		return path + " " + rule
+	}
+	return fmt.Sprintf("%s %s %v", path, rule, want)
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
@@ -245,6 +390,25 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 		})
 	}
 	return out
+}
+
+func (r *Report) InputSummary() string {
+	requests, edits := 0, 0
+	for _, c := range r.RequestChanges {
+		if chainLevel(c) || c.Path == ExpectPath {
+			edits++
+		} else {
+			requests++
+		}
+	}
+	parts := []string{}
+	if requests > 0 {
+		parts = append(parts, fmt.Sprintf("%d request value(s) differ", requests))
+	}
+	if edits > 0 {
+		parts = append(parts, fmt.Sprintf("%d chain change(s)", edits))
+	}
+	return strings.Join(parts, " and ")
 }
 
 func (c Change) Transition() string {
@@ -466,6 +630,12 @@ func (c Change) describeValues() string {
 	if c.Kind == KindLength {
 		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
 	}
+	if c.Path == "step" && c.Kind == KindMissing {
+		return fmt.Sprintf("want=%v got=absent", c.Want)
+	}
+	if c.Path == "step" && c.Kind == KindUnexpected {
+		return fmt.Sprintf("want=absent got=%v", c.Got)
+	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
 	}
@@ -499,6 +669,7 @@ func (r *Report) MaskedList() string {
 	}
 	section("values under volatile paths", r.VolatileValues)
 	section("id- or timestamp-shaped values", r.ShapeMasked)
+	section("values echoing a fixture name", r.FixtureEchoed)
 	return strings.TrimRight(b.String(), "\n")
 }
 
@@ -510,11 +681,19 @@ func (r *Report) Text() string {
 	if r.VolatileMasked > 0 {
 		parts = append(parts, fmt.Sprintf("%d value(s) under volatile paths", r.VolatileMasked))
 	}
+	if len(r.FixtureEchoed) > 0 {
+		parts = append(parts, fmt.Sprintf("%d value(s) echoing a fixture name", len(r.FixtureEchoed)))
+	}
 	masked := ""
 	if len(parts) > 0 {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if len(r.FullyMasked) > 0 {
+		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
+			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
+			strings.Join(r.FullyMasked, ", "))
+	}
 	if r.SafeSpotTarget != "" || r.RunTarget != "" {
 		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
 			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
@@ -535,20 +714,32 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in both records and were never compared, "+
 			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
 	}
+	if len(r.ScrubbedPaths) > 0 {
+		fmt.Fprintf(&b, "%d response value(s) under no redact path were scrubbed by value, blanked in both records because they held "+
+			"a secret the run knew (a credential or token it sent), and were never compared, so a change there is invisible to verify: %s\n",
+			len(r.ScrubbedPaths), strings.Join(r.ScrubbedPaths, ", "))
+	}
 	for _, c := range r.RequestChanges {
 		what := "request"
-		if c.Path == "step" || c.Path == "steps" || c.Path == "call" {
+		if chainLevel(c) || c.Path == ExpectPath {
 			what = "chain"
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
+	}
+	if len(r.FixtureInput) > 0 {
+		names := []string{}
+		for _, c := range r.FixtureInput {
+			names = append(names, c.Step+" "+c.Path)
+		}
+		fmt.Fprintf(&b, "%d request value(s) differ from the confirmed run only in a fixture name (a var inside other text, `sku-${vars.tag}`) "+
+			"or under a volatile path, so they are not counted as different input: %s\n", len(r.FixtureInput), strings.Join(names, ", "))
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.InputCause != "" {
 			cause = r.InputCause
 		}
-		fmt.Fprintf(&b, "the chain now sends %d request value(s) the safe spot's run %s did not send: %s\n",
-			len(r.RequestChanges), r.SafeSpotID, cause)
+		fmt.Fprintf(&b, "%s since the safe spot's run %s: %s\n", r.InputSummary(), r.SafeSpotID, cause)
 	}
 	if r.Clean() && r.PrincipalChanged() {
 		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile than the confirmed run, "+
@@ -559,9 +750,15 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
 		return b.String()
 	}
-	if len(r.RequestChanges) > 0 {
+	unexplained := len(r.Unexplained())
+	mixed := len(r.RequestChanges) > 0 && unexplained > 0
+	switch {
+	case mixed:
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
+			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
-	} else {
+	default:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
 	}
 	if r.FirstFailure != "" {
@@ -579,7 +776,11 @@ func (r *Report) Text() string {
 			i += run - 1
 			continue
 		}
-		fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", step, c.Kind, c.Path, c.describe())
+		after := ""
+		if mixed && c.WithInput {
+			after = " (after different input)"
+		}
+		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

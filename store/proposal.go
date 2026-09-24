@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -283,7 +284,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\n\n| # | step | sent | asserted, all held | backend answered | vs replaced safe spot `%s` |\n|---|---|---|---|---|---|\n", p.Replaces)
 	}
 	for _, st := range rec.Steps {
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), cell(answerSummary(st)))
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), clip(flat(answerSummary(st)), answeredCell))
 		if p.Replaces != "" {
 			fmt.Fprintf(&b, " %s |", cell(replacedSummary(p.Replaced, st.ID)))
 		}
@@ -312,9 +313,14 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 			fmt.Fprintf(&b, "- `%s`\n", u)
 		}
 	}
-	if redacted := redactedSummary(rec); len(redacted) > 0 {
+	redacted, scrubbed := redactedSummary(rec)
+	if len(redacted) > 0 {
 		fmt.Fprintf(&b, "\n**Redacted, never compared by `shrt verify`:** %s. A `redact` path blanks the value in every run record, "+
 			"so the safe spot holds no value there and verify cannot see it change; assert it in the chain if it matters.\n", strings.Join(redacted, ", "))
+	}
+	if len(scrubbed) > 0 {
+		fmt.Fprintf(&b, "\n**Scrubbed by value, never compared by `shrt verify`:** %s. No `redact` path covers them: each held a secret "+
+			"the run knew (a credential or token it sent), so the value was blanked; stop echoing the secret there if the field matters.\n", strings.Join(scrubbed, ", "))
 	}
 	patterns := volatileSummary(rec)
 	if len(patterns) == 0 {
@@ -330,14 +336,19 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	return b.String()
 }
 
-func redactedSummary(rec *runner.Record) []string {
-	out := []string{}
+func redactedSummary(rec *runner.Record) ([]string, []string) {
+	paths := pathmask.NewMasker(rec.Redacted)
+	redacted, scrubbed := []string{}, []string{}
 	for _, st := range rec.Steps {
 		for _, p := range pathmask.RedactedPaths(st.Response) {
-			out = append(out, "`"+st.ID+" "+p+"`")
+			if len(rec.Redacted) > 0 && !paths.Masks(p) {
+				scrubbed = append(scrubbed, "`"+st.ID+" "+p+"`")
+				continue
+			}
+			redacted = append(redacted, "`"+st.ID+" "+p+"`")
 		}
 	}
-	return out
+	return redacted, scrubbed
 }
 
 func volatileSummary(rec *runner.Record) []string {
@@ -406,6 +417,7 @@ func replacedSummary(all []Differ, step string) string {
 
 const (
 	summaryCell   = 90
+	answeredCell  = 160
 	summaryValue  = 24
 	assertedCell  = 320
 	sentFieldsMax = 6
@@ -443,7 +455,7 @@ func sentSummary(st *runner.StepRecord) string {
 	if len(st.Request) == 0 || json.Unmarshal(st.Request, &body) != nil {
 		return "-"
 	}
-	leaves := []string{}
+	leaves, refs := []string{}, []string{}
 	var walk func(prefix string, v any)
 	walk = func(prefix string, v any) {
 		switch t := v.(type) {
@@ -464,10 +476,16 @@ func sentSummary(st *runner.StepRecord) string {
 				walk(joinKey(prefix, fmt.Sprint(i)), e)
 			}
 		default:
-			leaves = append(leaves, prefix+"="+shortValue(t))
+			leaf := prefix + "=" + shortValue(t)
+			if referenceLike(prefix, t) {
+				refs = append(refs, leaf)
+			} else {
+				leaves = append(leaves, leaf)
+			}
 		}
 	}
 	walk("", body)
+	leaves = append(leaves, refs...)
 	if len(leaves) == 0 {
 		return "{}"
 	}
@@ -476,6 +494,23 @@ func sentSummary(st *runner.StepRecord) string {
 		out = append(append([]string(nil), out[:sentFieldsMax]...), fmt.Sprintf("+%d more", len(leaves)-sentFieldsMax))
 	}
 	return strings.Join(out, " ")
+}
+
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+func referenceLike(path string, v any) bool {
+	key := path
+	if i := strings.LastIndex(path, "."); i >= 0 {
+		key = path[i+1:]
+	}
+	lower := strings.ToLower(key)
+	switch {
+	case lower == "id", strings.HasPrefix(lower, "id_"), strings.HasSuffix(lower, "_id"),
+		strings.HasSuffix(key, "Id"), strings.HasSuffix(key, "ID"), strings.Contains(lower, "idempotency"):
+		return true
+	}
+	text, ok := v.(string)
+	return ok && uuidShape.MatchString(text)
 }
 
 func joinKey(prefix, k string) string {
@@ -530,7 +565,27 @@ func answerSummary(st *runner.StepRecord) string {
 	if items := itemsSummary(body); items != "" {
 		out += "; items: " + items
 	}
+	if values := assertedValues(st, path); values != "" {
+		out += "; " + values
+	}
 	return out
+}
+
+func assertedValues(st *runner.StepRecord, envelope string) string {
+	seen := map[string]bool{envelope: true}
+	parts := []string{}
+	for _, e := range st.Expect {
+		if seen[e.Path] || e.Got == nil || chain.IsTransportPath(e.Path) || referenceLike(e.Path, e.Got) {
+			continue
+		}
+		seen[e.Path] = true
+		if present, ok := e.Got.(bool); ok && e.Rule == "exists" {
+			parts = append(parts, e.Path+map[bool]string{true: " present", false: " absent"}[present])
+			continue
+		}
+		parts = append(parts, e.Path+"="+shortValue(e.Got))
+	}
+	return strings.Join(parts, " ")
 }
 
 func verdictText(body any, path string, extra ...string) (string, bool) {

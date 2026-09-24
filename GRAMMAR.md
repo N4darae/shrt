@@ -279,7 +279,7 @@ Produced by resolving each form against a fixture scope:
 | `call` | string | + | The login rpc. |
 | `body` | map string → any | + | Its request body. `${env.X}` belongs here, never a literal credential. Resolved before any step runs, so only `${env.*}`, `${uuid}` and the clock forms work; `doctor` and `chain lint` reject `${vars.*}`, exports and step references. When a step of a chain runs under this profile and one of its `${env.*}` is unset, `shrt run` refuses the chain before sending anything and `chain lint` warns, since the login would fail after earlier steps had run. |
 | `token_path` | string | + | Response path holding the token. |
-| `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401, and a 401 re-sends only a read (see `auth_retry` in §5): a write answered 401 fails its step. |
+| `expires_path` | string |  | Response path holding the expiry. Without it the token is refreshed only on a 401, and a 401 re-sends a read or a call whose cached token no call in the run had used yet (see `auth_retry` in §5): a write answered 401 with a token already accepted in the run is not re-sent, and its step is `error`. |
 | `header` | string |  | Defaults to `Authorization`. |
 | `scheme` | string |  | Defaults to `Bearer`. |
 | `skip_calls` | list of string |  | Calls that carry no token. Read only at the top level of `auth:`, where it applies to every profile; inside an entry of `auth.profiles` it is accepted and ignored. |
@@ -342,7 +342,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `call` | string | As written in the chain. |
 | `procedure` | string | The resolved `/package.Service/Rpc`. |
 | `auth_profile` | string | The auth profile whose token this step carried: `default`, a name under `auth.profiles`, `invalid` for a step with `auth: invalid` (a token the backend never issued), or `none` when no token was attached (`skip_auth`, a login rpc, `auth.skip_calls`). Absent when the config declares no `auth:` block and in a dry run. Two steps that should act as one principal and show different values here are a principal swap. `shrt verify` compares it with the safe spot's value for the same step as part of the input (§7): a step that now runs under another profile is reported as `request differs ... auth_profile (default -> clerk)` and fails verify with `drift with different input`, even when every response matches. A record that does not say which profile ran (no `auth:` block, or recorded before this field) is not compared. |
-| `auth_retry` | string | Set when the call was answered unauthenticated (HTTP 401, or `unauthenticated` at the envelope path) and the token dropped. `resent`: the call is a read (`conventions.read_only_prefixes`), so a fresh login was made and it was sent again; the backend received it twice and this record is the second answer. `not_resent`: it is not a read, so it was NOT sent again, because the backend may already have performed it and a second send could perform it twice; the step shows the refusal, and the next call logs in fresh. Both carry a `warning`. |
+| `auth_retry` | string | Set when the call was answered unauthenticated (HTTP 401, or `unauthenticated` at the envelope path) and the token dropped. `resent`: a fresh login was made and the call sent again, because it is a read (`conventions.read_only_prefixes`), or because its token came from the on-disk cache and no call in this run had used it yet, so the backend refused it at authentication (a restart, a revoke) and did not perform it; this record is the second answer. `not_resent`: a write refused with a token the backend already accepted in this run was NOT sent again, because the backend may already have performed it and a second send could perform it twice; the next call logs in fresh. Both carry a `warning`. A step still refused authentication is `error`, not `failed`, unless it has `allow_fail`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` — every step of a `-dry-run` that resolves and validates is `skipped`, and so is a `-keep-going` step that was not sent because it reads the response (`${steps.X…}`, `${X.…}`) or an export of a step X that did not pass; a reference to X's request does not hold it back, nor does a reference to a response field of an answered X whose failed expectations do not cover that field. Its `error` says what happened to X: a failed assertion, a refusal, or an error. A `-keep-going` step after one that could not connect to the target at all is `skipped` too, its `error` naming the unreachable target. |
 | `http_status` | int | Transport status. 200 with a non-OK `error.code` in the body is the normal shape of a business refusal. |
 | `latency_ms` | int | Per-step wall time. |
@@ -425,7 +425,10 @@ a path `volatile` when its value changes every run without being id- or timestam
 A value under a `redact` path (§1, §4) is blanked to `<redacted>` in the safe spot and the replay
 alike, so it is never compared: a change there is invisible to verify. Verify does not fail on it;
 it counts those values and names each one (`N redacted response value(s) ... never compared`), and
-`shrt confirm` lists them before approval, so redact only what must not be stored.
+`shrt confirm` lists them before approval, so redact only what must not be stored. A value under no
+redact path that held a secret the run knew (a credential or token it sent) is scrubbed by value to
+`<redacted>` just the same; verify and confirm name it apart, as `scrubbed by value` (`scrubbed_paths`
+in `-json`), so a field the backend echoes a credential into is not mistaken for a redact pattern.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
@@ -434,14 +437,28 @@ every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, an
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
 verify with `drift with different input` even when every response matches. So is the chain's list of
 steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
-from the confirmed run at <step> ...`, and the change of step count it causes is not a regression. When the input
-differs, the response changes are reported as coming with different input, not as a backend
-regression, and verify fails with `drift with different input` instead of `regression`.
+from the confirmed run at <step> ...`, and the change of step count it causes is not a regression.
+An expectation added, removed or edited since approval (its path, its rule, or a literal value; a
+`${...}` value is compared as resolved, so a `-var` read only by expectations is not an edit) is
+printed as `chain differs from the confirmed run at <step> expect (...)`; it explains a status change
+at that step and nothing else. When vars and the chain file both differ, verify names both.
+A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
+value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
+compares like with like; a response value that only echoes the new fixture name is masked and counted.
+Any other request difference is input and explains the response changes at its step and after it:
+when every response change comes at or after the first step whose input differs, they are reported as
+coming with different input and verify fails with `drift with different input`; a change at an earlier
+step fails verify with `regression`. A `-var` that changes no request value is not input.
 
 Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON
 type), `length` (a list or the step count has a different number of items), `order` (a step id or rpc
 differs at that position), `status` (the step's pass/fail status changed).
+`shrt verify` pairs the safe spot's steps with the run's by step id when every id is unique, so a
+step removed from the middle is one `missing` change at `step`, an added one one `unexpected`, the
+steps after it are still compared with their own records, and `order` at `steps` is printed once,
+only when the steps both runs have come in another order. The input line counts chain changes and
+request values apart (`1 chain change(s) since the safe spot's run ...`).
 
 ## 8. Closed vocabularies
 

@@ -118,19 +118,30 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
 		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
+		report.SeparateInput(spot, rec, currentVolatile(e, name), fixtureRequestPath(c))
 	}
-	varDrift := ""
+	varDrift, edits := "", []string{}
 	if len(report.RequestChanges) > 0 {
 		only := map[string]any(vars)
 		if *useRun != "" {
 			only = nil
 		}
-		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only)
+		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
+		fedByVars := func(ch diff.Change) bool {
+			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, []diff.Change{ch})) != ""
+		}
+		for _, ch := range report.ChainEdits(fedByVars) {
+			edits = append(edits, ch.Step+" "+ch.Path)
+		}
 	}
 	if varDrift != "" {
 		how := "set by -var; the chain file is not what differs"
 		if *useRun != "" {
 			how = "as run " + rec.RunID + " was recorded"
+		}
+		if len(edits) > 0 {
+			how = strings.TrimSuffix(how, "; the chain file is not what differs") +
+				", and the chain file changed since it was confirmed (" + strings.Join(edits, ", ") + ")"
 		}
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
@@ -159,17 +170,24 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if step, why, ok := unansweredOnly(rec, report); ok {
 		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
-			"This is not a verdict about the backend: start or reach the target and run verify again", name, step, why)
+			"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why)
+	}
+	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
+		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
+			"(%d more come at or after it)", n, len(report.Changes)-n)
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
 		if *useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
 		}
-		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed because this run's vars differ from the confirmed run's (%s).\n"+
+		if len(edits) > 0 {
+			fix += ", and restore the chain's edit (" + strings.Join(edits, ", ") + ")"
+		}
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s because this run's vars differ from the confirmed run's (%s).\n"+
 			"%s; if the new value is intended, run the chain with it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
-			len(report.Changes), len(report.RequestChanges), varDrift, fix, name)
+			len(report.Changes), report.InputSummary(), varDrift, fix, name)
 	}
 	if report.PrincipalChanged() {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile than the confirmed run (%s).\n"+
@@ -178,10 +196,10 @@ func runVerify(ctx context.Context, args []string) error {
 			len(report.Changes), principalChanges(report), name)
 	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
-		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %d request value(s) changed since it was confirmed.\n"+
+		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s since it was confirmed.\n"+
 			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
 			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
-			len(report.Changes), len(report.RequestChanges), name)
+			len(report.Changes), report.InputSummary(), name)
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
@@ -198,7 +216,7 @@ func runVerify(ctx context.Context, args []string) error {
 	return nil
 }
 
-func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any) string {
+func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {
 	var confirmed map[string]any
 	if prev, err := e.store.LoadRun(rec.Chain, spotRun); err == nil {
 		confirmed = prev.Vars
@@ -221,6 +239,9 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 	out := []string{}
 	for _, k := range names {
 		if _, supplied := only[k]; only != nil && !supplied {
+			continue
+		}
+		if fed != nil && !fed[k] {
 			continue
 		}
 		now, had := rec.Vars[k], confirmed[k]
@@ -257,13 +278,74 @@ func orUnknown(s string) string {
 
 var requestRef = regexp.MustCompile(`\$\{\s*([^}]*)\}`)
 
-func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
+func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
+	s, ok := c.Step(step)
+	if !ok {
+		return nil, false
+	}
+	return chain.Get(s.Body, path)
+}
+
+func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
 	return func(step, path string) bool {
-		s, ok := c.Step(step)
+		v, ok := requestTemplate(c, step, path)
 		if !ok {
 			return false
 		}
-		v, ok := chain.Get(s.Body, path)
+		text, ok := v.(string)
+		if !ok {
+			return false
+		}
+		refs := requestRef.FindAllStringSubmatch(text, -1)
+		if len(refs) == 0 || strings.TrimSpace(requestRef.ReplaceAllString(text, "")) == "" {
+			return false
+		}
+		for _, m := range refs {
+			if head, _, _ := strings.Cut(strings.TrimSpace(m[1]), "."); head != "vars" {
+				return false
+			}
+		}
+		return true
+	}
+}
+
+var varName = regexp.MustCompile(`^vars\.([A-Za-z0-9_-]+)`)
+
+func inputVars(c *chain.Chain, changes []diff.Change) map[string]bool {
+	if c == nil {
+		return nil
+	}
+	out := map[string]bool{}
+	var collect func(v any)
+	collect = func(v any) {
+		switch t := v.(type) {
+		case string:
+			for _, m := range requestRef.FindAllStringSubmatch(t, -1) {
+				if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+					out[n[1]] = true
+				}
+			}
+		case map[string]any:
+			for _, x := range t {
+				collect(x)
+			}
+		case []any:
+			for _, x := range t {
+				collect(x)
+			}
+		}
+	}
+	for _, ch := range changes {
+		if v, ok := requestTemplate(c, ch.Step, ch.Path); ok {
+			collect(v)
+		}
+	}
+	return out
+}
+
+func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
+	return func(step, path string) bool {
+		v, ok := requestTemplate(c, step, path)
 		if !ok {
 			return false
 		}
@@ -284,12 +366,24 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
 	unanswered := map[string]string{}
 	first := ""
-	for _, st := range rec.Steps {
-		if st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0 {
-			unanswered[st.ID] = st.Error
+	index := map[string]int{}
+	refusedFrom := -1
+	for i, st := range rec.Steps {
+		index[st.ID] = i
+		authRefused := st.Status == runner.StatusError && st.AuthRetry != ""
+		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused {
+			why := st.Error
+			if authRefused {
+				line, _, _ := strings.Cut(st.Error, "\n")
+				why = "the backend refused authentication: " + line
+			}
+			unanswered[st.ID] = why
 			if first == "" {
 				first = st.ID
 			}
+		}
+		if authRefused && refusedFrom < 0 {
+			refusedFrom = i
 		}
 	}
 	if first == "" {
@@ -300,6 +394,9 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 			continue
 		}
 		if _, skip := unanswered[c.Step]; skip {
+			continue
+		}
+		if i, ok := index[c.Step]; refusedFrom >= 0 && (!ok || i >= refusedFrom) {
 			continue
 		}
 		return "", "", false
