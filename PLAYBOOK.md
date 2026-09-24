@@ -711,6 +711,8 @@ Three things that decide whether this works for a given chain:
   legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
   `drift with different input` naming the profile change, even when every response matches.
+  So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
+  `chain differs` line and `drift with different input`, not a `regression`.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped

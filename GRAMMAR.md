@@ -427,7 +427,9 @@ every difference first, as `request differs from the confirmed run at <step> <pa
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
 every run and is skipped; a literal, a `${vars.x}` or an `${env.X}` is input, and so is the step's
 `auth_profile`: a step that now runs as another principal is reported at `<step> auth_profile` and fails
-verify with `drift with different input` even when every response matches. When the input
+verify with `drift with different input` even when every response matches. So is the chain's list of
+steps: a step removed, added, moved or pointed at another rpc since approval is printed as `chain differs
+from the confirmed run at <step> ...`, and the change of step count it causes is not a regression. When the input
 differs, the response changes are reported as coming with different input, not as a backend
 regression, and verify fails with `drift with different input` instead of `regression`.
 

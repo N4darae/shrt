@@ -106,7 +106,7 @@ func runVerify(ctx context.Context, args []string) error {
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if c != nil {
-		report.RequestChanges = diff.CompareRequests(spot, rec, derivedRequestPath(c))
+		report.RequestChanges = append(diff.ChainChanges(spot, c), diff.CompareRequests(spot, rec, derivedRequestPath(c))...)
 	}
 	varDrift := ""
 	if len(report.RequestChanges) > 0 {

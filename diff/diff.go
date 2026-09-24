@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -172,6 +173,46 @@ func CompareWithRequests(spot *store.SafeSpot, rec *runner.Record, extra []strin
 	rep := CompareMasking(spot, rec, extra)
 	rep.RequestChanges = CompareRequests(spot, rec, derived)
 	return rep
+}
+
+func ChainChanges(spot *store.SafeSpot, c *chain.Chain) []Change {
+	out := []Change{}
+	if c == nil {
+		return out
+	}
+	now := map[string]*chain.Step{}
+	nowOrder := []string{}
+	for _, s := range c.Steps {
+		if s != nil {
+			now[s.ID] = s
+			nowOrder = append(nowOrder, s.ID)
+		}
+	}
+	was := map[string]bool{}
+	wasOrder := []string{}
+	for _, st := range spot.Steps {
+		was[st.ID] = true
+		wasOrder = append(wasOrder, st.ID)
+		s, ok := now[st.ID]
+		switch {
+		case !ok:
+			out = append(out, Change{Step: st.ID, Path: "step", Kind: KindMissing, Want: st.Call,
+				Detail: "the chain no longer has this step"})
+		case s.Call != st.Call:
+			out = append(out, Change{Step: st.ID, Path: "call", Kind: KindChanged, Want: st.Call, Got: s.Call})
+		}
+	}
+	for _, id := range nowOrder {
+		if !was[id] {
+			out = append(out, Change{Step: id, Path: "step", Kind: KindUnexpected, Got: now[id].Call,
+				Detail: "the chain has a step the confirmed run did not"})
+		}
+	}
+	if len(out) == 0 && strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+		out = append(out, Change{Step: "-", Path: "steps", Kind: KindOrder,
+			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+	}
+	return out
 }
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
@@ -495,7 +536,11 @@ func (r *Report) Text() string {
 			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
 	}
 	for _, c := range r.RequestChanges {
-		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
+		what := "request"
+		if c.Path == "step" || c.Path == "steps" || c.Path == "call" {
+			what = "chain"
+		}
+		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
