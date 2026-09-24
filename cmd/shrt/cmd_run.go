@@ -104,7 +104,20 @@ func runRun(ctx context.Context, args []string) error {
 		}
 		return runVerdict(rec)
 	}
-	fmt.Println(summary(rec, *dry))
+	lead := ""
+	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
+		if literal := detectLiteralCollision(c, rec); literal != nil {
+			lead = literal.line()
+		} else if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
+			lead = "FINDING: " + reuse.line()
+		} else if reuse != nil {
+			lead = fmt.Sprintf("%s; re-run with a fresh value: shrt run %s %s", reuse.line(), rest[0], reuse.fresh())
+		}
+	}
+	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
+	if step := timedOutStep(rec); step != "" {
+		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
+	}
 	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
 		fmt.Println("  " + loss.line())
 		if loss.finding() && rec.KeptRed == "" {
@@ -114,13 +127,6 @@ func runRun(ctx context.Context, args []string) error {
 		fmt.Println("  " + fresh.line())
 		if rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, fresh.line())
-		}
-	}
-	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
-		if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
-			fmt.Println("  FINDING: " + reuse.line())
-		} else if reuse != nil {
-			fmt.Printf("  %s; re-run with a fresh value: shrt run %s %s\n", reuse.line(), rest[0], reuse.fresh())
 		}
 	}
 	return runVerdict(rec)
@@ -162,7 +168,7 @@ func runVerdict(rec *runner.Record) error {
 		return nil
 	case runner.KeptRedNotAsPinned:
 		if rec.KeptRedNew != "" {
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, rec.KeptRedNew)
+			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, shortNewFailure(rec.KeptRedNew))
 		}
 		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
 	case runner.KeptRedGone:
@@ -175,6 +181,21 @@ func runVerdict(rec *runner.Record) error {
 		return exitWith(3, "chain %s: %s", rec.Chain, rec.Status)
 	}
 	return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
+}
+
+func shortNewFailure(line string) string {
+	found := strings.Split(strings.TrimPrefix(line, runner.NewFailurePrefix), "; ")
+	if len(found) == 1 && len(line) <= 200 {
+		return line
+	}
+	first := found[0]
+	if len(first) > 160 {
+		first = first[:157] + "..."
+	}
+	if len(found) > 1 {
+		return fmt.Sprintf("%s%s, and %d more (listed above)", runner.NewFailurePrefix, first, len(found)-1)
+	}
+	return runner.NewFailurePrefix + first
 }
 
 func unusedVarError(unused []string, chainName string, reads []string) error {
@@ -209,10 +230,17 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				return
 			}
 			fmt.Println(progressLine(sr, opts.DryRun, idWidth))
+			shownDetail := ""
 			for _, ex := range sr.Expect {
-				if !ex.Passed {
-					fmt.Printf("       %s\n", ex.String())
+				if ex.Passed {
+					continue
 				}
+				if ex.Detail != "" && ex.Detail == shownDetail {
+					ex.Detail = "the same as above"
+				} else {
+					shownDetail = ex.Detail
+				}
+				fmt.Printf("       %s\n", ex.String())
 			}
 			if sr.Error != "" {
 				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
@@ -270,6 +298,10 @@ func statusMark(s string, dry bool) string {
 }
 
 func summary(rec *runner.Record, dry bool) string {
+	return runSummary(rec, dry, false, "")
+}
+
+func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 	var b strings.Builder
 	verdict := strings.ToUpper(rec.Status)
 	if dry && rec.Passed() {
@@ -285,14 +317,21 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.KeptRedNew != "" {
 		fmt.Fprintf(&b, "\n  %s", rec.KeptRedNew)
 	}
+	if lead != "" {
+		fmt.Fprintf(&b, "\n  %s", lead)
+	}
 	if rec.Build != "" {
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
 	if len(rec.FailedSteps) > 0 {
 		fmt.Fprintf(&b, "\n  did not pass: %s", capList(rec.FailedSteps, 10))
 	}
-	if rec.Failure != "" {
-		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(rec.Failure, "\n", "\n  "))
+	if failure := rec.Failure; failure != "" {
+		if stepsShown && rec.KeptRed != "" {
+			failure, _, _ = strings.Cut(failure, "\n")
+			failure += " (each step's failure is on its line above)"
+		}
+		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
 	if rec.KeptRedNote != "" {
 		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)

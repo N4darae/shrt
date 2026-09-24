@@ -142,7 +142,11 @@ values in a row collided, which leftover fixtures cannot explain: it prints `FIN
 both values and exits 1, a finding about the backend. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
-`email`); when it names none, every fixture field of the step counts. A var that
+`email`); when it names none, every fixture field of the step counts. When the field the refusal
+quotes or names is a literal (`sku: fixed-sku-1`, built from no var), no `-var` can help: the chain
+collides with itself, since every run after the first sends the same value. `verify` and `run` then
+say `the chain collides with itself: ... sku is the literal fixed-sku-1 ... build it from a var, e.g.
+sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -253,6 +257,12 @@ names every one:
 ```bash
 shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there are no records at all
 ```
+
+It counts the runs of the chains under `paths.chains` only. Runs of a chain no file there declares are
+listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
+exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
+when the chain is gone. A run recorded before shrt kept `chain_source` cannot say it was run by path,
+so it stays an orphan until the chain is run again.
 
 Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
 `not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body
@@ -720,9 +730,11 @@ uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300
-order.lines.0.qty=1`), leaving out ids, timestamps, volatile paths, empty strings and values
-echoing a var, shallow paths first, capped with `+N more`; read those too, since approving signs
-them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
+order.lines.0.qty=1`), leaving out ids, timestamps, everything under a volatile path (a step's
+`volatile: [products]` leaves out the whole list), empty strings and values echoing a var, and
+showing a list the step declares `unordered` as one entry (`products=3 item(s) in any order`), since
+verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; read
+those too, since approving signs them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
 that made it, and only the approved safe spot beside it is committed. A run that did not pass is
@@ -754,7 +766,8 @@ language, give:
    replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
    column, and every difference from it is listed under the table: requests and responses, a
    target change (`target base_url <old> -> <new>`), and each chain edit since then, such as an
-   expectation added or changed (`chain expect absent -> <path> <rule> <value>`). A request or
+   expectation added or changed (`chain expect absent -> <path> <rule> <value>`) or an `unordered`
+   path added (`chain unordered absent -> unordered: [<path>]`), which verify will compare as a multiset. A request or
    response value that differs only in the fixture name (`sku-${vars.tag}` under a fresh tag) is
    masked there as `verify` masks it, so it is not listed;
 5. the question: approve or reject.
@@ -1130,15 +1143,28 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
      again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
      needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
-     and a receipt. When you want both, write the minimal chain by hand (only the steps the
-     defect needs, its own writes included), run it, and verify the target on THAT chain with
+     and a receipt. A minimal chain you write by hand (only the steps the defect needs, its own
+     writes included) proves something narrower: run it, then verify the target on THAT chain with
      `shrt chain slice <minimal> -step <t> -run latest -keep writes -verify -write`. A plain
      `slice -verify` of it is not enough: closure still drops every write nothing references (an
      order created only so a list has something to filter), so it returns NOT REPRODUCED or
      INCONCLUSIVE. With `-keep writes` nothing that wrote state is dropped, so the verdict can be
-     `reproduced`, and when the slice keeps every step `-write` records it in the chain itself.
+     `reproduced`, and since that slice keeps every step, `-write` records it in the chain itself
+     as `RE-RUN ... own run`: the minimal chain reproduces its OWN failure, by itself and again. It is
+     not a receipt against the source run; nothing in it says the source chain failed the same way.
+     To also keep that receipt, make the minimal chain out of the source chain's own steps and
+     verify the source with them kept:
+     `shrt chain slice <src> -step <t> -run <source-run> -keep <ids of the minimal chain> -verify -write <name>`.
+     When that slice keeps no other write it can return `reproduced`, and its description records
+     `VERIFIED ... source run <source-run>`: that file is the minimal receipt. A hand-written step the
+     source chain does not have cannot be verified against its run; keep the two run ids (source and
+     minimal) in the minimal chain's description, and say that it was checked by hand.
    Until you have a verdict, the slice is a hypothesis, and every slice prints a line saying so;
-   when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line.
+   when `-verify` reaches one (anything but DID NOT RUN), the verdict replaces that line, in the
+   output and in the written slice's description: `VERIFIED`, `NOT REPRODUCED` or `INCONCLUSIVE by
+   'shrt chain slice -verify': ...`, never next to the hypothesis paragraph. Re-verifying a slice
+   file that keeps every step records a `RE-RUN by ...` line against its own run, which replaces the
+   hypothesis paragraph and any earlier `RE-RUN` line, whatever the new verdict.
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**
    A producer whose only contribution was a VALUE is dropped and its value pinned into `vars:`,
    with every reference rewritten to `${vars.<name>}`. A `from` or `same_as` contract edge exists to

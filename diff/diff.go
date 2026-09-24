@@ -9,6 +9,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -68,6 +69,7 @@ type Report struct {
 
 	inputSeparated    bool
 	compared          []comparedStep
+	approvedMask      *pathmask.Masker
 	renames           [][2]string
 	reorderCandidates []stepPath
 	reordered         []stepPath
@@ -84,6 +86,29 @@ func (r *Report) NoteApprovedRedact(approved []string, rec *runner.Record) {
 		if !had[p] {
 			r.addUnapprovedRedact(p)
 		}
+	}
+}
+
+func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) {
+	if len(r.UnapprovedRedact) == 0 {
+		return
+	}
+	masker := pathmask.NewMasker(r.UnapprovedRedact)
+	for i := range min(len(spot.Steps), len(rec.Steps)) {
+		want, got := spot.Steps[i], rec.Steps[i]
+		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+			continue
+		}
+		a, errA := decode(want.Request)
+		b, errB := decode(got.Request)
+		if errA != nil || errB != nil {
+			continue
+		}
+		walk(a, b, "", func(c Change) {
+			if (c.Kind == KindChanged || c.Kind == KindType) && c.Got == pathmask.MaskRedacted && c.Want != pathmask.MaskRedacted && maskedAt(masker, c) {
+				r.UnapprovedRedacted = append(r.UnapprovedRedacted, want.ID+" request "+c.Path)
+			}
+		})
 	}
 }
 
@@ -159,6 +184,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		approvedPatterns = append(approvedPatterns, st.Volatile...)
 	}
 	approved := pathmask.NewMasker(approvedPatterns)
+	rep.approvedMask = approved
 	rep.UnapprovedVolatile = unapproved(approvedPatterns, rec, extra)
 	first := firstRed(rec)
 	if first != nil {
@@ -475,14 +501,14 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	paths := []string{}
 	seen := map[string]bool{}
 	for _, r := range declared {
-		if !seen[r.Path] {
-			seen[r.Path] = true
+		if !seen[namecase.Fold(r.Path)] {
+			seen[namecase.Fold(r.Path)] = true
 			paths = append(paths, r.Path)
 		}
 	}
 	for _, w := range was.Expect {
-		if !seen[w.Path] {
-			seen[w.Path] = true
+		if !seen[namecase.Fold(w.Path)] {
+			seen[namecase.Fold(w.Path)] = true
 			paths = append(paths, w.Path)
 		}
 	}
@@ -494,7 +520,7 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	}
 	for _, path := range paths {
 		for i, w := range was.Expect {
-			if w.Path != path {
+			if !namecase.Equal(w.Path, path) {
 				continue
 			}
 			j := pairs[i]
@@ -515,7 +541,7 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 			}
 		}
 		for j, r := range declared {
-			if r.Path == path && !matched[j] {
+			if namecase.Equal(r.Path, path) && !matched[j] {
 				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindUnexpected, Got: shown(j)})
 			}
 		}
@@ -535,7 +561,7 @@ func pairExpectations(was, now []chain.ExpectResult) []int {
 				continue
 			}
 			for j, r := range now {
-				if taken[j] || r.Path != w.Path || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
+				if taken[j] || !namecase.Equal(r.Path, w.Path) || (sameRule && r.Rule != w.Rule && w.Rule != "unevaluated") {
 					continue
 				}
 				pairs[i], taken[j] = j, true
@@ -614,6 +640,7 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 		g, has := got.Headers[k]
 		switch {
 		case had && has && w == g:
+		case had && has && (w == pathmask.MaskRedacted && runner.HeaderDigested(g) || g == pathmask.MaskRedacted && runner.HeaderDigested(w)):
 		case had && has:
 			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g})
 		case had:
@@ -1071,6 +1098,9 @@ func (r *Report) Text() string {
 		return b.String()
 	}
 	if r.Clean() {
+		if r.Chain != "" {
+			fmt.Fprintf(&b, "%s: ", r.Chain)
+		}
 		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
 		return b.String()
 	}

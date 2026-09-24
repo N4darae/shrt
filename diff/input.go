@@ -80,6 +80,7 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	}
 	remaining, echoed, stale := splitStaleEchoes(r.Changes, r.compared, append(pairs, r.renames...))
 	r.dropEchoedUnapproved(append(pairs, r.renames...))
+	r.noteHiddenStaleEchoes(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
 	kept := []Change{}
@@ -218,4 +219,29 @@ func (r *Report) dropEchoedUnapproved(pairs [][2]string) {
 		}
 	}
 	r.UnapprovedMasked = kept
+}
+
+func (r *Report) noteHiddenStaleEchoes(pairs [][2]string) {
+	if len(r.UnapprovedVolatile) == 0 || r.approvedMask == nil {
+		return
+	}
+	steps := make([]comparedStep, 0, len(r.compared))
+	masks := map[string]*pathmask.Masker{}
+	for _, st := range r.compared {
+		masks[st.id] = st.mask
+		st.mask = r.approvedMask
+		steps = append(steps, st)
+	}
+	listed := map[string]bool{}
+	for _, p := range r.UnapprovedMasked {
+		listed[p] = true
+	}
+	walkRenamedText(steps, renamer(pairs), func(step, path, want, got, renamed string) {
+		key := step + " " + path
+		if want != got || listed[key] || masks[step] == nil || !underMask(masks[step], path) {
+			return
+		}
+		listed[key] = true
+		r.UnapprovedMasked = append(r.UnapprovedMasked, key)
+	})
 }

@@ -49,6 +49,8 @@ type Report struct {
 	Findings       []Finding `json:"findings"`
 	Orphans        []string  `json:"orphan_run_dirs,omitempty"`
 	OrphanRecords  int       `json:"orphan_records,omitempty"`
+	Scratch        []string  `json:"scratch_run_dirs,omitempty"`
+	ScratchRecords int       `json:"scratch_records,omitempty"`
 	Edited         []string  `json:"edited_records,omitempty"`
 	Unsealed       int       `json:"unsealed_records,omitempty"`
 }
@@ -333,6 +335,10 @@ func Scan(runsDir string, allow *Allowlist, dataAsserted map[string]bool) (*Repo
 }
 
 func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, known map[string]bool) (*Report, error) {
+	return ScanKnownScratch(runsDir, allow, dataAsserted, known, nil)
+}
+
+func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]bool, known map[string]bool, scratch func(chainSource string) bool) (*Report, error) {
 	rep := &Report{RunsDir: runsDir, Findings: []Finding{}}
 	files, err := recordFiles(runsDir)
 	if err != nil {
@@ -341,6 +347,7 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 	if known != nil {
 		kept := files[:0]
 		orphaned := map[string]int{}
+		scratchDirs := map[string]bool{}
 		for _, path := range files {
 			dir := filepath.Base(filepath.Dir(path))
 			if known[strings.ToLower(dir)] {
@@ -348,13 +355,22 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 				continue
 			}
 			orphaned[dir]++
-			rep.OrphanRecords++
+			if scratch != nil && !scratchDirs[dir] && scratch(recordSource(path)) {
+				scratchDirs[dir] = true
+			}
 		}
 		files = kept
-		for dir := range orphaned {
+		for dir, n := range orphaned {
+			if scratchDirs[dir] {
+				rep.Scratch = append(rep.Scratch, dir)
+				rep.ScratchRecords += n
+				continue
+			}
 			rep.Orphans = append(rep.Orphans, dir)
+			rep.OrphanRecords += n
 		}
 		sort.Strings(rep.Orphans)
+		sort.Strings(rep.Scratch)
 	}
 	seen := map[string]*Finding{}
 	order := []string{}
@@ -493,4 +509,18 @@ func IsVacuousResult(e chain.ExpectResult) bool {
 
 func isVacuousExpectation(e chain.Expectation) bool {
 	return e.NotEqual != nil && chain.VacuousNotEqual(e.Path, e.NotEqual)
+}
+
+func recordSource(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var head struct {
+		ChainSource string `json:"chain_source"`
+	}
+	if json.Unmarshal(raw, &head) != nil {
+		return ""
+	}
+	return head.ChainSource
 }

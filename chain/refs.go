@@ -3,6 +3,8 @@ package chain
 import (
 	"sort"
 	"strings"
+
+	"github.com/N4darae/shrt/namecase"
 )
 
 func collectRefs(v any) []string {
@@ -137,6 +139,20 @@ func HasReference(s string) bool { return refPattern.MatchString(s) }
 func CanonicalRefs(text string) string {
 	return refPattern.ReplaceAllStringFunc(text, func(m string) string {
 		return "${" + CanonicalRef(refPattern.FindStringSubmatch(m)[1]) + "}"
+	})
+}
+
+func FoldedRefs(text string) string {
+	return refPattern.ReplaceAllStringFunc(text, func(m string) string {
+		ref := CanonicalRef(refPattern.FindStringSubmatch(m)[1])
+		if !strings.HasPrefix(ref, "steps.") {
+			return "${" + ref + "}"
+		}
+		parts := strings.SplitN(ref, ".", 4)
+		if len(parts) == 4 {
+			parts[3] = namecase.Fold(parts[3])
+		}
+		return "${" + strings.Join(parts, ".") + "}"
 	})
 }
 

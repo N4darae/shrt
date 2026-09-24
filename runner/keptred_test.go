@@ -2,11 +2,15 @@ package runner_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/transport"
 )
 
 func keptRedChain(firstWant, secondWant int, pins ...chain.Pin) *chain.Chain {
@@ -68,5 +72,52 @@ func TestADryRunOfAKeptRedChainHasNoKeptRedVerdict(t *testing.T) {
 	}
 	if rec.KeptRed != "" {
 		t.Fatalf("a dry run sends nothing and cannot show the defect, got %q", rec.KeptRed)
+	}
+}
+
+func TestAKeptRedPinPathMatchesItsExpectationWhateverTheCase(t *testing.T) {
+	c := keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qtyOnHand"})
+	r := rawStockRunner(t, `{"status":{"code":"SUCCESS"},"qtyOnHand":"5"}`)
+	rec, err := r.Run(context.Background(), normalized(t, c), runner.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.KeptRed != runner.KeptRedAsPinned {
+		t.Fatalf("qtyOnHand pins qty_on_hand, as an expectation path would read it: %q %s", rec.KeptRed, rec.KeptRedNote)
+	}
+}
+
+func TestANotAsPinnedNoteNamesEachNotSentReasonOnlyOnItsStep(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.HasSuffix(r.URL.Path, "/GetProduct") {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":"invalid_argument","message":"down"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":{"code":"SUCCESS"},"qtyOnHand":"5"}`))
+	}))
+	t.Cleanup(srv.Close)
+	chain.SetEnvelope("status.code", "SUCCESS")
+	t.Cleanup(func() { chain.SetEnvelope("", "") })
+	r := &runner.Runner{Catalog: catalogtest.Shop(), Client: transport.New(transport.Options{BaseURL: srv.URL}), ValidateInput: true}
+	c := &chain.Chain{Name: "kept-red", KeptRed: []chain.Pin{{Step: "second", Path: "qty_on_hand"}}, Steps: []*chain.Step{
+		{ID: "first", Call: "shop.catalog.v1.ProductService/GetProduct", Body: map[string]any{"id_product": "p-1"},
+			Expect: []chain.Expectation{{Path: "status.code", Equals: "SUCCESS"}, {Path: "product.sku", Equals: "s"}}},
+		{ID: "second", Call: "shop.catalog.v1.StockService/AddStock", Body: map[string]any{"id_product": "${first.product.id_product}", "qty": "1"},
+			Expect: []chain.Expectation{{Path: "status.code", Equals: "SUCCESS"}, {Path: "qty_on_hand", Equals: 7}}},
+	}}
+	rec, err := r.Run(context.Background(), normalized(t, c), runner.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.KeptRed != runner.KeptRedNotAsPinned {
+		t.Fatalf("verdict %q: %s", rec.KeptRed, rec.KeptRedNote)
+	}
+	if strings.Contains(rec.KeptRedNote, "not sent: ${") || !strings.Contains(rec.KeptRedNote, `step "second" was not sent (why is on its line)`) {
+		t.Errorf("the note names the unsent step and leaves its reason to its own line: %s", rec.KeptRedNote)
+	}
+	if want := runner.NewFailurePrefix + "first refused at transport: invalid_argument: down"; rec.KeptRedNew != want {
+		t.Errorf("a refusal where nothing is pinned is one new failure, not one per unevaluated expectation:\n got %q\nwant %q", rec.KeptRedNew, want)
 	}
 }

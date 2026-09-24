@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -32,7 +33,7 @@ func unorderedSet(lists ...[]string) map[string]bool {
 	for _, l := range lists {
 		for _, p := range l {
 			if n := listPath(p); n != "" {
-				out[n] = true
+				out[namecase.Fold(n)] = true
 			}
 		}
 	}
@@ -60,7 +61,7 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 		if !ok {
 			return got
 		}
-		if declared[listPath(path)] {
+		if declared[namecase.Fold(listPath(path))] {
 			g = permuted(g, pairItems(w, g, r))
 		}
 		out := make([]any, len(g))
@@ -95,7 +96,7 @@ func reorderCandidates(want, got any, path string, declared map[string]bool, r *
 		if !ok {
 			return
 		}
-		if !declared[listPath(path)] && len(w) > 1 && len(w) == len(g) {
+		if !declared[namecase.Fold(listPath(path))] && len(w) > 1 && len(w) == len(g) {
 			order := pairItems(w, g, r)
 			for i, j := range order {
 				if i != j {
@@ -278,14 +279,19 @@ func (r *Report) reorderedText() string {
 	return b.String()
 }
 
-func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
+type UnorderedAddition struct {
+	Step  string
+	Paths []string
+}
+
+func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAddition {
 	was := map[string][]string{}
 	for _, st := range spot.Steps {
 		if st != nil {
 			was[st.ID] = st.Unordered
 		}
 	}
-	out := []string{}
+	out := []UnorderedAddition{}
 	for _, st := range rec.Steps {
 		if st == nil {
 			continue
@@ -301,15 +307,23 @@ func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
 			}
 		}
 		if len(added) > 0 {
-			out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(added, ", "), st.ID))
+			out = append(out, UnorderedAddition{Step: st.ID, Paths: added})
 		}
+	}
+	return out
+}
+
+func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
+	out := []string{}
+	for _, a := range UnorderedAdditions(spot, rec) {
+		out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(a.Paths, ", "), a.Step))
 	}
 	return out
 }
 
 func containsString(list []string, s string) bool {
 	for _, x := range list {
-		if x == s {
+		if namecase.Equal(x, s) {
 			return true
 		}
 	}

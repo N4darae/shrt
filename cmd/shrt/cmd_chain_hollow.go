@@ -62,7 +62,7 @@ func chainHollow(args []string) error {
 	if len(brokenChains) > 0 || *runsPath != "" {
 		known = nil
 	}
-	rep, scanErr := hollow.ScanKnown(runsDir, allow, hollow.DataAsserted(chains), known)
+	rep, scanErr := hollow.ScanKnownScratch(runsDir, allow, hollow.DataAsserted(chains), known, e.scratchSource)
 	if errors.Is(scanErr, hollow.ErrNoRecords) {
 		return exitWith(2,
 			"hollow: read 0 run records under %s.\nThe count of hollow reads is zero because there was nothing to read, not because there are none.\n"+
@@ -135,6 +135,13 @@ func reportOrphans(rep *hollow.Report) {
 	if rep.Unsealed > 0 {
 		fmt.Printf("\n%d counted run record(s) predate sealed run records, so an edit to them cannot be ruled out; re-run their chains for records shrt can check\n", rep.Unsealed)
 	}
+	if len(rep.Scratch) > 0 {
+		fmt.Printf("\n%d run record(s) under %d directory(ies) are runs of chains given by path, outside %s, and were NOT counted above:\n",
+			rep.ScratchRecords, len(rep.Scratch), "paths.chains")
+		for _, d := range rep.Scratch {
+			fmt.Printf("  scratch %s\n", d)
+		}
+	}
 	if len(rep.Orphans) == 0 {
 		return
 	}
@@ -147,4 +154,19 @@ func reportOrphans(rep *hollow.Report) {
 		"nothing removes them for you — but a finding in one names a chain that no longer exists and " +
 		"cannot be acted on, so they are excluded from the counts and from the gate. Delete the " +
 		"directory when the evidence has served its purpose.\n")
+}
+
+func (e *env) scratchSource(source string) bool {
+	if source == "" {
+		return false
+	}
+	path := source
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(e.cfg.Root, filepath.FromSlash(source))
+	}
+	if rel, err := filepath.Rel(e.chainsDir(), path); err == nil && !strings.HasPrefix(rel, "..") {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
 }

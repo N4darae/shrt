@@ -13,6 +13,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/doctor"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -51,7 +52,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
 	"     with another fresh value: two fresh values in a row are not fixture noise;\n" +
 	"     unless either run shows a restart (data created before the refusal gone after the re-login,\n" +
-	"     or a step before it that got no answer from the service), which keeps it exit 3\n"
+	"     or a step before it that got no answer from the service), which keeps it exit 3\n" +
+	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
+	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -140,6 +143,7 @@ func runVerify(ctx context.Context, args []string) error {
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)
+		report.NoteRedactedRequests(spot, rec)
 	}
 	if c != nil {
 		edited := diff.ChainChangesIn(spot, c, rec)
@@ -182,10 +186,17 @@ func runVerify(ctx context.Context, args []string) error {
 		fresh = nil
 	}
 	var reuse *fixtureReuse
+	var literal *literalCollision
 	if !report.Clean() {
-		reuse = detectFixtureReuse(e, c, rec)
+		literal = detectLiteralCollision(c, rec)
+		if literal == nil {
+			reuse = detectFixtureReuse(e, c, rec)
+		} else if driftedBefore(rec, report, literal.index) {
+			literal = nil
+		}
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
+	declared := declaredDriftChanges(e, rec, report, driftStep)
 	var nonBackend error
 	headline := ""
 	switch {
@@ -206,11 +217,11 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
 		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
-	case driftStep != "" && !report.Clean() && !driftedBefore(rec, report, driftAt):
+	case driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
-		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); rebuild it with shrt catalog build, "+
-			"or turn validate_output off. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, driftStep, driftWhy)
+		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
+			"Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
@@ -261,6 +272,14 @@ func runVerify(ctx context.Context, args []string) error {
 			case reuse != nil:
 				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
+			if literal != nil {
+				fmt.Println("CHAIN DEFECT: " + literal.line())
+			}
+			if len(declared) > 0 {
+				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
+					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
+					driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
+			}
 			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
 				fmt.Printf("chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
 					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
@@ -289,6 +308,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if nonBackend != nil {
 		return nonBackend
+	}
+	if literal != nil {
+		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
@@ -342,6 +364,10 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n"+
 			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
 			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "))
+	}
+	if !report.Clean() && len(declared) > 0 {
+		return fmt.Errorf("regression: %d change(s) vs safe spot, including %s in the declared fields of the response at %s, "+
+			"which also does not match the descriptor (%s)", len(report.Changes), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
@@ -432,6 +458,14 @@ var requestRef = regexp.MustCompile(`\$\{\s*([^}]*)\}`)
 func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
 	s, ok := c.Step(step)
 	if !ok {
+		return nil, false
+	}
+	if name, isHeader := strings.CutPrefix(path, diff.HeadersPathPrefix); isHeader {
+		for k, v := range s.Headers {
+			if strings.EqualFold(k, name) {
+				return v, true
+			}
+		}
 		return nil, false
 	}
 	return chain.Get(s.Body, path)
@@ -659,7 +693,7 @@ func answeredByService(st *runner.StepRecord) bool {
 	return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !runner.NotAnsweredByService(st)
 }
 
-var descriptorMismatch = regexp.MustCompile(`does not match [^:\s]+: (?:proto: )?(?:\(line [^)]*\): )?([^\n]*)`)
+var descriptorMismatch = regexp.MustCompile(`does not match [^:\s]+: (?:proto:[\s\x{00a0}]+)?(?:\(line [^)]*\):[\s\x{00a0}]+)?([^\n]*)`)
 
 func firstFailureIsDrift(rec *runner.Record) (string, string, int) {
 	for i, st := range rec.Steps {
@@ -676,6 +710,69 @@ func firstFailureIsDrift(rec *runner.Record) (string, string, int) {
 		return st.ID, why, i
 	}
 	return "", "", 0
+}
+
+var descriptorMatchesRebuild = doctor.DescriptorMatchesRebuild
+
+func driftRemedy(ctx context.Context, e *env, why string) string {
+	sends := "a body the proto does not describe"
+	if strings.Contains(why, "unknown field") {
+		sends = "field(s) the proto does not declare"
+	}
+	matches, err := descriptorMatchesRebuild(ctx, e.cfg)
+	switch {
+	case err == nil && matches:
+		return fmt.Sprintf("the descriptor matches a rebuild from %q, so rebuilding changes nothing: the backend sends %s. "+
+			"Declare them in the proto if they are intended, or turn validate_output off", e.cfg.Descriptor.Source, sends)
+	case err == nil:
+		return fmt.Sprintf("the descriptor does not match a rebuild from %q: rebuild it with shrt catalog build, or turn validate_output off", e.cfg.Descriptor.Source)
+	}
+	return "if shrt doctor says the descriptor is stale, rebuild it with shrt catalog build; if it matches a rebuild, the backend sends " +
+		sends + ": declare them in the proto, or turn validate_output off"
+}
+
+func declaredDriftChanges(e *env, rec *runner.Record, report *diff.Report, step string) []diff.Change {
+	if step == "" || e.cat == nil {
+		return nil
+	}
+	st, ok := rec.Step(step)
+	if !ok || len(st.Response) == 0 {
+		return nil
+	}
+	m, err := e.cat.Lookup(st.Procedure)
+	if err != nil {
+		return nil
+	}
+	if _, err := e.cat.Canonicalize(m.Output(), st.Response); err != nil {
+		return nil
+	}
+	out := []diff.Change{}
+	for _, c := range report.Changes {
+		if c.Step == step && c.Kind != diff.KindStatus && c.Kind != diff.KindNotReached {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func describeChanges(changes []diff.Change) string {
+	out := []string{}
+	for _, c := range changes {
+		out = append(out, fmt.Sprintf("%s %s %v -> %v", c.Step, c.Path, c.Want, c.Got))
+	}
+	return capList(out, 4)
+}
+
+const timeoutRemedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
+	"or find why the backend answers so slowly"
+
+func timedOutStep(rec *runner.Record) string {
+	for _, st := range rec.Steps {
+		if st != nil && strings.Contains(st.Error, transport.NoAnswerBeforeTimeout) {
+			return st.ID
+		}
+	}
+	return ""
 }
 
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
@@ -707,8 +804,7 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 		}
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
-		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
-			"or find why the backend answers so slowly, and run verify again"
+		remedy = timeoutRemedy + ", and run verify again"
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)

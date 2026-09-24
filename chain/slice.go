@@ -142,6 +142,7 @@ type SliceResult struct {
 	DroppedPins   []Pin       `json:"dropped_kept_red,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
 	NotReproduced string      `json:"not_reproduced,omitempty"`
+	Inconclusive  string      `json:"inconclusive,omitempty"`
 	Build         string      `json:"verify_build,omitempty"`
 	Chain         *Chain      `json:"-"`
 }
@@ -444,7 +445,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
 	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
 		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	r.NotReproduced = ""
+	r.NotReproduced, r.Inconclusive = "", ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
@@ -456,10 +457,35 @@ func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time
 	if difference != "" {
 		r.NotReproduced += " (" + difference + ")"
 	}
-	r.Verified = ""
+	r.Verified, r.Inconclusive = "", ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
+}
+
+func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time, why string) {
+	r.Inconclusive = fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
+	if why != "" {
+		r.Inconclusive += " (" + why + ")"
+	}
+	r.Verified, r.NotReproduced = "", ""
+	if r.Chain != nil {
+		r.Chain.Description = sliceDescription(r)
+	}
+}
+
+func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun string, at time.Time, why string) string {
+	gave := "another verdict than"
+	if outcome == "INCONCLUSIVE" {
+		gave = "a verdict that does not settle it against"
+	}
+	out := fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
+		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun)
+	if why != "" {
+		out += " (" + why + ")"
+	}
+	return out
 }
 
 func (r *SliceResult) OwnRunVerdict(chainName, sourceRun, sliceRun string, at time.Time) string {
@@ -481,6 +507,7 @@ const (
 	verifiedPrefix      = "VERIFIED by 'shrt chain slice -verify': "
 	notReproducedPrefix = "NOT REPRODUCED by 'shrt chain slice -verify': "
 	rerunPrefix         = "RE-RUN by 'shrt chain slice -verify': "
+	inconclusivePrefix  = "INCONCLUSIVE by 'shrt chain slice -verify': "
 )
 
 func verifiedLine(verified string) string {
@@ -497,34 +524,46 @@ func IsSliceDescription(description string) bool {
 }
 
 func RecordVerified(description, verified string) string {
-	return recordVerdict(description, verifiedLine(verified), hypothesisParagraph, verifiedPrefix, notReproducedPrefix)
+	return replaceVerdict(description, verifiedLine(verified), verifiedPrefix, notReproducedPrefix, inconclusivePrefix)
 }
 
 func RecordRerun(description, verdict string) string {
-	return recordVerdict(description, rerunPrefix+verdict+".\n", rerunPrefix)
+	return replaceVerdict(description, rerunPrefix+verdict+".\n", rerunPrefix)
 }
 
-func recordVerdict(description, line string, replaces ...string) string {
-	for _, old := range replaces {
-		if old == hypothesisParagraph {
-			if strings.Contains(description, hypothesisParagraph) {
-				return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
+func replaceVerdict(description, line string, prefixes ...string) string {
+	if strings.Contains(description, hypothesisParagraph) {
+		description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
+	}
+	kept := []string{}
+	for _, l := range strings.SplitAfter(description, "\n") {
+		verdict := false
+		for _, p := range prefixes {
+			if strings.HasPrefix(l, p) {
+				verdict = true
 			}
+		}
+		if !verdict {
+			kept = append(kept, l)
 			continue
 		}
-		if i := strings.Index(description, old); i >= 0 {
-			end := strings.Index(description[i:], "\n")
-			if end < 0 {
-				return description[:i] + line
-			}
-			return description[:i] + line + description[i+end+1:]
+		if !strings.Contains(strings.Join(kept, ""), "\x00") {
+			kept = append(kept, "\x00")
 		}
 	}
-	description = strings.TrimRight(description, "\n")
-	if description == "" {
-		return line
+	description = strings.Join(kept, "")
+	if !strings.Contains(description, "\x00") {
+		description = strings.TrimRight(description, "\n")
+		if description == "" {
+			return line
+		}
+		return description + "\n\n" + line
 	}
-	return description + "\n\n" + line
+	description = strings.Replace(description, "\x00", line, 1)
+	for strings.Contains(description, "\n\n\n") {
+		description = strings.ReplaceAll(description, "\n\n\n", "\n\n")
+	}
+	return strings.TrimRight(description, "\n") + "\n"
 }
 
 func listSome(names []string, max int) string {
@@ -585,6 +624,8 @@ func sliceDescription(res *SliceResult) string {
 		b.WriteString("\n" + verifiedLine(res.Verified))
 	} else if res.NotReproduced != "" {
 		b.WriteString("\n" + notReproducedPrefix + res.NotReproduced + ".\n")
+	} else if res.Inconclusive != "" {
+		b.WriteString("\n" + inconclusivePrefix + res.Inconclusive + ".\n")
 	} else {
 		b.WriteString(hypothesisParagraph)
 	}

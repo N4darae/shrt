@@ -42,7 +42,7 @@ func refChanges(before []*runner.StepRecord, was *runner.StepRecord, now *chain.
 	for _, p := range paths {
 		w, hadRef := was.BodyRefs[p]
 		g, hasRef := current[p]
-		if hadRef && hasRef && chain.CanonicalRefs(w) == chain.CanonicalRefs(g) {
+		if hadRef && hasRef && chain.FoldedRefs(w) == chain.FoldedRefs(g) {
 			continue
 		}
 		c := Change{Step: was.ID, Path: BodyPathPrefix + p, Kind: KindChanged, Want: w, Got: g, Detail: RefDetail}

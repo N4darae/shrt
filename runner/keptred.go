@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 )
 
 const (
@@ -34,11 +35,11 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		if !ok || sr.Status == StatusSkipped {
 			switch {
 			case len(want) > 0 && ok:
-				problems = append(problems, fmt.Sprintf("step %q was not sent (%s), so its pinned failure was not seen", step.ID, firstLine(sr.Error)))
+				problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so its pinned failure was not seen", step.ID))
 			case len(want) > 0:
 				problems = append(problems, fmt.Sprintf("step %q was never answered, so its pinned failure was not seen", step.ID))
 			case ok:
-				problems = append(problems, fmt.Sprintf("step %q was not sent (%s), so a regression there would not be seen", step.ID, firstLine(sr.Error)))
+				problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", step.ID))
 			}
 			continue
 		}
@@ -76,6 +77,11 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport: %s, so its pinned failure was not seen", id, refusal)},
 			[]string{id + " refused at transport: " + refusal}
 	}
+	if sr.Transport != nil && len(want) == 0 {
+		refusal := firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
+		return []string{fmt.Sprintf("step %q was refused at transport where nothing is pinned: %s", id, refusal)},
+			[]string{id + " refused at transport: " + refusal}
+	}
 	out, fresh := []string{}, []string{}
 	seen := map[int]bool{}
 	for _, ex := range sr.Expect {
@@ -84,7 +90,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 		}
 		matched := false
 		for i, k := range want {
-			if k.Path != ex.Path {
+			if !namecase.Equal(k.Path, ex.Path) {
 				continue
 			}
 			matched = true
@@ -121,7 +127,7 @@ func pinnedRefusal(sr *StepRecord, want []chain.Pin) string {
 			continue
 		}
 		for _, k := range want {
-			if k.Path == ex.Path {
+			if namecase.Equal(k.Path, ex.Path) {
 				return firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
 			}
 		}

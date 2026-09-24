@@ -577,3 +577,15 @@ func declaredSomewhere(cat *catalog.Catalog, path string) bool {
 	}
 	return false
 }
+
+func DescriptorMatchesRebuild(ctx context.Context, cfg *config.Config) (bool, error) {
+	have, err := os.ReadFile(cfg.Abs(cfg.Descriptor.File))
+	if err != nil {
+		return false, err
+	}
+	fresh, err := rebuildDescriptor(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(have, fresh), nil
+}

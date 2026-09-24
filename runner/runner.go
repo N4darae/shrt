@@ -884,6 +884,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		return nil, err
 	}
 	problems := c.PreflightProblems()
+	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
 	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
@@ -1320,8 +1321,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			string(method.Output().FullName()) + ": " + cerr.Error() +
 			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
 			". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
-			"the body they would read could not be decoded. Rebuild the descriptor ('shrt catalog " +
-			"build') and re-run before reading it as a backend defect."
+			"the body they would read could not be decoded. If 'shrt doctor' says the descriptor does not match a " +
+			"rebuild, rebuild it ('shrt catalog build') and re-run; if it matches, the backend sends what the proto " +
+			"does not declare."
 		return sr
 	case len(unknown) > 0:
 		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
@@ -2062,6 +2064,11 @@ func resolveHeaders(scope *chain.Scope, in map[string]string) (map[string][]stri
 		resolved, err := scope.ResolveValue(v)
 		if err != nil {
 			return nil, fmt.Errorf("header %q: %w", k, err)
+		}
+		switch resolved.(type) {
+		case map[string]any, []any:
+			return nil, fmt.Errorf("header %q: %s resolves to a message, list or map, which has no text form and would be "+
+				"sent as Go syntax; a header carries text only, so reference one scalar field of it instead", k, v)
 		}
 		out[k] = []string{fmt.Sprintf("%v", resolved)}
 	}

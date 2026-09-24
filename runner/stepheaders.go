@@ -1,6 +1,8 @@
 package runner
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/textproto"
 	"strings"
 
@@ -34,11 +36,15 @@ func recordedHeaders(templates map[string]string, resolved map[string][]string) 
 	out := map[string]string{}
 	for name, template := range templates {
 		key := textproto.CanonicalMIMEHeaderKey(name)
+		value := strings.Join(resolved[name], ", ")
+		static := readsOnlyInputs(template)
 		switch {
+		case static && (secretHeader(name) || readsSecretEnv(template)):
+			out[key] = HeaderDigest(key, value)
 		case secretHeader(name):
 			out[key] = pathmask.MaskRedacted
-		case readsOnlyVars(template):
-			out[key] = strings.Join(resolved[name], ", ")
+		case static:
+			out[key] = value
 		default:
 			out[key] = chain.CanonicalRefs(template)
 		}
@@ -46,11 +52,34 @@ func recordedHeaders(templates map[string]string, resolved map[string][]string) 
 	return out
 }
 
-func readsOnlyVars(template string) bool {
+const headerDigestPrefix = pathmask.MaskRedacted + " digest:"
+
+func HeaderDigest(name, value string) string {
+	sum := sha256.Sum256([]byte("shrt-header\x00" + name + "\x00" + value))
+	return headerDigestPrefix + hex.EncodeToString(sum[:6])
+}
+
+func HeaderDigested(value string) bool {
+	return strings.HasPrefix(value, headerDigestPrefix)
+}
+
+func readsOnlyInputs(template string) bool {
 	for _, m := range bodyRef.FindAllStringSubmatch(template, -1) {
-		if chain.ParseRef(m[1]).Kind != chain.RefVars {
+		switch chain.ParseRef(m[1]).Kind {
+		case chain.RefVars, chain.RefEnv:
+		default:
 			return false
 		}
 	}
 	return true
+}
+
+func readsSecretEnv(template string) bool {
+	for _, m := range bodyRef.FindAllStringSubmatch(template, -1) {
+		r := chain.ParseRef(m[1])
+		if r.Kind == chain.RefEnv && secretHeader(r.Rest) {
+			return true
+		}
+	}
+	return false
 }

@@ -231,6 +231,10 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	for _, ch := range edited {
 		out = append(out, store.Differ{Step: ch.Step, Side: "chain", Path: ch.Path, Delta: ch.Transition()})
 	}
+	for _, a := range diff.UnorderedAdditions(spot, rec) {
+		out = append(out, store.Differ{Step: a.Step, Side: "chain", Path: "unordered",
+			Delta: "absent -> unordered: [" + strings.Join(a.Paths, ", ") + "] (compared as a multiset from now on)"})
+	}
 	for _, c := range diff.DropRefEdited(rep.RequestChanges, edited) {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}

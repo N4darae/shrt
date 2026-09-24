@@ -83,7 +83,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if *step == "" {
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")
 	}
-	writePath := ""
+	writePath, writeArg := "", name
 	if isSlicePath(name) {
 		writePath, name, err = slicePathAndName(name)
 		if err != nil {
@@ -174,6 +174,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			return err
 		}
 		written = path
+		res.Chain.SourcePath = rel(e.cfg.Root, path)
 	}
 
 	var verdict *sliceVerdict
@@ -183,7 +184,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			printSliceHeader(res)
 		}
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
-			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep, build: *build,
+			vars: vars, quiet: *asJSON, persist: write.set, name: writeArg, keep: *keep, build: *build,
 			otherTarget: sourceTargetDiffers(e, rec),
 			reslice: func(keep []string) *chain.SliceResult {
 				o := opts
@@ -201,27 +202,42 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		p.sent = true
 		res.Build = verdict.Build
 		now := time.Now()
+		first := ""
+		if len(verdict.Differences) > 0 {
+			first = verdict.Differences[0]
+		}
+		why, _, _ := strings.Cut(verdict.Reason, "\n")
+		why = strings.TrimSuffix(why, ".")
+		rerun := whole && chain.IsSliceDescription(c.Description)
 		switch {
 		case verdict.Outcome == sliceReproduced && whole:
 			res.Verified = res.OwnRunVerdict(c.Name, verdict.SourceRun, verdict.SliceRun, now)
 			record := chain.RecordVerified
-			if chain.IsSliceDescription(c.Description) {
+			if rerun {
 				record = chain.RecordRerun
 			}
 			if err := recordVerdictIn(c.SourcePath, func(d string) string { return record(d, res.Verified) }); err != nil {
 				return err
 			}
 			verdict.Recorded = c.SourcePath
+		case rerun && (verdict.Outcome == sliceNotReproduced || verdict.Outcome == sliceInconclusive):
+			outcome, detail := "not reproduced", first
+			if verdict.Outcome == sliceInconclusive {
+				outcome, detail = "INCONCLUSIVE", why
+			}
+			line := res.OwnRunOutcome(outcome, c.Name, verdict.SourceRun, verdict.SliceRun, now, detail)
+			if err := recordVerdictIn(c.SourcePath, func(d string) string { return chain.RecordRerun(d, line) }); err != nil {
+				return err
+			}
+			verdict.Recorded = c.SourcePath
 		case verdict.Outcome == sliceReproduced:
 			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, now)
 		case verdict.Outcome == sliceNotReproduced && !whole:
-			first := ""
-			if len(verdict.Differences) > 0 {
-				first = verdict.Differences[0]
-			}
 			res.MarkNotReproduced(verdict.SourceRun, verdict.SliceRun, now, first)
+		case verdict.Outcome == sliceInconclusive && !whole:
+			res.MarkInconclusive(verdict.SourceRun, verdict.SliceRun, now, why)
 		}
-		if (verdict.Outcome == sliceReproduced || verdict.Outcome == sliceNotReproduced) && written != "" {
+		if verdict.Outcome != sliceDidNotRun && written != "" {
 			if err := writeSliceFile(written, res.Chain); err != nil {
 				return err
 			}
