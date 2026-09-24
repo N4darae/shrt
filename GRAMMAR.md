@@ -468,7 +468,8 @@ items in another order`), names the declaration, and fails with `order changed` 
 that reorder included; it names the expectations that read the list by position and failed, and
 does not list the per-item changes under it. Expectations are not affected: `products.0` is still the
 first item as sent. An `unordered` path added after approval is named as a chain change note
-(`chain change since the safe spot's run: ... added`); it can hide only a change of order, never a
+(`chain change since the safe spot's run: ... added`, once `at chain level` when every step gained it,
+in verify and in the confirm proposal alike); it can hide only a change of order, never a
 changed, added or removed item, so it does not fail verify. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.

@@ -334,6 +334,7 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 		}
 	}
 	out := []UnorderedAddition{}
+	compared := 0
 	for _, st := range rec.Steps {
 		if st == nil {
 			continue
@@ -351,6 +352,42 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 		if len(added) > 0 {
 			out = append(out, UnorderedAddition{Step: st.ID, Paths: added})
 		}
+		compared++
+	}
+	return chainLevelAdditions(out, compared)
+}
+
+func chainLevelAdditions(steps []UnorderedAddition, compared int) []UnorderedAddition {
+	if compared < 2 || len(steps) < compared {
+		return steps
+	}
+	common := []string{}
+	for _, p := range steps[0].Paths {
+		every := true
+		for _, a := range steps[1:] {
+			if !containsString(a.Paths, p) {
+				every = false
+				break
+			}
+		}
+		if every {
+			common = append(common, p)
+		}
+	}
+	if len(common) == 0 {
+		return steps
+	}
+	out := []UnorderedAddition{{Paths: common}}
+	for _, a := range steps {
+		rest := []string{}
+		for _, p := range a.Paths {
+			if !containsString(common, p) {
+				rest = append(rest, p)
+			}
+		}
+		if len(rest) > 0 {
+			out = append(out, UnorderedAddition{Step: a.Step, Paths: rest})
+		}
 	}
 	return out
 }
@@ -358,6 +395,10 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
 	out := []string{}
 	for _, a := range UnorderedAdditions(spot, rec) {
+		if a.Step == "" {
+			out = append(out, fmt.Sprintf("`unordered: [%s]` at chain level", strings.Join(a.Paths, ", ")))
+			continue
+		}
 		out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(a.Paths, ", "), a.Step))
 	}
 	return out
