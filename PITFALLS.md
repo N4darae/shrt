@@ -1012,6 +1012,15 @@ Since 2026-09-24 a secret of 8 characters or more is also scrubbed whatever its 
 made of a short alphabetic prefix (up to 5 letters), a `-` or `_`, and a tail of 8 characters or
 more (`tok-...`, `sk_...`) also has that tail scrubbed on its own, in any case. Exact matches are
 scrubbed as before.
+An ENCODED secret stayed in clear: the live token base64-encoded in a Connect error's
+`details[].value` (Connect always base64-encodes details) or in `status.message`, and a password
+percent-encoded (`s3cret%2Dadmin`). A secret of 8 characters or more is now also scrubbed in its
+standard and URL-safe base64 forms, with and without padding, including where it sits inside a
+longer base64 value at any byte offset (a detail message that holds the token among other fields),
+and percent-encoded in any mix of `%XX` (either hex case) and plain characters, `+` for a space.
+Other transformations are left alone on purpose: a secret echoed reversed, with spaces between its
+characters, hashed, or encoded twice is NOT scrubbed, since recognising it would mean guessing at
+arbitrary transforms and blanking unrelated values. Keep such echoes out of committed runs.
 
 ---
 
