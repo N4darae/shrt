@@ -54,6 +54,9 @@ type RunReport struct {
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
+
+	compared []comparedStep
+	idPairs  []idPair
 }
 
 func (r *RunReport) Same() bool {
@@ -135,6 +138,9 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step,
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
 		}
 	}
+	var renamed []Change
+	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, idRenames(rep.idPairs))
+	rep.Masked += len(renamed)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
@@ -204,6 +210,8 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		}
 		return
 	}
+	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
+	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
 	walk(x, y, "", func(c Change) {
 		if underMask(masker, c.Path) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++

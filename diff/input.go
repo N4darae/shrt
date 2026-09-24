@@ -1,8 +1,6 @@
 package diff
 
 import (
-	"strings"
-
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -56,12 +54,10 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			from = i
 		}
 	}
+	remaining, echoed := splitEchoes(r.Changes, r.compared, append(pairs, r.renames...))
+	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	kept := []Change{}
-	for _, c := range r.Changes {
-		if echoesFixture(c, pairs) {
-			r.FixtureEchoed = append(r.FixtureEchoed, c)
-			continue
-		}
+	for _, c := range remaining {
 		if from >= 0 {
 			i, ok := index[c.Step]
 			c.WithInput = !ok || i >= from
@@ -99,19 +95,4 @@ func (r *Report) ChainEdits(fedByVars func(Change) bool) []Change {
 
 func chainLevel(c Change) bool {
 	return c.Path == "step" || c.Path == "steps" || c.Path == "call"
-}
-
-func echoesFixture(c Change, pairs [][2]string) bool {
-	if c.Kind != KindChanged || len(pairs) == 0 {
-		return false
-	}
-	want, okA := c.Want.(string)
-	got, okB := c.Got.(string)
-	if !okA || !okB {
-		return false
-	}
-	for _, p := range pairs {
-		want = strings.ReplaceAll(want, p[0], p[1])
-	}
-	return want == got
 }

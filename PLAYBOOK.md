@@ -857,8 +857,9 @@ camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 val
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
 shown. Values derived
 from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
-(an error message naming the product) is not masked either; declare that path volatile too, knowing
-it also hides a genuine change of that message. The report says how many values it hid, and names
+(an error message naming the product) is compared after the same renaming: the message is equal when
+the only difference is an id the two runs renamed one-to-one, and any other change of its text is shown,
+so it needs no `volatile`. The report says how many values it hid, and names
 the two runs' `build` labels and any var that differed, since a difference that follows a changed
 `-var` comes from the input, not the backend. It exits 1 when the runs differ and 2 when it could not compare them (an unknown run, runs of two chains). It is a
 comparison between two runs, not a verdict: it cannot tell you which of the two is right, only

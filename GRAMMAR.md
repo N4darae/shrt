@@ -436,7 +436,11 @@ string was, or disappeared, is reported too. Masking an id is a renaming, and it
 across the whole record: each id of the safe spot must become one value in the new run, wherever it
 appears, and no two ids of the safe spot may become the same one. An order whose `id_customer` no
 longer names the customer the run created, or an id unchanged in one step and renamed in another,
-is reported as `changed` at that path, naming the step and path that set the renaming. A list whose
+is reported as `changed` at that path, naming the step and path that set the renaming. The same
+renaming is applied inside every other string before it is compared: a message that names a renamed
+id (`not enough stock for prd-847c…` against `… prd-b770…`) is equal, and counted with the masked
+ids, when the only difference is that id (a string id of at least 4 characters the renaming mapped
+one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'s warning apply it too. A list whose
 order is not stable across runs pairs ids by position, so declare it `volatile`. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
