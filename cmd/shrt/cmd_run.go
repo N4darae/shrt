@@ -279,8 +279,32 @@ func summary(rec *runner.Record, dry bool) string {
 	if rec.KeptRedNote != "" {
 		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)
 	}
+	for _, line := range warningLines(rec) {
+		fmt.Fprintf(&b, "\n  %s", line)
+	}
+	if len(rec.Exports) > 0 {
+		names := make([]string, 0, len(rec.Exports))
+		for k := range rec.Exports {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		if dry {
+			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
+				strings.Join(names, ", "))
+			return b.String()
+		}
+		b.WriteString("\n  exports:")
+		for _, k := range names {
+			fmt.Fprintf(&b, " %s=%s", k, exportJSON(rec.Exports[k]))
+		}
+	}
+	return b.String()
+}
+
+func warningLines(rec *runner.Record) []string {
+	out := []string{}
 	if rec.Warning != "" {
-		fmt.Fprintf(&b, "\n  warning: %s", rec.Warning)
+		out = append(out, "warning: "+rec.Warning)
 	}
 	warnings, stepsOf := []string{}, map[string][]string{}
 	for _, sr := range rec.Steps {
@@ -300,25 +324,9 @@ func summary(rec *runner.Record, dry bool) string {
 		}
 	}
 	for _, line := range warnings {
-		fmt.Fprintf(&b, "\n  warning [%s]: %s", capList(stepsOf[line], 10), line)
+		out = append(out, fmt.Sprintf("warning [%s]: %s", capList(stepsOf[line], 10), line))
 	}
-	if len(rec.Exports) > 0 {
-		names := make([]string, 0, len(rec.Exports))
-		for k := range rec.Exports {
-			names = append(names, k)
-		}
-		sort.Strings(names)
-		if dry {
-			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
-				strings.Join(names, ", "))
-			return b.String()
-		}
-		b.WriteString("\n  exports:")
-		for _, k := range names {
-			fmt.Fprintf(&b, " %s=%s", k, exportJSON(rec.Exports[k]))
-		}
-	}
-	return b.String()
+	return out
 }
 
 func capList(items []string, max int) string {

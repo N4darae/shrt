@@ -198,6 +198,11 @@ func runVerify(ctx context.Context, args []string) error {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
+		if *quiet {
+			for _, line := range warningLines(rec) {
+				fmt.Println(line)
+			}
+		}
 	}
 	if loss.finding() && !driftedBefore(rec, report, loss.index) {
 		return fmt.Errorf("%s: %s", name, loss.line())

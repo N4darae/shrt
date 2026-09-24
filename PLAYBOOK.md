@@ -684,7 +684,7 @@ empty code): it fails unless an expectation pins the envelope (`status.code exis
 an absent verdict is what the rpc answers; a `not_equal` does not, since it holds on an empty code) or the transport, and warns on a step with no
 `expect`. Every step warning is
 repeated in the closing summary as `warning [<step>]: ...`, so `-quiet`, which drops the progress
-lines, still shows them.
+lines, still shows them; `verify -quiet` prints the same lines after its diff summary.
 
 Read the run status as three values, not two: `passed`, `failed`, and **`error`** — and `error` is
 nearly always evidence about your fixture rather than the backend: most of the time no request was
