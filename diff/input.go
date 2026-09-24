@@ -54,8 +54,9 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			from = i
 		}
 	}
-	remaining, echoed := splitEchoes(r.Changes, r.compared, append(pairs, r.renames...))
+	remaining, echoed, stale := splitStaleEchoes(r.Changes, r.compared, append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
+	remaining = append(remaining, stale...)
 	kept := []Change{}
 	for _, c := range remaining {
 		if from >= 0 {

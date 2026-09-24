@@ -99,8 +99,10 @@ func walkRenamedText(steps []comparedStep, r *strings.Replacer, visit func(step,
 				if !ok {
 					return
 				}
-				for k, wv := range w {
-					if gv, ok := g[k]; ok {
+				for _, k := range sortedKeys(w, g) {
+					wv, inW := w[k]
+					gv, inG := g[k]
+					if inW && inG {
 						rec(wv, gv, pathmask.Join(path, k))
 					}
 				}
@@ -127,14 +129,23 @@ func walkRenamedText(steps []comparedStep, r *strings.Replacer, visit func(step,
 }
 
 func splitEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed []Change) {
+	kept, echoed, _ = splitStaleEchoes(changes, steps, pairs)
+	return kept, echoed
+}
+
+func splitStaleEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed, stale []Change) {
 	echo := map[string]bool{}
 	walkRenamedText(steps, renamer(pairs), func(step, path, want, got, renamed string) {
-		if want != got && renamed == got {
+		switch {
+		case want != got && renamed == got:
 			echo[step+" "+path] = true
+		case want == got:
+			stale = append(stale, Change{Step: step, Path: path, Kind: KindChanged, Want: renamed, Got: got,
+				Detail: "still the confirmed run's value although this run sent another fixture name or got another id; an echo of this run's input reads as want"})
 		}
 	})
 	if len(echo) == 0 {
-		return changes, nil
+		return changes, nil, stale
 	}
 	kept = changes[:0:0]
 	for _, c := range changes {
@@ -144,5 +155,5 @@ func splitEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kep
 		}
 		kept = append(kept, c)
 	}
-	return kept, echoed
+	return kept, echoed, stale
 }

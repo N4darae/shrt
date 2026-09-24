@@ -144,8 +144,10 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step,
 	var renamed, echoed []Change
 	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
-	rep.Changes, echoed = splitEchoes(rep.Changes, rep.compared, append(rep.fixturePairs, renames...))
+	var stale []Change
+	rep.Changes, echoed, stale = splitStaleEchoes(rep.Changes, rep.compared, append(rep.fixturePairs, renames...))
 	rep.FixtureEchoed += len(echoed)
+	rep.Changes = append(rep.Changes, stale...)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
