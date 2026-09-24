@@ -263,7 +263,7 @@ func driftedBefore(rec *runner.Record, report *diff.Report, from int) bool {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
-		if i, ok := index[c.Step]; ok && i < from {
+		if i, ok := index[c.Step]; ok && i < from && !runner.NotAnsweredByService(rec.Steps[i]) {
 			return true
 		}
 	}

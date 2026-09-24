@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"reflect"
 	"regexp"
@@ -388,6 +389,22 @@ const freshTokenRefused = "may be an auth regression"
 
 func RefusedFreshToken(sr *StepRecord) bool {
 	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
+}
+
+const notAnsweredByService = "not answered by the service"
+
+func unavailableAnswer(status int, code string) bool {
+	switch code {
+	case "unavailable":
+		return true
+	case "http_502", "http_503", "http_504":
+		return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+	}
+	return false
+}
+
+func NotAnsweredByService(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && sr.Transport != nil && unavailableAnswer(sr.HTTPStatus, sr.Transport.Code)
 }
 
 func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
@@ -1190,6 +1207,14 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 				sr.Status = StatusFailed
 				sr.Error = "the call was refused as asserted, so there is no response to export from"
 			}
+			return sr
+		}
+		if unavailableAnswer(res.Status, res.Error.Code) {
+			sr.Status = StatusError
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was "+notAnsweredByService+", so this assertion never ran")
+			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the call was %s: a gateway or load balancer "+
+				"answered for it (the normal answer while the service restarts or is not ready), so this is not a verdict "+
+				"about the rpc. Re-run once the service is up", res.Status, notAnsweredByService)
 			return sr
 		}
 		sr.Status = StatusFailed

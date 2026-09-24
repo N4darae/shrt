@@ -29,7 +29,7 @@ func detectSessionLoss(rec *runner.Record) *sessionLoss {
 		if st.AuthRetry != "" && accepted[profile] {
 			return &sessionLoss{step: st, index: i}
 		}
-		if st.AuthRetry == "" && st.Status != runner.StatusSkipped && (st.HTTPStatus != 0 || len(st.Response) > 0) {
+		if st.AuthRetry == "" && st.Status != runner.StatusSkipped && !runner.NotAnsweredByService(st) && (st.HTTPStatus != 0 || len(st.Response) > 0) {
 			accepted[profile] = true
 		}
 	}

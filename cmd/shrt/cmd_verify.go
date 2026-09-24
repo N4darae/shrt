@@ -31,7 +31,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
-	"     sent but no answer before target.timeout, login or auth refused) and nothing drifted\n" +
+	"     sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
+	"     502/503/504 from a gateway, login or auth refused) and nothing drifted\n" +
 	"     before it; a change at or after that step\n" +
 	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
 	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
@@ -549,6 +550,12 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 		}
 	}
 	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	for _, st := range rec.Steps {
+		if st.ID == step && runner.NotAnsweredByService(st) {
+			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
+				"so wait until it is up and run verify again"
+		}
+	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
 			"or find why the backend answers so slowly, and run verify again"
@@ -565,9 +572,13 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 	for i, st := range rec.Steps {
 		index[st.ID] = i
 		authRefused := st.Status == runner.StatusError && st.AuthRetry != ""
-		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused {
+		gateway := runner.NotAnsweredByService(st)
+		if (st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0) || authRefused || gateway {
 			why := st.Error
-			if authRefused {
+			if gateway {
+				why, _, _ = strings.Cut(st.Error, "\n")
+				why = fmt.Sprintf("HTTP %d %s: a gateway answered for the service", st.HTTPStatus, why)
+			} else if authRefused {
 				line, _, _ := strings.Cut(st.Error, "\n")
 				why = "the backend refused authentication: " + line
 			}
