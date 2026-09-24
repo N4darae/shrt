@@ -621,6 +621,12 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 						"must succeed, or the refusal code for one that must be refused",
 					e.Path, EnvelopeOK(), EnvelopeOK())})
 			}
+			if kind, whole := scalarNotEqualOnObject(e, schema.Fields); whole {
+				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
+					"expect on %q says not_equal %q, but %q is %s: that value is never equal to a single value, so the "+
+						"assertion holds on every answer, the ok one and every refusal alike, and cannot fail. %s",
+					e.Path, stringify(e.NotEqual), e.Path, kind, objectNotEqualRemedy(e.Path))})
+			}
 			if issue, bad := arithmeticIssue(s.ID, e, schema.Fields); bad {
 				issues = append(issues, issue)
 			}
@@ -652,6 +658,43 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 		})
 	}
 	return issues
+}
+
+func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, bool) {
+	if e.NotEqual == nil {
+		return "", false
+	}
+	switch e.NotEqual.(type) {
+	case map[string]any, []any:
+		return "", false
+	}
+	if HasReference(stringify(e.NotEqual)) {
+		return "", false
+	}
+	segs := SplitPath(e.Path)
+	f, ok := catalog.ResponseFieldAt(fields, segs)
+	if !ok || f == nil || len(segs) == 0 {
+		return "", false
+	}
+	last := segs[len(segs)-1]
+	switch {
+	case f.MapKey != "" && namecase.Equal(f.Name, last):
+		return "a map", true
+	case f.Repeated && !isIndex(last):
+		return "a list", true
+	case (f.Kind == "message" || f.Kind == "group") && f.MapKey == "" &&
+		(f.Message == "google.protobuf.Struct" || !strings.HasPrefix(f.Message, "google.protobuf.")):
+		return "a message (" + f.Message + "), an object", true
+	}
+	return "", false
+}
+
+func objectNotEqualRemedy(path string) string {
+	if env := EnvelopePath(); env != "" && EnvelopeOK() != "" && strings.HasPrefix(strings.ToLower(env), strings.ToLower(path)+".") {
+		return fmt.Sprintf("It contains the verdict: write %s equals: %s for a call that must succeed, or the refusal "+
+			"code for one that must be refused", env, EnvelopeOK())
+	}
+	return "Assert a field inside it instead"
 }
 
 func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Issue, bool) {
