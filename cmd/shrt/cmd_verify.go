@@ -199,6 +199,7 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
 	declared := declaredDriftChanges(e, rec, report, driftStep)
+	independent := independentOfDrift(c, rec, report, driftStep, driftAt)
 	var nonBackend error
 	headline := ""
 	switch {
@@ -219,7 +220,7 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
 		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
-	case driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
+	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
@@ -276,6 +277,11 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			if literal != nil {
 				fmt.Println("CHAIN DEFECT: " + literal.line())
+			}
+			if len(declared) == 0 && len(independent) > 0 {
+				fmt.Printf("note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
+					"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(independent),
+					describeChanges(independent), driftRemedy(ctx, e, driftWhy))
 			}
 			if len(declared) > 0 {
 				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
@@ -366,6 +372,10 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n"+
 			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
 			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "))
+	}
+	if len(declared) == 0 && len(independent) > 0 {
+		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
+			"descriptor (%s), so it and the steps reading it are not judged: %s", len(independent), driftStep, driftWhy, describeChanges(independent))
 	}
 	if !report.Clean() && len(declared) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot, including %s in the declared fields of the response at %s, "+
@@ -794,6 +804,36 @@ func declaredDriftChanges(e *env, rec *runner.Record, report *diff.Report, step 
 	for _, c := range report.Changes {
 		if c.Step == step && c.Kind != diff.KindStatus && c.Kind != diff.KindNotReached {
 			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report, step string, at int) []diff.Change {
+	if step == "" || c == nil {
+		return nil
+	}
+	reads := chainReads(c)
+	tainted := map[string]bool{step: true}
+	after := map[string]bool{}
+	for i, st := range rec.Steps {
+		if st == nil || i <= at {
+			continue
+		}
+		for _, rd := range reads[st.ID] {
+			if tainted[rd.Step] {
+				tainted[st.ID] = true
+			}
+		}
+		if st.Drift || st.Status == runner.StatusSkipped {
+			tainted[st.ID] = true
+		}
+		after[st.ID] = true
+	}
+	out := []diff.Change{}
+	for _, ch := range report.Changes {
+		if after[ch.Step] && !tainted[ch.Step] && ch.Kind != diff.KindNotReached && ch.Kind != diff.KindStatus {
+			out = append(out, ch)
 		}
 	}
 	return out
