@@ -72,6 +72,10 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 	if sr.Drift || !sr.AssertionFailed() {
 		return []string{fmt.Sprintf("step %q failed with no failed expectation: %s", id, sr.Error)}, []string{id + " failed: " + firstLine(sr.Error)}
 	}
+	if refusal := pinnedRefusal(sr, want); refusal != "" {
+		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport: %s, so its pinned failure was not seen", id, refusal)},
+			[]string{id + " refused at transport: " + refusal}
+	}
 	out, fresh := []string{}, []string{}
 	seen := map[int]bool{}
 	for _, ex := range sr.Expect {
@@ -85,6 +89,10 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 			}
 			matched = true
 			seen[i] = true
+			if ex.Rule == unevaluatedRule {
+				out = append(out, fmt.Sprintf("step %q: pinned path %s was not evaluated (%s), so its pinned failure was not seen", id, ex.Path, ex.Detail))
+				continue
+			}
 			if k.Got != nil && gotText(ex.Got) != *k.Got {
 				out = append(out, fmt.Sprintf("step %q failed on %s with got=%s, not the pinned got=%s", id, ex.Path, gotText(ex.Got), *k.Got))
 			}
@@ -100,6 +108,25 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 		}
 	}
 	return out, fresh
+}
+
+const unevaluatedRule = "unevaluated"
+
+func pinnedRefusal(sr *StepRecord, want []chain.Pin) string {
+	if sr.Transport == nil {
+		return ""
+	}
+	for _, ex := range sr.Expect {
+		if ex.Rule != unevaluatedRule {
+			continue
+		}
+		for _, k := range want {
+			if k.Path == ex.Path {
+				return firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
+			}
+		}
+	}
+	return ""
 }
 
 func gotText(v any) string {

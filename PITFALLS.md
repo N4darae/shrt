@@ -199,7 +199,11 @@ exit 0). A kept-red chain now runs past its pinned failures as `-keep-going` doe
 unsent behind a failure keeps it from `as_pinned`. It still stopped at an UNPINNED failure, so the
 later pinned steps were never sent and the note said they were "never answered"; it now runs every
 step past any failure, and a pinned step it could not send, because it reads a failed step, is
-reported "not sent".
+reported "not sent". A pin with no `got` also took a transport refusal (a 500 `internal: panic`,
+a 404, a 403, an HTML 503) at its step as the pinned failure, because the refusal leaves every
+expectation `unevaluated` and so failed: `as_pinned`, exit 0, over a crashed rpc. Only an
+expectation evaluated against an answered response satisfies a pin now; a refusal there is
+`not_as_pinned`, "the pinned step was refused at transport".
 
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
