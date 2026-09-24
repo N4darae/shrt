@@ -33,7 +33,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
 	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
 	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
-	"     this chain already used (fixture reused: re-run with a fresh -var)\n"
+	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
+	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run)\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -149,6 +150,7 @@ func runVerify(ctx context.Context, args []string) error {
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
+	loss := detectSessionLoss(rec)
 	var reuse *fixtureReuse
 	if !report.Clean() {
 		reuse = detectFixtureReuse(e, c, rec)
@@ -168,6 +170,9 @@ func runVerify(ctx context.Context, args []string) error {
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
+		if loss != nil {
+			fmt.Println("WARNING: " + loss.line())
+		}
 		if !unanswered || anyAnswered(rec) {
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
@@ -180,6 +185,10 @@ func runVerify(ctx context.Context, args []string) error {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
+	}
+	if loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index) {
+		return exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
 	}
 	if unanswered {
 		return couldNotVerify(name, unansweredStep, unansweredWhy, rec)
