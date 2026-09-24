@@ -161,7 +161,7 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || !prev.Passed() || prev.DryRun {
+		if err != nil || !prev.Passed() || prev.DryRun || prev.Target != rec.Target {
 			continue
 		}
 		base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
@@ -186,6 +186,9 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
 	out := []store.Differ{}
+	for _, p := range rep.UnapprovedVolatile {
+		out = append(out, store.Differ{Step: "-", Side: "volatile", Path: p, Delta: "masked now, not in the replaced safe spot"})
+	}
 	for _, c := range rep.RequestChanges {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}

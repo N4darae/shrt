@@ -28,6 +28,10 @@ func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
 	if err := readJSON(path, rec); err != nil {
 		return nil, fmt.Errorf("load run %s/%s: %w", chainName, runID, err)
 	}
+	if slug(rec.Chain) != slug(chainName) {
+		return nil, fmt.Errorf("load run %s/%s: the record is a run of chain %q, not of %q, and was copied or moved into %s; it is not evidence about %s",
+			chainName, runID, rec.Chain, chainName, s.chainDir(chainName), chainName)
+	}
 	return rec, nil
 }
 

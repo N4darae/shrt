@@ -370,8 +370,8 @@ and both are removed on approval or `-reject`.
 | `proposed_by` | string | Who proposed the run with `shrt confirm -note`; `agent` unless `-by` named someone. |
 | `proposed_at` | time | When it was proposed. |
 | `supersedes` | string | The run id this replaced, when proposed with `-supersede`. |
-| `volatile` | list of string | Patterns masked before comparison. |
-| `digest` | string | Fingerprint of the confirmed steps. |
+| `volatile` | list of string | The volatile patterns approved with the run (config and chain), masked before comparison together with each step's own `volatile`. A replay masked with any other pattern, one added to the config or chain after approval, fails `shrt verify`, which names each such pattern and every value it hid, until a run under the wider mask is proposed with `-supersede` and approved. |
+| `digest` | string | Fingerprint of the chain, run id, target, build, volatile patterns and full step records. `shrt verify` refuses a safe spot whose content no longer matches it (a hand edit): restore the file or re-approve with `-supersede`. A safe spot approved before 2026-09-24 carries the older digest of step ids, calls and responses, which is still checked. |
 | `steps` | list of steprecord | The confirmed step records, which a replay is diffed against. |
 
 ## 7. What `shrt verify` actually compares
@@ -398,7 +398,10 @@ integer type and both decode to the same float64.
 Beyond `volatile`, verify also masks values that differ every run by shape: a changed value
 whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`, `*At`, `*_time`,
 `token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not
-reported; the report says how many it masked. In this example 2 value(s) were masked. Declare
+reported; the report says how many it masked. In this example 2 value(s) were masked. A name alone
+is not enough: both values must look alike, two non-zero numbers or two non-empty strings of the
+same shape (`ord-819dac5f23ba` and `ord-0123456789ab`). An id that became `""`, null, `0`, `undefined`,
+a number where a string was, or disappeared, is reported. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints

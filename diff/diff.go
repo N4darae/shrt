@@ -35,12 +35,21 @@ type Report struct {
 	Chain          string   `json:"chain"`
 	SafeSpotID     string   `json:"safe_spot_run_id"`
 	RunID          string   `json:"run_id"`
+	SafeSpotTarget string   `json:"safe_spot_target,omitempty"`
+	RunTarget      string   `json:"run_target,omitempty"`
 	FirstFailure   string   `json:"first_failure,omitempty"`
 	RequestChanges []Change `json:"request_changes,omitempty"`
 	InputCause     string   `json:"input_cause,omitempty"`
 	Changes        []Change `json:"changes"`
 	Masked         int      `json:"masked"`
+	VolatileMasked int      `json:"volatile_masked"`
+	VolatilePaths  []string `json:"volatile_paths,omitempty"`
+
+	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
+	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
 }
+
+func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
@@ -50,7 +59,16 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
+	if spot.Target != rec.Target {
+		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
+	}
 	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
+	approvedPatterns := append([]string{}, spot.Volatile...)
+	for _, st := range spot.Steps {
+		approvedPatterns = append(approvedPatterns, st.Volatile...)
+	}
+	approved := pathmask.NewMasker(approvedPatterns)
+	rep.UnapprovedVolatile = unapproved(approvedPatterns, rec, extra)
 	first := firstRed(rec)
 	if first != nil {
 		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
@@ -94,12 +112,19 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			continue
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
-		for _, c := range compareStep(want, got, stepMask) {
-			if c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+		for _, c := range compareStep(want, got) {
+			switch {
+			case c.Path != "response" && maskedAt(stepMask, c):
+				rep.VolatileMasked++
+				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
+				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
+					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
+				}
+			case c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got):
 				rep.Masked++
-				continue
+			default:
+				rep.Changes = append(rep.Changes, c)
 			}
-			rep.Changes = append(rep.Changes, c)
 		}
 	}
 	if stoppedEarly {
@@ -189,14 +214,50 @@ func firstLineOf(s string) string {
 	return strings.TrimSpace(line)
 }
 
-func compareStep(want, got *runner.StepRecord, masker *pathmask.Masker) []Change {
+func unapproved(approved []string, rec *runner.Record, extra []string) []string {
+	seen := map[string]bool{}
+	for _, p := range approved {
+		seen[p] = true
+	}
+	out := []string{}
+	add := func(ps []string) {
+		for _, p := range ps {
+			if !seen[p] {
+				seen[p] = true
+				out = append(out, p)
+			}
+		}
+	}
+	add(rec.Volatile)
+	add(extra)
+	for _, st := range rec.Steps {
+		add(st.Volatile)
+	}
+	return out
+}
+
+func maskedAt(m *pathmask.Masker, c Change) bool {
+	segs := strings.Split(c.Path, ".")
+	limit := len(segs)
+	if c.Kind == KindMissing || c.Kind == KindUnexpected {
+		limit--
+	}
+	for i := limit; i > 0; i-- {
+		if m.Masks(strings.Join(segs[:i], ".")) {
+			return true
+		}
+	}
+	return false
+}
+
+func compareStep(want, got *runner.StepRecord) []Change {
 	a, errA := decode(want.Response)
 	b, errB := decode(got.Response)
 	if errA != nil || errB != nil {
 		return []Change{{Step: want.ID, Path: "response", Kind: KindType, Want: errA, Got: errB}}
 	}
 	changes := []Change{}
-	walk(masker.Apply(a), masker.Apply(b), "", func(c Change) {
+	walk(a, b, "", func(c Change) {
 		c.Step = want.ID
 		changes = append(changes, c)
 	})
@@ -337,6 +398,13 @@ func (c Change) describeValues() string {
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
 }
 
+func orNotRecorded(s string) string {
+	if s == "" {
+		return "(not recorded)"
+	}
+	return s
+}
+
 func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
@@ -345,11 +413,34 @@ func withKind(v any) string {
 }
 
 func (r *Report) Text() string {
-	masked := ""
+	parts := []string{}
 	if r.Masked > 0 {
-		masked = fmt.Sprintf(" (%d id- or timestamp-shaped value(s) that differ every run were not counted)", r.Masked)
+		parts = append(parts, fmt.Sprintf("%d id- or timestamp-shaped value(s)", r.Masked))
+	}
+	if r.VolatileMasked > 0 {
+		parts = append(parts, fmt.Sprintf("%d value(s) under volatile paths", r.VolatileMasked))
+	}
+	masked := ""
+	if len(parts) > 0 {
+		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if r.SafeSpotTarget != "" || r.RunTarget != "" {
+		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
+			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
+	}
+	if r.Widened() {
+		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
+			len(r.UnapprovedVolatile), r.SafeSpotID, strings.Join(r.UnapprovedVolatile, ", "))
+		if len(r.UnapprovedMasked) == 0 {
+			b.WriteString("  they hid no value this time, but they would hide a change there\n")
+		} else {
+			fmt.Fprintf(&b, "  they hid %d value(s) the approved mask compares:\n", len(r.UnapprovedMasked))
+			for _, p := range r.UnapprovedMasked {
+				fmt.Fprintf(&b, "    %s\n", p)
+			}
+		}
+	}
 	for _, c := range r.RequestChanges {
 		fmt.Fprintf(&b, "request differs from the confirmed run at %s %s (%s)\n", c.Step, c.Path, c.Transition())
 	}

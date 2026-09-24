@@ -116,6 +116,7 @@ steps:
 		"confirmed_by": "test", "confirmed_at": "2026-01-01T00:00:00Z", "digest": "d", "steps": rec["steps"],
 	})
 	writeFile(t, ".shrt/safespots/cli-three-flow.json", string(spotRaw))
+	resealSafeSpot(t, ".shrt/safespots/cli-three-flow.json")
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-three-flow.yaml")), "not_empty: true", "equals: nope", 1))
 
 	var verr error

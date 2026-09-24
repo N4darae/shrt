@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -93,7 +94,7 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
 		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
 		Supersede: in.Supersede, Replaces: replaces,
-		Digest: digest(rec.Steps), Report: s.ReportPath(rec.Chain),
+		Digest: recordDigest(rec), Report: s.ReportPath(rec.Chain),
 		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
 	}
 	if replaces != "" {
@@ -120,7 +121,7 @@ func (s *Store) Approve(chainName string, c Confirmation) (*SafeSpot, string, er
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: %w", ErrProposalChanged, err)
 	}
-	if digest(rec.Steps) != p.Digest {
+	if recordDigest(rec) != p.Digest {
 		return nil, "", fmt.Errorf("%w: run %s was rewritten after it was proposed", ErrProposalChanged, p.RunID)
 	}
 	if strings.TrimSpace(c.Note) == "" {
@@ -301,8 +302,8 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	}
 	switch {
 	case p.ComparedTo == "":
-		b.WriteString("\n**Not checked for fields that change every run:** no earlier passing run of this chain is recorded. " +
-			"Run it once more and propose again to see them.\n")
+		fmt.Fprintf(&b, "\n**Not checked for fields that change every run:** no earlier passing run of this chain against `%s` is recorded "+
+			"(a run against another target says nothing about this one). Run it once more and propose again to see them.\n", p.Target)
 	case len(p.Unstable) == 0:
 		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no field differs beyond ids and timestamps, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo)
 	default:
@@ -311,8 +312,69 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 			fmt.Fprintf(&b, "- `%s`\n", u)
 		}
 	}
-	b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
+	patterns := volatileSummary(rec)
+	if len(patterns) == 0 {
+		b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
+		return b.String()
+	}
+	fmt.Fprintf(&b, "\n**Volatile, never compared by `shrt verify`:** %s\n", strings.Join(patterns, ", "))
+	if masked := fullyMasked(rec); len(masked) > 0 {
+		fmt.Fprintf(&b, "\n**Warning: every response field of step(s) %s is volatile**, so `shrt verify` compares nothing of those responses "+
+			"and approving sets no baseline for them. Narrow the `volatile` patterns unless that is intended.\n", strings.Join(masked, ", "))
+	}
+	b.WriteString("\nApproving makes every response field above that no volatile pattern covers, not only the asserted ones, the baseline `shrt verify` compares against.\n")
 	return b.String()
+}
+
+func volatileSummary(rec *runner.Record) []string {
+	out := []string{}
+	for _, p := range rec.Volatile {
+		out = append(out, "`"+p+"`")
+	}
+	for _, st := range rec.Steps {
+		for _, p := range st.Volatile {
+			out = append(out, fmt.Sprintf("`%s` (%s)", p, st.ID))
+		}
+	}
+	return out
+}
+
+func fullyMasked(rec *runner.Record) []string {
+	out := []string{}
+	for _, st := range rec.Steps {
+		var body any
+		if len(st.Response) == 0 || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		masker := pathmask.NewMasker(append(append([]string{}, rec.Volatile...), st.Volatile...))
+		if leaves, open := maskedLeaves(masker.Apply(body)); leaves > 0 && open == 0 {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
+func maskedLeaves(v any) (int, int) {
+	masked, open := 0, 0
+	add := func(m, o int) { masked, open = masked+m, open+o }
+	switch t := v.(type) {
+	case map[string]any:
+		for _, item := range t {
+			add(maskedLeaves(item))
+		}
+	case []any:
+		for _, item := range t {
+			add(maskedLeaves(item))
+		}
+	case string:
+		if t == pathmask.MaskVolatile {
+			return 1, 0
+		}
+		return 0, 1
+	default:
+		return 0, 1
+	}
+	return masked, open
 }
 
 func replacedSummary(all []Differ, step string) string {

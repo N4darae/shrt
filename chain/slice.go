@@ -3,6 +3,7 @@ package chain
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -135,6 +136,8 @@ type SliceResult struct {
 	MissingVars   []string    `json:"missing_vars,omitempty"`
 	FreshVars     []string    `json:"fresh_vars,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
+	NotReproduced string      `json:"not_reproduced,omitempty"`
+	Build         string      `json:"verify_build,omitempty"`
 	Chain         *Chain      `json:"-"`
 }
 
@@ -411,17 +414,45 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 }
 
 func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
-	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s gave step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.Target, sourceRun)
+	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
+	r.NotReproduced = ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
 }
 
+func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time, difference string) {
+	r.NotReproduced = fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
+	if difference != "" {
+		r.NotReproduced += " (" + difference + ")"
+	}
+	r.Verified = ""
+	if r.Chain != nil {
+		r.Chain.Description = sliceDescription(r)
+	}
+}
+
+func (r *SliceResult) OwnRunVerdict(chainName, sourceRun, sliceRun string, at time.Time) string {
+	return fmt.Sprintf("reproduced on %s: run %s%s of %s gave step %s the verdict of %s's own run %s. The slice keeps every step, "+
+		"so this re-ran the chain, it did not reproduce a failure of another chain",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, chainName, sourceRun)
+}
+
+func (r *SliceResult) onBuild() string {
+	if r.Build == "" {
+		return ""
+	}
+	return " on build " + r.Build
+}
+
 const (
 	hypothesisParagraph = "\nThis slice is a HYPOTHESIS until it is run. A dependency that is state rather than a\n" +
 		"reference leaves no trace in the YAML, so a slice can be too small and still go green.\n"
-	verifiedPrefix = "VERIFIED by 'shrt chain slice -verify': "
+	verifiedPrefix      = "VERIFIED by 'shrt chain slice -verify': "
+	notReproducedPrefix = "NOT REPRODUCED by 'shrt chain slice -verify': "
+	rerunPrefix         = "RE-RUN by 'shrt chain slice -verify': "
 )
 
 func verifiedLine(verified string) string {
@@ -432,17 +463,34 @@ func HasVerifiedVerdict(description string) bool {
 	return strings.Contains(description, verifiedPrefix)
 }
 
+func IsSliceDescription(description string) bool {
+	head, _, _ := strings.Cut(description, "\n")
+	return strings.HasPrefix(head, "Slice of ") && strings.Contains(head, " reproducing step ")
+}
+
 func RecordVerified(description, verified string) string {
-	line := verifiedLine(verified)
-	if strings.Contains(description, hypothesisParagraph) {
-		return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
-	}
-	if i := strings.Index(description, verifiedPrefix); i >= 0 {
-		end := strings.Index(description[i:], "\n")
-		if end < 0 {
-			return description[:i] + line
+	return recordVerdict(description, verifiedLine(verified), hypothesisParagraph, verifiedPrefix, notReproducedPrefix)
+}
+
+func RecordRerun(description, verdict string) string {
+	return recordVerdict(description, rerunPrefix+verdict+".\n", rerunPrefix)
+}
+
+func recordVerdict(description, line string, replaces ...string) string {
+	for _, old := range replaces {
+		if old == hypothesisParagraph {
+			if strings.Contains(description, hypothesisParagraph) {
+				return strings.Replace(description, hypothesisParagraph, "\n"+line, 1)
+			}
+			continue
 		}
-		return description[:i] + line + description[i+end+1:]
+		if i := strings.Index(description, old); i >= 0 {
+			end := strings.Index(description[i:], "\n")
+			if end < 0 {
+				return description[:i] + line
+			}
+			return description[:i] + line + description[i+end+1:]
+		}
 	}
 	description = strings.TrimRight(description, "\n")
 	if description == "" {
@@ -507,6 +555,8 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))
+	} else if res.NotReproduced != "" {
+		b.WriteString("\n" + notReproducedPrefix + res.NotReproduced + ".\n")
 	} else {
 		b.WriteString(hypothesisParagraph)
 	}
@@ -821,16 +871,32 @@ func rewriteString(in string, pins map[string]string) string {
 }
 
 type Verdict struct {
-	Step      string         `json:"step"`
-	Status    string         `json:"status"`
-	ErrorCode string         `json:"error_code"`
-	Expect    []ExpectResult `json:"expect"`
+	Step      string            `json:"step"`
+	Status    string            `json:"status"`
+	ErrorCode string            `json:"error_code"`
+	Refusal   map[string]string `json:"refusal,omitempty"`
+	Transport string            `json:"transport,omitempty"`
+	Expect    []ExpectResult    `json:"expect"`
 }
 
 func CompareVerdicts(source, replay Verdict) []string {
+	return CompareVerdictsMasking(source, replay, nil)
+}
+
+func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool) []string {
+	alike := func(path string, a, b any) bool { return same != nil && same(path, a, b) }
 	diffs := []string{}
 	if source.ErrorCode != replay.ErrorCode {
 		diffs = append(diffs, fmt.Sprintf("%s: source %q, slice %q", EnvelopePath(), source.ErrorCode, replay.ErrorCode))
+	}
+	if source.Transport != replay.Transport {
+		diffs = append(diffs, fmt.Sprintf("transport: source %s, slice %s", orNoRefusal(source.Transport), orNoRefusal(replay.Transport)))
+	}
+	for _, field := range refusalFields(source.Refusal, replay.Refusal) {
+		a, b := source.Refusal[field], replay.Refusal[field]
+		if a != b && !alike(field, a, b) {
+			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, slice %s", field, orNoRefusal(strconv.Quote(a)), orNoRefusal(strconv.Quote(b))))
+		}
 	}
 	if source.Status != replay.Status {
 		diffs = append(diffs, fmt.Sprintf("step status: source %q, slice %q", source.Status, replay.Status))
@@ -849,12 +915,29 @@ func CompareVerdicts(source, replay Verdict) []string {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
 			continue
 		}
-		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) {
+		if !want.Passed && verdictText(want.Want) == verdictText(got.Want) && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
 			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
 				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
 		}
 	}
 	return diffs
+}
+
+func refusalFields(a, b map[string]string) []string {
+	out := []string{}
+	for _, field := range []string{"message", "reason", "app_code"} {
+		if a[field] != "" || b[field] != "" {
+			out = append(out, field)
+		}
+	}
+	return out
+}
+
+func orNoRefusal(s string) string {
+	if s == "" || s == `""` {
+		return "none"
+	}
+	return s
 }
 
 func verdictText(v any) string {

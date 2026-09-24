@@ -89,6 +89,7 @@ func TestCLIRunRefusesAnUnsuppliedVarBeforeSendingAnything(t *testing.T) {
 func TestCLIVerifyRefusesAnUnsuppliedVarBeforeSendingAnything(t *testing.T) {
 	calls := chdirToVarWorkspace(t)
 	writeFile(t, ".shrt/safespots/tagged.json", `{"chain":"tagged","run_id":"r","target":"t","confirmed_by":"test","confirmed_at":"2026-01-01T00:00:00Z","digest":"d","steps":[]}`)
+	resealSafeSpot(t, ".shrt/safespots/tagged.json")
 	err := runVerify(context.Background(), []string{"tagged", "-quiet"})
 	if err == nil || !strings.Contains(err.Error(), "-var tag=...") {
 		t.Fatalf("want a refusal naming -var tag=..., got %v", err)

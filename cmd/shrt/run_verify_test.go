@@ -293,6 +293,7 @@ func TestCLIVerifyReportsDriftAgainstAHandWrittenSafeSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, ".shrt/safespots/cli-thing-flow.json", string(spotRaw))
+	resealSafeSpot(t, ".shrt/safespots/cli-thing-flow.json")
 
 	if err := runVerify(context.Background(), []string{"cli-thing-flow", "-run", rec["run_id"].(string), "-quiet"}); err != nil {
 		t.Fatalf("a fresh run replayed against its own safe spot must diff clean: %v", err)

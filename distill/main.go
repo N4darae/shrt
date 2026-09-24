@@ -185,8 +185,8 @@ var notes = map[string]string{
 	"SafeSpot.confirmed_at": "When.",
 	"SafeSpot.note":         "What makes this run correct: the approver's `-note`, else the proposer's.",
 	"SafeSpot.supersedes":   "The run id this replaced, when proposed with `-supersede`.",
-	"SafeSpot.volatile":     "Patterns masked before comparison.",
-	"SafeSpot.digest":       "Fingerprint of the confirmed steps.",
+	"SafeSpot.volatile":     "The volatile patterns approved with the run (config and chain), masked before comparison together with each step's own `volatile`. A replay masked with any other pattern, one added to the config or chain after approval, fails `shrt verify`, which names each such pattern and every value it hid, until a run under the wider mask is proposed with `-supersede` and approved.",
+	"SafeSpot.digest":       "Fingerprint of the chain, run id, target, build, volatile patterns and full step records. `shrt verify` refuses a safe spot whose content no longer matches it (a hand edit): restore the file or re-approve with `-supersede`. A safe spot approved before 2026-09-24 carries the older digest of step ids, calls and responses, which is still checked.",
 	"SafeSpot.steps":        "The confirmed step records, which a replay is diffed against.",
 
 	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a call only reads. Decides which scaffold an rpc gets, whether it can produce an id for another rpc, and three quality terms. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve.",
@@ -679,7 +679,10 @@ func exerciseDiff() (string, error) {
 	b.WriteString("\nBeyond `volatile`, verify also masks values that differ every run by shape: a changed value\n")
 	b.WriteString("whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`, `*At`, `*_time`,\n")
 	b.WriteString("`token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not\n")
-	fmt.Fprintf(&b, "reported; the report says how many it masked. In this example %d value(s) were masked. Declare\n", rep.Masked)
+	fmt.Fprintf(&b, "reported; the report says how many it masked. In this example %d value(s) were masked. A name alone\n", rep.Masked)
+	b.WriteString("is not enough: both values must look alike, two non-zero numbers or two non-empty strings of the\n")
+	b.WriteString("same shape (`ord-819dac5f23ba` and `ord-0123456789ab`). An id that became `\"\"`, null, `0`, `undefined`,\n")
+	b.WriteString("a number where a string was, or disappeared, is reported. Declare\n")
 	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped.\n")
 	b.WriteString("\nBefore the responses, verify compares each step's recorded REQUEST with the safe spot's and prints\n")
 	b.WriteString("every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A\n")

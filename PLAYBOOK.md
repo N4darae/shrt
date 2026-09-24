@@ -605,8 +605,12 @@ language, give:
    what came back, and whether that is right;
 3. the one or two facts that carry the verdict (a stock level read back after a partial batch, say),
    and anything you corrected or are unsure of;
-4. what approving means: every response field becomes the baseline `shrt verify` compares against.
-   The summary compares the run with the previous passing run of the chain and lists each field
+4. what approving means: every response field becomes the baseline `shrt verify` compares against,
+   except what a volatile pattern covers. The summary lists those patterns, and warns by name
+   about a step whose every response field is volatile (a `**`, or a pattern covering the whole
+   response): approving sets no baseline for it, so narrow the pattern unless that is intended.
+   The summary compares the run with the previous passing run of the chain against the same
+   target (a run against another backend says nothing about this one) and lists each field
    that differed and is not masked: every `verify` would report those as drift. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
@@ -618,7 +622,11 @@ language, give:
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
 proposal. The email is the user's own, as the session knows it; if you do not know it, ask. A
 bare name is refused. `-reject` discards the proposal. Approval refuses a run record rewritten
-after the proposal, since the user approved what the summary showed. `-pending` lists what awaits
+after the proposal, since the user approved what the summary showed: the proposal's digest covers
+everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
+request, response, http status and transport error), not only the responses. The safe spot
+keeps that digest, and `verify` refuses a safe spot whose content no longer matches it: a hand
+edit is not what a person approved. Restore the file, or re-approve with `-supersede`. `-pending` lists what awaits
 a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
 on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
@@ -642,7 +650,9 @@ shrt run <name>                                  # a fresh receipt on today's bi
 shrt verify <name> -run <run-id>                 # does it still match the safe spot?
 ```
 
-After you touch it, the same two lines. A drift report names the step, the path, the change kind
+After you touch it, the same two lines. When the replay ran against another target than the
+safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may
+then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
 of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
 spot, and says so: a regression in a path no safe spot exercises is not seen.
@@ -668,15 +678,22 @@ Three things that decide whether this works for a given chain:
   first red (`-run <id>` of a run made without `-keep-going`) reports every step after the stop
   as `not_reached`.
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
-  credential, so the after-check costs one run, not two. It is also how you investigate a drift
+  credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
+  copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
   without spending another live run.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
-  UUID, an RFC 3339 time), counting how many it did not report. Anything else that differs every
+  UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
+  alike (two non-zero numbers, or two non-empty strings of the same shape): an id that became
+  `""`, null, `0`, `undefined` or a different JSON kind, or disappeared, is reported. Anything else that differs every
   run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
   replay reports a regression that is not one. The price is that a wrong id that is still
-  id-shaped is not caught by `verify`; assert on it if it matters. This is per-chain work and it is why paving the corpus is not a bulk
+  id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
+  approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
+  the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
+  it hid, until a run under the wider mask is proposed with `-supersede` and approved. The report
+  counts the values volatile paths kept out; `verify -masked` lists them. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
@@ -697,7 +714,9 @@ not the other (a step `-keep-going` held back as `skipped` counts as not reached
 differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
 ones in today's config and chain file, so a pattern you add after the runs still applies. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
-camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values. Values derived
+camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
+both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
+shown. Values derived
 from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
 (an error message naming the product) is not masked either; declare that path volatile too, knowing
 it also hides a genuine change of that message. The report says how many values it hid, and names
@@ -824,13 +843,23 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    hand-written minimal chain, or a `next:` command that keeps every dropped write of a chain
    whose target is its last step), the slice is that chain: `-write` with no name writes no
    `<chain>-slice-<step>.yaml` copy, the `-verify` run record is kept under the chain itself, and
-   a `reproduced` verdict is recorded in that chain's own `description:` (replacing its
-   HYPOTHESIS paragraph, or a previous VERIFIED line, else appended). `-write <name>` still
-   writes a copy under that name.
+   a `reproduced` verdict is recorded in that chain's own `description:`. Its source run is then
+   a run of that same chain, so the line says so ("the verdict of <chain>'s own run"): it
+   re-ran the chain, it did not reproduce another chain's failure. In a hand-written chain it
+   is a VERIFIED line (replacing a previous one, else appended). In a chain that is itself a
+   slice it is a separate RE-RUN line, and the slice's VERIFIED line against its real source run,
+   with the dropped steps it lists, is kept. `-write <name>` still writes a copy under that name.
+   A written slice whose `-verify` says NOT REPRODUCED records that, with the first difference,
+   in place of the HYPOTHESIS paragraph. `-build <id>` stamps the `-verify` run as `shrt run
+   -build` does, and every verdict line names the build it held on.
 4. **`-verify -run <id|latest>` is what turns the claim into a receipt.** It runs the slice and
-   compares the TARGET step's verdict — the code at `conventions.envelope_path`, the pass/fail
-   of every expectation, and for an expectation that failed in both runs against the same want,
-   the value it got — against that same step in the source run. `-verify` is what needs `-run`;
+   compares the TARGET step's verdict — the code at `conventions.envelope_path`, the refusal
+   beside it (its `message`, and `reason` and `app_code` at `details.0.` or beside the code, the
+   ones `shrt run` prints), a transport refusal (HTTP status and code), the pass/fail of every
+   expectation, and for an expectation that failed in both runs against the same want, the value
+   it got — against that same step in the source run. Values that differ every run are masked
+   as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
+   differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
@@ -841,10 +870,13 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      the written slice's `description:` (VERIFIED, both run ids, the date).
    - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. That
      includes the same expectation failing with a different value: source `got 2`, slice `got 0`
-     is two different failures, and the difference line says both values. When the
+     is two different failures, and the difference line says both values. So is the same
+     envelope code with another reason (`InvalidQty`/1203 against `PermissionDenied`/1603), and
+     a target the backend refused at the transport (a 403) when the source got an answer: it was
+     sent, so it ran. When the
      slice dropped writes it also ends with the `next:` `-keep` command below, since the
      difference can come from state those writes built.
-   - `DID NOT RUN` (2): the target was never sent — an unset `${env.X}`, a login that failed, a
+   - `DID NOT RUN` (2): the target was never sent or never got an answer — an unset `${env.X}`, a login that failed, a
      step before it that errored or failed its expectations. `-verify` stops at the first kept
      step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and

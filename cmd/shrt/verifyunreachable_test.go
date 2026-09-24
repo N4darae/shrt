@@ -32,6 +32,7 @@ func TestCLIVerifyAgainstAStoppedBackendIsNotARegression(t *testing.T) {
 		"confirmed_by": "test@example.test", "confirmed_at": "2026-01-01T00:00:00Z", "digest": "d", "steps": rec["steps"],
 	})
 	writeFile(t, ".shrt/safespots/cli-thing-flow.json", string(spotRaw))
+	resealSafeSpot(t, ".shrt/safespots/cli-thing-flow.json")
 	srv.Close()
 
 	var verr error

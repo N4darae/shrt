@@ -116,9 +116,13 @@ func TestCLISliceVerifyWithoutRunNamesWhatIsRequired(t *testing.T) {
 }
 
 func TestCLISliceVerifySaysNotReproducedWhenTheFailureGotAnotherValue(t *testing.T) {
-	srv := newFakeCLIBackend()
-	defer srv.Close()
-	chdirToFreshCLIWorkspace(t, srv.URL)
+	names := []string{"widget", "gadget"}
+	calls := 0
+	newSliceBackend(t, &sliceBackend{fetch: func(id string) (int, map[string]any) {
+		name := names[min(calls, len(names)-1)]
+		calls++
+		return 200, map[string]any{"error": map[string]any{"code": "OK"}, "id": id, "name": name}
+	}})
 	writeFile(t, ".shrt/chains/cli-got-flow.yaml", `apiVersion: shrt/v1
 name: cli-got-flow
 steps:
@@ -138,20 +142,20 @@ steps:
       expect:
           - path: error.code
             equals: OK
-          - path: id
+          - path: name
             equals: thing-999
 `)
 	if err := runRun(context.Background(), []string{"cli-got-flow", "-quiet"}); err == nil {
-		t.Fatal("the fetch asserts an id the backend never returns, so the run must fail")
+		t.Fatal("the fetch asserts a name the backend never returns, so the run must fail")
 	}
 	var err error
 	out := captureStdout(t, func() {
 		err = chainSlice(context.Background(), []string{"cli-got-flow", "-step", "fetch", "-run", "latest", "-verify"})
 	})
 	if !strings.Contains(out, "NOT REPRODUCED") {
-		t.Errorf("source got thing-1 and the slice got thing-2: the same failure with another value is not a reproduction:\n%s", out)
+		t.Errorf("source got widget and the slice got gadget: the same failure with another value is not a reproduction:\n%s", out)
 	}
-	if !strings.Contains(out, "source got thing-1") || !strings.Contains(out, "slice got thing-2") {
+	if !strings.Contains(out, "source got widget") || !strings.Contains(out, "slice got gadget") {
 		t.Errorf("the difference must say both values:\n%s", out)
 	}
 	if got := exitCodeOf(err); got != 1 {
