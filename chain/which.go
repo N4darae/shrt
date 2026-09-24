@@ -186,14 +186,20 @@ func reproCommand(c *Chain, best WhichStep, fresh func(*Chain, string, string) [
 		run = best.Observed.Run
 		cmd += " -mode pin -run " + run
 	}
-	if fresh != nil {
-		names := append([]string{}, fresh(c, best.Step, run)...)
-		sort.Strings(names)
-		for _, name := range names {
-			cmd += " -var " + name + "=<fresh>"
-		}
+	return cmd + freshFlags(c, best.Step, run, fresh)
+}
+
+func freshFlags(c *Chain, step, run string, fresh func(*Chain, string, string) []string) string {
+	if fresh == nil {
+		return ""
 	}
-	return cmd
+	names := append([]string{}, fresh(c, step, run)...)
+	sort.Strings(names)
+	out := ""
+	for _, name := range names {
+		out += " -var " + name + "=<fresh>"
+	}
+	return out
 }
 
 func observationsFor(chainName string, load func(string) []Observation) (map[string][]Observation, []string) {
@@ -447,7 +453,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 			if hit == nil {
 				continue
 			}
-			hit.Command = "shrt chain slice " + c.Name + " -step " + s.ID + " -mode pin -run " + hit.Run
+			hit.Command = "shrt chain slice " + c.Name + " -step " + s.ID + " -mode pin -run " + hit.Run + freshFlags(c, s.ID, hit.Run, opts.FreshVars)
 			out = append(out, *hit)
 		}
 	}

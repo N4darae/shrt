@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -97,7 +96,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		return missingVarsError(res, rec)
 	}
 	if *verify {
-		if err := reusedDeclaredVarsError(res, c, rec, vars); err != nil {
+		if err := freshVarsError(res, c, rec, vars); err != nil {
 			return err
 		}
 	}
@@ -132,6 +131,15 @@ func chainSlice(ctx context.Context, args []string) error {
 	if *verify {
 		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
 			vars: vars, quiet: *asJSON, persist: write.set, name: name, keep: *keep,
+			reslice: func(keep []string) *chain.SliceResult {
+				o := opts
+				o.Keep = keep
+				next, err := chain.Slice(c, *step, o)
+				if err != nil {
+					return nil
+				}
+				return next
+			},
 		})
 		if verdict == nil {
 			return verifyErr
@@ -207,15 +215,37 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %s = %v  (was ${%s}, produced by %s)\n", p.Var, p.Value, p.Ref, p.Producer)
 		}
 	}
-	if len(res.FilledVars) > 0 {
+	undeclared, fromRun := []chain.FilledVar{}, []chain.FilledVar{}
+	for _, f := range res.FilledVars {
+		if f.Declared {
+			fromRun = append(fromRun, f)
+		} else {
+			undeclared = append(undeclared, f)
+		}
+	}
+	if len(undeclared) > 0 {
 		fmt.Println("\nvars the chain does not declare, written into the slice:")
-		for _, f := range res.FilledVars {
+		for _, f := range undeclared {
 			from := "from -var"
 			if f.From == chain.VarFromRun {
 				from = "the value run " + res.Run + " used"
 			}
 			fmt.Printf("  %s = %v  (%s)\n", f.Var, f.Value, from)
 		}
+	}
+	if len(fromRun) > 0 {
+		fmt.Printf("\nvars written with the value run %s used, not the chain's default (no kept write re-sends them):\n", res.Run)
+		for _, f := range fromRun {
+			fmt.Printf("  %s = %v  (default %v)\n", f.Var, f.Value, f.Default)
+		}
+	}
+	if len(res.FreshVars) > 0 {
+		flags := make([]string, 0, len(res.FreshVars))
+		for _, name := range res.FreshVars {
+			flags = append(flags, "-var "+name+"=<fresh>")
+		}
+		fmt.Printf("\nkept write steps interpolate %s into what they create, so every run of this slice needs a value\n"+
+			"this backend has not seen: %s\n", strings.Join(res.FreshVars, ", "), strings.Join(flags, " "))
 	}
 	if len(res.MissingVars) > 0 {
 		fmt.Println("\nvars the kept steps read that the chain does not declare and nothing supplied; the slice")
@@ -381,6 +411,7 @@ type sliceVerifyArgs struct {
 	persist bool
 	name    string
 	keep    []string
+	reslice func(keep []string) *chain.SliceResult
 }
 
 func (v *sliceVerdict) text() string {
@@ -548,40 +579,15 @@ func verdictOf(sr *runner.StepRecord) chain.Verdict {
 	return chain.Verdict{Step: sr.ID, Status: sr.Status, ErrorCode: code, Expect: sr.Expect}
 }
 
-var (
-	interpolatedRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
-	freshPerRun     = regexp.MustCompile(`\$\{\s*(uuid|now|nowunix)\b`)
-)
-
-func interpolatedVars(c *chain.Chain) map[string]bool {
+func freshSet(res *chain.SliceResult) map[string]bool {
 	out := map[string]bool{}
-	if c == nil {
-		return out
+	for _, name := range res.FreshVars {
+		out[name] = true
 	}
-	var walk func(any)
-	walk = func(v any) {
-		switch t := v.(type) {
-		case string:
-			if freshPerRun.MatchString(t) {
-				return
-			}
-			for _, m := range interpolatedRef.FindAllStringSubmatchIndex(t, -1) {
-				if m[0] != 0 || m[1] != len(t) {
-					out[t[m[2]:m[3]]] = true
-				}
-			}
-		case map[string]any:
-			for _, item := range t {
-				walk(item)
-			}
-		case []any:
-			for _, item := range t {
-				walk(item)
-			}
+	if res.FreshVars == nil && res.Chain != nil {
+		for _, name := range chain.FreshVars(res.Chain.Steps, nil, nil) {
+			out[name] = true
 		}
-	}
-	for _, st := range c.Steps {
-		walk(st.Body)
 	}
 	return out
 }
@@ -594,7 +600,14 @@ func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, 
 		parts = append(parts, "-mode", res.Mode)
 	}
 	parts = append(parts, "-run", runID, "-keep", strings.Join(keep, ","))
-	interpolated := interpolatedVars(res.Chain)
+	interpolated := freshSet(res)
+	if a.reslice != nil {
+		if next := a.reslice(keep); next != nil {
+			for name := range freshSet(next) {
+				interpolated[name] = true
+			}
+		}
+	}
 	supplied := map[string]bool{}
 	keys := make([]string, 0, len(a.vars)+len(interpolated))
 	for k := range a.vars {
@@ -708,7 +721,7 @@ func refusedIn(rec *runner.Record) func(string) (string, bool) {
 }
 
 func missingVarFlags(res *chain.SliceResult, rec *runner.Record) []string {
-	interpolated := interpolatedVars(res.Chain)
+	interpolated := freshSet(res)
 	out := make([]string, 0, len(res.MissingVars))
 	for _, name := range res.MissingVars {
 		value := "<value>"
@@ -819,37 +832,36 @@ func loadRunReaching(e *env, chainName, runID, step string) (*runner.Record, err
 	return nil, fmt.Errorf("%s.\nRun %s did: pass -run %s (or -run latest, which picks the newest run that reached the step)", msg, other.RunID, other.RunID)
 }
 
-func reusedDeclaredVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Record, supplied varFlags) error {
-	if res.Mode != chain.SliceModeClosure || rec == nil {
-		return nil
-	}
+func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Record, supplied varFlags) error {
 	reused := []string{}
-	for name := range interpolatedVars(res.Chain) {
+	from := []string{}
+	for _, name := range res.FreshVars {
 		if _, given := supplied[name]; given {
 			continue
 		}
-		declared, ok := source.Vars[name]
-		if !ok {
-			continue
-		}
-		used, ok := rec.Vars[name]
-		if !ok || fmt.Sprint(used) != fmt.Sprint(declared) {
-			continue
-		}
 		reused = append(reused, name)
+		switch v, ok := res.Chain.Vars[name]; {
+		case !ok:
+			from = append(from, name+" unset")
+		case rec != nil && rec.Vars[name] != nil && fmt.Sprint(rec.Vars[name]) == fmt.Sprint(v):
+			from = append(from, fmt.Sprintf("%s=%v, the value run %s used", name, v, rec.RunID))
+		case fmt.Sprint(source.Vars[name]) == fmt.Sprint(v):
+			from = append(from, fmt.Sprintf("%s=%v, the default %s declares", name, v, source.Name))
+		default:
+			from = append(from, fmt.Sprintf("%s=%v", name, v))
+		}
 	}
 	if len(reused) == 0 {
 		return nil
 	}
-	sort.Strings(reused)
 	flags := make([]string, 0, len(reused))
 	for _, name := range reused {
 		flags = append(flags, "-var "+name+"=<fresh>")
 	}
-	return fmt.Errorf("the slice interpolates var(s) %s into what it creates, and %s declares them with the value run %s used, so -verify would re-send it.\n"+
-		"Closure mode re-creates what the source run created, and reusing that value collides with what that run made (a duplicate key refusal).\n"+
+	return fmt.Errorf("the slice keeps write step(s) that interpolate var(s) %s into what they create, so -verify would re-send them with %s.\n"+
+		"That value is not fresh: the source run, or an earlier verify, already created with it, and sending it again collides (a duplicate key refusal).\n"+
 		"Pass: %s, replacing each <fresh> with a value this backend has not seen",
-		strings.Join(reused, ", "), source.Name, rec.RunID, strings.Join(flags, " "))
+		strings.Join(reused, ", "), strings.Join(from, "; "), strings.Join(flags, " "))
 }
 
 func recordVerdictIn(path, verified string) error {

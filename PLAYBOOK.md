@@ -741,11 +741,12 @@ shrt chain which -code 1218 -json
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
    `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
    contradicting one), because pinning that run's values is the cheaper reproduction of the same
-   incident. When the slice interpolates a var into a name, the line ends with
-   `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a var that a
-   dropped step before the target also interpolated is left off: the target depends on what that
-   step created under the run's value, so the slice takes the value from the run. Paste it; do not retype it from the
-   columns.
+   incident. When a write the slice keeps interpolates a var into what it creates, the line ends
+   with `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a string that a
+   dropped step before the target also sent, template for template (`w-${vars.tag}` in both), is
+   not counted: the kept write names what that step created under the run's value, so the slice
+   takes the value from the run. The same rule decides every `next:` line of `slice -verify` and
+   the up-front refusal of 11.5. Paste it; do not retype it from the columns.
 4. **`slice k/n` is the CLOSURE size, not the size of the pinned command printed under it.** It is
    the mode-independent cost of reaching that step, so the numbers are comparable across chains;
    `-mode pin` can only drop steps, never add them.
@@ -857,12 +858,19 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    deliver a value, so it is satisfied by the pinned value; a step kept by `needs` or `before` did
    something the target depends on and is never pinned away. A var the kept steps read that the
    chain does not declare (one you passed with `-var` at run time) is taken from `-var`, else in pin
-   mode from the source run's `vars`, and written into the slice's `vars:`. Closure mode never
-   reuses the run's value: it re-creates what the run created, so a tag interpolated into a name
-   would collide, and `-verify` refuses up front and prints the `-var name=<fresh>` flags to add.
-   The same refusal covers a var the chain DECLARES: when it is interpolated into a name and the
-   source run used its declared default, closure `-verify` would re-send that value, so it
-   refuses and prints `-var name=<fresh>` unless you pass `-var name=...`. A string that also
+   mode from the source run's `vars`, and written into the slice's `vars:`. A var the chain
+   declares is written with the value the source run used, not the default, in pin mode when no
+   kept write re-sends it (the slice output lists it with its default).
+   **A var a kept WRITE interpolates into what it creates must be fresh**, whatever would supply
+   it otherwise: the chain's declared default, the source run's value, or pin mode's copy of it.
+   Each of those has already created its names on this backend (the source run, or the first
+   `-verify` that used the default), so re-sending it collides (a duplicate key refusal) and the
+   target is never sent. `-verify` refuses up front and prints `-var name=<fresh>` unless you pass
+   `-var name=...`, every `next:` line carries `-var name=<fresh>` for the slice it suggests
+   (computed on that slice, so a pinned slice whose `next:` keeps the dropped creates asks for
+   it too), and the slice output names the var. Pin mode keeps the run's value when no kept
+   write interpolates the var, and when a kept write sends exactly a string a dropped step before
+   the target sent (it names what that step created, not something new). A string that also
    carries `${uuid}` or `${now}` is fresh on every run and does not count.
    Pin mode needs a run record and refuses without `-run` rather than quietly falling back to
    closure.

@@ -101,9 +101,11 @@ const (
 )
 
 type FilledVar struct {
-	Var   string `json:"var"`
-	Value any    `json:"value"`
-	From  string `json:"from"`
+	Var      string `json:"var"`
+	Value    any    `json:"value"`
+	From     string `json:"from"`
+	Declared bool   `json:"declared,omitempty"`
+	Default  any    `json:"default,omitempty"`
 }
 
 type SliceResult struct {
@@ -121,6 +123,7 @@ type SliceResult struct {
 	UnderIncluded bool        `json:"under_included"`
 	FilledVars    []FilledVar `json:"filled_vars,omitempty"`
 	MissingVars   []string    `json:"missing_vars,omitempty"`
+	FreshVars     []string    `json:"fresh_vars,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
 	Chain         *Chain      `json:"-"`
 }
@@ -309,11 +312,47 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	for _, i := range order {
 		out.Steps = append(out.Steps, rewriteStep(c.Steps[i], pins))
 	}
+	existing := []*Step{}
+	if mode == SliceModePin {
+		for i, s := range c.Steps[:at] {
+			if _, seen := keeps[i]; !seen {
+				existing = append(existing, s)
+			}
+		}
+	}
+	pinned := map[string]bool{}
+	for _, p := range res.Pins {
+		pinned[p.Var] = true
+	}
+	res.FreshVars = []string{}
+	for _, name := range FreshVars(out.Steps, opts.IsLogin, existing) {
+		if !pinned[name] {
+			res.FreshVars = append(res.FreshVars, name)
+		}
+	}
+	fresh := map[string]bool{}
+	for _, name := range res.FreshVars {
+		fresh[name] = true
+	}
 	vars := map[string]any{}
+	declared := []string{}
 	for name, v := range c.Vars {
 		if usedVars[name] {
 			vars[name] = v
+			declared = append(declared, name)
 		}
+	}
+	sort.Strings(declared)
+	for _, name := range declared {
+		if mode != SliceModePin || fresh[name] {
+			continue
+		}
+		v, ok := opts.RunVars[name]
+		if !ok || fmt.Sprint(v) == fmt.Sprint(c.Vars[name]) {
+			continue
+		}
+		vars[name] = v
+		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
 	for _, p := range res.Pins {
 		vars[p.Var] = p.Value
@@ -426,9 +465,15 @@ func sliceDescription(res *SliceResult) string {
 		fmt.Fprintf(&b, "%d value(s) that earlier steps produced are pinned into vars, so their producers are gone.\n", len(res.Pins))
 	}
 	for _, f := range res.FilledVars {
-		if f.From == VarFromRun {
+		switch {
+		case f.From == VarFromRun && f.Declared:
+			fmt.Fprintf(&b, "Var %s holds the value run %s used, not the default %s declares.\n", f.Var, res.Run, res.Source)
+		case f.From == VarFromRun:
 			fmt.Fprintf(&b, "Var %s is not declared by %s; its value is the one run %s used.\n", f.Var, res.Source, res.Run)
 		}
+	}
+	if len(res.FreshVars) > 0 {
+		fmt.Fprintf(&b, "Kept writes interpolate var(s) %s into what they create: run it with a value the backend has\nnot seen, -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))

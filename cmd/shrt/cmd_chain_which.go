@@ -166,35 +166,8 @@ func freshVarsOf(e *env) func(*chain.Chain, string, string) []string {
 		if err != nil {
 			return nil
 		}
-		sharedWithDropped := map[string]bool{}
-		if run != "" {
-			sharedWithDropped = interpolatedVars(droppedBefore(c, res))
-		}
-		out := []string{}
-		for name := range interpolatedVars(res.Chain) {
-			if !sharedWithDropped[name] {
-				out = append(out, name)
-			}
-		}
-		return out
+		return res.FreshVars
 	}
-}
-
-func droppedBefore(c *chain.Chain, res *chain.SliceResult) *chain.Chain {
-	kept := map[string]bool{}
-	for _, k := range res.Kept {
-		kept[k.ID] = true
-	}
-	out := &chain.Chain{Name: c.Name}
-	for i, st := range c.Steps {
-		if i >= res.Reach {
-			break
-		}
-		if !kept[st.ID] {
-			out.Steps = append(out.Steps, st)
-		}
-	}
-	return out
 }
 
 const (
