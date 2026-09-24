@@ -135,8 +135,81 @@ func (c *Catalog) Canonicalize(md protoreflect.MessageDescriptor, body []byte) (
 }
 
 func (c *Catalog) CanonicalizeWithPresence(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, err error) {
+	return c.canonicalize(md, body, false)
+}
+
+func (c *Catalog) CanonicalizeDiscardingUnknown(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, unknown []string, err error) {
+	full, present, err = c.canonicalize(md, body, false)
+	if err == nil {
+		return full, present, nil, nil
+	}
+	unknown = UnknownFields(md, body)
+	if len(unknown) == 0 {
+		return nil, nil, nil, err
+	}
+	full, present, lerr := c.canonicalize(md, body, true)
+	if lerr != nil {
+		return nil, nil, nil, err
+	}
+	return full, present, unknown, err
+}
+
+func UnknownFields(md protoreflect.MessageDescriptor, body []byte) []string {
+	var v any
+	if err := json.Unmarshal(body, &v); err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	collectUnknown(md, v, "", seen, &out)
+	sort.Strings(out)
+	return out
+}
+
+func collectUnknown(md protoreflect.MessageDescriptor, v any, at string, seen map[string]bool, out *[]string) {
+	obj, ok := v.(map[string]any)
+	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
+		return
+	}
+	fields := md.Fields()
+	for k, inner := range obj {
+		fd := fields.ByName(protoreflect.Name(k))
+		if fd == nil {
+			fd = fields.ByJSONName(k)
+		}
+		if fd == nil {
+			if !seen[at+k] {
+				seen[at+k] = true
+				*out = append(*out, at+k)
+			}
+			continue
+		}
+		if fd.Kind() != protoreflect.MessageKind && fd.Kind() != protoreflect.GroupKind {
+			continue
+		}
+		name := string(fd.Name())
+		switch {
+		case fd.IsMap():
+			if m, ok := inner.(map[string]any); ok && fd.MapValue().Message() != nil {
+				for _, x := range m {
+					collectUnknown(fd.MapValue().Message(), x, at+name+"[].", seen, out)
+				}
+			}
+		case fd.IsList():
+			if list, ok := inner.([]any); ok {
+				for _, x := range list {
+					collectUnknown(fd.Message(), x, at+name+"[].", seen, out)
+				}
+			}
+		default:
+			collectUnknown(fd.Message(), inner, at+name+".", seen, out)
+		}
+	}
+}
+
+func (c *Catalog) canonicalize(md protoreflect.MessageDescriptor, body []byte, discard bool) (full, present []byte, err error) {
 	msg := dynamicpb.NewMessage(md)
-	if err := (protojson.UnmarshalOptions{Resolver: c.types}).Unmarshal(body, msg); err != nil {
+	if err := (protojson.UnmarshalOptions{Resolver: c.types, DiscardUnknown: discard}).Unmarshal(body, msg); err != nil {
 		return nil, nil, err
 	}
 	full, err = protojson.MarshalOptions{
