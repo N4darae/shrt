@@ -30,7 +30,7 @@ func (s *sessionLoss) line() string {
 			"refused at the same step", s.restart)
 	}
 	if s.visible != "" {
-		out += fmt.Sprintf(". Data created before it is still there after the re-login (step %s read it back), so unless the "+
+		out += fmt.Sprintf(". Data created before it is still there after the re-login (step %s answered with a value created before it), so unless the "+
 			"backend keeps its data across a restart, the refusal is specific to %s: a re-run refused at the same step is "+
 			"reported as a finding", s.visible, s.step.Call)
 	}
@@ -99,26 +99,14 @@ func sent(rec *runner.Record, step string) bool {
 }
 
 func readBackAfter(rec *runner.Record, from int) string {
-	before := map[string]bool{}
-	for i, st := range rec.Steps {
-		if i < from && answeredCleanly(st) {
-			before[st.ID] = true
-		}
-	}
 	for _, st := range rec.Steps[from+1:] {
 		if !answeredCleanly(st) || st.AuthRetry != "" {
 			continue
 		}
-		for _, text := range st.BodyRefs {
-			for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-				ref := chain.ParseRef(m[1])
-				step := ref.Head
-				if step == "steps" {
-					step, _, _ = strings.Cut(ref.Rest, ".")
-				}
-				if before[step] {
-					return st.ID
-				}
+		for _, value := range createdValues(rec, from, st) {
+			quoted, _ := json.Marshal(value)
+			if strings.Contains(string(st.Response), string(quoted)) {
+				return st.ID
 			}
 		}
 	}

@@ -378,8 +378,10 @@ credentials work, so the step's error and `verify` both say it `may be an auth r
 backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run, and
 report a repeat as a finding. A token the backend accepted on earlier calls of this run and then
 refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
-error and `verify`'s `WARNING` say so and it exits 3; when data created before the refusal is still
-there after the re-login, that line says so too. When the previous run that sent the step was
+error and `verify`'s `WARNING` say so and it exits 3, whether the token came from a login in this
+run or from the on-disk cache; when data created before the refusal is still there after the
+re-login (a later step answered with an id created before it, not merely answered), that line says
+so too. When the previous run that sent the step was
 refused at the same step the same way, a restart does not explain it: `run` and `verify` print
 `auth refused at <rpc> ... a finding about the backend` and exit 1. Evidence of a restart in either
 run overrides that repeat: data created before the refusal gone after the re-login (a later step

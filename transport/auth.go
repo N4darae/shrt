@@ -105,10 +105,10 @@ func (s *LoginTokenSource) UntriedCached(token string) bool {
 func (s *LoginTokenSource) Minted(token string) (minted, accepted bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if token == "" || token != s.token || s.fromCache {
+	if token == "" || token != s.token {
 		return false, false
 	}
-	return true, s.accepted
+	return !s.fromCache, s.accepted
 }
 
 func (s *LoginTokenSource) CurrentToken() string {
@@ -322,7 +322,7 @@ func WithAuthRouter(router AuthRouter) Middleware {
 				call.Meta[MetaAuthRetry] = AuthRetryNotResent
 				call.Meta[MetaAuthRefused] = true
 				switch {
-				case minted && accepted:
+				case accepted:
 					call.Meta[MetaAuthRefusedFresh] = FreshTokenAccepted
 				case minted:
 					call.Meta[MetaAuthRefusedFresh] = FreshTokenMinted

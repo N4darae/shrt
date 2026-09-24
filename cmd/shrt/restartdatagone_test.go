@@ -98,3 +98,20 @@ func TestAnUnansweredStepBeforeARepeatedRefusalKeepsItARestart(t *testing.T) {
 		t.Fatalf("a gateway answer before the refusal is restart evidence, not a finding: %v", loss)
 	}
 }
+
+func TestAnAnsweredReadWithoutTheCreatedIDIsNotDataStillThere(t *testing.T) {
+	emptyList := &runner.StepRecord{ID: "list", Call: "ThingService/Fetch", Status: runner.StatusFailed, HTTPStatus: 200,
+		Request: json.RawMessage(`{"id":"th-4f2a9c"}`), BodyRefs: map[string]string{"id": "${create.id}"},
+		Response: json.RawMessage(`{"error":{"code":"OK"},"id":"","name":""}`)}
+	rec := restartRecord("20990101T000000Z-empty1", createdThing(), refusedFetch(), emptyList)
+	if got := readBackAfter(rec, 1); got != "" {
+		t.Fatalf("step %s answered without the id created before the refusal, so it did not read that data back", got)
+	}
+	found := &runner.StepRecord{ID: "list", Call: "ThingService/Fetch", Status: runner.StatusPassed, HTTPStatus: 200,
+		Request: json.RawMessage(`{"id":"th-4f2a9c"}`), BodyRefs: map[string]string{"id": "${create.id}"},
+		Response: json.RawMessage(`{"error":{"code":"OK"},"id":"th-4f2a9c","name":"widget"}`)}
+	rec = restartRecord("20990101T000000Z-found1", createdThing(), refusedFetch(), found)
+	if got := readBackAfter(rec, 1); got != "list" {
+		t.Fatalf("a read answering with the id created before the refusal read it back, got %q", got)
+	}
+}
