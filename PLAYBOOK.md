@@ -308,8 +308,9 @@ from an expired token, because that is a false fail, not a regression.
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
 - A login step is optional. Write one only when the chain is *testing* login, or when the flow
-  reads better with it — put it first, give it `skip_auth: true`, and its token seeds the cache so
-  later steps do not log in twice. It seeds only a profile whose `body` it sent verbatim; a login as
+  reads better with it — put it first; it needs no `skip_auth`, since a call to a configured login
+  rpc never carries a token (its `auth_profile` is `none`), and its token seeds the cache so later
+  steps do not log in twice. It seeds only a profile whose `body` it sent verbatim; a login as
   anyone else seeds nothing, and its `note` says so. Each step's `auth_profile` in the run record
   names the profile it ran under.
 - Never `skip_auth` plus a hand-written `Authorization` header. That is the workaround profiles
