@@ -1036,6 +1036,13 @@ Other transformations are left alone on purpose: a secret echoed reversed, with 
 characters, hashed, or encoded twice is NOT scrubbed, since recognising it would mean guessing at
 arbitrary transforms and blanking unrelated values. Keep such echoes out of committed runs.
 
+A scratch chain run by path took its runs directory from its `name:`, not its file: `.scratch/fake.yaml`
+with `name: happy` wrote into `.shrt/runs/happy`, `shrt confirm happy -supersede` proposed that run as
+happy's safe spot, and `chain hollow` counted it as chain happy. `shrt run` now refuses, before sending
+anything, a file given by path whose `name:` is that of a chain in `paths.chains` unless it is that
+chain's own file, and says to rename it. Refusing was chosen over storing such runs apart: every
+reader of `.shrt/runs/<name>` would have to learn a second place, and a rename is one line.
+
 ---
 
 # Decisions, so they are not relitigated

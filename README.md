@@ -202,7 +202,9 @@ purpose. Write an exploratory one outside it by giving `-write` a path, a value 
 ending in `.yaml`, which is written exactly there, relative to the current directory, and never
 over a file that is not the same slice: `shrt chain slice <chain> -step <id> -write
 .shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`; run it by path:
-`shrt run .shrt/scratch/<name>.yaml`.
+`shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
+nothing, a file given by path whose `name:` is that of a chain in `paths.chains` unless it IS that
+chain's file: rename it (`name: <name>-scratch`), or its runs would be proposed and counted as that chain's.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a
 missing file fails the gate. Create them once, before the first gate run: write `0` into each

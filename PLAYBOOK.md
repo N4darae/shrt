@@ -263,7 +263,8 @@ It counts the runs of the chains under `paths.chains` only. Runs of a chain no f
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
 when the chain is gone. A run recorded before shrt kept `chain_source` cannot say it was run by path,
-so it stays an orphan until the chain is run again.
+so it stays an orphan until the chain is run again. A file run by path whose `name:` is that of a chain under
+`paths.chains` is refused by `shrt run` (rename it), so its runs never count as that chain's.
 
 Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
 `not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body

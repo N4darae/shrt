@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -75,6 +77,9 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	c, err := chain.Resolve(e.chainsDir(), rest[0])
 	if err != nil {
+		return err
+	}
+	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
 
@@ -404,4 +409,25 @@ func exportJSON(v any) string {
 		return fmt.Sprint(v)
 	}
 	return strings.TrimRight(buf.String(), "\n")
+}
+
+func refuseShadowingChainFile(e *env, ref string, c *chain.Chain) error {
+	if !strings.ContainsAny(ref, "/\\") && !strings.HasSuffix(ref, ".yaml") && !strings.HasSuffix(ref, ".yml") {
+		return nil
+	}
+	for _, ext := range []string{".yaml", ".yml"} {
+		own := filepath.Join(e.chainsDir(), c.Name+ext)
+		ownInfo, err := os.Stat(own)
+		if err != nil {
+			continue
+		}
+		if given, err := os.Stat(ref); err == nil && os.SameFile(given, ownInfo) {
+			return nil
+		}
+		return fmt.Errorf("%s is named %q, the name of the chain %s in paths.chains, so its runs would be stored as that "+
+			"chain's runs, proposed by shrt confirm %s and counted by shrt chain hollow as that chain. Nothing was sent: "+
+			"rename it (name: %s-scratch, say), or run the chain itself: shrt run %s",
+			ref, c.Name, rel(e.cfg.Root, own), c.Name, c.Name, c.Name)
+	}
+	return nil
 }
