@@ -39,10 +39,16 @@ files into every repo that adopts shrt, so nothing here may assume one machine's
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
+shrt init -agents=false -build=false # only if .shrt/docs/ is missing, as on a fresh clone
 shrt catalog build                   # the descriptor; without it every catalog command fails
 shrt doctor                          # is this installation sound?
 shrt catalog ls -filter <word>
 ```
+
+`.shrt/docs/` is gitignored build output too, so on a fresh clone `doctor` FAILs with `.shrt/docs/
+is missing README.md, GRAMMAR.md, PLAYBOOK.md, PITFALLS.md` until the first line writes them from
+the copy embedded in the binary. It touches nothing that already exists, though on a clone missing
+them it can also add `.gitignore` entries or a `.shrt/config.yaml`.
 
 **`shrt doctor` is the check to run before you trust a green.** The four files you are reading are
 installed build output, copied out of the binary by `shrt init`; upgrade the binary and the copy
