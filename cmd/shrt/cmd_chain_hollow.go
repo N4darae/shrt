@@ -125,6 +125,16 @@ func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
 }
 
 func reportOrphans(rep *hollow.Report) {
+	if len(rep.Edited) > 0 {
+		fmt.Printf("\n%d run record(s) were changed after shrt wrote them (their content no longer matches their seal) and were NOT counted:\n",
+			len(rep.Edited))
+		for _, p := range rep.Edited {
+			fmt.Printf("  edited  %s\n", p)
+		}
+	}
+	if rep.Unsealed > 0 {
+		fmt.Printf("\n%d counted run record(s) predate sealed run records, so an edit to them cannot be ruled out; re-run their chains for records shrt can check\n", rep.Unsealed)
+	}
 	if len(rep.Orphans) == 0 {
 		return
 	}

@@ -35,7 +35,7 @@ func TestVerifyNamesAnEditedChainAsTheCauseEvenWithAVar(t *testing.T) {
 		return out
 	}
 	out := verify("-var", "tag=edited")
-	if !strings.Contains(out, "chain differs from the confirmed run at fetch expect") || !strings.Contains(out, "ERR: drift with different input") {
+	if !strings.Contains(out, "chain differs from the confirmed run at fetch expect") || !strings.Contains(out, "ERR: drift after a chain change") {
 		t.Errorf("the edited expectation is the chain's change, and it explains the failing step:\n%s", out)
 	}
 	if strings.Contains(out, "the chain file is not what differs") || strings.Contains(out, "ERR: regression") {

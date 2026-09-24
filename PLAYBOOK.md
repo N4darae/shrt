@@ -470,7 +470,7 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 6 | 2 | happy | a READ rpc no write rpc can reach — unless `no_producer:` says why |
 | 7 | 2 | happy | an rpc with request fields and an empty `required:` — `NONE`, alone, says the server rejects nothing |
 | 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
-| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
+| 9 | 1 | happy | a top-level response field (scalar, list or singular message; not the envelope) named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
 | 11 | 2 | happy | a unary rpc in the catalog that no overlay covers: it is scored as an empty entry (rows 1-10 as they apply) plus this row, so deleting an overlay or an entry raises the score instead of lowering it |
 | — | — | — | codes the backend raises that no contract declares at all |
@@ -526,13 +526,12 @@ cannot read it.
 **`summary:` does NOT spare row 6, deliberately.** Every rpc has a summary — row 4 charges its
 absence — so accepting one as the explanation would make row 6 fire on nothing.
 
-**One undocumented exemption, now documented: a response field that is a non-repeated message is
-not counted by row 9.** Row 9 skips the envelope field (`error` by default),
-and skips message-typed fields unless they are `repeated`, because a bare nested message has no
-scalar to reference and `exports:` names paths a later step can read. So a score of 0 guarantees
-every SCALAR and every REPEATED response field is accounted for in `exports:`/`terminal:`/
-`soft_signals:` — it does not guarantee that a singular nested message was looked at. Reach into it
-with a dotted path (`row.id_reference_rate`) when a later step needs the value.
+**Row 9 charges every top-level response field but the envelope (`error` by default): a scalar, a
+list, and a singular message alike.** An entry names it by its head, so `order` or any dotted path
+into it (`order.status`, `customer.id_customer`) declares `order`; a `TODO` description declares
+nothing. Until 2026-09-24 a non-repeated message was skipped, so `terminal: order` set to a `TODO`, or
+deleted, still scored 0 while `orders` (repeated) was charged. Reach into a message with a dotted path
+(`row.id_reference_rate`) when a later step needs the value.
 
 Every row but the last needs only the descriptor and the overlays, so they live in the binary. **The
 last one cannot**: finding the codes a backend raises means reading that backend's source, and shrt
@@ -543,7 +542,9 @@ because a check that cannot run must fail, and you write the equivalent for your
 The score itself can be gated as a **ratchet** with `shrt contract quality -gate -baseline <file>`:
 it fails if the score rises, and also if it falls without the baseline being lowered, so improving
 a contract means lowering the number in the file. `shrt chain hollow -gate -baseline <file>` does
-the same for hollow reads. That is what stops an N-of-N score from meaning less each time the
+the same for hollow reads. A baseline file that does not exist fails the gate with the command
+that creates it with today's count (`echo <n> > <file>`; or write 0, run the gate once, and write
+the number it reports). That is what stops an N-of-N score from meaning less each time the
 backend grows.
 
 What no term can see is an INCOMPLETE `needs:`. Row 6 above catches a read that nothing at all
@@ -708,7 +709,9 @@ language, give:
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
    replaces, which is what the user signs off on: the table gains a `vs replaced safe spot`
-   column, and every request and response difference from it is listed under the table;
+   column, and every difference from it is listed under the table: requests and responses, a
+   target change (`target base_url <old> -> <new>`), and each chain edit since then, such as an
+   expectation added or changed (`chain expect absent -> <path> <rule> <value>`);
 5. the question: approve or reject.
 
 Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
@@ -716,8 +719,11 @@ proposal. The email is the user's own, as the session knows it; if you do not kn
 bare name is refused. `-reject` discards the proposal. A run record carries a `seal` shrt writes
 with it, and `confirm` refuses to propose (and `-approve` to approve) a record whose content no
 longer matches its seal, or that has none: a record flipped from failed to passed by hand is not
-what ran. A record written before seals existed is refused the same way; run the chain again and
-propose the new run. The seal catches an edit, not a forger who recomputes it: it is a checksum,
+what ran. A record written before seals existed is refused too, with a message that says so first
+(`the run record predates sealed run records`) rather than calling it tampered; run the chain again
+and propose the new run. `diff`, `verify -run`, `chain slice`, `chain which` and `chain hollow`
+refuse an edited record too (`which` and `hollow` leave it out and name it), and read an unsealed
+older one as recorded after one `note:` line saying it predates seals. The seal catches an edit, not a forger who recomputes it: it is a checksum,
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
@@ -800,8 +806,13 @@ Three things that decide whether this works for a given chain:
   legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
   `drift with different input` naming the profile change, even when every response matches.
-  So is the chain's step list: a step removed, added, moved or re-pointed since approval is a
-  `chain differs` line and `drift with different input`, not a `regression`. A call respelled to
+  A safe spot confirmed before shrt recorded `auth_principal` cannot tell which account ran:
+  verify prints `principal checking is off for safe spot …` and calls a drift against it
+  `drift, principal not checked` (exit 1), not `regression`. Turn it on with
+  `shrt confirm <chain> -supersede -note "..."` and a person's approval.
+  The chain's step list and expectations are compared too: a step removed, added, moved or
+  re-pointed, or an expectation edited, since approval is a `chain differs` line, a chain change
+  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
   `procedure` decides.
   `verify` masks what `diff` masks: config and chain `volatile` paths,
@@ -897,7 +908,7 @@ shrt chain which -code 1218 -json
    other way round: a step whose newest reaching run FAILED there ranks first (one that still got
    the asserted envelope code before one that did not), then observed steps that passed, then
    steps no run reached, and the first `reproduce:` line slices the red step instead of a green
-   one. Run records are gitignored and machine-local, so a
+   one. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads
@@ -1024,7 +1035,11 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
      `-var name=<fresh>`. Only a flag that cannot be parsed exits 1.
-   - `INCONCLUSIVE` (3): the verdicts match, but the slice dropped write steps. A match can come
+   - `INCONCLUSIVE` (3), also when the source run was recorded against another target than the
+     config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
+     `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict
+     can come from the target. Run the chain here and slice from that run (`-run latest`).
+     Otherwise: the verdicts match, but the slice dropped write steps. A match can come
      from state the slice never built (a limit the dropped writes would have reached, say), so it
      is not a receipt. The output ends with a `next:` line —
      `shrt chain slice <src> -step <t> -run <source-run> -keep writes -verify -write` —

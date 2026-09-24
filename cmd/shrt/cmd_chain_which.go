@@ -2,13 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func chainWhich(args []string) error {
@@ -70,7 +73,7 @@ func chainWhich(args []string) error {
 	if *asJSON {
 		return emitJSON(hits)
 	}
-	printWhich(hits, q)
+	printWhich(hits, q, e.targetURL())
 	return nil
 }
 
@@ -97,6 +100,7 @@ func sliceSizeOf(e *env, lib *contract.Library) func(*chain.Chain, string) (int,
 }
 
 func runObservations(e *env) func(string) []chain.Observation {
+	refused := map[string]bool{}
 	return func(name string) []chain.Observation {
 		ids, err := e.store.ListRuns(name)
 		if err != nil || len(ids) == 0 {
@@ -105,7 +109,11 @@ func runObservations(e *env) func(string) []chain.Observation {
 		out := []chain.Observation{}
 		for _, id := range ids {
 			rec, err := e.store.LoadRun(name, id)
-			if err != nil {
+			if errors.Is(err, store.ErrRunEdited) && !refused[name+"/"+id] {
+				refused[name+"/"+id] = true
+				fmt.Fprintf(os.Stderr, "chain which: not cited: %v\n", err)
+			}
+			if err != nil || e.otherTarget(rec.Target) {
 				continue
 			}
 			for _, s := range rec.Steps {
@@ -176,7 +184,7 @@ const (
 	whichMarkClaim = "asserted"
 )
 
-func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
+func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 	steps, observed := 0, 0
 	for _, h := range hits {
 		steps += len(h.Matches)
@@ -227,8 +235,8 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery) {
 		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
 		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
 		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last.\n"+
-		"Run records are machine-local.\n",
-		whichMarkClaim, whichMarkSeen)
+		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
+		whichMarkClaim, whichMarkSeen, target)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
 }
 

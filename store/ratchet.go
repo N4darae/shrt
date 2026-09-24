@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -36,6 +37,11 @@ func ReadBaseline(path string) (int, error) {
 
 func Ratchet(path string, have int) (int, RatchetVerdict, error) {
 	want, err := ReadBaseline(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, RatchetAtBaseline, fmt.Errorf("baseline file %s does not exist, so there is no count to hold to.\n"+
+			"Create it with today's count, %d: echo %d > %s\n"+
+			"(or write 0 to it, run the gate once, and write the number it reports), then commit it", path, have, have, path)
+	}
 	if err != nil {
 		return 0, RatchetAtBaseline, err
 	}

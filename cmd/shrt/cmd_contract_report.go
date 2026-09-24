@@ -63,6 +63,10 @@ func contractStatus(args []string) error {
 		r := statusRow{Domain: d, Total: len(byDomain[d]), Todos: todos[d], Gaps: gaps[d], Score: scores[d]}
 		for _, m := range byDomain[d] {
 			c, ok := lib.Get(m.FullName)
+			if !ok && m.Streaming() {
+				r.Streaming = append(r.Streaming, m.FullName)
+				continue
+			}
 			if !ok {
 				r.Uncovered = append(r.Uncovered, m.FullName)
 				continue
@@ -205,12 +209,12 @@ func contractQuality(args []string) error {
 			return err
 		}
 		if *gate {
-			return qualityGate(report.TotalScore, *baseline)
+			return qualityGate(report, *baseline)
 		}
 		return nil
 	}
 	if *gate {
-		return qualityGate(report.TotalScore, *baseline)
+		return qualityGate(report, *baseline)
 	}
 
 	if len(report.RPCs) == 0 {
@@ -280,16 +284,32 @@ func clip(values []string, max int) []string {
 	return append(append([]string{}, values[:max]...), "…")
 }
 
-func qualityGate(total int, baselinePath string) error {
+func qualityGate(report contract.QualityReport, baselinePath string) error {
+	total := report.TotalScore
 	want, verdict, err := store.Ratchet(baselinePath, total)
 	if err != nil {
 		return err
 	}
-	switch verdict {
-	case store.RatchetWorse:
+	uncovered, charged := []string{}, 0
+	for _, r := range report.RPCs {
+		if r.NoContract {
+			uncovered = append(uncovered, rpcTail(r.RPC))
+			charged += r.Score
+		}
+	}
+	switch {
+	case verdict == store.RatchetWorse && len(uncovered) > 0:
+		rest := ""
+		if charged < total {
+			rest = fmt.Sprintf(" The other %d: run 'shrt contract quality' to see what got vaguer.", total-charged)
+		}
+		return fmt.Errorf("contract quality: score %d is worse than the baseline %d, and %d of it is charged to %d rpc(s) no overlay covers: %s.\n"+
+			"An overlay or an entry was deleted, or the descriptor gained rpcs: restore it, or write one with 'shrt contract init <domain>'.%s",
+			total, want, charged, len(uncovered), strings.Join(clip(uncovered, 8), ", "), rest)
+	case verdict == store.RatchetWorse:
 		return fmt.Errorf("contract quality: score %d is worse than the baseline %d. "+
 			"Run 'shrt contract quality' to see what got vaguer", total, want)
-	case store.RatchetBetter:
+	case verdict == store.RatchetBetter:
 		return fmt.Errorf("contract quality: score %d beats the baseline %d — "+
 			"lower %s to %d to keep the ratchet tight", total, want, baselinePath, total)
 	}

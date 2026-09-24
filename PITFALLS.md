@@ -340,11 +340,14 @@ overlay covers at all is scored too, as an empty entry plus 2, so moving `orders
 `.shrt/contracts/` raises the score and fails `quality -gate`; until 2026-09-24 an rpc with no entry
 was simply not measured, and deleting a whole overlay left the gate green at its baseline.
 `contract lint` still checks only what is written — it says `ok` for the overlays that remain — so
-the gate that catches lost coverage is `quality -gate`, and `contract status -gaps` lists each
-uncovered rpc as `no contract`. An unfilled `TODO` is not
+the gate that catches lost coverage is `quality -gate`, which names the uncovered rpcs the rise is
+charged to, and `contract status -gaps` lists each uncovered unary rpc as `no contract` (a streaming
+rpc as `streaming`, out of scope, with or without an entry). An unfilled `TODO` is not
 charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points; so
 does a `TODO` as the description of an `exports:`, `terminal:` or `soft_signals:` entry, which until
-2026-09-24 still counted as declaring the field. Same three
+2026-09-24 still counted as declaring the field. A singular message response field (`FetchOrder`'s
+`order`) is charged like a repeated one; until 2026-09-24 it was skipped, so its `TODO` or a deleted
+entry scored 0. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
 scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
 or finds zero `errmsg.New` sites — run from a copy outside the backend it used to report `0

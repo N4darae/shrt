@@ -195,13 +195,7 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 }
 
 func referenceableResponseField(f *catalog.Field) bool {
-	if f.Name == chain.EnvelopeField() {
-		return false
-	}
-	if f.Kind == "message" || f.Kind == "group" {
-		return f.Repeated
-	}
-	return true
+	return f.Name != chain.EnvelopeField()
 }
 
 func Measure(lib *Library, cat *catalog.Catalog, domain string) QualityReport {

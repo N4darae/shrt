@@ -36,3 +36,25 @@ func TestAnotherPrincipalBehindTheSameProfileIsAnInputChange(t *testing.T) {
 		t.Fatalf("a record that does not say which principal ran is not compared:\n%s", rep.Text())
 	}
 }
+
+func TestASafeSpotWithoutAPrincipalSaysPrincipalCheckingIsOff(t *testing.T) {
+	want := stepAs("create", runner.StatusPassed, `{"error":{"code":"OK"}}`)
+	want.AuthProfile = "default"
+	got := stepAs("create", runner.StatusPassed, `{"error":{"code":"REJECTED"}}`)
+	got.AuthProfile, got.AuthPrincipal = "default", "cccc3333dddd4444"
+	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{want}}
+	rep := diff.CompareWithRequests(spot, runOf("run", got), nil, nil)
+	if len(rep.PrincipalUnchecked) != 1 || rep.PrincipalUnchecked[0] != "create" {
+		t.Fatalf("the safe spot cannot say which principal ran create, got %v", rep.PrincipalUnchecked)
+	}
+	text := rep.Text()
+	if !strings.Contains(text, "principal checking is off") || !strings.Contains(text, "shrt confirm thing-flow -supersede") {
+		t.Fatalf("the report must say principal checking is off and how to turn it on:\n%s", text)
+	}
+	both := stepAs("create", runner.StatusPassed, `{"error":{"code":"OK"}}`)
+	both.AuthProfile, both.AuthPrincipal = "default", "aaaa"
+	spot.Steps[0] = both
+	if rep := diff.CompareWithRequests(spot, runOf("run", got), nil, nil); len(rep.PrincipalUnchecked) != 0 {
+		t.Fatalf("a safe spot with a principal is checked, got %v", rep.PrincipalUnchecked)
+	}
+}

@@ -257,15 +257,24 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 			expired++
 		}
 	}
+	counts := fmt.Sprintf("%d cached token(s), %d expired by their own expires_at", len(entries), expired)
+	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
+		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
+			"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
+		if split.foreignTotal() > 0 {
+			counts += " (" + split.foreignTargets() + ")"
+		}
+		counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
+	}
 	r.add(CheckTokens, LevelOK,
-		fmt.Sprintf("%d cached token(s), %d expired by their own expires_at. A token the backend "+
+		fmt.Sprintf("%s. A token the backend "+
 			"has forgotten -- a restart, a revoke -- does not look expired here and cannot: only "+
 			"the backend knows. It is dropped when a call comes back unauthenticated, by HTTP "+
 			"status or in the response envelope, and a fresh login is made. The call is re-sent once "+
 			"when it is a read, or when the refused token came from this cache and no call in the "+
 			"run had used it yet; a write refused with a token the backend already accepted in the "+
 			"run is not re-sent. A call still refused is an error, not a failure. 'rm %s' forces "+
-			"the fresh login without a call", len(entries), expired,
+			"the fresh login without a call", counts,
 			config.DirName+"/"+config.TokensFile), "")
 }
 

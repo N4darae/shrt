@@ -58,6 +58,7 @@ type Report struct {
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
+	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
 
 	inputSeparated bool
 }
@@ -89,6 +90,7 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 	if spot.Target != rec.Target {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
+	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)
 	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
 	approvedPatterns := append([]string{}, spot.Volatile...)
 	for _, st := range spot.Steps {
@@ -426,7 +428,34 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 	return out
 }
 
-func (r *Report) InputSummary() string {
+func uncheckedPrincipals(spot *store.SafeSpot, rec *runner.Record) []string {
+	out := []string{}
+	for i := range min(len(spot.Steps), len(rec.Steps)) {
+		want, got := spot.Steps[i], rec.Steps[i]
+		if want.ID != got.ID || want.AuthPrincipal != "" || got.AuthPrincipal == "" {
+			continue
+		}
+		if want.AuthProfile == "" || want.AuthProfile == got.AuthProfile {
+			out = append(out, want.ID)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (r *Report) principalCaveat() string {
+	if len(r.PrincipalUnchecked) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("principal checking is off for safe spot %s: it records no auth_principal (it was confirmed before shrt recorded one), "+
+		"so it cannot say which account step(s) %s logged in as, and a change below may come from logging in as another account rather than "+
+		"from the backend. To turn it on, propose a passing run in its place and have a person approve it: shrt confirm %s -supersede -note \"...\"\n",
+		r.SafeSpotID, strings.Join(r.PrincipalUnchecked, ", "), r.Chain)
+}
+
+func (r *Report) inputCounts() (int, int) {
 	requests, edits := 0, 0
 	for _, c := range r.RequestChanges {
 		if chainLevel(c) || c.Path == ExpectPath {
@@ -435,6 +464,16 @@ func (r *Report) InputSummary() string {
 			requests++
 		}
 	}
+	return requests, edits
+}
+
+func (r *Report) OnlyChainChanged() bool {
+	requests, edits := r.inputCounts()
+	return requests == 0 && edits > 0
+}
+
+func (r *Report) InputSummary() string {
+	requests, edits := r.inputCounts()
 	parts := []string{}
 	if requests > 0 {
 		parts = append(parts, fmt.Sprintf("%d request value(s) differ", requests))
@@ -770,11 +809,16 @@ func (r *Report) Text() string {
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
+		if r.OnlyChainChanged() {
+			cause = "the chain changed since it was confirmed; a step or expectation edit is a chain change, not an input change, " +
+				"and an expectation edit explains a status change at its own step only"
+		}
 		if r.InputCause != "" {
 			cause = r.InputCause
 		}
 		fmt.Fprintf(&b, "%s since the safe spot's run %s: %s\n", r.InputSummary(), r.SafeSpotID, cause)
 	}
+	b.WriteString(r.principalCaveat())
 	if r.Clean() && r.PrincipalChanged() {
 		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile or principal than the confirmed run, "+
 			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
@@ -790,6 +834,8 @@ func (r *Report) Text() string {
 	case mixed:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
 			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+	case r.OnlyChainChanged():
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	default:
