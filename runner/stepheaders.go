@@ -100,7 +100,15 @@ func learnHeaderSecrets(redactor *pathmask.Masker, templates map[string]string, 
 				redactor.AddSecret(value)
 			}
 		}
-		if !credential || !readsOnlyInputs(template) {
+		if !credential {
+			continue
+		}
+		for _, ref := range chain.VarRefs(template) {
+			if value, err := scope.ResolveValue(ref); err == nil {
+				learnSecret(redactor, value)
+			}
+		}
+		if !readsOnlyInputs(template) {
 			continue
 		}
 		if value, err := scope.ResolveValue(template); err == nil {

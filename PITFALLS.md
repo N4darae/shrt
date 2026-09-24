@@ -999,6 +999,10 @@ A credential sent in a step HEADER was only digested in `headers`: with
 the key stood in clear in the response, `transport_error`, `error`, `failure` and on the terminal.
 Every value a header named like a credential resolves to, and every `${env.*}` value with a
 credential-like name any header reads, is now a secret scrubbed by value in the whole record.
+A var such a header read as part of its value (`X-Passwd: "Sig ${vars.sig}"`) still stood in clear
+in the record's `vars` and in the proposal's `| vars | sig=... |`, since only the whole header value
+was a secret. Each `${vars.*}` a credential-named header reads is now a secret of its own, learned
+before the chain runs, so `vars` shows `sig=<redacted>` even when the step is never reached.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
