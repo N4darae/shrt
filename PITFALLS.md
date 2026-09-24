@@ -876,6 +876,16 @@ references; the same rule already held for a batch line's verdict. `chain lint` 
 (`unfailable-assertion`, failed by `-strict`) on `not_equal: ""` on the envelope; a misspelt code on
 a string-typed envelope cannot be told from a real one statically, so only the runner catches it.
 
+And through a rule next to the verdict rather than on it: the ok value used for "would fail on
+success" is a bare `status.code: SUCCESS`, so `status.message not_equal: boom`,
+`status.details.0.app_code not_equal: 9999` or `status.message equals: ""` "failed" on it for want
+of the field and counted as pins, and a refused step passed. Since 2026-09-24 only a rule on the
+envelope path itself (or one of its parents, such as `status exists: false`) pins it, with path
+segments compared case-insensitively, so `Status.Code not_equal: SUCCESS` pins a refusal exactly as
+`status.code` does instead of being a false red. On an absent or empty verdict a `not_equal` pins
+nothing: `status.code not_equal: SUCCESS` holds on `""`, so pin an absent verdict with `exists:
+false` or `equals: ""`.
+
 ## 38. A password or a token in clear in a run record, though `redact` covers its field
 
 **Symptom.** `**.*password` and `**.access_token` are redacted, yet the run record, the pending

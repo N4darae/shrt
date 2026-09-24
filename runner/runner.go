@@ -1270,10 +1270,13 @@ func verdictText(decoded any, path string) (string, bool) {
 
 func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
 	path := chain.EnvelopePath()
-	if path == "" || pinsVerdict(scope, expect) {
+	if path == "" {
 		return chain.ExpectResult{}, false
 	}
 	text, has := verdictText(decoded, path)
+	if pinsVerdict(scope, expect, !has) {
+		return chain.ExpectResult{}, false
+	}
 	if !has {
 		if !verdictDeclared {
 			return chain.ExpectResult{}, false
@@ -1296,7 +1299,7 @@ func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation
 	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
 }
 
-func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
+func pinsVerdict(scope *chain.Scope, expect []chain.Expectation, absent bool) bool {
 	okEnvelope := okAnswer(chain.EnvelopePath(), chain.EnvelopeOK())
 	okTransport := chain.TransportOutcome(200, "", "")
 	for _, e := range boundExpect(scope, expect) {
@@ -1305,8 +1308,11 @@ func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
 			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
 				return true
 			}
-		case chain.IsEnvelopePath(e.Path):
-			if e.Equals != nil || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
+		case chain.CoversVerdict(e.Path):
+			if absent && e.NotEqual != nil {
+				continue
+			}
+			if (e.Equals != nil && chain.IsVerdictItself(e.Path)) || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
 				return true
 			}
 		}

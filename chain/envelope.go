@@ -414,6 +414,24 @@ func IsEnvelopePath(path string) bool {
 	return path == EnvelopeField() || strings.HasPrefix(path, EnvelopeField()+".")
 }
 
+func CoversVerdict(path string) bool {
+	verdict := SplitPath(EnvelopePath())
+	segs := SplitPath(path)
+	if len(segs) == 0 || len(segs) > len(verdict) {
+		return false
+	}
+	for i, seg := range segs {
+		if !namecase.Equal(seg, verdict[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func IsVerdictItself(path string) bool {
+	return CoversVerdict(path) && len(SplitPath(path)) == len(SplitPath(EnvelopePath()))
+}
+
 func IsPagingFieldName(name string) bool {
 	page, token := false, false
 	for _, w := range namecase.Words(name) {

@@ -37,7 +37,6 @@ func TestAnInBandRefusalThatIsPinnedStillPasses(t *testing.T) {
 	for _, pin := range []chain.Expectation{
 		{Path: "status.code", Equals: "REJECTED"},
 		{Path: "status.code", NotEqual: "SUCCESS"},
-		{Path: "status.message", Contains: "positive"},
 	} {
 		srv := newShopServer(t, refusedStock())
 		c := normalized(t, addStockChain(pin, chain.Expectation{Path: "qty_on_hand", Equals: 0}))
