@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/N4darae/shrt/contract"
+	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -70,6 +72,14 @@ func (e *env) library() (*contract.Library, []error, error) {
 	return lib, broken, err
 }
 
+func sameYAML(a, b []byte) bool {
+	var x, y any
+	if yaml.Unmarshal(a, &x) != nil || yaml.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
+}
+
 func contractInit(args []string) error {
 	fs := flag.NewFlagSet("contract init", flag.ContinueOnError)
 	all := fs.Bool("all", false, "scaffold every domain in the catalog")
@@ -120,6 +130,12 @@ func contractInit(args []string) error {
 			continue
 		}
 		path := filepath.Join(e.contractsDir(), domain+".yaml")
+		if current, err := os.ReadFile(path); err == nil && sameYAML(current, raw) {
+			n := strings.Count(string(current), contract.TodoMarker)
+			todos += n
+			fmt.Printf("unchanged %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
@@ -132,7 +148,7 @@ func contractInit(args []string) error {
 	}
 	if !*stdout {
 		if todos == 0 {
-			fmt.Printf("\nno %s left in what was written; check it: shrt contract lint\n", contract.TodoMarker)
+			fmt.Printf("\nno %s left in these overlays; check them: shrt contract lint\n", contract.TodoMarker)
 		} else {
 			fmt.Printf("\nfill the %d %s(s), then: shrt contract lint\n", todos, contract.TodoMarker)
 		}
