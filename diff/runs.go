@@ -51,12 +51,14 @@ type RunReport struct {
 	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
 	RequestChanges   []Change     `json:"request_changes,omitempty"`
 	FixtureRequests  int          `json:"fixture_requests,omitempty"`
+	FixtureEchoed    int          `json:"fixture_echoed,omitempty"`
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
 
-	compared []comparedStep
-	idPairs  []idPair
+	compared     []comparedStep
+	idPairs      []idPair
+	fixturePairs [][2]string
 }
 
 func (r *RunReport) Same() bool {
@@ -138,9 +140,12 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fixture func(step,
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
 		}
 	}
-	var renamed []Change
-	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, idRenames(rep.idPairs))
+	renames := idRenames(rep.idPairs)
+	var renamed, echoed []Change
+	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
+	rep.Changes, echoed = splitEchoes(rep.Changes, rep.compared, append(rep.fixturePairs, renames...))
+	rep.FixtureEchoed += len(echoed)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
@@ -244,6 +249,11 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 		}
 		if fixture != nil && fixture(sa.ID, c.Path) {
 			r.FixtureRequests++
+			if x, ok := c.Want.(string); ok && len(x) >= minFixtureEcho {
+				if y, ok := c.Got.(string); ok {
+					r.fixturePairs = append(r.fixturePairs, [2]string{x, y})
+				}
+			}
 			return
 		}
 		c.Step = sa.ID
@@ -467,6 +477,9 @@ func (r *RunReport) Text() string {
 		for _, c := range r.Changes {
 			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
 		}
+	}
+	if r.FixtureEchoed > 0 {
+		fmt.Fprintf(&b, "\n%d response value(s) differ only by echoing the fixture name the run sent, as `shrt verify` masks them, not shown\n", r.FixtureEchoed)
 	}
 	if r.Masked > 0 {
 		fmt.Fprintf(&b, "\n%d differing value(s) not shown: declared volatile paths, ids and timestamps differ every run\n", r.Masked)

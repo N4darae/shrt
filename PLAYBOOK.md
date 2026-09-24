@@ -855,8 +855,10 @@ opens its report for a `no drift` it reached the same way. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
 camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
 both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
-shown. Values derived
-from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
+shown. A value derived
+from a run tag (a response sku, name or email that echoes the `sku-${vars.tag}` the run sent) is
+masked the way `verify` masks it and counted (`N response value(s) differ only by echoing the fixture
+name`), so it needs no `volatile`; a value that differs in anything else is shown. An id inside a longer string
 (an error message naming the product) is compared after the same renaming: the message is equal when
 the only difference is an id the two runs renamed one-to-one, and any other change of its text is shown,
 so it needs no `volatile`. The report says how many values it hid, and names

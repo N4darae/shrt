@@ -467,7 +467,8 @@ printed as `chain differs from the confirmed run at <step> expect (...)`; it exp
 at that step and nothing else. When vars and the chain file both differ, verify names both.
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
-compares like with like; a response value that only echoes the new fixture name is masked and counted.
+compares like with like; a response value that only echoes the new fixture name is masked and counted,
+by `shrt diff` and `confirm`'s drift warning as well.
 Any other request difference is input and explains the response changes at its step and after it:
 when every response change comes at or after the first step whose input differs, they are reported as
 coming with different input and verify fails with `drift with different input`; a change at an earlier
