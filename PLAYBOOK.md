@@ -381,7 +381,10 @@ refused points the other way: it likely restarted mid-run and lost its sessions,
 error and `verify`'s `WARNING` say so and it exits 3; when data created before the refusal is still
 there after the re-login, that line says so too. When the previous run that sent the step was
 refused at the same step the same way, a restart does not explain it: `run` and `verify` print
-`auth refused at <rpc> ... a finding about the backend` and exit 1.
+`auth refused at <rpc> ... a finding about the backend` and exit 1. Evidence of a restart in either
+run overrides that repeat: data created before the refusal gone after the re-login (a later step
+reading it was refused naming its id, or as not found), or a step before the refusal that got no
+answer from the service (a gateway answer, a dropped connection). Then it stays a restart, exit 3.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.

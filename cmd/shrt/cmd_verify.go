@@ -46,7 +46,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
 	"     and nothing drifted before it\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
-	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc\n"
+	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
+	"     unless either run shows a restart (data created before the refusal gone after the re-login,\n" +
+	"     or a step before it that got no answer from the service), which keeps it exit 3\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
