@@ -61,7 +61,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
 	write := &optionalString{}
-	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>")
+	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a value with a slash or ending in .yaml is a path, written exactly there, relative to the current directory")
 	keep := &stepList{}
 	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
 	setUsage(fs, sliceUsage, sliceExitCodes)
@@ -82,6 +82,13 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	if *step == "" {
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")
+	}
+	writePath := ""
+	if isSlicePath(name) {
+		writePath, name, err = slicePathAndName(name)
+		if err != nil {
+			return err
+		}
 	}
 	e, err := loadEnv(true)
 	if err != nil {
@@ -157,6 +164,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		}
 	} else if write.set {
 		path := filepath.Join(e.chainsDir(), res.Chain.Name+".yaml")
+		if writePath != "" {
+			path = writePath
+		}
 		if err := mayOverwriteSlice(path, res, *force, *verify); err != nil {
 			return err
 		}
@@ -240,7 +250,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	printSlice(res, written, verdict)
 	if written != "" {
-		fmt.Print(sweepNote(rel(e.cfg.Root, written), res.Chain.Name))
+		fmt.Print(sweepNote(e, written, res.Chain.Name))
 	}
 	if !write.set {
 		raw, err := res.Chain.Marshal()
@@ -380,11 +390,50 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 	}
 }
 
-func sweepNote(shown, name string) string {
+func sweepNote(e *env, written, name string) string {
+	shown := shownPath(written)
+	chains := shownPath(e.chainsDir())
+	if filepath.Dir(written) != filepath.Clean(e.chainsDir()) {
+		return fmt.Sprintf("note: %s is outside %s (paths.chains), so no sweep reads it: `shrt chain lint`, `chain hollow` and a gate that runs every %s/*.yaml (README) skip it. Run it by path:\n"+
+			"  shrt run %s\n", shown, chains, chains, shown)
+	}
+	scratch := filepath.ToSlash(filepath.Join(".shrt", "scratch", name+".yaml"))
 	return fmt.Sprintf("note: %s is now part of every sweep, like any chain there: `shrt chain lint` and `chain hollow` read it, "+
-		"and a gate that runs every .shrt/chains/*.yaml (README) runs it. To keep an exploratory slice out, move it:\n"+
+		"and a gate that runs every %s/*.yaml (README) runs it. To keep an exploratory slice out, write it outside %s instead, with -write %s, or move it:\n"+
 		"  mkdir -p .shrt/scratch && mv %s .shrt/scratch/\n"+
-		"  shrt run .shrt/scratch/%s.yaml still runs it by path\n", shown, shown, name)
+		"  shrt run %s still runs it by path\n", shown, chains, chains, scratch, shown, scratch)
+}
+
+func shownPath(path string) string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+	r, err := filepath.Rel(wd, path)
+	if err != nil || strings.HasPrefix(r, "..") {
+		return path
+	}
+	return filepath.ToSlash(r)
+}
+
+func isSlicePath(value string) bool {
+	return strings.ContainsAny(value, "/\\") || strings.HasSuffix(value, ".yaml")
+}
+
+func slicePathAndName(value string) (string, string, error) {
+	path := value
+	if ext := filepath.Ext(path); ext != ".yaml" && ext != ".yml" {
+		path += ".yaml"
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", "", err
+	}
+	name := strings.TrimSuffix(filepath.Base(abs), filepath.Ext(abs))
+	if name == "" || strings.HasPrefix(name, ".") {
+		return "", "", fmt.Errorf("-write %s: the file name must name the chain, as in -write .shrt/scratch/<name>.yaml", value)
+	}
+	return abs, name, nil
 }
 
 func shortCall(call string) string {
