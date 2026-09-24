@@ -112,8 +112,10 @@ const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated)\n" +
 	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
-	"     an unset env var or a reference to a step or export that does not exist or runs later,\n" +
-	"     an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a config or\n" +
+	"     an unset env var read by a step or by the login body of an auth profile a step runs under,\n" +
+	"     a reference to a step or export that does not exist or runs later, or to a response field\n" +
+	"     the producing step's message does not declare, an unknown auth profile, an rpc the catalog\n" +
+	"     does not have, a streaming rpc, a config or\n" +
 	"     descriptor that does not load, a conventions path no response declares)\n" +
 	"  3  error: a step could not complete (unresolved reference, invalid request, target unreachable,\n" +
 	"     login failed), so the run is not a verdict about the backend\n"
