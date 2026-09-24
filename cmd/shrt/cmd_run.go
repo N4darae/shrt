@@ -112,6 +112,7 @@ const runExitCodes = "\nexit codes:\n" +
 	"  0  passed (a -dry-run: every request resolved and validated)\n" +
 	"  1  failed: a step was answered and an expectation did not hold; also a refusal before anything\n" +
 	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
+	"     an unset env var or a reference to a step or export that does not exist or runs later,\n" +
 	"     an unknown auth profile, an rpc the catalog does not have, a config or descriptor that does\n" +
 	"     not load, a conventions path no\n" +
 	"     response declares)\n" +

@@ -25,6 +25,11 @@ func runIDsOf(t *testing.T, chainName string) []string {
 
 func writeEnvFetchChain(t *testing.T) {
 	t.Helper()
+	writeEnvFetchChainReading(t, "${env.SHRT_LAB5_NAME}")
+}
+
+func writeEnvFetchChainReading(t *testing.T, id string) {
+	t.Helper()
 	writeFile(t, ".shrt/chains/cli-env-flow.yaml", `apiVersion: shrt/v1
 name: cli-env-flow
 steps:
@@ -40,7 +45,7 @@ steps:
     - id: fetch
       call: ThingService/Fetch
       body:
-          id: ${env.SHRT_LAB5_NAME}
+          id: `+id+`
       expect:
           - path: error.code
             equals: OK
@@ -57,10 +62,9 @@ func TestCLISlicePinLatestUsesTheNewestRunThatReachedTheStep(t *testing.T) {
 		t.Fatalf("shrt run: %v", err)
 	}
 	reaching := runIDsOf(t, "cli-env-flow")[0]
-	if err := os.Unsetenv("SHRT_LAB5_NAME"); err != nil {
-		t.Fatal(err)
-	}
+	writeEnvFetchChainReading(t, "${create.no_such_field}")
 	_ = runRun(context.Background(), []string{"cli-env-flow", "-quiet"})
+	writeEnvFetchChain(t)
 	ids := runIDsOf(t, "cli-env-flow")
 	if len(ids) != 2 {
 		t.Fatalf("want two run records, got %v", ids)

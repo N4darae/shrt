@@ -430,7 +430,8 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 		Kind:     KindDeadRef,
 		Message: fmt.Sprintf(
 			"${%s} reads %q, which is not a field of %s — step %q cannot produce it, so this resolves to "+
-				"nothing at run time, after every earlier step has already hit the backend. An export under that "+
+				"nothing at run time, after every earlier step has already hit the backend (shrt run cannot know "+
+				"the response shape up front, so it does not refuse this one). An export under that "+
 				"name is a different thing: write ${exports.<name>} for that",
 			ref, rest, m.Output().FullName(), producer),
 	}, true
@@ -621,8 +622,8 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	if env == nil {
 		if len(needEnv) > 0 {
 			issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
-				"reads these environment variables, and the run dies at the first step that reads one "+
-					"that is unset: %s", strings.Join(needEnv, ", "))})
+				"reads these environment variables, and shrt run refuses the chain before sending anything "+
+					"while one is unset: %s", strings.Join(needEnv, ", "))})
 		}
 		return issues
 	}
@@ -634,8 +635,8 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	}
 	if len(unset) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
-			"reads environment variables that are not exported in this shell: %s — the run dies at the "+
-				"first step that reads one, after every step before it has already hit the backend",
+			"reads environment variables that are not exported in this shell: %s — shrt run refuses the "+
+				"chain before sending anything until they are set",
 			strings.Join(unset, ", "))})
 	}
 	return issues

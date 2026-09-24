@@ -81,15 +81,9 @@ func TestAllowFailDoesNotSwallowAnUnresolvedReference(t *testing.T) {
 		s.Body = map[string]any{"name": "${env.SHRT_TEST_NEVER_EXPORTED_7F3A}", "kind": "KIND_A", "idempotency_key": "${uuid}"}
 	})
 
-	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if rec.Passed() {
-		t.Fatal("a chain with an unresolved reference reported PASSED under allow_fail")
-	}
-	if rec.Status != runner.StatusError {
-		t.Fatalf("record status = %s, want %s", rec.Status, runner.StatusError)
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil || !strings.Contains(err.Error(), "nothing was sent") {
+		t.Fatalf("a chain reading an unset env var must be refused before sending, allow_fail or not, got %v", err)
 	}
 }
 

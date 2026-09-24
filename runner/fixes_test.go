@@ -140,15 +140,12 @@ func TestUnresolvableHeaderFailsTheStep(t *testing.T) {
 	c := testChain()
 	c.Steps[0].Headers = map[string]string{"X-Bad": "${nope.id}"}
 
-	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil {
+		t.Fatal("an unresolvable header must stop the chain, not go out literally")
 	}
-	if rec.Passed() {
-		t.Fatal("an unresolvable header must fail the step, not go out literally")
-	}
-	if !strings.Contains(rec.Steps[0].Error, "X-Bad") {
-		t.Fatalf("the error should name the header, got %q", rec.Steps[0].Error)
+	if !strings.Contains(err.Error(), "X-Bad") {
+		t.Fatalf("the error should name the header, got %v", err)
 	}
 }
 
