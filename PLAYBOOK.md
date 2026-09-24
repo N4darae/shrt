@@ -692,15 +692,17 @@ Three things that decide whether this works for a given chain:
   legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
-  alike (two non-zero numbers, or two non-empty strings of the same shape): an id that became
-  `""`, null, `0`, `undefined` or a different JSON kind, or disappeared, is reported. Anything else that differs every
+  alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
+  before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). Anything else that differs every
   run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
   replay reports a regression that is not one. The price is that a wrong id that is still
   id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
   approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value
   it hid, until a run under the wider mask is proposed with `-supersede` and approved. The report
-  counts the values volatile paths kept out; `verify -masked` lists them. This is per-chain work and it is why paving the corpus is not a bulk
+  counts the values it kept out, both kinds; `verify -masked` lists every one of them, the
+  volatile ones and the id- or timestamp-shaped ones, with its path and both values. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,

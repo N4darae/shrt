@@ -261,7 +261,17 @@ func sameShape(a, b any) bool {
 		return true
 	}
 	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
-	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && hasDigit(x) == hasDigit(y)
+	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && hasDigit(x) == hasDigit(y) &&
+		kindPrefix(x) == kindPrefix(y)
+}
+
+var letterPrefix = regexp.MustCompile(`^([A-Za-z]+)[^A-Za-z0-9]`)
+
+func kindPrefix(s string) string {
+	if m := letterPrefix.FindStringSubmatch(s); m != nil {
+		return m[1]
+	}
+	return ""
 }
 
 func lastKey(path string) string {

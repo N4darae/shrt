@@ -44,6 +44,8 @@ type Report struct {
 	Masked         int      `json:"masked"`
 	VolatileMasked int      `json:"volatile_masked"`
 	VolatilePaths  []string `json:"volatile_paths,omitempty"`
+	VolatileValues []Change `json:"volatile_values,omitempty"`
+	ShapeMasked    []Change `json:"shape_masked,omitempty"`
 
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
@@ -117,11 +119,13 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 			case c.Path != "response" && maskedAt(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
+				rep.VolatileValues = append(rep.VolatileValues, c)
 				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
 			case c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got):
 				rep.Masked++
+				rep.ShapeMasked = append(rep.ShapeMasked, c)
 			default:
 				rep.Changes = append(rep.Changes, c)
 			}
@@ -410,6 +414,22 @@ func withKind(v any) string {
 		return fmt.Sprintf("string %q", s)
 	}
 	return fmt.Sprintf("%s %v", jsonKind(v), v)
+}
+
+func (r *Report) MaskedList() string {
+	var b strings.Builder
+	section := func(title string, cs []Change) {
+		if len(cs) == 0 {
+			return
+		}
+		fmt.Fprintf(&b, "%s, not compared:\n", title)
+		for _, c := range cs {
+			fmt.Fprintf(&b, "  %s %s (%s)\n", c.Step, c.Path, c.Transition())
+		}
+	}
+	section("values under volatile paths", r.VolatileValues)
+	section("id- or timestamp-shaped values", r.ShapeMasked)
+	return strings.TrimRight(b.String(), "\n")
 }
 
 func (r *Report) Text() string {

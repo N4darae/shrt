@@ -40,7 +40,7 @@ func runVerify(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	listMasked := fs.Bool("masked", false, "list every response value a volatile pattern kept out of the comparison")
+	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -133,8 +133,8 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		fmt.Println(report.Text())
-		if *listMasked && len(report.VolatilePaths) > 0 {
-			fmt.Printf("values under volatile paths, not compared:\n  %s\n", strings.Join(report.VolatilePaths, "\n  "))
+		if list := report.MaskedList(); *listMasked && list != "" {
+			fmt.Println(list)
 		}
 		if report.Clean() && !report.Widened() {
 			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
