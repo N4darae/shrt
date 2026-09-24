@@ -48,7 +48,7 @@ func (c chainCounts) list() string {
 }
 
 func sameTarget(recorded, now string) bool {
-	return recorded == "" || now == "" || strings.TrimRight(recorded, "/") == now
+	return recorded == "" || now == "" || config.SameTarget(recorded, now)
 }
 
 type tokenSplit struct {

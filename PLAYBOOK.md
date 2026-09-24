@@ -361,6 +361,11 @@ perform the call); the step records `auth_retry: resent` with a warning. A write
 token the backend already accepted in this run is not re-sent, since the backend may already have
 performed it: it records `auth_retry: not_resent` and a warning, and the next call or run logs in
 fresh. A step still refused authentication is `error`, not `failed`: no verdict about the rpc.
+When the refused token came from a login in THIS run (re-sent after a fresh login and refused again,
+or a write refused with a token just issued, perhaps accepted by earlier calls), the credentials
+work, so the step's error and `verify` both say it `may be an auth regression` in the backend with
+that evidence, instead of pointing at the credentials. It still exits 3; re-run, and report a
+repeat as a finding.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -730,7 +735,9 @@ what ran. A record written before seals existed is refused too, with a message t
 (`the run record predates sealed run records`) rather than calling it tampered; run the chain again
 and propose the new run. `diff`, `verify -run`, `chain slice`, `chain which` and `chain hollow`
 refuse an edited record too (`which` and `hollow` leave it out and name it), and read an unsealed
-older one as recorded after one `note:` line saying it predates seals. The seal catches an edit, not a forger who recomputes it: it is a checksum,
+older one as recorded after one `note:` line saying it predates seals. Deleting `seal` does not make
+a record look older: every sealing build also writes `format`, and a record that has `format` but no
+`seal` is refused everywhere as edited (`its seal was removed`). The seal catches an edit, not a forger who recomputes it: it is a checksum,
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
@@ -833,9 +840,12 @@ Three things that decide whether this works for a given chain:
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
   alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
   before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
-  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). Anything else that differs every
-  run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
-  replay reports a regression that is not one. The price is that a wrong id that is still
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A value the chain builds
+  from `${uuid}` or a clock form, whole or inside other text (`sku: s-${uuid}`), and a response
+  value that only echoes it (a message quoting it), is treated like a fixture name and masked and
+  counted (GRAMMAR §7), so it needs no `volatile`. Anything else that differs every run and that
+  the chain did not build, such as a server-generated code that is not id-shaped, must be in
+  `volatile`, or the first replay reports a regression that is not one. The price is that a wrong id that is still
   id-shaped is not caught by `verify`; assert on it if it matters. The mask is part of what was
   approved: the safe spot stores its `volatile` patterns, and a pattern added to the config or
   the chain later (`**.total_minor`, `**`) fails `verify`, which names the pattern and every value

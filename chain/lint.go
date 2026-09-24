@@ -30,6 +30,7 @@ type LintOptions struct {
 	AuthProfiles []string
 	AuthEnv      func(profile string) []string
 	Env          func(string) (string, bool)
+	Redact       []string
 }
 
 func Lint(c *Chain, cat *catalog.Catalog) []Issue {
@@ -42,6 +43,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
 	issues = append(issues, lintAuthEnv(c, opts)...)
+	issues = append(issues, lintRedactedPins(c, opts.Redact)...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -57,6 +59,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintRefSyntax(s)...)
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
+		issues = append(issues, lintWholeTag(c, s, m)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
 		for _, why := range never {

@@ -92,7 +92,7 @@ func renamingViolations(pairs []idPair) []Change {
 	for _, p := range pairs {
 		w, g := idKey(p.want), idKey(p.got)
 		if first, ok := forward[w]; ok && idKey(first.got) != g {
-			out = append(out, Change{Step: p.step, Path: p.path, Kind: KindChanged, Want: p.want, Got: p.got,
+			out = append(out, Change{Step: p.step, Path: p.path, Kind: KindChanged, Want: first.got, Got: p.got,
 				Detail: fmt.Sprintf("an id, but not renamed consistently: the safe spot's %v became %v at %s %s and %v here, "+
 					"so this field now points at something else than it did", p.want, first.got, first.step, first.path, p.got)})
 			continue

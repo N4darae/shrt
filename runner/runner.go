@@ -154,7 +154,7 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 	}
 }
 
-func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
+func (bs AuthBindings) principals() map[string]string {
 	defaults := pathmask.NewRedactor(config.DefaultRedact())
 	out := map[string]string{}
 	for _, b := range bs {
@@ -163,7 +163,7 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 		}
 		fields := map[string]any{}
 		for k, v := range b.BodyFields {
-			if redactor.Masks(k) || defaults.Masks(k) {
+			if defaults.Masks(k) {
 				continue
 			}
 			resolved, err := chain.AuthBodyScope().ResolveValue(v)
@@ -171,10 +171,7 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 				fields = nil
 				break
 			}
-			if redactor.MasksValue(k, resolved) {
-				continue
-			}
-			fields[k] = resolved
+			fields[k] = withoutSecrets(defaults, resolved, k)
 		}
 		if fields == nil {
 			continue
@@ -187,6 +184,28 @@ func (bs AuthBindings) principals(redactor *pathmask.Masker) map[string]string {
 		out[b.Profile] = hex.EncodeToString(sum[:8])
 	}
 	return out
+}
+
+func withoutSecrets(secrets *pathmask.Masker, v any, path string) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, item := range t {
+			sub := pathmask.Join(path, k)
+			if secrets.Masks(sub) {
+				continue
+			}
+			out[k] = withoutSecrets(secrets, item, sub)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for i, item := range t {
+			out = append(out, withoutSecrets(secrets, item, pathmask.Join(path, pathmask.IndexKey(i))))
+		}
+		return out
+	}
+	return v
 }
 
 func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
@@ -365,11 +384,34 @@ const (
 	AuthRetryNotResent = transport.AuthRetryNotResent
 )
 
-func authRefusedIsNoVerdict(sr *StepRecord) {
+const freshTokenRefused = "may be an auth regression"
+
+func RefusedFreshToken(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
+}
+
+func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	if sr.Status != StatusFailed {
 		return
 	}
 	sr.Status = StatusError
+	evidence := ""
+	switch fresh {
+	case transport.FreshTokenRelogin:
+		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
+			"was re-sent with the new token, and the backend refused that too"
+	case transport.FreshTokenAccepted:
+		evidence = "the backend refused a token that a login in this run had just issued and that it had accepted on an " +
+			"earlier call of this run"
+	case transport.FreshTokenMinted:
+		evidence = "the backend refused a token that a login in this run had just issued"
+	}
+	if evidence != "" {
+		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
+			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
+			"because the rpc itself never answered; re-run to confirm, and treat a repeat as a finding")
+		return
+	}
 	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
 		"check the credentials of the step's auth profile and re-run")
 }
@@ -767,6 +809,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		return nil, err
 	}
 	problems := c.PreflightProblems()
+	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
@@ -779,7 +822,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		scope.Now = r.Now
 	}
 	r.Auth.learnSecrets(redactor)
-	opts.principals = r.Auth.principals(redactor)
+	opts.principals = r.Auth.principals()
 	for _, step := range c.Steps {
 		if step != nil {
 			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
@@ -1097,7 +1140,8 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached))
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
-		defer authRefusedIsNoVerdict(sr)
+		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
+		defer authRefusedIsNoVerdict(sr, fresh)
 	}
 	if err != nil {
 		if transport.Unreachable(err) {

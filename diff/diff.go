@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -89,7 +90,7 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
-	if spot.Target != rec.Target {
+	if !config.SameTarget(spot.Target, rec.Target) {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
 	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)
@@ -723,6 +724,9 @@ func (c Change) describeValues() string {
 	}
 	if c.Path == "step" && c.Kind == KindUnexpected {
 		return fmt.Sprintf("want=absent got=%v", c.Got)
+	}
+	if c.Kind == KindChanged && fmt.Sprint(c.Want) == fmt.Sprint(c.Got) {
+		return fmt.Sprintf("want=%s got=%s, the same text, so the change is that it did not change", withKind(c.Want), withKind(c.Got))
 	}
 	if c.Kind != KindType {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)

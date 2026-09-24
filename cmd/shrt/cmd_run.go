@@ -119,13 +119,17 @@ const runExitCodes = "\nexit codes:\n" +
 	"     the producing step's message does not declare or a request path its request does not\n" +
 	"     declare, a reference whose declared type cannot fill the numeric field it is sent in (a\n" +
 	"     bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint\n" +
-	"     warning), a whole list or map into a single-valued field or a single value into a list or\n" +
+	"     warning), a whole message into a string, bytes, bool, enum or numeric field (name:\n" +
+	"     ${p.product}; a Timestamp, Duration, FieldMask or wrapper renders as one value and passes),\n" +
+	"     a whole list or map into a single-valued field or a single value into a list or\n" +
 	"     map, an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a\n" +
 	"     config or descriptor that does not load, a conventions path no response declares, a step\n" +
 	"     body the proto rejects, checked for every step up front as -dry-run does)\n" +
 	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
 	"     a real response gave, target unreachable, the connection closed before a response because\n" +
-	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend\n"
+	"     the backend stopped or crashed, login failed), so the run is not a verdict about the backend;\n" +
+	"     but a token a login in this run had just issued and the backend refused is reported as a\n" +
+	"     possible auth regression\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

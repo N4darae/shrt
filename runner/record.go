@@ -17,7 +17,10 @@ const (
 
 const NoAuthProfile = "none"
 
+const RecordFormat = 2
+
 type Record struct {
+	Format      int            `json:"format,omitempty"`
 	RunID       string         `json:"run_id"`
 	Chain       string         `json:"chain"`
 	ChainSource string         `json:"chain_source,omitempty"`

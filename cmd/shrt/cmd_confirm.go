@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -162,7 +163,7 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || !prev.Passed() || prev.DryRun || prev.Target != rec.Target {
+		if err != nil || !prev.Passed() || prev.DryRun || !config.SameTarget(prev.Target, rec.Target) {
 			continue
 		}
 		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
@@ -199,7 +200,7 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
 	out := unapprovedVolatileDiffers(rep.UnapprovedVolatile, rec, c)
-	if spot.Target != rec.Target {
+	if !config.SameTarget(spot.Target, rec.Target) {
 		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})
 	}
 	edited := diff.ChainChanges(spot, c)

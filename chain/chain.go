@@ -95,6 +95,9 @@ func (c *Chain) checkKeptRed() error {
 			return fmt.Errorf("kept_red[%d]: step %q has no expectation on path %q, so it can never fail there", i, k.Step, k.Path)
 		}
 	}
+	if problems := c.RedactedPinProblems(c.Redact); len(problems) > 0 {
+		return fmt.Errorf("%s", problems[0])
+	}
 	return nil
 }
 

@@ -31,7 +31,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
 	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
-	"     is not judged, so this is not a verdict about the backend\n"
+	"     is not judged, so this is not a verdict about the backend; when the backend refused a\n" +
+	"     token a login in this run had just issued, the credentials work and it says this may\n" +
+	"     be an auth regression\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -506,6 +508,14 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	if answered > 0 {
 		past = fmt.Sprintf("the %d step(s) after it that got an answer were compared, but a change at or after it is "+
 			"not judged, since the unanswered call may explain it", answered)
+	}
+	for _, st := range rec.Steps {
+		if st.ID == step && runner.RefusedFreshToken(st) {
+			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
+				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
+				"not a problem with the credentials. Nothing before it drifted, and %s. The step record says what was tried "+
+				"(auth_retry, error); re-run verify to confirm, and treat a repeat as a finding", name, step, why, past)
+		}
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why, past)
