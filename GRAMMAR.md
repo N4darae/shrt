@@ -143,6 +143,13 @@ error: a step or export that does not exist or runs later, an unset `${env.*}`, 
 earlier step's response that its response message does not declare (`${create_product.product.id_prodct}`,
 lint kind `unproducible-reference`). If the field is real and new, the descriptor is stale: `shrt catalog build`.
 
+There is no escape for a literal `${`: `$${x}` is a `$` followed by the resolved `${x}`. A value that
+must carry `${` comes in through `${env.NAME}` or `-var name=...`, whose values are never resolved again.
+Lint warns (`reference-syntax`) on forms that are accepted but do not do what they read as: spaces
+inside the braces (`${ uuid }` resolves as `${uuid}`), a fractional clock offset (`${now+1.5}` resolves
+as `${now+1}`), a path after `uuid` or a clock form (ignored), and a `${` never closed, which is sent as
+literal text.
+
 The `resolves to` column below is quoted where the value is a Go string, so the rows that
 look numeric but are not stand out: `${nowunix}` resolves to a STRING of digits, never an
 integer, so an expectation comparing it to a number-typed response field will not match.

@@ -53,6 +53,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 			known[s.ID] = true
 			continue
 		}
+		issues = append(issues, lintRefSyntax(s)...)
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
@@ -223,6 +224,54 @@ func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex)
 		}
 	}
 	return ""
+}
+
+func lintRefSyntax(s *Step) []Issue {
+	values := []any{s.Body}
+	for _, name := range sortedHeaderNames(s.Headers) {
+		values = append(values, s.Headers[name])
+	}
+	for _, e := range s.Expect {
+		values = append(values, e.Equals, e.NotEqual, e.Contains)
+	}
+	issues := []Issue{}
+	walkStrings(values, func(text string) {
+		for _, why := range refSyntaxProblems(text) {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindRefSyntax, Message: why})
+		}
+	})
+	return issues
+}
+
+func refSyntaxProblems(text string) []string {
+	out := []string{}
+	for _, m := range refPattern.FindAllStringSubmatch(text, -1) {
+		inner := m[1]
+		trimmed := strings.TrimSpace(inner)
+		if inner != trimmed {
+			out = append(out, fmt.Sprintf("%q carries spaces inside the braces of %s; it resolves as ${%s}, "+
+				"but reads as something else. Write ${%s}", text, m[0], trimmed, trimmed))
+		}
+		r := ParseRef(trimmed)
+		if r.Err != nil || r.Rest == "" || (r.Kind != RefClock && r.Kind != RefUUID) {
+			continue
+		}
+		if r.Kind == RefClock && r.Offset != 0 && isIndexSegment(r.Rest) {
+			out = append(out, fmt.Sprintf("%q: the offset in ${%s} is a whole number of seconds, so it "+
+				"resolves as ${%s} and the .%s is dropped. Write the offset in whole seconds", text, trimmed,
+				r.Expr[:len(r.Expr)-len(r.Rest)-1], r.Rest))
+			continue
+		}
+		out = append(out, fmt.Sprintf("%q: ${%s} takes no path, so .%s is ignored and it resolves as ${%s}",
+			text, trimmed, r.Rest, r.Expr[:len(r.Expr)-len(r.Rest)-1]))
+	}
+	if rest := refPattern.ReplaceAllString(text, ""); strings.Contains(rest, "${") {
+		out = append(out, fmt.Sprintf("%q carries ${ with no closing }, so no reference resolves there and "+
+			"the text is sent as the literal characters. Close the brace; there is no escape for a literal "+
+			"${, so a value that must contain one comes from ${env.NAME} or -var name=..., whose values are "+
+			"never resolved again", text))
+	}
+	return out
 }
 
 func lintStreaming(s *Step, m *catalog.Method) []Issue {
@@ -938,6 +987,7 @@ const (
 
 	KindExportOverwritten = "export-overwritten"
 	KindInexactPath       = "inexact-path"
+	KindRefSyntax         = "reference-syntax"
 
 	KindInertAllowFail = "inert-allow-fail"
 )
