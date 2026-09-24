@@ -188,7 +188,8 @@ them rather than describing them. The one that catches people — `not_empty` wr
 was meant — is `PITFALLS.md` §3.
 
 **The read that passed and found nothing is the version of this you cannot see by reading the
-chain.** `error.code == OK` on a `Fetch`/`List`/`Get`/`Search`/`Preview` whose body came back empty
+chain.** `error.code == OK` on a read rpc — one whose name starts with a prefix in
+`conventions.read_only_prefixes` (default list in `GRAMMAR.md`) — whose body came back empty
 is green about the opposite of what its author meant. `shrt chain hollow` reads the run records and
 names every one:
 
@@ -431,7 +432,8 @@ reverse. Curate happy first: a domain at happy-0 composes and runs, and nothing 
 failure rows changes that. The default is still every row, so a gate pinned to a baseline is
 unaffected.
 
-Read-only rpcs (`Fetch`/`List`/`Get`/`Search`) are exempt from rows 2 and 3: an unwired read filter
+Read-only rpcs (a name starting with a prefix in `conventions.read_only_prefixes`; default list in
+`GRAMMAR.md`) are exempt from rows 2 and 3: an unwired read filter
 is a filter left off, and every rpc in this corpus with no `failures:` of its own is a read that
 refuses only in the domain-wide ways. Row 6 is the mirror of that exemption and applies only to
 reads.

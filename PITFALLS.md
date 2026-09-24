@@ -527,7 +527,8 @@ this grew up against uses none of those features.
 
 ## 24. A read step that passed, and the response was empty
 
-**Symptom.** A `Fetch`/`List`/`Get`/`Search`/`Preview` step asserts `error.code == OK`, passes, and
+**Symptom.** A read step (an rpc whose name starts with a prefix in
+`conventions.read_only_prefixes`; default list in `GRAMMAR.md`) asserts `error.code == OK`, passes, and
 the body is `{"rows": []}`. The step is green, the chain is green, the sweep is green — and the step
 proved the opposite of what its author meant: the server answered, and there was nothing there.
 This is the operational shape of §19's blind spot, a chain that creates the entity but never fires
