@@ -914,6 +914,10 @@ under a redacted path as secrets, whichever step called it.
 Likewise an env credential a STEP body read (`password: ${env.CLERK_PW}` in an in-chain login) was
 path-redacted in that step but stayed in clear wherever it was echoed. Every `${env.*}` value a step
 body reads into a field covered by `redact` is now scrubbed by value in the whole record.
+The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the request field, but
+the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
+Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
+in the whole record the same way, so the proposal shows `pw=<redacted>`.
 
 ---
 

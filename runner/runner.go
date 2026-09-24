@@ -182,26 +182,32 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
-func learnMaskedEnv(redactor *pathmask.Masker, v any, path string, env func(string) (string, bool)) {
+func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, item := range t {
-			learnMaskedEnv(redactor, item, pathmask.Join(path, k), env)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope)
 		}
 	case []any:
 		for i, item := range t {
-			learnMaskedEnv(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), env)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope)
 		}
 	case string:
 		if !redactor.Masks(path) {
 			return
 		}
+		env := scope.Env
 		if env == nil {
 			env = os.LookupEnv
 		}
 		for _, name := range chain.AuthBodyEnvNames(map[string]any{"v": t}) {
 			if value, ok := env(name); ok {
 				redactor.AddSecret(value)
+			}
+		}
+		for _, ref := range chain.VarRefs(t) {
+			if value, err := scope.ResolveValue(ref); err == nil {
+				learnSecret(redactor, value)
 			}
 		}
 	}
@@ -720,7 +726,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	r.Auth.learnSecrets(redactor)
 	for _, step := range c.Steps {
 		if step != nil {
-			learnMaskedEnv(redactor, orEmpty(step.Body), "", scope.Env)
+			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
 		}
 	}
 	r.Auth.learnTokens(redactor)

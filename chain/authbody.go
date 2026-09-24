@@ -77,3 +77,16 @@ func AuthBodyEnvNames(body map[string]any) []string {
 	sort.Strings(out)
 	return out
 }
+
+func VarRefs(v any) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, ref := range collectRefs(v) {
+		if r := ParseRef(ref); r.Kind == RefVars && r.Err == nil && r.Rest != "" && !seen[r.Expr] {
+			seen[r.Expr] = true
+			out = append(out, "${"+r.Expr+"}")
+		}
+	}
+	sort.Strings(out)
+	return out
+}

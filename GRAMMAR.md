@@ -324,7 +324,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `status` | string | `passed`, `failed` or `error` — never `skipped`; that is a step status. |
 | `dry_run` | bool | True when `-dry-run` produced this record: every step resolved and validated, none was sent. `status` is still `passed` on success, so a gate that reads only `status` cannot tell a dry run from a real one — read this field too. Dry runs are never saved, so it is absent from every record under `.shrt/runs/`. |
 | `keep_going` | bool | True when `shrt run -keep-going` produced this record: steps after a failure were still run, so a later red may be a consequence of an earlier one. |
-| `vars` | map string → any | The resolved vars this run used, so a replay can be reproduced. |
+| `vars` | map string → any | The resolved vars this run used, so a replay can be reproduced. A var whose name a `redact` pattern covers is `<redacted>`, and so is the value of any var a step body reads into a field `redact` covers (`password: ${vars.pw}` with `-var pw=...`): that value is scrubbed by value from the whole record, so `shrt confirm` cannot show it either. |
 | `exports` | map string → any | Everything any step exported. |
 | `volatile` | list of string | Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record. |
 | `redacted` | list of string | Redact patterns in force. The values themselves are already masked in `request`/`response`. |
