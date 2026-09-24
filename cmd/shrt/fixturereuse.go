@@ -12,6 +12,7 @@ import (
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/transport"
 )
 
 var uniquenessConflict = regexp.MustCompile(`(?i)(already (exists?|registered|taken|in use|used)|duplicate|not unique|unique constraint|already_exists|alreadyexists|[a-z]taken\b|\btaken\b|\bconflict\b)`)
@@ -26,6 +27,7 @@ type fixtureReuse struct {
 	before []string
 	unique []string
 	chain  string
+	unsure bool
 }
 
 func (f *fixtureReuse) finding() bool {
@@ -69,14 +71,19 @@ func (f *fixtureReuse) line() string {
 			"(another chain with the same value, another client, or a shared backend)",
 			f.step, f.why, f.builtFrom())
 	}
+	held := "so the backend still holds what that run created"
+	if f.unsure {
+		held = "and whether the call took effect is unknown (it was sent and got no answer), so the backend most likely holds " +
+			"what that run created"
+	}
 	if f.chain != "" {
 		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and run %s of chain %s already sent that value, so the backend still holds what that run created",
-			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.chain)
+			"and run %s of chain %s already sent that value, %s",
+			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.chain, held)
 	}
 	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-		"and run %s of this chain already used that value, so the backend still holds what that run created",
-		f.step, f.why, strings.Join(f.vars, ", "), f.run)
+		"and run %s of this chain already sent that value, %s",
+		f.step, f.why, strings.Join(f.vars, ", "), f.run, held)
 }
 
 func (f *fixtureReuse) fresh() string {
@@ -170,7 +177,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !createdBy(prev, first.ID) {
+		if err != nil || prev.DryRun || !usedBy(prev, first.ID) {
 			continue
 		}
 		same := []string{}
@@ -182,7 +189,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			}
 		}
 		if len(same) > 0 {
-			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID}
+			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdBy(prev, first.ID)}
 		}
 	}
 	sentValues := []string{}
@@ -201,8 +208,8 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	f := &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
-	if other, run := usedByAnotherChain(e, rec, sentValues); run != "" {
-		f.chain, f.run = other, run
+	if other, run, unsure := usedByAnotherChain(e, rec, sentValues); run != "" {
+		f.chain, f.run, f.unsure = other, run, unsure
 		return f
 	}
 	if prev := previousRunSending(e, rec, first.ID); prev != nil {
@@ -267,7 +274,7 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 				}
 			}
 		}
-		if _, run := usedByAnotherChain(e, prev, sent); run != "" {
+		if _, run, _ := usedByAnotherChain(e, prev, sent); run != "" {
 			return nil
 		}
 	}
@@ -277,7 +284,7 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 			continue
 		}
 		other, err := e.store.LoadRun(rec.Chain, id)
-		if err != nil || other.DryRun || !ranBefore(other, prev) || !createdBy(other, step) {
+		if err != nil || other.DryRun || !ranBefore(other, prev) || !usedBy(other, step) {
 			continue
 		}
 		for _, n := range names {
@@ -330,13 +337,13 @@ func foldName(s string) string {
 	return b.String()
 }
 
-func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, string) {
+func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, string, bool) {
 	if len(values) == 0 {
-		return "", ""
+		return "", "", false
 	}
 	entries, err := os.ReadDir(e.store.RunsDir)
 	if err != nil {
-		return "", ""
+		return "", "", false
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -349,13 +356,23 @@ func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, st
 				continue
 			}
 			for _, st := range other.Steps {
-				if createdStep(st) && sendsAll(st, values) {
-					return other.Chain, other.RunID
+				if (createdStep(st) || sentUnknown(st)) && sendsAll(st, values) {
+					return other.Chain, other.RunID, !createdStep(st)
 				}
 			}
 		}
 	}
-	return "", ""
+	return "", "", false
+}
+
+func sentUnknown(st *runner.StepRecord) bool {
+	return st != nil && st.Status == runner.StatusError && st.HTTPStatus == 0 && len(st.Response) == 0 && len(st.Request) > 0 &&
+		(strings.Contains(st.Error, "whether the call took effect is unknown") || strings.Contains(st.Error, transport.NoAnswerBeforeTimeout))
+}
+
+func usedBy(rec *runner.Record, step string) bool {
+	st, ok := rec.Step(step)
+	return ok && (createdStep(st) || sentUnknown(st))
 }
 
 func sendsAll(st *runner.StepRecord, values []string) bool {
