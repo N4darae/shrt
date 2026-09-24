@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,9 @@ type Deps struct {
 }
 
 func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs func(transport.Event)) (*Deps, error) {
+	if names := cfg.HandWrittenAuthHeaders(); len(names) > 0 {
+		return nil, errors.New(config.HandWrittenAuthProblem(names) + ", so nothing was sent")
+	}
 	timeout := 30 * time.Second
 	if cfg.Target.Timeout != "" {
 		d, err := time.ParseDuration(cfg.Target.Timeout)

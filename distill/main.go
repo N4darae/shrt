@@ -111,7 +111,7 @@ var notes = map[string]string{
 
 	"Target.base_url":      "Scheme and host of the backend. Redirects are never followed: a 3xx answer, to the login call or any other, is a transport error naming its `Location`, so no request body, credential or token is re-sent elsewhere. Point `base_url` at the final address.",
 	"Target.host_override": "Send this as the `Host` header and the TLS `ServerName`, while connecting to `base_url`'s address. For reaching a vhost by IP without disabling verification.",
-	"Target.headers":       "Headers added to every request.",
+	"Target.headers":       "Headers added to every request. Not the auth header: when the config declares `auth`, an `Authorization` here (or any profile's `header`) is an error in `chain lint` and `shrt doctor`, and `shrt run` refuses to send anything, because it would ride on every call no profile covers (a login, `skip_auth`, `auth.skip_calls`) while the run record says `auth_profile: none`, and be overwritten on every call a profile covers. Name the principal with an auth profile instead.",
 	"Target.timeout":       "Per-request timeout, e.g. `30s`. Defaults to 30s.",
 	"Target.build_header":  "A response header in which the server reports its own build or version, e.g. `X-Server-Version`. Its value is stamped into each run record as `build`, and a value that changes mid-run is recorded as `old -> new` with a warning on the step that first saw it. `shrt run -build <label>` overrides it, and a label the header contradicts is warned about. Unset, a record says only which `base_url` answered, not which build.",
 

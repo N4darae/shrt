@@ -284,7 +284,13 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 				"\"<profile>\", whose login body reads ${env.NAME}, and env NAME is not set, so nothing was sent'.\n"+
 				"That is a fixture problem, not a backend one. Export them before 'shrt run'.")
 	}
-	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 {
+	handWritten := cfg.HandWrittenAuthHeaders()
+	if len(handWritten) > 0 {
+		r.add(CheckAuth, LevelError, config.HandWrittenAuthProblem(handWritten),
+			"'shrt run' and 'shrt chain lint' refuse it. To call as another principal, declare it under\n"+
+				"auth.profiles and name it with auth: <profile> on the step.")
+	}
+	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 && len(handWritten) == 0 {
 		r.add(CheckAuth, LevelOK,
 			fmt.Sprintf("%d auth profile(s): %s, every ${env.*} they read is set", len(names), strings.Join(names, ", ")), "")
 	}
