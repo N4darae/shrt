@@ -161,6 +161,7 @@ func freshVarsOf(e *env) func(*chain.Chain, string, string) []string {
 				return nil
 			}
 			o.Mode, o.RunID, o.Value, o.RunVars = chain.SliceModePin, rec.RunID, recordValues(rec), recordVars(rec)
+			o.Refused, o.Performed = refusedIn(rec), performedIn(rec)
 		}
 		res, err := chain.Slice(c, step, o)
 		if err != nil {

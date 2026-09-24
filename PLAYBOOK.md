@@ -855,8 +855,18 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
 5. **`-mode pin -run <id|latest>` when you want the fast reproduction, not the buildable one.**
    A producer whose only contribution was a VALUE is dropped and its value pinned into `vars:`,
    with every reference rewritten to `${vars.<name>}`. A `from` or `same_as` contract edge exists to
-   deliver a value, so it is satisfied by the pinned value; a step kept by `needs` or `before` did
-   something the target depends on and is never pinned away. A var the kept steps read that the
+   deliver a value, so it is satisfied by the pinned value. A `needs` or `before` edge names a
+   step that did something the target depends on, and pin mode leaves that to the source run: the
+   state such a WRITE created already exists in the backend, for the very ids the slice pins, so
+   re-sending it would change the state being reproduced (a second `AddStock` on the pinned
+   product, and the `ConfirmOrder` behind it sees 13 in stock instead of 5, or the write's own
+   expectation fails and the slice stops as DID NOT RUN). So when the source run performed the
+   write (its step was sent, and not refused), pin mode does not keep it: the output lists it
+   under `contract prerequisites run <id> already performed`, the description names it, and it
+   still counts as a dropped write, so a matching verdict is INCONCLUSIVE and `next:` keeps it
+   together with the producers it needs, building fresh state. A prerequisite the run did not
+   perform, or refused, is kept and sent as in closure mode, and so is a read, which changes
+   nothing. `-keep <id>` keeps it anyway. A var the kept steps read that the
    chain does not declare (one you passed with `-var` at run time) is taken from `-var`, else in pin
    mode from the source run's `vars`, and written into the slice's `vars:`. A var the chain
    declares is written with the value the source run used, not the default, in pin mode when no

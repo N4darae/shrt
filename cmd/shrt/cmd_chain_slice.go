@@ -86,6 +86,7 @@ func chainSlice(ctx context.Context, args []string) error {
 		opts.Value = recordValues(rec)
 		opts.RunVars = recordVars(rec)
 		opts.Refused = refusedIn(rec)
+		opts.Performed = performedIn(rec)
 	}
 
 	res, err := chain.Slice(c, *step, opts)
@@ -250,6 +251,13 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 	if len(res.MissingVars) > 0 {
 		fmt.Println("\nvars the kept steps read that the chain does not declare and nothing supplied; the slice")
 		fmt.Printf("cannot run without them, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
+	}
+	if len(res.Satisfied) > 0 {
+		fmt.Printf("\ncontract prerequisites run %s already performed, left to that run and not re-sent (pin mode reproduces\n"+
+			"the state that run left; re-sending a write would change it):\n", res.Run)
+		for _, sat := range res.Satisfied {
+			fmt.Printf("  %4d  %s  %s %s (declared for %s)\n", sat.Index, sat.ID, sat.Edge, sat.RPC, sat.For)
+		}
 	}
 	if len(res.Unmet) > 0 {
 		fmt.Println("\nunmet prerequisites, no earlier step calls them, so the slice may not stand alone:")
@@ -717,6 +725,18 @@ func refusedIn(rec *runner.Record) func(string) (string, bool) {
 			return fmt.Sprintf("refused: %s = %s", path, code), true
 		}
 		return "", false
+	}
+}
+
+func performedIn(rec *runner.Record) func(string) bool {
+	refused := refusedIn(rec)
+	return func(id string) bool {
+		sr, ok := rec.Step(id)
+		if !ok || (sr.Status != runner.StatusPassed && sr.Status != runner.StatusFailed) {
+			return false
+		}
+		_, wroteNothing := refused(id)
+		return !wroteNothing
 	}
 }
 

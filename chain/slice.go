@@ -54,17 +54,18 @@ func (p Prereq) Node() string {
 }
 
 type SliceOptions struct {
-	Mode    string
-	RunID   string
-	Name    string
-	RPCOf   func(*Step) string
-	Prereqs func(rpc string) []Prereq
-	Value   func(ref string) (any, bool)
-	Keep    []string
-	Vars    map[string]any
-	RunVars map[string]any
-	Refused func(stepID string) (string, bool)
-	IsLogin func(*Step) bool
+	Mode      string
+	RunID     string
+	Name      string
+	RPCOf     func(*Step) string
+	Prereqs   func(rpc string) []Prereq
+	Value     func(ref string) (any, bool)
+	Keep      []string
+	Vars      map[string]any
+	RunVars   map[string]any
+	Refused   func(stepID string) (string, bool)
+	Performed func(stepID string) bool
+	IsLogin   func(*Step) bool
 }
 
 type Keep struct {
@@ -80,6 +81,14 @@ type Pinned struct {
 	Ref      string `json:"ref"`
 	Producer string `json:"producer"`
 	Value    any    `json:"value"`
+}
+
+type Satisfied struct {
+	Index int    `json:"index"`
+	ID    string `json:"id"`
+	RPC   string `json:"rpc"`
+	Edge  string `json:"edge"`
+	For   string `json:"for"`
 }
 
 type Unmet struct {
@@ -118,6 +127,7 @@ type SliceResult struct {
 	Kept          []Keep      `json:"kept"`
 	Pins          []Pinned    `json:"pins,omitempty"`
 	Unmet         []Unmet     `json:"unmet,omitempty"`
+	Satisfied     []Satisfied `json:"satisfied_by_run,omitempty"`
 	DroppedWrites []Dropped   `json:"dropped_writes,omitempty"`
 	RefusedWrites []Dropped   `json:"dropped_refused_writes,omitempty"`
 	UnderIncluded bool        `json:"under_included"`
@@ -170,6 +180,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	unmet := []Unmet{}
+	satisfied := map[int]Satisfied{}
 	seenUnmet := map[string]bool{}
 	boundAlias := map[int]string{}
 	pinnable := func(ref string) bool {
@@ -223,6 +234,12 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			if pinnedOnly[j] && valueEdge(p.Edge) {
 				continue
 			}
+			if leftToRun(mode, p, c.Steps[j], opts) {
+				if _, done := satisfied[j]; !done {
+					satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
+				}
+				continue
+			}
 			add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
 		}
 	}
@@ -241,6 +258,12 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		res.Kept = append(res.Kept, *keeps[i])
 	}
 	res.Unmet = unmet
+	for j, sat := range satisfied {
+		if _, kept := keeps[j]; !kept {
+			res.Satisfied = append(res.Satisfied, sat)
+		}
+	}
+	sort.Slice(res.Satisfied, func(a, b int) bool { return res.Satisfied[a].Index < res.Satisfied[b].Index })
 
 	pins := map[string]string{}
 	usedVars := map[string]bool{}
@@ -475,6 +498,13 @@ func sliceDescription(res *SliceResult) string {
 	if len(res.FreshVars) > 0 {
 		fmt.Fprintf(&b, "Kept writes interpolate var(s) %s into what they create: run it with a value the backend has\nnot seen, -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
+	if len(res.Satisfied) > 0 {
+		parts := make([]string, 0, len(res.Satisfied))
+		for _, sat := range res.Satisfied {
+			parts = append(parts, fmt.Sprintf("%s (%s %s for %s)", sat.ID, sat.Edge, sat.RPC, sat.For))
+		}
+		fmt.Fprintf(&b, "Contract prerequisite write(s) run %s already performed are left to that run, not re-sent: %s.\n", res.Run, listSome(parts, 8))
+	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))
 	} else {
@@ -588,6 +618,13 @@ func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, op
 		}
 	}
 	return best, rank > 0
+}
+
+func leftToRun(mode string, p Prereq, s *Step, opts SliceOptions) bool {
+	if mode != SliceModePin || valueEdge(p.Edge) || opts.Performed == nil || !isWriteCall(s.Call) {
+		return false
+	}
+	return opts.Performed(s.ID)
 }
 
 func valueEdge(edge string) bool {
