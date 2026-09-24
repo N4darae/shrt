@@ -640,7 +640,8 @@ step's response message does not have, such as a misspelt `${create_product.prod
 request message does not declare, such as `${steps.create_order.request.id_custmer}`; so is one
 filling a numeric field with a reference whose declared type can never be a number, such as
 `qty: "${create_product.product.created_at}"` (a timestamp) into AddStock's int64 `qty`, or a bool,
-an enum or bytes. A string source, such as `.product.name`, is only a `chain lint` warning (not
+an enum or bytes; so is one filling a single-valued field with a whole list or map, such as
+`qty: "${create_order.order.lines}"`, or a list or map field with a single value. A string source, such as `.product.name`, is only a `chain lint` warning (not
 failed by `-strict`) and is sent: protojson accepts a digit string like `"5"` for an int64, and
 backends often carry numbers as strings. Refused as well is
 one whose step body the proto rejects (an unknown field, an enum value the message does not
