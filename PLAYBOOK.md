@@ -406,7 +406,7 @@ to persist after a fresh login, so evidence of a restart in either run overrides
 refused at authentication, re-sent after a fresh login and accepted (a cached token refused on its
 first use counts; such a call is never `auth refused`), the refused rpc accepting a later call after
 the fresh login, data created before the refusal gone after the re-login (a later step reading it
-refused naming its id or as not found; a list
+refused naming its id or as not found, unless the step expects that answer and passed; a list
 answered with fewer items than the same call before the refusal; a step expecting a uniqueness
 conflict with a value created before the refusal accepted instead), or a step before the refusal
 that got no answer from the service (a gateway answer, a dropped connection). Then it stays a

@@ -101,3 +101,16 @@ func TestTheSameRPCAcceptedAfterTheFreshLoginIsRestartEvidence(t *testing.T) {
 		t.Fatalf("the refused rpc accepting the fresh login's token shows the refusal did not persist: %v", loss)
 	}
 }
+
+func TestAnExpectedPassingNotFoundIsNotRestartEvidence(t *testing.T) {
+	loss := saveTwoRuns(t, func() *runner.Record {
+		missing := &runner.StepRecord{ID: "get_missing", Call: "ThingService/Get", Status: runner.StatusPassed, HTTPStatus: 200,
+			Request: json.RawMessage(`{"id":"th-4f2a9czz"}`), BodyRefs: map[string]string{"id": "${create.id}zz"},
+			Response: json.RawMessage(`{"error":{"code":"REJECTED","reason":"ThingNotFound"}}`),
+			Expect:   []chain.ExpectResult{{Path: "error.reason", Rule: "equals", Want: "ThingNotFound", Got: "ThingNotFound", Passed: true}}}
+		return restartRecord("", createdThing(), refusedFetch(), missing)
+	})
+	if loss == nil || !loss.finding() {
+		t.Fatalf("a not-found the step expects is no evidence of lost data, so a repeated refusal is a finding: %v", loss)
+	}
+}

@@ -167,7 +167,7 @@ func restartEvidence(rec *runner.Record, index int) string {
 			return fmt.Sprintf("Data created before it was gone after the re-login (step %s expected a refusal over a value created before it and was accepted)", st.ID)
 		}
 		why := stepRefusalText(st)
-		if why == "" || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
+		if why == "" || st.Status == runner.StatusPassed || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
 			continue
 		}
 		for _, value := range createdValues(rec, index, st) {
