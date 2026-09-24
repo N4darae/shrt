@@ -49,6 +49,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	responses := map[string]*catalog.Method{}
 	exports := map[string]exportOrigin{}
 	idx := newRefIndex(c)
+	methods := []*catalog.Method{}
 	for _, s := range c.Steps {
 		m, err := cat.Lookup(s.Call)
 		if err != nil {
@@ -69,6 +70,8 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
 		}
 		issues = append(issues, lintExpectPaths(s, m)...)
+		issues = append(issues, lintUnorderedStep(s, m)...)
+		methods = append(methods, m)
 		issues = append(issues, lintExports(s, m)...)
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
 		issues = append(issues, lintAuthProfile(s, opts.AuthProfiles)...)
@@ -84,6 +87,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 			knownExports[name] = true
 		}
 	}
+	issues = append(issues, lintUnorderedChain(c, methods)...)
 	return issues
 }
 
