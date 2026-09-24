@@ -32,6 +32,7 @@ type fakeServer struct {
 	inBand        bool
 	inBandPath    string
 	batchDrift    bool
+	itemKey       string
 	receiptDrift  bool
 	createRefusal string
 	issued        map[string]string
@@ -146,6 +147,12 @@ func (f *fakeServer) handle(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			results = append(results, map[string]any{"error": okError(), "amount": "1"})
+		}
+		if f.itemKey != "" {
+			for _, row := range results {
+				row[f.itemKey] = map[string]any{"code": "invalid_argument", "message": "refused"}
+				delete(row, "error")
+			}
 		}
 		out := map[string]any{"error": okError(), "results": results}
 		if f.batchDrift {

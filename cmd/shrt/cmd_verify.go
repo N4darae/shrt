@@ -98,6 +98,7 @@ func runVerify(ctx context.Context, args []string) error {
 	var rec *runner.Record
 	var c *chain.Chain
 	if *useRun != "" {
+		*useRun = store.RunID(*useRun)
 		if *useRun == spot.RunID {
 			fmt.Fprintf(os.Stderr,
 				"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+
@@ -126,6 +127,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
+		report.NoteApprovedRedact(spotRun.Redacted, rec)
+	}
 	if c != nil {
 		edited := diff.ChainChanges(spot, c)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
@@ -265,6 +269,12 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
+	}
+	if len(report.UnapprovedRedact) > 0 {
+		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; the value(s) they blanked were not compared, "+
+			"and this is not a backend change.\nRemove them from the chain and config, or, if they are intended, run the chain and propose that run\n"+
+			"in place of the safe spot so a person approves the new redaction: shrt confirm %s -supersede -note \"...\"",
+			strings.Join(report.UnapprovedRedact, ", "), name)
 	}
 	if report.Widened() {
 		return fmt.Errorf("the replay was masked with volatile pattern(s) the safe spot did not approve: %s.\n"+

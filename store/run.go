@@ -20,8 +20,11 @@ var ErrRunEdited = errors.New("the run record is not the one shrt wrote")
 var ErrRunUnsealed = errors.New("the run record predates sealed run records")
 
 func SealState(rec *runner.Record) error {
+	if rec.MalformedSeal() {
+		return ErrRunEdited
+	}
 	if rec.Seal == "" {
-		if rec.Format != 0 {
+		if rec.SealingBuildEvidence() != "" {
 			return ErrRunEdited
 		}
 		return ErrRunUnsealed
@@ -38,9 +41,9 @@ func SealState(rec *runner.Record) error {
 
 func (s *Store) vouch(path string, rec *runner.Record) error {
 	switch err := SealState(rec); {
-	case errors.Is(err, ErrRunEdited) && rec.Seal == "":
-		return fmt.Errorf("%w: %s was written by a build that seals run records (it carries record format %d) but its seal was removed, so "+
-			"it is not what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.Format)
+	case errors.Is(err, ErrRunEdited) && (rec.Seal == "" || rec.MalformedSeal()):
+		return fmt.Errorf("%w: %s was written by a build that seals run records (%s) but its seal was removed or its format altered, so "+
+			"it is not what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.SealingBuildEvidence())
 	case errors.Is(err, ErrRunEdited):
 		return fmt.Errorf("%w: %s was changed after shrt wrote it (its content no longer matches its seal %s), so it is not "+
 			"what ran and is not evidence of anything. Restore it, or run the chain again and use the new run", ErrRunEdited, path, rec.Seal)
@@ -96,9 +99,9 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 	if err := readJSON(path, disk); err != nil {
 		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
 	}
-	if disk.Seal == "" && disk.Format != 0 {
-		return fmt.Errorf("%w: %s was written by a build that seals run records (it carries record format %d) but its seal was "+
-			"removed, so it is not what ran. Run the chain again and propose the new run", ErrRunEdited, path, disk.Format)
+	if why := disk.SealingBuildEvidence(); (disk.Seal == "" || disk.MalformedSeal()) && why != "" {
+		return fmt.Errorf("%w: %s was written by a build that seals run records (%s) but its seal was removed or its "+
+			"format altered, so it is not what ran. Run the chain again and propose the new run", ErrRunEdited, path, why)
 	}
 	if disk.Seal == "" {
 		return fmt.Errorf("%w: run %s has no seal, because it was written before shrt sealed run records (or its seal was "+
@@ -116,7 +119,12 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 	return nil
 }
 
+func RunID(id string) string {
+	return strings.TrimSuffix(strings.TrimSpace(id), ".json")
+}
+
 func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
+	runID = RunID(runID)
 	if runID == "" || runID == "latest" {
 		return s.LatestRun(chainName)
 	}
@@ -186,6 +194,7 @@ func (s *Store) sortByStart(chainName string, ids []string) {
 }
 
 func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
+	runID = RunID(runID)
 	entries, err := os.ReadDir(s.RunsDir)
 	if os.IsNotExist(err) {
 		return nil, nil

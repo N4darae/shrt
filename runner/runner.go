@@ -1113,6 +1113,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
+	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
@@ -1241,6 +1242,14 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
 			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
 			"listed here that differs from a declared one only in case or separators is not read either")
+		if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
+			named := make([]string, 0, len(enums))
+			for _, e := range enums {
+				named = append(named, fmt.Sprintf("%s = %s (%s)", e.Path, e.Value, e.Enum))
+			}
+			sr.Warning = joinLines(sr.Warning, "response carries enum value(s) the descriptor does not declare, kept as sent "+
+				"rather than decoded as another value: "+strings.Join(named, ", ")+". Rebuild the descriptor ('shrt catalog build') to read them")
+		}
 	default:
 		canonical = res.Body
 		populated = res.Body
@@ -1309,6 +1318,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		default:
 			return fail(sr, itemErr)
 		}
+		refusals = withMisspeltItemVerdicts(sr, refusals, res.Body, unknown)
 		if surprises := chain.UndeclaredRefusals(refusals, boundExpect(scope, step.Expect)); len(surprises) > 0 {
 			got := make([]string, 0, len(surprises))
 			for _, r := range surprises {
@@ -1384,6 +1394,9 @@ func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	}
 	if scrubbed, ok := redactor.ScrubValue(sr.Exported).(map[string]any); ok && sr.Exported != nil {
 		sr.Exported = scrubbed
+	}
+	for k, v := range sr.Headers {
+		sr.Headers[k] = redactor.ScrubText(v)
 	}
 	sr.Error = redactor.ScrubText(sr.Error)
 	sr.Warning = redactor.ScrubText(sr.Warning)
@@ -1678,8 +1691,9 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 	missing := ""
 	for _, r := range surprises {
 		if r.Code == chain.NoItemVerdict {
-			missing = fmt.Sprintf(". A line marked %s carries no verdict at all while another line of the same "+
-				"batch carries %s explicitly, so nothing says that line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
+			missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
+				"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
+				"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
 			break
 		}
 	}
@@ -2073,6 +2087,40 @@ func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
 		return "not_empty"
 	}
 	return declared.Rule + " " + fmt.Sprint(want)
+}
+
+func withMisspeltItemVerdicts(sr *StepRecord, refusals []chain.ItemRefusal, body []byte, unknown []string) []chain.ItemRefusal {
+	if len(unknown) == 0 {
+		return refusals
+	}
+	var sent any
+	if err := json.Unmarshal(body, &sent); err != nil {
+		return refusals
+	}
+	misspelt := chain.MisspeltItemVerdicts(sent, unknown)
+	if len(misspelt) == 0 {
+		return refusals
+	}
+	listed := map[string]bool{}
+	for _, r := range refusals {
+		listed[r.Line] = true
+	}
+	lines := []string{}
+	for _, m := range misspelt {
+		lines = append(lines, fmt.Sprintf("%s carries its verdict under %s, not %s", m.Refusal.Line, m.Key, m.Want))
+		if !listed[m.Refusal.Line] {
+			refusals = append(refusals, m.Refusal)
+		}
+	}
+	sort.SliceStable(refusals, func(a, b int) bool { return itemLine(refusals[a].Line) < itemLine(refusals[b].Line) })
+	sr.Warning = joinLines(sr.Warning, strings.Join(lines, "; ")+": a key that differs from the item verdict only in case or "+
+		"separators is not read, so each such line is judged as carrying no verdict, never as a success")
+	return refusals
+}
+
+func itemLine(line string) int {
+	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
+	return n
 }
 
 func unknownHoldsAVerdict(unknown []string) bool {
