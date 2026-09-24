@@ -1181,7 +1181,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	case len(unknown) > 0:
 		sr.Warning = joinLines(sr.Warning, "response carries field(s) "+string(method.Output().FullName())+
 			" does not declare, discarded before the expectations ran: "+strings.Join(unknown, ", ")+
-			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it")
+			". An added field is backward compatible; rebuild the descriptor ('shrt catalog build') to read it. "+
+			"A field is read only under its proto name or its JSON name, exactly as protojson reads it, so a name "+
+			"listed here that differs from a declared one only in case or separators is not read either")
 	default:
 		canonical = res.Body
 		populated = res.Body

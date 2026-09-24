@@ -67,10 +67,24 @@ func LookupKey(m map[string]any, key string) (string, bool) {
 		return key, true
 	}
 	folded := Fold(key)
+	found, n := "", 0
 	for k := range m {
-		if Fold(k) == folded {
-			return k, true
+		if Fold(k) == folded && protojsonName(k) {
+			found, n = k, n+1
 		}
 	}
-	return "", false
+	if n != 1 {
+		return "", false
+	}
+	return found, true
+}
+
+func protojsonName(k string) bool {
+	if k == "" || (k[0] >= 'A' && k[0] <= 'Z') || strings.Contains(k, "-") {
+		return false
+	}
+	if strings.Contains(k, "_") {
+		return strings.ToLower(k) == k
+	}
+	return true
 }
