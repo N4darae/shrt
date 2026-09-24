@@ -36,6 +36,7 @@ type Record struct {
 	Failure     string         `json:"failure,omitempty"`
 	FailedSteps []string       `json:"failed_steps,omitempty"`
 	Warning     string         `json:"warning,omitempty"`
+	Seal        string         `json:"seal,omitempty"`
 }
 
 func (s *StepRecord) AssertionFailed() bool {

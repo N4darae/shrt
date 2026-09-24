@@ -1,6 +1,10 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,12 +15,60 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
+var ErrRunEdited = errors.New("the run record is not the one shrt wrote")
+
 func (s *Store) SaveRun(rec *runner.Record) (string, error) {
 	path := s.runPath(rec.Chain, rec.RunID)
+	seal, err := runSeal(rec)
+	if err != nil {
+		return "", err
+	}
+	rec.Seal = seal
 	if err := writeJSON(path, rec); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+func runSeal(rec *runner.Record) (string, error) {
+	unsealed := *rec
+	unsealed.Seal = ""
+	raw, err := json.Marshal(&unsealed)
+	if err != nil {
+		return "", err
+	}
+	var back runner.Record
+	if err := json.Unmarshal(raw, &back); err != nil {
+		return "", err
+	}
+	back.Seal = ""
+	canonical, err := json.Marshal(&back)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])[:32], nil
+}
+
+func (s *Store) checkSealed(rec *runner.Record) error {
+	path := s.runPath(rec.Chain, rec.RunID)
+	disk := &runner.Record{}
+	if err := readJSON(path, disk); err != nil {
+		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
+	}
+	if disk.Seal == "" {
+		return fmt.Errorf("%w: run %s has no seal, so an edit to it cannot be ruled out: it was written before run "+
+			"records were sealed, or its seal was removed. Run the chain again and propose the new run", ErrRunEdited, rec.RunID)
+	}
+	seal, err := runSeal(disk)
+	if err != nil {
+		return err
+	}
+	if seal != disk.Seal || recordDigest(disk) != recordDigest(rec) {
+		return fmt.Errorf("%w: %s was changed after shrt wrote it (its content no longer matches its seal %s), so it "+
+			"is not what ran. Run the chain again and propose the new run", ErrRunEdited, path, disk.Seal)
+	}
+	return nil
 }
 
 func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
