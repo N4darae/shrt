@@ -1,0 +1,79 @@
+package yamlkey
+
+import (
+	"errors"
+	"fmt"
+	"reflect"
+	"regexp"
+	"strings"
+
+	"github.com/N4darae/shrt/namecase"
+	"gopkg.in/yaml.v3"
+)
+
+var unknownField = regexp.MustCompile(`^line (\d+): field (.+) not found in type (\S+)$`)
+
+func Explain(err error, into any) error {
+	var typeErr *yaml.TypeError
+	if !errors.As(err, &typeErr) {
+		return err
+	}
+	keys := map[string][]string{}
+	collect(reflect.TypeOf(into), keys, map[reflect.Type]bool{})
+	said := make([]string, 0, len(typeErr.Errors))
+	for _, e := range typeErr.Errors {
+		m := unknownField.FindStringSubmatch(e)
+		if m == nil {
+			said = append(said, e)
+			continue
+		}
+		line := fmt.Sprintf("unknown key %q at line %s", m[2], m[1])
+		if near := namecase.Closest(m[2], keys[m[3]], 1); len(near) > 0 {
+			line += fmt.Sprintf(" (did you mean %q?)", near[0])
+		}
+		said = append(said, line)
+	}
+	return errors.New(strings.Join(said, "; "))
+}
+
+func collect(t reflect.Type, keys map[string][]string, seen map[reflect.Type]bool) {
+	for t != nil && (t.Kind() == reflect.Pointer || t.Kind() == reflect.Slice || t.Kind() == reflect.Array || t.Kind() == reflect.Map) {
+		t = t.Elem()
+	}
+	if t == nil || t.Kind() != reflect.Struct || seen[t] {
+		return
+	}
+	seen[t] = true
+	keys[t.String()] = fieldKeys(t, keys, seen)
+}
+
+func fieldKeys(t reflect.Type, keys map[string][]string, seen map[reflect.Type]bool) []string {
+	out := []string{}
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		tag := f.Tag.Get("yaml")
+		name, opts, _ := strings.Cut(tag, ",")
+		if name == "-" {
+			continue
+		}
+		collect(f.Type, keys, seen)
+		if strings.Contains(opts, "inline") {
+			inner := f.Type
+			if inner.Kind() == reflect.Pointer {
+				inner = inner.Elem()
+			}
+			if inner.Kind() == reflect.Struct {
+				out = append(out, fieldKeys(inner, keys, seen)...)
+			}
+			continue
+		}
+		if !f.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = strings.ToLower(f.Name)
+		}
+		out = append(out, name)
+	}
+	return out
+}

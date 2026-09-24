@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -511,7 +512,7 @@ func decodeStrict(raw []byte, into any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return yamlkey.Explain(err, into)
 	}
 	var extra yaml.Node
 	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {

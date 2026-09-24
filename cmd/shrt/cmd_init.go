@@ -71,6 +71,9 @@ func runInit(ctx context.Context, args []string) error {
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
+	if err != nil && !wroteConfig {
+		return fmt.Errorf("%s does not parse, so init stopped: %w\n%s", rel(root, cfgPath), err, brokenConfigAdvice)
+	}
 	if err != nil {
 		return err
 	}

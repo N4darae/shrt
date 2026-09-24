@@ -242,7 +242,8 @@ func render() ([]byte, error) {
 	b.WriteString("Why this file exists: the loaders reject unknown keys (`KnownFields(true)`), but only since\n")
 	b.WriteString("2026-09-11. Before that a misspelled key was silently dropped and `lint` still said `ok` —\n")
 	b.WriteString("`one_of:` instead of a real rule meant a step asserted nothing while reading as checked.\n")
-	b.WriteString("A key not in this file does not exist.\n\n")
+	b.WriteString("A key not in this file does not exist; the loader names it with its line and the nearest real key:\n")
+	b.WriteString("`unknown key \"expects\" at line 16 (did you mean \"expect\"?)`.\n\n")
 	b.WriteString("A `+` in the `req` column means the key has no `omitempty`: it is always written out, and a\n")
 	b.WriteString("scaffold leaves it present-but-empty rather than absent.\n\n")
 

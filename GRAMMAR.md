@@ -6,7 +6,8 @@
 Why this file exists: the loaders reject unknown keys (`KnownFields(true)`), but only since
 2026-09-11. Before that a misspelled key was silently dropped and `lint` still said `ok` —
 `one_of:` instead of a real rule meant a step asserted nothing while reading as checked.
-A key not in this file does not exist.
+A key not in this file does not exist; the loader names it with its line and the nearest real key:
+`unknown key "expects" at line 16 (did you mean "expect"?)`.
 
 A `+` in the `req` column means the key has no `omitempty`: it is always written out, and a
 scaffold leaves it present-but-empty rather than absent.

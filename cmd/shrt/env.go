@@ -48,14 +48,17 @@ func loadEnv(withCatalog bool) (*env, error) {
 	return e, nil
 }
 
+const brokenConfigAdvice = "fix that line in the file. Plain 'shrt init' would not help: it keeps an existing config and " +
+	"stops on this same error. 'shrt init -force-config' rebuilds it from defaults, discarding your auth, " +
+	"conventions and volatile paths"
+
 func configLoadError(wd string, err error) error {
 	root, derr := config.Discover(wd)
 	if derr != nil {
 		return fmt.Errorf("%w\nrun 'shrt init' first", err)
 	}
 	return fmt.Errorf("%s exists but does not parse, so nothing was read from it: %w\n"+
-		"fix that line in the file; 'shrt init' would not help, it writes a fresh config and does not repair this one",
-		filepath.Join(root, config.DirName, config.FileName), err)
+		"%s", filepath.Join(root, config.DirName, config.FileName), err, brokenConfigAdvice)
 }
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }
