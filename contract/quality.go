@@ -310,14 +310,13 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 	}
 
 	declaredResponse := map[string]bool{}
-	for key := range c.Exports {
-		declaredResponse[headSegment(key)] = true
-	}
-	for key := range c.Terminal {
-		declaredResponse[headSegment(key)] = true
-	}
-	for key := range c.SoftSignals {
-		declaredResponse[headSegment(key)] = true
+	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
+		for key, why := range section {
+			if IsTodo(why) {
+				continue
+			}
+			declaredResponse[headSegment(key)] = true
+		}
 	}
 	undeclaredResponse := []string{}
 	for _, name := range shape.ResponseFields {

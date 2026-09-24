@@ -461,7 +461,7 @@ the receipt. What the pair of them measures now, and what each term is worth:
 | 6 | 2 | happy | a READ rpc no write rpc can reach — unless `no_producer:` says why |
 | 7 | 2 | happy | an rpc with request fields and an empty `required:` — `NONE`, alone, says the server rejects nothing |
 | 8 | 1 | failure | an id wired by `from`/`same_as`/`value` with no `checked_by:` |
-| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` |
+| 9 | 1 | happy | a response field named in no `exports:`, `terminal:` or `soft_signals:` — an entry whose description is a `TODO` names nothing |
 | 10 | 1 | failure | a failure with no `when:`, `unreachable:` or `pending_deploy:` |
 | 11 | 2 | happy | a unary rpc in the catalog that no overlay covers: it is scored as an empty entry (rows 1-10 as they apply) plus this row, so deleting an overlay or an entry raises the score instead of lowering it |
 | — | — | — | codes the backend raises that no contract declares at all |

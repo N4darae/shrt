@@ -337,7 +337,9 @@ was simply not measured, and deleting a whole overlay left the gate green at its
 `contract lint` still checks only what is written — it says `ok` for the overlays that remain — so
 the gate that catches lost coverage is `quality -gate`, and `contract status -gaps` lists each
 uncovered rpc as `no contract`. An unfilled `TODO` is not
-charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points. Same three
+charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points; so
+does a `TODO` as the description of an `exports:`, `terminal:` or `soft_signals:` entry, which until
+2026-09-24 still counted as declaring the field. Same three
 files, re-measured: the real contract **0**, the two blind overlays **4** and **1**, the bare
 scaffold **56**. The development repo's `scripts/contract-quality.py` also exits 2 instead of 0 when it walks zero Go files
 or finds zero `errmsg.New` sites — run from a copy outside the backend it used to report `0
