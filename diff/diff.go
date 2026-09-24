@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -89,7 +90,7 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
-	if spot.Target != rec.Target {
+	if !config.SameTarget(spot.Target, rec.Target) {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
 	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)

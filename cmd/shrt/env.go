@@ -71,7 +71,7 @@ func (e *env) targetURL() string {
 
 func (e *env) otherTarget(recorded string) bool {
 	now := e.targetURL()
-	return recorded != "" && now != "" && strings.TrimRight(recorded, "/") != now
+	return recorded != "" && now != "" && !config.SameTarget(recorded, now)
 }
 
 func (e *env) knownChain(name string) error {

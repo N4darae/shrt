@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 )
@@ -92,7 +93,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
 	}
-	if a.Target != b.Target {
+	if !config.SameTarget(a.Target, b.Target) {
 		rep.TargetA, rep.TargetB = a.Target, b.Target
 	}
 	if a.Build != b.Build {
