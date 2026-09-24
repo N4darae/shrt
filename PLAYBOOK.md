@@ -542,7 +542,9 @@ because a check that cannot run must fail, and you write the equivalent for your
 The score itself can be gated as a **ratchet** with `shrt contract quality -gate -baseline <file>`:
 it fails if the score rises, and also if it falls without the baseline being lowered, so improving
 a contract means lowering the number in the file. `shrt chain hollow -gate -baseline <file>` does
-the same for hollow reads. That is what stops an N-of-N score from meaning less each time the
+the same for hollow reads. A baseline file that does not exist fails the gate with the command
+that creates it with today's count (`echo <n> > <file>`; or write 0, run the gate once, and write
+the number it reports). That is what stops an N-of-N score from meaning less each time the
 backend grows.
 
 What no term can see is an INCOMPLETE `needs:`. Row 6 above catches a read that nothing at all
