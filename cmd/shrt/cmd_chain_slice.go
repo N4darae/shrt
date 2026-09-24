@@ -377,6 +377,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("    %4d  %-*s  %-*s  %s\n", d.Index, dropW, d.ID, callW, shortCall(d.Call), d.Reason)
 		}
 	}
+	printSlicePins(res)
 	fmt.Printf("\n%d of %d steps\n", len(res.Kept), res.Total)
 	if !verdict.settled() {
 		fmt.Printf("%s\n", hypothesisLine)
@@ -387,6 +388,30 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 	if verdict != nil {
 		fmt.Println()
 		fmt.Print(verdict.text())
+	}
+}
+
+func printSlicePins(res *chain.SliceResult) {
+	carried := 0
+	if res.Chain != nil {
+		carried = len(res.Chain.KeptRed)
+	}
+	if carried == 0 && len(res.DroppedPins) == 0 {
+		return
+	}
+	dropped := make([]string, 0, len(res.DroppedPins))
+	for _, k := range res.DroppedPins {
+		dropped = append(dropped, k.Step+" "+k.Path)
+	}
+	switch {
+	case carried > 0 && len(dropped) == 0:
+		fmt.Printf("\nkept_red: the slice carries all %d pin(s) of %s, so it is kept red on the same defect\n", carried, res.Source)
+	case carried > 0:
+		fmt.Printf("\nkept_red: the slice carries %d pin(s) of %s, on the steps it keeps, and drops %d on steps it does not keep: %s\n",
+			carried, res.Source, len(dropped), strings.Join(dropped, ", "))
+	default:
+		fmt.Printf("\nkept_red: %s pins only steps this slice does not keep (%s), so the slice carries no kept_red: if it fails, "+
+			"it fails every run of it, and every gate that runs it\n", res.Source, strings.Join(dropped, ", "))
 	}
 }
 

@@ -139,6 +139,7 @@ type SliceResult struct {
 	FilledVars    []FilledVar `json:"filled_vars,omitempty"`
 	MissingVars   []string    `json:"missing_vars,omitempty"`
 	FreshVars     []string    `json:"fresh_vars,omitempty"`
+	DroppedPins   []Pin       `json:"dropped_kept_red,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
 	NotReproduced string      `json:"not_reproduced,omitempty"`
 	Build         string      `json:"verify_build,omitempty"`
@@ -353,8 +354,17 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		Volatile:    append([]string{}, c.Volatile...),
 		Redact:      append([]string{}, c.Redact...),
 	}
+	kept := map[string]bool{}
 	for _, i := range order {
 		out.Steps = append(out.Steps, rewriteStep(c.Steps[i], pins))
+		kept[c.Steps[i].ID] = true
+	}
+	for _, k := range c.KeptRed {
+		if kept[k.Step] {
+			out.KeptRed = append(out.KeptRed, k)
+		} else {
+			res.DroppedPins = append(res.DroppedPins, k)
+		}
 	}
 	existing := []*Step{}
 	if mode == SliceModePin {
