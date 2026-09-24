@@ -422,6 +422,11 @@ null, `0`, `undefined`, a number where a string was, or disappeared, is reported
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 
+A value under a `redact` path (§1, §4) is blanked to `<redacted>` in the safe spot and the replay
+alike, so it is never compared: a change there is invisible to verify. Verify does not fail on it;
+it counts those values and names each one (`N redacted response value(s) ... never compared`), and
+`shrt confirm` lists them before approval, so redact only what must not be stored.
+
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
 request value the chain builds from another step's output or from `${uuid}` / `${now}` differs
