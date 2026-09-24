@@ -546,6 +546,9 @@ func (v *sliceVerdict) text() string {
 		fmt.Fprintf(&b, "  slice:  step %s was never sent, so there is no verdict to compare\n", v.Step)
 	} else {
 		fmt.Fprintf(&b, "  slice:  status %s, %s %q%s\n", v.Replay.Status, v.EnvelopePath, v.Replay.ErrorCode, refusalText(v.Replay))
+		for _, line := range failedExpectLines(v.Source, v.Replay) {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
 	}
 	for _, d := range v.Differences {
 		fmt.Fprintf(&b, "  %s\n", d)
@@ -570,6 +573,44 @@ func (v *sliceVerdict) text() string {
 		}
 	}
 	return b.String()
+}
+
+func failedExpectLines(source, replay chain.Verdict) []string {
+	out := []string{}
+	used := map[int]bool{}
+	for _, e := range source.Expect {
+		if e.Passed {
+			continue
+		}
+		got := "not evaluated"
+		for i, r := range replay.Expect {
+			if !used[i] && r.Path == e.Path && r.Rule == e.Rule {
+				used[i] = true
+				got = "got=" + quoted(r.Got)
+				if r.Passed {
+					got += " (held)"
+				}
+				break
+			}
+		}
+		out = append(out, fmt.Sprintf("failed: %s %s want=%s source got=%s, slice %s", e.Path, e.Rule, quoted(e.Want), quoted(e.Got), got))
+	}
+	for i, r := range replay.Expect {
+		if !r.Passed && !used[i] {
+			out = append(out, fmt.Sprintf("failed in the slice only: %s %s want=%s got=%s", r.Path, r.Rule, quoted(r.Want), quoted(r.Got)))
+		}
+	}
+	return out
+}
+
+func quoted(v any) string {
+	if text, ok := v.(string); ok && (text == "" || strings.TrimSpace(text) != text) {
+		return strconv.Quote(text)
+	}
+	if v == nil {
+		return "(absent)"
+	}
+	return fmt.Sprint(v)
 }
 
 func refusalText(v chain.Verdict) string {
