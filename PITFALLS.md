@@ -639,11 +639,11 @@ for a gate, and the gate is what a team copies out of the docs.
 
 **Fix.** `shrt chain lint -strict` promotes the assertion-quality warnings to errors and exits
 non-zero: an assertion that cannot fail (the kinds still reported as warnings, such as an enum
-comparison every value satisfies), a step asserting nothing, a reference nothing can produce, an
-export reading a field the response does not have, and an `allow_fail` on a step with
-expectations, where it does nothing. An expect path that can never match is not on that list
-because it needs no promoting: it is an error with or without `-strict` (§36), and so is
-`exists: false` on a path the message has no field for. It has
+comparison every value satisfies), a step asserting nothing, a reference nothing can produce,
+and an `allow_fail` on a step with expectations, where it does nothing. An expect path that can
+never match is not on that list because it needs no promoting: it is an error with or without
+`-strict` (§36), and so are `exists: false` on a path the message has no field for and an export
+reading a field the response does not have (the run fails that step). It has
 existed since the flag was added, but no document mentioned it, so an adopter reading the four docs
 end to end would not learn it was there — one did not, and wired up the weak gate. The development
 repo's `scripts/check.sh` runs the strict form. Since 2026-09-22 the non-strict run also prints, after the warnings, that
