@@ -21,6 +21,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `description` | string |  | What state this chain reproduces, for the next reader. |
 | `vars` | map string → any |  | Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var. |
 | `volatile` | list of string |  | Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value. |
+| `unordered` | list of string |  | Response lists `shrt verify` compares as a multiset in every step that has them, paired by content rather than position, for an rpc that promises no order. A path names the list without indices (`products`, `orders.lines`). Expectations still read the list as sent. |
 | `redact` | list of string |  | Paths blanked in the run record: in each step's request and response, in `vars` and exports, and in each expectation's `want` and `got`. A value exported from a redacted path is also scrubbed wherever else it appears (see `redact` in §2). A redacted response value is blanked in the safe spot and in every replay alike, so `shrt verify` and `shrt diff` never compare it: `confirm` lists those fields under **Redacted, never compared by `shrt verify`**, and `verify` counts them and names each one (`redacted`, `redacted_paths` under `-json`) without failing. Redact only what must not be stored; a business field redacted here is a field no safe spot guards, so assert it in the chain if it matters. |
 | `steps` | list of step | + | Ordered. Never reordered or parallelised, and never skipped except as `-keep-going` records it. |
 | `kept_red` | list of pin |  | Pins a known defect this chain is kept red on purpose to show: WHERE it fails (a step) and HOW (an expectation path on that step, optionally the value it got). `shrt run` then exits 0 when the chain fails exactly as pinned — every pinned expectation failed, with the pinned `got` when one is given, and no other step or expectation failed — and exits 1 when it fails anywhere else or differently (a regression in an earlier step, a pinned path that held, another value), or passes, which says the defect is gone. An `error` run still exits 3. The run record keeps `status: failed` and says which in `kept_red`, so such a run is never proposed as a safe spot. Each entry must name a step of this chain and a path one of its expectations asserts, or the chain does not load. A CI gate needs no list of red chains beside it: every `shrt run` must exit 0. |
@@ -40,6 +41,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `skip_auth` | bool |  | Attach no auth header. For the probe "a missing token is refused". A login step does not need it: a call to a configured login rpc (or one listed in `auth.skip_calls`) never carries a token, and its run record says `auth_profile: none`. |
 | `allow_fail` | bool |  | Tolerate the backend REFUSING this call, when a later step depends on the attempt rather than the outcome: a step the backend refused at the transport level (a Connect error) does not stop the chain, provided it declares no expectation — a refusal leaves every expectation unevaluated, and an unevaluated expectation is never tolerated. An in-band refusal whose expectations hold is simply `passed` and needs no key. It covers nothing else — not a failed expectation, not an expectation a transport error left unevaluated, not drift, not a step whose status is `error` — and every one of those still stops the run. One more case slips through: a step answered 200 whose `export` path is missing is `failed` with no failed expectation, and `allow_fail` lets the chain go on past it. To see what lies beyond a step that does not pass, use `shrt run -keep-going`, not this key. A step MEANT to be refused at the transport level asserts which refusal with `transport.*` and needs no key. On a step that declares any expectation it does nothing, and `chain lint` warns `inert-allow-fail`, which `-strict` fails. |
 | `volatile` | list of string |  | Volatile paths for this step only, added to the chain's. |
+| `unordered` | list of string |  | Unordered lists for this step only, added to the chain's (see `unordered` above and §7). |
 
 ### Expectation — exactly one rule per entry (lint-enforced since 2026-09-11)
 
@@ -368,6 +370,7 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 | `warning` | string | Non-fatal note from the runner: a stale descriptor, a build change mid-run, or a step that declares no expect but was refused in-band (the envelope code is not `envelope_ok`) or answered with no verdict, which stays `passed` with a warning saying so. |
 | `note` | string | Runner commentary, e.g. that a login seeded a profile's token — or did NOT, because it sent other credentials than that profile's `body`. A login seeds a profile only when its request equals that profile's resolved body, so a chain that logs in as someone else never changes whose token later steps carry. |
 | `volatile` | list of string | Step-level volatile patterns. |
+| `unordered` | list of string | The chain's and the step's `unordered` lists, as the run applied them. |
 | `drift` | bool | The response did not match its proto message while `conventions.validate_output` was on. The step is `failed`, not `error`: the request was sent and answered. No expectation was evaluated, so nothing in this step is evidence about the rpc — rebuild the descriptor first. `allow_fail` does not swallow a step carrying it. |
 
 ### Each entry of a step's `expect`
@@ -440,8 +443,16 @@ is reported as `changed` at that path, naming the step and path that set the ren
 renaming is applied inside every other string before it is compared: a message that names a renamed
 id (`not enough stock for prd-847c…` against `… prd-b770…`) is equal, and counted with the masked
 ids, when the only difference is that id (a string id of at least 4 characters the renaming mapped
-one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'s warning apply it too. A list whose
-order is not stable across runs pairs ids by position, so declare it `volatile`. `shrt verify
+one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'s warning apply it too. A list
+whose order the rpc does not promise (a listing sorted by nothing) is declared `unordered: [products]`, on
+the step or the chain: verify then compares it as a multiset, pairing each item of the replay with the
+safe spot item it most resembles (equal values, and ids already renamed by earlier steps) rather
+than by position, so ids inside it are renamed by content and a changed item is still drift. A path
+names the list without indices (`orders.lines` for every order's lines). Without the declaration, a
+list that holds the safe spot's items in another order is still drift, but verify says so (`same
+items in another order`), names the declaration, and fails with `order changed` instead of
+`regression` when that is every change. Expectations are not affected: `products.0` is still the
+first item as sent. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 

@@ -59,10 +59,13 @@ type Report struct {
 	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
 	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
 	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
+	Reordered          []string `json:"reordered_lists,omitempty"`
 
-	inputSeparated bool
-	compared       []comparedStep
-	renames        [][2]string
+	inputSeparated    bool
+	compared          []comparedStep
+	renames           [][2]string
+	reorderCandidates []stepPath
+	reordered         []stepPath
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 }
@@ -88,6 +91,12 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 }
 
 func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
+	rep := compareMasking(spot, rec, extra, nil)
+	rep.noteReordered(spot, rec, extra, nil, nil)
+	return rep
+}
+
+func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, assumed map[string][]string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
 	if spot.Target != rec.Target {
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
@@ -157,7 +166,28 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 		if everyFieldMasked(stepMask, want.Response) && everyFieldMasked(stepMask, got.Response) {
 			rep.FullyMasked = append(rep.FullyMasked, want.ID)
 		}
-		for _, c := range compareStep(want, got) {
+		a, errA := decode(want.Response)
+		b, errB := decode(got.Response)
+		var stepChanges []Change
+		if errA != nil || errB != nil {
+			stepChanges = compareStep(want, got)
+		} else {
+			known := renamer(idRenames(idPairs))
+			declared := unorderedSet(want.Unordered, got.Unordered, assumed[want.ID])
+			if len(declared) > 0 {
+				b = reorderUnordered(a, b, "", declared, known)
+			}
+			if assumed == nil {
+				reorderCandidates(a, b, "", declared, known, func(p string) {
+					rep.reorderCandidates = append(rep.reorderCandidates, stepPath{want.ID, p})
+				})
+			}
+			walk(a, b, "", func(c Change) {
+				c.Step = want.ID
+				stepChanges = append(stepChanges, c)
+			})
+		}
+		for _, c := range stepChanges {
 			switch {
 			case c.Path != "response" && maskedAt(stepMask, c):
 				rep.VolatileMasked++
@@ -173,11 +203,9 @@ func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *R
 				rep.Changes = append(rep.Changes, c)
 			}
 		}
-		if a, errA := decode(want.Response); errA == nil {
-			if b, errB := decode(got.Response); errB == nil {
-				collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
-				rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, mask: stepMask})
-			}
+		if errA == nil && errB == nil {
+			collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
+			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, mask: stepMask})
 		}
 	}
 	rep.applyRenaming(idPairs)
@@ -852,6 +880,7 @@ func (r *Report) Text() string {
 	if r.FirstFailure != "" {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
 	}
+	b.WriteString(r.reorderedText())
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
 		step := c.Step

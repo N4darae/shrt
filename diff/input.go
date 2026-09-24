@@ -14,6 +14,12 @@ type Fixtures struct {
 }
 
 func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
+	requests := append([]Change{}, r.RequestChanges...)
+	r.separateInput(spot, rec, extra, fx)
+	r.noteReordered(spot, rec, extra, &fx, requests)
+}
+
+func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
 	fixture := fx.Named
 	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)

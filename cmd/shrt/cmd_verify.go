@@ -216,6 +216,11 @@ func runVerify(ctx context.Context, args []string) error {
 			"Check the credentials against the ones it was confirmed with; to turn principal checking on, propose a passing run in its place:\n"+
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
 	}
+	if report.OnlyReordered() {
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n"+
+			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
+			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "))
+	}
 	if !report.Clean() {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", len(report.Changes))
 	}

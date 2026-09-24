@@ -70,6 +70,7 @@ type StepRecord struct {
 	Warning       string               `json:"warning,omitempty"`
 	Note          string               `json:"note,omitempty"`
 	Volatile      []string             `json:"volatile,omitempty"`
+	Unordered     []string             `json:"unordered,omitempty"`
 	Drift         bool                 `json:"drift,omitempty"`
 
 	serverBuild string

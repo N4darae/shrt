@@ -790,7 +790,10 @@ and never says the chain file is not what differs. An expectation added, removed
 approval is a `chain differs ... <step> expect (...)` line: it explains a status change at that
 step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
-it `volatile`.
+it `volatile`. A list whose order the rpc does not promise is declared `unordered: [products]` on
+the step (or the chain): verify compares it as a multiset, pairing items by content. Without the
+declaration, the same items in another order are reported as `same items in another order`, and
+when that is every change verify fails with `order changed`, not `regression`.
 
 Three things that decide whether this works for a given chain:
 

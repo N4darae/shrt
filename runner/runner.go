@@ -874,6 +874,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			dead = sr
 		}
 	}
+	for i, sr := range rec.Steps {
+		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
+			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
+		}
+	}
 	for at, ids := range repeats {
 		quoted := make([]string, 0, len(ids))
 		for _, id := range ids {
