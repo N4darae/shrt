@@ -236,9 +236,28 @@ func looksVolatile(path string, a, b any) bool {
 		strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
 		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelSuffix(key, "At"), camelSuffix(key, "Time"),
 		camelIDPrefix(key):
-		return true
+		return sameShape(a, b)
 	}
 	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString)
+}
+
+var alnumRun = regexp.MustCompile(`[A-Za-z0-9]+`)
+
+func sameShape(a, b any) bool {
+	if x, ok := a.(float64); ok {
+		y, ok := b.(float64)
+		return ok && x != 0 && y != 0
+	}
+	x, ok1 := a.(string)
+	y, ok2 := b.(string)
+	if !ok1 || !ok2 || x == "" || y == "" {
+		return false
+	}
+	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString) {
+		return true
+	}
+	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
+	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && hasDigit(x) == hasDigit(y)
 }
 
 func lastKey(path string) string {

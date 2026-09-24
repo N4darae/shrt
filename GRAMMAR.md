@@ -397,7 +397,10 @@ integer type and both decode to the same float64.
 Beyond `volatile`, verify also masks values that differ every run by shape: a changed value
 whose field name is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `*Id`, `*_at`, `*At`, `*_time`,
 `token`, `idempotency_key`, ...), or where both values are timestamps or both are UUIDs, is not
-reported; the report says how many it masked. In this example 2 value(s) were masked. Declare
+reported; the report says how many it masked. In this example 2 value(s) were masked. A name alone
+is not enough: both values must look alike, two non-zero numbers or two non-empty strings of the
+same shape (`ord-819dac5f23ba` and `ord-0123456789ab`). An id that became `""`, null, `0`, `undefined`,
+a number where a string was, or disappeared, is reported. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints

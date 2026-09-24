@@ -671,7 +671,9 @@ Three things that decide whether this works for a given chain:
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
   and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
-  UUID, an RFC 3339 time), counting how many it did not report. Anything else that differs every
+  UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
+  alike (two non-zero numbers, or two non-empty strings of the same shape): an id that became
+  `""`, null, `0`, `undefined` or a different JSON kind, or disappeared, is reported. Anything else that differs every
   run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
   replay reports a regression that is not one. The price is that a wrong id that is still
   id-shaped is not caught by `verify`; assert on it if it matters. This is per-chain work and it is why paving the corpus is not a bulk
@@ -695,7 +697,9 @@ not the other (a step `-keep-going` held back as `skipped` counts as not reached
 differences in steps both reached. It masks the `volatile` patterns stored in each record plus the
 ones in today's config and chain file, so a pattern you add after the runs still applies. It also
 masks ids and timestamps, which differ every run: a field named `id`, `*_id`, `id_*` or the
-camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values. Values derived
+camelCase forms, a `*_at` or `*_time` field, and any pair of uuid or RFC3339 values, as long as
+both values look alike: an id that became empty, null, `0`, `undefined` or another JSON kind is
+shown. Values derived
 from a run tag (a sku, an email) are not ids; declare them `volatile`. An id inside a longer string
 (an error message naming the product) is not masked either; declare that path volatile too, knowing
 it also hides a genuine change of that message. The report says how many values it hid, and names
