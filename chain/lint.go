@@ -555,8 +555,9 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 		if !catalog.HasResponsePath(schema.Fields, SplitPath(path)) {
 			issues = append(issues, Issue{
 				Step:     s.ID,
-				Severity: SeverityWarn,
-				Kind:     KindBadExport, Message: fmt.Sprintf("export %q reads %q which is not a field of %s", name, path, m.Output().FullName()),
+				Severity: SeverityError,
+				Kind:     KindBadExport, Message: fmt.Sprintf("export %q reads %q which is not a field of %s, so shrt run "+
+					"fails this step when the path is missing from the response", name, path, m.Output().FullName()),
 			})
 		}
 	}
