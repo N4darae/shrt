@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -188,6 +189,10 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 	for _, c := range chains {
 		for _, s := range c.Steps {
 			for _, e := range s.Expect {
+				e, envelopeRef := bindVars(e, c.Vars)
+				if envelopeRef {
+					continue
+				}
 				if declaresRefusalExpectation(e) {
 					out[stepKey(c.Name, s.ID)] = true
 					break
@@ -203,6 +208,29 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 		}
 	}
 	return out
+}
+
+var varRef = regexp.MustCompile(`^\$\{\s*vars\.([A-Za-z0-9_-]+)\s*\}$`)
+
+func bindVars(e chain.Expectation, vars map[string]any) (chain.Expectation, bool) {
+	bind := func(v any) (any, bool) {
+		text, ok := v.(string)
+		if !ok || !strings.Contains(text, "${") {
+			return v, false
+		}
+		if m := varRef.FindStringSubmatch(text); m != nil {
+			if bound, ok := vars[m[1]]; ok {
+				return bound, false
+			}
+		}
+		return v, true
+	}
+	var unbound, u bool
+	e.Equals, u = bind(e.Equals)
+	unbound = unbound || u
+	e.NotEqual, u = bind(e.NotEqual)
+	unbound = unbound || u
+	return e, unbound && strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath()
 }
 
 func BodyIsEmpty(response json.RawMessage) bool {

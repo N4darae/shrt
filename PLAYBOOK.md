@@ -200,7 +200,10 @@ shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there 
 
 Fix one by asserting what the read should have found. A probe that pins a non-OK envelope value (or
 `not_equal` the OK value), and a read asserting `<list>.0 exists: false`, already say an empty body
-is the answer and are not reported. For any other case where empty is right — a cap, a filter that
+is the answer and are not reported. A pin written as a reference is judged by its value: a
+`${vars.x}` is read from the chain's `vars`, so `equals: ${vars.ok}` holding the OK value is an
+envelope-only assertion like `equals: SUCCESS`, and any other reference on the envelope, which
+only a run can resolve, never exempts a step. For any other case where empty is right — a cap, a filter that
 rejects a bad id — say so in `.shrt/hollow-allow.txt`, one line per step as
 `<chain> <step-id> <reason>`; an entry without a reason is
 refused. `PITFALLS.md` §24. The summary's `asserting only the envelope verdict` count is the reads

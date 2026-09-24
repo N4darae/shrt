@@ -548,7 +548,9 @@ the emptiness visible at all. Measured 2026-09-12 over 2438 local records: 9112 
 1965 asserting only the envelope, 529 of those hollow, across 34 distinct (chain, step) pairs. 28
 are refusal probes where an empty body IS the pass and now carry their reason in
 `.shrt/hollow-allow.txt` (since 2026-09-24 a probe that pins its non-OK envelope value is recognised
-without an allowlist line, as is `<list>.0 exists: false`); 1 has since gained a data assertion in its chain; 5 remain, four of them in
+without an allowlist line, as is `<list>.0 exists: false`; the chain-side check resolves a
+`${vars.x}` pin from the chain's `vars`, and treats any other reference on the envelope as
+envelope-only, so `status.code equals: ${vars.ok}` no longer passes for a refusal probe); 1 has since gained a data assertion in its chain; 5 remain, four of them in
 `readonly-fetch-sweep` — a sweep of reads with nothing in the chain that creates the data.
 
 Two things that reading the numbers wrong will cost you. **A proto3 JSON int64 arrives as a STRING**,
