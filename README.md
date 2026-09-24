@@ -138,6 +138,39 @@ error), and 0 for `-h`.
 | `contract lint` | no contract error (warnings allowed) | a contract error, an overlay that does not parse, or no overlay to check | — | — |
 | `contract quality -gate` | the score equals the baseline | the score is worse than the baseline, better without the baseline being lowered, or the baseline file is missing | — | — |
 
+### CI gate
+
+In this order, under `set -e` or with each exit checked, and with every env var the `auth:`
+bodies read exported first (a missing one makes `doctor -strict` warn and `run` refuse):
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+[ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
+shrt catalog build
+shrt doctor -strict
+shrt contract lint
+shrt contract quality -gate -baseline .shrt/quality-baseline
+shrt chain lint -strict
+tag="ci$(date +%s)$RANDOM"
+shopt -s nullglob
+for f in .shrt/chains/*.yaml; do
+  c="$(basename "$f" .yaml)"
+  if grep -q 'vars\.tag' "$f"; then shrt run "$c" -quiet -var "tag=$tag-$c"; else shrt run "$c" -quiet; fi
+done
+for s in .shrt/safespots/*.json; do
+  c="$(basename "$s" .json)"
+  if grep -q 'vars\.tag' ".shrt/chains/$c.yaml"; then shrt verify "$c" -quiet -var "tag=$tag-v-$c"; else shrt verify "$c" -quiet; fi
+done
+shrt chain hollow -gate -baseline .shrt/hollow-baseline
+```
+
+Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
+uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
+a `-var` the chain never reads. A chain kept red on purpose, pinning a known defect, is the gate's
+to list: expect exit 1 from its run, and treat exit 0 (the defect is gone) or 3 (no verdict) as a
+failure. Each baseline file holds one number, the score the gate must equal; write the current
+score into it once (a missing file fails the gate), and change it only as a reviewed edit.
+
 ## The loop
 
 ```
