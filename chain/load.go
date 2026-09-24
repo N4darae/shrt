@@ -24,6 +24,7 @@ func LoadFile(path string) (*Chain, error) {
 	if err := decodeStrict(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
+	markVacuousRules(raw, c)
 	if c.Name == "" {
 		c.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	}
@@ -127,4 +128,47 @@ func carriesContent(n *yaml.Node) bool {
 		}
 	}
 	return false
+}
+
+func markVacuousRules(raw []byte, c *Chain) {
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) == 0 {
+		return
+	}
+	steps := mappingValue(doc.Content[0], "steps")
+	if steps == nil || steps.Kind != yaml.SequenceNode {
+		return
+	}
+	for i, sn := range steps.Content {
+		if i >= len(c.Steps) || c.Steps[i] == nil {
+			break
+		}
+		expect := mappingValue(sn, "expect")
+		if expect == nil || expect.Kind != yaml.SequenceNode {
+			continue
+		}
+		for j, en := range expect.Content {
+			if j >= len(c.Steps[i].Expect) {
+				break
+			}
+			if v := mappingValue(en, "contains"); v != nil && v.Kind == yaml.ScalarNode && v.Value == "" && v.Tag != "!!null" {
+				c.Steps[i].Expect[j].vacuous = `contains: ""`
+			}
+			if v := mappingValue(en, "not_empty"); v != nil && v.Kind == yaml.ScalarNode && v.Tag == "!!bool" && strings.EqualFold(v.Value, "false") {
+				c.Steps[i].Expect[j].vacuous = "not_empty: false"
+			}
+		}
+	}
+}
+
+func mappingValue(n *yaml.Node, key string) *yaml.Node {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == key {
+			return n.Content[i+1]
+		}
+	}
+	return nil
 }

@@ -1002,6 +1002,9 @@ func lintExpectRules(s *Step) []Issue {
 	for _, e := range s.Expect {
 		names := ruleNames(e)
 		switch {
+		case len(names) == 0 && e.vacuousWhy() != "":
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
+				"expect on %q is %s", e.Path, e.vacuousWhy())})
 		case len(names) == 0:
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 				"expect on %q carries no rule, so it asserts nothing", e.Path)})
