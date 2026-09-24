@@ -352,16 +352,22 @@ so these are the fields that answer it. Reflected from `runner`, JSON names:
 
 ## 6. Safe spot — `.shrt/safespots/<chain>.json`
 
+Written only by `shrt confirm <chain> -approve`. Before that, `shrt confirm <chain> -note` leaves a proposal at
+`.shrt/safespots/pending/<chain>.json` and its review report at `pending/<chain>.md`; neither is a safe spot,
+and both are removed on approval or `-reject`.
+
 | field | type | meaning |
 |---|---|---|
 | `chain` | string | Which chain this is the ground truth for. |
-| `run_id` | string | The run a human confirmed. |
+| `run_id` | string | The run a person approved. |
 | `target` | string | Where that run happened. |
 | `build` | string | The confirmed run's `build`, when it had one. `shrt verify` prints it beside the replay's. |
-| `confirmed_by` | string | The person. `shrt confirm` refuses an empty one. |
+| `confirmed_by` | string | The email of the user who said yes. `shrt confirm -approve` refuses a `-by` that is not an email address. |
 | `confirmed_at` | time | When. |
-| `note` | string | What makes this run correct. |
-| `supersedes` | string | The run id this replaced, when promoted with `-supersede`. |
+| `note` | string | What makes this run correct: the approver's `-note`, else the proposer's. |
+| `proposed_by` | string | Who proposed the run with `shrt confirm -note`; `agent` unless `-by` named someone. |
+| `proposed_at` | time | When it was proposed. |
+| `supersedes` | string | The run id this replaced, when proposed with `-supersede`. |
 | `volatile` | list of string | Patterns masked before comparison. |
 | `digest` | string | Fingerprint of the confirmed steps. |
 | `steps` | list of steprecord | The confirmed step records, which a replay is diffed against. |
@@ -428,7 +434,7 @@ usage: shrt <command> [flags]
 
   catalog    build, list and describe the RPC surface
   chain      scaffold, list, search, lint, slice and audit chain definitions
-  confirm    promote a recorded run to the safe spot for its chain (human only)
+  confirm    propose a passing run as its chain's safe spot, then approve or reject it once the user decides
   contract   author and use the curated RPC contracts agents write chains from
   diff       compare two recorded runs of a chain step by step, with no safe spot
   doctor     check this repo's .shrt/ installation: docs, descriptor, ignores, tokens, auth

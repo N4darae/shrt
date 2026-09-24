@@ -103,8 +103,9 @@ kit's.
 | `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in, `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way (the slice's run record is kept only with `-write`) |
 | `shrt chain hollow` | read steps that passed while the response carried nothing |
 | `shrt run <c>` | execute in order and record |
-| `shrt confirm <c> -by <name> -i-verified` | promote a run to the safe spot — **human only** |
-| `shrt verify <c>` | replay and diff against the safe spot |
+| `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints the summary table to show the user and writes a full report. It writes no safe spot |
+| `shrt confirm <c> -approve -by <user email>` | write the safe spot, only after the user said yes to that proposal in the conversation; `-reject` discards it, `-pending` lists proposals |
+| `shrt verify <c>` | replay and diff against the safe spot, masking volatile paths and id- or timestamp-shaped values |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs of one chain step by step — status changes, where the first failure moved, steps no longer reached, response fields — with declared volatile paths, ids and timestamps masked. Needs no safe spot, and is a comparison between two runs, not a verdict. `shrt diff <c>` is `latest~1` against `latest` |
 
 ## The loop
@@ -118,7 +119,8 @@ kit's.
    → shrt run <name> -dry-run                 resolve everything, send nothing
    → shrt run <name>                          the receipt
    → shrt chain hollow                        did any read pass and find nothing?
-   → (human) shrt confirm ...                 promote to safe spot
+   → shrt confirm <name> -note "..."          propose it; show the user the summary, ask
+   → (user says yes) shrt confirm <name> -approve -by <their email>
    → shrt verify <name>                       replay and diff, later
 ```
 
@@ -141,7 +143,7 @@ against:
 
 ```
       shrt run <name>                         a receipt on today's binary
-   → shrt verify <name> -run <run-id>         does it still match what a human confirmed?
+   → shrt verify <name> -run <run-id>         does it still match what a person approved?
    → (change the code)
    → shrt run <name> ; shrt verify ...        the same two lines
 ```
@@ -166,8 +168,12 @@ rather than assuming it, and treat a wide gap as the normal early state, not a d
 
 ## Four rules that are never negotiable
 
-1. **Never run `shrt confirm`.** A safe spot is a human's claim that a run is correct. Produce the
-   candidate, show it, and give the user the exact command. "This looks right" is not confirmation.
+1. **Approve only on the user's yes.** A safe spot is the user's claim that a run is correct.
+   Propose with `shrt confirm <c> -note "..."`, where the note says what you inspected in the
+   responses and why they are right, not that the run is green. Then present the proposal in the
+   conversation (`PLAYBOOK.md` §8) and ask. Run `-approve -by <user email>` only after the user
+   answers yes to that proposal; "looks fine" about something else, silence, or your own judgement
+   is not a yes. Never hand the user a report path to read instead.
 2. **Never reorder, skip or parallelise steps.** Order is the contract. A chain that runs out of
    order reproduces a different state and its green means nothing.
 3. **Never hand-write a body from memory.** Field names and enum values come from the descriptor
@@ -186,7 +192,7 @@ rather than assuming it, and treat a wide gap as the normal early state, not a d
 | does this code really fire | a run record under `.shrt/runs/` | the contract's `when:`, which is a claim |
 | did that read find anything | `shrt chain hollow`, which reads the record's body | a green step, which only says the server answered |
 | which roles may call this rpc | the backend's own authorisation rows, read from its source | a hand-written `requires_role:` nothing compared |
-| is this run correct | a human, via `shrt confirm` | a green tick |
+| is this run correct | the user's yes, recorded by `shrt confirm -approve -by <email>` | a green tick, or an agent's proposal |
 | are these four files the rules being enforced | `shrt doctor`, which compares them to the binary | the fact that they are installed |
 
 Run records are **gitignored**: they exist only on the machine that produced them. A run id quoted

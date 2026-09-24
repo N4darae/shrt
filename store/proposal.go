@@ -1,0 +1,337 @@
+package store
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/runner"
+)
+
+var (
+	ErrNoProposal      = errors.New("no pending proposal")
+	ErrProposalChanged = errors.New("the proposed run no longer matches the proposal")
+	ErrNoEvidence      = errors.New("a proposal must say what was checked")
+)
+
+type Proposal struct {
+	Chain      string    `json:"chain"`
+	RunID      string    `json:"run_id"`
+	Target     string    `json:"target"`
+	Build      string    `json:"build,omitempty"`
+	ProposedBy string    `json:"proposed_by"`
+	ProposedAt time.Time `json:"proposed_at"`
+	Checked    string    `json:"checked"`
+	Supersede  bool      `json:"supersede,omitempty"`
+	Replaces   string    `json:"replaces,omitempty"`
+	Digest     string    `json:"digest"`
+	Report     string    `json:"report"`
+	ComparedTo string    `json:"compared_to,omitempty"`
+	Unstable   []string  `json:"unstable,omitempty"`
+}
+
+type ProposalInput struct {
+	By         string
+	Checked    string
+	Supersede  bool
+	Now        time.Time
+	ComparedTo string
+	Unstable   []string
+}
+
+func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error) {
+	in.Checked = strings.TrimSpace(in.Checked)
+	if in.Checked == "" {
+		return nil, ErrNoEvidence
+	}
+	if !rec.Passed() {
+		return nil, fmt.Errorf("%w: status=%s", ErrRunNotPassed, rec.Status)
+	}
+	replaces := ""
+	prev, err := s.LoadSafeSpot(rec.Chain)
+	switch {
+	case err == nil:
+		if !in.Supersede {
+			return nil, fmt.Errorf("%w at %s (confirmed by %s at %s); pass -supersede to propose replacing it",
+				ErrExists, s.SafeSpotPath(rec.Chain), prev.ConfirmedBy, prev.ConfirmedAt.Format(time.RFC3339))
+		}
+		replaces = prev.RunID
+	case errors.Is(err, os.ErrNotExist):
+	default:
+		return nil, err
+	}
+	now := in.Now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	by := strings.TrimSpace(in.By)
+	if by == "" {
+		by = "agent"
+	}
+	p := &Proposal{
+		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
+		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
+		Supersede: in.Supersede, Replaces: replaces,
+		Digest: digest(rec.Steps), Report: s.ReportPath(rec.Chain),
+		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
+	}
+	if err := os.MkdirAll(filepath.Dir(p.Report), 0o755); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(p.Report, []byte(ProposalReport(p, rec)), 0o644); err != nil {
+		return nil, err
+	}
+	if err := writeJSON(s.ProposalPath(rec.Chain), p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) Approve(chainName string, c Confirmation) (*SafeSpot, string, error) {
+	p, err := s.LoadProposal(chainName)
+	if err != nil {
+		return nil, "", err
+	}
+	rec, err := s.LoadRun(p.Chain, p.RunID)
+	if err != nil {
+		return nil, "", fmt.Errorf("%w: %w", ErrProposalChanged, err)
+	}
+	if digest(rec.Steps) != p.Digest {
+		return nil, "", fmt.Errorf("%w: run %s was rewritten after it was proposed", ErrProposalChanged, p.RunID)
+	}
+	if strings.TrimSpace(c.Note) == "" {
+		c.Note = p.Checked
+	}
+	c.Supersede = p.Supersede
+	c.Proposal = p
+	spot, path, err := s.Promote(rec, c)
+	if err != nil {
+		return nil, "", err
+	}
+	s.DropProposal(chainName)
+	return spot, path, nil
+}
+
+func (s *Store) LoadProposal(chainName string) (*Proposal, error) {
+	path := s.ProposalPath(chainName)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("%w for chain %s", ErrNoProposal, chainName)
+	}
+	p := &Proposal{}
+	if err := readJSON(path, p); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func (s *Store) ListProposals() ([]*Proposal, error) {
+	names, err := listJSONFiles(s.pendingDir())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	out := []*Proposal{}
+	for _, n := range names {
+		p := &Proposal{}
+		if err := readJSON(filepath.Join(s.pendingDir(), n), p); err == nil {
+			out = append(out, p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Chain < out[j].Chain })
+	return out, nil
+}
+
+func (s *Store) DropProposal(chainName string) bool {
+	err := os.Remove(s.ProposalPath(chainName))
+	os.Remove(s.ReportPath(chainName))
+	return err == nil
+}
+
+func (s *Store) HasProposal(chainName string) bool {
+	_, err := os.Stat(s.ProposalPath(chainName))
+	return err == nil
+}
+
+func (s *Store) ProposalPath(chainName string) string {
+	return filepath.Join(s.pendingDir(), slug(chainName)+".json")
+}
+
+func (s *Store) ReportPath(chainName string) string {
+	return filepath.Join(s.pendingDir(), slug(chainName)+".md")
+}
+
+func (s *Store) pendingDir() string {
+	return filepath.Join(s.SafeSpotsDir, "pending")
+}
+
+const reportExcerpt = 600
+
+func ProposalReport(p *Proposal, rec *runner.Record) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# Safe spot proposal: %s\n\n", p.Chain)
+	fmt.Fprintf(&b, "Proposed by %s at %s. Nothing is a safe spot until a person approves it.\n\n",
+		p.ProposedBy, p.ProposedAt.Format(time.RFC3339))
+	b.WriteString("| | |\n|---|---|\n")
+	fmt.Fprintf(&b, "| run | `%s` |\n| target | `%s` |\n", p.RunID, p.Target)
+	if p.Build != "" {
+		fmt.Fprintf(&b, "| build | `%s` |\n", p.Build)
+	}
+	fmt.Fprintf(&b, "| status | %s, %d step(s), %d ms |\n", rec.Status, len(rec.Steps), rec.DurationMS)
+	if len(rec.Vars) > 0 {
+		keys := make([]string, 0, len(rec.Vars))
+		for k := range rec.Vars {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, fmt.Sprintf("`%s=%v`", k, rec.Vars[k]))
+		}
+		fmt.Fprintf(&b, "| vars | %s |\n", strings.Join(parts, " "))
+	}
+	if p.Replaces != "" {
+		fmt.Fprintf(&b, "| replaces | the safe spot from run `%s`, which is archived on approval |\n", p.Replaces)
+	}
+	fmt.Fprintf(&b, "| digest | `%s` |\n\n", p.Digest)
+
+	b.WriteString(ProposalSummary(p, rec) + "\n")
+	b.WriteString("## What the proposer checked\n\n")
+	b.WriteString(p.Checked + "\n\n")
+
+	b.WriteString("## Steps\n\n")
+	for _, st := range rec.Steps {
+		fmt.Fprintf(&b, "### %d. %s (`%s`), %s\n\n", st.Index, st.ID, st.Call, st.Status)
+		if len(st.Expect) == 0 {
+			b.WriteString("No expectations: this step's response is recorded but nothing about it was asserted.\n\n")
+		} else {
+			for _, e := range st.Expect {
+				mark := "held"
+				if !e.Passed {
+					mark = "FAILED"
+				}
+				want := ""
+				if e.Want != nil {
+					want = fmt.Sprintf(" %v", e.Want)
+				}
+				fmt.Fprintf(&b, "- `%s` %s%s, got `%v`: %s\n", e.Path, e.Rule, want, e.Got, mark)
+			}
+			b.WriteString("\n")
+		}
+		if len(st.Response) > 0 {
+			text := string(st.Response)
+			var pretty bytes.Buffer
+			if json.Indent(&pretty, st.Response, "", "  ") == nil {
+				text = pretty.String()
+			}
+			if len(text) > reportExcerpt {
+				text = text[:reportExcerpt] + " …"
+			}
+			fmt.Fprintf(&b, "```json\n%s\n```\n\n", text)
+		}
+	}
+
+	b.WriteString("## Your decision\n\n")
+	b.WriteString("Approving says the responses above are CORRECT for this backend, not merely green: every later\n")
+	b.WriteString("`shrt verify` of this chain is judged against them. Read the responses, not only the assertions.\n\n")
+	fmt.Fprintf(&b, "- approve: `shrt confirm %s -approve -by <your email>`, or tell the agent yes and it runs that\n", p.Chain)
+	fmt.Fprintf(&b, "- reject: `shrt confirm %s -reject`\n", p.Chain)
+	return b.String()
+}
+
+func ProposalSummary(p *Proposal, rec *runner.Record) string {
+	var b strings.Builder
+	passed := 0
+	for _, st := range rec.Steps {
+		if st.Status == runner.StatusPassed {
+			passed++
+		}
+	}
+	fmt.Fprintf(&b, "**Safe spot proposal: `%s`**, run `%s`, %d/%d steps passed, target `%s`", p.Chain, p.RunID, passed, len(rec.Steps), p.Target)
+	if p.Build != "" {
+		fmt.Fprintf(&b, ", build `%s`", p.Build)
+	}
+	b.WriteString("\n\n| # | step | asserted, all held | backend answered |\n|---|---|---|---|\n")
+	for _, st := range rec.Steps {
+		fmt.Fprintf(&b, "| %d | %s | %s | %s |\n", st.Index, cell(st.ID), cell(assertedSummary(st)), cell(answerSummary(st)))
+	}
+	if p.Replaces != "" {
+		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
+	}
+	switch {
+	case p.ComparedTo == "":
+		b.WriteString("\n**Not checked for fields that change every run:** no earlier passing run of this chain is recorded. " +
+			"Run it once more and propose again to see them.\n")
+	case len(p.Unstable) == 0:
+		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no field differs beyond ids and timestamps, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo)
+	default:
+		fmt.Fprintf(&b, "\n**Warning: %d field(s) differ from the earlier passing run `%s`** and are not declared volatile, so every `shrt verify` will report them as drift unless the chain's `volatile:` covers them (or they are a real difference):\n\n", len(p.Unstable), p.ComparedTo)
+		for _, u := range p.Unstable {
+			fmt.Fprintf(&b, "- `%s`\n", u)
+		}
+	}
+	b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
+	return b.String()
+}
+
+const summaryCell = 90
+
+func cell(s string) string {
+	s = strings.Join(strings.Fields(strings.ReplaceAll(s, "|", "/")), " ")
+	if len([]rune(s)) > summaryCell {
+		s = string([]rune(s)[:summaryCell]) + "…"
+	}
+	return s
+}
+
+func assertedSummary(st *runner.StepRecord) string {
+	if len(st.Expect) == 0 {
+		return "nothing asserted"
+	}
+	parts := make([]string, 0, len(st.Expect))
+	for _, e := range st.Expect {
+		if e.Want != nil {
+			parts = append(parts, fmt.Sprintf("%s %s %v", e.Path, e.Rule, e.Want))
+		} else {
+			parts = append(parts, e.Path+" "+e.Rule)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func answerSummary(st *runner.StepRecord) string {
+	if st.Transport != nil {
+		if st.HTTPStatus != 0 {
+			return fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message)
+		}
+		return st.Transport.Code + ": " + st.Transport.Message
+	}
+	var body any
+	if json.Unmarshal(st.Response, &body) != nil {
+		return st.Status
+	}
+	path := chain.EnvelopePath()
+	verdict, ok := chain.Get(body, path)
+	if !ok {
+		return "answered, nothing at " + path
+	}
+	out := fmt.Sprint(verdict)
+	parent := ""
+	if i := strings.LastIndex(path, "."); i > 0 {
+		parent = path[:i] + "."
+	}
+	for _, field := range []string{"details.0.app_code", "details.0.reason", "message"} {
+		if v, ok := chain.Get(body, parent+field); ok && fmt.Sprint(v) != "" {
+			out += " " + fmt.Sprint(v)
+		}
+	}
+	return out
+}

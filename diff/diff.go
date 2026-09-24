@@ -33,13 +33,18 @@ type Report struct {
 	SafeSpotID string   `json:"safe_spot_run_id"`
 	RunID      string   `json:"run_id"`
 	Changes    []Change `json:"changes"`
+	Masked     int      `json:"masked"`
 }
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
 func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
+	return CompareMasking(spot, rec, nil)
+}
+
+func CompareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string) *Report {
 	rep := &Report{Chain: spot.Chain, SafeSpotID: spot.RunID, RunID: rec.RunID}
-	masker := pathmask.NewMasker(append(append([]string{}, spot.Volatile...), rec.Volatile...))
+	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
 
 	if len(spot.Steps) != len(rec.Steps) {
 		rep.Changes = append(rep.Changes, Change{
@@ -64,7 +69,13 @@ func Compare(spot *store.SafeSpot, rec *runner.Record) *Report {
 			})
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
-		rep.Changes = append(rep.Changes, compareStep(want, got, stepMask)...)
+		for _, c := range compareStep(want, got, stepMask) {
+			if c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+				rep.Masked++
+				continue
+			}
+			rep.Changes = append(rep.Changes, c)
+		}
 	}
 	return rep
 }
@@ -208,11 +219,15 @@ func withKind(v any) string {
 }
 
 func (r *Report) Text() string {
+	masked := ""
+	if r.Masked > 0 {
+		masked = fmt.Sprintf(" (%d id- or timestamp-shaped value(s) that differ every run were not counted)", r.Masked)
+	}
 	if r.Clean() {
-		return fmt.Sprintf("no drift vs safe spot %s", r.SafeSpotID)
+		return fmt.Sprintf("no drift vs safe spot %s%s", r.SafeSpotID, masked)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d change(s) vs safe spot %s\n", len(r.Changes), r.SafeSpotID)
+	fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s\n", len(r.Changes), r.SafeSpotID, masked)
 	for _, c := range r.Changes {
 		step := c.Step
 		if step == "" {

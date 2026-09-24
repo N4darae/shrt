@@ -1,11 +1,13 @@
 package diff_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func TestRunDiffMasksIdsNamedWithAnIDPrefix(t *testing.T) {
@@ -73,5 +75,23 @@ func TestRunDiffSaysWhichSideRanWithKeepGoing(t *testing.T) {
 	text := diff.CompareRuns(a, b).Text()
 	if !strings.Contains(text, "run B used -keep-going and run A did not") {
 		t.Fatalf("a reach difference caused by -keep-going must say so:\n%s", text)
+	}
+}
+
+func TestVerifyDoesNotCountIdsThatDifferEveryRun(t *testing.T) {
+	spot := &store.SafeSpot{Chain: "c", RunID: "a", Steps: []*runner.StepRecord{
+		{ID: "create", Call: "X/Create", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"product":{"id_product":"prd-1","sku":"sku-1","qty":4}}`)},
+	}}
+	rec := &runner.Record{RunID: "b", Chain: "c", Steps: []*runner.StepRecord{
+		{ID: "create", Call: "X/Create", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"product":{"id_product":"prd-2","sku":"sku-2","qty":5}}`)},
+	}}
+	rep := diff.CompareMasking(spot, rec, []string{"product.sku"})
+	if len(rep.Changes) != 1 || rep.Changes[0].Path != "product.qty" {
+		t.Fatalf("only the qty is a real change: the id is id-shaped and the sku is declared volatile, got %+v", rep.Changes)
+	}
+	if rep.Masked != 1 || !strings.Contains(rep.Text(), "1 id- or timestamp-shaped value(s)") {
+		t.Fatalf("the report must say how many id-shaped values it did not count:\n%s", rep.Text())
 	}
 }

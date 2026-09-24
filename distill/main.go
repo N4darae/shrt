@@ -175,13 +175,15 @@ var notes = map[string]string{
 	"ExpectResult.detail": "Why not, when the rule itself was malformed.",
 
 	"SafeSpot.chain":        "Which chain this is the ground truth for.",
-	"SafeSpot.run_id":       "The run a human confirmed.",
+	"SafeSpot.run_id":       "The run a person approved.",
 	"SafeSpot.target":       "Where that run happened.",
 	"SafeSpot.build":        "The confirmed run's `build`, when it had one. `shrt verify` prints it beside the replay's.",
-	"SafeSpot.confirmed_by": "The person. `shrt confirm` refuses an empty one.",
+	"SafeSpot.confirmed_by": "The email of the user who said yes. `shrt confirm -approve` refuses a `-by` that is not an email address.",
+	"SafeSpot.proposed_by":  "Who proposed the run with `shrt confirm -note`; `agent` unless `-by` named someone.",
+	"SafeSpot.proposed_at":  "When it was proposed.",
 	"SafeSpot.confirmed_at": "When.",
-	"SafeSpot.note":         "What makes this run correct.",
-	"SafeSpot.supersedes":   "The run id this replaced, when promoted with `-supersede`.",
+	"SafeSpot.note":         "What makes this run correct: the approver's `-note`, else the proposer's.",
+	"SafeSpot.supersedes":   "The run id this replaced, when proposed with `-supersede`.",
 	"SafeSpot.volatile":     "Patterns masked before comparison.",
 	"SafeSpot.digest":       "Fingerprint of the confirmed steps.",
 	"SafeSpot.steps":        "The confirmed step records, which a replay is diffed against.",
@@ -310,6 +312,9 @@ func render() ([]byte, error) {
 	writeJSONTable(&b, "ExpectResult", reflect.TypeOf(chain.ExpectResult{}))
 
 	b.WriteString("\n## 6. Safe spot — `.shrt/safespots/<chain>.json`\n\n")
+	b.WriteString("Written only by `shrt confirm <chain> -approve`. Before that, `shrt confirm <chain> -note` leaves a proposal at\n")
+	b.WriteString("`.shrt/safespots/pending/<chain>.json` and its review report at `pending/<chain>.md`; neither is a safe spot,\n")
+	b.WriteString("and both are removed on approval or `-reject`.\n\n")
 	writeJSONTable(&b, "SafeSpot", reflect.TypeOf(store.SafeSpot{}))
 
 	b.WriteString("\n## 7. What `shrt verify` actually compares\n\n")

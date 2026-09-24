@@ -8,7 +8,7 @@ description: Use when defining, running, or verifying an ordered chain of intern
 Record, replay and verify ordered chains of internal API calls.
 
 A **chain** is an ordered sequence of RPC calls that reproduces a specific backend state.
-A **safe spot** is a chain run **a human confirmed as correct**. It is the ground truth a later
+A **safe spot** is a chain run **a person approved as correct**. It is the ground truth a later
 replay is diffed against, so a regression names the RPC that changed instead of guessing.
 
 This file is the overview and the router. The working surface is `.shrt/docs/` — four files that
@@ -35,7 +35,7 @@ everything is fine — `.shrt/docs/README.md` has the build command for that cas
 ## The rules
 
 `.shrt/docs/README.md`, "Four rules that are never negotiable", owns them. Read it there; this
-file deliberately keeps no second copy. The shortest of the four: never run `shrt confirm`, never
+file deliberately keeps no second copy. The shortest of the four: propose a safe spot with `shrt confirm <c> -note`, present it and `-approve` only on the user's yes, never
 reorder steps, never hand-write a body from memory, never leave a step asserting only that the
 server did not crash.
 
@@ -62,7 +62,7 @@ server did not crash.
 - **No safe spot? `shrt diff <chain>` compares the last two runs** (or `shrt diff <chain> <run-a>
   <run-b>`): status changes, where the first failure moved, steps no longer reached, response
   fields, with volatile paths, ids and timestamps masked. It is a comparison between two runs, not
-  a verdict — never create the safe spot yourself to get one; `shrt confirm` is human only.
+  a verdict — never create the safe spot yourself to get one; `shrt confirm -note` only proposes, and only the user's yes approves.
 - **`shrt contract init -all`** scaffolds every domain at once into `.shrt/contracts/`; existing
   curation is carried forward, never overwritten. A domain is the package segment after the
   organisation root once the trailing version is dropped, so

@@ -555,11 +555,38 @@ nearly always evidence about your fixture rather than the backend: most of the t
 sent. Read the step's `error` line before deciding which. That trap is `PITFALLS.md` §4; the vocabulary
 it belongs to is `GRAMMAR.md` §8.
 
-Then stop and hand the confirmation to the user:
+Then propose the run and put the decision to the user:
 
 ```
-shrt confirm <name> -run <run-id> -by <their-name> -i-verified -note "..."
+shrt confirm <name> -run <run-id> -note "what you inspected in the responses, and why it is right"
 ```
+
+This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `<name>.md`, and
+prints a summary table: one row per step with what it asserted and what the backend answered. It
+writes no safe spot, and `shrt verify` still has nothing to compare against.
+
+**Present the proposal in the conversation; do not send the user to a file.** In the user's
+language, give:
+
+1. one line: chain, run id, `n/n` steps passed, and what the chain exercises;
+2. the table, with each step as a plain situation ("create again with the same sku"), what was sent,
+   what came back, and whether that is right;
+3. the one or two facts that carry the verdict (a stock level read back after a partial batch, say),
+   and anything you corrected or are unsure of;
+4. what approving means: every response field becomes the baseline `shrt verify` compares against.
+   The summary compares the run with the previous passing run of the chain and lists each field
+   that differed and is not masked: every `verify` would report those as drift. Pass the warning
+   on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
+   difference is real. With no earlier passing run the summary says the check was not made; run
+   the chain once more first;
+5. the question: approve or reject.
+
+Run `shrt confirm <name> -approve -by <user email>` only after the user answers yes to THIS
+proposal. The email is the user's own, as the session knows it; if you do not know it, ask. A
+bare name is refused. `-reject` discards the proposal. Approval refuses a run record rewritten
+after the proposal, since the user approved what the summary showed. `-pending` lists what awaits
+a decision, and `chain ls` marks it `?`. A chain that already has a safe spot needs `-supersede`
+on the proposal, and the old one is archived on approval.
 
 ## 9. Refactor and test against a safe spot
 
@@ -567,8 +594,8 @@ This is what the whole loop is for, and it is the section most likely to be skip
 chain that has never been confirmed still runs and still goes green.
 
 **A passing run and an unchanged run are different claims.** `shrt run` asks whether the
-assertions still hold. `shrt verify` asks whether the RESPONSE still matches what a human confirmed
-was correct — every field, not just the ones somebody thought to assert. With 43% of steps in this
+assertions still hold. `shrt verify` asks whether the RESPONSE still matches what a person approved
+as correct — every field, not just the ones somebody thought to assert. With 43% of steps in this
 corpus asserting only the error envelope (`PITFALLS.md` §17), the second question is the one that
 catches a refactor that changed a number nobody was watching.
 
@@ -588,15 +615,19 @@ Three things that decide whether this works for a given chain:
   credential, so the after-check costs one run, not two. It is also how you investigate a drift
   without spending another live run.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
-  legitimately differs.** Those paths must be in `volatile`, or the first replay reports a
-  regression that is not one. This is per-chain work and it is why paving the corpus is not a bulk
+  legitimately differs.** `verify` masks what `diff` masks: config and chain `volatile` paths,
+  and a changed value that is id- or timestamp-shaped (`id`, `*_id`, `id_*`, `idX`, `*_at`, a
+  UUID, an RFC 3339 time), counting how many it did not report. Anything else that differs every
+  run, a sku built from `${uuid}` or a message quoting it, must be in `volatile`, or the first
+  replay reports a regression that is not one. The price is that a wrong id that is still
+  id-shaped is not caught by `verify`; assert on it if it matters. This is per-chain work and it is why paving the corpus is not a bulk
   operation — see the development repo's one worked example, `.shrt/safespots/seed-position-exposure.json`, whose
   `volatile` list is 14 patterns long.
 - **A chain in the expect-fail set must NEVER be confirmed.** Those chains assert a pre-fix defect,
   so a safe spot would freeze the bug as ground truth. `PITFALLS.md` §11.
 
-**Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only a human may create a
-safe spot — never run `shrt confirm` yourself — so a refactor often has to be checked with none:
+**Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
+creates a safe spot, so a refactor often has to be checked with none:
 
 ```bash
 shrt run <name>                                  # before the change

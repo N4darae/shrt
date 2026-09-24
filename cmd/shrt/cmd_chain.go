@@ -180,6 +180,7 @@ func chainList(args []string) error {
 		Name        string `json:"name"`
 		Steps       int    `json:"steps"`
 		SafeSpot    bool   `json:"safe_spot"`
+		Proposed    bool   `json:"proposed,omitempty"`
 		Description string `json:"description,omitempty"`
 		Path        string `json:"path"`
 	}
@@ -187,7 +188,7 @@ func chainList(args []string) error {
 	rows := make([]row, 0, len(chains))
 	for _, c := range chains {
 		rows = append(rows, row{
-			Name: c.Name, Steps: len(c.Steps), SafeSpot: e.store.HasSafeSpot(c.Name),
+			Name: c.Name, Steps: len(c.Steps), SafeSpot: e.store.HasSafeSpot(c.Name), Proposed: e.store.HasProposal(c.Name),
 			Description: c.Description, Path: c.SourcePath,
 		})
 	}
@@ -208,6 +209,9 @@ func chainList(args []string) error {
 		if r.SafeSpot {
 			mark = "*"
 		}
+		if r.Proposed {
+			mark = "?"
+		}
 		if *long {
 			fmt.Printf("%s %s  %d step(s)  %s\n", mark, r.Name, r.Steps, r.Path)
 			for _, line := range descriptionLines(r.Description) {
@@ -222,7 +226,7 @@ func chainList(args []string) error {
 		}
 		fmt.Printf("%s %-*s %2d step(s)  %s\n", mark, nameW, r.Name, r.Steps, summarise(r.Description, descWidth(nameW)))
 	}
-	fmt.Printf("\n%d chain(s), * = has a safe spot", len(rows))
+	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval", len(rows))
 	if *long {
 		fmt.Print("\n")
 		return nil

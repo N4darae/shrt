@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -191,34 +192,70 @@ func TestCLIInitBootstrapsAFreshDirectoryWithNoBackendNeeded(t *testing.T) {
 	}
 }
 
-func TestCLIConfirmRefusesWithoutExplicitHumanAcknowledgement(t *testing.T) {
+func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
-
 	if err := runRun(context.Background(), []string{"cli-thing-flow", "-quiet"}); err != nil {
 		t.Fatalf("shrt run: %v", err)
 	}
+	spot := ".shrt/safespots/cli-thing-flow.json"
 
-	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-by", "alice"}); err == nil {
-		t.Fatal("confirm without -i-verified must be refused")
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow"}); err == nil {
+		t.Fatal("a proposal that says nothing about what was checked must be refused")
 	}
-	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-i-verified"}); err == nil {
-		t.Fatal("confirm without -by must be refused")
+	out := captureStdout(t, func() {
+		if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "fetch returns the created name"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+	})
+	if !strings.Contains(out, "NOT a safe spot yet") || !strings.Contains(out, "-approve -by <their email>") ||
+		!strings.Contains(out, "| # | step | asserted, all held | backend answered |") {
+		t.Fatalf("the proposal must say it is not a safe spot and how a person decides:\n%s", out)
 	}
-	if _, err := os.Stat(".shrt/safespots/cli-thing-flow.json"); err == nil {
-		t.Fatal("a refused confirm must not have written a safe spot")
+	if _, err := os.Stat(spot); err == nil {
+		t.Fatal("proposing must not write a safe spot")
+	}
+	report, err := os.ReadFile(".shrt/safespots/pending/cli-thing-flow.md")
+	if err != nil {
+		t.Fatalf("the proposal must write a report for the person: %v", err)
+	}
+	for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve"} {
+		if !strings.Contains(string(report), want) {
+			t.Fatalf("report lacks %q:\n%s", want, report)
+		}
 	}
 
-	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-by", "alice", "-i-verified"}); err != nil {
-		t.Fatalf("a properly acknowledged confirm must succeed: %v", err)
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-approve"}); err == nil {
+		t.Fatal("approval without -by must be refused")
 	}
-	if _, err := os.Stat(".shrt/safespots/cli-thing-flow.json"); err != nil {
-		t.Fatalf("expected a safe spot file after a successful confirm: %v", err)
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "agent"}); err == nil {
+		t.Fatal("approval is recorded under the user's email, a bare name must be refused")
+	}
+	if _, err := os.Stat(spot); err == nil {
+		t.Fatal("a refused approval must not write a safe spot")
+	}
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"}); err != nil {
+		t.Fatalf("approval by the user's email must succeed: %v", err)
+	}
+	if _, err := os.Stat(spot); err != nil {
+		t.Fatalf("approval must write the safe spot: %v", err)
+	}
+	if _, err := os.Stat(".shrt/safespots/pending/cli-thing-flow.json"); err == nil {
+		t.Fatal("an approved proposal must be cleared")
 	}
 
-	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-by", "bob", "-i-verified"}); err == nil {
-		t.Fatal("confirm must refuse to silently overwrite an existing safe spot without -supersede")
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "again"}); err == nil {
+		t.Fatal("proposing over an existing safe spot needs -supersede")
+	}
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "again", "-supersede"}); err != nil {
+		t.Fatalf("propose -supersede: %v", err)
+	}
+	if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-reject"}); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if _, err := os.Stat(".shrt/safespots/pending/cli-thing-flow.md"); err == nil {
+		t.Fatal("a rejected proposal's report must be removed")
 	}
 }
 

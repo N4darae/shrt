@@ -28,6 +28,8 @@ type SafeSpot struct {
 	ConfirmedBy string               `json:"confirmed_by"`
 	ConfirmedAt time.Time            `json:"confirmed_at"`
 	Note        string               `json:"note,omitempty"`
+	ProposedBy  string               `json:"proposed_by,omitempty"`
+	ProposedAt  *time.Time           `json:"proposed_at,omitempty"`
 	Supersedes  string               `json:"supersedes,omitempty"`
 	Volatile    []string             `json:"volatile,omitempty"`
 	Digest      string               `json:"digest"`
@@ -40,6 +42,7 @@ type Confirmation struct {
 	Acknowledged bool
 	Supersede    bool
 	Now          time.Time
+	Proposal     *Proposal
 }
 
 func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, error) {
@@ -83,6 +86,10 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 	}
 	if prev != nil {
 		spot.Supersedes = prev.RunID
+	}
+	if c.Proposal != nil {
+		at := c.Proposal.ProposedAt
+		spot.ProposedBy, spot.ProposedAt = c.Proposal.ProposedBy, &at
 	}
 	spot.Digest = digest(spot.Steps)
 	if err := writeJSON(path, spot); err != nil {

@@ -42,7 +42,10 @@ func runVerify(ctx context.Context, args []string) error {
 	name := rest[0]
 	spot, err := e.store.LoadSafeSpot(name)
 	if err != nil {
-		return fmt.Errorf("%w\nno safe spot yet — run the chain, have a human check it, then 'shrt confirm'", err)
+		if e.store.HasProposal(name) {
+			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <name>, or -reject", err, name, name)
+		}
+		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
 	}
 
 	var rec *runner.Record
@@ -72,7 +75,7 @@ func runVerify(ctx context.Context, args []string) error {
 		return err
 	}
 
-	report := diff.Compare(spot, rec)
+	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	if *asJSON {
 		if err := emitJSON(map[string]any{"run": rec, "diff": report}); err != nil {
 			return err

@@ -28,8 +28,9 @@ contract in `.shrt/contracts/<domain>.yaml`, which holds what the descriptor can
 the server requires, where each value comes from, which calls must run first, and how each rpc
 refuses. `shrt chain new` scaffolds one from the descriptor alone.
 
-`shrt run` executes a chain in order and writes a run record under `.shrt/runs/`. A human promotes
-a passing run to the chain's safe spot with `shrt confirm`. `shrt verify` replays the chain and
+`shrt run` executes a chain in order and writes a run record under `.shrt/runs/`. An agent proposes
+a passing run with `shrt confirm <chain> -note`, which prints a summary to show the user; when the
+user says yes, `shrt confirm <chain> -approve -by <their email>` makes it the chain's safe spot. `shrt verify` replays the chain and
 diffs every response field against the safe spot, so a regression names the rpc that changed.
 Before a chain has a safe spot, `shrt diff` compares two of its recorded runs.
 
