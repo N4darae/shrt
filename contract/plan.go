@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -93,6 +94,9 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 	p.noteRequirements()
 	if err := c.Normalize(); err != nil {
 		return nil, err
+	}
+	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
+		p.declareInterpolatedVars(missing)
 	}
 	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
 		p.note("the chain reads ${vars.%s}, which the contract's value: entries use and the chain does not declare: "+
@@ -648,6 +652,60 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	}
 	setBodyPath(producer.Body, ref.Path, token)
 	setBodyPath(step.Body, field, token)
+}
+
+var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+
+func (p *Plan) declareInterpolatedVars(missing []string) {
+	interpolated, whole := map[string]bool{}, map[string]bool{}
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			for _, m := range planVarRef.FindAllStringSubmatchIndex(t, -1) {
+				name := t[m[2]:m[3]]
+				if m[0] == 0 && m[1] == len(t) {
+					whole[name] = true
+				} else {
+					interpolated[name] = true
+				}
+			}
+		case map[string]any:
+			for _, item := range t {
+				walk(item)
+			}
+		case []any:
+			for _, item := range t {
+				walk(item)
+			}
+		}
+	}
+	for _, st := range p.Chain.Steps {
+		if st != nil {
+			walk(st.Body)
+		}
+	}
+	value := p.Chain.Name
+	if value == "" {
+		value = "planned"
+	}
+	declared := []string{}
+	for _, name := range missing {
+		if !interpolated[name] || whole[name] {
+			continue
+		}
+		if p.Chain.Vars == nil {
+			p.Chain.Vars = map[string]any{}
+		}
+		p.Chain.Vars[name] = value
+		declared = append(declared, name)
+	}
+	if len(declared) > 0 {
+		p.note("the chain reads ${vars.%s} inside the contract's value: entries, so it is declared under vars: as %q "+
+			"and a first run needs no -var. A second run sends the same values: pass -var %s=<fresh> on every run "+
+			"where they must be unique, as a sweep does",
+			strings.Join(declared, "}, ${vars."), value, strings.Join(declared, "=<fresh> -var "))
+	}
 }
 
 func (p *Plan) stepByID(id string) *chain.Step {
