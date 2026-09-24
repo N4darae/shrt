@@ -158,21 +158,13 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	f := &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] >= rec.RunID {
-			continue
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !sent(prev, first.ID) {
-			continue
-		}
+	if prev := previousRunSending(e, rec, first.ID); prev != nil {
 		if st, ok := prev.Step(first.ID); ok && st.Call == first.Call && uniquenessConflict.MatchString(stepRefusalText(st)) {
 			f.before = freshValuesOf(e, rec, prev, first.ID, names)
 			if f.before != nil {
 				f.repeat = prev.RunID
 			}
 		}
-		break
 	}
 	return f
 }
@@ -188,11 +180,11 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 	}
 	ids, _ := e.store.ListRuns(rec.Chain)
 	for _, id := range ids {
-		if id >= prev.RunID {
+		if id == prev.RunID || id == rec.RunID {
 			continue
 		}
 		other, err := e.store.LoadRun(rec.Chain, id)
-		if err != nil || other.DryRun || !createdBy(other, step) {
+		if err != nil || other.DryRun || !ranBefore(other, prev) || !createdBy(other, step) {
 			continue
 		}
 		for _, n := range names {

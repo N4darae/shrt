@@ -71,22 +71,46 @@ func examineSessionLoss(e *env, rec *runner.Record) *sessionLoss {
 	if s.restart != "" {
 		return s
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] >= rec.RunID {
-			continue
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !sent(prev, s.step.ID) {
-			continue
-		}
+	if prev := previousRunSending(e, rec, s.step.ID); prev != nil {
 		if again := detectSessionLoss(prev); again != nil && again.step.ID == s.step.ID && again.step.Call == s.step.Call &&
 			restartEvidence(prev, again.index) == "" {
 			s.repeat = prev.RunID
 		}
-		break
 	}
 	return s
+}
+
+func previousRunSending(e *env, rec *runner.Record, step string) *runner.Record {
+	ids, _ := e.store.ListRuns(rec.Chain)
+	var best *runner.Record
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] == rec.RunID {
+			continue
+		}
+		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
+			break
+		}
+		prev, err := e.store.LoadRun(rec.Chain, ids[i])
+		if err != nil || prev.DryRun || !ranBefore(prev, rec) || !sent(prev, step) {
+			continue
+		}
+		if best == nil || ranBefore(best, prev) {
+			best = prev
+		}
+	}
+	return best
+}
+
+func ranBefore(a, b *runner.Record) bool {
+	if !a.StartedAt.Equal(b.StartedAt) {
+		return a.StartedAt.Before(b.StartedAt)
+	}
+	return a.RunID < b.RunID
+}
+
+func runStamp(id string) string {
+	stamp, _, _ := strings.Cut(id, "-")
+	return stamp
 }
 
 func sent(rec *runner.Record, step string) bool {
@@ -211,20 +235,13 @@ func repeatedFreshRefusal(e *env, rec *runner.Record) *freshRefusal {
 	if f.step == nil {
 		return nil
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] >= rec.RunID {
-			continue
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !sent(prev, f.step.ID) {
-			continue
-		}
-		if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) {
-			f.repeat = prev.RunID
-			return f
-		}
+	prev := previousRunSending(e, rec, f.step.ID)
+	if prev == nil {
 		return nil
+	}
+	if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) {
+		f.repeat = prev.RunID
+		return f
 	}
 	return nil
 }
