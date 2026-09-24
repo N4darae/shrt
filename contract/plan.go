@@ -779,6 +779,9 @@ func (p *Plan) noteRequirements() {
 				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
 				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
 		}
+		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
+			p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
+		}
 		if len(pc.contract.RequiresRole) > 0 && !pc.contract.DeclaresNoRole() {
 			p.note("step %s: caller must hold role %s", id, strings.Join(pc.contract.RequiresRole, " or "))
 		}

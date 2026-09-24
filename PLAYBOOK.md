@@ -37,7 +37,9 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   is the printed form; with `-write` the same lines go to the terminal as `wrote <path>`, then
   `  order: ...` and `  note: ...`, indented two spaces with no `#`, so grep `'^  order:'` there.
 - **`plan` emits ten kinds of `# note:` and only one of them is test data you owe** — the
-  `is required and has no usable value — fill it` kind. Read the others rather than skimming past:
+  `is required and has no usable value — fill it` kind. One more is an assertion you owe:
+  `asserts only the verdict ... declares what its response carries (...)` names the facts to assert,
+  and `chain lint -strict` fails the step until you do (§4). Read the others rather than skimming past:
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
   `caller must hold role`, and above all `required is an unfilled TODO, so this plan cannot say what
   the server rejects without — treat the body as unverified`. That last one means the plan is
@@ -186,7 +188,12 @@ The examples in this section and §5 use the default envelope, `error.code` with
 Substitute your `conventions.envelope_path` and `conventions.envelope_ok` (§3b) wherever they appear.
 
 A step whose only expectation is `error.code == OK` asserts that the server did not crash. Say what
-the call *did*:
+the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
+should have produced, so each planned step asserts only the verdict, and a `note:` names each step
+whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
+those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
+`-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are
+not flagged. `shrt chain hollow` counts the same read steps as `asserting only the envelope verdict`.
 
 ```yaml
 expect:

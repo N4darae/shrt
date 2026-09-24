@@ -1053,12 +1053,13 @@ const (
 
 	KindInertAllowFail = "inert-allow-fail"
 	KindArithmetic     = "interpolated-arithmetic"
+	KindEnvelopeOnly   = "envelope-only"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
 	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
-		KindExportOverwritten, KindArithmetic:
+		KindExportOverwritten, KindArithmetic, KindEnvelopeOnly:
 		return true
 	}
 	return false
