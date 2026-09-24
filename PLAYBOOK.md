@@ -58,13 +58,19 @@ file. This is the complete header of a short plan, captured 2026-09-17 from
   making every future chain compose itself.
 - **The exception is the same rpc twice**, typically a read before and after a write, so the chain
   can compare the two. `plan` puts each node in once, so a second plain `GetProduct` target is
-  silently dropped (`plan GetProduct AddStock GetProduct` plans one read); no edge is missing.
+  merged into the first (`plan GetProduct AddStock GetProduct` plans one plain read, and a `note:`
+  line says so and names the aliases to use); no edge is missing.
   Declare one alias per instance on the read (`aliases: {before: {note: ...}, after: {note: ...}}`),
-  then name them around the write:
+  then name them around the write. Each aliased step's `description:` is the rpc's summary followed
+  by the alias `note:`, so the two reads say which is which:
   `shrt contract plan GetProduct@before AddStock GetProduct@after -write`. Targets that no edge
   orders keep the order you name them in, so read the printed `order:` line; to make the contract
   itself pin the read ahead of the write, list `GetProduct@before` in the write's `needs:`, and name
-  the after-read after the write (`shrt contract plan AddStock GetProduct@after`).
+  the after-read after the write (`shrt contract plan AddStock GetProduct@after`). That `needs:` is
+  on the write, so it pulls `GetProduct@before` into **every** plan containing `AddStock`, including
+  one for an rpc that only needs stock to exist (a `CreateOrder` whose `needs:` names `AddStock`
+  plans `CreateProduct -> GetProduct@before -> AddStock -> ...`, a read nothing compares against). Put the before-read in `needs:` only when every chain through the write
+  should compare against it; otherwise leave it out and name `GetProduct@before` as a target.
 
 ## 2. Compose a chain — no contract yet
 

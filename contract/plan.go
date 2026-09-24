@@ -42,6 +42,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 	nodes := []string{}
 	labels := []string{}
 	seen := map[string]bool{}
+	repeats := map[string]int{}
 	for _, raw := range targets {
 		node, m, err := ResolveTarget(raw, lib, cat)
 		if err != nil {
@@ -51,6 +52,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, m.StreamRefusal())
 		}
 		if seen[node] {
+			repeats[node]++
 			continue
 		}
 		seen[node] = true
@@ -90,6 +92,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		p.stepOf[node] = id
 		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
 	}
+	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
 	if err := c.Normalize(); err != nil {
@@ -172,6 +175,26 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 			"needs: instead",
 			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
 			strings.Join(aliased, ", "), shortNode(first))
+	}
+}
+
+func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {
+	for _, node := range nodes {
+		n := repeats[node]
+		if n == 0 {
+			continue
+		}
+		rpc, _ := SplitNode(node)
+		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
+			"as %s@after", shortNode(rpc), shortNode(rpc))
+		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
+			names := sortedAliasNames(c.Aliases)
+			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
+				shortNode(rpc), names[0], strings.Join(names, ", "))
+		}
+		p.note("%s is named %d times as a target, and a plan calls each target once, so the repeat(s) were "+
+			"merged into step %s. To call it again at another point in the chain, %s",
+			shortNode(node), n+1, p.stepOf[node], how)
 	}
 }
 
@@ -259,6 +282,14 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
 		step.Description = firstSentence(c.Summary)
+	}
+	if a := c.Aliases[alias]; alias != "" && a != nil && strings.TrimSpace(a.Note) != "" && !IsTodo(a.Note) {
+		note := strings.Join(strings.Fields(a.Note), " ")
+		if step.Description == "" {
+			step.Description = note
+		} else {
+			step.Description = strings.TrimSuffix(step.Description, ".") + " — " + note
+		}
 	}
 	step.Auth = c.Auth
 	if alias != "" {
