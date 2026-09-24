@@ -375,8 +375,11 @@ fresh. A step still refused authentication is `error`, not `failed`: no verdict 
 When the refused token came from a login in THIS run and was refused on its first use (re-sent
 after a fresh login and refused again, or a write refused with a token just issued), the
 credentials work, so the step's error and `verify` both say it `may be an auth regression` in the
-backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run, and
-report a repeat as a finding. A token the backend accepted on earlier calls of this run and then
+backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run. When the
+previous run that sent the step was refused there the same way, each time with the token its own
+login had just issued, `run` and `verify` print `auth refused at <rpc> ... a finding about the
+backend` and exit 1. A cached token refused and re-sent after a fresh login that is refused too
+does not blame the cache: its warning says a stale cached token does not explain the refusal. A token the backend accepted on earlier calls of this run and then
 refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
 error and `verify`'s `WARNING` say so and it exits 3, whether the token came from a login in this
 run or from the on-disk cache; when data created before the refusal is still there after the

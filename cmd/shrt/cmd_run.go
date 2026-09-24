@@ -110,6 +110,11 @@ func runRun(ctx context.Context, args []string) error {
 		if loss.finding() && rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, loss.line())
 		}
+	} else if fresh := repeatedFreshRefusal(e, rec); fresh != nil && !*dry {
+		fmt.Println("  " + fresh.line())
+		if rec.KeptRed == "" {
+			return fmt.Errorf("chain %s: %s", rec.Chain, fresh.line())
+		}
 	}
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
 		if reuse := detectFixtureReuse(e, c, rec); reuse != nil {
@@ -146,7 +151,8 @@ const runExitCodes = "\nexit codes:\n" +
 	"     there the same way, unless either run shows a restart (data created before it gone after the\n" +
 	"     re-login, or a step before it with no answer from the service); a token a login in this run had just issued and the backend refused on\n" +
 	"     its first use is reported as a\n" +
-	"     possible auth regression\n"
+	"     possible auth regression, and exits 1 as a finding when the previous run that sent that\n" +
+	"     step was refused there the same way, with its own freshly issued token\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

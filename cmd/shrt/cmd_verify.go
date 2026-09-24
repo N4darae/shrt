@@ -42,7 +42,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
 	"     backend refused a token a login in this run had just issued, on its first use, the\n" +
-	"     credentials work and it says this may be an auth regression; or the first failing step\n" +
+	"     credentials work and it says this may be an auth regression (exit 1 as a finding when the\n" +
+	"     previous run that sent that step was refused there the same way); or the first failing step\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
 	"     and nothing drifted before it\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
@@ -171,6 +172,13 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
 	loss := examineSessionLoss(e, rec)
+	var fresh *freshRefusal
+	if loss == nil {
+		fresh = repeatedFreshRefusal(e, rec)
+	}
+	if fresh != nil && driftedBefore(rec, report, fresh.index) {
+		fresh = nil
+	}
 	var reuse *fixtureReuse
 	if !report.Clean() {
 		reuse = detectFixtureReuse(e, c, rec)
@@ -184,6 +192,7 @@ func runVerify(ctx context.Context, args []string) error {
 		headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
+	case fresh != nil:
 	case unanswered:
 		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
 		switch {
@@ -233,6 +242,8 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 		case loss.finding():
 			fmt.Println("FINDING: " + loss.line())
+		case fresh != nil:
+			fmt.Println("FINDING: " + fresh.line())
 		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
@@ -263,6 +274,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if loss.finding() && !driftedBefore(rec, report, loss.index) {
 		return fmt.Errorf("%s: %s", name, loss.line())
+	}
+	if fresh != nil {
+		return fmt.Errorf("%s: %s", name, fresh.line())
 	}
 	if nonBackend != nil {
 		return nonBackend
@@ -673,7 +687,7 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
 				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
 				"not a problem with the credentials. Nothing before it drifted, and %s. The step record says what was tried "+
-				"(auth_retry, error); re-run verify to confirm, and treat a repeat as a finding", name, step, why, past)
+				"(auth_retry, error); re-run verify to confirm: a repeat at the same step is reported as a finding", name, step, why, past)
 		}
 	}
 	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"

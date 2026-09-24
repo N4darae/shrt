@@ -183,3 +183,48 @@ func createdValues(rec *runner.Record, from int, st *runner.StepRecord) []string
 	}
 	return out
 }
+
+type freshRefusal struct {
+	step   *runner.StepRecord
+	index  int
+	repeat string
+}
+
+func (f *freshRefusal) line() string {
+	return fmt.Sprintf("auth refused at %s (step %d %s) with a token a login in this run had just issued, and run %s was "+
+		"refused at the same step the same way with the token its own login had just issued: the credentials work and "+
+		"the refusal repeats at that rpc, so it refuses valid tokens there. This is a finding about the backend, not a "+
+		"credentials problem or a restart", f.step.Call, f.step.Index, f.step.ID, f.repeat)
+}
+
+func repeatedFreshRefusal(e *env, rec *runner.Record) *freshRefusal {
+	if rec == nil || rec.DryRun {
+		return nil
+	}
+	f := &freshRefusal{index: -1}
+	for i, st := range rec.Steps {
+		if runner.RefusedFreshToken(st) {
+			f.step, f.index = st, i
+			break
+		}
+	}
+	if f.step == nil {
+		return nil
+	}
+	ids, _ := e.store.ListRuns(rec.Chain)
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] >= rec.RunID {
+			continue
+		}
+		prev, err := e.store.LoadRun(rec.Chain, ids[i])
+		if err != nil || prev.DryRun || !sent(prev, f.step.ID) {
+			continue
+		}
+		if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) {
+			f.repeat = prev.RunID
+			return f
+		}
+		return nil
+	}
+	return nil
+}
