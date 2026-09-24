@@ -51,6 +51,7 @@ type RunReport struct {
 	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
+	FullyMasked      []string     `json:"fully_masked,omitempty"`
 }
 
 func (r *RunReport) Same() bool {
@@ -123,6 +124,9 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
 		rep.compareResponses(sa, sb, masker)
+		if everyFieldMasked(masker, sa.Response) && everyFieldMasked(masker, sb.Response) {
+			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
+		}
 	}
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
@@ -201,6 +205,37 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		c.Step = sa.ID
 		r.Changes = append(r.Changes, c)
 	})
+}
+
+func everyFieldMasked(m *pathmask.Masker, raw []byte) bool {
+	body, err := decode(raw)
+	if err != nil || body == nil {
+		return false
+	}
+	masked, open := 0, 0
+	var count func(v any)
+	count = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			for _, item := range t {
+				count(item)
+			}
+		case []any:
+			for _, item := range t {
+				count(item)
+			}
+		case string:
+			if t == pathmask.MaskVolatile {
+				masked++
+				return
+			}
+			open++
+		default:
+			open++
+		}
+	}
+	count(m.Apply(body))
+	return masked > 0 && open == 0
 }
 
 func firstFailure(rec *runner.Record) string {
@@ -311,6 +346,11 @@ func (r *RunReport) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "diff of %s: run A %s (%s) vs run B %s (%s)\n", r.Chain, r.RunA, r.StatusA, r.RunB, r.StatusB)
 	fmt.Fprintf(&b, "%s\n", r.Note)
+	if len(r.FullyMasked) > 0 {
+		fmt.Fprintf(&b, "\nWARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
+			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
+			strings.Join(r.FullyMasked, ", "))
+	}
 	if r.TargetA != "" || r.TargetB != "" {
 		fmt.Fprintf(&b, "\ntargets differ: A %s, B %s\n", r.TargetA, r.TargetB)
 	}
