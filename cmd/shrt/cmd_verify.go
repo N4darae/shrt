@@ -145,6 +145,7 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
 	}
+	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
 	if *asJSON {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
@@ -160,17 +161,19 @@ func runVerify(ctx context.Context, args []string) error {
 		if spot.Build != "" || rec.Build != "" {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
-		fmt.Println(report.Text())
-		if list := report.MaskedList(); *listMasked && list != "" {
-			fmt.Println(list)
-		}
-		if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
-			fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
+		if !unanswered {
+			fmt.Println(report.Text())
+			if list := report.MaskedList(); *listMasked && list != "" {
+				fmt.Println(list)
+			}
+			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
+				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
+			}
 		}
 	}
-	if step, why, ok := unansweredOnly(rec, report); ok {
+	if unanswered {
 		return exitWith(3, "could not verify %s: step %q never got an answer (%s), and nothing past it was compared. "+
-			"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why)
+			"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, unansweredStep, unansweredWhy)
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+

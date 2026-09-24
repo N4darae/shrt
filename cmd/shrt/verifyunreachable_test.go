@@ -45,4 +45,7 @@ func TestCLIVerifyAgainstAStoppedBackendIsNotARegression(t *testing.T) {
 	if exitCodeOf(verr) != 3 || !strings.Contains(verr.Error(), "could not verify") {
 		t.Fatalf("an unreachable target must say it could not verify and exit 3 like an errored run, got %d %v", exitCodeOf(verr), verr)
 	}
+	if strings.Contains(out, "change(s) vs safe spot") || strings.Contains(out, "want=passed") {
+		t.Fatalf("nothing was answered, so there is no change to count and no step status to compare; print only why it could not verify:\n%s", out)
+	}
 }
