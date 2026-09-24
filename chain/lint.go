@@ -45,6 +45,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
+	exports := map[string]exportOrigin{}
 	idx := newRefIndex(c)
 	for _, s := range c.Steps {
 		m, err := cat.Lookup(s.Call)
@@ -57,6 +58,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintStreaming(s, m)...)
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
+		for _, why := range refTypeProblems(s, m, responses, exports) {
+			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
+		}
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintExports(s, m)...)
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
@@ -68,6 +72,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintInertAllowFail(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
+		noteExports(s, exports)
 		for name := range s.Export {
 			knownExports[name] = true
 		}

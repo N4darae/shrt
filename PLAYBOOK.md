@@ -605,7 +605,10 @@ unresolved reference, a body the proto rejects, a transport failure), `SKIP` not
 validated. A chain reading a `${vars.x}` it does not declare and was not given is refused before
 anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
 step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`, or a request path the earlier step's
-request message does not declare, such as `${steps.create_order.request.id_custmer}`. So is
+request message does not declare, such as `${steps.create_order.request.id_custmer}`; so is one
+filling a numeric field with a reference whose declared type can never be a number, such as
+`qty: "${create_product.product.name}"` (a string) or `.created_at` (a timestamp) into AddStock's
+int64 `qty`. So is
 one whose step body the proto rejects (an unknown field, an enum value the message does not
 have) in any step, not only the first: `shrt run` validates every request up front as `-dry-run`
 does, with the same synthetic values for references to earlier responses, and exits 1. A body

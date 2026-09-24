@@ -63,9 +63,16 @@ func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
 		return out
 	}
 	responses := map[string]*catalog.Method{}
+	exports := map[string]exportOrigin{}
 	for i, s := range c.Steps {
 		if s == nil {
 			continue
+		}
+		m, err := cat.Lookup(s.Call)
+		if err == nil {
+			for _, why := range refTypeProblems(s, m, responses, exports) {
+				out = append(out, fmt.Sprintf("step %q (step %d): %s", s.ID, i+1, why))
+			}
 		}
 		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
 		for _, e := range s.Expect {
@@ -76,9 +83,10 @@ func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
 				out = append(out, fmt.Sprintf("step %q (step %d): ${%s} %s", s.ID, i+1, ref, why))
 			}
 		}
-		if m, err := cat.Lookup(s.Call); err == nil {
+		if err == nil {
 			responses[s.ID] = m
 		}
+		noteExports(s, exports)
 	}
 	return out
 }

@@ -10,6 +10,7 @@ func TestRunHelpListsEveryRefusalTheReadmeLists(t *testing.T) {
 	for _, want := range []string{
 		"a response field the producing step's message does not declare",
 		"a request path its request does not declare",
+		"a reference whose declared type cannot fill the numeric field it is sent in",
 		"the login body of an auth profile a step runs under",
 	} {
 		if !strings.Contains(out, want) {
@@ -20,6 +21,7 @@ func TestRunHelpListsEveryRefusalTheReadmeLists(t *testing.T) {
 	for _, want := range []string{
 		"or to a response field the producing step's message does not declare",
 		"a request path its request does not declare",
+		"a reference whose declared type cannot fill the numeric field it is sent in",
 		"an unset env var read by a step or by the login body of an auth profile a step runs under",
 	} {
 		if !strings.Contains(readme, want) {
