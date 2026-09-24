@@ -537,10 +537,12 @@ by `shrt diff` and `confirm`'s drift warning as well. The comparison is made aga
 of THIS run's input would read: a response value that still carries the confirmed run's fixture name
 (or a renamed id) while this run sent another, such as the old customer's email or a refusal naming
 the old sku, is reported as `changed` with `want` the renamed value, even though it equals the safe spot.
-Any other request difference is input and explains the response changes at its step and after it:
-when every response change comes at or after the first step whose input differs, they are reported as
-coming with different input and verify fails with `drift with different input`; a change at an earlier
-step fails verify with `regression`. A `-var` that changes no request value is not input.
+Any other request difference is input and explains a response change only causally: at its own step,
+and at a later step only when that step reads (through a reference or an export, transitively) a field of
+an earlier step whose response changed and is itself explained, or reads a request value that changed; a
+step whose response did not change passes no explanation on. When every response change is explained
+this way they are reported as coming with different input and verify fails with `drift with different
+input`; any other change fails verify with `regression`. A `-var` that changes no request value is not input.
 
 Change kinds `shrt verify` and `shrt diff` print: `missing` (a path the baseline had is gone), `unexpected`
 (a path the baseline did not have), `changed` (same JSON type, different value), `type` (different JSON

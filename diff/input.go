@@ -15,6 +15,13 @@ type Fixtures struct {
 	Named     func(step, path string) bool
 	Generated func(step, path string) bool
 	Var       func(name string) bool
+	Reads     map[string][]Read
+}
+
+type Read struct {
+	Step    string
+	Request bool
+	Path    string
 }
 
 func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
@@ -59,6 +66,16 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	from := -1
 	firstEdited := -1
 	edited := map[string]bool{}
+	causal := fx.Reads != nil
+	inputAt := map[string][]string{}
+	for _, c := range material {
+		if !expectationChange(c) {
+			if _, ok := index[c.Step]; !ok || stepLevel(c) {
+				causal = false
+			}
+			inputAt[c.Step] = append(inputAt[c.Step], c.Path)
+		}
+	}
 	for _, c := range material {
 		if expectationChange(c) {
 			if !editedExpectFailed(rec, c) {
@@ -83,11 +100,18 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.noteHiddenStaleEchoes(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
+	var explained map[string]bool
+	if causal && from >= 0 {
+		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads)
+	}
 	kept := []Change{}
 	for _, c := range remaining {
 		if from >= 0 {
 			i, ok := index[c.Step]
 			c.WithInput = !ok || i >= from
+			if explained != nil && ok {
+				c.WithInput = explained[c.Step]
+			}
 		}
 		if c.Kind == KindStatus && edited[c.Step] {
 			c.WithInput = true
@@ -98,6 +122,50 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		kept = append(kept, c)
 	}
 	r.Changes = kept
+}
+
+func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read) map[string]bool {
+	responseChanged := map[string]bool{}
+	for _, c := range changes {
+		if c.Kind != KindStatus && c.Kind != KindNotReached {
+			responseChanged[c.Step] = true
+		}
+	}
+	explained := map[string]bool{}
+	carried := false
+	for _, st := range order {
+		if _, done := explained[st.ID]; done {
+			continue
+		}
+		why := len(inputAt[st.ID]) > 0
+		for _, rd := range reads[st.ID] {
+			switch {
+			case rd.Request && pathsOverlap(inputAt[rd.Step], rd.Path):
+				why = true
+			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step]:
+				why = true
+			}
+		}
+		if why {
+			carried = true
+		}
+		explained[st.ID] = why
+		for _, c := range changes {
+			if c.Step == st.ID && c.Kind == KindNotReached && carried {
+				explained[st.ID] = true
+			}
+		}
+	}
+	return explained
+}
+
+func pathsOverlap(changed []string, read string) bool {
+	for _, p := range changed {
+		if read == "" || p == read || strings.HasPrefix(p, read+".") || strings.HasPrefix(read, p+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Report) Unexplained() []Change {

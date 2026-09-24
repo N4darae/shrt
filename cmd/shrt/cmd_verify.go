@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -321,8 +322,8 @@ func runVerify(ctx context.Context, args []string) error {
 			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
 				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
-			"(%d more come at or after it)", n, len(report.Changes)-n)
+		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ and that read no value the different "+
+			"input changed, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
@@ -564,7 +565,49 @@ func isolationVars(c *chain.Chain) map[string]bool {
 }
 
 func requestFixtures(c *chain.Chain) diff.Fixtures {
-	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c), Var: fixtureOnlyVar(c)}
+	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c), Var: fixtureOnlyVar(c), Reads: chainReads(c)}
+}
+
+func chainReads(c *chain.Chain) map[string][]diff.Read {
+	if c == nil {
+		return nil
+	}
+	steps, exports := map[string]bool{}, map[string]string{}
+	for _, s := range c.Steps {
+		steps[s.ID] = true
+		for name := range s.Export {
+			exports[name] = s.ID
+		}
+	}
+	out := map[string][]diff.Read{}
+	for _, s := range c.Steps {
+		raw, err := json.Marshal(s)
+		var doc any
+		if err != nil || json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		reads := []diff.Read{}
+		visitStrings(doc, func(text string) {
+			for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+				ref := chain.ParseRef(m[1])
+				if name, ok := ref.ExportName(); ok && exports[name] != "" && !(ref.Kind == chain.RefBare && steps[ref.Head]) {
+					reads = append(reads, diff.Read{Step: exports[name]})
+					continue
+				}
+				id, ok := ref.StepID()
+				if !ok || !steps[id] {
+					continue
+				}
+				if rest, isRequest := strings.CutPrefix(ref.Rest, "request."); isRequest || ref.Rest == "request" {
+					reads = append(reads, diff.Read{Step: id, Request: true, Path: rest})
+					continue
+				}
+				reads = append(reads, diff.Read{Step: id, Path: strings.TrimPrefix(ref.Rest, "response.")})
+			}
+		})
+		out[s.ID] = reads
+	}
+	return out
 }
 
 func fixtureOnlyVar(c *chain.Chain) func(string) bool {
