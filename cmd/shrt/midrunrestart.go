@@ -15,6 +15,7 @@ type sessionLoss struct {
 	repeat  string
 	visible string
 	restart string
+	passed  bool
 }
 
 func (s *sessionLoss) line() string {
@@ -22,6 +23,10 @@ func (s *sessionLoss) line() string {
 		return fmt.Sprintf("auth refused at %s (step %d %s) with a token accepted elsewhere in this run, and run %s was refused "+
 			"at the same step the same way: a restart does not land on the same call run after run, so the refusal is "+
 			"specific to that rpc. This is a finding about the backend, not a restart", s.step.Call, s.step.Index, s.step.ID, s.repeat)
+	}
+	if s.passed {
+		return fmt.Sprintf("a read was re-sent after a refused token at step %d %s: the backend refused a token it had accepted "+
+			"earlier in this run, and after a fresh login the re-sent call was accepted", s.step.Index, s.step.ID)
 	}
 	out := fmt.Sprintf("the backend refused a token it had accepted earlier in this run at step %d %s: it likely restarted mid-run, "+
 		"losing its sessions and whatever this run had created before it; re-run", s.step.Index, s.step.ID)
@@ -52,7 +57,7 @@ func detectSessionLoss(rec *runner.Record) *sessionLoss {
 			continue
 		}
 		if st.AuthRetry != "" && accepted[profile] {
-			return &sessionLoss{step: st, index: i}
+			return &sessionLoss{step: st, index: i, passed: rec.Passed() && resentAccepted(st)}
 		}
 		if st.AuthRetry == "" && st.Status != runner.StatusSkipped && !runner.NotAnsweredByService(st) && (st.HTTPStatus != 0 || len(st.Response) > 0) {
 			accepted[profile] = true

@@ -411,7 +411,8 @@ refused naming its id or as not found, unless the step expects that answer and p
 answered with fewer items than the same call before the refusal; a step expecting a uniqueness
 conflict with a value created before the refusal accepted instead), or a step before the refusal
 that got no answer from the service (a gateway answer, a dropped connection). Then it stays a
-restart, exit 3.
+restart, exit 3. A run that passed with a read re-sent after a refused token and accepted says only that
+(`a read was re-sent after a refused token at step <n> <id>`), with no restart or re-run advice.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.

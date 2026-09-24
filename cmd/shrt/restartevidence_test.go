@@ -130,3 +130,22 @@ func TestARefusalOfAnotherKindIsNotTheSameWay(t *testing.T) {
 		t.Fatalf("an in-band 200 refusal and a 401 are not refused the same way: %v", loss)
 	}
 }
+
+func TestAPassedRunWithAReadResentSaysOnlyThat(t *testing.T) {
+	read := &runner.StepRecord{ID: "fetch", Call: "ThingService/Fetch", Status: runner.StatusPassed, HTTPStatus: 200,
+		AuthRetry: runner.AuthRetryResent, Request: json.RawMessage(`{"id":"th-4f2a9c"}`),
+		Response: json.RawMessage(`{"error":{"code":"OK"},"id":"th-4f2a9c","name":"widget"}`)}
+	rec := restartRecord("20990101T000000Z-pass1", createdThing(), read)
+	rec.Status = runner.StatusPassed
+	loss := detectSessionLoss(rec)
+	if loss == nil {
+		t.Fatal("a read re-sent after a token accepted earlier was refused is still reported")
+	}
+	line := loss.line()
+	if strings.Contains(line, "re-run") || strings.Contains(line, "restarted mid-run") {
+		t.Fatalf("a passed run whose read was re-sent and accepted must say only that: %s", line)
+	}
+	if !strings.Contains(line, "re-sent") || !strings.Contains(line, "fetch") {
+		t.Fatalf("the line must say the read was re-sent after a refused token: %s", line)
+	}
+}
