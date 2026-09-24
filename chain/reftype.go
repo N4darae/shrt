@@ -30,6 +30,14 @@ var dynamicWellKnown = map[string]bool{
 	"google.protobuf.Struct": true,
 }
 
+var scalarWellKnown = map[string]bool{
+	"google.protobuf.Timestamp": true, "google.protobuf.Duration": true, "google.protobuf.FieldMask": true,
+	"google.protobuf.StringValue": true, "google.protobuf.BytesValue": true, "google.protobuf.BoolValue": true,
+	"google.protobuf.Int32Value": true, "google.protobuf.Int64Value": true,
+	"google.protobuf.UInt32Value": true, "google.protobuf.UInt64Value": true,
+	"google.protobuf.FloatValue": true, "google.protobuf.DoubleValue": true,
+}
+
 func isMessage(f *catalog.Field) bool {
 	return f.Kind == "message" || f.Kind == "group"
 }
@@ -103,6 +111,17 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 			return
 		}
 		if !numericKinds[target.Kind] {
+			if !isMessage(target) && isMessage(src) && !dynamicWellKnown[src.Message] && !scalarWellKnown[src.Message] {
+				kind := src.Message
+				if kind == "" {
+					kind = "message"
+				}
+				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a whole "+
+					"message is sent as a JSON object, which a %s field never accepts, so the request would be rejected "+
+					"after every earlier step had already hit the backend, and shrt run refuses the chain before "+
+					"sending anything. Reference or export one scalar field of it instead", refs[0], path,
+					target.Kind, where, kind, target.Kind))
+			}
 			return
 		}
 		kind, isNever, isMaybe := cannotBeNumber(src)
