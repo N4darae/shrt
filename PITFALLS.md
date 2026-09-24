@@ -340,8 +340,9 @@ overlay covers at all is scored too, as an empty entry plus 2, so moving `orders
 `.shrt/contracts/` raises the score and fails `quality -gate`; until 2026-09-24 an rpc with no entry
 was simply not measured, and deleting a whole overlay left the gate green at its baseline.
 `contract lint` still checks only what is written — it says `ok` for the overlays that remain — so
-the gate that catches lost coverage is `quality -gate`, and `contract status -gaps` lists each
-uncovered rpc as `no contract`. An unfilled `TODO` is not
+the gate that catches lost coverage is `quality -gate`, which names the uncovered rpcs the rise is
+charged to, and `contract status -gaps` lists each uncovered unary rpc as `no contract` (a streaming
+rpc as `streaming`, out of scope, with or without an entry). An unfilled `TODO` is not
 charged as such: a `TODO` note or summary counts as saying nothing, and that is how it costs points; so
 does a `TODO` as the description of an `exports:`, `terminal:` or `soft_signals:` entry, which until
 2026-09-24 still counted as declaring the field. A singular message response field (`FetchOrder`'s
