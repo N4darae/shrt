@@ -839,7 +839,9 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      name is printed as `<fresh>`: the run above already used its value, so give a new one. A
      dropped write whose step failed or errored in the source run (a `-keep-going` run) is left
      out of `next:` and named with its status: keeping it would stop the slice there, before the
-     target, so the command could only return DID NOT RUN. When every dropped write failed there
+     target, so the command could only return DID NOT RUN. The same holds for an id you passed
+     with `-keep`: one that failed or errored in the source run is left out of `next:`, and the
+     output says it was yours. When every dropped write failed there
      is no `next:` line, and the output says why. Only
      the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
      again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target

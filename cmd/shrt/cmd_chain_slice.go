@@ -514,12 +514,20 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 
 func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, names []string) {
 	usable, blocked := failedInSource(rec, names)
-	v.NotKeepable = blocked
+	asked, askedBlocked := failedInSource(rec, a.keep)
+	v.NotKeepable = append(append([]string{}, askedBlocked...), blocked...)
 	if len(blocked) > 0 {
 		v.Reason += fmt.Sprintf("\nLeft out of next: %s did not pass in source run %s. A slice that keeps it stops there\n"+
 			"(-verify has no -keep-going), so step %s is never sent and the verdict can only be DID NOT RUN.",
 			strings.Join(blocked, ", "), rec.RunID, res.Target)
 	}
+	if len(askedBlocked) > 0 {
+		v.Reason += fmt.Sprintf("\nLeft out of next although you passed it with -keep: %s did not pass in source run %s.\n"+
+			"With the dropped writes kept it can fail as it did there and stop the slice before step %s is sent,\n"+
+			"so the verdict could only be DID NOT RUN.",
+			strings.Join(askedBlocked, ", "), rec.RunID, res.Target)
+	}
+	a.keep = asked
 	if len(usable) == 0 {
 		v.Reason += "\nNo -keep command can reproduce this target: every dropped write it would need failed in the source run.\n" +
 			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
