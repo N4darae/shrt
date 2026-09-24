@@ -47,7 +47,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
 	"     and nothing drifted before it\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
-	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc\n"
+	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc\n" +
+	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
+	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -171,8 +173,14 @@ func runVerify(ctx context.Context, args []string) error {
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
 	loss := examineSessionLoss(e, rec)
 	var reuse *fixtureReuse
+	var literal *literalCollision
 	if !report.Clean() {
-		reuse = detectFixtureReuse(e, c, rec)
+		literal = detectLiteralCollision(c, rec)
+		if literal == nil {
+			reuse = detectFixtureReuse(e, c, rec)
+		} else if driftedBefore(rec, report, literal.index) {
+			literal = nil
+		}
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
 	declared := declaredDriftChanges(e, rec, report, driftStep)
@@ -241,6 +249,9 @@ func runVerify(ctx context.Context, args []string) error {
 			if reuse != nil {
 				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
 			}
+			if literal != nil {
+				fmt.Println("CHAIN DEFECT: " + literal.line())
+			}
 			if len(declared) > 0 {
 				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
 					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
@@ -268,6 +279,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if nonBackend != nil {
 		return nonBackend
+	}
+	if literal != nil {
+		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
 	}
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {

@@ -139,7 +139,11 @@ tag, another client, a shared backend): it prints `fixture collision: ...` and e
 way, with the same fresh `-var` hint. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
-`email`); when it names none, every fixture field of the step counts. A var that
+`email`); when it names none, every fixture field of the step counts. When the field the refusal
+quotes or names is a literal (`sku: fixed-sku-1`, built from no var), no `-var` can help: the chain
+collides with itself, since every run after the first sends the same value. `verify` and `run` then
+say `the chain collides with itself: ... sku is the literal fixed-sku-1 ... build it from a var, e.g.
+sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
