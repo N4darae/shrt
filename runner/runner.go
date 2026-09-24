@@ -181,6 +181,31 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
+func learnMaskedEnv(redactor *pathmask.Masker, v any, path string, env func(string) (string, bool)) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedEnv(redactor, item, pathmask.Join(path, k), env)
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedEnv(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), env)
+		}
+	case string:
+		if !redactor.Masks(path) {
+			return
+		}
+		if env == nil {
+			env = os.LookupEnv
+		}
+		for _, name := range chain.AuthBodyEnvNames(map[string]any{"v": t}) {
+			if value, ok := env(name); ok {
+				redactor.AddSecret(value)
+			}
+		}
+	}
+}
+
 func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
 	switch t := v.(type) {
 	case map[string]any:
@@ -673,6 +698,11 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		scope.Now = r.Now
 	}
 	r.Auth.learnSecrets(redactor)
+	for _, step := range c.Steps {
+		if step != nil {
+			learnMaskedEnv(redactor, orEmpty(step.Body), "", scope.Env)
+		}
+	}
 	r.Auth.learnTokens(redactor)
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}

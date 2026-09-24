@@ -864,6 +864,10 @@ exported: read directly (`name: ${login_clerk.access_token}`) under a login body
 stayed in clear. Every response of a login rpc now gives up its `token_path` value and every value
 under a redacted path as secrets, whichever step called it.
 
+Likewise an env credential a STEP body read (`password: ${env.CLERK_PW}` in an in-chain login) was
+path-redacted in that step but stayed in clear wherever it was echoed. Every `${env.*}` value a step
+body reads into a field covered by `redact` is now scrubbed by value in the whole record.
+
 ---
 
 # Decisions, so they are not relitigated
