@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
+	"github.com/N4darae/shrt/transport"
 )
 
 const (
@@ -734,7 +735,7 @@ func (c Change) describeValues() string {
 		if c.Got == nil {
 			return fmt.Sprintf("want=%v got=not recorded", c.Want)
 		}
-		return fmt.Sprintf("want=%v got=%v, not sent", c.Want, c.Got)
+		return fmt.Sprintf("want=%v got=%v, %s", c.Want, c.Got, sentOrNot(c.Detail))
 	}
 	if c.Kind == KindLength {
 		return fmt.Sprintf("want=%v item(s) got=%v item(s)", c.Want, c.Got)
@@ -749,6 +750,13 @@ func (c Change) describeValues() string {
 		return fmt.Sprintf("want=%v got=%v", c.Want, c.Got)
 	}
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
+}
+
+func sentOrNot(detail string) string {
+	if strings.Contains(detail, transport.NoAnswerBeforeTimeout) && !strings.HasPrefix(detail, "not sent") {
+		return transport.NoAnswerBeforeTimeout
+	}
+	return "not sent"
 }
 
 func orNotRecorded(s string) string {
@@ -889,7 +897,7 @@ func (r *Report) Text() string {
 		}
 		if run := sameNotReached(r.Changes[i:]); run > 1 {
 			last := r.Changes[i+run-1]
-			fmt.Fprintf(&b, "  [%s..%s] %-10s %d step(s) want=%v, not sent (%s)\n", step, last.Step, c.Kind, run, c.Want, c.Detail)
+			fmt.Fprintf(&b, "  [%s..%s] %-10s %d step(s) want=%v, %s (%s)\n", step, last.Step, c.Kind, run, c.Want, sentOrNot(c.Detail), c.Detail)
 			i += run - 1
 			continue
 		}

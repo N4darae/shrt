@@ -181,6 +181,9 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 		if ConnectionClosed(err) {
 			return nil, fmt.Errorf("POST %s: %w", url, closedError(err))
 		}
+		if TimedOut(err) && ctx.Err() == nil {
+			return nil, fmt.Errorf("POST %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)
+		}
 		return nil, fmt.Errorf("POST %s: %w", url, err)
 	}
 	defer resp.Body.Close()
@@ -189,6 +192,9 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	if err != nil {
 		if ConnectionClosed(err) {
 			return nil, fmt.Errorf("read %s: %w", url, closedError(err))
+		}
+		if TimedOut(err) && ctx.Err() == nil {
+			return nil, fmt.Errorf("read %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)
 		}
 		return nil, fmt.Errorf("read %s: %w", url, err)
 	}

@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +22,13 @@ func Unreachable(err error) bool {
 	}
 	var op *net.OpError
 	return errors.As(err, &op) && op.Op == "dial"
+}
+
+const NoAnswerBeforeTimeout = "sent, no answer before target.timeout"
+
+func TimedOut(err error) bool {
+	var ne net.Error
+	return err != nil && (errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()))
 }
 
 func ConnectionClosed(err error) bool {

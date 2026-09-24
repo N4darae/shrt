@@ -16,6 +16,7 @@ import (
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
+	"github.com/N4darae/shrt/transport"
 )
 
 func init() {
@@ -30,7 +31,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
 	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
-	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
+	"     sent but no answer before target.timeout, login or auth refused) and nothing drifted\n" +
+	"     before it; a change at or after that step\n" +
 	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
 	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
 	"     this chain already used (fixture reused: re-run with a fresh -var); or the backend refused a\n" +
@@ -504,8 +506,13 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 		past = fmt.Sprintf("the %d step(s) after it that got an answer were compared, but a change at or after it is "+
 			"not judged, since the unanswered call may explain it", answered)
 	}
+	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
+		remedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
+			"or find why the backend answers so slowly, and run verify again"
+	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
-		"This is not a verdict about the backend: start or reach the target, or fix the credentials it refused, and run verify again", name, step, why, past)
+		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
 }
 
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {
