@@ -62,7 +62,7 @@ func runContract(ctx context.Context, args []string) error {
 func (e *env) contractsDir() string { return e.cfg.Abs(e.cfg.Paths.Contracts) }
 
 func (e *env) library() (*contract.Library, error) {
-	lib, broken, err := contract.LoadLibrary(e.contractsDir())
+	lib, broken, err := contract.LoadLibraryIn(e.contractsDir(), e.cat)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func contractLint(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, broken, err := contract.LoadLibrary(e.contractsDir())
+	lib, broken, err := contract.LoadLibraryIn(e.contractsDir(), e.cat)
 	if err != nil {
 		return err
 	}

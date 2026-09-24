@@ -191,7 +191,8 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 func checkContracts(_ context.Context, cfg *config.Config, _ Options, r *Report) {
 	dir := cfg.Abs(cfg.Paths.Contracts)
 	shown := cfg.Paths.Contracts
-	lib, broken, err := contract.LoadLibrary(dir)
+	cat, _ := loadCatalog(cfg)
+	lib, broken, err := contract.LoadLibraryIn(dir, cat)
 	if err != nil {
 		r.add(CheckContracts, LevelError, fmt.Sprintf("%s cannot be read: %v", shown, err), "")
 		return

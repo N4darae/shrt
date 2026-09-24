@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
@@ -389,6 +390,10 @@ type Library struct {
 }
 
 func LoadLibrary(dir string) (*Library, []error, error) {
+	return LoadLibraryIn(dir, nil)
+}
+
+func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return NewLibrary(nil), nil, nil
@@ -407,7 +412,7 @@ func LoadLibrary(dir string) (*Library, []error, error) {
 
 	overlays := []*Overlay{}
 	broken := []error{}
-	definedIn := map[string]string{}
+	definedIn := map[string]definedAt{}
 	for _, n := range names {
 		o, err := LoadOverlay(filepath.Join(dir, n))
 		if err != nil {
@@ -416,14 +421,24 @@ func LoadLibrary(dir string) (*Library, []error, error) {
 		}
 		clash := false
 		for _, rpc := range sortedContractNames(o.RPCs) {
-			if first, seen := definedIn[rpc]; seen {
+			key := rpc
+			if cat != nil {
+				if m, err := cat.Lookup(rpc); err == nil {
+					key = m.FullName
+				}
+			}
+			if first, seen := definedIn[key]; seen {
+				named := rpc
+				if first.key != rpc || key != rpc {
+					named = fmt.Sprintf("%s (written %q there and %q here)", key, first.key, rpc)
+				}
 				broken = append(broken, fmt.Errorf("%s and %s both define %s: an rpc has one contract, and "+
 					"whichever file loads last would silently replace the other — keep the entry in one file",
-					first, o.SourcePath, rpc))
+					first.path, o.SourcePath, named))
 				clash = true
 				continue
 			}
-			definedIn[rpc] = o.SourcePath
+			definedIn[key] = definedAt{path: o.SourcePath, key: rpc}
 		}
 		if clash {
 			continue
@@ -431,6 +446,11 @@ func LoadLibrary(dir string) (*Library, []error, error) {
 		overlays = append(overlays, o)
 	}
 	return NewLibrary(overlays), broken, nil
+}
+
+type definedAt struct {
+	path string
+	key  string
 }
 
 func IgnoredOverlayFiles(dir string) ([]string, error) {
