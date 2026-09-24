@@ -29,8 +29,9 @@ func init() {
 const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
-	"  3  could not verify: a step never got an answer (target unreachable, login failed) and\n" +
-	"     nothing else drifted, so this is not a verdict about the backend\n"
+	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
+	"     login or auth refused) and nothing drifted before it; a change at or after that step\n" +
+	"     is not judged, so this is not a verdict about the backend\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
@@ -383,10 +384,8 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 			unanswered[st.ID] = why
 			if first == "" {
 				first = st.ID
+				refusedFrom = i
 			}
-		}
-		if authRefused && refusedFrom < 0 {
-			refusedFrom = i
 		}
 	}
 	if first == "" {

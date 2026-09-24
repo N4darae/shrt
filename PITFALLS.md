@@ -719,7 +719,9 @@ it still tolerates a refusal. A dead cached token therefore costs one extra logi
 whose connection closed mid-flight passed with the write performed twice and nothing recorded. shrt
 now never lets the transport re-send a request whose body was sent: such a drop is a step `error`
 saying whether the call took effect is unknown. A request that provably never left (nothing written
-on a stale idle connection) is still retried on a fresh connection.
+on a stale idle connection) is still retried on a fresh connection. Under `shrt verify` that step is
+judged like a refused authentication: the changes at or after it, which the lost call may explain,
+make `could not verify` (exit 3), not `regression`, unless a step before it drifted.
 
 ## 29. `validate_output` reporting the one status that means "nothing was sent"
 
