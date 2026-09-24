@@ -479,14 +479,23 @@ func clip(s string, n int) string {
 
 func shortValue(v any) string {
 	if s, isString := v.(string); isString && (s == "" || strings.TrimSpace(s) != s) {
-		return clip(strconv.Quote(s), summaryValue)
+		return clipMiddle(strconv.Quote(s), summaryValue)
 	}
 	if b, err := json.Marshal(v); err == nil {
 		if _, isString := v.(string); !isString {
-			return clip(flat(string(b)), summaryValue)
+			return clipMiddle(flat(string(b)), summaryValue)
 		}
 	}
-	return clip(flat(fmt.Sprint(v)), summaryValue)
+	return clipMiddle(flat(fmt.Sprint(v)), summaryValue)
+}
+
+func clipMiddle(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	tail := n / 2
+	return string(r[:n-tail]) + "…" + string(r[len(r)-tail:])
 }
 
 func sentSummary(st *runner.StepRecord) string {
