@@ -909,7 +909,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
-	} else if result, refused := unpinnedRefusal(decoded, step.Expect, verdictDeclared, redactor); refused {
+	} else if result, refused := unpinnedRefusal(scope, decoded, step.Expect, verdictDeclared, redactor); refused {
 		sr.Expect = append(sr.Expect, result)
 		sr.Status = StatusFailed
 	}
@@ -924,7 +924,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		default:
 			return fail(sr, itemErr)
 		}
-		if surprises := chain.UndeclaredRefusals(refusals, step.Expect); len(surprises) > 0 {
+		if surprises := chain.UndeclaredRefusals(refusals, boundExpect(scope, step.Expect)); len(surprises) > 0 {
 			got := make([]string, 0, len(surprises))
 			for _, r := range surprises {
 				line := r.String()
@@ -1040,9 +1040,9 @@ func verdictText(decoded any, path string) (string, bool) {
 	return text, text != ""
 }
 
-func unpinnedRefusal(decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
 	path := chain.EnvelopePath()
-	if path == "" || pinsVerdict(expect) {
+	if path == "" || pinsVerdict(scope, expect) {
 		return chain.ExpectResult{}, false
 	}
 	text, has := verdictText(decoded, path)
@@ -1068,16 +1068,49 @@ func unpinnedRefusal(decoded any, expect []chain.Expectation, verdictDeclared bo
 	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
 }
 
-func pinsVerdict(expect []chain.Expectation) bool {
-	for _, e := range expect {
-		if chain.IsTransportPath(e.Path) {
-			return true
-		}
-		if chain.IsEnvelopePath(e.Path) && (e.Equals != nil || e.NotEqual != nil || e.Contains != "" || e.Exists != nil) {
-			return true
+func pinsVerdict(scope *chain.Scope, expect []chain.Expectation) bool {
+	okEnvelope := okAnswer(chain.EnvelopePath(), chain.EnvelopeOK())
+	okTransport := chain.TransportOutcome(200, "", "")
+	for _, e := range boundExpect(scope, expect) {
+		switch {
+		case chain.IsTransportPath(e.Path):
+			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
+				return true
+			}
+		case chain.IsEnvelopePath(e.Path):
+			if e.Equals != nil || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func boundExpect(scope *chain.Scope, expect []chain.Expectation) []chain.Expectation {
+	out := make([]chain.Expectation, len(expect))
+	for i, e := range expect {
+		out[i] = e
+		if bound, err := e.ResolveWith(scope); err == nil {
+			out[i] = bound
+		}
+	}
+	return out
+}
+
+func okAnswer(path, ok string) map[string]any {
+	segs := chain.SplitPath(path)
+	root := map[string]any{}
+	node := root
+	for i, seg := range segs {
+		if i == len(segs)-1 {
+			node[seg] = ok
+			break
+		}
+		next := map[string]any{}
+		node[seg] = next
+		node = next
+	}
+	return root
 }
 
 func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {

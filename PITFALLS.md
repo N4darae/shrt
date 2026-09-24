@@ -835,7 +835,8 @@ asserts only `qty_on_hand equals: 0` and is `ok`, with no warning.
 zero holds on the refusal. Nothing on the step said the call had to succeed or had to be refused.
 
 **Fix.** 2026-09-24: a step that declares expectations, is refused in-band, and has none pinning the
-verdict (`equals`, `not_equal` or `contains` on the envelope, or a `transport.*` path) is `failed`,
+verdict (`equals` on the envelope, or a rule on the envelope or a `transport.*` path that would fail
+on a successful answer) is `failed`,
 with an `envelope` entry naming the refusal. Assert `status.code equals: SUCCESS` on a call that must
 succeed, or the refusal code on one that must be refused.
 
@@ -844,6 +845,15 @@ The same hole was open through a response with no verdict at all: `{}` or `statu
 2026-09-24 an absent or empty verdict, on an rpc whose response message declares the envelope
 path, is treated like a refusal: the step fails with an `envelope` entry saying no verdict was
 sent, unless an expectation pins the envelope (`exists: false` included) or the transport.
+
+And through a pin the refusal itself satisfies: `status.code not_equal: ""`, or `not_equal: REJECTD`
+with a typo, holds on `REJECTED` exactly as on `SUCCESS`, so it declares nothing, yet it used to
+count as pinning the verdict and turned the refused step green. Since 2026-09-24 a pin counts only
+if it is an `equals` on the envelope or would fail on the ok value (`not_equal: SUCCESS`,
+`contains: REJ`, `exists: false`, `transport.code equals: unauthenticated`), after resolving its
+references; the same rule already held for a batch line's verdict. `chain lint` warns
+(`unfailable-assertion`, failed by `-strict`) on `not_equal: ""` on the envelope; a misspelt code on
+a string-typed envelope cannot be told from a real one statically, so only the runner catches it.
 
 ## 38. A password or a token in clear in a run record, though `redact` covers its field
 

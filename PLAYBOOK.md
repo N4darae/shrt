@@ -576,9 +576,13 @@ validated. A chain reading a `${vars.x}` it does not declare and was not given i
 anything is sent, with the `-var` flags it needs; so is one reading a response field the earlier
 step's response message does not have, such as a misspelt `${create_product.product.id_prodct}`. A step with no `expect` that the backend refuses
 in-band stays `passed` with a warning under it; only `chain lint -strict` stops it. A step that
-declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`,
-`not_equal` or `contains` on the envelope, or a `transport.*` path): `expect qty_on_hand equals: 0`
-holds on the zero a refusal leaves, and must not turn the step green. The same holds for a
+declares expectations and is refused in-band FAILS unless one of them pins the verdict (`equals`
+on the envelope, or any rule on the envelope or a `transport.*` path that would FAIL on a
+successful answer, such as `not_equal: SUCCESS`): `expect qty_on_hand equals: 0` holds on the zero
+a refusal leaves, and must not turn the step green. A pin the refusal and the ok value both satisfy
+declares nothing: `status.code not_equal: ""`, `not_equal: REJECTD` (a typo), or `transport.code
+equals: ok` on a call refused in-band. References in a pin are resolved first, and `chain lint`
+warns on `not_equal: ""` on the envelope, which `-strict` fails. The same holds for a
 response that carries NO verdict where its message declares one (no envelope, `status: {}`, or an
 empty code): it fails unless an expectation pins the envelope (`status.code exists: false` when
 an absent verdict is what the rpc answers) or the transport, and warns on a step with no
