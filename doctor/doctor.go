@@ -88,6 +88,7 @@ var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkTokenCache,
 	checkAuth,
 	checkConventions,
+	checkContracts,
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) *Report {

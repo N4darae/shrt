@@ -292,7 +292,7 @@ Produced by resolving each form against a fixture scope:
 | key | type | req | meaning |
 |---|---|---|---|
 | `chains` | string | + | Chain YAML directory. |
-| `contracts` | string |  | Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`. |
+| `contracts` | string |  | Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`. Only the `.yaml`/`.yml` files at its top level are loaded, each holding one YAML document; `shrt doctor` warns about overlay files in a subdirectory, and an rpc defined in two files is an error naming both, since one would silently replace the other. |
 | `runs` | string | + | Run record directory. |
 | `safespots` | string | + | Safe spot directory. |
 

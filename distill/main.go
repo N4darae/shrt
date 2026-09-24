@@ -198,7 +198,7 @@ var notes = map[string]string{
 	"Conventions.validate_output":    "When true, a response that does not match its proto message FAILS the step. Default false: the response is kept as sent and a warning is recorded, so a descriptor that has drifted from the deployed binary degrades quietly rather than failing every chain. Turn it on once your descriptor build and your deploy are in step.",
 
 	"Paths.chains":    "Chain YAML directory.",
-	"Paths.contracts": "Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`.",
+	"Paths.contracts": "Curated contract overlay directory, one file per domain. Read it from here rather than assuming `.shrt/contracts`. Only the `.yaml`/`.yml` files at its top level are loaded, each holding one YAML document; `shrt doctor` warns about overlay files in a subdirectory, and an rpc defined in two files is an error naming both, since one would silently replace the other.",
 	"Paths.runs":      "Run record directory.",
 	"Paths.safespots": "Safe spot directory.",
 }

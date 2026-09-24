@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -406,15 +407,57 @@ func LoadLibrary(dir string) (*Library, []error, error) {
 
 	overlays := []*Overlay{}
 	broken := []error{}
+	definedIn := map[string]string{}
 	for _, n := range names {
 		o, err := LoadOverlay(filepath.Join(dir, n))
 		if err != nil {
 			broken = append(broken, err)
 			continue
 		}
+		clash := false
+		for _, rpc := range sortedContractNames(o.RPCs) {
+			if first, seen := definedIn[rpc]; seen {
+				broken = append(broken, fmt.Errorf("%s and %s both define %s: an rpc has one contract, and "+
+					"whichever file loads last would silently replace the other — keep the entry in one file",
+					first, o.SourcePath, rpc))
+				clash = true
+				continue
+			}
+			definedIn[rpc] = o.SourcePath
+		}
+		if clash {
+			continue
+		}
 		overlays = append(overlays, o)
 	}
 	return NewLibrary(overlays), broken, nil
+}
+
+func IgnoredOverlayFiles(dir string) ([]string, error) {
+	out := []string{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) && path == dir {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			rel = path
+		}
+		out = append(out, rel)
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
 }
 
 func NewLibrary(overlays []*Overlay) *Library {
@@ -515,7 +558,13 @@ func decodeStrict(raw []byte, into any) error {
 		return yamlkey.Explain(err, into)
 	}
 	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {
+	err := d.Decode(&extra)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("this file holds more than one YAML document, and the one after the '---' does not "+
+			"parse (%v); only the first is read, so the rest would be silently ignored. Split it into separate "+
+			"files, or remove the '---'", err)
+	}
+	if err == nil && carriesContent(&extra) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}

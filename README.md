@@ -95,7 +95,7 @@ kit's.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the Claude skill and subagent |
 | `shrt version` | which build this is — version, commit, build time, and the four docs it carries; `-short` prints the version alone |
-| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, and the envelope conventions against the response messages. `-strict` fails on warnings too |
+| `shrt doctor` | check this repo's own `.shrt/`: which build is running, installed docs and the `.claude/` agent kit against the copy embedded in the binary, descriptor against a rebuild, `.gitignore` against the paths that must never be committed, the token cache's mode, the auth profiles and every `${env.*}` they read, the envelope conventions against the response messages, and the contract overlays (FAIL if one does not load or two define the same rpc, WARN for overlay files in a subdirectory, which are not loaded). `-strict` fails on warnings too |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the RPC surface |
 | `shrt catalog describe <rpc>` | request and response schemas with proto doc comments |

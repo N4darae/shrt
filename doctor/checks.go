@@ -18,6 +18,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/contract"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	CheckAuth       = "auth"
 
 	CheckConventions = "conventions"
+	CheckContracts   = "contracts"
 )
 
 func loadCatalog(cfg *config.Config) (*catalog.Catalog, error) {
@@ -183,6 +185,41 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 	}
 	if len(leaked) == 0 && ignored[secret] {
 		r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored", len(want)), "")
+	}
+}
+
+func checkContracts(_ context.Context, cfg *config.Config, _ Options, r *Report) {
+	dir := cfg.Abs(cfg.Paths.Contracts)
+	shown := cfg.Paths.Contracts
+	lib, broken, err := contract.LoadLibrary(dir)
+	if err != nil {
+		r.add(CheckContracts, LevelError, fmt.Sprintf("%s cannot be read: %v", shown, err), "")
+		return
+	}
+	if len(broken) > 0 {
+		lines := make([]string, 0, len(broken))
+		for _, b := range broken {
+			lines = append(lines, b.Error())
+		}
+		r.add(CheckContracts, LevelError,
+			fmt.Sprintf("%d contract overlay problem(s) under %s, and every contract command (lint, quality, "+
+				"plan, show) refuses to run until they are fixed: %s", len(broken), shown, strings.Join(lines, "; ")),
+			"shrt contract lint   # names each one")
+	}
+	ignored, err := contract.IgnoredOverlayFiles(dir)
+	if err == nil && len(ignored) > 0 {
+		for i := range ignored {
+			ignored[i] = filepath.ToSlash(ignored[i])
+		}
+		r.add(CheckContracts, LevelWarn,
+			fmt.Sprintf("%d YAML file(s) in a subdirectory of %s are not loaded — shrt reads only the files at "+
+				"its top level, so nothing in them is linted, scored or planned: %s",
+				len(ignored), shown, strings.Join(ignored, ", ")),
+			"move each overlay up into "+shown+", or out of it if it is not a contract")
+	}
+	if len(broken) == 0 && len(ignored) == 0 {
+		r.add(CheckContracts, LevelOK,
+			fmt.Sprintf("%d contract(s) across %d overlay(s) under %s load", lib.Count(), len(lib.Overlays), shown), "")
 	}
 }
 
