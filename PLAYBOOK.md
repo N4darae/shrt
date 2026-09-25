@@ -627,7 +627,9 @@ body; `unavailable` is a gateway or a restart, above), is checked for flakiness 
 a regression. When the backend answered the same request at another step of this run, or the
 previous run of the chain failed at a different step with the same error and answered this one,
 `verify` and `run` print `FINDING: intermittent failure at <rpc>` with that evidence, and `verify`
-fails with it instead of `regression: ...` when every change is at such a step. It still exits 1:
+fails with it instead of `regression: ...` when every change is at such a step, also when an
+expectation was edited since the safe spot (an expectation edit never explains a transport error, so
+the step's status is never marked `explained by the failed changed expectation`). It still exits 1:
 the backend does fail that rpc, only not on every call. When the only evidence is that the previous
 run that sent the step answered it, the verdict stays `regression` with a `note: ... this looks
 intermittent` line, because a backend change deployed between the two runs reads the same; re-run,

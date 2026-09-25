@@ -334,11 +334,11 @@ func editedExpectFailed(rec *runner.Record, c Change) bool {
 	}
 	path, _, _ := strings.Cut(fmt.Sprint(text), " ")
 	st, ok := rec.Step(c.Step)
-	if !ok {
+	if !ok || (st.Transport != nil && !chain.IsTransportPath(path)) {
 		return false
 	}
 	for _, r := range st.Expect {
-		if !r.Passed && r.Path == path {
+		if !r.Passed && r.Rule != "unevaluated" && r.Path == path {
 			return true
 		}
 	}
