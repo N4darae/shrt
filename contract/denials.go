@@ -78,7 +78,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 	if !p.opts.Auth {
 		return
 	}
-	tokenDone := false
+	tokenDone := map[string]bool{}
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || p.isLogin(st.Call) || st.SkipAuth {
 			continue
@@ -112,8 +112,8 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 				said = append(said, fmt.Sprintf("%s calls it as profile %s, assumed not to hold %s (its name is not the role's)", probe.ID, prof, roles))
 			}
 		}
-		if !tokenDone {
-			tokenDone = true
+		if rpc := canonicalCall(p.cat, st.Call); !tokenDone[rpc] {
+			tokenDone[rpc] = true
 			expect := []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}}
 			how := "Connect unauthenticated, which no failure in its contract declares (declare one with connect_code: unauthenticated in the domain-level failures:, or once with scope: all in any overlay to share it with every domain)"
 			if f, found := unauthFailure(lib, st.Call); found {
@@ -129,8 +129,8 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 			bad.Expect = append([]chain.Expectation{}, expect...)
 			bad.Description = "with a token the backend never issued, refused before the handler runs."
 			group = append(group, without, bad)
-			said = append(said, fmt.Sprintf("%s and %s send no token and a token never issued, expecting %s; one pair per "+
-				"plan keeps chains short, and 'shrt contract status -gaps' lists rpcs no chain probes this way", without.ID, bad.ID, how))
+			said = append(said, fmt.Sprintf("%s and %s send no token and a token never issued, expecting %s; each target rpc "+
+				"gets one pair, and 'shrt contract status -gaps' lists rpcs no chain probes this way", without.ID, bad.ID, how))
 		}
 		if len(group) == 0 {
 			continue

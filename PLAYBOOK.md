@@ -399,10 +399,10 @@ When the config declares auth, the plan also probes who may call. For a target w
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
 for a caller without the role (a reason such as `PermissionDenied`, or a `when:` naming the role);
-the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
-target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
+the plan assumes such a profile lacks the role, so name profiles after their role. Every target
+rpc also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
 invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
-pair per plan, not per rpc). A refusal every rpc of every domain shares, as `unauthenticated` usually
+pair per target rpc, so a plan of several rpcs clears `-gaps` for each). A refusal every rpc of every domain shares, as `unauthenticated` usually
 is, is declared once: put it in one overlay's domain-level `failures:` with `scope: all` (in
 `auth.yaml`, say) rather than copying the block into each overlay; without `scope: all` a
 domain-level failure reaches only its own overlay's rpcs. For a write, all of these sit between reads of what it touches

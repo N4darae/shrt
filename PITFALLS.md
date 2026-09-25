@@ -2255,6 +2255,15 @@ tag's fixture equals another tag's; the list prefix `sku-${vars.tag}-` still mat
 A unique value ending in the var gets a note asking for a terminator. The collision line now says
 `fixture reused` and names the run, the step and the tag of this chain that already sent the value.
 
+## 109. Token probes for the first target only
+
+**Symptom.** `shrt contract plan AddStock ListProducts GetCustomer` scaffolded
+`<step>_without_token` and `<step>_with_bad_token` for `add_stock` only, so `contract status -gaps`
+kept listing `no token` for the other two, and testers planned every rpc separately to clear it.
+
+**Fix.** 2026-09-25: every target rpc of a plan gets its own pair (an rpc named twice, through an
+alias, gets one).
+
 ---
 
 # Decisions, so they are not relitigated

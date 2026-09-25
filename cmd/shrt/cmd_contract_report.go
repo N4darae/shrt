@@ -329,7 +329,7 @@ func printStatusGaps(rows []statusRow) {
 		"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
 		"             it changed nothing.\n" +
 		"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
-		"             checking the token passes. A plan scaffolds one pair per chain, for its first target.\n")
+		"             checking the token passes. A plan scaffolds one pair for each target rpc.\n")
 }
 
 func loginRPCs(e *env) map[string]bool {
