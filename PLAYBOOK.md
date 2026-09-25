@@ -911,7 +911,10 @@ declaration, the same items in another order are reported as `same items in anot
 when that is every change verify fails with `order changed`, not `regression`, also when an
 expectation reading the list by position (`results.0.status.code`) failed because of it: that
 step's status change counts as the reorder, the failed expectations are named on the line and in
-the verdict, and the per-item changes (ids included) under the reordered list are not listed. The
+the verdict, and the per-item changes (ids included) under the reordered list are counted but not
+listed (the line says how many; `-json` lists them). A changed value at a later step reading the
+list by position shows as `want` the safe spot's value with this run's fixture names swapped in
+(`product.sku want=sku-ln2-a got=sku-ln2-b`), so it reads as what this run should have got. The
 `first failing step` line names the first expectation that failed, with `-quiet` too.
 
 Three things that decide whether this works for a given chain:

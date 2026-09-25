@@ -101,6 +101,7 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.noteHiddenStaleEchoes(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
+	renameWants(remaining, renamer(append(pairs, r.renames...)))
 	var explained map[string]bool
 	if causal && from >= 0 {
 		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads, readValueChanged(spot, rec, renamer(append(pairs, r.renames...))))
@@ -231,6 +232,22 @@ func sameRenamed(want, got any, rn *strings.Replacer) bool {
 		return w == g || rn != nil && rn.Replace(w) == g
 	}
 	return jsonKind(want) == jsonKind(got) && sameScalar(want, got)
+}
+
+func renameWants(changes []Change, rn *strings.Replacer) {
+	if rn == nil {
+		return
+	}
+	for i, c := range changes {
+		w, okW := c.Want.(string)
+		g, okG := c.Got.(string)
+		if c.Kind != KindChanged || c.Detail != "" || !okW || !okG || renameable(c.Path, w, g) {
+			continue
+		}
+		if renamed := rn.Replace(w); renamed != w && renamed != g {
+			changes[i].Want = renamed
+		}
+	}
 }
 
 func pathsOverlap(changed []string, read string) bool {

@@ -251,6 +251,16 @@ func (r *Report) underReordered(c Change) bool {
 	return false
 }
 
+func (r *Report) hiddenUnder(at stepPath) int {
+	n := 0
+	for _, c := range r.Changes {
+		if c.Kind != KindNotReached && changesUnder([]Change{c}, at) > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *Report) reorderOnlyStep(step string) bool {
 	found := false
 	for _, c := range r.Changes {
@@ -315,6 +325,9 @@ func (r *Report) reorderedText() string {
 			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
 		if failed := r.reorderExpect[at.step]; len(failed) > 0 {
 			b.WriteString("; the expectation(s) reading it by position failed: " + strings.Join(failed, "; "))
+		}
+		if n := r.hiddenUnder(at); n > 0 {
+			fmt.Fprintf(&b, "; %d positional change(s) under it are counted above but not listed one by one (-json lists them)", n)
 		}
 		b.WriteString("\n")
 	}
