@@ -296,7 +296,8 @@ order asserted. `chain new` does the same for two or more creates feeding a list
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
 `Duplicate…`, or a `when:` saying unique or duplicate), the plan adds a step right after it sending
-the same value again (`${steps.<id>.request.<field>}`), expecting the verdict not to be the ok value,
+the same value again (`${steps.<id>.request.<field>}`), and a second (`<id>_same_<field>_other_fields`) sending it with
+every other literal field changed (`Widget …-other`, a price of 2n+1), expecting the verdict not to be the ok value,
 the failure's code and reason on the response's code fields (`conventions.code_fields`, e.g.
 `status.details.0.app_code` and `.reason`), and no created object. The field is the failure's
 `field:`, else the one the reason names, else the one field whose note says unique. When the

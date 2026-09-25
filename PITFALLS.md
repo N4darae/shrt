@@ -1289,6 +1289,19 @@ adds the value with its letters' case swapped, and when it says surrounding whit
 the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
 and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
 
+## 46. A duplicate sku accepted under another name, green in the planned chain
+
+**Symptom.** CreateProduct began refusing a taken sku only when the name matched too, so a second
+product with the same sku and another name was created. The planned chain stayed green.
+
+**Cause.** The duplicate attempt was an exact copy of the first request. A backend that compares the
+whole record, or a composite key, refuses an exact copy just as one comparing the sku alone does.
+
+**Fix.** 2026-09-25: next to the exact copy, `contract plan` adds `<id>_same_<field>_other_fields`,
+sending the taken value with every other literal field changed (strings get `-other`, before the
+`@` of an address; numbers become 2n+1; ids, enums, bools and references are kept), expecting the
+same refusal. When no other field can be changed, a note says the attempt is only an exact copy.
+
 ---
 
 # Decisions, so they are not relitigated

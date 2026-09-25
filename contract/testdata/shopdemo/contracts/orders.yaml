@@ -1,0 +1,142 @@
+apiVersion: shrt/contract/v1
+domain: orders
+description: Orders for a customer over product lines. Confirm reserves stock, cancel of a confirmed order returns it.
+failures:
+    - connect_code: unauthenticated
+      reason: Unauthenticated
+      when: the Authorization header is missing, or its token is unknown or expired
+rpcs:
+    shop.orders.v1.OrderService/CreateOrder:
+        summary: Record a PENDING order priced at current product prices; does not touch stock.
+        requires_role: [NONE]
+        required: [lines]
+        fields:
+            id_customer:
+                from: shop.customers.v1.CustomerService/CreateCustomer->customer.id_customer
+                checked_by: app_lookup
+            lines:
+                note: one line per product, each with qty greater than zero
+            lines.id_product:
+                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
+                checked_by: app_lookup
+            lines.qty:
+                value: "2"
+                note: units ordered, must be greater than zero
+            idempotency_key:
+                value: ${uuid}
+                note: fresh per run; a replay with the same key is the idempotency path
+        needs: [shop.catalog.v1.StockService/AddStock]
+        exports:
+            order: the created order; id_order feeds confirm, cancel and fetch, total_minor is the priced sum
+        failures:
+            - connect_code: invalid_argument
+              reason: LinesRequired
+              field: lines
+              when: lines is empty or a line has qty zero or negative
+            - code: 1301
+              reason: CustomerNotFound
+              when: no customer has id_customer
+            - code: 1204
+              reason: ProductNotFound
+              when: a line names an unknown product
+        source: [server/server.go, README.md]
+        status: draft
+    shop.orders.v1.OrderService/ConfirmOrder:
+        summary: Reserve stock for every line and move a PENDING order to CONFIRMED.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            id_order:
+                from: shop.orders.v1.OrderService/CreateOrder->order.id_order
+                checked_by: app_lookup
+        exports:
+            order: the order after confirmation, status CONFIRMED
+        failures:
+            - code: 1302
+              reason: OrderNotFound
+              when: no order has this id
+            - code: 1303
+              reason: OrderAlreadyConfirmed
+              when: the order is already CONFIRMED
+            - code: 1304
+              reason: OrderCancelled
+              when: the order is CANCELLED
+            - code: 1305
+              reason: InsufficientStock
+              when: any line asks for more than the product's stock on hand; nothing changes
+        source: [server/server.go, README.md]
+        status: draft
+    shop.orders.v1.OrderService/CancelOrder:
+        summary: Move an order to CANCELLED; a CONFIRMED order gives its stock back.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            id_order:
+                from: shop.orders.v1.OrderService/CreateOrder->order.id_order
+                checked_by: app_lookup
+        exports:
+            order: the order after cancellation, status CANCELLED
+        failures:
+            - code: 1302
+              reason: OrderNotFound
+              when: no order has this id
+            - code: 1304
+              reason: OrderCancelled
+              when: the order is already CANCELLED
+        source: [server/server.go, README.md]
+        status: draft
+    shop.orders.v1.OrderService/FetchOrder:
+        summary: Read one order by id with its lines, status and total.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            id_order:
+                from: shop.orders.v1.OrderService/CreateOrder->order.id_order
+                checked_by: app_lookup
+        exports:
+            order: the stored order
+        failures:
+            - code: 1302
+              reason: OrderNotFound
+              when: no order has this id
+        source: [server/server.go]
+        status: draft
+    shop.orders.v1.OrderService/ListOrders:
+        summary: List a customer's orders oldest first, restricted to one status when status is set.
+        requires_role: [NONE]
+        required: [id_customer]
+        fields:
+            id_customer:
+                from: shop.customers.v1.CustomerService/CreateCustomer->customer.id_customer
+                checked_by: app_lookup
+            status:
+                note: ORDER_STATUS_UNSPECIFIED means no filter; any other value keeps only orders in that status
+        aliases:
+            pending:
+                note: filtered to PENDING orders
+                fields:
+                    status:
+                        value: ORDER_STATUS_PENDING
+        exports:
+            orders: the customer's orders, oldest first
+        failures:
+            - connect_code: invalid_argument
+              reason: IdRequired
+              field: id_customer
+              when: id_customer is empty
+        source: [server/server.go, README.md]
+        status: draft
+    shop.orders.v1.OrderService/WatchOrder:
+        summary: Stream the order each time its status changes.
+        note: 'shop.orders.v1.OrderService/WatchOrder is a server-streaming rpc and shrt is unary-only: a step is one POST of JSON to /shop.orders.v1.OrderService/WatchOrder answered by one response body, which cannot carry a stream. This rpc is out of scope for a chain — reproduce the state it observes with the unary rpcs that write it'
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            id_order:
+                from: shop.orders.v1.OrderService/CreateOrder->order.id_order
+                checked_by: app_lookup
+        terminal:
+            status: streamed envelope, out of scope
+            order: streamed order, out of scope
+        source: [server/server.go]
+        status: draft
