@@ -85,3 +85,29 @@ func TestInitPrintsTheConventionsAdviceOnceWhenItCannotObserve(t *testing.T) {
 		t.Fatalf("the conventions advice is printed once:\n%s", out)
 	}
 }
+
+func TestInitWithoutTheLoginCredentialsSaysInOneLineToExportThemAndRerun(t *testing.T) {
+	srv := loginServer(t, `{"error":{"code":"DONE"},"access_token":"tok","expires_at":"0"}`)
+	t.Setenv("API_USER", "")
+	t.Setenv("API_PASSWORD", "")
+	os.Unsetenv("API_USER")
+	os.Unsetenv("API_PASSWORD")
+	for _, verbose := range []bool{false, true} {
+		dir := loginWorkspace(t, "")
+		restore := chdir(t, dir)
+		args := []string{"-build=false", "-agents=false", "-base-url", srv.URL}
+		if verbose {
+			args = append(args, "-v")
+		}
+		out := captureStdout(t, func() {
+			if err := runInit(t.Context(), args); err != nil {
+				t.Fatalf("init: %v", err)
+			}
+		})
+		restore()
+		if strings.Contains(out, "no conventions: block declared") != verbose ||
+			!verbose && !strings.Contains(out, "export the login credentials and re-run shrt init, which observes error.code and writes them") {
+			t.Errorf("-v %v: without credentials init says to export them in one line, and prints the block only under -v:\n%s", verbose, out)
+		}
+	}
+}

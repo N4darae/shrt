@@ -33,6 +33,7 @@ func runInit(ctx context.Context, args []string) error {
 	build := fs.Bool("build", true, "build the descriptor now")
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
 	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit, .shrt/ci-gate.sh and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
+	verbose := fs.Bool("v", false, "also print the conventions: block to paste when init cannot observe it")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
 	setUsage(fs, "usage: shrt init [flags]   write .shrt/, build the descriptor, install the Claude skill and subagent; "+
 		"re-running keeps your config and chains",
@@ -199,6 +200,9 @@ func runInit(ctx context.Context, args []string) error {
 	if unobserved != "" || (wroteConfig && loaded.Conventions.EnvelopePath == "") {
 		guidePath, _ := exampleEnvelope(loaded)
 		switch {
+		case wroteConfig && strings.HasPrefix(unobserved, "the login was not sent") && !*verbose:
+			fmt.Printf("conventions: not written, init did not read envelope_ok (%s); export the login credentials and re-run shrt init, "+
+				"which observes %s and writes them (-v prints the block to paste)\n", unobserved, guidePath)
 		case wroteConfig:
 			fmt.Print("\n" + config.ConventionsGuideFor(guidePath))
 			if unobserved != "" {
