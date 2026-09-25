@@ -98,7 +98,8 @@ each with a fresh `-var tag` when the chain reads one, retries an exit 3 once af
 (20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
 regression, order changed, different input or chain change) or `NO VERDICT` with the first failing
-step and path, and under a `FAIL` the request of the suspect. Failures are then grouped, one line per suspect rpc. The read itself is the
+step and path, and under a `FAIL` the request of the suspect (`-v` adds each changed path with the
+steps it changed at). Failures are then grouped, one line per suspect rpc. The read itself is the
 suspect when it fails with a server error, when its list holds another set of items while every
 write before it answered as before, when only the order of a list changed, when the write it
 observes returned the same field of the same record unchanged, or when the same change follows two

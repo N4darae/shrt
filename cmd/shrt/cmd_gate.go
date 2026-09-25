@@ -417,6 +417,7 @@ type gateChain struct {
 func runGate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	wait := fs.Duration("retry-wait", 20*time.Second, "wait before re-running a run or verify that exited 3")
+	verbose := fs.Bool("v", false, "under each failing chain, every changed step and path")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   run each chain, verify each safe spot (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
@@ -468,6 +469,9 @@ func runGate(ctx context.Context, args []string) error {
 		}
 		for _, n := range g.notes {
 			fmt.Println("  " + n)
+		}
+		if *verbose && g.failed {
+			g.printChanges()
 		}
 	}
 	failed, unverified := 0, 0
@@ -719,6 +723,41 @@ func (g *gateChain) suspectLine() string {
 		return ""
 	}
 	return lead + g.sent[step]
+}
+
+func (g *gateChain) printChanges() {
+	seen := map[string]bool{}
+	var paths, because []string
+	steps := map[string][]string{}
+	example := map[string]string{}
+	cascades := map[string]int{}
+	for _, it := range g.items {
+		if seen[it.Step+" "+it.Path] {
+			continue
+		}
+		seen[it.Step+" "+it.Path] = true
+		if it.Cascade != "" {
+			if cascades[it.Cascade] == 0 {
+				because = append(because, it.Cascade)
+			}
+			cascades[it.Cascade]++
+			continue
+		}
+		path := gateIndex.ReplaceAllString(it.Path, "[]$1")
+		if steps[path] == nil {
+			paths = append(paths, path)
+			example[path] = chain.WantGot(it.Rule, it.Want, it.Got)
+		}
+		if !containsName(steps[path], it.Step) {
+			steps[path] = append(steps[path], it.Step)
+		}
+	}
+	for _, p := range paths {
+		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", p, len(steps[p]), capList(steps[p], 3), example[p])
+	}
+	for _, c := range because {
+		fmt.Printf("    %d step(s) unevaluated because %s\n", cascades[c], c)
+	}
 }
 
 func (g *gateChain) line(width int) string {

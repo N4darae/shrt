@@ -293,3 +293,23 @@ func TestTheGateSuspectLineAgreesWithTheSummary(t *testing.T) {
 		t.Errorf("got %q", line)
 	}
 }
+
+func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
+	g := &gateChain{name: "one", failed: true, items: []gateItem{
+		{Step: "make", Path: "thing.n", Want: "1", Got: "2"},
+		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
+		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
+		{Step: "list", Path: "things.3.n", Want: "1", Got: "2"},
+		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "Make lost thing.n"},
+	}}
+	out := captureStdout(t, g.printChanges)
+	for _, want := range []string{
+		"    thing.n at 2 step(s) (make, get); e.g. want=1 got=2\n",
+		"    things[].n at 1 step(s) (list); e.g. want=1 got=2\n",
+		"    1 step(s) unevaluated because Make lost thing.n\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+}
