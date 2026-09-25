@@ -58,7 +58,7 @@ func TestDroppedWriteListsAreCappedAtFiveIDs(t *testing.T) {
 		res.DroppedWrites = append(res.DroppedWrites, chain.Dropped{Index: i + 1, ID: id})
 	}
 	v := &sliceVerdict{Outcome: sliceReproduced, OtherDropped: ids, Reason: "info: " + note}
-	out := captureStdout(t, func() { printSlice(res, "", v) })
+	out := captureStdout(t, func() { printSlice(res, "", v, false) })
 	if strings.Count(out, "w5 and 2 more") != 1 || strings.Contains(out, "w7") || strings.Contains(out, "WARNING") {
 		t.Fatalf("a reproduced slice names the unrelated dropped writes once, capped:\n%s", out)
 	}

@@ -116,7 +116,7 @@ func round2Slice(t *testing.T, args ...string) (string, error) {
 
 func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.T) {
 	round2Workspace(t)
-	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-keep", "other", "-var", "batch=T2", "-verify", "-write")
+	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-keep", "other", "-var", "batch=T2", "-verify", "-v", "-write")
 	if err != nil {
 		t.Fatalf("fill and blank were refused in the source run, so they wrote nothing; the slice must reproduce: %v\n%s", err, out)
 	}
@@ -173,7 +173,7 @@ func TestCLISliceClosureVerifyRefusesAnUndeclaredVarWithTheFlagToPass(t *testing
 
 func TestCLIPinSliceTakesAnUndeclaredVarFromTheSourceRun(t *testing.T) {
 	round2Workspace(t)
-	out, err := round2Slice(t, "-step", "create", "-mode", "pin", "-run", "latest", "-write")
+	out, err := round2Slice(t, "-step", "create", "-mode", "pin", "-run", "latest", "-v", "-write")
 	if err != nil {
 		t.Fatal(err)
 	}

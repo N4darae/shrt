@@ -58,6 +58,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	asJSON := fs.Bool("json", false, "print JSON")
 	build := fs.String("build", "", "with -verify, stamp this build `id` into the run record")
 	force := fs.Bool("force", false, "with -write, overwrite a file that is not this slice")
+	verbose := fs.Bool("v", false, "also print each kept step and why, the vars and values written, and the dropped writes")
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var as `key=value`, repeatable")
 	write := &optionalString{}
@@ -249,7 +250,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			printSliceHeader(res)
 		}
 		verdict, verifyErr = runSliceVerifyRepeated(ctx, e, res, rec, sliceVerifyArgs{
-			vars: vars, quiet: *asJSON, persist: write.set, name: writeArg, keep: *keep, build: *build, keptRed: keptRed.arg(),
+			vars: vars, quiet: *asJSON, verbose: *verbose, persist: write.set, name: writeArg, keep: *keep, build: *build, keptRed: keptRed.arg(),
 			otherTarget: sourceTargetDiffers(e, rec),
 			reslice: func(keep []string) *chain.SliceResult {
 				o := opts
@@ -344,7 +345,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if !*verify {
 		printSliceHeader(res)
 	}
-	printSlice(res, written, verdict)
+	printSlice(res, written, verdict, *verbose)
 	if len(pinned) > 0 && (verdict == nil || verdict.Outcome == sliceReproduced) {
 		fmt.Print(keptRedLine(c, ref, rec, res.Chain, pinned, written))
 		if verdict == nil {
@@ -364,7 +365,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			"  write, not the first. To reproduce a write, slice in closure mode: %s\n",
 			res.Run, strings.Join(pinned, "; "), closureCommand(c, *step, opts, res, vars))
 	}
-	if written != "" && !sameSliceFile(written, c.SourcePath) {
+	if written != "" && !sameSliceFile(written, c.SourcePath) && len(res.Chain.KeptRed) == 0 {
 		fmt.Print(sweepNote(e, written, res.Chain.Name))
 	}
 	if !write.set && !*verify {
@@ -385,13 +386,53 @@ func printSliceHeader(res *chain.SliceResult) {
 		fmt.Printf(", run %s", res.Run)
 	}
 	fmt.Println()
-	fmt.Println()
 }
 
-func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
+func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, verbose bool) {
+	if verbose {
+		fmt.Println()
+		printSliceDetail(res)
+	}
+	if len(res.FreshVars) > 0 {
+		flags := make([]string, 0, len(res.FreshVars))
+		for _, name := range res.FreshVars {
+			flags = append(flags, "-var "+name+"=<fresh>")
+		}
+		fmt.Printf("\nkept write steps interpolate %s into what they create, so every run of this slice needs a value\n"+
+			"this backend has not seen: %s\n", strings.Join(res.FreshVars, ", "), strings.Join(flags, " "))
+	}
+	if len(res.MissingVars) > 0 {
+		fmt.Println("\nvars the kept steps read that the chain does not declare and nothing supplied; the slice")
+		fmt.Printf("cannot run without them, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
+	}
+	if len(res.Unmet) > 0 {
+		fmt.Println("\nunmet prerequisites, no earlier step calls them, so the slice may not stand alone:")
+		for _, u := range res.Unmet {
+			fmt.Printf("  %s %s (declared for %s)\n", u.Edge, u.RPC, u.Step)
+		}
+	}
+	if len(res.Relaxed) > 0 {
+		fmt.Printf("\nrelaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took effect;\n"+
+			"the slice drops them so it reaches the target (each call must still be answered):\n", res.Run)
+		for _, r := range res.Relaxed {
+			fmt.Printf("  %s\n", r.String())
+		}
+	}
+	printSlicePins(res)
+	fmt.Printf("\n%s\n", sliceCountLine(res, verdict))
+	if !verdict.settled() {
+		fmt.Printf("%s\n", hypothesisLine)
+	}
+	if written != "" {
+		fmt.Printf("wrote %s\n", written)
+	}
 	if verdict != nil {
 		fmt.Println()
+		fmt.Print(verdict.text())
 	}
+}
+
+func printSliceDetail(res *chain.SliceResult) {
 	idW, callW := 0, 0
 	for _, k := range res.Kept {
 		if n := len(k.ID); n > idW {
@@ -443,18 +484,6 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %s = %v  (default %v)\n", f.Var, f.Value, f.Default)
 		}
 	}
-	if len(res.FreshVars) > 0 {
-		flags := make([]string, 0, len(res.FreshVars))
-		for _, name := range res.FreshVars {
-			flags = append(flags, "-var "+name+"=<fresh>")
-		}
-		fmt.Printf("\nkept write steps interpolate %s into what they create, so every run of this slice needs a value\n"+
-			"this backend has not seen: %s\n", strings.Join(res.FreshVars, ", "), strings.Join(flags, " "))
-	}
-	if len(res.MissingVars) > 0 {
-		fmt.Println("\nvars the kept steps read that the chain does not declare and nothing supplied; the slice")
-		fmt.Printf("cannot run without them, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
-	}
 	if len(res.Satisfied) > 0 {
 		fmt.Printf("\ncontract prerequisites run %s already performed, left to that run and not re-sent (pin mode reproduces\n"+
 			"the state that run left; re-sending a write would change it):\n", res.Run)
@@ -462,35 +491,10 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %4d  %s  %s %s (declared for %s)\n", sat.Index, sat.ID, sat.Edge, sat.RPC, sat.For)
 		}
 	}
-	if len(res.Unmet) > 0 {
-		fmt.Println("\nunmet prerequisites, no earlier step calls them, so the slice may not stand alone:")
-		for _, u := range res.Unmet {
-			fmt.Printf("  %s %s (declared for %s)\n", u.Edge, u.RPC, u.Step)
-		}
-	}
-	if len(res.Relaxed) > 0 {
-		fmt.Printf("\nrelaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took effect;\n"+
-			"the slice drops them so it reaches the target (each call must still be answered):\n", res.Run)
-		for _, r := range res.Relaxed {
-			fmt.Printf("  %s\n", r.String())
-		}
-	}
-	if res.UnderIncluded && !(verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites)) {
-		scale := ""
-		if len(res.Kept)*2 < res.Reach {
-			scale = ", under half of them"
-		}
-		fmt.Printf("\nWARNING possible under-inclusion: %d of the %d steps up to the target kept%s, and %d dropped step(s) WRITE.\n", len(res.Kept), res.Reach, scale, len(res.DroppedWrites))
-		fmt.Println("  A step that depends on state an earlier write left behind carries no reference to it, so")
-		fmt.Println("  this slice can be too small and still go green. Dropped write steps:")
-		dropW := 0
+	if len(res.DroppedWrites) > 0 {
+		fmt.Println("\ndropped write steps:")
 		for _, d := range res.DroppedWrites {
-			if n := len(d.ID); n > dropW {
-				dropW = n
-			}
-		}
-		for _, d := range res.DroppedWrites {
-			fmt.Printf("    %4d  %-*s  %s\n", d.Index, dropW, d.ID, shortCall(d.Call))
+			fmt.Printf("    %4d  %s  %s\n", d.Index, d.ID, shortCall(d.Call))
 		}
 	}
 	if len(res.RefusedWrites) > 0 {
@@ -508,18 +512,23 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("    %4d  %-*s  %-*s  %s\n", d.Index, dropW, d.ID, callW, shortCall(d.Call), d.Reason)
 		}
 	}
-	printSlicePins(res)
-	fmt.Printf("\n%d of %d steps\n", len(res.Kept), res.Total)
-	if !verdict.settled() {
-		fmt.Printf("%s\n", hypothesisLine)
+}
+
+func sliceCountLine(res *chain.SliceResult, verdict *sliceVerdict) string {
+	line := fmt.Sprintf("kept %d of %d steps, dropped %d", len(res.Kept), res.Total, res.Total-len(res.Kept))
+	named := verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites)
+	if len(res.DroppedWrites) == 0 || named {
+		return line
 	}
-	if written != "" {
-		fmt.Printf("wrote %s\n", written)
+	names := make([]string, 0, len(res.DroppedWrites))
+	for _, d := range res.DroppedWrites {
+		names = append(names, d.ID)
 	}
-	if verdict != nil {
-		fmt.Println()
-		fmt.Print(verdict.text())
+	line += fmt.Sprintf(", writes among them %s", capList(names, 3))
+	if res.UnderIncluded {
+		line += ": WARNING possible under-inclusion, a kept step may depend on state one of them left without referencing it, so the slice can be too small and still go green"
 	}
+	return line
 }
 
 func printSlicePins(res *chain.SliceResult) {
@@ -712,6 +721,7 @@ type sliceVerifyArgs struct {
 	keptRed string
 	vars    varFlags
 	quiet   bool
+	verbose bool
 	persist bool
 	name    string
 	keep    []string

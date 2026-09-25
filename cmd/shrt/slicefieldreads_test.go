@@ -10,7 +10,7 @@ func sliceCreateOrder(t *testing.T, tag string) (string, error) {
 	t.Helper()
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{".shrt/scratch/probe-orders.yaml", "-step", "create_order_single", "-run", "latest", "-verify", "-var", "tag=" + tag})
+		err = chainSlice(context.Background(), []string{".shrt/scratch/probe-orders.yaml", "-step", "create_order_single", "-run", "latest", "-verify", "-v", "-var", "tag=" + tag})
 	})
 	return out, err
 }
