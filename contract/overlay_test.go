@@ -323,3 +323,24 @@ func TestScaffoldCarriesExistingCurationForward(t *testing.T) {
 		t.Fatal("rescaffolding must still add rpcs that had no contract")
 	}
 }
+
+func TestLintSaysAnEntryForARemovedRpcIsNotInTheDescriptor(t *testing.T) {
+	lib := libraryFrom(t, `
+domain: test
+rpcs:
+  shrt.test.v1.ThingService/GetThing:
+    summary: s
+    status: draft
+`)
+	issues := contract.LintLibrary(lib, catalogtest.New())
+	if len(issues) != 1 {
+		t.Fatalf("want one issue, got %v", issues)
+	}
+	msg := issues[0].Message
+	if !strings.Contains(msg, "not in the descriptor (removed from the proto?)") || !strings.Contains(msg, "delete this entry") {
+		t.Fatalf("an entry for an rpc the proto lost should say so and what to do: %s", msg)
+	}
+	if strings.Contains(msg, "did you mean") {
+		t.Fatalf("GetThing is not close to Create or Fetch; no suggestion: %s", msg)
+	}
+}

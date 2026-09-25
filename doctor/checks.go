@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -218,10 +219,41 @@ func checkContracts(_ context.Context, cfg *config.Config, _ Options, r *Report)
 				len(ignored), shown, strings.Join(ignored, ", ")),
 			"move each overlay up into "+shown+", or out of it if it is not a contract")
 	}
-	if len(broken) == 0 && len(ignored) == 0 {
+	stale := entriesNotInDescriptor(lib, cat, cfg.Root)
+	if len(stale) > 0 {
+		r.add(CheckContracts, LevelWarn,
+			fmt.Sprintf("%d contract entry(ies) name an rpc the descriptor does not have (removed from the proto?): %s",
+				len(stale), strings.Join(stale, ", ")),
+			"delete each entry, or rebuild the descriptor (shrt catalog build) if the rpc should still exist")
+	}
+	if len(broken) == 0 && len(ignored) == 0 && len(stale) == 0 {
 		r.add(CheckContracts, LevelOK,
 			fmt.Sprintf("%d contract(s) across %d overlay(s) under %s load", lib.Count(), len(lib.Overlays), shown), "")
 	}
+}
+
+func entriesNotInDescriptor(lib *contract.Library, cat *catalog.Catalog, root string) []string {
+	if lib == nil || cat == nil {
+		return nil
+	}
+	out := []string{}
+	for _, o := range lib.Overlays {
+		where := o.SourcePath
+		if rel, err := filepath.Rel(root, where); err == nil && where != "" {
+			where = filepath.ToSlash(rel)
+		}
+		names := make([]string, 0, len(o.RPCs))
+		for rpc := range o.RPCs {
+			names = append(names, rpc)
+		}
+		sort.Strings(names)
+		for _, rpc := range names {
+			if _, err := cat.Lookup(rpc); errors.Is(err, catalog.ErrNotFound) {
+				out = append(out, rpc+" in "+where)
+			}
+		}
+	}
+	return out
 }
 
 func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Report) {

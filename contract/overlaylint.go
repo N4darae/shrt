@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -64,6 +65,11 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		})
 	}
 	m, err := cat.Lookup(rpc)
+	if errors.Is(err, catalog.ErrNotFound) {
+		add(SeverityError, "", "rpc %q is not in the descriptor (removed from the proto?): delete this entry, or rebuild "+
+			"the descriptor (shrt catalog build) if the rpc should still exist%s", rpc, cat.SuggestRPC(rpc))
+		return issues
+	}
 	if err != nil {
 		add(SeverityError, "", "%v", err)
 		return issues

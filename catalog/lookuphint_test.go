@@ -25,3 +25,11 @@ func TestLookupOfAMisspelledRpcSuggestsTheCloseOne(t *testing.T) {
 		t.Fatalf("a name close to nothing gets no suggestion, got %v", err)
 	}
 }
+
+func TestLookupDoesNotSuggestAnRpcWhoseOwnNameIsNotClose(t *testing.T) {
+	cat := catalogtest.New()
+	_, err := cat.Lookup("shrt.test.v1.ThingService/Delete")
+	if err == nil || strings.Contains(err.Error(), "did you mean") {
+		t.Fatalf("a long shared prefix does not make Delete close to Create, got %v", err)
+	}
+}
