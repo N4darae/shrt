@@ -193,8 +193,8 @@ func TestAnInvalidEffectIsRefusedAtLoad(t *testing.T) {
 func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 	cat, _ := shopDemo(t)
 	for domain, want := range map[string]map[string]string{
-		"catalog": {"StockService/AddStock": "{qty_on_hand: {increase: qty}}", "StockService/AddStockBatch": "{qty_on_hand: {increase: lines.qty}}", "ProductService/CreateProduct": ""},
-		"orders":  {"OrderService/CreateOrder": "{qty_on_hand: {increase: lines.qty}}", "OrderService/ConfirmOrder": ""},
+		"catalog": {"StockService/AddStock": "what this write does to qty_on_hand: none | {increase: qty} | {decrease: qty} |", "StockService/AddStockBatch": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "ProductService/CreateProduct": ""},
+		"orders":  {"OrderService/CreateOrder": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
 	} {
 		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
 		if err != nil {
