@@ -187,30 +187,32 @@ func planAllOne(e *env, plan *contract.Plan, name string, write, force bool) (bo
 		}
 	}
 	fmt.Println(line)
+	printFillAndGaps(plan, "  ")
+	return existed, nil
+}
+
+func printFillAndGaps(plan *contract.Plan, indent string) {
 	for _, n := range plan.FillNotes() {
-		fmt.Printf("  fill: %s\n", n)
+		fmt.Printf("%sfill: %s\n", indent, n)
 	}
 	for _, n := range plan.GapNotes() {
-		fmt.Printf("  gap: %s\n", clipText(n, planGapWidth))
+		fmt.Printf("%sgap: %s\n", indent, clipText(n, planGapWidth))
 	}
-	return existed, nil
 }
 
 func printPlanNotes(plan *contract.Plan, again string, all bool) {
 	if all {
 		for _, n := range plan.Notes {
-			fmt.Printf("note: %s\n", n)
+			label := "note"
+			if _, gap := contract.GapOf(n); gap {
+				label = "gap"
+			}
+			fmt.Printf("%s: %s\n", label, n)
 		}
+	} else {
+		printFillAndGaps(plan, "")
 	}
 	gaps := plan.GapNotes()
-	if !all {
-		for _, n := range plan.FillNotes() {
-			fmt.Printf("fill: %s\n", n)
-		}
-		for _, n := range gaps {
-			fmt.Printf("gap: %s\n", clipText(n, planGapWidth))
-		}
-	}
 	if n := plan.UnfilledCount(); n > 0 {
 		fmt.Printf("%d required field(s) carry no test data, and chain lint errors on each until filled; "+
 			"after a value: in the contract, re-plan with %s -write -force\n", n, again)
