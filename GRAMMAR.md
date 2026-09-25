@@ -483,6 +483,16 @@ changed, added or removed item, so it does not fail verify. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped.
 
+A timestamp is masked only when both values are the same kind of time and close to their run's
+clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,
+`*Time`, `*timestamp*`), a unix time told by its digit count: 10 digits seconds, 13 milliseconds, 16
+microseconds, 19 nanoseconds, as a number or as int64 text. A value that changed kind is a change,
+counted in the verdict and in `shrt diff`, with the line `expires_at changed unit: seconds ->
+milliseconds` (or `seconds -> RFC3339 text`, `seconds -> a 11-digit number`). A value of the same
+kind is masked only when it falls within 400 days of its own run, the safe spot's value of the safe
+spot's run (dated by its run id) and the replay's of the replay (its start and duration): expiries a
+year ahead still mask, while a time that jumped to 1999 or 2176 is reported as outside the time window.
+
 A value under a `redact` path (§1, §4) is blanked to `<redacted>` in the safe spot and the replay
 alike, so it is never compared: a change there is invisible to verify. Verify does not fail on it;
 it counts those values and names each one (`N redacted response value(s) ... never compared`), and

@@ -1148,6 +1148,23 @@ undeclared var the slice reads is what `-verify` refuses as missing and what a w
 reports under `vars the chain does not declare`, and the file should say what the verified run sent.
 Either way a later run needs a fresh `-var`, which the slice's description says.
 
+## 39. A timestamp that changed unit, masked as "differs every run"
+
+**Symptom.** Login's `expires_at` started arriving in milliseconds (`1790309823 -> 1790310046998`).
+`verify -masked` listed it under `id- or timestamp-shaped values, not compared` and the verdict
+counted nothing for it; only a chain that asserted equality on it failed.
+
+**Cause.** A time-shaped name (`*_at`) was enough to mask any two non-zero numbers, and any two
+RFC 3339 texts were masked wherever they sat, whatever their distance from the run.
+
+**Fix.** 2026-09-25: a timestamp is masked only when both values are the same kind: RFC 3339 text,
+or, under a time-shaped name, unix seconds, milliseconds, microseconds or nanoseconds told by digit
+count (10, 13, 16, 19), as a number or int64 text; and only when each value lies within 400 days of
+its own run (the safe spot's run dated by its run id, the replay by its start and duration). A value
+that changed kind is a counted change with the line `expires_at changed unit: seconds ->
+milliseconds`; a time outside the window is a counted change that says so. `shrt diff` does the
+same. The 400 days keep a one-year expiry masked while 1999 or a year in the 2100s is reported.
+
 ---
 
 # Decisions, so they are not relitigated

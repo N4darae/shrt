@@ -66,6 +66,7 @@ type RunReport struct {
 
 	compared     []comparedStep
 	idPairs      []idPair
+	winA, winB   *runWindow
 	fixturePairs [][2]string
 }
 
@@ -99,6 +100,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		Note: RunComparisonNote, Chain: a.Chain,
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
+		winA: recordWindow(a), winB: recordWindow(b),
 	}
 	if !config.SameTarget(a.Target, b.Target) {
 		rep.TargetA, rep.TargetB = a.Target, b.Target
@@ -239,10 +241,18 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
 	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
 	walk(x, y, "", func(c Change) {
-		if underMask(masker, c.Path) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+		shaped, why := false, ""
+		if c.Kind == KindChanged {
+			shaped, why = volatileIn(c.Path, c.Want, c.Got, r.winA, r.winB)
+		}
+		if underMask(masker, c.Path) || shaped {
 			r.Masked++
 			return
 		}
+		if why != "" {
+			c.Detail = why
+		}
+		noteTimeUnit(&c)
 		c.Step = sa.ID
 		r.Changes = append(r.Changes, c)
 	})
@@ -357,6 +367,9 @@ func LooksVolatile(path string, a, b any) bool {
 }
 
 func looksVolatile(path string, a, b any) bool {
+	if timeMismatch(path, a, b, nil, nil) != "" {
+		return false
+	}
 	key := lastKey(path)
 	lower := strings.ToLower(key)
 	switch {
@@ -554,7 +567,11 @@ func (r *RunReport) Text() string {
 	if len(r.Changes) > 0 {
 		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))
 		for _, c := range r.Changes {
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
+			detail := ""
+			if c.Detail != "" {
+				detail = " (" + c.Detail + ")"
+			}
+			fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", c.Step, c.Kind, c.Path, c.describeRuns(), detail)
 		}
 	}
 	if r.FixtureEchoed > 0 {
