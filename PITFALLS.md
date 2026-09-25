@@ -2078,6 +2078,21 @@ asserts the total of both lines, `add_stock_batch_same_product_twice` asserts `r
 of `results.0` and a read after it. `-gaps` lists `no repeat` for a repeated field whose items carry
 a resource when no successful step sends one resource on two applied items.
 
+## 96. A cap of 1000 units per AddStock, green in every plan
+
+**Symptom.** An AddStock and AddStockBatch that added at most 1000 units per call (and answered the
+capped level) passed every planned chain in round 25.
+
+**Cause.** Magnitude probes skipped every quantity field, "since a large quantity runs into stock
+rules": every planned quantity was a single digit, far below any cap. That holds for a quantity an
+order asks for, not for one an increase adds.
+
+**Fix.** 2026-09-25: the quantity field of an increase (`Increase a product's stock on hand by qty`)
+gets `<step>_qty_large_1250` and `<step>_qty_large_12345`, and a batch applying it gets
+`<step>_qty_large` with 1250 and 12345 on its lines; each asserts the level the contract implies,
+before plus all of it. The boundary probes run on fixtures of their own
+(`create_product_for_boundary`), so a capped addition fails only them.
+
 ---
 
 # Decisions, so they are not relitigated

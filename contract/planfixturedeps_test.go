@@ -107,3 +107,26 @@ func TestATotalAndABatchArePlannedWithOneResourceOnTwoLines(t *testing.T) {
 	wantExpect(t, batch, "results.1.qty_on_hand", int64(7))
 	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_same_product_twice"), "product.qty_on_hand", int64(7))
 }
+
+func TestAnIncreaseAndABatchArePlannedWithLargeQuantitiesAndTheExactLevel(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{}, "AddStock")
+	for _, q := range []string{"1250", "12345"} {
+		st := planStep(t, p, "add_stock_qty_large_"+q)
+		if bodyAt(t, st, "qty") != q {
+			t.Fatalf("the probe adds %s:\n%s", q, text)
+		}
+	}
+	wantExpect(t, planStep(t, p, "add_stock_qty_large_1250"), "qty_on_hand", int64(1251))
+	wantExpect(t, planStep(t, p, "add_stock_qty_large_12345"), "qty_on_hand", int64(13596))
+	if bodyAt(t, planStep(t, p, "add_stock_qty_large_1250"), "id_product") == bodyAt(t, planStep(t, p, "add_stock"), "id_product") {
+		t.Fatalf("the magnitude probes run on a product of their own, so a cap fails them only:\n%s", text)
+	}
+
+	p, text, _ = shopDemoPlanWith(t, contract.PlanOptions{}, "AddStockBatch")
+	batch := planStep(t, p, "add_stock_batch_qty_large")
+	if bodyAt(t, batch, "lines.0.qty") != "1250" || bodyAt(t, batch, "lines.1.qty") != "12345" {
+		t.Fatalf("each line adds a large quantity:\n%s", text)
+	}
+	wantExpect(t, batch, "results.0.qty_on_hand", int64(1250))
+	wantExpect(t, batch, "results.1.qty_on_hand", int64(12345))
+}
