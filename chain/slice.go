@@ -18,6 +18,8 @@ const (
 	KeepProduces = "produces"
 	KeepContract = "contract"
 	KeepAsked    = "requested"
+
+	KeepSideEffect = "side_effect"
 )
 
 const SliceKeepWrites = "writes"
@@ -141,31 +143,32 @@ type FilledVar struct {
 }
 
 type SliceResult struct {
-	Source        string      `json:"source"`
-	Target        string      `json:"target"`
-	Mode          string      `json:"mode"`
-	Run           string      `json:"run,omitempty"`
-	Total         int         `json:"total"`
-	Reach         int         `json:"reach"`
-	Kept          []Keep      `json:"kept"`
-	Pins          []Pinned    `json:"pins,omitempty"`
-	Unmet         []Unmet     `json:"unmet,omitempty"`
-	Satisfied     []Satisfied `json:"satisfied_by_run,omitempty"`
-	DroppedWrites []Dropped   `json:"dropped_writes,omitempty"`
-	RefusedWrites []Dropped   `json:"dropped_refused_writes,omitempty"`
-	UnderIncluded bool        `json:"under_included"`
-	FilledVars    []FilledVar `json:"filled_vars,omitempty"`
-	MissingVars   []string    `json:"missing_vars,omitempty"`
-	FreshVars     []string    `json:"fresh_vars,omitempty"`
-	DroppedPins   []Pin       `json:"dropped_kept_red,omitempty"`
-	Relaxed       []Relaxed   `json:"relaxed,omitempty"`
-	Verified      string      `json:"verified,omitempty"`
-	NotReproduced string      `json:"not_reproduced,omitempty"`
-	Inconclusive  string      `json:"inconclusive,omitempty"`
-	Intermittent  string      `json:"intermittent,omitempty"`
-	Build         string      `json:"verify_build,omitempty"`
-	SourceRef     string      `json:"-"`
-	Chain         *Chain      `json:"-"`
+	Source        string          `json:"source"`
+	Target        string          `json:"target"`
+	Mode          string          `json:"mode"`
+	Run           string          `json:"run,omitempty"`
+	Total         int             `json:"total"`
+	Reach         int             `json:"reach"`
+	Kept          []Keep          `json:"kept"`
+	Pins          []Pinned        `json:"pins,omitempty"`
+	Unmet         []Unmet         `json:"unmet,omitempty"`
+	Satisfied     []Satisfied     `json:"satisfied_by_run,omitempty"`
+	DroppedWrites []Dropped       `json:"dropped_writes,omitempty"`
+	RefusedWrites []Dropped       `json:"dropped_refused_writes,omitempty"`
+	UnderIncluded bool            `json:"under_included"`
+	FilledVars    []FilledVar     `json:"filled_vars,omitempty"`
+	MissingVars   []string        `json:"missing_vars,omitempty"`
+	FreshVars     []string        `json:"fresh_vars,omitempty"`
+	DroppedPins   []Pin           `json:"dropped_kept_red,omitempty"`
+	Relaxed       []Relaxed       `json:"relaxed,omitempty"`
+	Verified      string          `json:"verified,omitempty"`
+	NotReproduced string          `json:"not_reproduced,omitempty"`
+	Inconclusive  string          `json:"inconclusive,omitempty"`
+	Intermittent  string          `json:"intermittent,omitempty"`
+	Build         string          `json:"verify_build,omitempty"`
+	SourceRef     string          `json:"-"`
+	Chain         *Chain          `json:"-"`
+	StateWriters  map[string]bool `json:"-"`
 }
 
 func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
@@ -234,74 +237,84 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		v, ok := opts.Value(ref)
 		return ok && !valueCarriesRef(v)
 	}
-	for len(queue) > 0 {
-		i := queue[0]
-		queue = queue[1:]
-		s := c.Steps[i]
-		referenced := map[int]bool{}
-		pinnedOnly := map[int]bool{}
-		for _, ref := range stepRefs(s) {
-			j, kind := idx.producerOf(ref, i)
-			if kind != refStep {
-				continue
-			}
-			referenced[j] = true
-			if pinnable(ref) {
-				if _, seen := keeps[j]; !seen {
-					pinnedOnly[j] = true
+	for {
+		for len(queue) > 0 {
+			i := queue[0]
+			queue = queue[1:]
+			s := c.Steps[i]
+			referenced := map[int]bool{}
+			pinnedOnly := map[int]bool{}
+			for _, ref := range stepRefs(s) {
+				j, kind := idx.producerOf(ref, i)
+				if kind != refStep {
+					continue
 				}
-				continue
-			}
-			delete(pinnedOnly, j)
-			add(j, KeepProduces, fmt.Sprintf("produces ${%s} used by %s", ref, s.ID))
-		}
-		for _, p := range idx.prereqsOf(s, opts) {
-			if p.For != "" && !carriesAlias(s.ID, p.For) {
-				continue
-			}
-			if valueEdge(p.Edge) && idx.fieldNeedsNoProducer(s, i, p.Field) {
-				continue
-			}
-			if !valueEdge(p.Edge) && p.Alias == "" {
-				if calls := idx.callsSharingProducers(p, i, referenced, opts); len(calls) > 0 {
-					for _, j := range calls {
-						if leftToRun(mode, p, c.Steps[j], opts) {
-							if _, done := satisfied[j]; !done {
-								satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
-							}
-							continue
-						}
-						add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
+				referenced[j] = true
+				if pinnable(ref) {
+					if _, seen := keeps[j]; !seen {
+						pinnedOnly[j] = true
 					}
 					continue
 				}
+				delete(pinnedOnly, j)
+				add(j, KeepProduces, fmt.Sprintf("produces ${%s} used by %s", ref, s.ID))
 			}
-			j, found := idx.lastCallOf(p, i, referenced, opts)
-			if found && p.Alias != "" && !carriesAlias(c.Steps[j].ID, p.Alias) {
-				if other, bound := boundAlias[j]; bound && other != p.Alias {
-					found = false
-				} else {
-					boundAlias[j] = p.Alias
+			for _, p := range idx.prereqsOf(s, opts) {
+				if p.For != "" && !carriesAlias(s.ID, p.For) {
+					continue
 				}
-			}
-			if !found {
-				key := s.ID + "\x00" + p.Node() + "\x00" + p.Edge
-				if !seenUnmet[key] {
-					seenUnmet[key] = true
-					unmet = append(unmet, Unmet{Step: s.ID, RPC: p.Node(), Edge: p.Edge})
+				if valueEdge(p.Edge) && idx.fieldNeedsNoProducer(s, i, p.Field) {
+					continue
 				}
-				continue
-			}
-			if pinnedOnly[j] && valueEdge(p.Edge) {
-				continue
-			}
-			if leftToRun(mode, p, c.Steps[j], opts) {
-				if _, done := satisfied[j]; !done {
-					satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
+				if !valueEdge(p.Edge) && p.Alias == "" {
+					if calls := idx.callsSharingProducers(p, i, idx.reach(i), opts); len(calls) > 0 {
+						for _, j := range calls {
+							if leftToRun(mode, p, c.Steps[j], opts) {
+								if _, done := satisfied[j]; !done {
+									satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
+								}
+								continue
+							}
+							add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
+						}
+						continue
+					}
 				}
-				continue
+				j, found := idx.lastCallOf(p, i, referenced, opts)
+				if found && p.Alias != "" && !carriesAlias(c.Steps[j].ID, p.Alias) {
+					if other, bound := boundAlias[j]; bound && other != p.Alias {
+						found = false
+					} else {
+						boundAlias[j] = p.Alias
+					}
+				}
+				if !found {
+					key := s.ID + "\x00" + p.Node() + "\x00" + p.Edge
+					if !seenUnmet[key] {
+						seenUnmet[key] = true
+						unmet = append(unmet, Unmet{Step: s.ID, RPC: p.Node(), Edge: p.Edge})
+					}
+					continue
+				}
+				if pinnedOnly[j] && valueEdge(p.Edge) {
+					continue
+				}
+				if leftToRun(mode, p, c.Steps[j], opts) {
+					if _, done := satisfied[j]; !done {
+						satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
+					}
+					continue
+				}
+				add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
 			}
-			add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
+		}
+		added := false
+		for _, w := range idx.sideEffectWrites(at, keeps, mode, opts) {
+			add(w.index, KeepSideEffect, w.reason)
+			added = true
+		}
+		if !added {
+			break
 		}
 	}
 
@@ -317,6 +330,14 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	for _, i := range order {
 		res.Kept = append(res.Kept, *keeps[i])
+	}
+	res.StateWriters = map[string]bool{}
+	for i, s := range c.Steps[:at] {
+		for _, p := range idx.prereqsOf(s, opts) {
+			if !valueEdge(p.Edge) && isWriteCall(p.RPC) && isWriteCall(s.Call) && p.RPC != idx.rpcOf(i, opts) {
+				res.StateWriters[s.ID] = true
+			}
+		}
 	}
 	res.Unmet = unmet
 	for j, sat := range satisfied {
@@ -744,10 +765,11 @@ type stepIndex struct {
 	byID    map[string]int
 	exports map[string][]int
 	rpc     map[int]string
+	reached map[int]map[int]bool
 }
 
 func newStepIndex(c *Chain) *stepIndex {
-	x := &stepIndex{c: c, byID: map[string]int{}, exports: map[string][]int{}, rpc: map[int]string{}}
+	x := &stepIndex{c: c, byID: map[string]int{}, exports: map[string][]int{}, rpc: map[int]string{}, reached: map[int]map[int]bool{}}
 	for i, s := range c.Steps {
 		x.byID[s.ID] = i
 		for name := range s.Export {
@@ -830,6 +852,115 @@ func (x *stepIndex) callsSharingProducers(p Prereq, before int, referenced map[i
 	return out
 }
 
+func (x *stepIndex) reach(i int) map[int]bool {
+	if got, ok := x.reached[i]; ok {
+		return got
+	}
+	out := map[int]bool{}
+	x.reached[i] = out
+	for _, ref := range stepRefs(x.c.Steps[i]) {
+		j, kind := x.producerOf(ref, i)
+		if kind != refStep || out[j] {
+			continue
+		}
+		out[j] = true
+		for k := range x.reach(j) {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+type sideEffectWrite struct {
+	index  int
+	reason string
+}
+
+func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, mode string, opts SliceOptions) []sideEffectWrite {
+	type state struct {
+		rpc      string
+		kept     string
+		neededBy string
+		entities map[int]bool
+	}
+	states := []state{}
+	for i := range keeps {
+		for _, p := range x.prereqsOf(x.c.Steps[i], opts) {
+			if valueEdge(p.Edge) || !isWriteCall(p.RPC) {
+				continue
+			}
+			entities := map[int]bool{}
+			kept := ""
+			for j := range keeps {
+				if j >= i || x.rpcOf(j, opts) != p.RPC {
+					continue
+				}
+				for k := range x.reach(j) {
+					if x.reach(i)[k] {
+						entities[k] = true
+					}
+				}
+				if kept == "" || x.c.Steps[j].ID < kept {
+					kept = x.c.Steps[j].ID
+				}
+			}
+			if len(entities) > 0 {
+				states = append(states, state{rpc: p.RPC, kept: kept, neededBy: x.c.Steps[i].ID, entities: entities})
+			}
+		}
+	}
+	sort.Slice(states, func(a, b int) bool {
+		if states[a].neededBy != states[b].neededBy {
+			return states[a].neededBy < states[b].neededBy
+		}
+		return states[a].rpc < states[b].rpc
+	})
+	out := []sideEffectWrite{}
+	for w := 0; w < at; w++ {
+		if _, kept := keeps[w]; kept {
+			continue
+		}
+		s := x.c.Steps[w]
+		if !isWriteCall(s.Call) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+			continue
+		}
+		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
+			continue
+		}
+		rpc := x.rpcOf(w, opts)
+		for _, st := range states {
+			if rpc != st.rpc && !x.rpcNeeds(rpc, st.rpc, opts) {
+				continue
+			}
+			shared := ""
+			for k := range x.reach(w) {
+				if st.entities[k] && (shared == "" || x.c.Steps[k].ID < shared) {
+					shared = x.c.Steps[k].ID
+				}
+			}
+			if shared == "" {
+				continue
+			}
+			out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("changes the state %s sets on %s, which %s needs (%s needs %s)",
+				st.rpc, shared, st.neededBy, rpc, st.rpc)})
+			break
+		}
+	}
+	return out
+}
+
+func (x *stepIndex) rpcNeeds(rpc, need string, opts SliceOptions) bool {
+	if opts.Prereqs == nil {
+		return false
+	}
+	for _, p := range opts.Prereqs(rpc) {
+		if p.RPC == need && !valueEdge(p.Edge) {
+			return true
+		}
+	}
+	return false
+}
+
 func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
 	if field == "" || s.Body == nil {
 		return false
@@ -865,6 +996,9 @@ func ExpectsRefusal(s *Step) bool {
 			return true
 		}
 		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
+			return true
+		}
+		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK() {
 			return true
 		}
 	}

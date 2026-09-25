@@ -1424,6 +1424,23 @@ keeps it exit 3. A cached token refused early on its first use stays a warning, 
 between runs explains it; the CI gate in README counts those lines per auth profile and fails when
 one profile's tokens die early twice in one gate.
 
+## 54. A slice of a refused confirm that dropped the stock of the product it needed
+
+**Symptom.** `chain slice orders-confirm -step confirm_order_insufficient_stock_last_item` kept
+`add_stock_2` and dropped `add_stock`, though the order it confirms has a line on each product: the
+slice was NOT REPRODUCED 0/3 until `-keep add_stock` was added by hand. The same output said the
+dropped `confirm_order` changes no entity a kept step uses, though it reserved stock of both.
+
+**Cause.** A `needs` edge kept every call of the needed rpc that referenced a step the target
+referenced directly, and the confirm references only its order; failing that it kept the nearest
+call. Writes were modelled as acting only on the record their response returns.
+
+**Fix.** 2026-09-25: entities count through references (the confirm reaches the products through
+its order's lines), so both `AddStock`s are kept. An earlier write of the needed rpc, or of an rpc
+whose contract needs it, on one of those entities is kept with `changes the state <rpc> sets on
+<step>, which <target> needs`. For the dropped-write notes, a write whose contract needs another
+write and whose request names an existing record acts on the entities that record holds.
+
 ---
 
 # Decisions, so they are not relitigated

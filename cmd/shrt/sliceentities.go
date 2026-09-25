@@ -172,6 +172,10 @@ func decodedRecordStep(sr *runner.StepRecord) (any, any) {
 }
 
 func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {
+	return entityFactsWith(rec, id, false)
+}
+
+func entityFactsWith(rec *runner.Record, id string, stateWriter bool) stepEntityFacts {
 	f := stepEntityFacts{mentions: map[string]bool{}, acts: map[string]bool{}}
 	at := -1
 	for i, sr := range rec.Steps {
@@ -189,9 +193,17 @@ func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {
 	collectIDs(response, f.mentions)
 	if prim := primaryEntities(response); len(prim) > 0 {
 		f.known = true
+		named := map[string]bool{}
+		collectIDs(request, named)
 		for _, p := range prim {
-			if !replayedEarlier(rec, at, sr.Call, p) {
-				f.acts[p.id] = true
+			if replayedEarlier(rec, at, sr.Call, p) {
+				continue
+			}
+			f.acts[p.id] = true
+			if stateWriter && named[p.id] {
+				for _, obj := range entityObjects(response, p) {
+					collectIDs(obj, f.acts)
+				}
 			}
 		}
 		return f
@@ -199,6 +211,29 @@ func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {
 	collectIDs(request, f.acts)
 	f.known = len(f.acts) > 0
 	return f
+}
+
+func entityObjects(v any, p primaryEntity) []any {
+	out := []any{}
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			if s, ok := t[p.key].(string); ok && s == p.id {
+				out = append(out, t)
+				return
+			}
+			for _, item := range t {
+				walk(item)
+			}
+		case []any:
+			for _, item := range t {
+				walk(item)
+			}
+		}
+	}
+	walk(v)
+	return out
 }
 
 func replayedEarlier(rec *runner.Record, at int, call string, p primaryEntity) bool {
@@ -244,7 +279,7 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 			if related[d.ID] {
 				continue
 			}
-			f := entityFactsOf(rec, d.ID)
+			f := entityFactsWith(rec, d.ID, res.StateWriters[d.ID])
 			touches := !f.known
 			for id := range f.acts {
 				if used[id] {
@@ -308,8 +343,10 @@ func otherEntitiesNote(other []string) string {
 	if len(other) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses (the ids they act on appear in no kept step's "+
-		"request or response in the source run, or they answered exactly as an earlier call of the same rpc did)", strings.Join(other, ", "))
+	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses, as far as the source run and the contracts show (the ids "+
+		"they act on appear in no kept step's request or response in the source run, or they answered exactly as an earlier call of the "+
+		"same rpc did; a write whose contract needs another write, as ConfirmOrder needs AddStock, also acts on the entities of the "+
+		"existing record it changes, such as the products on an order's lines)", strings.Join(other, ", "))
 }
 
 func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResult) bool {

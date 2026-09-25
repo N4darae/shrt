@@ -1452,7 +1452,14 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    gives it), preferring among those the one the body references; for an unaliased `needs` or
    `before` edge it keeps every call of that rpc that acts on an entity the step references (a
    `CreateOrder` whose lines name two products keeps the `AddStock` of each, not only the later
-   one), else the referenced step, else the nearest. An edge declared under one alias of a contract binds only
+   one; the entities count through references, so a `ConfirmOrder` of an order whose lines name
+   two products keeps both too), else the referenced step, else the nearest. A fourth reason,
+   `changes the state <rpc> sets on <step>, which <target> needs`, keeps an earlier write that
+   changes the state such an edge depends on: a write of that rpc, or of an rpc whose own contract
+   `needs` it (`ConfirmOrder` needs `AddStock`: an earlier confirm reserves stock), on one of the
+   same entities (an earlier confirm of another order with a line on the same product). A write
+   expected to be refused (an envelope `not_equal: <envelope_ok>` counts) changes nothing and is
+   not kept for this. An edge declared under one alias of a contract binds only
    a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
    literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
    refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
@@ -1573,7 +1580,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      line holds, an order created for the customer a `ListOrders` target lists: a write whose
      request carries an id the kept step's request carries and whose created entity is the kind
      of item the kept step's response lists or asserts), or whose entity cannot be told (a write
-     whose request and response carry no id). A match can come from state the slice never built,
+     whose request and response carry no id). A write whose contract `needs` another write, and
+     whose request names an existing record (a confirm naming its order), acts on the entities that
+     record holds too (the products on the order's lines), so it is never listed as changing no
+     entity a kept step uses. A match can come from state the slice never built,
      so it is not a receipt. Nor is a match on a failing expectation that compares with what a
      dropped write created in the source run (`orders.1.id_order equals` the id a dropped
      `CreateOrder` returned, under `-mode pin`): the slice never creates that item, so a correct
