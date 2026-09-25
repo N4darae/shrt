@@ -325,7 +325,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	if c, ok := lib.Get(canonicalCall(p.cat, first.Call)); ok {
 		initial = stateIn([]string{c.Exports[t.carrier], c.Summary}, values, short)
 	}
-	transitions := p.transitionsFor(lib, t, first, values, short, initial)
+	transitions, blocked := p.transitionsFor(lib, t, first, values, short, initial)
 	states := map[string][]*chain.Step{}
 	order := []string{}
 	if initial != "" {
@@ -390,9 +390,15 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		p.insertAfter(at, s)
 		at = s.ID
 	}
-	unreached := []string{}
+	unreached, waiting := []string{}, []string{}
+	why := []string{}
 	for _, v := range values {
-		if len(states[v]) == 0 {
+		switch {
+		case len(states[v]) > 0:
+		case blocked[v] != "":
+			waiting = append(waiting, v)
+			why = append(why, blocked[v])
+		default:
 			unreached = append(unreached, v)
 		}
 	}
@@ -402,6 +408,10 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	if len(unreached) > 0 {
 		msg += fmt.Sprintf(". No producer in the contracts reaches %s (a write whose response carries the %s and whose summary or "+
 			"exports name the state it leaves it in), so the filter on it is not probed", strings.Join(unreached, ", "), t.carrier)
+	}
+	if len(waiting) > 0 {
+		msg += fmt.Sprintf(". The filter on %s is not probed either: %s, which this plan does not call",
+			strings.Join(waiting, ", "), strings.Join(why, "; "))
 	}
 	p.note("%s", msg)
 }
@@ -426,10 +436,11 @@ func sameValues(a, b []string) bool {
 	return true
 }
 
-func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step, values []string, short map[string]string, initial string) []transition {
+func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step, values []string, short map[string]string, initial string) ([]transition, map[string]string) {
+	blocked := map[string]string{}
 	pm, err := p.cat.Lookup(producer.Call)
 	if err != nil {
-		return nil
+		return nil, blocked
 	}
 	idPath := t.carrier + "." + t.itemID
 	out := []transition{}
@@ -466,12 +477,14 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 			p.note("step %s: %s would move a fixture to %s, but it needs %s, which this plan does not call, so no fixture is "+
 				"put in that state: plan %s together with %s to have it", t.step.ID, shortRPC(rpc), short[value],
 				strings.Join(missing, ", "), shortRPC(t.step.Call), strings.Join(missing, " "))
+			blocked[value] = fmt.Sprintf("%s reaches it but needs %s", shortRPC(rpc), strings.Join(missing, ", "))
 			continue
 		}
 		seen[value] = true
+		delete(blocked, value)
 		out = append(out, transition{method: m, contract: c, field: field, value: value})
 	}
-	return out
+	return out, blocked
 }
 
 func (p *Plan) missingDependencies(c *RPCContract) []string {

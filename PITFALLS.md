@@ -1637,6 +1637,20 @@ field declared under `exports:`, `terminal:` or `soft_signals:`, as lint reads t
 a strict pass only when no planned step is still left asserting only the verdict of an rpc whose
 contract declares response fields.
 
+## 68. Two notes on `contract plan ListOrders` that contradicted each other
+
+**Symptom.** One note said `ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStock
+... plan ListOrders together with AddStock`; the next said `No producer in the contracts reaches
+ORDER_STATUS_CONFIRMED`.
+
+**Cause.** The status-filter note counted a state as unreached by any producer whenever no planned
+step put a fixture in it, including a state whose producer was only held back for a missing
+dependency.
+
+**Fix.** 2026-09-25: such a state is named apart: `The filter on ORDER_STATUS_CONFIRMED is not
+probed either: ConfirmOrder reaches it but needs AddStock, which this plan does not call`. "No
+producer in the contracts reaches" is kept for a state no contract write reaches.
+
 ---
 
 # Decisions, so they are not relitigated
