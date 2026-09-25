@@ -195,6 +195,7 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 
 func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain) []string {
 	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
+	base, _ = diff.RenameSpotSteps(base, rec.Steps)
 	rep := diff.CompareMasking(base, rec, volatile)
 	if c != nil {
 		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
@@ -219,6 +220,7 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	} else {
 		c = nil
 	}
+	spot, renamed := diff.RenameSpotSteps(spot, rec.Steps)
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
 	if c != nil {
 		rep.SeparateInput(spot, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
@@ -252,6 +254,10 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 			side, c.Step = "run", "-"
 		}
 		out = append(out, store.Differ{Step: c.Step, Side: side, Path: c.Path, Delta: c.Transition()})
+	}
+	for _, rn := range renamed {
+		out = append(out, store.Differ{Step: rn.Now, Side: "chain", Path: "step",
+			Delta: fmt.Sprintf("renamed from %s (same call and position, compared as that step)", rn.Was)})
 	}
 	return out
 }

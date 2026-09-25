@@ -58,6 +58,7 @@ type RunReport struct {
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
+	RenamedSteps     []StepRename `json:"renamed_steps,omitempty"`
 
 	compared     []comparedStep
 	idPairs      []idPair
@@ -109,6 +110,12 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		for i := range rep.VarChanges {
 			rep.VarChanges[i].Fixture = fx.Var(rep.VarChanges[i].Name)
 		}
+	}
+	if renames := StepRenames(a.Steps, b.Steps); len(renames) > 0 {
+		rep.RenamedSteps = renames
+		cp := *a
+		cp.Steps = RenameSteps(a.Steps, renames)
+		a = &cp
 	}
 	byID := map[string]*runner.StepRecord{}
 	allB := map[string]*runner.StepRecord{}
@@ -425,6 +432,9 @@ func (r *RunReport) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "diff of %s: run A %s (%s) vs run B %s (%s)\n", r.Chain, r.RunA, r.StatusA, r.RunB, r.StatusB)
 	fmt.Fprintf(&b, "%s\n", r.Note)
+	if line := RenamedLine(r.RenamedSteps, "run A", "run B"); line != "" {
+		fmt.Fprintf(&b, "\n%s\n", line)
+	}
 	if len(r.FullyMasked) > 0 {
 		fmt.Fprintf(&b, "\nWARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
 			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",

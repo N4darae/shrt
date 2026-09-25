@@ -911,7 +911,10 @@ Three things that decide whether this works for a given chain:
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   The chain's step list and expectations are compared too: a step removed, added, moved or
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
-  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
+  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A step renamed in
+  place (same call, same position, and the only step of that call gone and added) is not a removal and an addition:
+  `verify`, `diff` and the `-supersede` review say `renamed step(s): step 8 list_orders -> list_customer_orders` and
+  compare its response with the old step's, so a changed value there (`orders.0.total_minor want=750 got=1`) is judged. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
   `procedure` decides. Expectations are paired by path, then by rule, not by position, so one
   added in the middle is one `absent -> <path> <rule> <value>` line; each path reports its own

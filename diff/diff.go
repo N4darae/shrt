@@ -60,12 +60,13 @@ type Report struct {
 	ScrubbedPaths  []string `json:"scrubbed_paths,omitempty"`
 	FullyMasked    []string `json:"fully_masked,omitempty"`
 
-	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
-	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
-	UnapprovedRedact   []string `json:"unapproved_redact,omitempty"`
-	UnapprovedRedacted []string `json:"unapproved_redacted,omitempty"`
-	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
-	Reordered          []string `json:"reordered_lists,omitempty"`
+	UnapprovedVolatile []string     `json:"unapproved_volatile,omitempty"`
+	UnapprovedMasked   []string     `json:"unapproved_masked,omitempty"`
+	UnapprovedRedact   []string     `json:"unapproved_redact,omitempty"`
+	UnapprovedRedacted []string     `json:"unapproved_redacted,omitempty"`
+	PrincipalUnchecked []string     `json:"principal_unchecked,omitempty"`
+	Reordered          []string     `json:"reordered_lists,omitempty"`
+	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
 
 	inputSeparated    bool
 	compared          []comparedStep
@@ -1047,6 +1048,9 @@ func (r *Report) Text() string {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if line := RenamedLine(r.RenamedSteps, "the safe spot", "this run"); line != "" {
+		b.WriteString(line + "\n")
+	}
 	if len(r.FullyMasked) > 0 {
 		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
 			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
