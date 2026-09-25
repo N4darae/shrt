@@ -159,6 +159,9 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 	fields := catalog.DescribeMessage(pm.Input()).Fields
 	ranks := map[string][]int{}
 	if t.anchor != "" {
+		if seed, ok := first.Body[t.anchor].(string); ok && seed != "" && runPrefix(seed) == seed {
+			first.Body[t.anchor] = seed + "-a"
+		}
 		base := "${steps." + first.ID + ".request." + t.anchor + "}"
 		for k, prod := range t.producers[1:] {
 			setBodyPath(prod.Body, t.anchor, base+"-"+string(rune('a'+anchorRanks[k+1]-1)))
