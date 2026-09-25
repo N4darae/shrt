@@ -81,3 +81,19 @@ func TestPlanNamesWhatToDeclareWhenAContractStatesNoEffect(t *testing.T) {
 		t.Fatalf("the plan names what to declare:\n%s", notes)
 	}
 }
+
+func TestPlanAssertsATotalWhoseContractNamesThePriceFieldOnly(t *testing.T) {
+	cat, _ := shopDemo(t)
+	lib := shopDemoEdited(t, func(name, body string) string {
+		if name != "orders.yaml" {
+			return body
+		}
+		body = strings.Replace(body, "priced at current product prices; does not touch stock.", "does not touch stock.", 1)
+		return strings.Replace(body, "total_minor is the priced sum", "total_minor is the sum of qty times price_minor", 1)
+	})
+	p, err := contract.BuildPlanFor([]string{"CreateOrder"}, lib, cat, "shopdemo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantExpect(t, planStep(t, p, "create_order"), "order.total_minor", 2*250+3*1250)
+}

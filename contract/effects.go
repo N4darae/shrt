@@ -19,7 +19,7 @@ var (
 	untouchedWords = regexp.MustCompile(`(?i)\b(?:does not|doesn't|do not|never)\s+(?:touch|change|move|affect|alter|modify|reserve)\w*\s+([^.;,]+)`)
 	startsAtZero   = regexp.MustCompile(`(?i)\b(?:zero|no)\s+([a-z]+)`)
 	sumWord        = regexp.MustCompile(`(?i)\bsum\b|\btotal of\b`)
-	priceWord      = regexp.MustCompile(`(?i)\bpric(?:e|ed|es|ing)\b`)
+	priceWord      = regexp.MustCompile(`(?i)(?:\b|_)pric(?:e|ed|es|ing)(?:\b|_)`)
 	plainWord      = regexp.MustCompile(`[A-Za-z]+`)
 )
 
