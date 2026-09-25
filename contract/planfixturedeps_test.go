@@ -274,3 +274,40 @@ func TestAnUnfilteredListAfterTheStateMovesAssertsEveryFixtureInItsState(t *test
 		}
 	}
 }
+
+func TestALoginTargetIsPlannedWithItsDeclaredFailureAndEachProfilesRole(t *testing.T) {
+	opts := contract.PlanOptions{
+		Auth:          true,
+		Profiles:      []string{"clerk"},
+		Logins:        []string{"shop.auth.v1.AuthService/Login"},
+		LoginBodies:   map[string]map[string]any{"shop.auth.v1.AuthService/Login": {"username": "${env.API_USER}", "password": "${env.API_PASSWORD}"}},
+		ProfileBodies: map[string]map[string]any{"clerk": {"username": "${env.CLERK_USER}", "password": "${env.CLERK_PASSWORD}"}},
+	}
+	p, text, _ := shopDemoPlanWith(t, opts, "Login")
+	bad := planStep(t, p, "login_bad_password")
+	if got := bodyAt(t, bad, "password"); got == "${env.API_PASSWORD}" || !strings.HasPrefix(got, "${env.API_PASSWORD}") {
+		t.Fatalf("the bad login sends a password that is not the account's, got %s:\n%s", got, text)
+	}
+	wantExpect(t, bad, "status.details.0.reason", "BadCredentials")
+	wantExpect(t, planStep(t, p, "login"), "role", "ADMIN")
+	clerk := planStep(t, p, "login_as_clerk")
+	if bodyAt(t, clerk, "username") != "${env.CLERK_USER}" {
+		t.Fatalf("the clerk login sends the clerk profile's body:\n%s", text)
+	}
+	wantExpect(t, clerk, "role", "CLERK")
+}
+
+func TestLoginFailureGapsDoesNotCountTheConfigsOwnLoginAsAProbe(t *testing.T) {
+	cat, lib := shopDemo(t)
+	logins := []string{"shop.auth.v1.AuthService/Login"}
+	ok := &chain.Chain{Name: "ok", Steps: []*chain.Step{{ID: "login", Call: logins[0], Body: map[string]any{"username": "a"}}}}
+	got := contract.LoginFailureGaps([]*chain.Chain{ok}, lib, cat, logins)
+	if len(got) != 1 || !strings.Contains(got[0].Failure, "BadCredentials") {
+		t.Fatalf("got %+v, want BadCredentials named as never expected", got)
+	}
+	bad := &chain.Chain{Name: "bad", Steps: []*chain.Step{{ID: "login_bad_password", Call: logins[0],
+		Expect: []chain.Expectation{{Path: "status.details.0.reason", Equals: "BadCredentials"}}}}}
+	if got := contract.LoginFailureGaps([]*chain.Chain{ok, bad}, lib, cat, logins); len(got) != 0 {
+		t.Fatalf("a chain expects the failure: %+v", got)
+	}
+}

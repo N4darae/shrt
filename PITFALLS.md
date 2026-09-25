@@ -2153,6 +2153,21 @@ asserting every fixture by id in the state it was left in (by position when the 
 creation order, else with `includes:`), and no item more. It reads no filtered step, so a pin on
 those leaves it alone.
 
+## 101. BadCredentials and the login role, probed by no plan
+
+**Symptom.** No planned chain sent a wrong password or checked the role a login returns, and
+`contract status -gaps` never mentioned Login: its failures (1001 BadCredentials) and its `role`
+went unprobed in round 25.
+
+**Cause.** `contract plan Login` planned the successful login only, and `-gaps` counted the rpc as
+called because the config's auth block logs in on every run, which says nothing about its failures.
+
+**Fix.** 2026-09-25: a login target gets `login_bad_password` and, when the failure's `when:`
+names an unknown account, `login_unknown_user`, each expecting the declared failure; the default
+login asserts the role every role-gated rpc requires, and each profile gets `login_as_<profile>`
+with its auth body, asserting the role the profile is named for. `-gaps` lists `no login probe`
+for each failure a login's contract declares that no chain step expects.
+
 ---
 
 # Decisions, so they are not relitigated

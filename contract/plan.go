@@ -41,6 +41,8 @@ type PlanOptions struct {
 	Profiles    []string
 	Logins      []string
 	LoginBodies map[string]map[string]any
+
+	ProfileBodies map[string]map[string]any
 }
 
 type pendingChecks struct {
@@ -152,6 +154,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.isolating(lib, "twice", func() { p.probeSameEntityTwice(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "unknown", func() { p.probeUnknownIDs(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "shape", func() { p.probeShapes(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
+	p.probeLogin(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.satisfyNeeds(lib)
 	p.echoNumbers()
 	p.assertOutcomes(lib)

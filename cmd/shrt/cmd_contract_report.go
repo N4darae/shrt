@@ -31,12 +31,13 @@ type statusRow struct {
 	SingleItem []contract.SingleItemRepeat `json:"single_item,omitempty"`
 	ProbeGaps  []contract.ProbeGap         `json:"probe_gaps,omitempty"`
 	EmptyGaps  []contract.EmptyFilterGap   `json:"empty_filter_gaps,omitempty"`
+	LoginGaps  []contract.LoginFailureGap  `json:"login_failure_gaps,omitempty"`
 }
 
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no repeat' (a repeated message field whose items always point at different resources, never one resource on two items), 'no empty filter' (a list filter whose contract says empty lists all, which every chain sends set), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no repeat' (a repeated message field whose items always point at different resources, never one resource on two items), 'no empty filter' (a list filter whose contract says empty lists all, which every chain sends set), 'no login probe' (a failure the login's contract declares that no chain expects: the config's own logins only succeed), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -83,6 +84,15 @@ func contractStatus(args []string) error {
 	for _, g := range contract.EmptyFilterGaps(chains, lib, e.cat) {
 		emptyGaps[g.RPC] = append(emptyGaps[g.RPC], g)
 	}
+	loginNames := []string{}
+	for name := range logins {
+		loginNames = append(loginNames, name)
+	}
+	sort.Strings(loginNames)
+	loginGaps := map[string][]contract.LoginFailureGap{}
+	for _, g := range contract.LoginFailureGaps(chains, lib, e.cat, loginNames) {
+		loginGaps[g.RPC] = append(loginGaps[g.RPC], g)
+	}
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
@@ -92,6 +102,7 @@ func contractStatus(args []string) error {
 			r.SingleItem = append(r.SingleItem, single[m.FullName]...)
 			r.ProbeGaps = append(r.ProbeGaps, probeGaps[m.FullName]...)
 			r.EmptyGaps = append(r.EmptyGaps, emptyGaps[m.FullName]...)
+			r.LoginGaps = append(r.LoginGaps, loginGaps[m.FullName]...)
 			if !m.Streaming() && !called[m.FullName] {
 				r.NoChain = append(r.NoChain, noChainLine(m))
 			}
@@ -249,6 +260,12 @@ func printStatusGaps(rows []statusRow) {
 		}
 	}
 	for _, r := range rows {
+		for _, g := range r.LoginGaps {
+			fmt.Printf("no login probe %s: its contract declares %s, and no chain expects it; the config's own logins only succeed\n", g.RPC, g.Failure)
+			n++
+		}
+	}
+	for _, r := range rows {
 		for _, line := range r.NoChain {
 			fmt.Printf("no chain     %s\n", line)
 			n++
@@ -271,7 +288,7 @@ func printStatusGaps(rows []statusRow) {
 	}
 	if n == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
-			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, every list filter whose contract says empty lists all is sent empty somewhere, " +
+			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, every list filter whose contract says empty lists all is sent empty somewhere, every failure a login's contract declares is expected somewhere, " +
 			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
 	}
@@ -299,6 +316,11 @@ func printStatusGaps(rows []statusRow) {
 		"             but every chain sends it set, so a backend whose empty filter returns nothing passes.\n" +
 		"             Send it empty and assert the fixtures the chain created are among the items by id\n" +
 		"             (includes:); shrt contract plan <list rpc> scaffolds <step>_empty_<field>.\n" +
+		"no login probe a failure the login rpc's contract declares (BadCredentials) that no chain step\n" +
+		"             expects. The config's auth: block calls the login in every run, but only ever with the\n" +
+		"             right credentials, so that counts as calling it, not as probing its failures or the role\n" +
+		"             it returns: shrt contract plan <login rpc> scaffolds <step>_bad_password and one login\n" +
+		"             per profile asserting its role.\n" +
 		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
 		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +
