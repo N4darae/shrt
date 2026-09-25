@@ -1,0 +1,142 @@
+apiVersion: shrt/contract/v1
+domain: catalog
+description: Products and their stock on hand. Only ADMIN may create products or add stock.
+failures:
+    - connect_code: unauthenticated
+      reason: Unauthenticated
+      when: the Authorization header is missing, or its token is unknown or expired
+rpcs:
+    shop.catalog.v1.ProductService/CreateProduct:
+        summary: Add a product with zero stock; ADMIN only.
+        requires_role: [ADMIN]
+        required: [sku, name]
+        fields:
+            sku:
+                value: sku-${vars.tag}
+                note: unique, compared exactly as sent, case-sensitive
+            name:
+                value: Widget ${vars.tag}
+                note: display name, required non-blank
+            price_minor:
+                value: "250"
+                note: price in cents, must be greater than zero
+        exports:
+            product: the created product; id_product feeds stock and orders
+        failures:
+            - connect_code: invalid_argument
+              reason: SkuRequired
+              field: sku
+              when: sku is empty or only whitespace
+            - connect_code: invalid_argument
+              reason: NameRequired
+              field: name
+              when: name is empty or only whitespace
+            - code: 1603
+              reason: PermissionDenied
+              when: the caller does not hold role ADMIN
+            - code: 1202
+              reason: InvalidPrice
+              when: price_minor is zero or negative
+            - code: 1201
+              reason: SkuTaken
+              when: another product already has exactly this sku
+        source: [server/server.go, README.md]
+        status: draft
+    shop.catalog.v1.ProductService/GetProduct:
+        summary: Read one product, including its stock on hand, by id.
+        requires_role: [NONE]
+        required: [id_product]
+        fields:
+            id_product:
+                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
+                checked_by: app_lookup
+        aliases:
+            before:
+                note: read before the stock-changing step
+            after:
+                note: read after the stock-changing step
+        exports:
+            product: the stored product; qty_on_hand is what stock-changing rpcs move
+        failures:
+            - connect_code: invalid_argument
+              reason: IdRequired
+              field: id_product
+              when: id_product is empty
+            - code: 1204
+              reason: ProductNotFound
+              when: no product has this id
+        source: [server/server.go]
+        status: draft
+    shop.catalog.v1.ProductService/ListProducts:
+        summary: List products whose sku starts with sku_prefix, sorted by sku ascending; an empty prefix lists all.
+        requires_role: [NONE]
+        required: [NONE]
+        needs: [shop.catalog.v1.ProductService/CreateProduct]
+        fields:
+            sku_prefix:
+                value: sku-${vars.tag}
+                note: prefix filter on sku; empty lists every product
+        exports:
+            products: the matching products sorted by sku ascending
+        source: [server/server.go, README.md]
+        status: draft
+    shop.catalog.v1.StockService/AddStock:
+        summary: Increase a product's stock on hand by qty; ADMIN only.
+        requires_role: [ADMIN]
+        required: [id_product]
+        fields:
+            id_product:
+                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
+                checked_by: app_lookup
+            qty:
+                value: "5"
+                note: units to add, must be greater than zero
+        exports:
+            qty_on_hand: stock on hand after the addition
+        failures:
+            - connect_code: invalid_argument
+              reason: IdRequired
+              field: id_product
+              when: id_product is empty
+            - code: 1603
+              reason: PermissionDenied
+              when: the caller does not hold role ADMIN
+            - code: 1203
+              reason: InvalidQty
+              when: qty is zero or negative
+            - code: 1204
+              reason: ProductNotFound
+              when: no product has this id
+        source: [server/server.go]
+        status: draft
+    shop.catalog.v1.StockService/AddStockBatch:
+        summary: Apply several stock additions; each line succeeds or is refused independently; ADMIN only.
+        requires_role: [ADMIN]
+        required: [lines]
+        fields:
+            lines:
+                note: one AddStock per line, applied independently in order
+            lines.id_product:
+                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
+                checked_by: app_lookup
+            lines.qty:
+                value: "3"
+                note: units to add on that line, must be greater than zero
+        exports:
+            results: one result per line with its own status and the new stock on hand
+        failures:
+            - connect_code: invalid_argument
+              reason: LinesRequired
+              field: lines
+              when: lines is empty
+            - code: 1603
+              reason: PermissionDenied
+              when: the caller does not hold role ADMIN
+            - code: 1203
+              reason: InvalidQty
+              when: a line has qty zero or negative; reported on that line only
+            - code: 1204
+              reason: ProductNotFound
+              when: a line names an unknown product; reported on that line only
+        source: [server/server.go, README.md]
+        status: draft

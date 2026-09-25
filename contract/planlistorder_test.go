@@ -41,9 +41,12 @@ func TestPlanForAListGivesThreeFixturesWhoseSortKeysDisagree(t *testing.T) {
 	}
 	creates := map[string]map[string]any{}
 	for _, st := range p.Chain.Steps {
-		if strings.HasSuffix(st.Call, "/CreateProduct") {
+		if strings.HasSuffix(st.Call, "/CreateProduct") && !strings.Contains(st.ID, "_prefix_") {
 			creates[st.ID] = st.Body
 		}
+	}
+	if _, ok := p.Chain.Step("create_product_prefix_inside"); !ok {
+		t.Fatalf("a prefix list also gets a fixture containing the prefix elsewhere, which it must not list")
 	}
 	if len(creates) != 3 {
 		t.Fatalf("a list order is only discriminating with three items, got %d creates", len(creates))

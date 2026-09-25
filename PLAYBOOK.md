@@ -304,7 +304,8 @@ order asserted. `chain new` does the same for two or more creates feeding a list
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
 `Duplicate…`, or a `when:` saying unique or duplicate), the plan adds a step right after it sending
-the same value again (`${steps.<id>.request.<field>}`), expecting the verdict not to be the ok value,
+the same value again (`${steps.<id>.request.<field>}`), and a second (`<id>_same_<field>_other_fields`) sending it with
+every other literal field changed (`Widget …-other`, a price of 2n+1), expecting the verdict not to be the ok value,
 the failure's code and reason on the response's code fields (`conventions.code_fields`, e.g.
 `status.details.0.app_code` and `.reason`), and no created object. The field is the failure's
 `field:`, else the one the reason names, else the one field whose note says unique. When the
@@ -318,7 +319,86 @@ surrounding whitespace, it adds the value padded with spaces too. A negated phra
 variant, and a mention of whitespace that is not about trimming (`whitespace only is
 invalid_argument`) adds none either. Say it as data to leave no doubt: `unique: {case: ignore,
 trim: true}` (or `case: exact`, `trim: false`) on the failure wins over the prose. When the contract
-says nothing about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
+says nothing about case, a note says how to ask for the variant rather than guessing.
+
+A refused write must change nothing, and only a read proves it. For a target whose contract declares
+a shortage refusal (`InsufficientStock`, a `when:` saying more than, exceeds, not enough), the plan
+asks for 100000 of the first quantity field (`qty`, `quantity`, `count`, `amount`) it finds, in the
+step's own body or in a copy of the step it reads (`create_order_for_insufficient_stock`, the order
+`confirm_order_insufficient_stock` then confirms), expecting the refusal. It does so once with the
+shortage on the first item and once on the last (`..._last_item`): a backend that checks only the
+first line confirms the second. Around each refused step it reads every entity the step touches,
+directly or through the step it reads, with the read rpc whose contract takes that entity's id
+(`get_product_before_…`, `get_product_after_…`), and the after-read asserts each numeric and enum
+field equal to the before-read. A backend that refuses but still takes the first line's stock fails
+there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
+
+When the config declares auth, the plan also probes who may call. For a target whose contract names
+`requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
+`<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
+for a caller without the role (a reason such as `PermissionDenied`, or a `when:` naming the role);
+the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
+target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
+invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
+pair per plan, not per rpc). For a write, all of these sit between reads of what it touches
+(`get_product_before_add_stock_denied` / `…_after_…`), so a denied call that still wrote fails.
+`shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
+probe`) and the chained rpcs no chain calls without a token (`no token`).
+
+Numbers in planned fixtures differ by magnitude, because a bug in arithmetic shows at a size the
+first fixture never reaches (a price stored as `price - price/1000` is right for 250 and wrong for
+1250). A second producer takes the first value plus 1000 (`create_product_2`, price 1250), three list
+fixtures take 250, 1250 and 12345, and a quantity (`qty`, `quantity`, `count`, `amount`) moves by one
+per fixture instead: up when it is a sort key, down where it can inside repeated items (`lines.0.qty`
+3, 2, 1), so it stays within the stock the
+plan adds. Every planned write asserts that each numeric field it sent comes back in its response's
+object unchanged (`product.price_minor equals ${steps.create_product.request.price_minor}`). A target
+also gets `<step>_<field>_large` (12345; never for a quantity, which runs into stock rules) and, when
+a failure's `when:` or the field's note states a minimum (`qty is zero or negative`, `must be greater
+than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
+`<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
+refused write changed nothing.
+
+A list filter is tested by what it leaves out. For a list target the plan works out its scope: a
+request field holding a reference to a step that every fixture also reads is a parent (`id_customer`
+of `ListOrders`), a field named `...prefix` is a prefix. For a parent it adds another one
+(`create_customer_other`, unique fields changed) with an item of its own (`create_order_other_customer`);
+for a prefix, an item whose field contains the prefix not at the start (`x-sku-…`,
+`create_product_prefix_inside`) and, when the list's or the field's contract says `case-sensitive`
+or `exactly as sent`, one starting with it in another letter case (`create_product_prefix_case`).
+The list asserts its exact count, so letting any of them through fails. When the list request has
+an enum field whose values are those of an enum field of the items (`ListOrdersRequest.status`,
+`Order.status`), the plan finds the writes whose contract takes an item's id (`from:
+CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in
+(`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
+list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
+only the fixtures in that state come back: by id when the contract states creation order or one
+matches, their status always, and the count. A note names states no write reaches, and a write
+whose own `needs:` the plan does not call (a confirm that needs `AddStock`) is left out with a note
+saying which rpc to plan with it.
+
+A batch is tested with a refused item in the middle. With `conventions.item_envelope_path` set
+(`results[].status.code`) and a contract saying failures are reported per item (`reported on that
+line only`, `applied independently`), a batch target gets `<step>_partial`: the first item, a copy of
+the last item with a numeric field one below the minimum a failure's `when:` states (`qty` 0), and
+the last item again. It asserts the batch verdict, `results.0` and `results.2` ok, `results.1` not ok
+with the failure's code and reason, and no fourth result; then one read per resource the applied
+items touch asserts that the stored value is the one its last item reported
+(`product.qty_on_hand equals ${add_stock_batch_partial.results.2.qty_on_hand}`). A batch that stops at
+the refused item, applies it, or reports stale values for later items fails.
+
+An idempotency key is tested by replaying it. When a create target's request has a key field
+(`idempotency_key`, `idempotent…`, `dedup…`, `request_id`, `client_token`), the plan adds
+`<step>_replay`, the same body with the key the step sent (`${steps.create_order.request.idempotency_key}`),
+expecting the same id back (`order.id_order equals ${create_order.order.id_order}`);
+`<step>_replay_other_body`, the same key with every number raised by one, expecting the first
+object back with its numbers unchanged (or, when the contract declares a failure for a reused key,
+a reason or `when:` saying idempotency, key reuse or conflict, that refusal); and, unless the key
+is in `required:`, `<step>_no_key` and `<step>_no_key_2` sending an empty key, the second asserting
+an id different from the first. Copies elsewhere in a plan (a shortage probe's order) get a fresh
+`${uuid}` key so they are never mistaken for a replay.
+
+A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are

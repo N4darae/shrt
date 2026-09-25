@@ -1298,6 +1298,96 @@ adds the value with its letters' case swapped, and when it says surrounding whit
 the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
 and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
 
+## 46. A duplicate sku accepted under another name, green in the planned chain
+
+**Symptom.** CreateProduct began refusing a taken sku only when the name matched too, so a second
+product with the same sku and another name was created. The planned chain stayed green.
+
+**Cause.** The duplicate attempt was an exact copy of the first request. A backend that compares the
+whole record, or a composite key, refuses an exact copy just as one comparing the sku alone does.
+
+**Fix.** 2026-09-25: next to the exact copy, `contract plan` adds `<id>_same_<field>_other_fields`,
+sending the taken value with every other literal field changed (strings get `-other`, before the
+`@` of an address; numbers become 2n+1; ids, enums, bools and references are kept), expecting the
+same refusal. When no other field can be changed, a note says the attempt is only an exact copy.
+
+## 47. A refused confirm that still took stock, green in the planned chain
+
+**Symptom.** ConfirmOrder answered `1305 InsufficientStock`, as it should, but had already taken the
+first line's stock. Every planned chain was green: none of them ever made the confirm fail, and none
+read the stock after a refusal.
+
+**Cause.** A plan scaffolded only the happy path of its target. A refusal the contract declared was
+never exercised, and "nothing changes" is a claim about state, which no verdict can check.
+
+**Fix.** 2026-09-25: for a shortage refusal, `contract plan` adds a copy of the producing step with a
+quantity of 100000 on the first item (and another on the last), the refused call on it, and a read of
+every entity it touches before and after, asserting numeric and enum fields unchanged. In the lab
+the last-item probe also found a baseline that checks only the first line and confirms anyway.
+
+## 48. AddStock open to every role, green in the planned chain
+
+**Symptom.** AddStock stopped checking for ADMIN, so a clerk could add stock. The contract said
+`requires_role: [ADMIN]`, the config declared a `clerk` profile, and every planned chain stayed green.
+
+**Cause.** Plans ran every step as the default (admin) principal. Nothing ever called a gated rpc as
+anyone who should be refused, nor without a token.
+
+**Fix.** 2026-09-25: with auth configured, `contract plan` adds `<step>_as_<profile>` for each profile
+whose name is not a required role, expecting the declared denial, plus one missing-token and one
+invalid-token probe per plan, between reads proving the write changed nothing. `contract status
+-gaps` lists `no role probe` and `no token` for rpcs no chain probes that way.
+
+## 49. Prices over 1000 stored short, and qty 0 accepted, green in the planned chains
+
+**Symptom.** CreateProduct stored `price - price/1000` for prices of 1000 and up, and AddStock
+answered SUCCESS for qty 0 instead of `1203 InvalidQty`. The planned chains stayed green.
+
+**Cause.** Planned fixtures used the contract's 250 and a second product at 251, nothing asserted
+the stored price, and no step sent a value at or below the stated minimum.
+
+**Fix.** 2026-09-25: the second producer's price is 1000 above the first, list fixtures spread to
+12345, every write asserts the numbers it sent come back, and a target gets `_large`, `_min` and
+`_below_min` probes where the contract states a minimum. Quantities move by one, inside repeated
+items too, so three list fixtures are no longer the same order three times.
+
+## 50. A status filter that was ignored, green in the planned chain
+
+**Symptom.** ListOrders returned every order of the customer whatever `status` asked for. The planned
+chain sent `ORDER_STATUS_UNSPECIFIED` over three identical PENDING orders and passed.
+
+**Cause.** Every fixture was in the same state and the filter was never set, so a filter that did
+nothing could not be told from one that worked. Nothing outside the scope existed either: no other
+customer's order, no sku containing the prefix elsewhere.
+
+**Fix.** 2026-09-25: `contract plan` moves fixtures into each state a contracted write reaches and
+adds a filtered list per state, adds out-of-scope items (another parent's, a prefix inside or in
+another case) that the list, asserting its count, must not show. In the lab this found a baseline
+that ignores the filter.
+
+## 51. A batch that reported stale stock for later lines, green in the planned chain
+
+**Symptom.** AddStockBatch applied every line but reported, for lines after the first, a stock level
+from before the batch. The planned chain sent two lines, asserted the batch verdict, and passed.
+
+**Cause.** Nothing compared what a line reported with what was stored, and no line was refused, so
+per-line independence was never exercised either.
+
+**Fix.** 2026-09-25: a batch target whose contract reports failures per item gets `<step>_partial`
+with a refused middle item and a read per resource asserting stored equals reported.
+
+## 52. An idempotency key nobody replayed
+
+**Symptom.** CreateOrder's contract noted that "a replay with the same key is the idempotency path",
+yet no planned chain sent a key twice, so a backend that created a second order on replay, or one
+that deduplicated requests without any key, stayed green.
+
+**Cause.** The plan sent `${uuid}` once, which is what makes a run repeatable and also what keeps the
+key from ever being reused.
+
+**Fix.** 2026-09-25: a create target with a key field gets a replay with the same body, a replay with
+another body, and two creates without a key that must yield two ids.
+
 ---
 
 # Decisions, so they are not relitigated

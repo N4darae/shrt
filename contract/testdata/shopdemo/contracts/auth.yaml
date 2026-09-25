@@ -1,0 +1,23 @@
+apiVersion: shrt/contract/v1
+domain: auth
+description: Issues bearer tokens for the two staff accounts. Every other rpc of the shop needs one.
+rpcs:
+    shop.auth.v1.AuthService/Login:
+        summary: Exchange a username and password for a bearer token valid for one hour.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            username:
+                note: staff account name, admin or clerk, read from the environment
+            password:
+                note: the account password, read from the environment, never a literal
+        exports:
+            access_token: the bearer token every other rpc sends in Authorization
+            expires_at: unix seconds, one hour after the login
+            role: ADMIN or CLERK, the role the token acts as
+        failures:
+            - code: 1001
+              reason: BadCredentials
+              when: the username is unknown or the password does not match it
+        source: [server/server.go, README.md]
+        status: draft

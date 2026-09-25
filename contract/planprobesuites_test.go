@@ -1,0 +1,89 @@
+package contract_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/N4darae/shrt/contract"
+)
+
+func shopDemoMutated(t *testing.T, opts contract.PlanOptions, mutate func(rpcs map[string]*contract.RPCContract), targets ...string) (*contract.Plan, string) {
+	t.Helper()
+	cat, lib := shopDemo(t)
+	for _, o := range lib.Overlays {
+		mutate(o.RPCs)
+	}
+	lib = contract.NewLibrary(lib.Overlays)
+	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := p.YAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p, string(raw)
+}
+
+func TestARoleProbeExpectsThePermissionFailureNotAShapeErrorWhoseWhenMentionsTheRole(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.catalog.v1.ProductService/CreateProduct"]; c != nil {
+			for i := range c.Failures {
+				if c.Failures[i].Reason == "SkuRequired" {
+					c.Failures[i].When = "sku is empty or only whitespace; checked before the role and the price"
+				}
+			}
+		}
+	}, "CreateProduct")
+	wantExpect(t, planStep(t, p, "create_product_as_clerk"), "status.details.0.reason", "PermissionDenied")
+	if strings.Contains(text, "refused with SkuRequired") {
+		t.Fatalf("a when: that mentions the role in passing does not make a shape error the denial:\n%s", text)
+	}
+}
+
+func TestAnIdempotencyReplayIsNotExpectedToFailWithAnUnrelatedFailureMentioningTheKey(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
+			for i := range c.Failures {
+				if c.Failures[i].Reason == "CustomerNotFound" {
+					c.Failures[i].When = "no customer has id_customer, and the idempotency key was not seen before"
+				}
+			}
+		}
+	}, "CreateOrder")
+	wantExpect(t, planStep(t, p, "create_order_replay_other_body"), "order.id_order", "${create_order.order.id_order}")
+	if strings.Contains(text, "is refused with 1301") {
+		t.Fatalf("CustomerNotFound is no key conflict:\n%s", text)
+	}
+}
+
+func TestAStateTransitionWhosePrerequisiteIsNotInThePlanIsLeftOutWithANote(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
+			c.Needs = nil
+		}
+		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
+			c.Needs = []string{"shop.catalog.v1.StockService/AddStock"}
+		}
+	}, "ListOrders")
+	for _, st := range p.Chain.Steps {
+		if strings.HasPrefix(st.ID, "confirm_order") {
+			t.Fatalf("no stock was added, so confirming a fixture would fail for a reason the plan made:\n%s", text)
+		}
+	}
+	planStep(t, p, "list_orders_cancelled")
+	if !strings.Contains(strings.Join(p.Notes, "\n"), "needs AddStock") {
+		t.Fatalf("the plan says why no fixture is confirmed: %v", p.Notes)
+	}
+}
+
+func TestAPrefixExclusionAnchoredOnTheFirstProducerKeepsReadingIt(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.catalog.v1.ProductService/ListProducts"]; c != nil {
+			c.Fields["sku_prefix"] = &contract.FieldContract{SameAs: "shop.catalog.v1.ProductService/CreateProduct->sku", Note: "filter by prefix"}
+		}
+	}, "ListProducts")
+	if got := bodyAt(t, planStep(t, p, "create_product_prefix_inside"), "sku"); got != "x-${steps.create_product.request.sku}" {
+		t.Fatalf("the inside fixture reads the first product's sku, not its own, got %s:\n%s", got, text)
+	}
+}

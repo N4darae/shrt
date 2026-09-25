@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -48,7 +50,7 @@ func contractPlan(args []string) error {
 			return err
 		}
 	}
-	plan, err := contract.BuildPlanFor(rest, lib, e.cat, chainName)
+	plan, err := contract.BuildPlanWith(rest, lib, e.cat, chainName, planOptions(e))
 	if err != nil {
 		return err
 	}
@@ -129,4 +131,18 @@ func rpcTail(rpc string) string {
 		return rpc[i+1:]
 	}
 	return rpc
+}
+
+func planOptions(e *env) contract.PlanOptions {
+	opts := contract.PlanOptions{Auth: e.cfg.Auth != nil}
+	for _, name := range e.cfg.AuthProfileNames() {
+		if name != config.DefaultAuthProfile {
+			opts.Profiles = append(opts.Profiles, name)
+		}
+	}
+	for name := range loginRPCs(e) {
+		opts.Logins = append(opts.Logins, name)
+	}
+	sort.Strings(opts.Logins)
+	return opts
 }

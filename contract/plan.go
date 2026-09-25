@@ -27,6 +27,13 @@ type Plan struct {
 	reserved map[string]bool
 	noun     string
 	seconds  []producerSecond
+	opts     PlanOptions
+}
+
+type PlanOptions struct {
+	Auth     bool
+	Profiles []string
+	Logins   []string
 }
 
 type pendingChecks struct {
@@ -41,6 +48,10 @@ func BuildPlan(target string, lib *Library, cat *catalog.Catalog, name string) (
 }
 
 func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name string) (*Plan, error) {
+	return BuildPlanWith(targets, lib, cat, name, PlanOptions{})
+}
+
+func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name string, opts PlanOptions) (*Plan, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("nothing to plan: name at least one rpc")
 	}
@@ -76,7 +87,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
@@ -117,6 +128,13 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 	}
 	p.discriminateListOrder(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeUniqueness(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeListFilters(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeIdempotency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.echoNumbers()
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()

@@ -29,12 +29,13 @@ type statusRow struct {
 	NoChain   []string `json:"no_chain,omitempty"`
 
 	SingleItem []contract.SingleItemRepeat `json:"single_item,omitempty"`
+	ProbeGaps  []contract.ProbeGap         `json:"probe_gaps,omitempty"`
 }
 
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two) and 'no chain' (an rpc no chain calls, with the repeated fields it takes), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -73,6 +74,10 @@ func contractStatus(args []string) error {
 	}
 	called := calledRPCs(e, chains)
 	logins := loginRPCs(e)
+	probeGaps := map[string][]contract.ProbeGap{}
+	for _, g := range contract.AuthProbeGaps(chains, lib, e.cat, planOptions(e)) {
+		probeGaps[g.RPC] = append(probeGaps[g.RPC], g)
+	}
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
@@ -80,6 +85,7 @@ func contractStatus(args []string) error {
 		r := statusRow{Domain: d, Total: len(byDomain[d]), Todos: todos[d], Gaps: gaps[d], Score: scores[d]}
 		for _, m := range byDomain[d] {
 			r.SingleItem = append(r.SingleItem, single[m.FullName]...)
+			r.ProbeGaps = append(r.ProbeGaps, probeGaps[m.FullName]...)
 			if !m.Streaming() && !called[m.FullName] {
 				r.NoChain = append(r.NoChain, noChainLine(m))
 			}
@@ -168,6 +174,22 @@ func contractStatus(args []string) error {
 	if unchained > 0 {
 		fmt.Printf("\n%d unary rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
 	}
+	roleGaps, tokenGaps := 0, 0
+	for _, r := range rows {
+		for _, g := range r.ProbeGaps {
+			if g.Kind == "role" {
+				roleGaps++
+			} else {
+				tokenGaps++
+			}
+		}
+	}
+	if roleGaps > 0 {
+		fmt.Printf("\n%d role-gated rpc/profile pair(s) are never called as a profile lacking the role, so a dropped role check passes every gate: shrt contract status -gaps lists them as 'no role probe'\n", roleGaps)
+	}
+	if tokenGaps > 0 {
+		fmt.Printf("\n%d chained rpc(s) are never called without a token or with auth: invalid: shrt contract status -gaps lists them as 'no token'\n", tokenGaps)
+	}
 	return nil
 }
 
@@ -207,13 +229,24 @@ func printStatusGaps(rows []statusRow) {
 		}
 	}
 	for _, r := range rows {
+		for _, g := range r.ProbeGaps {
+			if g.Kind == "role" {
+				fmt.Printf("no role probe %s: requires %s, and no chain calls it as profile %s\n", g.RPC, g.Roles, g.Profile)
+			} else {
+				fmt.Printf("no token     %s: no chain calls it with skip_auth: true or auth: invalid\n", g.RPC)
+			}
+			n++
+		}
+	}
+	for _, r := range rows {
 		for _, st := range r.Streaming {
 			fmt.Printf("streaming    %s  (out of scope: shrt is unary-only; not a gap, never REACHED)\n", st)
 		}
 	}
 	if n == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
-			"some chain, and every repeated message field a chain sends is sent with two or more items, pointing at different resources, somewhere")
+			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources, somewhere, " +
+			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
 	}
 	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
@@ -233,7 +266,13 @@ func printStatusGaps(rows []statusRow) {
 		"             scaffolds one).\n" +
 		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
-		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n")
+		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +
+		"no role probe the contract's requires_role names a role the profile's name is not, and no chain calls the\n" +
+		"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
+		"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
+		"             it changed nothing.\n" +
+		"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
+		"             checking the token passes. A plan scaffolds one pair per chain, for its first target.\n")
 }
 
 func loginRPCs(e *env) map[string]bool {

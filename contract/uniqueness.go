@@ -178,6 +178,19 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		return dup
 	}
 	added := []*chain.Step{attempt("", fmt.Sprintf("the same %s again is refused with %s.", leaf, f.Label()), ref)}
+	other := attempt("_other_fields", "", ref)
+	schema := catalog.DescribeMessage(m.Input()).Fields
+	uniquePath := stripIndexes(field)
+	if changed := varyScalars(other.Body, schema, "other", func(path string) bool { return path == uniquePath }); len(changed) > 0 {
+		other.Description = fmt.Sprintf("the same %s with every other field changed (%s) is still refused with %s: "+
+			"only %s must be unique.", leaf, strings.Join(changed, ", "), f.Label(), leaf)
+		added = append(added, other)
+		p.note("step %s: %s sends the taken %s with %s changed, so a backend that refuses only an exact copy of the "+
+			"whole record, rather than the %s alone, fails it", st.ID, other.ID, field, strings.Join(changed, ", "), field)
+	} else {
+		p.note("step %s: %s has no other field shrt could change, so the duplicate attempt is an exact copy: a backend "+
+			"that refuses only an exact copy of the record passes it", st.ID, st.Call)
+	}
 	current, _ := bodyValue(st.Body, field)
 	value, isText := current.(string)
 	switch {
@@ -239,6 +252,33 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 		out = append(out, chain.Expectation{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()})
 		root = chain.EnvelopeField()
 	}
+	selected := []*catalog.Field{}
+	for _, fd := range fields {
+		if root == "" || fd.Name == root {
+			selected = append(selected, fd)
+		}
+	}
+	codes, pinned := codeExpectations(selected, "", f)
+	out = append(out, codes...)
+	if !pinned && f.ConnectCode != "" && f.Code == 0 {
+		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
+		pinned = true
+	}
+	carriers := []string{}
+	for _, fd := range fields {
+		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
+			carriers = append(carriers, fd.Name)
+		}
+	}
+	if len(carriers) == 1 {
+		absent := false
+		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
+	}
+	return out, pinned
+}
+
+func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chain.Expectation, bool) {
+	out := []chain.Expectation{}
 	codes := map[string]bool{}
 	for _, name := range chain.CodeFields() {
 		codes[name] = true
@@ -274,24 +314,6 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 			pinned = true
 		}
 	}
-	for _, fd := range fields {
-		if root == "" || fd.Name == root {
-			walk("", []*catalog.Field{fd}, 0)
-		}
-	}
-	if !pinned && f.ConnectCode != "" && f.Code == 0 {
-		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
-		pinned = true
-	}
-	carriers := []string{}
-	for _, fd := range fields {
-		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
-			carriers = append(carriers, fd.Name)
-		}
-	}
-	if len(carriers) == 1 {
-		absent := false
-		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
-	}
+	walk(prefix, fields, 0)
 	return out, pinned
 }
