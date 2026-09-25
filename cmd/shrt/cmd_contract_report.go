@@ -72,6 +72,7 @@ func contractStatus(args []string) error {
 		single[r.RPC] = append(single[r.RPC], r)
 	}
 	called := calledRPCs(e, chains)
+	logins := loginRPCs(e)
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
@@ -100,6 +101,7 @@ func contractStatus(args []string) error {
 				r.Streaming = append(r.Streaming, m.FullName)
 			case reached[m.FullName]:
 				r.Reached++
+			case logins[m.FullName]:
 			default:
 				r.Orphans = append(r.Orphans, m.FullName)
 			}
@@ -216,8 +218,9 @@ func printStatusGaps(rows []statusRow) {
 	}
 	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
 		"no path to   it has a contract, but appears in no multi-step plan: nothing it needs is declared and\n" +
-		"             nothing declares it as a producer. Right for a login or a read taking no id from elsewhere;\n" +
-		"             a missing 'needs:' or 'from:' for a write that cannot run on its own.\n" +
+		"             nothing declares it as a producer. Right for a read taking no id from elsewhere; a\n" +
+		"             missing 'needs:' or 'from:' for a write that cannot run on its own. A login the config's\n" +
+		"             auth calls needs no path and is never listed.\n" +
 		"one item     a repeated message field in a request, and no chain sends it with two or more items, so\n" +
 		"             per-item logic (a total summed over lines, a check on the second item) is never\n" +
 		"             exercised and a regression there passes every gate. Add a step, or a chain, that sends\n" +
@@ -231,6 +234,19 @@ func printStatusGaps(rows []statusRow) {
 		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
 		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n")
+}
+
+func loginRPCs(e *env) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range e.cfg.AuthProfiles() {
+		if p == nil || p.Call == "" {
+			continue
+		}
+		if m, err := e.cat.Lookup(p.Call); err == nil {
+			out[m.FullName] = true
+		}
+	}
+	return out
 }
 
 func calledRPCs(e *env, chains []*chain.Chain) map[string]bool {

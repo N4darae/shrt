@@ -594,7 +594,8 @@ dependency. An rpc below the count plans as a single step: nothing it needs is d
 other entry names it as a producer. For a login, or a read that takes no id from anywhere, that is
 correct and permanent. For a write that cannot run on its own it means a missing `needs:` or `from:`,
 and the chain composed from that contract will be short by a step. `shrt contract status -gaps`
-lists them as `no path to`; the column cannot tell the two apart and does not try. A streaming rpc
+lists them as `no path to`, except the login the config's `auth` calls (a profile's `call`), which
+is known to need no path; for the rest the column cannot tell the two apart and does not try. A streaming rpc
 is never REACHED, because shrt is unary-only and no plan can call it; `-gaps` lists it as
 `streaming … (out of scope)` instead. `-gaps` prints only the gap lines, not the table.
 
