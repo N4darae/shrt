@@ -2219,6 +2219,16 @@ fixtures' totals (4250, a few thousand) never reach 2^31.
 `<step>_wide_total`, one line of 3 at price 1500000000 on a product of its own, asserting the total
 is exactly 4500000000, within any maximum the contract states.
 
+## 106. A name stored trimmed while the create echoed it as sent
+
+**Symptom.** A `CreateProduct` that stored the name with surrounding spaces trimmed, while its
+response echoed the name as sent, passed every planned chain: no fixture's text has surrounding
+spaces, so trimmed and untrimmed are the same.
+
+**Fix.** 2026-09-25: a create target gets `<step>_padded_text`, its free-text fields (and text the
+contract says is not trimmed) with two spaces before and after, asserting the echo and a read-back
+equal the request. A field the contract says is trimmed or normalised is left out, and a note names it.
+
 ---
 
 # Decisions, so they are not relitigated

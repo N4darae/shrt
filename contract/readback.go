@@ -335,6 +335,125 @@ func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
 	return out
 }
 
+var normalisedWord = regexp.MustCompile(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
+
+func (p *Plan) trimmed(lib *Library, rpc, field string) bool {
+	c, ok := lib.Get(canonicalCall(p.cat, rpc))
+	if !ok {
+		return false
+	}
+	note := ""
+	if fc := c.Fields[field]; fc != nil {
+		note = fc.Note
+	}
+	for _, re := range []*regexp.Regexp{trimClaimed, normalisedWord} {
+		denied := trimDenied
+		if re != trimClaimed {
+			denied = nil
+		}
+		if yes, no := claims(note, re, denied); yes && !no {
+			return true
+		}
+	}
+	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
+		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
+			continue
+		}
+		if trimsSpace(f, strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
+	c, ok := lib.Get(canonicalCall(p.cat, rpc))
+	if !ok {
+		return false
+	}
+	if fc := c.Fields[field]; fc != nil {
+		if _, no := claims(fc.Note, trimClaimed, trimDenied); no {
+			return true
+		}
+	}
+	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
+		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
+			continue
+		}
+		if f.Unique != nil && f.Unique.Trim != nil && !*f.Unique.Trim {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) paddedFields(lib *Library, st *chain.Step, m *catalog.Method) (padded, skipped []string) {
+	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+		if f.Kind != "string" || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || IsEntityIDField(f.Name) || idLike(f.Name) || isIdempotencyField(f) {
+			continue
+		}
+		key, ok := namecase.LookupKey(st.Body, f.Name)
+		if !ok {
+			continue
+		}
+		v, isText := st.Body[key].(string)
+		if !isText || strings.TrimSpace(v) == "" || wholeReference(v) || refersToStep(v) {
+			continue
+		}
+		if !isFreeText(f.Name) && !p.keptUntrimmed(lib, st.Call, key) {
+			continue
+		}
+		if p.trimmed(lib, st.Call, key) {
+			skipped = append(skipped, key)
+			continue
+		}
+		padded = append(padded, key)
+	}
+	sort.Strings(padded)
+	sort.Strings(skipped)
+	return padded, skipped
+}
+
+func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
+	m, err := p.cat.Lookup(st.Call)
+	if err != nil {
+		return nil
+	}
+	idPath := p.createdIDPath(st, m)
+	carrier := singleCarrier(m)
+	if idPath == "" || carrier == nil {
+		return nil
+	}
+	if _, ok := p.readerMatching(lib, st, idPath, false); !ok {
+		return nil
+	}
+	fields, skipped := p.paddedFields(lib, st, m)
+	if len(skipped) > 0 {
+		p.note("step %s: %s %s not padded with spaces, since the contract says the backend trims or normalises %s", st.ID,
+			strings.Join(skipped, ", "), pluralIs(len(skipped)), pluralVerb(len(skipped), "it", "them"))
+	}
+	if len(fields) == 0 {
+		return nil
+	}
+	probe := p.probeCopy(lib, st, "padded_text")
+	renameStepRefs(probe, st.ID, probe.ID)
+	probe.Expect = SuccessExpectation(m)
+	for _, key := range fields {
+		v, _ := probe.Body[key].(string)
+		probe.Body[key] = "  " + v + "  "
+		if fieldByName(carrier.Fields, key) != nil {
+			probe.Expect = append(probe.Expect, chain.Expectation{Path: carrier.Name + "." + key, Equals: "${steps." + probe.ID + ".request." + key + "}"})
+		}
+	}
+	probe.Description = fmt.Sprintf("as %s, but %s with two spaces before and after: accepted, and echoed and stored "+
+		"with the spaces, since the contract does not say the backend trims %s.", st.ID, strings.Join(fields, ", "), pluralVerb(len(fields), "it", "them"))
+	out := []*chain.Step{probe}
+	if read := p.readBackStep(lib, probe, idPath); read != nil {
+		out = append(out, read)
+	}
+	return out
+}
+
 func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 	subjects := []*chain.Step{}
 	seen := map[string]bool{}
@@ -361,7 +480,7 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 			add(prod)
 		}
 	}
-	added, probes := []string{}, []string{}
+	added, probes, padded := []string{}, []string{}, []string{}
 	for _, st := range subjects {
 		if _, known := lib.Get(canonicalCall(p.cat, st.Call)); !known {
 			continue
@@ -380,6 +499,18 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 			p.Chain.Steps = append(p.Chain.Steps, steps...)
 			probes = append(probes, steps[0].ID)
 		}
+		if isTarget(st) {
+			if steps := p.paddedTextProbe(lib, st); len(steps) > 0 {
+				p.Chain.Steps = append(p.Chain.Steps, steps...)
+				padded = append(padded, steps[0].ID)
+			}
+		}
+	}
+	if len(padded) > 0 {
+		p.note("%s %s free text (and text the contract says is not trimmed) with spaces before and after and %s it back, "+
+			"so a backend that trims what it stores while echoing the request fails the read; say trimmed in the field's "+
+			"note (or unique: {trim: true}) when the backend is meant to trim", strings.Join(padded, ", "),
+			pluralVerb(len(padded), "sends", "send"), pluralVerb(len(padded), "reads", "read"))
 	}
 	if len(added) > 0 {
 		p.note("%s %s the created record back right after it was written", strings.Join(added, ", "), pluralVerb(len(added), "reads", "read"))
