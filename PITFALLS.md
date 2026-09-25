@@ -1594,6 +1594,29 @@ own, copied from the steps that created and prepared the main path's with unique
 only reads keeps the shared ones. The same backend now fails four steps, all of them the last-line
 shortage probe and the reads around it.
 
+## 66. A confirm of a confirmed order answered 1304, green in the planned chain
+
+**Symptom.** A backend answered a second ConfirmOrder with 1304 OrderCancelled instead of 1303
+OrderAlreadyConfirmed. `shrt contract plan ConfirmOrder` passed on it; a tester found it only by
+writing a refusals chain by hand (confirm twice, confirm and cancel a cancelled order, unknown ids,
+an unknown product inside CreateOrder).
+
+**Cause.** The plan probed the refusals it could derive from a quantity, a role or a token, and
+ignored failures whose `when:` names a state of the entity (`the order is already CONFIRMED`) or an
+id that names nothing (`no order has this id`).
+
+**Fix.** 2026-09-25: for a failure whose `when:` (or reason) names a value of the entity's state
+enum, the plan creates a fresh entity, moves it there with the write whose contract says it moves
+entities to that state (`confirm_order_to_confirmed_for_confirm_order`, then
+`confirm_order_when_confirmed` expecting exactly 1303), and reads the entity and what it holds
+before and after to assert nothing moved. For a not-found failure (a reason with `NotFound`,
+`Unknown`, `NoSuch`, or a `when:` saying no X has this id, unknown, does not exist) matched to a
+`from:` field by `field:` or by the entity's name, it sends an id nothing created
+(`confirm_order_unknown_id_order`, `create_order_unknown_id_customer`, and
+`create_order_unknown_id_product` on the last line) and expects exactly that code. A failure
+reported on one line of a batch is left to the batch probe. A state no write in the contracts says
+it reaches gets a note instead.
+
 ---
 
 # Decisions, so they are not relitigated
