@@ -89,6 +89,9 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 	in := catalog.DescribeMessage(m.Input()).Fields
 	out := catalog.DescribeMessage(m.Output()).Fields
+	if msg, ok := lintListNeeds(c, m, lib, cat); ok {
+		add(SeverityWarn, "needs", "%s", msg)
+	}
 
 	for _, name := range c.Required {
 		if IsRequiredLiteral(name) {

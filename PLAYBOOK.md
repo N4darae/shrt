@@ -13,7 +13,11 @@ shrt contract plan DealActionService/ConfirmDeal -write
 ```
 
 `plan` walks `needs`, `before`, `from` and `same_as` transitively, topologically sorts them, and
-emits a chain with every `${...}` already wired. Ahead of that chain it prints a header you must
+emits a chain with every `${...}` already wired. A list target (`ListOrders`) whose contract names
+nothing that creates the items it lists gets the one write with a contract whose response carries
+such an item (`CreateOrder`) added before it, with a note saying to declare `needs:`, since a list of
+nothing passes whatever the backend lists; when no such write is known, the note says the list comes
+back empty, and `contract lint` warns (field `needs`) on a list rpc with no `needs:`. Ahead of that chain it prints a header you must
 read — and the header is written as YAML **comments**, because everything after it is the chain
 file. This is the complete header of a short plan, captured 2026-09-17 from
 `shrt contract plan acme.pricing.dailybook.v1.DailyBookSummaryActionService/CloseBookDay`; the
