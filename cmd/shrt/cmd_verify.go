@@ -252,10 +252,10 @@ func runVerify(ctx context.Context, args []string) error {
 			literal = nil
 		}
 	}
-	var idem *idempotentReplay
+	var idem, lateIdem *idempotentReplay
 	if literal == nil && reuse == nil {
 		if idem = detectIdempotentReplay(e, c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
-			idem = nil
+			idem, lateIdem = nil, idem
 		}
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
@@ -358,6 +358,9 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			if idem != nil && idem.literal {
 				fmt.Println("CHAIN DEFECT: " + idem.line())
+			}
+			if lateIdem != nil {
+				fmt.Println(lateIdem.note())
 			}
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))

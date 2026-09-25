@@ -66,6 +66,19 @@ func (r *idempotentReplay) line() string {
 		"from ${uuid} makes it fresh every run", r.step, r.field, r.value, strings.Join(r.vars, ", "), r.source(), r.whose(), r.answered, r.id)
 }
 
+func (r *idempotentReplay) note() string {
+	return fmt.Sprintf("note: step %q sent %s=%s, the key %s sent there too, and the backend answered with %s %s %s: "+
+		"an idempotent replay, so the changes at and after %s may be that replay; the change(s) before it are not explained by it",
+		r.step, r.field, r.value, r.source(), r.whose(), r.answered, r.id, r.step) + r.keyAdvice()
+}
+
+func (r *idempotentReplay) keyAdvice() string {
+	if r.literal {
+		return "; the key is a literal, a defect in the chain: build it from ${uuid}, fresh per run"
+	}
+	return "; build the key from ${uuid} to make it fresh every run"
+}
+
 func (r *idempotentReplay) fresh() string {
 	out := []string{}
 	for _, v := range r.vars {
@@ -77,12 +90,6 @@ func (r *idempotentReplay) fresh() string {
 func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *runner.Record, report *diff.Report) *idempotentReplay {
 	if c == nil || rec == nil || rec.DryRun || report.Clean() {
 		return nil
-	}
-	changed := map[string]bool{}
-	for _, ch := range report.Changes {
-		if ch.Kind != diff.KindNotReached {
-			changed[ch.Step] = true
-		}
 	}
 	was := map[string]*runner.StepRecord{}
 	for _, st := range spot.Steps {
@@ -112,9 +119,6 @@ func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *r
 				r.index = i
 				return r
 			}
-		}
-		if changed[st.ID] {
-			return nil
 		}
 	}
 	return nil
