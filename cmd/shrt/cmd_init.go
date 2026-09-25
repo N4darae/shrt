@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -28,6 +29,50 @@ func init() {
 }
 
 func runInit(ctx context.Context, args []string) error {
+	saved := os.Stdout
+	r, w, err := os.Pipe()
+	started := false
+	if err != nil {
+		return initRepo(ctx, args, &started)
+	}
+	os.Stdout = w
+	done := make(chan []byte, 1)
+	go func() {
+		out, _ := io.ReadAll(r)
+		done <- out
+	}()
+	runErr := initRepo(ctx, args, &started)
+	_ = w.Close()
+	os.Stdout = saved
+	out := <-done
+	_ = r.Close()
+	if unset := unexportedLoginVars(); started && len(unset) > 0 {
+		fmt.Printf("credentials not exported (%s): export them first, then shrt init observes the envelope; continuing without\n",
+			strings.Join(unset, ", "))
+	}
+	_, _ = os.Stdout.Write(out)
+	return runErr
+}
+
+func unexportedLoginVars() []string {
+	root, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	cfg, err := config.Load(root)
+	if err != nil || cfg.Auth == nil {
+		return nil
+	}
+	unset := []string{}
+	for _, name := range chain.AuthBodyEnvNames(cfg.Auth.Body) {
+		if _, set := os.LookupEnv(name); !set {
+			unset = append(unset, name)
+		}
+	}
+	return unset
+}
+
+func initRepo(ctx context.Context, args []string, started *bool) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	baseURL := fs.String("base-url", "http://127.0.0.1:8080", "backend the chains run against")
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
@@ -45,6 +90,7 @@ func runInit(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	*started = true
 	baseURLGiven := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "base-url" {
