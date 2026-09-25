@@ -93,8 +93,11 @@ its zero value. Below, the server sent `{"error": {...}}` and nothing else:
 | `not_empty: true` on `access_token` | `not_empty` | no |
 | `equals: ""` on `access_token` | `equals` | **yes** |
 | `exists: true` on `error.code` | `exists` | **yes** |
+| `equals: ""` on `user.name`, inside a message not sent | `equals` | no |
+| `exists: false` on `user.name`, inside a message not sent | `exists` | **yes** |
 
-A proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value.
+A proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value. A field
+inside a message the server did not send has no zero value: assert the message `exists: false`.
 
 ### Reserved `transport.*` paths — the call's transport outcome
 

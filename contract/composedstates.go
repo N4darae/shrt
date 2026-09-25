@@ -10,7 +10,7 @@ import (
 )
 
 var (
-	restoreWord  = regexp.MustCompile(`(?i)\b(?:returns?|gives? (?:\w+ ){0,2}back|restores?|releases?|refunds?|puts? (?:\w+ ){0,2}back|restocks?)\b`)
+	restoreWord  = regexp.MustCompile(`(?i)\b(?:return(?:s|ed|ing)?|(?:gives?|gave|given|giving) (?:\w+ ){0,2}back|restor(?:es|ed|ing|e)|releas(?:es|ed|ing|e)|refund(?:s|ed|ing)?|(?:puts?|putting) (?:\w+ ){0,2}back|restock(?:s|ed|ing)?)\b`)
 	clauseBreaks = regexp.MustCompile(`[.;]\s*`)
 )
 
