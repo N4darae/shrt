@@ -23,7 +23,7 @@ func unorderedPathProblem(path string, m *catalog.Method) (why string, shapeOnly
 	if m == nil {
 		return "", false
 	}
-	f, found := catalog.FieldAt(catalog.DescribeMessage(m.Output()).Fields, segs)
+	f, found := catalog.FieldAt(m.Response().Fields, segs)
 	switch {
 	case !found || f == nil:
 		return fmt.Sprintf("names no field of %s", m.Output().FullName()), false

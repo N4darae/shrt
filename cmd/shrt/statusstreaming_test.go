@@ -15,7 +15,7 @@ func chdirToRichWorkspace(t *testing.T) {
 	writeFile(t, ".shrt/descriptor.binpb", string(catalogtest.RichDescriptor()))
 }
 
-func TestContractStatusGapsListsAnUncoveredStreamingRPCAsStreaming(t *testing.T) {
+func TestContractStatusGapsListsOnlyUncallableStreamingRPCsAsStreaming(t *testing.T) {
 	chdirToRichWorkspace(t)
 	var err error
 	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
@@ -23,12 +23,12 @@ func TestContractStatusGapsListsAnUncoveredStreamingRPCAsStreaming(t *testing.T)
 		t.Fatal(err)
 	}
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "WatchOrder") && !strings.HasPrefix(line, "streaming") {
-			t.Fatalf("a streaming rpc is out of scope, listed as streaming, not as a gap:\n%s", out)
+		if strings.Contains(line, "WatchOrder") && strings.HasPrefix(line, "streaming") {
+			t.Fatalf("a server-streaming rpc is callable, not out of scope:\n%s", out)
 		}
-	}
-	if !strings.Contains(out, "streaming    shrt.test.rich.v1.") {
-		t.Fatalf("the streaming rpcs must be listed:\n%s", out)
+		if strings.Contains(line, "UploadOrders") && !strings.HasPrefix(line, "streaming") {
+			t.Fatalf("a client-streaming rpc is out of scope, listed as streaming:\n%s", out)
+		}
 	}
 }
 

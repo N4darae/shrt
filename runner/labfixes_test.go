@@ -16,7 +16,7 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
+func TestAClientStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
@@ -24,7 +24,7 @@ func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	}))
 	defer srv.Close()
 	cat := catalogtest.Rich()
-	method, err := cat.Lookup("OrderService/WatchOrder")
+	method, err := cat.Lookup("OrderService/UploadOrders")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,8 +37,7 @@ func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	r := &runner.Runner{Catalog: deps.Catalog, Client: deps.Client}
 	for _, dry := range []bool{false, true} {
 		c := normalized(t, &chain.Chain{Name: "watch", Steps: []*chain.Step{{
-			ID: "watch", Call: "OrderService/WatchOrder", SkipAuth: true,
-			Body:   map[string]any{"id_order": "x"},
+			ID: "upload", Call: "OrderService/UploadOrders", SkipAuth: true,
 			Expect: []chain.Expectation{{Path: "transport.code", Equals: "http_415"}},
 		}}})
 		rec, err := r.Run(context.Background(), c, runner.Options{DryRun: dry})

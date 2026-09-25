@@ -19,6 +19,13 @@ func CarriesEnvelope(m *catalog.Method) bool {
 }
 
 func SuccessExpectation(m *catalog.Method) []chain.Expectation {
+	if m.ServerStreaming {
+		first := catalog.StreamMessages + ".0"
+		if CarriesEnvelope(m) {
+			return []chain.Expectation{{Path: first + "." + chain.EnvelopePath(), Equals: chain.EnvelopeOK()}}
+		}
+		return []chain.Expectation{{Path: first, Exists: boolPtr(true)}}
+	}
 	if CarriesEnvelope(m) {
 		return []chain.Expectation{{Path: chain.EnvelopePath(), Equals: chain.EnvelopeOK()}}
 	}

@@ -128,12 +128,16 @@ func catalogList(args []string) error {
 			fmt.Println(r.RPC + mark)
 			continue
 		}
+		if r.Streaming == catalog.StreamKindServer {
+			fmt.Printf("%s  [%s: a step reads its first message as messages.0]%s\n", r.RPC, r.Streaming, mark)
+			continue
+		}
 		streaming++
-		fmt.Printf("%s  [%s — OUT OF SCOPE, shrt is unary-only]%s\n", r.RPC, r.Streaming, mark)
+		fmt.Printf("%s  [%s — OUT OF SCOPE]%s\n", r.RPC, r.Streaming, mark)
 	}
 	fmt.Printf("\n%d rpc(s)", len(rows))
 	if streaming > 0 {
-		fmt.Printf(", %d of them streaming and not callable from a chain", streaming)
+		fmt.Printf(", %d of them client- or bidi-streaming and not callable from a chain", streaming)
 	}
 	fmt.Println()
 	return nil
@@ -167,8 +171,10 @@ func catalogDescribe(args []string) error {
 		})
 	}
 	fmt.Printf("%s\n  procedure: %s\n  file: %s\n", m.FullName, m.Procedure(), m.File)
-	if m.Streaming() {
-		fmt.Printf("  STREAMING: %s\n", m.StreamRefusal())
+	if refusal := m.StreamRefusal(); refusal != "" {
+		fmt.Printf("  STREAMING: %s\n", refusal)
+	} else if m.ServerStreaming {
+		fmt.Println("  STREAMING: server-streaming; a step records the first message it sends as messages.0 and stops reading")
 	}
 	if m.Deprecated() {
 		fmt.Println("  DEPRECATED: the proto marks this rpc (or its service) option deprecated = true")

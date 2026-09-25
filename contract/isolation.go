@@ -73,7 +73,7 @@ func (p *Plan) ownFixtures(lib *Library, group []*chain.Step, tag string) []*cha
 	}
 	hasWrite := false
 	for _, st := range group {
-		if !chain.IsReadOnlyCall(st.Call) {
+		if !chain.IsReadOnlyCall(st.Call) && !p.streams(st) {
 			hasWrite = true
 		}
 		for id := range r.targets {

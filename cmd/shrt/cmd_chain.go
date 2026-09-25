@@ -95,8 +95,8 @@ func chainNew(args []string) error {
 		if err != nil {
 			return err
 		}
-		if m.Streaming() {
-			return fmt.Errorf("refusing to scaffold a step for %s: %s", m.FullName, m.StreamRefusal())
+		if refusal := m.StreamRefusal(); refusal != "" {
+			return fmt.Errorf("refusing to scaffold a step for %s: %s", m.FullName, refusal)
 		}
 		id := uniqueID(c, contractID(m))
 		c.Steps = append(c.Steps, &chain.Step{ID: id, Call: m.FullName})

@@ -44,10 +44,12 @@ resolve before the cache is read. **Fix.** Export the variables `auth.body` in
 fixture was reused, or authentication was refused. The output says which and ends in `re-run`.
 **Fix.** Re-run once (with a fresh `-var tag` if the line says so). Do not count 3 as red or green.
 
-## 7. A streaming rpc is refused everywhere
+## 7. A streaming rpc is skipped, or refused
 
-**Cause.** shrt is unary only. **Fix.** Leave it out of chains. `contract status -gaps` lists it as
-covered by no chain: a defect in it (a missing auth check) needs a test of your own.
+**Cause.** A backend's auth interceptor often wraps unary calls only, so a server-streaming rpc
+(`WatchInvoice`) can answer with no token at all. **Fix.** `shrt contract plan WatchInvoice` plans
+the happy call (`messages.0`) and the two token probes; `contract status -gaps` lists it until a
+chain calls it. Client- and bidi-streaming rpcs are refused: test those by hand.
 
 ---
 

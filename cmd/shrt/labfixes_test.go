@@ -89,17 +89,22 @@ func TestRenderExampleChainFindsTheTemplatesEnvelopeAssertion(t *testing.T) {
 	}
 }
 
-func TestContractPlanRefusesAStreamingRPC(t *testing.T) {
+func TestContractPlanWritesAServerStreamingRPCsChainReadingMessages(t *testing.T) {
 	dir := shopWorkspace(t, shopConfig)
 	restore := chdir(t, dir)
 	defer restore()
 	var err error
 	captureStdout(t, func() { err = contractPlan([]string{"WatchOrder", "-write"}) })
-	if err == nil || !strings.Contains(err.Error(), "unary-only") {
-		t.Fatalf("plan -write of a server-streaming rpc must be refused, got %v", err)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if entries, _ := os.ReadDir(filepath.Join(dir, ".shrt", "chains")); len(entries) != 0 {
-		t.Fatalf("a refused plan must write nothing, found %d file(s)", len(entries))
+	entries, _ := os.ReadDir(filepath.Join(dir, ".shrt", "chains"))
+	if len(entries) != 1 {
+		t.Fatalf("want one chain written, found %d", len(entries))
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, ".shrt", "chains", entries[0].Name()))
+	if !strings.Contains(string(raw), "path: messages.0") {
+		t.Fatalf("the happy call reads the first streamed message:\n%s", raw)
 	}
 }
 
@@ -131,7 +136,7 @@ rpcs:
 	return chdir(t, dir)
 }
 
-func TestContractStatusNeverCountsAStreamingRPCAsReached(t *testing.T) {
+func TestContractStatusCountsAPlannableServerStreamingRPCAsReached(t *testing.T) {
 	defer shopStatusWorkspace(t)()
 	out := captureStdout(t, func() {
 		if err := contractStatus(nil); err != nil {
@@ -141,8 +146,8 @@ func TestContractStatusNeverCountsAStreamingRPCAsReached(t *testing.T) {
 	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
 		if len(f) >= 4 && f[0] == "orders" {
-			if f[3] != "2" {
-				t.Fatalf("REACHED for orders = %s, want 2 (CreateOrder, ConfirmOrder) — WatchOrder streams and no plan can call it:\n%s", f[3], out)
+			if f[3] != "3" {
+				t.Fatalf("REACHED for orders = %s, want 3 (CreateOrder, ConfirmOrder, WatchOrder):\n%s", f[3], out)
 			}
 			return
 		}
@@ -163,9 +168,9 @@ func TestContractStatusGapsPrintsOnlyTheGaps(t *testing.T) {
 	if !strings.Contains(out, "no contract  shop.catalog.v1.ProductService/CreateProduct") {
 		t.Fatalf("-gaps must list uncovered rpcs:\n%s", out)
 	}
-	if strings.Contains(out, "no path to   shop.orders.v1.OrderService/WatchOrder") ||
-		!strings.Contains(out, "streaming    shop.orders.v1.OrderService/WatchOrder") {
-		t.Fatalf("a streaming rpc is out of scope, not a missing edge:\n%s", out)
+	if strings.Contains(out, "streaming    shop.orders.v1.OrderService/WatchOrder") ||
+		!strings.Contains(out, "no chain     shop.orders.v1.OrderService/WatchOrder") {
+		t.Fatalf("a server-streaming rpc is callable, so no chain calling it is the gap:\n%s", out)
 	}
 	if !strings.Contains(out, "no contract      the rpc has no entry") || strings.Contains(out, "no path to") ||
 		strings.Contains(out, "one item") {

@@ -202,7 +202,7 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 	if !ok || m == nil || rest == "" {
 		return nil, "", false, false
 	}
-	fields := catalog.DescribeMessage(m.Output()).Fields
+	fields := m.Response().Fields
 	msg := m.Output().FullName()
 	if path, isRequest := strings.CutPrefix(rest, "request."); isRequest {
 		fields, msg, rest = catalog.DescribeMessage(m.Input()).Fields, m.Input().FullName(), path

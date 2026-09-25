@@ -78,13 +78,32 @@ func (m *Method) StreamKind() string {
 }
 
 func (m *Method) StreamRefusal() string {
-	if !m.Streaming() {
+	if !m.ClientStreaming {
 		return ""
 	}
-	return fmt.Sprintf("%s is a %s rpc and shrt is unary-only: a step is one POST of JSON to %s "+
-		"answered by one response body, which cannot carry a stream. This rpc is out of scope for a chain — "+
-		"reproduce the state it observes with the unary rpcs that write it",
-		m.FullName, m.StreamKind(), m.Procedure())
+	return fmt.Sprintf("%s is a %s rpc, and shrt sends one request per step: it calls unary and server-streaming "+
+		"rpcs only, so this rpc is out of scope for a chain — reproduce the state it observes with the rpcs that write it",
+		m.FullName, m.StreamKind())
+}
+
+const StreamMessages = "messages"
+
+func (m *Method) Response() *Schema {
+	s := DescribeMessage(m.Output())
+	if !m.ServerStreaming {
+		return s
+	}
+	return &Schema{Message: s.Message, Doc: s.Doc, Fields: []*Field{{
+		Name: StreamMessages, JSONName: StreamMessages, Number: 1, Kind: "message", Repeated: true, Message: s.Message, Fields: s.Fields,
+	}}}
+}
+
+func (m *Method) ResponseSample() map[string]any {
+	sample := Scaffold(m.Output())
+	if !m.ServerStreaming {
+		return sample
+	}
+	return map[string]any{StreamMessages: []any{sample}}
 }
 
 func leadingComment(d protoreflect.Descriptor) string {

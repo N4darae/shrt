@@ -306,7 +306,7 @@ func refSyntaxProblems(text string) []string {
 }
 
 func lintStreaming(s *Step, m *catalog.Method) []Issue {
-	if !m.Streaming() {
+	if m.StreamRefusal() == "" {
 		return nil
 	}
 	return []Issue{{Step: s.ID, Severity: SeverityError, Message: m.StreamRefusal()}}
@@ -519,15 +519,15 @@ func inexactRefIssue(stepID string, r Ref, responses map[string]*catalog.Method)
 	if !ok || m == nil || r.Err != nil {
 		return Issue{}, false
 	}
-	message, prefix, section := m.Output(), "", "response."
+	message, schema, prefix, section := m.Output(), m.Response(), "", "response."
 	path := strings.TrimPrefix(r.Rest, "response.")
 	if rest, isRequest := strings.CutPrefix(r.Rest, "request."); isRequest {
-		message, prefix, section, path = m.Input(), "request.", "request.", rest
+		message, schema, prefix, section, path = m.Input(), catalog.DescribeMessage(m.Input()), "request.", "request.", rest
 	}
 	if path == "" || path == "response" || path == "request" {
 		return Issue{}, false
 	}
-	exact, inexact := inexactPath(catalog.DescribeMessage(message).Fields, path)
+	exact, inexact := inexactPath(schema.Fields, path)
 	if !inexact {
 		return Issue{}, false
 	}
@@ -582,7 +582,7 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 	if rest == "" || rest == "response" {
 		return "", false
 	}
-	fields := catalog.DescribeMessage(m.Output()).Fields
+	fields := m.Response().Fields
 	if catalog.HasResponsePath(fields, SplitPath(rest)) {
 		return "", false
 	}
@@ -643,7 +643,7 @@ func indexedForm(path, at string) string {
 
 func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
-	schema := catalog.DescribeMessage(m.Output())
+	schema := m.Response()
 	for _, e := range s.Expect {
 		if e.Path == "" || refPattern.MatchString(e.Path) || IsTransportPath(e.Path) {
 			continue
@@ -796,7 +796,7 @@ func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Iss
 
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
-	schema := catalog.DescribeMessage(m.Output())
+	schema := m.Response()
 	names := make([]string, 0, len(s.Export))
 	for name := range s.Export {
 		names = append(names, name)

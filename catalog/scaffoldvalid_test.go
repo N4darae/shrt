@@ -167,7 +167,7 @@ func TestStreamingFlagsRideOnTheMethod(t *testing.T) {
 		if m.Streaming() != (want != "") {
 			t.Errorf("%s: Streaming() is %v", ref, m.Streaming())
 		}
-		if (m.StreamRefusal() != "") != (want != "") {
+		if (m.StreamRefusal() != "") != m.ClientStreaming {
 			t.Errorf("%s: refusal text is %q", ref, m.StreamRefusal())
 		}
 	}

@@ -16,7 +16,7 @@ func listFieldsOf(m *catalog.Method) []string {
 	if m == nil {
 		return out
 	}
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
+	for _, f := range m.Response().Fields {
 		if f.Repeated && f.Kind == "message" && f.MapKey == "" {
 			out = append(out, f.Name)
 		}

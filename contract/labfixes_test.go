@@ -491,12 +491,27 @@ rpcs:
 	}
 }
 
-func TestPlanRefusesAStreamingRPC(t *testing.T) {
+func TestPlanOfAServerStreamingRPCProbesOnlyItsToken(t *testing.T) {
 	cat := catalogtest.Shop()
-	m, _ := cat.Lookup(shopWatchOrder)
-	_, err := contract.BuildPlan(shopWatchOrder, contract.NewLibrary(nil), cat, "watch")
-	if err == nil || !strings.Contains(err.Error(), m.StreamRefusal()) {
-		t.Fatalf("planning a server-streaming rpc must be refused with its StreamRefusal, got %v", err)
+	p, err := contract.BuildPlanWith([]string{shopWatchOrder}, contract.NewLibrary(nil), cat, "watch", contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, st := range p.Chain.Steps {
+		if st.Call != shopWatchOrder || len(st.Expect) != 1 {
+			t.Fatalf("want the happy call and the two token probes, each with one assertion, got %+v", st)
+		}
+		got[st.ID] = st.Expect[0].Path
+	}
+	want := map[string]string{"watch_order": "messages.0", "watch_order_without_token": "transport.code", "watch_order_with_bad_token": "transport.code"}
+	if len(got) != len(want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+	for id, path := range want {
+		if !strings.HasPrefix(got[id], path) {
+			t.Fatalf("want %v, got %v", want, got)
+		}
 	}
 	lib := shopLibrary(t, `apiVersion: shrt/contract/v1
 domain: orders
@@ -509,7 +524,7 @@ rpcs:
 `)
 	if _, err := contract.BuildPlan("shop.orders.v1.OrderService/FetchOrder", lib, cat, "fetch"); err == nil ||
 		!strings.Contains(err.Error(), "streaming") {
-		t.Fatalf("a plan that would contain a streaming step must be refused, got %v", err)
+		t.Fatalf("a plan that would call a streaming rpc as setup must be refused, got %v", err)
 	}
 }
 

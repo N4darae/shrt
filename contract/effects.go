@@ -648,6 +648,9 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 	}
 	for _, st := range p.Chain.Steps {
 		rpc := canonicalCall(p.cat, st.Call)
+		if p.streams(st) {
+			continue
+		}
 		if chain.IsReadOnlyCall(rpc) {
 			if effectOutcome(st) == outcomeSuccess {
 				p.assertReadEffects(lib, st, md, r, mark)
