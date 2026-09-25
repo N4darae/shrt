@@ -133,6 +133,11 @@ func runVerify(ctx context.Context, args []string) error {
 	} else {
 		c, err = chain.Resolve(e.chainsDir(), name)
 		if err != nil {
+			for _, o := range doctor.OrphanSafeSpots(e.cfg) {
+				if o.Name == name {
+					return fmt.Errorf("%w\n%s; there is no chain to replay.\n%s", err, o.Line(), o.Remedy())
+				}
+			}
 			return err
 		}
 		rec, err = executeChain(ctx, e, c, runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, *quiet || *asJSON)

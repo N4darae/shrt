@@ -91,6 +91,7 @@ var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkAuth,
 	checkConventions,
 	checkContracts,
+	checkSafeSpots,
 	checkUpgrade,
 }
 
