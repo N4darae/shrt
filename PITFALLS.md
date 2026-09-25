@@ -1640,6 +1640,21 @@ count assertion was `orders.3 exists: false`, which an empty list passes.
 **Fix.** 2026-09-25: wherever the plan asserts that a list ends after N items, it also asserts
 `<list>.<N-1> exists: true`, unless an assertion on that item already implies it.
 
+## 70. A status-filtered list expecting a fixture the chain had already moved
+
+**Symptom.** `contract plan CreateOrder ConfirmOrder CancelOrder FetchOrder ListOrders` planned
+`list_orders_pending` expecting `create_order` with `ORDER_STATUS_PENDING`, but the chain's own
+`confirm_order` and `cancel_order` had moved that order to CANCELLED first. A backend whose status
+filter works failed it: `orders.0.status want=ORDER_STATUS_PENDING got=ORDER_STATUS_CANCELLED`.
+
+**Cause.** The filter probe assumed the first fixture still sat in the state its create left it
+in, and moved only the others.
+
+**Fix.** 2026-09-25: before planning the filtered lists, the plan follows each fixture through the
+writes before the list that take its id and whose contract names the state they leave it in. A
+fixture already moved is expected in that state; the fixtures not yet moved fill the states still
+missing (the initial one first), and a note names the fixtures that were moved.
+
 ---
 
 # Decisions, so they are not relitigated
