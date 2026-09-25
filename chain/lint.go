@@ -3,6 +3,7 @@ package chain
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,6 +88,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
 		issues = append(issues, lintLiteralIdempotency(s)...)
+		issues = append(issues, lintUnterminatedPrefix(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
 		noteExports(s, exports)
@@ -1173,6 +1175,7 @@ const (
 	KindEnvelopeOnly   = "envelope-only"
 
 	KindLiteralIdempotency = "literal-idempotency-key"
+	KindUnterminatedPrefix = "unterminated-prefix"
 	KindNameMismatch       = "name-differs-from-file"
 )
 
@@ -1245,6 +1248,44 @@ func lintLiteralIdempotency(s *Step) []Issue {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)
 		}
+	}
+	return issues
+}
+
+var endsInVarRef = regexp.MustCompile(`\$\{\s*vars\.([^}]+?)\s*\}$`)
+
+func lintUnterminatedPrefix(s *Step) []Issue {
+	positional := false
+	for _, e := range s.Expect {
+		for _, seg := range SplitPath(e.Path) {
+			if _, err := strconv.Atoi(seg); err == nil {
+				positional = true
+			}
+		}
+	}
+	if !positional {
+		return nil
+	}
+	issues := []Issue{}
+	keys := make([]string, 0, len(s.Body))
+	for k := range s.Body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		text, ok := s.Body[k].(string)
+		if !ok || !strings.Contains(namecase.Fold(k), "prefix") {
+			continue
+		}
+		m := endsInVarRef.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnterminatedPrefix, Message: fmt.Sprintf(
+			"%s is %q, built from ${vars.%s} with nothing after it: a run with %s=cp-1 also lists what a run with %s=cp-10 "+
+				"created, since those values start with the same text, so the item count or positions this step asserts fail "+
+				"when one run's value is a prefix of another's. End the prefix with a terminator every fixture carries after "+
+				"the var: %s: %s- with fixtures such as %s-a", k, text, m[1], m[1], m[1], k, text, text)})
 	}
 	return issues
 }

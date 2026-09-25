@@ -370,7 +370,10 @@ of `ListOrders`), a field named `...prefix` is a prefix. For a parent it adds an
 for a prefix, an item whose field contains the prefix not at the start (`x-sku-…`,
 `create_product_prefix_inside`) and, when the list's or the field's contract says `case-sensitive`
 or `exactly as sent`, one starting with it in another letter case (`create_product_prefix_case`).
-The list asserts its exact count, so letting any of them through fails. When the list request has
+The list asserts its exact count, so letting any of them through fails. A prefix that ends in a var
+(`sku-${vars.tag}`) gets the separator every fixture carries after it (`sku-${vars.tag}-`), or a run
+with `tag=cp-1` would count the items of a run with `tag=cp-10`; `chain lint` warns
+`unterminated-prefix` on a chain that still ends the prefix at the var. When the list request has
 an enum field whose values are those of an enum field of the items (`ListOrdersRequest.status`,
 `Order.status`), the plan finds the writes whose contract takes an item's id (`from:
 CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in

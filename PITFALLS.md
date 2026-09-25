@@ -1468,6 +1468,19 @@ two earlier runs was never blamed, even when each acceptance was the first run o
 **Fix.** 2026-09-25: a short value counts when the refusal quotes it as a separate word, or names
 its field. A literal is spared only when two runs in a row accepted it with no refusal between.
 
+## 57. A prefix list that counted another run's fixtures
+
+**Symptom.** `catalog-products` passed with `-var tag=cp-10`, then failed with `-var tag=cp-1`:
+`list_products: products.3 exists want=false got=true`. `chain lint -strict` said ok.
+
+**Cause.** `sku_prefix: sku-${vars.tag}` ends at the var, so the prefix `sku-cp-1` also matches
+`sku-cp-10-a`. `contract plan` copied the contract's `value:` for the prefix verbatim.
+
+**Fix.** 2026-09-25: `chain lint` warns `unterminated-prefix` on a `*prefix*` field that ends in a
+`${vars.*}` on a step asserting item positions or a count. `contract plan` ends such a prefix with
+the separator every fixture carries after it (`sku-${vars.tag}-` for skus `sku-${vars.tag}-a`), and
+says so in a note.
+
 ---
 
 # Decisions, so they are not relitigated
