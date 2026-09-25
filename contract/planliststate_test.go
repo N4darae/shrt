@@ -45,6 +45,20 @@ func TestAStatusFilteredListExpectsEachFixtureInTheStateTheChainLeftIt(t *testin
 		}
 		want := fmt.Sprint(st.Body["status"])
 		states := simulatedOrderStates(p.Chain.Steps, st.ID)
+		if want == "ORDER_STATUS_UNSPECIFIED" {
+			for _, e := range st.Expect {
+				if !strings.HasSuffix(e.Path, ".id_order") || e.Equals == nil {
+					continue
+				}
+				statusPath := strings.TrimSuffix(e.Path, ".id_order") + ".status"
+				for _, s := range st.Expect {
+					if s.Path == statusPath && fmt.Sprint(s.Equals) != states[fmt.Sprint(e.Equals)] {
+						t.Fatalf("%s lists %s as %v, which the chain left %s:\n%s", st.ID, e.Equals, s.Equals, states[fmt.Sprint(e.Equals)], text)
+					}
+				}
+			}
+			continue
+		}
 		filtered++
 		for _, e := range st.Expect {
 			if !strings.HasPrefix(e.Path, "orders.") || !strings.HasSuffix(e.Path, ".id_order") || e.Equals == nil {

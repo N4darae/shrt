@@ -462,7 +462,9 @@ an enum field whose values are those of an enum field of the items (`ListOrdersR
 `Order.status`), the plan finds the writes whose contract takes an item's id (`from:
 CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in
 (`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
-list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
+list, lists them again unfiltered (`list_orders_after_moves`: every fixture by id, in the state it
+was left in, so a write that drops its record from the list fails there whatever the filter does),
+and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
 only the fixtures in that state come back: by id when the contract states creation order or one
 matches, their status always, and the count. A note names states no write reaches. A write whose own `needs:` the plan does not call (a confirm
 that needs `AddStock`) is still used: the plan adds the prerequisite step for each entity it touches

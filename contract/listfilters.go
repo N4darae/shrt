@@ -375,6 +375,35 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		key, desc, stated := stateOrder(c, t.listPath)
 		creation = stated && !desc && creationWord.MatchString(key)
 	}
+	moveIDs := []string{}
+	for _, s := range added {
+		moveIDs = append(moveIDs, s.ID)
+	}
+	var after *chain.Step
+	if len(moveIDs) > 0 {
+		after = copyStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
+		after.Export = nil
+		after.Description = fmt.Sprintf("the list as before, with no filter, after %s: every fixture is still listed, in the state it was left in.", strings.Join(moveIDs, ", "))
+		after.Expect = SuccessExpectation(lm)
+		for i, prod := range t.producers {
+			id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
+			v, known := assigned[prod]
+			if creation {
+				after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
+				if known {
+					after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField.Name), Equals: v})
+				}
+				continue
+			}
+			want := map[string]any{t.itemID: id}
+			if known {
+				want[stateField.Name] = v
+			}
+			after.Expect = append(after.Expect, chain.Expectation{Path: t.listPath, Includes: want})
+		}
+		after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+		added = append(added, after)
+	}
 	ids := []string{}
 	for _, v := range order {
 		matching := states[v]
@@ -430,6 +459,11 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	if len(waiting) > 0 {
 		msg += fmt.Sprintf(". The filter on %s is not probed either: %s, which this plan does not call",
 			strings.Join(waiting, ", "), strings.Join(why, "; "))
+	}
+	if after != nil {
+		msg += fmt.Sprintf(". %s lists them again with no filter after %s and asserts every fixture by id in the state it "+
+			"was left in, so a write that drops its record from the list (a cancelled order no longer listed) fails there, "+
+			"whatever the filtered lists do", after.ID, strings.Join(moveIDs, ", "))
 	}
 	p.note("%s", msg)
 }

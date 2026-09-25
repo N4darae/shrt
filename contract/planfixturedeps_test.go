@@ -246,3 +246,31 @@ func TestEmptyFilterGapsNamesAFilterEveryChainSendsSet(t *testing.T) {
 		t.Fatalf("a chain sends it empty: %+v", got)
 	}
 }
+
+func TestAnUnfilteredListAfterTheStateMovesAssertsEveryFixtureInItsState(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{}, "ListOrders")
+	after := planStep(t, p, "list_orders_after_moves")
+	if bodyAt(t, after, "status") != "ORDER_STATUS_UNSPECIFIED" {
+		t.Fatalf("the list after the moves is unfiltered:\n%s", text)
+	}
+	for _, id := range []string{"cancel_order_2", "confirm_order_3"} {
+		if stepIndex(p.Chain, after.ID) < stepIndex(p.Chain, id) {
+			t.Fatalf("the unfiltered list runs after %s: %s", id, strings.Join(stepIDs(p), ", "))
+		}
+	}
+	wantExpect(t, after, "orders.1.id_order", "${create_order_2.order.id_order}")
+	wantExpect(t, after, "orders.1.status", "ORDER_STATUS_CANCELLED")
+	wantExpect(t, after, "orders.2.id_order", "${create_order_3.order.id_order}")
+	wantExpect(t, after, "orders.2.status", "ORDER_STATUS_CONFIRMED")
+	wantExists(t, after, "orders.3", false)
+	for _, s := range p.Chain.Steps {
+		if strings.HasPrefix(s.ID, "list_orders_pending") && stepIndex(p.Chain, s.ID) < stepIndex(p.Chain, after.ID) {
+			t.Fatalf("the unfiltered list does not depend on the filtered ones: %s", strings.Join(stepIDs(p), ", "))
+		}
+	}
+	for _, ref := range after.References() {
+		if strings.Contains(ref, "list_orders_") {
+			t.Fatalf("the unfiltered list reads no filtered step: %v", after.References())
+		}
+	}
+}

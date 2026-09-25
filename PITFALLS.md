@@ -2138,6 +2138,21 @@ summary clause naming the field, `an empty prefix lists all`), the plan adds
 items by id (`includes:`) and at least that many items, no position or exact count. `-gaps` lists
 `no empty filter` for such a field that no successful step sends empty or leaves out.
 
+## 100. A cancelled order dropped from ListOrders, hidden behind the status-filter pins
+
+**Symptom.** A ListOrders that stopped listing an order once it was cancelled (FetchOrder still
+found it CANCELLED) passed in round 25: the only planned lists that held a cancelled order were
+the status-filtered ones, and those were pinned `kept_red` for the baseline defect that ignores
+the filter, so the new failure there looked like the pinned one.
+
+**Cause.** After moving the fixtures into different states the plan listed them only through the
+filter, so nothing status-agnostic checked that a moved record is still listed.
+
+**Fix.** 2026-09-25: after the moves the plan adds `<list>_after_moves`, the unfiltered list,
+asserting every fixture by id in the state it was left in (by position when the contract states
+creation order, else with `includes:`), and no item more. It reads no filtered step, so a pin on
+those leaves it alone.
+
 ---
 
 # Decisions, so they are not relitigated
