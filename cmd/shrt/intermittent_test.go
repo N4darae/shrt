@@ -1,0 +1,172 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+)
+
+const flakyChain = `apiVersion: shrt/v1
+name: cli-flaky
+steps:
+    - id: fetch
+      call: ThingService/Fetch
+      body: {id: thing-9}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch_again
+      call: ThingService/Fetch
+      body: {id: thing-9}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch2
+      call: ThingService/Fetch
+      body: {id: thing-10}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch3
+      call: ThingService/Fetch
+      body: {id: thing-11}
+      expect:
+          - path: error.code
+            equals: OK
+`
+
+type flakyServer struct {
+	mu     sync.Mutex
+	n      int
+	failAt map[int]bool
+	code   string
+	status int
+}
+
+func (f *flakyServer) set(code string, status int, at ...int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n, f.code, f.status, f.failAt = 0, code, status, map[int]bool{}
+	for _, i := range at {
+		f.failAt[i] = true
+	}
+}
+
+func (f *flakyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.mu.Lock()
+	fail := false
+	if strings.HasSuffix(r.URL.Path, "/Fetch") {
+		f.n++
+		fail = f.failAt[f.n]
+	}
+	code, status := f.code, f.status
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if fail {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": "pool exhausted"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": body["id"], "name": "widget"})
+}
+
+func flakyWorkspace(t *testing.T) (*flakyServer, context.Context) {
+	f := &flakyServer{}
+	f.set("internal", http.StatusInternalServerError)
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-flaky.yaml", flakyChain)
+	ctx := context.Background()
+	captureStdout(t, func() {
+		if err := runRun(ctx, []string{"cli-flaky", "-quiet"}); err != nil {
+			t.Fatalf("shrt run: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-flaky", "-note", "baseline"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-flaky", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	return f, ctx
+}
+
+func verifyOnce(t *testing.T, ctx context.Context) (string, error) {
+	var err error
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-flaky", "-quiet"}) })
+	return out, err
+}
+
+func wantExit1(t *testing.T, what string, err error, out string) {
+	t.Helper()
+	var coded *exitError
+	if err == nil || errors.As(err, &coded) {
+		t.Fatalf("%s: an intermittent failure is a defect, exit 1, never 0 or 3: %v\n%s", what, err, out)
+	}
+}
+
+func TestAServerErrorOnARequestTheBackendAnsweredInTheSameRunIsAnIntermittentFinding(t *testing.T) {
+	for _, tc := range []struct {
+		code   string
+		status int
+	}{
+		{"internal", 500}, {"unknown", 500}, {"resource_exhausted", 429}, {"data_loss", 500},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			f, ctx := flakyWorkspace(t)
+			f.set(tc.code, tc.status, 2)
+			out, err := verifyOnce(t, ctx)
+			wantExit1(t, "fetch_again failed", err, out)
+			msg := err.Error()
+			if !strings.Contains(msg, "intermittent failure at ThingService/Fetch") || strings.HasPrefix(msg, "regression") {
+				t.Fatalf("a %s at fetch_again, whose request fetch had answered in the same run, is an intermittent failure, not a regression: %v\n%s", tc.code, err, out)
+			}
+			if !strings.Contains(msg, "same request at step 1 fetch in this run") || !strings.Contains(out, "FINDING: intermittent failure") {
+				t.Fatalf("the finding names its evidence: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestAServerErrorThatMovesBetweenRunsIsIntermittentAndOneThatStaysIsARegression(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 3)
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify 1", err, out)
+	if !strings.HasPrefix(err.Error(), "regression") || !strings.Contains(out, "this looks intermittent") ||
+		!strings.Contains(out, "the previous run that sent step fetch2, had it answered as expected") {
+		t.Fatalf("verify 1: one failure on a request nothing else in the run sent stays a regression, with a note that the previous run answered it: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 4)
+	out, err = verifyOnce(t, ctx)
+	wantExit1(t, "verify 2", err, out)
+	if !strings.Contains(err.Error(), "intermittent failure at ThingService/Fetch") ||
+		!strings.Contains(err.Error(), "failed at step 3 fetch2 instead with the same error, and answered step fetch3 as expected") {
+		t.Fatalf("verify 2: the previous verify failed at another step with the same error, so this is intermittent: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 4)
+	out, err = verifyOnce(t, ctx)
+	wantExit1(t, "verify 3", err, out)
+	if !strings.HasPrefix(err.Error(), "regression") || strings.Contains(out, "intermittent") {
+		t.Fatalf("verify 3: the same failure at the same step as the previous run is a regression, not intermittent: %v\n%s", err, out)
+	}
+}
+
+func TestRunSummarySaysIntermittent(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2)
+	var err error
+	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet"}) })
+	wantExit1(t, "run", err, out)
+	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
+		t.Fatalf("run's summary says the failure looks intermittent, with evidence: %v\n%s", err, out)
+	}
+}

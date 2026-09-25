@@ -252,6 +252,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
 
 	redactPaths := pathmask.NewMasker(rec.Redacted)
+	spotWin, recWin := spotWindow(spot), recordWindow(rec)
 	idPairs := []idPair{}
 	pairs, structural, tail := alignSteps(spot.Steps, rec.Steps, stoppedEarly)
 	rep.Changes = append(rep.Changes, structural...)
@@ -323,6 +324,10 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			})
 		}
 		for _, c := range stepChanges {
+			shaped, why := false, ""
+			if c.Kind == KindChanged {
+				shaped, why = volatileIn(c.Path, c.Want, c.Got, spotWin, recWin)
+			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
 			case c.Path != "response" && maskedAt(stepMask, c):
@@ -332,10 +337,14 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
-			case c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got):
+			case shaped:
 				rep.Masked++
 				rep.ShapeMasked = append(rep.ShapeMasked, c)
 			default:
+				if why != "" && c.Detail == "" {
+					c.Detail = why
+				}
+				noteTimeUnit(&c)
 				rep.Changes = append(rep.Changes, c)
 			}
 		}

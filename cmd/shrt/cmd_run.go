@@ -139,6 +139,14 @@ func runRun(ctx context.Context, args []string) error {
 		if rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, fresh.line())
 		}
+	} else if flaky := detectIntermittent(e, rec); flaky != nil && !*dry && !rec.Passed() {
+		for _, line := range flaky.notes() {
+			fmt.Println("  note: " + line)
+		}
+		if flaky.finding() {
+			fmt.Println("  FINDING: " + flaky.line())
+			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
+		}
 	}
 	return runVerdict(rec)
 }
@@ -156,6 +164,9 @@ const runExitCodes = "\nexit codes:\n" +
 	"       that sent that step was refused there the same way and neither run shows a restart (see 3)\n" +
 	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
 	"       run that sent that step was refused there the same way, with its own freshly issued token\n" +
+	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +
+	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
+	"       that the previous run answered while failing at another step with the same error\n" +
 	"     - a refusal before anything was sent, checked for every step up front as -dry-run does:\n" +
 	"       - bad flags, an unknown chain, a -var the chain never reads, a missing var\n" +
 	"       - an unset env var read by a step or by the login body of an auth profile a step runs under\n" +

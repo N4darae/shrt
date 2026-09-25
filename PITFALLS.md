@@ -1189,6 +1189,56 @@ side's (PLAYBOOK §8 has the steps). The losing side's approval stays in git his
 2026-09-25 `verify` names the conflict markers and that remedy, and `shrt doctor` FAILs the
 `safespot-digests` check on the file, alongside a safe spot edited after approval.
 
+## 40. A timestamp that changed unit, masked as "differs every run"
+
+**Symptom.** Login's `expires_at` started arriving in milliseconds (`1790309823 -> 1790310046998`).
+`verify -masked` listed it under `id- or timestamp-shaped values, not compared` and the verdict
+counted nothing for it; only a chain that asserted equality on it failed.
+
+**Cause.** A time-shaped name (`*_at`) was enough to mask any two non-zero numbers, and any two
+RFC 3339 texts were masked wherever they sat, whatever their distance from the run.
+
+**Fix.** 2026-09-25: a timestamp is masked only when both values are the same kind: RFC 3339 text,
+or, under a time-shaped name, unix seconds, milliseconds, microseconds or nanoseconds told by digit
+count (10, 13, 16, 19), as a number or int64 text; and only when each value lies within 400 days of
+its own run (the safe spot's run dated by its run id, the replay by its start and duration). A value
+that changed kind is a counted change with the line `expires_at changed unit: seconds ->
+milliseconds`; a time outside the window is a counted change that says so. `shrt diff` does the
+same. The 400 days keep a one-year expiry masked while 1999 or a year in the 2100s is reported.
+
+## 41. An intermittent server error reported as a deterministic regression
+
+**Symptom.** A GetProduct that answered Connect `internal: pool exhausted` on every 4th call
+server-wide failed `verify` with `regression: 5 change(s) vs safe spot` at a step that moved from run
+to run (`get_b_again`, then `get_as_clerk`, then `get_unknown`), although the same request had
+passed a step earlier in the same run.
+
+**Cause.** Only a dropped connection or a timeout was checked against other steps and the previous
+run; an answered server error was a plain status change.
+
+**Fix.** 2026-09-25: a step failed with a server error (Connect `internal`, `unknown`,
+`resource_exhausted`, `data_loss`, `aborted`, `deadline_exceeded`, another 5xx with a Connect body)
+is `FINDING: intermittent failure at <rpc>` when the backend answered the same request at another
+step of the run, or the previous run of the chain failed at another step with the same error and
+answered this one. Still exit 1, never 0: the backend fails. When the only evidence is that the
+previous run answered the step, it stays a regression with a `looks intermittent` note, since a
+deploy between the runs looks the same. `run` prints the same finding in its summary.
+
+## 42. A refusal pinned by its app_code, failed as unpinned
+
+**Symptom.** A step asserting only `status.details.0.app_code equals: 1101` on a duplicate-email
+CreateCustomer failed with `status.code envelope want=SUCCESS got=REJECTED (... no expectation on
+this step pins the verdict ...)`, while the same pin on a refused batch line declared that line.
+
+**Cause.** At the top level only a rule on the envelope path (or a parent) pinned the verdict; the
+item-level rule also accepted a pin on a `code_fields` entry.
+
+**Fix.** 2026-09-25: one rule for both. An `equals` or `contains` of a non-empty value on a
+`code_fields` entry (default `app_code`, `reason`, `error_code`) under the envelope's parent, or
+under the refused line, pins the refusal. A `not_equal`, `not_empty`, `exists` or `equals: ""` on
+such a field names no code and pins nothing, at either level (the item-level rule used to accept a
+`not_equal` there, which holds on nearly any refusal).
+
 ---
 
 # Decisions, so they are not relitigated

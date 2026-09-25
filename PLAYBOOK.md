@@ -502,6 +502,20 @@ answering later steps too, the backend is up and fails that one rpc every time: 
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
 answered, and so does a repeat where the same rpc answered another step of either run: then that
 call failed, not the rpc, which looks intermittent.
+
+A step the backend did answer, with a server error (Connect `internal`, `unknown`,
+`resource_exhausted`, `data_loss`, `aborted`, `deadline_exceeded`, or another HTTP 5xx with a Connect
+body; `unavailable` is a gateway or a restart, above), is checked for flakiness before it is called
+a regression. When the backend answered the same request at another step of this run, or the
+previous run of the chain failed at a different step with the same error and answered this one,
+`verify` and `run` print `FINDING: intermittent failure at <rpc>` with that evidence, and `verify`
+fails with it instead of `regression: ...` when every change is at such a step. It still exits 1:
+the backend does fail that rpc, only not on every call. When the only evidence is that the previous
+run that sent the step answered it, the verdict stays `regression` with a `note: ... this looks
+intermittent` line, because a backend change deployed between the two runs reads the same; re-run,
+and a failure that moves or passes becomes the finding, while one at the same step again stays a
+regression. A flake that lands on the same step every run (a server-wide counter that every run
+reaches at the same call) is indistinguishable from a deterministic failure and is reported as one.
 "The previous run that sent that step" (here, for an auth refusal and for a reused fixture)
 pairs steps the way verify pairs a renamed step, by call and position, so a step renamed since that
 run is still found under its old name.
@@ -808,7 +822,7 @@ declares expectations and is refused in-band FAILS unless one of them pins the v
 on the envelope path itself, or any rule on the envelope path or a `transport.*` path that would
 FAIL on a successful answer, such as `not_equal: SUCCESS`): `expect qty_on_hand equals: 0` holds on
 the zero a refusal leaves, and must not turn the step green. A rule on a sibling of the verdict
-(`status.message`, `status.details.0.reason`) pins nothing; path case does not matter. A pin the refusal and the ok value both satisfy
+(`status.message`, `status.details.0.reason not_equal: X`) pins nothing, except an `equals` or `contains` of a non-empty value on a `code_fields` entry under the envelope's parent (`status.details.0.app_code equals: 1101`, `status.details.0.reason equals: EmailTaken`), which names the refusal exactly as it does on a refused batch line; path case does not matter. A pin the refusal and the ok value both satisfy
 declares nothing: `status.code not_equal: ""`, `not_equal: REJECTD` (a typo), or `transport.code
 equals: ok` on a call refused in-band. References in a pin are resolved first, and `chain lint`
 warns on `not_equal: ""` on the envelope, which `-strict` fails. The same holds for a
@@ -1112,7 +1126,7 @@ Three things that decide whether this works for a given chain:
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
   alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
   before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
-  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A value the chain builds
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A timestamp is masked only when both values are the same unit (RFC 3339 text, or unix seconds, milliseconds, microseconds or nanoseconds by digit count under a time-shaped name) and within 400 days of their own run; `expires_at changed unit: seconds -> milliseconds`, or a time far outside the run, is a counted change. A value the chain builds
   from `${uuid}` or a clock form, whole or inside other text (`sku: s-${uuid}`), and a response
   value that only echoes it (a message quoting it), is treated like a fixture name and masked and
   counted (GRAMMAR §7), so it needs no `volatile`. Anything else that differs every run and that
