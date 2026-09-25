@@ -1375,7 +1375,10 @@ shrt run orders-rest -var tag=<fresh>                          # green: propose 
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
 [{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
-gone or anything else fails. With `-verify` it pins only a slice that reproduced the step's verdict:
+gone or anything else fails. A kept step that failed in the run too (the first line's read-back
+when the target is the second's) is pinned the same way, not relaxed. When one defect shows on
+steps the slice would not keep, name them: `-kept-red=get_product_after_cancel` (a list, or the flag
+repeated) keeps each and pins it next to `-step`; a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
 a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
 the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
 line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a

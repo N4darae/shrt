@@ -1576,6 +1576,20 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. A kept-red slice that relaxed the other line of the same defect
+
+**Symptom.** `chain slice -step get_product_2_after_cancel -kept-red -keep get_product_after_cancel`
+wrote a slice pinned on the second product's stock only. The first product's read-back, which
+failed with the same defect, had its failing expectation dropped ("relaxed"), so the slice stayed
+green there once pinned, and the author restored the expectation and its pin by hand.
+
+**Cause.** A kept step that failed in the run was relaxed so the slice could reach the target, as in
+any slice. `-kept-red` pinned only `-step`, and there was no way to name more steps of one defect.
+
+**Fix.** 2026-09-25: under `-kept-red` a kept step that failed in the run is pinned, not relaxed, and
+`-kept-red=<id,...>` (or the flag repeated) keeps and pins more steps. The printed kept_red line
+counts only the pins the slice carried from the source chain; the new pins have their own line.
+
 ---
 
 # Decisions, so they are not relitigated
