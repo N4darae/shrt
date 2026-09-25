@@ -1017,6 +1017,15 @@ A var such a header read as part of its value (`X-Passwd: "Sig ${vars.sig}"`) st
 in the record's `vars` and in the proposal's `| vars | sig=... |`, since only the whole header value
 was a secret. Each `${vars.*}` a credential-named header reads is now a secret of its own, learned
 before the chain runs, so `vars` shows `sig=<redacted>` even when the step is never reached.
+A header named `X-Passphrase` (also `X-Passcode`, `X-Pwd`) was stored in clear in `headers` and
+printed by `shrt diff` as `headers.X-Passphrase a=<value> b=<value>`, while `X-Credential` and
+`Proxy-Authorization` next to it were digested: `passphrase` is one word, and only `pass` split off
+by a separator was recognised. Since 2026-09-25 the rule is the one `GRAMMAR.md` states under
+`headers`: a name containing `token`, `secret`, `password`, `passwd`, `passphrase`, `passcode`,
+`auth`, `cookie`, `apikey`, `credential` or `privatekey`, or with a `-`/`_`/`.`-separated word such
+as `key`, `pass`, `pwd` or `pin`, is a credential header: digested when it reads only literals, vars
+and env, and its values scrubbed by value everywhere. A credential in a header named otherwise
+(`X-Magic: ${vars.pw}`) is not recognised by its name; read it from an env var named like one.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
