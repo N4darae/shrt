@@ -150,6 +150,11 @@ error), and 0 for `-h`.
 
 ### CI gate
 
+`shrt init` writes the script below to `.shrt/ci-gate.sh`, byte for byte (with a `#!/usr/bin/env
+bash` line on top), so CI runs `bash .shrt/ci-gate.sh` instead of a copy cut out of this page;
+commit it. Re-running `init` keeps an edited copy; `shrt init -force` rewrites it from the binary's
+own README after an upgrade.
+
 In this order, with every env var the `auth:` bodies read exported first (a missing one makes
 `doctor -strict` warn and `run` refuse). The static checks stop the gate at the first failure; the
 runs, replays and the hollow ratchet each have their exit checked, so one red chain does not hide

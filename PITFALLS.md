@@ -1651,6 +1651,17 @@ dependency.
 probed either: ConfirmOrder reaches it but needs AddStock, which this plan does not call`. "No
 producer in the contracts reaches" is kept for a state no contract write reaches.
 
+## 69. A CI gate cut short when copied out of the README
+
+**Symptom.** A tester extracted the gate from the ` ```bash ` block in `.shrt/docs/README.md` and lost
+its last line, the one that exits 3 when a chain could not be verified.
+
+**Cause.** The gate existed only as a code block in a page.
+
+**Fix.** 2026-09-25: `shrt init` writes the same block, from the README embedded in the binary, to
+`.shrt/ci-gate.sh` (executable, meant to be committed); a re-run keeps an edited copy and
+`init -force` rewrites it. CI runs `bash .shrt/ci-gate.sh`.
+
 ---
 
 # Decisions, so they are not relitigated
