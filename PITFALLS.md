@@ -2200,6 +2200,18 @@ replaces the chain in place, went on to say the file `is now part of every sweep
 
 **Fix.** 2026-09-25: the note is left out when the file written is the source chain's own.
 
+## 104. `no order ord-a4de…-unknown` counted as a change once a list broke the id renaming
+
+**Symptom.** A renamed id inside a message (`status.message want=no order ord-a4deafaa5f95-unknown
+got=no order ord-f55c820796ea-unknown`) is masked when the run's ids rename consistently. Once a
+real change elsewhere put another id at a position holding that one (a list with other items), the
+whole pair was dropped from the renaming, and every message quoting it counted as a change: 4 of 31
+in one gate.
+
+**Fix.** 2026-09-25: an id keeps the renaming it got where it first appeared (`create_order`), the
+same one the `not renamed consistently` line reports the later position against; `verify` and
+`shrt diff` apply that renaming inside text, so the message is masked and the list is still reported.
+
 ---
 
 # Decisions, so they are not relitigated
