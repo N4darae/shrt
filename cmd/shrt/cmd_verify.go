@@ -62,6 +62,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
 	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
 	"     from the service), which keeps it exit 3\n" +
+	"  1  also when a step sent the idempotency key the confirmed run sent, as a literal, and answered with\n" +
+	"     the confirmed run's id: an idempotent replay, a chain defect (built from a var: fixture reused, exit 3)\n" +
 	"  1  also when a step got no answer (the connection dropped, or no answer before target.timeout)\n" +
 	"     while later steps were answered, and the previous run that sent it got no answer there the\n" +
 	"     same way while answering later steps too: the backend fails that rpc every time\n" +
@@ -215,6 +217,12 @@ func runVerify(ctx context.Context, args []string) error {
 			literal = nil
 		}
 	}
+	var idem *idempotentReplay
+	if literal == nil && reuse == nil {
+		if idem = detectIdempotentReplay(c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
+			idem = nil
+		}
+	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
 	declared := declaredDriftChanges(e, rec, report, driftStep)
 	violation := driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt) &&
@@ -254,6 +262,10 @@ func runVerify(ctx context.Context, args []string) error {
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
+	case idem != nil && !idem.literal && !unanswered:
+		headline = fmt.Sprintf("fixture reused: step %s sent the confirmed run's idempotency key", idem.step)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, idem.line(), name, idem.fresh())
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
@@ -309,6 +321,9 @@ func runVerify(ctx context.Context, args []string) error {
 			if literal != nil {
 				fmt.Println("CHAIN DEFECT: " + literal.line())
 			}
+			if idem != nil && idem.literal {
+				fmt.Println("CHAIN DEFECT: " + idem.line())
+			}
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
 			}
@@ -356,6 +371,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if literal != nil {
 		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
+	}
+	if idem != nil && idem.literal {
+		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
 	}
 	if violation {
 		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))

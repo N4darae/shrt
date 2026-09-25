@@ -120,6 +120,14 @@ Three habits that keep a chain re-runnable:
 | a value two steps must share | one chain var, referenced twice — never two literals that a later edit can desynchronise |
 | a name or code that must be fresh per run | `${vars.tag}` interpolated, and pass `-var tag=...` at run time |
 
+`shrt chain lint` warns `literal-idempotency-key` on a body field or header whose name says
+idempotency (`idempotency_key`, `Idempotency-Key`, `dedup_id`) holding a literal. A backend that
+honours the key answers a repeat with the first run's result, so `verify` does not call what follows a
+regression: when the step sent the key the confirmed run sent and answered with the confirmed run's
+id (`order.id_order`), it prints `CHAIN DEFECT: ... an idempotent replay` and exits 1 for a literal,
+or `fixture reused: ... the confirmed run's idempotency key` with a fresh `-var` hint and exits 3 for
+a key built from a var (`${vars.ik}` left at the confirmed value).
+
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
 refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
