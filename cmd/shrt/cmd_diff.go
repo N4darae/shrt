@@ -39,6 +39,7 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
+	listMasked := fs.Bool("masked", false, "list every difference kept out of the comparison, with both values and what hid it: the volatile pattern, an id- or timestamp-shaped value, a renamed id or a fixture echo (masked_changes under -json)")
 	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ; also, as for every command, "+
 		"a flag that cannot be parsed or a setup that cannot load\n"+
 		"  2  could not compare: an unknown run, runs of two chains, or the wrong number of arguments\n")
@@ -100,6 +101,10 @@ func compareRuns(_ context.Context, args []string) error {
 	if len(rest) == 3 {
 		rep.SelectorA, rep.SelectorB = rest[1], rest[2]
 	}
+	masked := rep.MaskedList()
+	if !*listMasked {
+		rep.MaskedChanges = nil
+	}
 	if *asJSON {
 		if picked != "" {
 			fmt.Fprintln(os.Stderr, "diff: "+picked)
@@ -112,6 +117,9 @@ func compareRuns(_ context.Context, args []string) error {
 			fmt.Println(picked)
 		}
 		fmt.Println(rep.Text())
+		if *listMasked {
+			fmt.Println("\n" + masked)
+		}
 	}
 	if !rep.Same() {
 		return exitWith(1, "runs %s and %s differ (a comparison between two runs, not a regression verdict)", a.RunID, b.RunID)

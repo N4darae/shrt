@@ -515,7 +515,8 @@ first item as sent. An `unordered` path added after approval is named as a chain
 (`chain change since the safe spot's run: ... added`, once `at chain level` when every step gained it,
 in verify and in the confirm proposal alike); it can hide only a change of order, never a
 changed, added or removed item, so it does not fail verify. `shrt verify
--masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
+-masked` lists every masked value, volatile or shape-masked, with its path, both values and the pattern
+that hid it; `shrt diff -masked` does the same for two runs. Declare
 a path `volatile` when its value changes every run without being id- or timestamp-shaped. A `volatile`
 pattern tolerates a changed value, not a lost one: a value under it that became null, `""`, `0`,
 an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:00:00Z`), or
