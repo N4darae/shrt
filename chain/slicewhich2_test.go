@@ -176,8 +176,11 @@ func TestWhichCodeFindsATransportCodeAssertion(t *testing.T) {
 	if !chain.IsCodePath("transport.code") {
 		t.Fatal("transport.code names a failure code and must be searchable")
 	}
-	if chain.IsCodePath("transport.http_status") || chain.IsCodePath("transport.message") {
-		t.Fatal("only transport.code is a code")
+	if !chain.IsCodePath("transport.http_status") {
+		t.Fatal("transport.http_status names a refusal as a status and must be searchable too")
+	}
+	if chain.IsCodePath("transport.message") {
+		t.Fatal("transport.message is prose, not a code")
 	}
 	hits := chain.Which(transportChains(), chain.WhichQuery{Code: "invalid_argument"}, chain.WhichOptions{
 		Observations: func(string) []chain.Observation {

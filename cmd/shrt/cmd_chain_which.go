@@ -18,7 +18,7 @@ import (
 func chainWhich(args []string) error {
 	fs := flag.NewFlagSet("chain which", flag.ContinueOnError)
 	rpc := fs.String("rpc", "", "chains with a step calling this rpc, as package.Service/Rpc, Service/Rpc or a bare Rpc")
-	code := fs.String("code", "", "chains asserting this app_code, envelope code or failure reason")
+	code := fs.String("code", "", "chains asserting this app_code, envelope code, failure reason, transport code (unauthenticated) or HTTP status (401)")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json]   which chains, or local run records, exercise an rpc or a failure code",
 		"\nexit codes:\n  0  a chain or run record matched\n  1  nothing matched, or bad flags (neither -rpc nor -code, an unknown rpc)\n")
@@ -119,10 +119,11 @@ func runObservations(e *env) func(string) []chain.Observation {
 			}
 			for _, s := range rec.Steps {
 				o := chain.Observation{
-					Run:     rec.RunID,
-					Step:    s.ID,
-					Status:  s.Status,
-					Reached: s.Status == runner.StatusPassed || s.Status == runner.StatusFailed,
+					Run:    rec.RunID,
+					Step:   s.ID,
+					Status: s.Status,
+					Reached: s.Status == runner.StatusPassed || s.Status == runner.StatusFailed ||
+						(s.Status == runner.StatusError && (s.HTTPStatus != 0 || s.Transport != nil)),
 				}
 				if s.Status == runner.StatusFailed {
 					o.Failures = s.Expect

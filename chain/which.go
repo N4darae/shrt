@@ -79,7 +79,7 @@ type WhichChain struct {
 }
 
 func IsCodePath(path string) bool {
-	if path == TransportPrefix+".code" {
+	if path == TransportPrefix+".code" || path == TransportPrefix+".http_status" {
 		return true
 	}
 	segs := SplitPath(path)
@@ -323,7 +323,7 @@ func codeIn(response any, paths []string) (string, string, bool) {
 			continue
 		}
 		text := stringify(v)
-		if text == "" || (IsTransportPath(p) && text == TransportOK) {
+		if text == "" || (IsTransportPath(p) && (text == TransportOK || (p == TransportPrefix+".http_status" && text == "200"))) {
 			continue
 		}
 		return p, text, true

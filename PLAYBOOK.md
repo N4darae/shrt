@@ -1097,8 +1097,10 @@ shrt chain which -code 1218 -json
 1. **Two selectors; naming neither is an error, not a listing of everything.** `-rpc` takes the same
    shorthand `contract show` takes and resolves through the same catalog, so `Service/Rpc` and the
    fully qualified form find the same steps. `-code` matches an `equals` wherever a chain can name a
-   failure: the envelope code, an `app_code` detail, a `reason` detail, or `transport.code` (a
-   Connect refusal such as `invalid_argument` or `unauthenticated`). The searchable paths are
+   failure: the envelope code, an `app_code` detail, a `reason` detail, `transport.code` (a
+   Connect refusal such as `invalid_argument` or `unauthenticated`) or `transport.http_status`
+   (`-code 401`). A run record's step refused at authentication (status `error` with a 401) counts
+   as observed: the backend answered it. The searchable paths are
    derived from the corpus, so a chain asserting a code under a batch result — the corpus has
    `results.0.error.details.0.app_code` — is found without teaching the command a new shape. Both
    selectors together intersect.
