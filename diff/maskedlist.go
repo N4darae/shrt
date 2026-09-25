@@ -14,7 +14,10 @@ const (
 )
 
 func maskOf(m *pathmask.Masker, c Change) string {
-	return hidingPattern(m, c.Path, c.Kind != KindMissing && c.Kind != KindUnexpected)
+	if p := hidingPattern(m, c.Path, c.Kind != KindMissing && c.Kind != KindUnexpected); p != "" {
+		return p
+	}
+	return hidingPattern(m, c.Path, true)
 }
 
 func maskSuffix(c Change) string {

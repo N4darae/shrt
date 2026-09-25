@@ -817,6 +817,8 @@ func exerciseDiff() (string, error) {
 	b.WriteString("disappeared, where the other side had a value, or the reverse, is reported, naming the pattern\n")
 	b.WriteString("(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in\n")
 	b.WriteString("`verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.\n")
+	b.WriteString("A field under it that went from one blank value to absent, or back (`null` to no key at all), lost\n")
+	b.WriteString("nothing, so both mask it.\n")
 	b.WriteString("\nA timestamp is masked only when both values are the same kind of time and close to their run's\n")
 	b.WriteString("clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,\n")
 	b.WriteString("`*Time`, `*timestamp*`), a unix time told by its digit count: 10 digits seconds, 13 milliseconds, 16\n")

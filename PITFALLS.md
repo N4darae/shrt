@@ -2016,6 +2016,20 @@ path's were; the list's scope (the customer) stays shared, and fixtures no write
 main path's resources. The CancelOrder defect still fails its own steps (the composed probe's
 `get_product_after_cancel_order_after_confirmed`).
 
+## 92. A volatile `null` that went absent: `missing` in verify, masked in `shrt diff`
+
+**Symptom.** A field under `**.created_at` recorded as `null` in the safe spot and absent in the
+replay failed `verify` as `missing product.created_at want=<nil>`, while `shrt diff` between the
+same two runs masked it.
+
+**Cause.** `verify` never masked a missing or added key at the pattern's own level, only under a
+parent it masked; `shrt diff` masked it unless a value was lost or gained (#65).
+
+**Fix.** 2026-09-25: `verify` follows the rule both share: a volatile pattern tolerates a changed
+value but not a lost one, and `null` (or `""`, `0`, an empty list) to absent loses nothing, so it is
+masked and listed under `-masked` with the pattern that hid it. A value that became absent, or a
+value where the safe spot had no key, is still reported.
+
 ---
 
 # Decisions, so they are not relitigated

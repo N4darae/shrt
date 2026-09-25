@@ -525,6 +525,8 @@ an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:0
 disappeared, where the other side had a value, or the reverse, is reported, naming the pattern
 (`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in
 `verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.
+A field under it that went from one blank value to absent, or back (`null` to no key at all), lost
+nothing, so both mask it.
 
 A timestamp is masked only when both values are the same kind of time and close to their run's
 clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,

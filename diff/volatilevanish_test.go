@@ -45,3 +45,31 @@ func TestVolatileMaskStillHidesAChangedValue(t *testing.T) {
 		t.Fatalf("a changed volatile value is not a difference:\n%s", rep.Text())
 	}
 }
+
+func TestVolatileNullAndAbsentAreTheSameInVerifyAndDiff(t *testing.T) {
+	withNull := `{"product":{"id":"p1","name":"w","created_at":null}}`
+	absent := `{"product":{"id":"p1","name":"w"}}`
+	for _, pair := range [][2]string{{withNull, absent}, {absent, withNull}} {
+		spot := spotOf([]string{"**.created_at"}, step("create", pair[0]))
+		rep := diff.Compare(spot, recOf(step("create", pair[1])))
+		if !rep.Clean() || rep.VolatileMasked != 1 {
+			t.Fatalf("%s -> %s: no value was lost or gained, so verify masks it as shrt diff does:\n%s", pair[0], pair[1], rep.Text())
+		}
+		if len(rep.VolatileValues) != 1 || rep.VolatileValues[0].Mask != "**.created_at" {
+			t.Fatalf("%s -> %s: the masked value names its pattern: %+v", pair[0], pair[1], rep.VolatileValues)
+		}
+		if len(rep.UnapprovedMasked) > 0 {
+			t.Fatalf("%s -> %s: the safe spot approved the pattern: %v", pair[0], pair[1], rep.UnapprovedMasked)
+		}
+		a := runOf("a", stepAs("create", runner.StatusPassed, pair[0]))
+		b := runOf("b", stepAs("create", runner.StatusPassed, pair[1]))
+		a.Volatile, b.Volatile = []string{"**.created_at"}, []string{"**.created_at"}
+		if rr := diff.CompareRuns(a, b); !rr.Same() {
+			t.Fatalf("%s -> %s: shrt diff masks it:\n%s", pair[0], pair[1], rr.Text())
+		}
+	}
+	spot := spotOf([]string{"**.created_at"}, step("create", absent))
+	if rep := diff.Compare(spot, recOf(step("create", `{"product":{"id":"p1","name":"w","created_at":"2026-09-01T10:00:00Z"}}`))); rep.Clean() {
+		t.Fatalf("a value appearing where the safe spot had none is still reported:\n%s", rep.Text())
+	}
+}
