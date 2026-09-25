@@ -102,6 +102,11 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
 	}
+	targetSteps := map[string]bool{}
+	for _, node := range nodes {
+		targetSteps[p.stepOf[node]] = true
+	}
+	p.discriminateListOrder(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()

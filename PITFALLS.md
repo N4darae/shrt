@@ -1168,6 +1168,20 @@ ${nowunix}`, and a `created_*`/`updated_*` stamp within 300s of `${nowunix}`. `c
 timestamp field of a step expecting success that no expectation reads (`unasserted-timestamp`, a
 hint, never promoted by `-strict`).
 
+## 40. A list "sorted by sku" that a backend sorting by name also passes
+
+**Symptom.** ListProducts started sorting by name. A chain asserting `products.0.sku` and
+`products.1.sku`, written to prove the list "sorts by sku rather than creation order", stayed green.
+
+**Cause.** Its two fixtures were `cp-…-a` named `Anchor` at price 1 and `cp-…-b` named `Bolt` at
+1999: sku, name and price all put them in the same order, and with two items creation order agrees
+with one direction or the other. The assertion could not tell which key sorted.
+
+**Fix.** 2026-09-25: `contract plan` of a list rpc, and `chain new` with two or more creates feeding
+a list, scaffold three creates whose sort keys disagree pairwise and with creation order, and
+assert each position when the contract states the order. `chain lint` warns `indistinct-order` on a
+step asserting positions of items that two or more keys sort alike.
+
 ---
 
 # Decisions, so they are not relitigated

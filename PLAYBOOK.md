@@ -280,7 +280,20 @@ Substitute your `conventions.envelope_path` and `conventions.envelope_ok` (§3b)
 
 A step whose only expectation is `error.code == OK` asserts that the server did not crash. Say what
 the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
-should have produced, so each planned step asserts only the verdict, and a `note:` names each step
+should have produced, so each planned step asserts the verdict, plus two checks it can derive: a
+range on each timestamp-like response field (an expiry within 5s of `${nowunix+<lifetime>}` when
+the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp within
+300s of `${nowunix}`), and, for a list rpc it is asked to plan, the order of the list. For the list
+it creates THREE items whose candidate sort keys disagree: the prefix field the list filters on
+(`sku`: base, base-b, base-a), every other string or number field of the create (`name` B, A, C;
+`price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an
+order assertion can only pass on the key the backend really sorts by. Fixtures whose names sort
+like their skus pass a backend sorting by name. When the list's contract states an order
+(`sorted by sku`, `newest first` in its summary or in `exports:` for the list), the plan asserts
+each position by id; when it states none, it asserts only the count and says how to have the
+order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+`chain lint` names a step that asserts positions of a list whose items sort alike under two or more
+keys, creation order included (`indistinct-order`, a hint). A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are

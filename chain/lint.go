@@ -32,7 +32,7 @@ type LintOptions struct {
 	Env          func(string) (string, bool)
 	Redact       []string
 
-	TimestampHints bool
+	Hints bool
 }
 
 func Lint(c *Chain, cat *catalog.Catalog) []Issue {
@@ -94,8 +94,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		}
 	}
 	issues = append(issues, lintUnorderedChain(c, methods)...)
-	if opts.TimestampHints {
+	if opts.Hints {
 		issues = append(issues, lintUnassertedTimestamps(c, responses)...)
+		issues = append(issues, lintIndistinctOrder(c)...)
 	}
 	return issues
 }

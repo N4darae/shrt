@@ -321,7 +321,7 @@ func chainLint(args []string) error {
 	opts := contract.ChainLintOptions{Strict: *strict, Library: lib}
 	opts.Chain.Env = os.LookupEnv
 	opts.Chain.Redact = append([]string{}, e.cfg.Redact...)
-	opts.Chain.TimestampHints = true
+	opts.Chain.Hints = true
 	if covers, err := runner.AuthCoverage(e.cfg, e.cat); err == nil {
 		opts.Chain.AuthHeader = covers
 		opts.Chain.AuthEnv = runner.AuthEnv(e.cfg)
