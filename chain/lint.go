@@ -704,8 +704,8 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 			Message: fmt.Sprintf(
 				"expect on %q reads a path that is not a field of %s, so it can never be present — "+
 					"the assertion cannot pass on a well-formed response, and -dry-run would not say so. "+
-					"Fix the path; if the field is new, rebuild the descriptor with 'shrt catalog build'%s",
-				e.Path, m.Output().FullName(), transportHint(e.Path)),
+					"Fix the path; if the field is new, rebuild the descriptor with 'shrt catalog build'%s%s",
+				e.Path, m.Output().FullName(), renamedFieldHint(e.Path, schema.Fields), transportHint(e.Path)),
 		})
 	}
 	return issues
@@ -1232,4 +1232,32 @@ func lintLiteralIdempotency(s *Step) []Issue {
 		}
 	}
 	return issues
+}
+
+func renamedFieldHint(path string, fields []*catalog.Field) string {
+	segs := SplitPath(path)
+	if len(segs) < 1 {
+		return ""
+	}
+	parent, leaf := segs[:len(segs)-1], segs[len(segs)-1]
+	siblings := fields
+	where := "the response"
+	if len(parent) > 0 {
+		f, ok := catalog.FieldAt(fields, parent)
+		if !ok || len(f.Fields) == 0 {
+			return ""
+		}
+		siblings, where = f.Fields, strings.Join(parent, ".")
+	}
+	names := []string{}
+	for _, f := range siblings {
+		if f.Name == leaf {
+			return ""
+		}
+		names = append(names, f.Name)
+	}
+	if len(names) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; if it was renamed in the proto, assert the new name: %s declares %s", where, strings.Join(names, ", "))
 }

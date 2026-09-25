@@ -1066,7 +1066,7 @@ func regressionShape(report *diff.Report) string {
 }
 
 func intendedChangeNext(name string) string {
-	return fmt.Sprintf("If the change is intended (a field added or a value changed on purpose), run the chain until it passes, "+
+	return fmt.Sprintf("If the change is intended (a field added or renamed, or a value changed on purpose), run the chain until it passes, "+
 		"propose that run in place of the safe spot (shrt confirm %s -supersede -note \"...\"), and a person approves it; "+
 		"if it is not, it is a regression to fix in the backend", name)
 }

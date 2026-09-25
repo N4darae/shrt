@@ -825,6 +825,16 @@ not listed: its response, or one it reads, does not match the descriptor (...); 
 descriptor (shrt catalog build) and re-run, or add -v to list them`. `verify -v` and `-json` still
 carry every change.
 
+With the descriptor rebuilt, a proto rename (`total_minor` -> `amount_minor`, same field number
+and values) gave a `missing` and an `unexpected` line per step that returns the order, fourteen
+lines read as lost data. A `missing` and an `unexpected` field under the same parent at the same
+step holding equal values are now one line, `[create_order] renamed order.total_minor ->
+order.amount_minor (both 3400): likely a renamed field, still a change`, and a line under the list
+says how many pairs look renamed and to move the chain's expectations to the new name and supersede.
+The pair still counts as changes and the exit code is unchanged. `chain lint`, for an expectation on
+a leaf the response message no longer declares, now names the fields its parent does declare, in
+case the proto renamed it.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says

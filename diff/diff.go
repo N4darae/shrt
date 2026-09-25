@@ -1278,6 +1278,11 @@ func (r *Report) Text() string {
 	b.WriteString(r.reorderedText())
 	skips := runner.NewSkipCondenser()
 	foldSaid := map[string]bool{}
+	renames := r.RenamedFields()
+	renamedAt, renamedTo := map[int]FieldRename{}, map[int]bool{}
+	for _, fr := range renames {
+		renamedAt[fr.missing], renamedTo[fr.unexpected] = fr, true
+	}
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
 		if c.Kind == KindNotReached {
@@ -1300,7 +1305,11 @@ func (r *Report) Text() string {
 			i += run - 1
 			continue
 		}
-		if r.underReordered(c) {
+		if r.underReordered(c) || renamedTo[i] {
+			continue
+		}
+		if fr, ok := renamedAt[i]; ok {
+			fmt.Fprintf(&b, "  [%s] %-10s %s\n", step, "renamed", fr.line())
 			continue
 		}
 		after := ""
@@ -1319,6 +1328,7 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
+	b.WriteString(renameText(renames))
 	return strings.TrimRight(b.String(), "\n")
 }
 
