@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -406,6 +407,13 @@ func exampleEnvelope(cfg *config.Config) (path, ok string) {
 
 const exampleOKPlaceholder = "REPLACE_ME_SUCCESS_VALUE"
 
+var examplePlaceholderExpect = regexp.MustCompile(`      - path: \S+\n        equals: ` + exampleOKPlaceholder + `\n`)
+
+func untouchedExample(existing, template []byte) bool {
+	return strings.Contains(string(existing), exampleOKPlaceholder) &&
+		examplePlaceholderExpect.ReplaceAllLiteralString(string(existing), exampleEnvelopeExpect) == string(template)
+}
+
 func renderExampleChain(template []byte, path, ok string) []byte {
 	if ok == "" {
 		ok = exampleOKPlaceholder
@@ -416,14 +424,21 @@ func renderExampleChain(template []byte, path, ok string) []byte {
 
 func writeExampleChain(root string, cfg *config.Config, force bool) error {
 	example := cfg.Abs(filepath.Join(cfg.Paths.Chains, "example.yaml.template"))
-	if _, err := os.Stat(example); err == nil && !force {
-		return nil
-	}
 	raw, err := agentkit.Read("templates/chain.example.yaml")
 	if err != nil {
 		return err
 	}
 	path, ok := exampleEnvelope(cfg)
+	if existing, err := os.ReadFile(example); err == nil && !force {
+		if ok == "" || !untouchedExample(existing, raw) {
+			return nil
+		}
+		if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+		return nil
+	}
 	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
 		return err
 	}
