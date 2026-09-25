@@ -737,6 +737,7 @@ func exerciseDiff() (string, error) {
 		Steps: []*runner.StepRecord{
 			step("a", "S/A", runner.StatusPassed, `{"qty":1,"created_at":"T0","note":"x","owner_id":"u-1","seen":"2026-09-01T10:00:00Z","lines":[1,2]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":"1"}`),
+			step("c", "S/C", runner.StatusPassed, `{"created_at":"2026-09-01T10:00:00Z"}`),
 		},
 		Volatile: []string{"**.created_at"},
 	}
@@ -745,6 +746,7 @@ func exerciseDiff() (string, error) {
 		Steps: []*runner.StepRecord{
 			step("a", "S/A", runner.StatusPassed, `{"qty":2,"created_at":"T1","note":"x","owner_id":"u-2","seen":"2026-09-02T11:30:00Z","lines":[1]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":1}`),
+			step("c", "S/C", runner.StatusPassed, `{"created_at":null}`),
 		},
 	}
 	rep := diff.Compare(spot, rec)
@@ -756,6 +758,7 @@ func exerciseDiff() (string, error) {
 	}
 	fmt.Fprintf(&b, "| `qty` went from `1` to `2` | %s |\n", yesNo(seen["a|qty"]))
 	fmt.Fprintf(&b, "| `created_at` changed, and is `volatile` | %s |\n", yesNo(seen["a|created_at"]))
+	fmt.Fprintf(&b, "| `created_at` became null, and is `volatile` | %s |\n", yesNo(seen["c|created_at"]))
 	fmt.Fprintf(&b, "| `note` did not change | %s |\n", yesNo(seen["a|note"]))
 	fmt.Fprintf(&b, "| `owner_id` changed, NOT volatile, but its name is id-shaped | %s |\n", yesNo(seen["a|owner_id"]))
 	fmt.Fprintf(&b, "| `seen` changed, NOT volatile, but both values are timestamps | %s |\n", yesNo(seen["a|seen"]))
@@ -805,7 +808,12 @@ func exerciseDiff() (string, error) {
 	b.WriteString("in verify and in the confirm proposal alike); it can hide only a change of order, never a\n")
 	b.WriteString("changed, added or removed item, so it does not fail verify. `shrt verify\n")
 	b.WriteString("-masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare\n")
-	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped.\n")
+	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped. A `volatile`\n")
+	b.WriteString("pattern tolerates a changed value, not a lost one: a value under it that became null, `\"\"`, `0`,\n")
+	b.WriteString("an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:00:00Z`), or\n")
+	b.WriteString("disappeared, where the other side had a value, or the reverse, is reported, naming the pattern\n")
+	b.WriteString("(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in\n")
+	b.WriteString("`verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.\n")
 	b.WriteString("\nA timestamp is masked only when both values are the same kind of time and close to their run's\n")
 	b.WriteString("clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,\n")
 	b.WriteString("`*Time`, `*timestamp*`), a unix time told by its digit count: 10 digits seconds, 13 milliseconds, 16\n")

@@ -464,6 +464,7 @@ Produced by running `diff.Compare` on a fabricated safe spot and replay:
 |---|---|
 | `qty` went from `1` to `2` | **yes** |
 | `created_at` changed, and is `volatile` | no |
+| `created_at` became null, and is `volatile` | **yes** |
 | `note` did not change | no |
 | `owner_id` changed, NOT volatile, but its name is id-shaped | no |
 | `seen` changed, NOT volatile, but both values are timestamps | no |
@@ -515,7 +516,12 @@ first item as sent. An `unordered` path added after approval is named as a chain
 in verify and in the confirm proposal alike); it can hide only a change of order, never a
 changed, added or removed item, so it does not fail verify. `shrt verify
 -masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
-a path `volatile` when its value changes every run without being id- or timestamp-shaped.
+a path `volatile` when its value changes every run without being id- or timestamp-shaped. A `volatile`
+pattern tolerates a changed value, not a lost one: a value under it that became null, `""`, `0`,
+an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:00:00Z`), or
+disappeared, where the other side had a value, or the reverse, is reported, naming the pattern
+(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in
+`verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.
 
 A timestamp is masked only when both values are the same kind of time and close to their run's
 clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,

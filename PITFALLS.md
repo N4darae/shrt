@@ -1576,6 +1576,19 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. A `created_at` that turned null, hidden by the volatile mask `shrt init` writes
+
+**Symptom.** CreateProduct started answering `created_at: null`. `shrt verify` reported no drift and
+`shrt diff` no difference; only a chain that asserted the field by hand went red.
+
+**Cause.** A volatile pattern hid every difference under it, so a value that vanished was masked as
+if it had merely changed. `**.created_at` is in every config `shrt init` writes.
+
+**Fix.** 2026-09-25: a volatile pattern tolerates a changed value, not a lost one. A value under it
+that became null, `""`, `0`, an empty list or object or a zero time, or disappeared, where the other
+side had a value (or the reverse), is reported in `verify` and `shrt diff`, naming the pattern
+(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`).
+
 ---
 
 # Decisions, so they are not relitigated

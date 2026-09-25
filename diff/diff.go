@@ -330,17 +330,20 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
-			case c.Path != "response" && maskedAt(stepMask, c):
+			case c.Path != "response" && maskedAt(stepMask, c) && !vanishedUnderMask(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
 				rep.VolatileValues = append(rep.VolatileValues, c)
 				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
-			case shaped:
+			case shaped && !valueVanished(c):
 				rep.Masked++
 				rep.ShapeMasked = append(rep.ShapeMasked, c)
 			default:
+				if c.Detail == "" && vanishedUnderMask(stepMask, c) {
+					c.Detail = vanishedDetail(stepMask, c, "the safe spot", "this run")
+				}
 				if why != "" && c.Detail == "" {
 					c.Detail = why
 				}

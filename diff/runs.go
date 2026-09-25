@@ -262,12 +262,16 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		if c.Kind == KindChanged {
 			shaped, why = volatileIn(c.Path, c.Want, c.Got, r.winA, r.winB)
 		}
-		if underMask(masker, c.Path) || shaped {
+		gone := valueVanished(c)
+		if (underMask(masker, c.Path) && !(gone && masker.Masks(c.Path))) || (shaped && !gone) {
 			r.Masked++
 			return
 		}
 		if why != "" {
 			c.Detail = why
+		}
+		if c.Detail == "" && gone && masker.Masks(c.Path) {
+			c.Detail = vanishedDetail(masker, c, "run A", "run B")
 		}
 		noteTimeUnit(&c)
 		c.Step = sa.ID
