@@ -1367,6 +1367,18 @@ per-line independence was never exercised either.
 **Fix.** 2026-09-25: a batch target whose contract reports failures per item gets `<step>_partial`
 with a refused middle item and a read per resource asserting stored equals reported.
 
+## 52. An idempotency key nobody replayed
+
+**Symptom.** CreateOrder's contract noted that "a replay with the same key is the idempotency path",
+yet no planned chain sent a key twice, so a backend that created a second order on replay, or one
+that deduplicated requests without any key, stayed green.
+
+**Cause.** The plan sent `${uuid}` once, which is what makes a run repeatable and also what keeps the
+key from ever being reused.
+
+**Fix.** 2026-09-25: a create target with a key field gets a replay with the same body, a replay with
+another body, and two creates without a key that must yield two ids.
+
 ---
 
 # Decisions, so they are not relitigated

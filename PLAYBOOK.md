@@ -372,6 +372,17 @@ items touch asserts that the stored value is the one its last item reported
 (`product.qty_on_hand equals ${add_stock_batch_partial.results.2.qty_on_hand}`). A batch that stops at
 the refused item, applies it, or reports stale values for later items fails.
 
+An idempotency key is tested by replaying it. When a create target's request has a key field
+(`idempotency_key`, `idempotent…`, `dedup…`, `request_id`, `client_token`), the plan adds
+`<step>_replay`, the same body with the key the step sent (`${steps.create_order.request.idempotency_key}`),
+expecting the same id back (`order.id_order equals ${create_order.order.id_order}`);
+`<step>_replay_other_body`, the same key with every number raised by one, expecting the first
+object back with its numbers unchanged (or, when the contract declares a failure for a reused key,
+a reason or `when:` saying idempotency, key reuse or conflict, that refusal); and, unless the key
+is in `required:`, `<step>_no_key` and `<step>_no_key_2` sending an empty key, the second asserting
+an id different from the first. Copies elsewhere in a plan (a shortage probe's order) get a fresh
+`${uuid}` key so they are never mistaken for a replay.
+
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by

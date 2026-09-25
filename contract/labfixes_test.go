@@ -327,7 +327,8 @@ func TestPlanBuildsOneListEntryPerDeclaredIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Count(string(raw), "- id_product: ${create_product_") != 2 {
+	if !strings.Contains(string(raw), "- id_product: ${create_product_a.product.id_product}") ||
+		!strings.Contains(string(raw), "- id_product: ${create_product_b.product.id_product}") {
 		t.Fatalf("the written chain must carry both lines:\n%s", raw)
 	}
 }
