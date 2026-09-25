@@ -44,6 +44,7 @@ type WhichOptions struct {
 	SliceOf      func(*Chain, string) (int, bool)
 	Observations func(chainName string) []Observation
 	FreshVars    func(c *Chain, step, run string) []string
+	ReadsOnly    func(*Step) bool
 }
 
 type WhichEvidence struct {
@@ -182,30 +183,33 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		sortMatches(matches, q.Code == "")
 		hit.Matches = matches
 		hit.Best = matches[0].Step
-		hit.Command = reproCommand(c, matches[0], opts.FreshVars)
+		hit.Command = reproCommand(c, matches[0], opts)
 		out = append(out, hit)
 	}
 	sortWhich(out, q.Code == "")
 	return out
 }
 
-func reproCommand(c *Chain, best WhichStep, fresh func(*Chain, string, string) []string) string {
+func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
 	run := ""
 	switch {
 	case best.Observed == nil:
-	case writeStep(c, best.Step):
+	case writeStep(c, best.Step, opts.ReadsOnly):
 		cmd += " -keep " + SliceKeepWrites
 	default:
 		run = best.Observed.Run
 		cmd += " -mode pin -run " + run
 	}
-	return cmd + freshFlags(c, best.Step, run, fresh)
+	return cmd + freshFlags(c, best.Step, run, opts.FreshVars)
 }
 
-func writeStep(c *Chain, id string) bool {
+func writeStep(c *Chain, id string, readsOnly func(*Step) bool) bool {
 	s, ok := c.Step(id)
-	return ok && !IsReadOnlyCall(s.Call)
+	if !ok || IsReadOnlyCall(s.Call) {
+		return false
+	}
+	return readsOnly == nil || !readsOnly(s)
 }
 
 func freshFlags(c *Chain, step, run string, fresh func(*Chain, string, string) []string) string {
@@ -521,7 +525,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 			if hit == nil {
 				continue
 			}
-			hit.Command = reproCommand(c, WhichStep{Step: s.ID, Observed: &WhichEvidence{Run: hit.Run}}, opts.FreshVars)
+			hit.Command = reproCommand(c, WhichStep{Step: s.ID, Observed: &WhichEvidence{Run: hit.Run}}, opts)
 			out = append(out, *hit)
 		}
 	}

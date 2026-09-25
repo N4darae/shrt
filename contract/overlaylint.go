@@ -89,6 +89,9 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 	in := catalog.DescribeMessage(m.Input()).Fields
 	out := catalog.DescribeMessage(m.Output()).Fields
+	if msg, ok := lintListNeeds(c, m, lib, cat); ok {
+		add(SeverityWarn, "needs", "%s", msg)
+	}
 
 	for _, name := range c.Required {
 		if IsRequiredLiteral(name) {
@@ -315,6 +318,14 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 	}
 	if f.Unreachable != "" && f.When != "" {
 		add(SeverityWarn, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
+	}
+	if f.Unique != nil {
+		if f.Unique.Case != "" && f.Unique.Case != UniqueCaseIgnore && f.Unique.Case != UniqueCaseExact {
+			add(SeverityError, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
+		}
+		if _, unique := uniquenessNoun(f); !unique {
+			add(SeverityWarn, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
+		}
 	}
 	if f.PendingDeploy != "" {
 		if f.Unreachable != "" {

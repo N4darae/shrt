@@ -13,7 +13,9 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func init() {
@@ -88,9 +90,15 @@ func runRun(ctx context.Context, args []string) error {
 		return unusedVarError(unused, c.Name, c.DeclaredVarNames())
 	}
 
-	rec, err := executeChain(ctx, e, c, runner.Options{
+	var spot *store.SafeSpot
+	if !*dry {
+		if loaded, err := e.store.LoadSafeSpot(c.Name); err == nil && loaded.DigestMatches() {
+			spot = loaded
+		}
+	}
+	rec, err := executeChain(ctx, e, c, withLatency(runner.Options{
 		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build,
-	}, *quiet || *asJSON)
+	}, latencyPolicy(e), spot), *quiet || *asJSON)
 	if err != nil {
 		return err
 	}
@@ -125,6 +133,12 @@ func runRun(ctx context.Context, args []string) error {
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
 	if line := neverRanLine(c, rec); line != "" && !*dry {
 		fmt.Println("  " + line)
+	}
+	if spot != nil {
+		renamed, _ := diff.RenameSpotSteps(spot, rec.Steps)
+		for _, f := range latencyFlags(e, renamed, rec, latencyPolicy(e)) {
+			fmt.Println("  " + f.Line())
+		}
 	}
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)

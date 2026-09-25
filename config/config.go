@@ -30,6 +30,7 @@ type Config struct {
 	Auth        *Auth       `yaml:"auth,omitempty"`
 	Paths       Paths       `yaml:"paths"`
 	Conventions Conventions `yaml:"conventions,omitempty"`
+	Latency     *Latency    `yaml:"latency,omitempty"`
 	Volatile    []string    `yaml:"volatile,omitempty"`
 	Redact      []string    `yaml:"redact,omitempty"`
 }
@@ -235,6 +236,9 @@ func Load(start string) (*Config, error) {
 	}
 	cfg.Root = root
 	if err := cfg.normalizeAuth(); err != nil {
+		return nil, err
+	}
+	if err := cfg.Latency.validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil

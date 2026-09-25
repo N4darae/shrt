@@ -34,6 +34,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
 	"  1  a verdict: the backend or the chain changed or is wrong\n" +
 	"     - drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
+	"     - a LATENCY slowdown, confirmed by re-sending the read or by the previous run, when the\n" +
+	"       config sets latency: {fail: true}; without it a slowdown is a warning line and exit 0\n" +
 	"     - validate_output drift that is a wrong-typed value or an undeclared enum value, and the\n" +
 	"       descriptor matches a rebuild: the proto is current, so the backend changed at that step\n" +
 	"     - the backend refused, at the same step, a token it had accepted earlier in both this run\n" +
@@ -93,6 +95,7 @@ func runVerify(ctx context.Context, args []string) error {
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
 	verbose := fs.Bool("v", false, "also list each change at a step not judged because its response does not match the descriptor (folded into one line by default)")
+	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run, with the steps flagged as slow")
 	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
@@ -174,7 +177,7 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			return err
 		}
-		rec, err = executeChain(ctx, e, c, runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, *quiet || *asJSON)
+		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), *quiet || *asJSON)
 		if err == nil {
 			rec.ReplayOf = spot.RunID
 		}
@@ -189,6 +192,7 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
+	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
@@ -330,7 +334,7 @@ func runVerify(ctx context.Context, args []string) error {
 		if olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
 		}
-		if err := emitJSON(map[string]any{"run": rec, "diff": report}); err != nil {
+		if err := emitJSON(map[string]any{"run": rec, "diff": report, "latency": latency}); err != nil {
 			return err
 		}
 	} else {
@@ -372,6 +376,12 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
+			}
+			if *showLatency {
+				fmt.Println(diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
+			}
+			for _, f := range latency {
+				fmt.Println(f.Line())
 			}
 			switch {
 			case reuse.finding():
@@ -543,7 +553,7 @@ func runVerify(ctx context.Context, args []string) error {
 	if !rec.Passed() {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 	}
-	return nil
+	return latencyFailure(name, latency, latencyPolicy(e))
 }
 
 func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {

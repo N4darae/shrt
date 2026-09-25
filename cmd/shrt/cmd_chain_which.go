@@ -59,6 +59,7 @@ func chainWhich(args []string) error {
 		SliceOf:      sliceSizeOf(e, lib),
 		Observations: runObservations(e),
 		FreshVars:    freshVarsOf(e, lib),
+		ReadsOnly:    isLoginStep(e),
 	}
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
@@ -169,9 +170,10 @@ func observedResponse(s *runner.StepRecord) any {
 
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
 	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
+	login := isLoginStep(e)
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts
-		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) {
+		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) {
 			o.Keep = []string{chain.SliceKeepWrites}
 		}
 		if run != "" {

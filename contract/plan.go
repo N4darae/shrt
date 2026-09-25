@@ -26,6 +26,7 @@ type Plan struct {
 	grown    []string
 	reserved map[string]bool
 	noun     string
+	seconds  []producerSecond
 }
 
 type pendingChecks struct {
@@ -63,7 +64,7 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		nodes = append(nodes, node)
 		labels = append(labels, shortNode(node))
 	}
-	order, edges, err := resolveOrder(nodes, lib, cat)
+	order, edges, listed, err := resolveOrder(nodes, lib, cat)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +87,10 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
 	}
 	p.Chain = c
+	isTarget := map[string]bool{}
+	for _, node := range nodes {
+		isTarget[node] = true
+	}
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
 		method, err := cat.Lookup(rpc)
@@ -101,7 +106,11 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		step := p.buildStep(id, alias, method, lib)
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
+		if !isTarget[node] {
+			p.prepareSecondProducers(step)
+		}
 	}
+	p.noteListProducers(listed)
 	targetSteps := map[string]bool{}
 	for _, node := range nodes {
 		targetSteps[p.stepOf[node]] = true
@@ -379,7 +388,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+
 			"'chain lint -strict' rejects it", id, m.FullName)
 	}
-	step.Expect = append(step.Expect, p.timestampExpectations(id, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))...)
+	step.Expect = append(step.Expect, p.timestampExpectations(step, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))...)
 	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema, fields: fields})
 	if len(c.Exports) > 0 {
 		step.Export = map[string]string{}
@@ -552,8 +561,9 @@ func childContainer(m map[string]any, seg string) any {
 	return next
 }
 
-func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, error) {
+func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
 	order := []string{}
+	listed := []listProducer{}
 	state := map[string]int{}
 	edges := map[string][]string{}
 	canon := func(node string) (string, string, string) {
@@ -595,16 +605,30 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 				return err
 			}
 		}
+		if via == "the plan target" {
+			m, _ := cat.Lookup(rpc)
+			if msg := listedMessage(m); msg != "" && !nodesReturn(order, msg, cat) {
+				lp := listProducer{list: canonical, msg: msg}
+				if creator := creatorOf(msg, lib, cat); creator != "" && state[creator] == 0 {
+					label := shortNode(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
+					if err := visit(creator, label, append(trail, canonical)); err != nil {
+						return err
+					}
+					lp.creator = creator
+				}
+				listed = append(listed, lp)
+			}
+		}
 		state[canonical] = 2
 		order = append(order, canonical)
 		return nil
 	}
 	for _, target := range targets {
 		if err := visit(target, "the plan target", nil); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
-	return order, edges, nil
+	return order, edges, listed, nil
 }
 
 func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (string, string, string)) string {

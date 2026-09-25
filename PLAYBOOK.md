@@ -13,7 +13,11 @@ shrt contract plan DealActionService/ConfirmDeal -write
 ```
 
 `plan` walks `needs`, `before`, `from` and `same_as` transitively, topologically sorts them, and
-emits a chain with every `${...}` already wired. Ahead of that chain it prints a header you must
+emits a chain with every `${...}` already wired. A list target (`ListOrders`) whose contract names
+nothing that creates the items it lists gets the one write with a contract whose response carries
+such an item (`CreateOrder`) added before it, with a note saying to declare `needs:`, since a list of
+nothing passes whatever the backend lists; when no such write is known, the note says the list comes
+back empty, and `contract lint` warns (field `needs`) on a list rpc with no `needs:`. Ahead of that chain it prints a header you must
 read — and the header is written as YAML **comments**, because everything after it is the chain
 file. This is the complete header of a short plan, captured 2026-09-17 from
 `shrt contract plan acme.pricing.dailybook.v1.DailyBookSummaryActionService/CloseBookDay`; the
@@ -122,7 +126,9 @@ and `${...}` references are copied unchanged, except a reference to a step of th
 creates something: the second item reads a second copy of that step instead (`create_product_2`,
 its var-built values suffixed `-2` and its numbers raised by one, so a different sku and price),
 and each write step that prepares the first (`add_stock`) gets a copy for the second
-(`add_stock_2`). Both lines of a planned `CreateOrder` then point at two products with two prices,
+(`add_stock_2`, its var-built values suffixed and its numbers raised by one, so `qty: "11"` next to
+`qty: "10"`), whether that step runs before the order or is pulled in after it by another target's
+`needs:` (`ConfirmOrder` needing `AddStock`); a step you named as a target is not copied. Both lines of a planned `CreateOrder` then point at two products with two prices,
 so a backend that prices every line at the first line's product changes the total, and a safe spot
 catches it even before you assert it. A note names each such field and each added step. Give the
 second item its own test data where it matters, and assert what depends on both
@@ -282,8 +288,10 @@ A step whose only expectation is `error.code == OK` asserts that the server did 
 the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
 should have produced, so each planned step asserts the verdict, plus two checks it can derive: a
 range on each timestamp-like response field (an expiry within 5s of `${nowunix+<lifetime>}` when
-the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp within
-300s of `${nowunix}`), and, for a list rpc it is asked to plan, the order of the list. For the list
+the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp the call
+makes within 300s of `${nowunix}`; a creation stamp a later step reads back, such as `GetProduct`'s
+`product.created_at`, equal to the one the creating step received,
+`equals: ${create_product.product.created_at}`, since the read did not stamp it), and, for a list rpc it is asked to plan, the order of the list. For the list
 it creates THREE items whose candidate sort keys disagree: the prefix field the list filters on
 (`sku`: base, base-b, base-a), every other string or number field of the create (`name` B, A, C;
 `price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an
@@ -305,8 +313,12 @@ contract says the comparison ignores case (`ignoring case`, `case-insensitive` i
 references swapped (`CUST-${vars.tag}@EXAMPLE.TEST`), since a backend comparing case-sensitively
 passes an exact duplicate; a `${uuid}` in that field becomes `${vars.tag}` so both steps send the
 same value, and each run then needs `-var tag=<fresh>`. When it says the value is trimmed of
-surrounding whitespace, it adds the value padded with spaces too. When the contract says nothing
-about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
+surrounding whitespace, it adds the value padded with spaces too. A negated phrase counts against:
+`no trimming`, `not trimmed`, `without trimming`, `case-sensitive`, `not ignoring case` add no
+variant, and a mention of whitespace that is not about trimming (`whitespace only is
+invalid_argument`) adds none either. Say it as data to leave no doubt: `unique: {case: ignore,
+trim: true}` (or `case: exact`, `trim: false`) on the failure wins over the prose. When the contract
+says nothing about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are
@@ -1027,7 +1039,19 @@ shrt run <name>                                  # a fresh receipt on today's bi
 shrt verify <name> -run <run-id>                 # does it still match the safe spot?
 ```
 
-After you touch it, the same two lines. When the replay ran against another target than the
+After you touch it, the same two lines.
+
+A refactor can also make a call slower without changing a byte of its answer. `verify` (and
+`shrt run` of a chain with a safe spot) compares each step's latency with the safe spot's run and
+prints `LATENCY: ListProducts at step list_products took 701ms, the safe spot's run 1ms (+700ms,
+701.0x); re-sent 2 more time(s), every answer slow: ...` when a step is at least 250ms slower and 3x
+as slow. A slow read is re-sent with the same request before it is judged, and judged on its fastest
+answer, so one slow call from a busy box is not reported; a write is never re-sent, and is confirmed
+only when the previous run of the chain was slow at the same step too. It is a warning: the exit code
+stays 0 unless `.shrt/config.yaml` sets `latency: {fail: true}`; tune `floor_ms`, `ratio` and
+`remeasure` there (`GRAMMAR.md` §4). `shrt verify <name> -latency` lists every step, before and after.
+
+Then read the report. When the replay ran against another target than the
 safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may
 then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead

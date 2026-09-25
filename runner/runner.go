@@ -347,12 +347,16 @@ func expiryOf(response any, path string) time.Time {
 }
 
 type Options struct {
-	Vars       map[string]any
-	Volatile   []string
-	Redact     []string
-	DryRun     bool
-	KeepGoing  bool
-	Build      string
+	Vars      map[string]any
+	Volatile  []string
+	Redact    []string
+	DryRun    bool
+	KeepGoing bool
+	Build     string
+
+	LatencySuspect func(stepID string, ms int64) bool
+	Remeasure      int
+
 	heldBack   map[int]string
 	principals map[string]string
 	chain      *chain.Chain
@@ -1265,6 +1269,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	sr.HTTPStatus = res.Status
 	sr.LatencyMS = res.Latency.Milliseconds()
+	if res.Error == nil {
+		sr.LatencyResent = r.remeasure(ctx, step, method.Procedure(), body, resolvedHeaders, opts, sr.LatencyMS)
+	}
 	if r.BuildHeader != "" && res.Header != nil {
 		sr.serverBuild = res.Header.Get(r.BuildHeader)
 	}
