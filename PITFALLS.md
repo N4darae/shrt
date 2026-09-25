@@ -2506,6 +2506,16 @@ lifetime is the roundest whole-second figure (a whole hour, minute, ten seconds,
 older shrt, or a token seeded from a response) is read as before. The early-refusal thresholds are
 unchanged.
 
+## 130. The slice `failed:` line printed object operands in Go map format
+
+**Symptom.** `chain slice -verify` printed an expectation on a whole message as
+`failed: order.lines.0 equals want=map[id_product:p-1 qty:2] source got=map[...]`, which is neither
+JSON nor what `verify` prints for the same values, and cannot be pasted back into a chain.
+
+**Fix.** 2026-09-25: an object or list operand on the slice's `failed:`, `failed in the slice only:`
+and blocked-expectation lines prints as compact JSON (`want={"id_product":"p-1","qty":2}`), as
+`verify` does; scalars print as before.
+
 ---
 
 # Decisions, so they are not relitigated
