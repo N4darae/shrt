@@ -858,9 +858,11 @@ difference is input, and it explains a response change only causally: at its own
 later step when its step is a write (not matched by `read_only_prefixes`) whose own response
 changed, since the write demonstrably did something different and the server state after it may
 differ; otherwise only at a later step that reads (through a reference or an export, transitively)
-a field of an earlier step whose response actually changed with an explanation of its own, or
-reads a request value of a step that changed. A step whose response did not change passes no
-explanation on: a header the backend ignores at `create_customer` explains nothing at
+a field of an earlier step whose value actually changed with an explanation of its own, or
+reads a request value of a step that changed. It is the field read that counts, not the step: a
+list that shrank from 2 items to 1 explains nothing at a step reading `${list.products.0.id_product}`
+when that id is the same product after renaming, so a change there is a `regression`. A step whose
+response did not change passes no explanation on: a header the backend ignores at `create_customer` explains nothing at
 `create_order`, which reads the unchanged customer id, while a changed `qty` at `create_order`
 changes its total, so it explains every later step, the stock reads of the product included. With a request difference the verdict is `drift with different input`, not
 `regression`, when every response change is explained this way; any other change is a

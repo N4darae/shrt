@@ -548,8 +548,10 @@ the old sku, is reported as `changed` with `want` the renamed value, even though
 Any other request difference is input and explains a response change only causally: at its own step;
 at every later step when its step is a write (not matched by `read_only_prefixes`) whose own response
 changed, since the server state after it may differ; otherwise only at a later step that reads (through a
-reference or an export, transitively) a field of an earlier step whose response changed and is itself
-explained, or reads a request value that changed; a step whose response did not change passes nothing on.
+reference or an export, transitively) a field of an earlier step whose value changed and is itself
+explained, or reads a request value that changed; a step whose response did not change passes nothing on,
+and neither does a changed response whose field the reader takes is the same after renaming (a list that
+shrank from 2 items to 1 while `products.0.id_product` is still the same product).
 When every response change is explained this way they are reported as coming with different input
 and verify fails with `drift with different
 input`; any other change fails verify with `regression`. A `-var` that changes no request value is not input.

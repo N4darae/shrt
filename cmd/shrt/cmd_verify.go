@@ -609,11 +609,12 @@ func chainReads(c *chain.Chain) map[string][]diff.Read {
 	if c == nil {
 		return nil
 	}
-	steps, exports := map[string]bool{}, map[string]string{}
+	steps, exports, exported := map[string]bool{}, map[string]string{}, map[string]string{}
 	for _, s := range c.Steps {
 		steps[s.ID] = true
-		for name := range s.Export {
+		for name, path := range s.Export {
 			exports[name] = s.ID
+			exported[name] = strings.TrimPrefix(path, "response.")
 		}
 	}
 	out := map[string][]diff.Read{}
@@ -628,7 +629,7 @@ func chainReads(c *chain.Chain) map[string][]diff.Read {
 			for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
 				ref := chain.ParseRef(m[1])
 				if name, ok := ref.ExportName(); ok && exports[name] != "" && !(ref.Kind == chain.RefBare && steps[ref.Head]) {
-					reads = append(reads, diff.Read{Step: exports[name]})
+					reads = append(reads, diff.Read{Step: exports[name], Path: exported[name]})
 					continue
 				}
 				id, ok := ref.StepID()
