@@ -1021,11 +1021,17 @@ A header named `X-Passphrase` (also `X-Passcode`, `X-Pwd`) was stored in clear i
 printed by `shrt diff` as `headers.X-Passphrase a=<value> b=<value>`, while `X-Credential` and
 `Proxy-Authorization` next to it were digested: `passphrase` is one word, and only `pass` split off
 by a separator was recognised. Since 2026-09-25 the rule is the one `GRAMMAR.md` states under
-`headers`: a name containing `token`, `secret`, `password`, `passwd`, `passphrase`, `passcode`,
-`auth`, `cookie`, `apikey`, `credential` or `privatekey`, or with a `-`/`_`/`.`-separated word such
-as `key`, `pass`, `pwd` or `pin`, is a credential header: digested when it reads only literals, vars
-and env, and its values scrubbed by value everywhere. A credential in a header named otherwise
-(`X-Magic: ${vars.pw}`) is not recognised by its name; read it from an env var named like one.
+`headers`: a name containing `password`, `passwd`, `passphrase`, `passcode`, `apikey`,
+`credential`, `privatekey` or `cookie`, or with a `-`/`_`/`.`-separated word such as `auth`,
+`token`, `secret`, `key`, `pass`, `pwd`, `pin` or `hmac`, is a credential header: digested when it
+reads only literals, vars and env, and its values scrubbed by value everywhere. A credential in a
+header named otherwise (`X-Magic: ${vars.pw}`) is not recognised by its name; read it from an env
+var named like one. Until 2026-09-25 `auth`, `token` and `secret` matched as substrings, so
+`X-Author`, `X-Authority-Region`, `X-Secretary` and `X-Tokens-Remaining` were digested and their
+values scrubbed out of every response (`customer.name` recorded as `author=<redacted>`, so verify
+never compared it), while `X-Hmac`, a signature, was stored in clear. They match as whole words
+now, a name whose last word is `id`, `remaining` or `count` (`X-Api-Key-Id`) is not a credential
+(`X-Session-Id` excepted), and `hmac` is one.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
