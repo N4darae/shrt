@@ -2330,6 +2330,16 @@ is rejected`. Several testers wrapped the loop in `grep -l vars.tag` by hand.
 name close to a var the chain reads (`namecase` distance of at most 2, or a third of the name) is
 still refused as a likely typo, naming the var it is close to.
 
+## 116. A batch probed with a refused middle line only
+
+**Symptom.** `add_stock_batch_partial` put the only refused line in the middle, with `qty: 0`, so a
+backend that validated all but the last line, or stopped at a refused first line, passed, and no
+plan sent a line naming an unknown product although the contract declares `ProductNotFound` per line.
+
+**Fix.** 2026-09-25: the batch also gets `<step>_partial_first`, `<step>_partial_last` and, for a
+per-line not-found failure, `<step>_unknown_id_product_line`; what only a refused line names is read
+before and after and must be unchanged, and what an applied line names must be what it reported.
+
 ---
 
 # Decisions, so they are not relitigated

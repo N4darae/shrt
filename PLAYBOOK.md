@@ -503,7 +503,14 @@ the last item again. It asserts the batch verdict, `results.0` and `results.2` o
 with the failure's code and reason, and no fourth result; then one read per resource the applied
 items touch asserts that the stored value is the one its last item reported
 (`product.qty_on_hand equals ${add_stock_batch_partial.results.2.qty_on_hand}`). A batch that stops at
-the refused item, applies it, or reports stale values for later items fails.
+the refused item, applies it, or reports stale values for later items fails. Two items more are
+planned with the refused one first (`<step>_partial_first`) and last (`<step>_partial_last`), and,
+when the contract declares a per-item not-found failure for an item's id, one whose last item names
+an id no record has (`<step>_unknown_id_product_line`, the real id with `-unknown` appended,
+expecting `ProductNotFound` on that item). Around each, what only a refused item names is read
+before and after and must be unchanged, and what an applied item names is read after and must be
+what it reported: a batch that validates only the middle item, stops at a refused first item, or
+applies an unknown id fails.
 
 An idempotency key is tested by replaying it. When a create target's request has a key field
 (`idempotency_key`, `idempotent…`, `dedup…`, `request_id`, `client_token`), the plan adds
