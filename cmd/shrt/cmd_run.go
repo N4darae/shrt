@@ -488,9 +488,8 @@ func neverRanLine(c *chain.Chain, rec *runner.Record) string {
 	if len(left) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("%d later step(s) were not run (%s): a run stops at its first failure, so whether they "+
-		"pass is unknown and this failure may not be the only one; run with -keep-going to see them",
-		len(left), capList(left, 10))
+	return fmt.Sprintf("%d later step(s) were not run (%s): this failure may not be the only one; run with -keep-going to see them",
+		len(left), capList(left, 3))
 }
 
 func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, finding bool) string {
