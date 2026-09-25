@@ -2106,6 +2106,22 @@ inside a `when:` that yielded some other probe was dropped without a word.
 an invalid_argument `when:` that names no field or no value the plan can build is named in a note
 with its failure and the exact wording the plan reads.
 
+## 98. A list that lost its newest item, reported as `orders.2 exists want=true`
+
+**Symptom.** A ListOrders that omitted the newest order failed the planned `list_orders` only with
+`orders.2 exists want=true got=false`: which order was missing had to be worked out by hand.
+
+**Cause.** The contract said `oldest first` (or `in creation order`), which the order parser did
+not read, and the fixtures had no field to vary, so the plan fell back to a count. No rule could
+assert that a list holds an item wherever it sits.
+
+**Fix.** 2026-09-25: `oldest first`, `earliest first`, `in creation order`, `insertion order` and
+`chronologically` state creation order, which is asserted position by position by id
+(`orders.2.id_order equals ${create_order_3.order.id_order}`) even when nothing else can be varied.
+A new expectation rule, `includes`, holds when some item of a list matches the fields it names; a
+list with no stated order, or one the backend's other records share, asserts each fixture by id
+with it, beside the count.
+
 ---
 
 # Decisions, so they are not relitigated

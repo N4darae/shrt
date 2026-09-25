@@ -312,9 +312,11 @@ it creates THREE items whose candidate sort keys disagree: the prefix field the 
 `price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an
 order assertion can only pass on the key the backend really sorts by. Fixtures whose names sort
 like their skus pass a backend sorting by name. When the list's contract states an order
-(`sorted by sku`, `newest first` in its summary or in `exports:` for the list), the plan asserts
-each position by id; when it states none, it asserts only the count and says how to have the
-order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+(`sorted by sku`, `newest first`, `oldest first`, `in creation order` in its summary or in
+`exports:` for the list), the plan asserts each position by id, creation order even when the
+fixtures have no field to vary; when it states none, it asserts the count and each fixture's
+membership by id (`path: orders` `includes: {id_order: ${create_order_2.order.id_order}}`), so a
+missing item is named, and says how to have the order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
 `chain lint` names a step that asserts positions of a list whose items sort alike under two or more
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,

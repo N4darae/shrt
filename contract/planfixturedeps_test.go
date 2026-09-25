@@ -165,3 +165,47 @@ func TestAnInvalidArgumentClauseThePlanCannotReadIsNamedInANote(t *testing.T) {
 		t.Fatalf("a note names the clause no probe was built for, the failure and the wording read:\n%s", notes)
 	}
 }
+
+func TestAListInCreationOrderAssertsEachFixtureByIdAtItsPosition(t *testing.T) {
+	for _, summary := range []string{"List a customer's orders oldest first.", "List a customer's orders in creation order."} {
+		p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+			if c := rpcs["shop.orders.v1.OrderService/ListOrders"]; c != nil {
+				c.Summary = summary
+				c.Exports = nil
+			}
+		}, "ListOrders")
+		list := planStep(t, p, "list_orders")
+		for i, id := range []string{"create_order", "create_order_2", "create_order_3"} {
+			wantExpect(t, list, "orders."+string(rune('0'+i))+".id_order", "${"+id+".order.id_order}")
+		}
+		wantExists(t, list, "orders.3", false)
+		if strings.Contains(text, "exists: true") && strings.Contains(strings.Join(p.Notes, "\n"), "no scalar field shrt could vary") {
+			t.Fatalf("%q: creation order is stated, so the positions are asserted:\n%s", summary, text)
+		}
+	}
+}
+
+func TestAListWithNoStatedOrderAssertsEachFixtureIsAMember(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.orders.v1.OrderService/ListOrders"]; c != nil {
+			c.Summary = "List a customer's orders."
+			c.Exports = nil
+		}
+	}, "ListOrders")
+	list := planStep(t, p, "list_orders")
+	found := map[string]bool{}
+	for _, e := range list.Expect {
+		if m, ok := e.Includes.(map[string]any); ok && e.Path == "orders" {
+			found[m["id_order"].(string)] = true
+		}
+		if strings.HasPrefix(e.Path, "orders.0.") {
+			t.Fatalf("no order is stated, so no position is asserted:\n%s", text)
+		}
+	}
+	for _, id := range []string{"create_order", "create_order_2", "create_order_3"} {
+		if !found["${"+id+".order.id_order}"] {
+			t.Fatalf("list_orders includes %s by id:\n%s", id, text)
+		}
+	}
+	wantExists(t, list, "orders.3", false)
+}

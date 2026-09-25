@@ -120,9 +120,10 @@ func assertLowerBound(st *chain.Step, listPath string) {
 
 func (p *Plan) noteUnscopedList(t *listTarget, n int) {
 	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath + "." + itoa(n-1), Exists: boolPtr(true)})
+	p.assertMembers(t)
 	p.note("step %s: nothing in its request scopes %s to what this run created (no field reads a var, a step or a "+
-		"generator), so it lists whatever else the backend holds too: the plan asserts at least %d item(s) and no "+
-		"position or exact count, which would fail on the second run. Give the list a filter the fixtures share "+
-		"(a prefix built from ${vars.tag}) in the contract's value: to have the order and the count asserted",
-		t.step.ID, t.listPath, n)
+		"generator), so it lists whatever else the backend holds too: the plan asserts at least %d item(s) and that each "+
+		"fixture is among them by id (includes:), and no position or exact count, which would fail on the second run. "+
+		"Give the list a filter the fixtures share (a prefix built from ${vars.tag}) in the contract's value: to have "+
+		"the order and the count asserted", t.step.ID, t.listPath, n)
 }

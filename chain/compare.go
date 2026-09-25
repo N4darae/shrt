@@ -14,7 +14,7 @@ type Within struct {
 }
 
 func (e Expectation) Operands() []any {
-	out := []any{e.Equals, e.NotEqual, e.Contains, e.Gt, e.Gte, e.Lt, e.Lte}
+	out := []any{e.Equals, e.NotEqual, e.Contains, e.Includes, e.Gt, e.Gte, e.Lt, e.Lte}
 	out = append(out, e.Between...)
 	if e.Within != nil {
 		out = append(out, e.Within.Of, e.Within.By)
@@ -30,6 +30,7 @@ func (e Expectation) MapOperands(f func(any) any) Expectation {
 	out := e
 	out.Equals = f(e.Equals)
 	out.NotEqual = f(e.NotEqual)
+	out.Includes = f(e.Includes)
 	if text, ok := f(e.Contains).(string); ok {
 		out.Contains = text
 	}
