@@ -41,7 +41,7 @@ func saveFreshRefusedAtCreate(t *testing.T, e *env, base *runner.Record, id stri
 	}
 }
 
-func TestAFirstUseRefusalRepeatedAtTheSameRPCIsAFinding(t *testing.T) {
+func TestAWriteRefusedWithAJustIssuedTokenAndNotResentStaysCouldNotVerifyOnARepeat(t *testing.T) {
 	srv := newEchoNameBackend()
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -81,13 +81,10 @@ func TestAFirstUseRefusalRepeatedAtTheSameRPCIsAFinding(t *testing.T) {
 	out = captureStdout(t, func() {
 		err = runVerify(ctx, []string{"cli-thing-flow", "-quiet", "-run", "20990101T000001Z-fresh2"})
 	})
-	if err == nil || errors.As(err, &coded) {
-		t.Fatalf("a first-use refusal repeated at the same rpc is a finding, exit 1: %v\n%s", err, out)
+	if !errors.As(err, &coded) || coded.code != 3 || strings.Contains(out, "FINDING") {
+		t.Fatalf("the write was never re-sent with a fresh token, so a restart between the login and the call explains it in both runs: exit 3, no finding: %v\n%s", err, out)
 	}
-	if !strings.Contains(err.Error(), "auth refused at ThingService/Create") || !strings.Contains(err.Error(), "20990101T000000Z-fresh1") {
-		t.Fatalf("the finding must name the rpc and the earlier run refused the same way: %v", err)
-	}
-	if !strings.Contains(out, "FINDING: ") {
-		t.Fatalf("verify prints the finding line:\n%s", out)
+	if !strings.Contains(err.Error(), "not re-sent") {
+		t.Fatalf("say why a repeat is no finding here: %v", err)
 	}
 }

@@ -46,7 +46,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     backend refused a token a login in this run had just issued, on its first use (a read re-sent\n" +
 	"     after a fresh login and refused again counts, and is not called a restart), the\n" +
 	"     credentials work and it says this may be an auth regression (exit 1 as a finding when the\n" +
-	"     previous run that sent that step was refused there the same way); or the first failing step\n" +
+	"     call was re-sent after a fresh login and the previous run that sent that step was refused\n" +
+	"     there the same way, re-sent too; a write refused with a just-issued token is not re-sent, so\n" +
+	"     a restart between the login and the call explains it and a repeat stays exit 3); or the first failing step\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
 	"     and nothing drifted before it, the descriptor being stale or the body carrying fields the\n" +
 	"     proto does not declare\n" +
@@ -231,6 +233,9 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
 				"so the credentials work: this may be an auth regression", unansweredStep)
 			notVerdict = "re-run to confirm: a repeat at the same step is a finding"
+			if st, _ := rec.Step(unansweredStep); st.AuthRetry != runner.AuthRetryResent {
+				notVerdict = "it was not re-sent, so a restart between the login and the call explains it too"
+			}
 		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
@@ -930,6 +935,14 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 			"not judged, since the unanswered call may explain it", answered)
 	}
 	for _, st := range rec.Steps {
+		if st.ID == step && runner.RefusedFreshToken(st) && st.AuthRetry != runner.AuthRetryResent {
+			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
+				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
+				"not a problem with the credentials. Nothing before it drifted, and %s. It was not re-sent (not a read), so a "+
+				"restart between the login and this call explains it as well, and a repeat is not reported as a finding: only a "+
+				"call re-sent after a fresh login and refused again is. The step record says what was tried (auth_retry, error); "+
+				"re-run verify", name, step, why, past)
+		}
 		if st.ID == step && runner.RefusedFreshToken(st) {
 			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
 				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+

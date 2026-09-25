@@ -408,9 +408,11 @@ credentials work, so the step's error and `verify` both say it `may be an auth r
 backend with that evidence, instead of pointing at the credentials, and `verify` leads with that,
 never with a restart, even when the first token had been accepted earlier in the run: a restart
 explains a refused old token, not a refused fresh one. It still exits 3; re-run. When the
-previous run that sent the step was refused there the same way, each time with the token its own
-login had just issued, `run` and `verify` print `auth refused at <rpc> ... a finding about the
-backend` and exit 1. A cached token refused and re-sent after a fresh login that is refused too
+previous run that sent the step was refused there the same way, each time on a call re-sent with
+the token its own login had just issued, `run` and `verify` print `auth refused at <rpc> ... a
+finding about the backend` and exit 1. A write refused with a token just issued was never re-sent,
+so a restart between the login and the call explains it as well (two restarts timed that way in
+two runs look the same), and a repeat of that stays exit 3. A cached token refused and re-sent after a fresh login that is refused too
 does not blame the cache: its warning says a stale cached token does not explain the refusal. A token the backend accepted on earlier calls of this run and then
 refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
 error and `verify`'s `WARNING` say so and it exits 3, whether the token came from a login in this
