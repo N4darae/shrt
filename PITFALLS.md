@@ -1576,6 +1576,39 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. A session that ends early, provable only with a 14,001-step chain
+
+**Symptom.** A backend that ends sessions 20s after Login although Login says `expires_at` is an
+hour ahead showed only `WARNING: token refused 20s after issue ...` for any chain that runs in under
+20s. The tester reached the `FINDING` only by writing a 14,001-step read chain that kept one token
+alive past 20s, and past 40s for the re-login's token.
+
+**Cause.** Nothing in a chain could let time pass: every step is sent as soon as the previous one
+is answered.
+
+**Fix.** 2026-09-25: a step's `wait:` (GRAMMAR §1, at most 10m) holds it that long before it is
+sent, outside its latency. Two held reads after any authenticated step reach the finding in one
+short run:
+
+```yaml
+    - id: read_after_25s
+      call: shop.catalog.v1.ProductService/GetProduct
+      wait: 25s
+      body: {id_product: ${create_product.product.id_product}}
+      expect: [{path: status.code, equals: SUCCESS}]
+    - id: read_after_50s
+      call: shop.catalog.v1.ProductService/GetProduct
+      wait: 25s
+      body: {id_product: ${create_product.product.id_product}}
+      expect: [{path: status.code, equals: SUCCESS}]
+```
+
+The first held read's token is refused early and re-sent after a fresh login; the second holds that
+fresh token past its real lifetime too, and the run prints `FINDING: token refused 25s after issue
+... and the fresh token the re-login issued was refused 25s after issue ...`, exit 1. Against a
+backend that keeps its sessions the same chain passes. Pick a wait longer than the lifetime you
+suspect and shorter than the one the login states.
+
 ---
 
 # Decisions, so they are not relitigated
@@ -1595,3 +1628,10 @@ with two working alternatives beats a clever resolver with a new silent-failure 
 nothing to notice — 46 duplicated rows across three files at the time of the sweep. They now point
 at the generated table. Prose, rationale and worked examples stay where they were; only the key
 enumerations moved.
+
+**`contract plan` does not emit a session-length probe for the login rpc** (2026-09-25). A login
+whose response declares an expiry could get a planned chain that holds a token with `wait:`. It was
+rejected: the wait that proves anything has to outlast the lifetime you suspect, which the contract
+does not know, and a planned wait of even 25s lands in every gate that runs every planned chain. A
+session probe is a deliberate, slow chain an agent writes when a `WARNING: token refused` line
+points at one (PITFALLS 65 has the two-step pattern), and keeps out of the per-commit gate.

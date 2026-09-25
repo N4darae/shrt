@@ -684,6 +684,10 @@ chain also had a token refused early after it was accepted in that run; either r
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
 between runs explains it: the CI gate counts these lines (README).
+To settle a single `WARNING: token refused` in one run instead of two, write a short chain whose
+reads carry `wait:` longer than the lifetime the warning suggests (two held reads: the first
+token's refusal and the re-login's), which prints the `FINDING` against a backend that ends
+sessions early and passes against one that does not (PITFALLS 65).
 
 A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
 is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same

@@ -117,6 +117,7 @@ type StepRecord struct {
 	HTTPStatus    int                      `json:"http_status,omitempty"`
 	LatencyMS     int64                    `json:"latency_ms"`
 	LatencyResent []int64                  `json:"latency_resent_ms,omitempty"`
+	WaitedMS      int64                    `json:"waited_ms,omitempty"`
 	Request       json.RawMessage          `json:"request,omitempty"`
 	BodyRefs      map[string]string        `json:"body_refs,omitempty"`
 	Headers       map[string]string        `json:"headers,omitzero"`

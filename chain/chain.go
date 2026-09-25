@@ -3,6 +3,7 @@ package chain
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/N4darae/shrt/namecase"
 )
@@ -36,6 +37,26 @@ type Step struct {
 	AllowFail   bool              `yaml:"allow_fail,omitempty" json:"allow_fail,omitempty"`
 	Volatile    []string          `yaml:"volatile,omitempty" json:"volatile,omitempty"`
 	Unordered   []string          `yaml:"unordered,omitempty" json:"unordered,omitempty"`
+	Wait        string            `yaml:"wait,omitempty" json:"wait,omitempty"`
+}
+
+const MaxWait = 10 * time.Minute
+
+func (s *Step) WaitFor() (time.Duration, error) {
+	if strings.TrimSpace(s.Wait) == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(s.Wait))
+	if err != nil {
+		return 0, fmt.Errorf("wait %q is not a duration such as 25s or 2m", s.Wait)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("wait %q must be longer than zero", s.Wait)
+	}
+	if d > MaxWait {
+		return 0, fmt.Errorf("wait %q is longer than the %s a step may wait", s.Wait, MaxWait)
+	}
+	return d, nil
 }
 
 type Pin struct {
@@ -76,6 +97,9 @@ func (c *Chain) Normalize() error {
 		}
 		if seen[s.ID] {
 			return fmt.Errorf("duplicate step id %q", s.ID)
+		}
+		if _, err := s.WaitFor(); err != nil {
+			return fmt.Errorf("step %q: %w", s.ID, err)
 		}
 		seen[s.ID] = true
 	}

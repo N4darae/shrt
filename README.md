@@ -235,6 +235,10 @@ profile in one gate fail it: the second token was issued during this gate, so a 
 not explain both (a restart during the gate, on top of a deploy before it, would; re-run the gate
 to tell). A run that sees the re-login's own token refused early too, or the same early refusal as
 the chain's previous run, exits 1 with `FINDING: token refused ...` by itself.
+To prove it in one short run instead, hold a token past the lifetime you suspect with a step's
+`wait:` (GRAMMAR §1, at most 10m, never counted as latency): two held reads after the login, each
+waiting longer than that lifetime, reach the `FINDING` (PITFALLS 65). `contract plan` does not write
+such a chain; keep it out of the per-commit gate, since its waits are its runtime.
 
 A slowdown fails the gate only through `verify`, and only with `latency: {fail: true}` in the
 config, which `shrt init` writes into every config it creates. Without it a step 700 times slower
