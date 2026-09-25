@@ -1655,6 +1655,18 @@ writes before the list that take its id and whose contract names the state they 
 fixture already moved is expected in that state; the fixtures not yet moved fill the states still
 missing (the initial one first), and a note names the fixtures that were moved.
 
+## 71. A GetProduct that answers SUCCESS for an id nobody created, green in the planned chain
+
+**Symptom.** A GetProduct that returned `SUCCESS` with an empty product for an unknown id, instead
+of `1204 ProductNotFound`, passed every planned chain: each one read only ids the chain had just
+created.
+
+**Fix.** 2026-09-25: for each planned target taking an id (a field wired with `from:`, not
+`checked_by: none`) whose contract declares a not-found failure for it (a reason such as
+`ProductNotFound`, or a `when:` such as "no product has this id"), `contract plan` adds
+`<step>_unknown_<field>`, sending the real id with `-unknown` appended (so a format check still
+passes) and expecting that failure.
+
 ---
 
 # Decisions, so they are not relitigated

@@ -139,6 +139,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeIdempotency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeUnknownIDs(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeRoleParity(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.satisfyNeeds(lib)
