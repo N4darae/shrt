@@ -24,7 +24,7 @@ import (
 
 type sliceProgress struct{ verify, sent bool }
 
-const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>]] [-json]"
+const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>] [-resend-writes]] [-json]"
 
 const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"  0  the slice was printed or written\n" +
@@ -35,7 +35,7 @@ const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"  1  NOT REPRODUCED; a flag that cannot be parsed exits 1 in either mode\n" +
 	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
 	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
-	"     a missing or not-fresh -var name=<fresh>), so nothing was verified\n" +
+	"     a missing or not-fresh -var name=<fresh>, a pinned write without -resend-writes), so nothing was verified\n" +
 	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s), or the source run was\n" +
 	"     recorded against another target than the config's (under -mode pin nothing is sent then)\n"
 
@@ -55,6 +55,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	mode := fs.String("mode", chain.SliceModeClosure, "closure (rebuild every producer) or pin (pin values from a run record)")
 	runID := fs.String("run", "", "run record id or 'latest', required by -mode pin and -verify")
 	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record")
+	resend := fs.Bool("resend-writes", false, "with -verify under -mode pin, send a kept write step that acts on an entity the source run created (a confirm of its order) anyway; without it -verify refuses, since the send changes that entity")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	build := fs.String("build", "", "with -verify, "+buildFlagUsage+"; the verdict names the build the slice run held on")
 	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step, or a VERIFIED slice this one differs from")
@@ -145,6 +146,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if *verify {
 		if err := freshVarsError(res, c, rec, vars); err != nil {
 			return err
+		}
+		if pinned := pinnedWrites(res); len(pinned) > 0 && !*resend {
+			return pinnedWritesError(res, pinned, closureCommand(c, *step, opts, res, vars))
 		}
 	}
 
@@ -265,6 +269,12 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		printSliceHeader(res)
 	}
 	printSlice(res, written, verdict)
+	if pinned := pinnedWrites(res); len(pinned) > 0 && verdict == nil && !*resend {
+		fmt.Printf("\nWARNING: running this slice re-sends write step(s) on what run %s created: %s.\n"+
+			"  That run already did those writes, so the send changes live entities a second time and answers for a second\n"+
+			"  write, not the first. To reproduce a write, slice in closure mode: %s\n",
+			res.Run, strings.Join(pinned, "; "), closureCommand(c, *step, opts, res, vars))
+	}
 	if written != "" {
 		fmt.Print(sweepNote(e, written, res.Chain.Name))
 	}
@@ -1300,4 +1310,69 @@ func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 		usable = append(usable, id)
 	}
 	return usable, blocked
+}
+
+func pinnedWrites(res *chain.SliceResult) []string {
+	if res.Mode != chain.SliceModePin || res.Chain == nil || len(res.Pins) == 0 {
+		return nil
+	}
+	out := []string{}
+	for _, st := range res.Chain.Steps {
+		if chain.IsReadOnlyCall(st.Call) {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{"body": st.Body, "headers": st.Headers})
+		if err != nil {
+			continue
+		}
+		used := []string{}
+		for _, p := range res.Pins {
+			if strings.Contains(string(raw), "${vars."+p.Var+"}") {
+				used = append(used, fmt.Sprintf("%s=%v", p.Ref, p.Value))
+			}
+		}
+		if len(used) > 0 {
+			out = append(out, fmt.Sprintf("%s (%s) on %s", st.ID, shortCall(st.Call), strings.Join(used, ", ")))
+		}
+	}
+	return out
+}
+
+func closureCommand(c *chain.Chain, step string, opts chain.SliceOptions, res *chain.SliceResult, vars varFlags) string {
+	parts := []string{"shrt chain slice", res.Source, "-step", res.Target, "-keep", chain.SliceKeepWrites}
+	if res.Run != "" {
+		parts = append(parts, "-run", res.Run)
+	}
+	o := opts
+	o.Mode, o.Keep = chain.SliceModeClosure, []string{chain.SliceKeepWrites}
+	names := map[string]bool{}
+	if next, err := chain.Slice(c, step, o); err == nil {
+		for _, n := range next.FreshVars {
+			names[n] = true
+		}
+	}
+	for k := range vars {
+		names[k] = true
+	}
+	sorted := make([]string, 0, len(names))
+	for k := range names {
+		sorted = append(sorted, k)
+	}
+	sort.Strings(sorted)
+	for _, k := range sorted {
+		value := "<fresh>"
+		if v, given := vars[k]; given {
+			value = fmt.Sprint(v)
+		}
+		parts = append(parts, "-var", k+"="+value)
+	}
+	return strings.Join(parts, " ") + " -verify"
+}
+
+func pinnedWritesError(res *chain.SliceResult, pinned []string, closure string) error {
+	return fmt.Errorf("refusing to -verify: under -mode pin the slice re-sends write step(s) on what run %s created: %s.\n"+
+		"That run already did those writes, so sending them changes live entities a second time (the order it confirmed, say) "+
+		"and the verdict is that of a second write, not the one recorded.\n"+
+		"Reproduce it in closure mode, which creates what the write needs afresh: %s\n"+
+		"or pass -resend-writes to send it anyway", res.Run, strings.Join(pinned, "; "), closure)
 }

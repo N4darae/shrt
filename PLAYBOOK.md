@@ -1303,7 +1303,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    still counts as a dropped write, so a matching verdict is INCONCLUSIVE and `next:` keeps it
    together with the producers it needs, building fresh state. A prerequisite the run did not
    perform, or refused, is kept and sent as in closure mode, and so is a read, which changes
-   nothing. `-keep <id>` keeps it anyway. A var the kept steps read that the
+   nothing. `-keep <id>` keeps it anyway. The same holds for the target itself: a kept write
+   whose body reads a pinned value (`ConfirmOrder` on the pinned `id_order`) acts on what the
+   source run created and already changed, so re-sending it changes live data and answers for a
+   second write (`OrderAlreadyConfirmed`). The printed slice says so in a `WARNING`, and
+   `-verify` refuses before sending (exit 2), naming the closure command
+   (`-keep writes -run <id> -var tag=<fresh> -verify`); `-resend-writes` sends it anyway. A var the kept steps read that the
    chain does not declare (one you passed with `-var` at run time) is taken from `-var`, else in pin
    mode from the source run's `vars`, and written into the slice's `vars:`. A var the chain
    declares is written with the value the source run used, not the default, in pin mode when no
