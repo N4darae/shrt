@@ -1617,6 +1617,26 @@ before and after to assert nothing moved. For a not-found failure (a reason with
 reported on one line of a batch is left to the batch probe. A state no write in the contracts says
 it reaches gets a note instead.
 
+## 67. Malformed requests nobody sent, and validation nobody ordered
+
+**Symptom.** Blind testers wrote by hand the requests a contract already called invalid: an order
+with no lines or a qty-0 line, an email without `@`, a blank sku or name, an empty batch, an empty
+id, plus the same malformed order for an unknown customer to see whether validation ran before the
+lookup. `shrt contract plan` planned none of them.
+
+**Cause.** The plan read `connect_code: invalid_argument` failures only to name them; nothing
+turned their `when:` into a request.
+
+**Fix.** 2026-09-25: each `invalid_argument` failure's `when:` is split into clauses (`,`, `;`,
+`or`), and each clause that names a field (by its name, or an item field of a repeated one: `a line
+has qty zero`) and a value the plan can build becomes a probe: empty (`""`, or `[]` for a list),
+only whitespace, zero, negative, or the current value without its `@` (`create_order_lines_empty`,
+`create_order_qty_zero` on the last line, `create_product_sku_blank`, `create_customer_email_no_at`).
+Each expects `transport.code equals invalid_argument`, and a copy with every other reference
+pointed at an id nothing created (`..._unknown_refs`) expects the same, so a handler that looks up
+before it validates fails. A `when:` the plan cannot turn into a value, a `required:` field no such
+failure covers, and a contract that declares neither get a note; the plan does not guess.
+
 ---
 
 # Decisions, so they are not relitigated

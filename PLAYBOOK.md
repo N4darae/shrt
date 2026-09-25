@@ -363,6 +363,15 @@ has this id`, `a line names an unknown product`) matched to a `from:` field gets
 nothing created (`confirm_order_unknown_id_order`, `create_order_unknown_id_product` on the last
 line), expecting exactly that code. A state no write reaches gets a note instead of a probe.
 
+A failure with `connect_code: invalid_argument` is turned into malformed requests from its `when:`:
+each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
+only whitespace, zero, negative, no `@`) becomes a probe expecting `transport.code equals
+invalid_argument` (`create_order_lines_empty`, `create_order_qty_zero` on the last line,
+`create_customer_email_no_at`). A copy with the other references pointed at ids nothing created
+(`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
+before any lookup. When nothing declares a required field or a format, the plan says so and plans
+none: it does not guess what the handler validates.
+
 When the config declares auth, the plan also probes who may call. For a target whose contract names
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares

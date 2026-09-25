@@ -146,6 +146,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.isolating(lib, "items", func() { p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "state", func() { p.probeStateRefusals(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "unknown", func() { p.probeLookupRefusals(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
+	p.isolating(lib, "shape", func() { p.probeShapes(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.satisfyNeeds(lib)
 	p.echoNumbers()
 	p.assertOutcomes(lib)
