@@ -10,11 +10,6 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var (
-	lookupNotFoundReason = regexp.MustCompile(`NotFound|Unknown|NoSuch|DoesNotExist|Missing[A-Z]`)
-	lookupNotFoundWhen   = regexp.MustCompile(`(?i)\bno \w+ (?:has|with|matches|named)\b|\bunknown\b|\bdoes not exist\b|\bnot found\b|\bnames no\b|\bno such\b`)
-)
-
 type stateEntity struct {
 	field    string
 	producer *chain.Step
@@ -180,108 +175,6 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 		"%s, the reads around it asserting the %s and what it holds unchanged: a backend that answers another code, or "+
 		"acts on the %s anyway, fails", st.ID, f.Label(), withArticle(e.carrier), short[move.value], fixture.ID, e.carrier, moved.ID,
 		refused.ID, f.Label(), e.carrier, e.carrier)
-}
-
-func (p *Plan) probeLookupRefusals(lib *Library, isTarget func(*chain.Step) bool) {
-	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || p.isLogin(st.Call) {
-			continue
-		}
-		c, ok := lib.Get(st.Call)
-		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
-		failures := []Failure{}
-		for _, f := range lib.AllFailures(st.Call) {
-			if probeable(f) && f.Code != 0 && (lookupNotFoundReason.MatchString(f.Reason) || lookupNotFoundWhen.MatchString(f.When)) {
-				failures = append(failures, f)
-			}
-		}
-		if len(failures) == 0 {
-			continue
-		}
-		lookups := []string{}
-		for _, name := range sortedFieldNames(c.Fields) {
-			if f := c.Fields[name]; f != nil && f.From != "" {
-				lookups = append(lookups, name)
-			}
-		}
-		for _, name := range lookups {
-			ref, err := ParseRef(c.Fields[name].From)
-			if err != nil {
-				continue
-			}
-			f, found := lookupFailure(failures, name, ref, len(lookups) == 1)
-			if !found {
-				continue
-			}
-			p.addLookupRefusal(lib, st, m, name, f)
-		}
-	}
-}
-
-func lookupFailure(failures []Failure, field string, ref Ref, only bool) (Failure, bool) {
-	for _, f := range failures {
-		if f.Field != "" && stripIndexes(f.Field) == stripIndexes(field) {
-			return f, true
-		}
-	}
-	noun := namecase.Fold(chain.SplitPath(ref.Path)[0])
-	for _, f := range failures {
-		if f.Field != "" {
-			continue
-		}
-		if noun != "" && (strings.Contains(namecase.Fold(f.Reason), noun) || regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(noun)+`\b`).MatchString(f.When)) {
-			return f, true
-		}
-	}
-	if only && len(failures) == 1 && failures[0].Field == "" {
-		return failures[0], true
-	}
-	return Failure{}, false
-}
-
-func (p *Plan) addLookupRefusal(lib *Library, st *chain.Step, m *catalog.Method, field string, f Failure) {
-	if _, planned := p.Chain.Step(st.ID + "_unknown_" + leafName(field)); planned {
-		return
-	}
-	segs := chain.SplitPath(field)
-	path := field
-	if len(segs) > 1 {
-		key, ok := namecase.LookupKey(st.Body, segs[0])
-		list, isList := st.Body[key].([]any)
-		if !ok || !isList || len(list) == 0 {
-			return
-		}
-		path = fmt.Sprintf("%s.%d.%s", key, len(list)-1, strings.Join(segs[1:], "."))
-	}
-	cur, ok := bodyValue(st.Body, path)
-	if !ok {
-		return
-	}
-	if _, isText := cur.(string); !isText {
-		return
-	}
-	probe := copyStep(st, p.freeStepID(st.ID+"_unknown_"+leafName(field)))
-	probe.Export = nil
-	if !chain.IsReadOnlyCall(st.Call) {
-		p.freshen(lib, probe)
-	}
-	unknown := "no-such-" + strings.ReplaceAll(leafName(field), "_", "-")
-	setBodyPath(probe.Body, path, unknown)
-	probe.Expect = refusalOf(m, f)
-	probe.Description = fmt.Sprintf("%s names nothing that exists: refused with %s (%s).", path, f.Label(), strings.TrimSpace(f.When))
-	steps := []*chain.Step{probe}
-	if !chain.IsReadOnlyCall(st.Call) && len(referencedSteps(probe.Body)) > 0 {
-		steps = p.guardUnchanged(lib, steps, probe.ID)
-	}
-	p.Chain.Steps = append(p.Chain.Steps, steps...)
-	p.note("step %s: %s sends %s = %q, an id nothing created, and expects exactly %s: a backend that answers another code, "+
-		"or accepts the reference, fails", st.ID, probe.ID, path, unknown, f.Label())
 }
 
 func refusalOf(m *catalog.Method, f Failure) []chain.Expectation {

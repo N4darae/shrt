@@ -40,7 +40,7 @@ func TestPlanDrivesTheEntityIntoEachStateItsContractRefuses(t *testing.T) {
 		wantExpect(t, planStep(t, p, "get_product_after_"+tc.refused), "product.qty_on_hand", "${get_product_before_"+tc.refused+".product.qty_on_hand}")
 	}
 	unknown := planStep(t, p, "confirm_order_unknown_id_order")
-	if got := bodyAt(t, unknown, "id_order"); got != "${create_order.order.id_order}-unknown" {
+	if got := bodyAt(t, unknown, "id_order"); !realIDMadeUnknown(got, "${create_order.order.id_order}") {
 		t.Fatalf("the unknown-order probe sends an id nothing created, got %q", got)
 	}
 	wantExpect(t, unknown, "status.details.0.app_code", 1302)
@@ -60,15 +60,15 @@ func TestPlanRefusesEachUnknownReferenceWithTheCodeItsContractNames(t *testing.T
 	p, text, _ := shopDemoPlan(t, "CreateOrder")
 	customer := planStep(t, p, "create_order_unknown_id_customer")
 	wantExpect(t, customer, "status.details.0.app_code", 1301)
-	if got := bodyAt(t, customer, "id_customer"); got != "${create_customer.customer.id_customer}-unknown" {
+	if got := bodyAt(t, customer, "id_customer"); !realIDMadeUnknown(got, "${create_customer.customer.id_customer}") {
 		t.Fatalf("id_customer names no customer, got %s", got)
 	}
 	product := planStep(t, p, "create_order_unknown_id_product")
 	wantExpect(t, product, "status.details.0.app_code", 1204)
-	if got := bodyAt(t, product, "lines.1.id_product"); strings.Contains(got, "${") {
+	if got := bodyAt(t, product, "lines.1.id_product"); !realIDMadeUnknown(got, "${create_product_2.product.id_product}") {
 		t.Fatalf("the last line names no product, got %s:\n%s", got, text)
 	}
-	if got := bodyAt(t, product, "lines.0.id_product"); !strings.Contains(got, "${") {
+	if got := bodyAt(t, product, "lines.0.id_product"); !strings.Contains(got, "${") || strings.HasSuffix(got, "-unknown") {
 		t.Fatalf("the first line keeps a real product, got %s", got)
 	}
 

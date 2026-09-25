@@ -16,7 +16,7 @@ func TestPlanProbesEachIDTakingRPCWithAnIDNoRecordHas(t *testing.T) {
 	} {
 		p, text, notes := shopDemoPlan(t, c.target)
 		probe := planStep(t, p, c.step)
-		if got := bodyAt(t, probe, c.field); got != c.ref+"-unknown" {
+		if got := bodyAt(t, probe, c.field); !realIDMadeUnknown(got, c.ref) {
 			t.Fatalf("%s: the probe sends a real id made unknown, got %s:\n%s", c.target, got, text)
 		}
 		wantExpect(t, probe, "status.details.0.reason", c.reason)
@@ -28,4 +28,66 @@ func TestPlanProbesEachIDTakingRPCWithAnIDNoRecordHas(t *testing.T) {
 	if _, ok := p.Chain.Step("list_orders_unknown_id_customer"); ok {
 		t.Fatalf("ListOrders declares no not-found failure for id_customer (checked_by: none), so no probe is guessed:\n%s", text)
 	}
+}
+
+func realIDMadeUnknown(got, ref string) bool {
+	if got == ref+"-unknown" {
+		return true
+	}
+	producer, path, ok := strings.Cut(strings.TrimSuffix(strings.TrimPrefix(ref, "${"), "}"), ".")
+	return ok && got == "${"+producer+"_for_unknown."+path+"}-unknown"
+}
+
+func TestPlanSendsEachUnknownIDOnceWithReadsAroundAWrite(t *testing.T) {
+	for _, targets := range [][]string{
+		{"GetCustomer"},
+		{"CreateOrder", "ConfirmOrder", "CancelOrder", "FetchOrder", "ListOrders"},
+		{"CancelOrder", "AddStock"},
+	} {
+		p, text, _ := shopDemoPlan(t, targets...)
+		seen := map[string]bool{}
+		probed := map[string]string{}
+		for _, st := range p.Chain.Steps {
+			if seen[st.ID] {
+				t.Fatalf("%v: step id %s planned twice:\n%s", targets, st.ID, text)
+			}
+			seen[st.ID] = true
+			if strings.HasSuffix(st.ID, "_unknown_refs") {
+				continue
+			}
+			for _, path := range unknownPaths(st.Body, "") {
+				key := st.Call + " " + path
+				if other, dup := probed[key]; dup {
+					t.Fatalf("%v: %s and %s both send an unknown %s to %s", targets, other, st.ID, path, st.Call)
+				}
+				probed[key] = st.ID
+			}
+		}
+	}
+	p, _, notes := shopDemoPlan(t, "AddStock")
+	planStep(t, p, "get_product_before_add_stock_unknown_id_product")
+	after := planStep(t, p, "get_product_after_add_stock_unknown_id_product")
+	wantExpect(t, after, "product.qty_on_hand", "${get_product_before_add_stock_unknown_id_product.product.qty_on_hand}")
+	if strings.Count(notes, "add_stock_unknown_id_product (") != 1 {
+		t.Fatalf("one note names the one unknown-id probe:\n%s", notes)
+	}
+}
+
+func unknownPaths(v any, at string) []string {
+	out := []string{}
+	switch x := v.(type) {
+	case map[string]any:
+		for k, sub := range x {
+			out = append(out, unknownPaths(sub, strings.TrimPrefix(at+"."+k, "."))...)
+		}
+	case []any:
+		for _, sub := range x {
+			out = append(out, unknownPaths(sub, at+".N")...)
+		}
+	case string:
+		if strings.HasSuffix(x, "-unknown") || strings.HasPrefix(x, "no-such-") {
+			out = append(out, at)
+		}
+	}
+	return out
 }

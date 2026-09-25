@@ -1907,7 +1907,8 @@ before and after to assert nothing moved. For a not-found failure (a reason with
 `Unknown`, `NoSuch`, or a `when:` saying no X has this id, unknown, does not exist) matched to a
 `from:` field by `field:` or by the entity's name, it sends an id nothing created
 (`confirm_order_unknown_id_order`, `create_order_unknown_id_customer`, and
-`create_order_unknown_id_product` on the last line) and expects exactly that code. A failure
+`create_order_unknown_id_product` on the last line) and expects exactly that code (since #89 this
+is the one unknown-id probe, sending the real id with `-unknown` appended). A failure
 reported on one line of a batch is left to the batch probe. A state no write in the contracts says
 it reaches gets a note instead.
 
@@ -1948,6 +1949,25 @@ fresh entity, reads it and what it holds (`get_product_before_confirm_order_befo
 target's state, and when the contract or the domain description says the target on an entity in
 that state returns, gives back, restores or releases what it holds, each number read before the
 move must be back. A state the target refuses is left to the refusal probe (#86).
+
+## 89. Two unknown-id probes of one field, one step id between them
+
+**Symptom.** With #83 and #86 both in, `shrt contract plan GetCustomer` planned two probes for one unknown `id_customer`: `get_customer_unknown_id_customer`, sending the real
+id with `-unknown` appended, and a second one sending `no-such-id-customer` under a suffixed id.
+They expected slightly different things (one asserted the absent record, the other did not), only
+one had reads around a write, and only one skipped `checked_by: none` fields and per-line
+failures of a batch.
+
+**Cause.** Both branches added a not-found probe named `<step>_unknown_<field>`, each with its own
+failure matching.
+
+**Fix.** 2026-09-25: one mechanism plans one `<step>_unknown_<field>` per target and `from:` field:
+fields marked `checked_by: none` are skipped; a failure is matched by `field:`, then by the field
+or its entity named in `when:` or reason, then as the only not-found failure; one reported on that
+line only, or an `invalid_argument` one, is not a not-found refusal. It sends the real id with
+`-unknown` appended (the last line's id inside repeated items), or `no-such-<field>` when the value
+is not a reference, expects exactly the declared failure, and a write is put between reads
+proving nothing moved. The probe runs on the unknown-id group's own fixtures (#85).
 
 ---
 
