@@ -188,15 +188,16 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 			continue
 		}
 		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
-		return prev.RunID, unstableAgainst(prev, rec, currentVolatile(e, rec.Chain), c)
+		return prev.RunID, unstableAgainst(prev, rec, currentVolatile(e, rec.Chain), c, unsentDefault(e.cat))
 	}
 	return "", nil
 }
 
-func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain) []string {
+func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain, unsent func(procedure, path string, v any) bool) []string {
 	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
 	base, _ = diff.RenameSpotSteps(base, rec.Steps)
 	rep := diff.CompareMasking(base, rec, volatile)
+	rep.DropUnsentDefaults(rec, unsent)
 	if c != nil {
 		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
 		rep.SeparateInput(base, rec, volatile, requestFixtures(c))
@@ -222,6 +223,7 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	spot, renamed := diff.RenameSpotSteps(spot, rec.Steps)
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
+	rep.DropUnsentDefaults(rec, unsentDefault(e.cat))
 	if c != nil {
 		rep.SeparateInput(spot, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
 	}

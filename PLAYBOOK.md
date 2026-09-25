@@ -897,7 +897,12 @@ spot, and says so: a regression in a path no safe spot exercises is not seen. A 
 ends with the next step for a change you meant (`If the change is intended ... shrt confirm <name>
 -supersede -note "..."`, then a person approves it), and says so when every change is a response
 field the safe spot does not have (`all of them response field(s) the safe spot does not have:
-create_order order.currency, ...`), the shape of a field added on purpose.
+create_order order.currency, ...`), the shape of a field added on purpose. A field the descriptor
+gained that the backend does not send yet is not a change: run records hold every declared field,
+so the new field shows up at its proto3 default (`note: ""`, `0`, `false`, an empty list, a null
+message), which is exactly the bytes the safe spot's backend sent. verify leaves those out and
+names them (`N response field(s) are declared now but were not on the wire ...`); the day the
+backend sends a non-default value there, it is reported as `unexpected` like any new field.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:

@@ -68,6 +68,7 @@ type Report struct {
 	PrincipalUnchecked []string     `json:"principal_unchecked,omitempty"`
 	Reordered          []string     `json:"reordered_lists,omitempty"`
 	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
+	UnsentDefaults     []string     `json:"unsent_defaults,omitempty"`
 
 	inputSeparated    bool
 	compared          []comparedStep
@@ -1134,6 +1135,10 @@ func (r *Report) Text() string {
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
+	if len(r.UnsentDefaults) > 0 {
+		fmt.Fprintf(&b, "%d response field(s) are declared now but were not on the wire (left at the proto3 default, the same bytes "+
+			"the safe spot's backend sent), so they are not counted as a change: %s\n", len(r.UnsentDefaults), strings.Join(r.UnsentDefaults, ", "))
+	}
 	if len(r.FixtureInput) > 0 {
 		names := []string{}
 		for _, c := range r.FixtureInput {
@@ -1257,4 +1262,21 @@ func sameNotReached(changes []Change) int {
 		n++
 	}
 	return n
+}
+
+func (r *Report) DropUnsentDefaults(rec *runner.Record, unsent func(procedure, path string, v any) bool) {
+	if unsent == nil || rec == nil {
+		return
+	}
+	kept := r.Changes[:0]
+	for _, c := range r.Changes {
+		if c.Kind == KindUnexpected && c.Path != "step" && c.Path != "response" {
+			if st, ok := rec.Step(c.Step); ok && unsent(st.Procedure, c.Path, c.Got) {
+				r.UnsentDefaults = append(r.UnsentDefaults, c.Step+" "+c.Path)
+				continue
+			}
+		}
+		kept = append(kept, c)
+	}
+	r.Changes = kept
 }
