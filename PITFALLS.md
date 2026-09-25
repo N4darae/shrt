@@ -2267,6 +2267,15 @@ shows no write the plain closure drops acting on an entity a kept step uses, the
 `reproduce:` line and `-keep writes` follows as `if that does not reproduce:`, each with its step
 count. Otherwise `-keep writes` stays the line, now with its count.
 
+## 109. `-without failed -write <name>`, followed literally, left the red chain in the gate
+
+**Symptom.** `slice -kept-red` ended with `Leave the steps that failed out of <chain> with: shrt chain
+slice <chain> -without failed -run <id> -write <name>`. Written under a new name, the rest ran green
+beside the source chain, which stayed in `.shrt/chains/` and still failed every gate.
+
+**Fix.** 2026-09-25: the line prints `-write .shrt/chains/<chain>.yaml`, which replaces the source
+chain itself, and says that another name leaves the red chain in the gate unless it is moved out.
+
 ---
 
 # Decisions, so they are not relitigated

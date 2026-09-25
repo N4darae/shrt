@@ -145,3 +145,16 @@ func TestSliceWithoutFailedWritesTheRestOfTheChainThatStillRuns(t *testing.T) {
 		t.Fatalf("the source chain is left alone: %v", err)
 	}
 }
+
+func TestSliceKeptRedNamesTheSourceChainAsWhereTheRestGoes(t *testing.T) {
+	oneDefectWorkspace(t)
+	out, err := oneDefectSlice(t, "-step", "fetch", "-kept-red", "-verify", "-var", "tag=T31", "-write", ".shrt/chains/one-defect-red.yaml")
+	if err != nil {
+		t.Fatalf("slice -kept-red -verify: %v\n%s", err, out)
+	}
+	for _, want := range []string{"-without failed -run ", "-write .shrt/chains/cli-one-defect.yaml\n", "replaces cli-one-defect itself", "leaves cli-one-defect, still red, in the gate"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

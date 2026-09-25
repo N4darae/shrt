@@ -341,8 +341,11 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	printSlice(res, written, verdict)
 	if len(pinned) > 0 && (verdict == nil || verdict.Outcome == sliceReproduced) {
 		fmt.Printf("\nkept_red: pinned on %s, as %s failed in run %s. `shrt run` of the slice exits 0 while it fails exactly so, "+
-			"and 1 once the defect is gone or anything else fails. Leave the steps that failed out of %s with: shrt chain slice %s -without failed -run %s -write <name>\n",
-			pinList(res.Chain, pinned), pinSubject(pinned), rec.RunID, c.Name, ref, rec.RunID)
+			"and 1 once the defect is gone or anything else fails. Leave the steps that failed out of %s, in place, with:\n"+
+			"  shrt chain slice %s -without failed -run %s -write %s\n"+
+			"which replaces %s itself, so the gate runs the rest green and the defect stays red in this slice only. "+
+			"Writing the rest under another name (-write <name>) leaves %s, still red, in the gate beside it: then move %s out of %s.\n",
+			pinList(res.Chain, pinned), pinSubject(pinned), rec.RunID, c.Name, ref, rec.RunID, sourceFileArg(c), c.Name, c.Name, sourceFileArg(c), shownPath(e.chainsDir()))
 		if verdict == nil {
 			fmt.Printf("The slice is a hypothesis until run: if its run says the pinned defect is gone while %s still fails, the slice lost "+
 				"a dependency that is state rather than a reference; add -verify to run it before pinning, and follow its next: line\n", c.Name)
@@ -551,6 +554,13 @@ func sweepNote(e *env, written, name string) string {
 		"and a gate that runs every %s/*.yaml (README) runs it. To keep an exploratory slice out, write it outside %s instead, with -write %s, or move it:\n"+
 		"  mkdir -p .shrt/scratch && mv %s .shrt/scratch/\n"+
 		"  shrt run %s still runs it by path\n", shown, chains, chains, scratch, shown, scratch)
+}
+
+func sourceFileArg(c *chain.Chain) string {
+	if c.SourcePath == "" {
+		return c.Name + ".yaml"
+	}
+	return shownPath(c.SourcePath)
 }
 
 func shownPath(path string) string {

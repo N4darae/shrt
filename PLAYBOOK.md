@@ -1423,9 +1423,14 @@ be kept red as a whole if you want the other 45 steps guarded by `verify`, since
 shrt run orders -keep-going                                   # red at confirm_order_insufficient_stock_last_item
 shrt chain slice orders -step confirm_order_insufficient_stock_last_item \
     -kept-red -verify -run latest -var tag=<fresh> -write orders-last-line-red
-shrt chain slice orders -without failed -run latest -write orders-rest
-shrt run orders-rest -var tag=<fresh>                          # green: propose and approve it
+shrt chain slice orders -without failed -run latest -write .shrt/chains/orders.yaml
+shrt run orders -var tag=<fresh>                               # green: propose and approve it
 ```
+
+The third command replaces `orders` itself, so the gate runs the rest green and the defect is red
+in its slice only; `-kept-red` prints it in that form. Writing the rest under a new name
+(`-write orders-rest`) keeps the red `orders` in the chains directory, where the gate still runs
+it: move it out if you do.
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
 [{step, path, got}]`, `got` being the value it failed with when that is stable: a bool, a number,
