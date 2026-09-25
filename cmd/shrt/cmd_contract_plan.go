@@ -280,7 +280,7 @@ func rpcTail(rpc string) string {
 }
 
 func planOptions(e *env) contract.PlanOptions {
-	opts := contract.PlanOptions{Auth: e.cfg.Auth != nil}
+	opts := contract.PlanOptions{Auth: e.cfg.Auth != nil, Redact: e.cfg.Redact}
 	for _, name := range e.cfg.AuthProfileNames() {
 		if name != config.DefaultAuthProfile {
 			opts.Profiles = append(opts.Profiles, name)

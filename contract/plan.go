@@ -47,6 +47,7 @@ type PlanOptions struct {
 	LoginBodies map[string]map[string]any
 
 	ProfileBodies map[string]map[string]any
+	Redact        []string
 }
 
 type pendingChecks struct {

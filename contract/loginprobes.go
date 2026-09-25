@@ -9,6 +9,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var (
@@ -29,8 +30,12 @@ func (p *Plan) probeLogin(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		c, _ := lib.Get(m.FullName)
 		said := []string{}
-		if f, ok := credentialFailure(lib, m.FullName); ok {
+		f, declared := credentialFailure(lib, m.FullName)
+		if declared {
 			said = append(said, p.badLogins(st, m, f)...)
+		}
+		if padded := p.paddedSecretLogin(st, m, f, declared); padded != "" {
+			said = append(said, padded)
 		}
 		said = append(said, p.loginRoles(lib, st, m, c)...)
 		if len(said) > 0 {
@@ -109,6 +114,46 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 		}
 	}
 	return out
+}
+
+func (p *Plan) secretField(body map[string]any) string {
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		for _, pat := range p.opts.Redact {
+			if pathmask.Match(pat, k) {
+				return k
+			}
+		}
+	}
+	return secretKey(body)
+}
+
+func (p *Plan) paddedSecretLogin(st *chain.Step, m *catalog.Method, f Failure, declared bool) string {
+	key := p.secretField(st.Body)
+	cur, ok := st.Body[key].(string)
+	if key == "" || !ok || cur == "" {
+		return ""
+	}
+	probe := copyStep(st, p.freeStepID(st.ID+"_padded_"+strings.ToLower(key)))
+	probe.Export = nil
+	probe.Body[key] = " " + cur + " "
+	refused := "refused with " + f.Label() + ", as a wrong one is"
+	if declared {
+		probe.Expect = refusalFor(m, f)
+	} else if CarriesEnvelope(m) {
+		probe.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
+		refused = "refused"
+	} else {
+		probe.Expect = []chain.Expectation{{Path: "transport.code", NotEqual: "ok"}}
+		refused = "refused"
+	}
+	probe.Description = fmt.Sprintf("the working login with %s padded by a space on each side: %s, since a secret is compared exactly.", key, refused)
+	p.Chain.Steps = append(p.Chain.Steps, probe)
+	return fmt.Sprintf("%s sends %s with a leading and a trailing space and expects it %s", probe.ID, key, refused)
 }
 
 func (p *Plan) unknownUserFailure(rpc string, cred Failure) (Failure, bool) {
