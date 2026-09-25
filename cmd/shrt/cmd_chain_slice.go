@@ -942,7 +942,55 @@ func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a
 			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
 		return
 	}
-	v.Next = keepWritesCommand(res, rec.RunID, a, usable, len(blocked) == 0 && len(usable) == len(res.DroppedWrites) && keepsEveryWriteCleanly(res, rec, a))
+	allWrites := len(blocked) == 0 && len(usable) == len(res.DroppedWrites) && keepsEveryWriteCleanly(res, rec, a)
+	if stops := stopsEarly(res, rec, a, keepList(a.keep, usable, allWrites)); len(stops) > 0 {
+		v.NotKeepable = append(v.NotKeepable, stops...)
+		v.Reason += fmt.Sprintf("\nNo next: the slice that keeps %s also keeps %s, which did not get an answer it can pass in source run %s\n"+
+			"(a relaxed expectation needs an answered call), so it would stop there before step %s and could only give DID NOT RUN.\n"+
+			"Fix that step, or write a chain that reaches the target without it, run it, and verify a slice of that.",
+			strings.Join(usable, ", "), strings.Join(stops, ", "), rec.RunID, res.Target)
+		return
+	}
+	v.Next = keepWritesCommand(res, rec.RunID, a, usable, allWrites)
+}
+
+func keepList(asked, dropped []string, allWrites bool) []string {
+	keep := append([]string{}, asked...)
+	if allWrites {
+		if !slices.Contains(keep, chain.SliceKeepWrites) {
+			keep = append(keep, chain.SliceKeepWrites)
+		}
+		return keep
+	}
+	return append(keep, dropped...)
+}
+
+func stopsEarly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, keep []string) []string {
+	if a.reslice == nil {
+		return nil
+	}
+	next := a.reslice(keep)
+	if next == nil {
+		return nil
+	}
+	relaxable := relaxableIn(rec)
+	out := []string{}
+	for _, k := range next.Kept {
+		if k.ID == res.Target {
+			continue
+		}
+		sr, ok := rec.Step(k.ID)
+		if !ok {
+			continue
+		}
+		switch {
+		case sr.Status == runner.StatusSkipped:
+			out = append(out, k.ID+" (not sent)")
+		case (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID):
+			out = append(out, k.ID+" ("+sr.Status+")")
+		}
+	}
+	return out
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
@@ -1044,14 +1092,7 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 }
 
 func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string, allWrites bool) string {
-	keep := append([]string{}, a.keep...)
-	if allWrites {
-		if !slices.Contains(keep, chain.SliceKeepWrites) {
-			keep = append(keep, chain.SliceKeepWrites)
-		}
-	} else {
-		keep = append(keep, dropped...)
-	}
+	keep := keepList(a.keep, dropped, allWrites)
 	parts := []string{"shrt chain slice", res.SourceCommandRef(), "-step", res.Target}
 	if res.Mode != chain.SliceModeClosure {
 		parts = append(parts, "-mode", res.Mode)

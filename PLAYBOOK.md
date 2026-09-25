@@ -1367,7 +1367,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      or was never answered in the source run is left out of `next:` and named with its status:
      keeping it would stop the slice there, before the target, so the command could only return DID
      NOT RUN. The same holds for an id you passed with `-keep`. When every dropped write it would
-     need is such a step there is no `next:` line, and the output says why. When a slice stops
+     need is such a step there is no `next:` line, and the output says why; nor is there one when
+     the slice the command would build keeps, through the references of what it keeps (a
+     `ConfirmOrder` needs its `CreateOrder`), a step that errored or was not sent in the source run:
+     `next:` is checked against its own slice, so it never names a command that stops before the target. When a slice stops
      before the target at a kept step that passed in the source run (a `ConfirmOrder` refused for
      stock a dropped `AddStockBatch` added), DID NOT RUN names the dropped writes on the entities
      the kept steps use and gives the `next:` command that keeps them. A minimal chain you write by hand (only the steps the defect needs, its own
