@@ -169,15 +169,28 @@ func runVerify(ctx context.Context, args []string) error {
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
-	varDrift, edits := "", []string{}
+	varDrift, edits, unsupplied := "", []string{}, []string{}
 	if len(report.RequestChanges) > 0 {
 		only := map[string]any(vars)
 		if *useRun != "" {
 			only = nil
 		}
 		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
+		defaulted := func(fed map[string]bool) []string {
+			if *useRun != "" {
+				return nil
+			}
+			return varsConfirmedOtherwise(e, spot.RunID, rec, vars, fed)
+		}
+		if varDrift == "" {
+			unsupplied = defaulted(inputVars(c, report.RequestChanges))
+			if len(unsupplied) > 0 {
+				varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, nil, inputVars(c, report.RequestChanges))
+			}
+		}
 		fedByVars := func(ch diff.Change) bool {
-			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, []diff.Change{ch})) != ""
+			fed := inputVars(c, []diff.Change{ch})
+			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, fed) != "" || len(defaulted(fed)) > 0
 		}
 		for _, ch := range report.ChainEdits(fedByVars) {
 			edits = append(edits, ch.Step+" "+ch.Path)
@@ -187,6 +200,10 @@ func runVerify(ctx context.Context, args []string) error {
 		how := "set by -var; the chain file is not what differs"
 		if *useRun != "" {
 			how = "as run " + rec.RunID + " was recorded"
+		}
+		if len(unsupplied) > 0 {
+			how = "this run took the chain's own value and the confirmed run ran with another, as set by -var when it was " +
+				"confirmed (unless the var's default was edited since); the steps reading it are unchanged, so the chain file is not what differs"
 		}
 		if len(edits) > 0 {
 			how = strings.TrimSuffix(how, "; the chain file is not what differs") +
@@ -391,6 +408,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
+		if len(unsupplied) > 0 {
+			fix = "Verify with " + strings.Join(unsupplied, " ") + " to compare like with like"
+		}
 		if *useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
 		}
@@ -509,6 +529,30 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+func varsConfirmedOtherwise(e *env, spotRun string, rec *runner.Record, supplied map[string]any, fed map[string]bool) []string {
+	prev, err := e.store.LoadRun(rec.Chain, spotRun)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(fed))
+	for k := range fed {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := []string{}
+	for _, k := range names {
+		if _, set := supplied[k]; set {
+			continue
+		}
+		had, inBefore := prev.Vars[k]
+		now, inNow := rec.Vars[k]
+		if inBefore && inNow && fmt.Sprint(had) != fmt.Sprint(now) && fmt.Sprint(had) != pathmask.MaskRedacted {
+			out = append(out, fmt.Sprintf("-var %s=%v", k, had))
+		}
+	}
+	return out
 }
 
 func principalChanges(report *diff.Report) string {

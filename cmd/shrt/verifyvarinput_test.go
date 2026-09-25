@@ -74,3 +74,38 @@ func TestVerifyBlamesTheVarNotTheChainWhenOnlyAVarChangedTheInput(t *testing.T) 
 	}
 	check("-run of a -var run", "-run", gadget)
 }
+
+func TestVerifyBlamesTheVarWhenTheConfirmedRunSetItAndThisOneDoesNot(t *testing.T) {
+	srv := newEchoNameBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-var-flow.yaml", varFlowChain)
+	ctx := context.Background()
+	captureStdout(t, func() {
+		if err := runRun(ctx, []string{"cli-var-flow", "-quiet", "-var", "label=k-b1"}); err != nil {
+			t.Fatalf("shrt run: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-var-flow", "-note", "create echoes the name"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-var-flow", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	var err error
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-var-flow", "-quiet"}) })
+	if err == nil {
+		t.Fatalf("the response changed, so verify must not pass:\n%s", out)
+	}
+	said := out + err.Error()
+	for _, bad := range []string{"its input changed since it was confirmed", "Restore the chain's input", "the chain file changed"} {
+		if strings.Contains(said, bad) {
+			t.Errorf("the chain file did not change; the confirmed run set label with -var and this one did not (%q):\n%s", bad, said)
+		}
+	}
+	for _, want := range []string{"label=widget, confirmed with k-b1", "-var label=k-b1"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("want %q:\n%s", want, said)
+		}
+	}
+}
