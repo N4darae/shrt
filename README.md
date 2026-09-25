@@ -111,8 +111,9 @@ of the gate (one is a note: a deploy before the gate explains it), or the ratche
 nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
 
 `shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it).
-Write `0` into `.shrt/quality-baseline` and `.shrt/hollow-baseline` first; a gate failing on one
-names the current score, to write in as a reviewed edit.
+Write `0` into `.shrt/quality-baseline` first; a gate failing on it names the current score, to
+write in as a reviewed edit. The first gate writes `.shrt/hollow-baseline` with today's count and
+says so; commit it.
 
 ```bash
 set -euo pipefail

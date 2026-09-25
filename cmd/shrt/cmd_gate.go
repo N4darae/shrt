@@ -269,9 +269,8 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	findings := []string{}
 	if *hollowBaseline != "" && len(only) == 0 {
-		out := gateExec(ctx, []string{"chain", "hollow", "-gate", "-baseline", *hollowBaseline})
-		if out.code != 0 {
-			findings = append(findings, "hollow ratchet: "+lastLine(out.stderr+"\n"+out.stdout))
+		if f := gateHollow(ctx, *hollowBaseline); f != "" {
+			findings = append(findings, f)
 		}
 	}
 	profiles := []string{}
@@ -506,9 +505,34 @@ func errorLine(stderr, prefix string) string {
 	return line
 }
 
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
+func gateHollow(ctx context.Context, baseline string) string {
+	if _, err := os.Stat(baseline); errors.Is(err, os.ErrNotExist) {
+		out := gateExec(ctx, []string{"chain", "hollow", "-json"})
+		var rep struct {
+			Reported *int `json:"reported"`
+		}
+		if out.code != 0 || json.Unmarshal([]byte(out.stdout), &rep) != nil || rep.Reported == nil {
+			return "hollow ratchet: " + gateError(out, "shrt chain: ")
+		}
+		if err := os.WriteFile(baseline, []byte(fmt.Sprintf("%d\n", *rep.Reported)), 0o644); err != nil {
+			return "hollow ratchet: " + err.Error()
+		}
+		fmt.Printf("hollow ratchet: %s did not exist; wrote today's count, %d, to it: commit it\n", baseline, *rep.Reported)
+		return ""
+	}
+	out := gateExec(ctx, []string{"chain", "hollow", "-gate", "-baseline", baseline})
+	if out.code == 0 {
+		return ""
+	}
+	return "hollow ratchet: " + gateError(out, "shrt chain: ")
+}
+
+func gateError(out gateOutcome, prefix string) string {
+	if strings.TrimSpace(out.stderr) != "" {
+		return strings.TrimPrefix(errorLine(out.stderr, prefix), "hollow: ")
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(out.stdout), "\n")
+	return line
 }
 
 func writersNote(writers map[string]int) string {

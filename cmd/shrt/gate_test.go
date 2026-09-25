@@ -163,15 +163,26 @@ func TestTheGateFailsWhenOneProfilesTokensAreRefusedEarlyInTwoRuns(t *testing.T)
 func TestTheGateKeepsKeptRedAndChecksTheHollowRatchet(t *testing.T) {
 	f := gateWorkspace(t, map[string][]gateOutcome{
 		"run cli-unique": {{side: gateSidecar{KeptRed: "as_pinned"}}},
-		"chain hollow":   {{code: 1, stderr: "hollow: 2 reported, baseline 0\n"}},
+		"chain hollow":   {{code: 1, stderr: "shrt chain: hollow: 2 reported, worse than the baseline 0.\nRun 'shrt chain hollow' to see which.\n"}},
 	})
+	writeFile(t, ".shrt/hollow-baseline", "0\n")
 	var err error
 	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
-	if !strings.Contains(out, "KEPT RED   cli-unique") || exitCodeOf(err) != 1 || !strings.Contains(out, "hollow ratchet: hollow: 2 reported, baseline 0") {
-		t.Fatalf("kept red is its own verdict, and a ratchet failure fails the gate: %v\n%s", err, out)
+	if !strings.Contains(out, "KEPT RED   cli-unique") || exitCodeOf(err) != 1 || !strings.Contains(out, "hollow ratchet: 2 reported, worse than the baseline 0.\n") {
+		t.Fatalf("kept red is its own verdict, and a ratchet failure fails the gate with the error's first line: %v\n%s", err, out)
 	}
 	if last := f.calls[len(f.calls)-1]; strings.Join(last, " ") != "chain hollow -gate -baseline .shrt/hollow-baseline" {
 		t.Fatalf("the ratchet runs last against the baseline file: %v", last)
+	}
+}
+
+func TestTheGateWritesAMissingHollowBaseline(t *testing.T) {
+	gateWorkspace(t, map[string][]gateOutcome{"chain hollow": {{stdout: `{"reported": 2}`}}})
+	var err error
+	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
+	raw, _ := os.ReadFile(".shrt/hollow-baseline")
+	if err != nil || string(raw) != "2\n" || !strings.Contains(out, "hollow ratchet: .shrt/hollow-baseline did not exist; wrote today's count, 2, to it") {
+		t.Fatalf("a missing baseline is written with today's count on the first gate: %v %q\n%s", err, raw, out)
 	}
 }
 
