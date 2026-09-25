@@ -116,6 +116,9 @@ func (s *Store) LoadSafeSpot(chainName string) (*SafeSpot, error) {
 	}
 	spot := &SafeSpot{}
 	if err := readJSON(path, spot); err != nil {
+		if raw, rerr := os.ReadFile(path); rerr == nil && HasConflictMarkers(raw) {
+			return nil, MergeConflictError(path)
+		}
 		return nil, err
 	}
 	return spot, nil

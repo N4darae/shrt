@@ -6,6 +6,7 @@ import (
 
 	"github.com/N4darae/shrt/namecase"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const defaultSchemaDepth = 6
@@ -32,6 +33,7 @@ type Field struct {
 	Doc          string   `json:"doc,omitempty" yaml:"doc,omitempty"`
 	Fields       []*Field `json:"fields,omitempty" yaml:"fields,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty" yaml:"truncated,omitempty"`
+	Deprecated   bool     `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
 	JSONName     string   `json:"-" yaml:"-"`
 }
 
@@ -61,6 +63,9 @@ func describeField(fd protoreflect.FieldDescriptor, depth int, seen map[string]b
 		Repeated: fd.IsList(),
 		Optional: fd.HasOptionalKeyword(),
 		Doc:      leadingComment(fd),
+	}
+	if opts, ok := fd.Options().(*descriptorpb.FieldOptions); ok && opts.GetDeprecated() {
+		f.Deprecated = true
 	}
 	if od := realOneof(fd); od != nil {
 		f.Oneof = string(od.Name())
@@ -256,6 +261,9 @@ func writeFields(b *strings.Builder, fields []*Field, indent string) {
 		}
 		if f.Truncated {
 			b.WriteString(" ...")
+		}
+		if f.Deprecated {
+			b.WriteString(" DEPRECATED")
 		}
 		if f.Doc != "" {
 			fmt.Fprintf(b, "  # %s", f.Doc)

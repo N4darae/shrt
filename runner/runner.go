@@ -242,15 +242,15 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
-func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope) {
+func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope, open)
 		}
 	case []any:
 		for i, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope)
+			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope, open)
 		}
 	case string:
 		if !redactor.Masks(path) {
@@ -265,9 +265,19 @@ func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *cha
 				redactor.AddSecret(value)
 			}
 		}
+		public := false
 		for _, ref := range chain.VarRefs(t) {
+			if !secretVar(ref, t, open, redactor) {
+				public = true
+				continue
+			}
 			if value, err := scope.ResolveValue(ref); err == nil {
 				learnSecret(redactor, value)
+			}
+		}
+		if public && readsOnlyInputs(t) {
+			if value, err := scope.ResolveValue(t); err == nil && redactor.MasksValue(path, value) {
+				redactor.AddWholeSecret(fmt.Sprint(value))
 			}
 		}
 	}
@@ -905,9 +915,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	}
 	r.Auth.learnSecrets(redactor)
 	opts.principals = r.Auth.principals()
+	open := varsUsedInTheOpen(c, redactor)
 	for _, step := range c.Steps {
 		if step != nil {
-			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope)
+			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope, open)
 			learnHeaderSecrets(redactor, step.Headers, scope)
 		}
 	}

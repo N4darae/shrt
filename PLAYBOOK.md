@@ -911,7 +911,16 @@ a record look older: every sealing build also writes `format`, and a record that
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
-request, response, http status and transport error), not only the responses. The safe spot
+request, response, http status and transport error), not only the responses. The proposal also
+records the branch and commit it was proposed on (the summary names them), and `-approve` refuses
+when the chain checked out now has another `chain_digest` than the one the proposed run recorded,
+naming each difference a run record shows (a step changed, added, removed or reordered, a body
+template that no longer produces what was sent) or saying it lies where a record does not show
+(vars defaults, allow_fail, export, redact, kept_red, a description): a proposal
+made on a feature branch and approved after `git checkout main` would otherwise baseline a chain
+main does not have, and the next `verify` there reports drift with different input. Check out the
+branch the proposal came from and approve there, or run the chain as it is now and propose that
+run. The pending proposal is kept on refusal. The safe spot
 keeps that digest, sealed together with who approved it and when (`confirmed_by`, `confirmed_at`,
 `note`), and `verify` refuses a safe spot whose content or approval no longer matches it: a hand
 edit is not what a person approved. A safe spot sealed before the approval was covered still
@@ -939,6 +948,26 @@ digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` li
 orphan `renamed to <new>`, explained as a rename rather than a deleted chain (excluded from the
 counts and the gate; the renamed chain's own runs count), and the command prints the `rm -rf` that
 removes them.
+
+Two branches can each supersede the same safe spot, each approved by a person on its branch. The
+merge then conflicts in `.shrt/safespots/<chain>.json`, and neither side is right for the merged
+backend until it is checked there. Resolve it this way, never by editing the JSON by hand (a hand
+merge breaks the digest, and `verify` refuses it):
+
+1. Take one side whole: `git checkout --ours .shrt/safespots/<chain>.json` or `--theirs`. Pick the
+   side whose chain file the merge keeps; if the chain file conflicted too, resolve it first and
+   take the safe spot of the branch whose chain won.
+2. Finish the merge of the code, rebuild and deploy the merged backend, and run the gate on it
+   (`shrt doctor -strict`, then `shrt verify <chain>` for each safe spot).
+3. If `verify` passes, commit the merge. If it reports drift, or the merged chain is neither side's
+   chain as approved, run the chain on the merged backend, propose it
+   (`shrt confirm <chain> -supersede -note "merged <a> and <b>: ..."`) and have a person approve it.
+4. The losing side's approval is not lost: it stays in git history on its branch and in the merge
+   commit's parent, which is where an audit reads it.
+
+A safe spot left with conflict markers is caught: `shrt verify` refuses it with `git merge conflict
+markers in safe spot ...` and this remedy instead of a JSON parse error, and `shrt doctor` FAILs its
+`safespot-digests` check on it.
 
 ## 9. Refactor and test against a safe spot
 
@@ -1176,7 +1205,11 @@ shrt chain which -code 1218 -json
    as observed: the backend answered it. The searchable paths are
    derived from the corpus, so a chain asserting a code under a batch result — the corpus has
    `results.0.error.details.0.app_code` — is found without teaching the command a new shape. Both
-   selectors together intersect.
+   selectors together intersect. An `app_code` and a `reason` (any two `code_fields`) that a local
+   run record carried side by side in one object, or that a contract's `failures:` entry declares
+   together (`code: 1603`, `reason: PermissionDenied`), name the same refusal, so `-code 1603`
+   also finds a step asserting only `reason: PermissionDenied`, and the other way round; the header
+   line lists the aliases it searched (`asserts 1603 or PermissionDenied (seen with it ...)`).
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
@@ -1223,7 +1256,9 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command, and exits 0. The backend exercises the code and no expectation pins
+   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write),
+   and exits 0. A step that asserts the code's alias (the `reason` seen with it) is an asserting
+   match, not one of these. The backend exercises the code and no expectation pins
    it, but that is not always unguarded: each step also says when an expectation pins a sibling of
    the same detail (`results.1.status.details.0.reason equals ProductNotFound`, which fails `shrt run`
    on a different refusal) and when the chain's safe spot holds the code at that path (`baselined:`),
@@ -1251,8 +1286,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    (`<rpc>@<alias>`) the slice keeps the step whose id carries `_<alias>` (the id `contract plan`
    gives it), preferring among those the one the body references; for an unaliased edge it keeps
    the referenced step, else the nearest. An edge declared under one alias of a contract binds only
-   a step carrying that alias. Steps are numbered from 1, as in `shrt run` and the run record, and
-   so are expectations in a verify difference.
+   a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
+   literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
+   refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
+   that the `-run` record shows refused, created nothing and is never kept as a producer; when
+   no other step calls the rpc the edge is listed as unmet. Steps are numbered from 1, as in
+   `shrt run` and the run record, and so are expectations in a verify difference.
 2. **Read the two named sections before trusting the count.** `unmet prerequisites` means a
    contract edge names an rpc *no earlier step calls*, so the slice may not stand alone.
    `WARNING possible under-inclusion` means the dropped steps BEFORE the target include WRITES

@@ -55,6 +55,7 @@ type Prereq struct {
 	Alias string `json:"alias,omitempty"`
 	Edge  string `json:"edge"`
 	For   string `json:"for,omitempty"`
+	Field string `json:"field,omitempty"`
 }
 
 func (p Prereq) Node() string {
@@ -244,6 +245,9 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		}
 		for _, p := range idx.prereqsOf(s, opts) {
 			if p.For != "" && !carriesAlias(s.ID, p.For) {
+				continue
+			}
+			if valueEdge(p.Edge) && idx.fieldNeedsNoProducer(s, i, p.Field) {
 				continue
 			}
 			j, found := idx.lastCallOf(p, i, referenced, opts)
@@ -737,7 +741,7 @@ func (x *stepIndex) prereqsOf(s *Step, opts SliceOptions) []Prereq {
 func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, opts SliceOptions) (int, bool) {
 	best, rank := 0, 0
 	for i := before - 1; i >= 0; i-- {
-		if x.rpcOf(i, opts) != p.RPC {
+		if x.rpcOf(i, opts) != p.RPC || producesNothing(x.c.Steps[i], opts) {
 			continue
 		}
 		r := 1
@@ -752,6 +756,47 @@ func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, op
 		}
 	}
 	return best, rank > 0
+}
+
+func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
+	if field == "" || s.Body == nil {
+		return false
+	}
+	v, found := Get(s.Body, field)
+	if !found || v == nil {
+		return false
+	}
+	switch v.(type) {
+	case map[string]any, []any:
+		return false
+	}
+	for _, ref := range collectRefs(v) {
+		if _, kind := x.producerOf(ref, at); kind == refStep {
+			return false
+		}
+	}
+	return true
+}
+
+func producesNothing(s *Step, opts SliceOptions) bool {
+	if opts.Refused != nil {
+		if _, refused := opts.Refused(s.ID); refused {
+			return true
+		}
+	}
+	return ExpectsRefusal(s)
+}
+
+func ExpectsRefusal(s *Step) bool {
+	for _, e := range s.Expect {
+		if ExpectsTransportRefusal(e) {
+			return true
+		}
+		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
+			return true
+		}
+	}
+	return false
 }
 
 func leftToRun(mode string, p Prereq, s *Step, opts SliceOptions) bool {

@@ -191,6 +191,7 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		return nil, nil, err
 	}
 	p.Chain.Description = description
+	p.noteRequirements()
 	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
 		p.declareInterpolatedVars(missing)
 	}

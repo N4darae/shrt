@@ -40,18 +40,36 @@ const minFoldedSecret = 8
 const maxTokenPrefix = 5
 
 func (m *Masker) AddSecret(v string) {
+	m.addSecret(v, true)
+}
+
+func (m *Masker) AddWholeSecret(v string) {
+	m.addSecret(v, false)
+}
+
+func (m *Masker) addSecret(v string, withTail bool) {
 	if m == nil || m.secrets == nil || v == "" || v == MaskRedacted {
 		return
 	}
 	m.secrets.mu.Lock()
 	defer m.secrets.mu.Unlock()
-	for _, have := range m.secrets.values {
+	if !m.secrets.add(v) {
+		return
+	}
+	if tail := tokenTail(v); withTail && tail != "" {
+		m.secrets.add(tail)
+	}
+	sort.SliceStable(m.secrets.values, func(i, j int) bool { return len(m.secrets.values[i]) > len(m.secrets.values[j]) })
+}
+
+func (s *secretSet) add(v string) bool {
+	for _, have := range s.values {
 		if have == v {
-			return
+			return false
 		}
 	}
-	m.secrets.values = append(m.secrets.values, v)
-	sort.SliceStable(m.secrets.values, func(i, j int) bool { return len(m.secrets.values[i]) > len(m.secrets.values[j]) })
+	s.values = append(s.values, v)
+	return true
 }
 
 func (m *Masker) knownSecrets() []string {
@@ -83,9 +101,6 @@ func scrubText(s string, secrets []string) string {
 			if len(secret) >= minFoldedSecret {
 				part = replaceFold(part, secret)
 				part = replaceEncoded(part, secret)
-			}
-			if tail := tokenTail(secret); tail != "" {
-				part = replaceFold(part, tail)
 			}
 		}
 		parts[i] = part

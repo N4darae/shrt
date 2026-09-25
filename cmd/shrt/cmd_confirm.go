@@ -101,9 +101,12 @@ func runConfirm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	previous, _ := e.store.LoadProposal(name)
 	comparedTo, unstable, carried := unstableFields(e, rec)
+	branch, commit := gitWhere(e.cfg.Root)
 	p, err := e.store.Propose(rec, store.ProposalInput{By: *by, Checked: *note, Supersede: *supersede, Now: time.Now(),
-		ComparedTo: comparedTo, Unstable: unstable, Carried: carried, Replaced: differsFromSafeSpot(e, rec)})
+		ComparedTo: comparedTo, Unstable: unstable, Carried: carried, Replaced: differsFromSafeSpot(e, rec),
+		Branch: branch, Commit: commit})
 	if errors.Is(err, store.ErrNoEvidence) {
 		return fmt.Errorf("%w: pass -note with what you inspected in the responses and why they are correct, not only that the run is green", err)
 	}
@@ -114,6 +117,10 @@ func runConfirm(ctx context.Context, args []string) error {
 		p.RunID, p.Chain, rel(e.cfg.Root, p.Report))
 	if p.Replaces != "" {
 		fmt.Printf("  replaces the safe spot from run %s once approved\n", p.Replaces)
+	}
+	if previous != nil {
+		fmt.Printf("  replaces pending proposal %s (proposed by %s at %s), which is discarded unapproved\n",
+			previous.RunID, previous.ProposedBy, previous.ProposedAt.Format(time.RFC3339))
 	}
 	if rec.ChainSource != "" {
 		fmt.Printf("  chain file:  %s (what run %s ran)\n", rel(e.cfg.Root, rec.ChainSource), rec.RunID)
@@ -197,6 +204,9 @@ func approveProposal(e *env, name, by, note string) error {
 	p, err := e.store.LoadProposal(name)
 	if err != nil {
 		return fmt.Errorf("%w\npropose first: shrt confirm %s -note \"...\"", err, name)
+	}
+	if err := proposalChainMatches(e, p); err != nil {
+		return err
 	}
 	spot, path, err := e.store.Approve(name, store.Confirmation{By: by, Note: note, Acknowledged: true, Now: time.Now()})
 	if err != nil {

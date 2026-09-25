@@ -816,6 +816,25 @@ or an undeclared enum value, verify exits 1, `regression: ... the response at st
 proto cannot hold (invalid value for int64 field qtyOnHand: "seven"), and the descriptor matches a
 rebuild ... so it is not stale`, naming the step, field and value.
 
+2026-09-25: when a later step that reads nothing from the drifted one changed, verify gave its
+verdict on that step, but first listed every change at the drifted step and at the steps reading it:
+the body kept as sent, so `unexpected order.amountMinor` / `missing order.amount_minor`,
+`idCustomer` / `id_customer`, `missing status.details want=[]`, a dozen lines, and then said those
+steps are not judged. Each step not judged is now one line, `[create_order] not_judged 12 change(s)
+not listed: its response, or one it reads, does not match the descriptor (...); rebuild the
+descriptor (shrt catalog build) and re-run, or add -v to list them`. `verify -v` and `-json` still
+carry every change.
+
+With the descriptor rebuilt, a proto rename (`total_minor` -> `amount_minor`, same field number
+and values) gave a `missing` and an `unexpected` line per step that returns the order, fourteen
+lines read as lost data. A `missing` and an `unexpected` field under the same parent at the same
+step holding equal values are now one line, `[create_order] renamed order.total_minor ->
+order.amount_minor (both 3400): likely a renamed field, still a change`, and a line under the list
+says how many pairs look renamed and to move the chain's expectations to the new name and supersede.
+The pair still counts as changes and the exit code is unchanged. `chain lint`, for an expectation on
+a leaf the response message no longer declares, now names the fields its parent does declare, in
+case the proto renamed it.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says
@@ -1030,6 +1049,11 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+That rule also caught a fixture tag: `password: wrong-${vars.tag}` next to `sku: ar-${vars.tag}` made
+the tag a secret, and every sku, expectation and proposal line read `ar-<redacted>`. Since 2026-09-25
+a var inside a redacted field is a secret of its own only when it is the whole field value
+(`password: ${vars.pw}`), is used in no field outside `redact`, or has a credential-like name; otherwise
+only the whole resolved field value (`wrong-<tag>`) is scrubbed by value, and the tag stays readable.
 A credential sent in a step HEADER was only digested in `headers`: with
 `X-Api-Key: "${env.PARTNER_API_KEY}"` and a backend answering 403 `api key <value> is not allowed`,
 the key stood in clear in the response, `transport_error`, `error`, `failure` and on the terminal.
@@ -1147,6 +1171,23 @@ Leaving it undeclared, so `run` would demand `-var`, was the alternative; it was
 undeclared var the slice reads is what `-verify` refuses as missing and what a written slice already
 reports under `vars the chain does not declare`, and the file should say what the verified run sent.
 Either way a later run needs a fresh `-var`, which the slice's description says.
+
+## 39. Two branches supersede the same safe spot
+
+**Symptom.** `feat/a` and `feat/b` each re-approved `order-confirm`. Merging the second gives
+`CONFLICT (content): Merge conflict in .shrt/safespots/order-confirm.json`, and `shrt verify`
+answered `invalid character '<' looking for beginning of object key string`, then told you to
+propose a first safe spot, as if there were none.
+
+**Cause.** A safe spot is one sealed JSON document per chain. Git merges it line by line like any
+text, so two approvals of the same chain always conflict, and a line-level merge of the two is
+neither approval: its digest matches neither side.
+
+**Fix.** Take one side whole (`git checkout --ours|--theirs .shrt/safespots/<chain>.json`), run the
+gate on the merged backend, and re-propose and approve when it drifts or the merged chain is neither
+side's (PLAYBOOK §8 has the steps). The losing side's approval stays in git history. Since
+2026-09-25 `verify` names the conflict markers and that remedy, and `shrt doctor` FAILs the
+`safespot-digests` check on the file, alongside a safe spot edited after approval.
 
 ---
 

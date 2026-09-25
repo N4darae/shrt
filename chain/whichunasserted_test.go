@@ -37,8 +37,8 @@ func TestWhichReportsACodeRunsObservedThatNoChainAssertsByNumber(t *testing.T) {
 	if s.Step != "confirm_short" || s.Path != "error.details.0.app_code" || s.Run != "r1" {
 		t.Errorf("want the step, the path the code was at and the run, got %+v", s)
 	}
-	if !strings.Contains(s.Command, "-step confirm_short -mode pin -run r1") {
-		t.Errorf("the command must reproduce that observation: %s", s.Command)
+	if !strings.Contains(s.Command, "-step confirm_short -keep writes") || strings.Contains(s.Command, "-mode pin") {
+		t.Errorf("a write step is reproduced in closure mode with -keep writes, as -rpc does, not pinned: %s", s.Command)
 	}
 	if again := chain.WhichObservedUnasserted(unassertedFixture(), chain.WhichQuery{Code: "1306"}, chain.WhichOptions{Observations: obs}); len(again) != 0 {
 		t.Errorf("a code no run carried is not observed: %+v", again)

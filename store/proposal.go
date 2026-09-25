@@ -43,6 +43,9 @@ type Proposal struct {
 	Unstable   []string  `json:"unstable,omitempty"`
 	Carried    []string  `json:"differs_where_earlier_run_held_replaced,omitempty"`
 	Replaced   []Differ  `json:"differs_from_replaced,omitempty"`
+
+	Branch string `json:"branch,omitempty"`
+	Commit string `json:"commit,omitempty"`
 }
 
 type Differ struct {
@@ -65,6 +68,8 @@ type ProposalInput struct {
 	Unstable   []string
 	Carried    []string
 	Replaced   []Differ
+	Branch     string
+	Commit     string
 }
 
 func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error) {
@@ -105,6 +110,7 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 		Supersede: in.Supersede, Replaces: replaces,
 		Digest: recordDigest(rec), Report: s.ReportPath(rec.Chain),
 		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
+		Branch: in.Branch, Commit: in.Commit,
 	}
 	if replaces != "" {
 		p.Replaced = in.Replaced
@@ -150,6 +156,18 @@ func (s *Store) Approve(chainName string, c Confirmation) (*SafeSpot, string, er
 	}
 	s.DropProposal(chainName)
 	return spot, path, nil
+}
+
+func (p *Proposal) ProposedOn() string {
+	switch {
+	case p.Branch != "" && p.Commit != "":
+		return fmt.Sprintf("branch `%s` at commit `%s`", p.Branch, p.Commit)
+	case p.Branch != "":
+		return fmt.Sprintf("branch `%s`", p.Branch)
+	case p.Commit != "":
+		return fmt.Sprintf("commit `%s`", p.Commit)
+	}
+	return ""
 }
 
 func (s *Store) LoadProposal(chainName string) (*Proposal, error) {
@@ -294,6 +312,9 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	}
 	if rec.ChainSource != "" {
 		fmt.Fprintf(&b, ", chain file `%s`", filepath.Base(rec.ChainSource))
+	}
+	if where := p.ProposedOn(); where != "" {
+		fmt.Fprintf(&b, ", proposed on %s", where)
 	}
 	if p.Replaces == "" {
 		b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")

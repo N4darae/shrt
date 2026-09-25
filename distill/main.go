@@ -144,7 +144,7 @@ var notes = map[string]string{
 	"Record.started_at":    "UTC start time.",
 	"Record.duration_ms":   "Whole-run wall time.",
 	"Record.status":        "`passed`, `failed` or `error` — never `skipped`; that is a step status.",
-	"Record.vars":          "The resolved vars this run used, so a replay can be reproduced. A var whose name a `redact` pattern covers is `<redacted>`, and so is the value of any var a step body reads into a field `redact` covers (`password: ${vars.pw}` with `-var pw=...`): that value is scrubbed by value from the whole record, so `shrt confirm` cannot show it either.",
+	"Record.vars":          "The resolved vars this run used, so a replay can be reproduced. A var whose name a `redact` pattern covers is `<redacted>`, and so is the value of any var a step body reads into a field `redact` covers (`password: ${vars.pw}` with `-var pw=...`): that value is scrubbed by value from the whole record, so `shrt confirm` cannot show it either. A var that only forms part of a redacted field (`password: wrong-${vars.tag}`) and is also sent in the clear elsewhere (`sku: ar-${vars.tag}`) is a fixture, not a secret: the whole field value is scrubbed, the var's own value is not. It stays a secret when it is the whole field value, is used only in redacted fields, or is named like a credential (`pw`, `token`, `secret`, ...).",
 	"Record.exports":       "Everything any step exported.",
 	"Record.volatile":      "Volatile patterns in force for the whole run, chain plus config. Step-level patterns are on each step record.",
 	"Record.redacted":      "Redact patterns in force. The values themselves are already masked in `request`/`response`.",

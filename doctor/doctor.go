@@ -110,6 +110,7 @@ var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkConventions,
 	checkContracts,
 	checkSafeSpots,
+	checkSafeSpotDigests,
 	checkUpgrade,
 }
 

@@ -92,12 +92,13 @@ func catalogList(args []string) error {
 	}
 
 	type row struct {
-		RPC       string `json:"rpc"`
-		Procedure string `json:"procedure"`
-		Input     string `json:"input"`
-		Output    string `json:"output"`
-		Streaming string `json:"streaming,omitempty"`
-		Doc       string `json:"doc,omitempty"`
+		RPC        string `json:"rpc"`
+		Procedure  string `json:"procedure"`
+		Input      string `json:"input"`
+		Output     string `json:"output"`
+		Streaming  string `json:"streaming,omitempty"`
+		Deprecated bool   `json:"deprecated,omitempty"`
+		Doc        string `json:"doc,omitempty"`
 	}
 	rows := []row{}
 	for _, m := range e.cat.Methods() {
@@ -105,12 +106,13 @@ func catalogList(args []string) error {
 			continue
 		}
 		rows = append(rows, row{
-			RPC:       m.FullName,
-			Procedure: m.Procedure(),
-			Input:     string(m.Input().FullName()),
-			Output:    string(m.Output().FullName()),
-			Streaming: m.StreamKind(),
-			Doc:       m.Doc,
+			RPC:        m.FullName,
+			Procedure:  m.Procedure(),
+			Input:      string(m.Input().FullName()),
+			Output:     string(m.Output().FullName()),
+			Streaming:  m.StreamKind(),
+			Deprecated: m.Deprecated(),
+			Doc:        m.Doc,
 		})
 	}
 	if *asJSON {
@@ -118,12 +120,16 @@ func catalogList(args []string) error {
 	}
 	streaming := 0
 	for _, r := range rows {
+		mark := ""
+		if r.Deprecated {
+			mark = "  [DEPRECATED: option deprecated = true]"
+		}
 		if r.Streaming == "" {
-			fmt.Println(r.RPC)
+			fmt.Println(r.RPC + mark)
 			continue
 		}
 		streaming++
-		fmt.Printf("%s  [%s — OUT OF SCOPE, shrt is unary-only]\n", r.RPC, r.Streaming)
+		fmt.Printf("%s  [%s — OUT OF SCOPE, shrt is unary-only]%s\n", r.RPC, r.Streaming, mark)
 	}
 	fmt.Printf("\n%d rpc(s)", len(rows))
 	if streaming > 0 {
@@ -157,12 +163,15 @@ func catalogDescribe(args []string) error {
 	if *asJSON {
 		return emitJSON(map[string]any{
 			"rpc": m.FullName, "procedure": m.Procedure(), "doc": m.Doc,
-			"file": m.File, "streaming": m.StreamKind(), "request": in, "response": out,
+			"file": m.File, "streaming": m.StreamKind(), "deprecated": m.Deprecated(), "request": in, "response": out,
 		})
 	}
 	fmt.Printf("%s\n  procedure: %s\n  file: %s\n", m.FullName, m.Procedure(), m.File)
 	if m.Streaming() {
 		fmt.Printf("  STREAMING: %s\n", m.StreamRefusal())
+	}
+	if m.Deprecated() {
+		fmt.Println("  DEPRECATED: the proto marks this rpc (or its service) option deprecated = true")
 	}
 	if m.Doc != "" {
 		fmt.Printf("  doc: %s\n", m.Doc)
