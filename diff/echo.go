@@ -18,7 +18,6 @@ type comparedStep struct {
 func idRenames(pairs []idPair) [][2]string {
 	forward := map[string]string{}
 	reverse := map[string]string{}
-	bad := map[string]bool{}
 	order := []string{}
 	for _, p := range pairs {
 		w, okW := p.want.(string)
@@ -26,14 +25,10 @@ func idRenames(pairs []idPair) [][2]string {
 		if !okW || !okG {
 			continue
 		}
-		if prev, ok := forward[w]; ok {
-			if prev != g {
-				bad[w] = true
-			}
+		if _, ok := forward[w]; ok {
 			continue
 		}
-		if prev, ok := reverse[g]; ok && prev != w {
-			bad[w], bad[prev] = true, true
+		if _, ok := reverse[g]; ok {
 			continue
 		}
 		forward[w], reverse[g] = g, w
@@ -41,7 +36,7 @@ func idRenames(pairs []idPair) [][2]string {
 	}
 	out := [][2]string{}
 	for _, w := range order {
-		if g := forward[w]; !bad[w] && w != g && len(w) >= minRenamedID {
+		if g := forward[w]; w != g && len(w) >= minRenamedID {
 			out = append(out, [2]string{w, g})
 		}
 	}

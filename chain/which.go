@@ -109,6 +109,10 @@ type WhichChain struct {
 	Best     string      `json:"best_step"`
 	Command  string      `json:"command"`
 	Matches  []WhichStep `json:"matches"`
+
+	CommandSteps  int    `json:"command_steps,omitempty"`
+	Fallback      string `json:"fallback_command,omitempty"`
+	FallbackSteps int    `json:"fallback_steps,omitempty"`
 }
 
 func IsCodePath(path string) bool {

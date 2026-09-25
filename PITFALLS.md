@@ -2200,6 +2200,156 @@ replaces the chain in place, went on to say the file `is now part of every sweep
 
 **Fix.** 2026-09-25: the note is left out when the file written is the source chain's own.
 
+## 104. `no order ord-a4de…-unknown` counted as a change once a list broke the id renaming
+
+**Symptom.** A renamed id inside a message (`status.message want=no order ord-a4deafaa5f95-unknown
+got=no order ord-f55c820796ea-unknown`) is masked when the run's ids rename consistently. Once a
+real change elsewhere put another id at a position holding that one (a list with other items), the
+whole pair was dropped from the renaming, and every message quoting it counted as a change: 4 of 31
+in one gate.
+
+**Fix.** 2026-09-25: an id keeps the renaming it got where it first appeared (`create_order`), the
+same one the `not renamed consistently` line reports the later position against; `verify` and
+`shrt diff` apply that renaming inside text, so the message is masked and the list is still reported.
+
+## 105. `slice -verify` "reproduced" with two different `expires_at` values and no word why
+
+**Symptom.** A slice of a login whose `expires_at within: {of: ${nowunix+3600}, by: 5}` failed printed
+`verify reproduced` over `source got=1790352729682, slice got=1790352757712`, with nothing saying how
+two different values could be the same verdict.
+
+**Fix.** 2026-09-25: for a failing expectation whose bound reads the clock and whose got values
+differ, the verdict adds a `compared by distance from the bound:` line with both values, each run's
+distance from the bound its own run computed, and how they were matched: the same distance, or, when
+the distances differ but both values are timestamp-shaped (as a millisecond value against a seconds
+bound is), matched as timestamps rather than by distance. `-json` carries it as `compared_by_distance`.
+
+## 106. `slice -verify` NOT REPRODUCED 0/3 on `includes:` whose only difference was the fresh id
+
+**Symptom.** `shrt chain slice catalog-listproducts -step list_products_empty_sku_prefix -verify -run
+latest`, against an empty prefix that lists nothing, printed `verify NOT REPRODUCED 0/3` and exited 1,
+though every expectation `failed ... source got=0, slice got=0`. The differences were
+`failed in both, with other values: source want {"id_product":"prd-38bc…"} ..., slice want
+{"id_product":"prd-64b2…"}`: the resolved `includes:` operand holds the id each run created, and
+the verdict comparison masked ids and fixture names only in a plain string operand, not inside an
+object or list.
+
+**Fix.** 2026-09-25: operands are compared value by value inside objects (same keys) and lists (same
+length, each item read at the expectation's path, as `one_of` and `between` candidates are), each
+leaf masked as a string operand is: an id- or timestamp-shaped value at an id-named key, or a value
+differing only by the runs' fixture names. Another key, another count or another plain value still
+differs.
+
+## 107. A kept-red chain whose list came back in another order, readable only in `verify`
+
+**Symptom.** A kept-red chain pinned on status-filtered lists said `NEW FAILURE outside the pinned
+defect: list_orders_cancelled orders.0.id_order want=ord-0… got=ord-6…` and `held on pinned path
+orders.0.id_order`; that the list held the same items in another order was said only by `verify`,
+so a new defect showing through the pinned one read as noise.
+
+**Fix.** 2026-09-25: a new failure on an item of a list in the response names the kind of change:
+`(reordered: ord-a is at orders.2)` when the wanted id is at another position, `(item missing: no
+item of orders has id_order=ord-a)`, `(item added: orders holds 3 item(s))` for an `exists: false`
+on a position that is there, `(value changed: the item at orders.1 holds another status)`, and
+`(another item at orders.0, see orders.0.id_order)` for a field of an item whose id already
+differs. A pinned path that failed with another got carries the same label, and the NEW FAILURE
+summary under the step lines names the kinds per step (`list_orders (reordered)`).
+
+## 108. `chain which` sent a write to `-keep writes` (29/72 steps) where a 6-step closure reproduced it
+
+**Symptom.** `chain which -code 1304` printed `reproduce: shrt chain slice ... -keep writes`, a slice of
+29 of 72 steps, while the plain closure `-verify` reproduced the verdict with 6. Since the closure
+keeps the writes that act on the entities the step uses (§75), `-keep writes` was only needed where
+the run shows one it leaves out.
+
+**Fix.** 2026-09-25: for a write step with a cited run, `which` slices it both ways; when the run
+shows no write the plain closure drops acting on an entity a kept step uses, the plain closure is the
+`reproduce:` line and `-keep writes` follows as `if that does not reproduce:`, each with its step
+count. Otherwise `-keep writes` stays the line, now with its count.
+
+## 109. `-without failed -write <name>`, followed literally, left the red chain in the gate
+
+**Symptom.** `slice -kept-red` ended with `Leave the steps that failed out of <chain> with: shrt chain
+slice <chain> -without failed -run <id> -write <name>`. Written under a new name, the rest ran green
+beside the source chain, which stayed in `.shrt/chains/` and still failed every gate.
+
+**Fix.** 2026-09-25: the line prints `-write .shrt/chains/<chain>.yaml`, which replaces the source
+chain itself, and says that another name leaves the red chain in the gate unless it is moved out.
+
+## 110. `slice -verify -run latest` sliced from a `verify` replay instead of the gate's run
+
+**Symptom.** In a gate that runs every chain and then `verify`s those with a safe spot, the newest
+record of a chain is often `verify`'s replay. `slice -verify -run latest` took it as the source run
+without saying so, though the run the gate reported red was the `shrt run` record before it.
+
+**Fix.** 2026-09-25: `-run latest` (with `-mode pin`, `-verify`, `-kept-red` and `-without failed`)
+prefers the newest `shrt run` record, prints a note naming the replay it passed over and the
+`-run <id>` that uses it, and uses a replay only when no run record reached the step, saying
+`(a shrt verify replay)` on the verdict line (`source_replay_of` under `-json`).
+
+## 111. "220 of 229 steps kept" read as 220 steps known to pass
+
+**Symptom.** `slice -without failed` printed `orders without ... : 220 of 229 steps kept`, which
+testers read as a guarantee about the rest. The same report blamed `-without` for a `tag: kr1`
+default in a written slice.
+
+**Fix.** 2026-09-25: the line reads `the new chain holds 220 of the 229 steps, the 9 below left out;
+a count of what the file holds, not of steps known to pass`. The var default was not `-without`'s:
+it writes `vars:` as the chain declares them. `tag: kr1` came from `slice -kept-red -verify -var
+tag=kr1 -write`, which on purpose writes a fresh var with the value its verified run sent (commit
+eb654d7, PLAYBOOK slice step 5); that behaviour is kept.
+
+## 112. `chain new` with 11 CreateProduct steps asserted a list of 3
+
+**Symptom.** `shrt chain new -name cn CreateProduct ×11 ListProducts` asserted three positions and
+`products.3 exists: false` on a `sku_prefix: sku-${vars.tag}-` list that holds all eleven, in an
+order that was wrong for eleven (`sku-…-10-` sorts before `sku-…-a-`). The first run failed.
+
+**Fix.** 2026-09-25: the order discrimination still varies the first three creates, but the list
+now asserts every fixture: each position by id when the stated sort key orders them all apart
+(numbers, or texts compared after the start they share, which holds no reference; creation order
+always does), and otherwise each fixture by id (`includes:`) and the exact count, with a note
+saying which values tie or depend on a reference. A list that filters on the first create's own
+value (`${steps.create_product.request.sku}`) lists only the three it varied, as before.
+
+## 113. `envelope-only` on a step asserting `status.details.0.app_code equals 1102`
+
+**Symptom.** `shrt chain lint` warned `asserts only the verdict, which says the call did not fail` on
+a step whose only expectation was `status.details.0.app_code equals 1102`, a refusal code. That step
+expects a refusal, not success; the warning is for success steps that assert nothing of what the call
+did.
+
+**Fix.** 2026-09-25: an `equals` or `contains` of a non-empty value on a `code_fields` entry under the
+envelope's parent, which names the refusal as the runner already reads it (GRAMMAR, `StepRecord.expect`),
+marks the step as expecting a refusal, so the warning, and `-strict`'s error, no longer fire on it.
+
+## 114. A step's `volatile: [products]` masked `products` on every other step too
+
+**Symptom.** `shrt verify catalog-listproducts -masked` listed `list_products products.0.sku
+(sku-p3-… -> sku-msk1-…) hidden by products`, a pattern declared only on
+`list_products_empty_sku_prefix`. It was not a wrong label: `verify`, `diff`, `confirm` and the
+kept-red comparison took the current chain's patterns from the config, the chain and every step,
+flattened into one list applied to all steps, so a step-level pattern hid real changes at the same
+path on every other step of the chain.
+
+**Fix.** 2026-09-25: only the config's and the chain's own patterns apply chain-wide; a step's
+`volatile` applies to that step, from its step record, as GRAMMAR says ("for this step only"). The
+values it used to hide elsewhere are listed where they belong: an id, a fixture echo, or a change.
+
+## 115. Seconds of shrt's own time on a list of 1715 items
+
+**Symptom.** `shrt run` spent about 2s of its own time on one ListProducts answer of 1715 items,
+whose `latency_ms` was 14–34, and `verify` of the same chain about 9s; both grew with the list.
+
+**Fix.** 2026-09-25, profiled on a 1715-item list (`verify` 9.7s to 0.6s, `run` with a safe spot 1.0s
+to 0.35s): the pairing of list items that finds a reordered list compared every item with every
+other and sorted all n² pairs; it now scores only pairs sharing a value, through an index of each
+item's leaves, and takes the same greedy pairing from per-item heaps (a test checks it against the
+all-pairs pairing). Listing a chain's runs read every record started in the same second in full to
+order them; it now reads only `started_at`. Volatile patterns are split and case-folded once per
+mask, not per value, name comparison no longer allocates, and redaction skips the case-folded scan
+of an ASCII value that does not contain the secret.
+
 ---
 
 # Decisions, so they are not relitigated

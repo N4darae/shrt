@@ -43,3 +43,25 @@ func TestARenamedIDInsideAMessageIsNotAChange(t *testing.T) {
 		})
 	}
 }
+
+func TestARenamedIDInsideAMessageStaysMaskedWhenAListElsewhereBreaksTheRenaming(t *testing.T) {
+	steps := func(product, message, listed string) []*runner.StepRecord {
+		return append(idInTextSteps(product, message),
+			&runner.StepRecord{ID: "list", Call: "S/List", Status: runner.StatusPassed, Response: []byte(`{"products":[{"id_product":"` + listed + `"}]}`)})
+	}
+	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: steps("prd-847c0a1b", "no product prd-847c0a1b-unknown", "prd-847c0a1b")}
+	rec := &runner.Record{RunID: "run", Chain: "c", Status: runner.StatusPassed, Steps: steps("prd-b7703c2d", "no product prd-b7703c2d-unknown", "prd-99990000")}
+	rep := diff.CompareMasking(spot, rec, nil)
+	a := &runner.Record{RunID: "a", Chain: "c", Status: runner.StatusPassed, Steps: spot.Steps}
+	runs := diff.CompareRuns(a, rec)
+	for name, changes := range map[string][]diff.Change{"verify": rep.Changes, "diff": runs.Changes} {
+		var list, message bool
+		for _, c := range changes {
+			list = list || c.Step == "list"
+			message = message || c.Step == "confirm"
+		}
+		if (name == "verify" && !list) || message {
+			t.Fatalf("%s: list reported=%v, message reported=%v (want false): %+v", name, list, message, changes)
+		}
+	}
+}

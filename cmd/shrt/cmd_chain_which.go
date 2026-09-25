@@ -65,6 +65,7 @@ func chainWhich(args []string) error {
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
 	keepRelatedWritesInPinnedRepro(e, lib, chains, hits)
+	preferClosureRepro(e, lib, chains, hits)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
 		if len(seen) == 0 {
@@ -228,6 +229,61 @@ func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*cha
 	}
 }
 
+func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
+	byName := map[string]*chain.Chain{}
+	for _, c := range chains {
+		byName[c.Name] = c
+	}
+	keepFlag := " -keep " + chain.SliceKeepWrites
+	for i := range hits {
+		h := &hits[i]
+		c := byName[h.Chain]
+		if c == nil || !strings.Contains(h.Command, keepFlag) || strings.Contains(h.Command, " -mode pin ") {
+			continue
+		}
+		var best *chain.WhichStep
+		for j := range h.Matches {
+			if h.Matches[j].Step == h.Best {
+				best = &h.Matches[j]
+			}
+		}
+		if best == nil || best.Observed == nil {
+			continue
+		}
+		rec, err := e.store.LoadRun(c.Name, best.Observed.Run)
+		if err != nil {
+			continue
+		}
+		o := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
+		plain, err := chain.Slice(c, h.Best, o)
+		if err != nil {
+			continue
+		}
+		o.Keep = []string{chain.SliceKeepWrites}
+		kept, err := chain.Slice(c, h.Best, o)
+		if err != nil || len(kept.Kept) <= len(plain.Kept) {
+			continue
+		}
+		closure := "shrt chain slice " + c.Name + " -step " + h.Best + freshVarFlags(plain.FreshVars)
+		if related, _ := relatedDroppedWrites(plain, rec); len(related) > 0 {
+			h.CommandSteps = len(kept.Kept)
+			continue
+		}
+		h.Fallback, h.FallbackSteps = h.Command, len(kept.Kept)
+		h.Command, h.CommandSteps = closure, len(plain.Kept)
+	}
+}
+
+func freshVarFlags(fresh []string) string {
+	names := append([]string{}, fresh...)
+	sort.Strings(names)
+	out := ""
+	for _, name := range names {
+		out += " -var " + name + "=<fresh>"
+	}
+	return out
+}
+
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
 	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
 	login := isLoginStep(e)
@@ -313,7 +369,14 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 				fmt.Printf("    newest run %s did not reach it: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 			}
 		}
-		fmt.Printf("  reproduce: %s\n", h.Command)
+		if h.CommandSteps > 0 {
+			fmt.Printf("  reproduce: %s  (%d of %d steps)\n", h.Command, h.CommandSteps, h.Steps)
+		} else {
+			fmt.Printf("  reproduce: %s\n", h.Command)
+		}
+		if h.Fallback != "" {
+			fmt.Printf("  if that does not reproduce: %s  (%d of %d steps)\n", h.Fallback, h.FallbackSteps, h.Steps)
+		}
 	}
 	fmt.Printf("\n%d chain(s), %d with a local run record that reached a matching step.\n", len(hits), observed)
 	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
@@ -324,9 +387,11 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
 		whichMarkClaim, whichMarkSeen, target)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
-	fmt.Println("A write step is reproduced in closure mode with -keep writes, which creates what it needs afresh and keeps every earlier\n" +
-		"write its state may depend on: -mode pin would re-send the write against the entities the recorded run created, which that\n" +
-		"run already changed (a confirm answers AlreadyConfirmed). A step marked auth probe (skip_auth, auth: invalid, or a\n" +
+	fmt.Println("A write step is reproduced in closure mode, which creates what it needs afresh: -mode pin would re-send the write\n" +
+		"against the entities the recorded run created, which that run already changed (a confirm answers AlreadyConfirmed).\n" +
+		"The plain closure keeps the writes that act on the entities the step uses, as far as the cited run shows; when that run\n" +
+		"shows none left out, it is the reproduce: line, with -keep writes, which keeps every earlier write its state may depend\n" +
+		"on, as the fallback; otherwise -keep writes is the reproduce: line. A step marked auth probe (skip_auth, auth: invalid, or a\n" +
 		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +
 		"writes do not change its verdict, and -keep writes would only add steps.")
 }

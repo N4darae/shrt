@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -291,15 +292,27 @@ func newFailureLine(rec *runner.Record, stepsShown bool) string {
 		}
 	}
 	named, seen := []string{}, map[string]bool{}
+	kinds := map[string][]string{}
 	for _, item := range strings.Split(strings.TrimPrefix(rec.KeptRedNew, runner.NewFailurePrefix), "; ") {
 		id, _, _ := strings.Cut(item, " ")
-		if ids[id] && !seen[id] {
+		if !ids[id] {
+			continue
+		}
+		if !seen[id] {
 			seen[id] = true
 			named = append(named, id)
+		}
+		if kind := runner.ListChangeKind(item); kind != "" && !slices.Contains(kinds[id], kind) {
+			kinds[id] = append(kinds[id], kind)
 		}
 	}
 	if len(named) == 0 {
 		return rec.KeptRedNew
+	}
+	for i, id := range named {
+		if len(kinds[id]) > 0 {
+			named[i] = id + " (" + strings.Join(kinds[id], ", ") + ")"
+		}
 	}
 	return runner.NewFailurePrefix + strings.Join(named, ", ") + " (each failure is on its step's line above)"
 }

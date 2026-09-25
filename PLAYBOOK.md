@@ -317,6 +317,11 @@ like their skus pass a backend sorting by name. When the list's contract states 
 fixtures have no field to vary; when it states none, it asserts the count and each fixture's
 membership by id (`path: orders` `includes: {id_order: ${create_order_2.order.id_order}}`), so a
 missing item is named, and says how to have the order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+With more than three creates feeding a list that does not filter on the first one's value, it varies the first three
+and asserts every fixture: each position by id when the stated key orders them all apart (`sku-${vars.tag}-10-` before
+`sku-${vars.tag}-4-` and `sku-${vars.tag}-a-`, compared after the start they share; creation order always does), and
+otherwise each fixture's membership by id and the exact count, with a note naming the tie or the reference that
+keeps the order unknown (`sku-${vars.tag}-${uuid}`).
 `chain lint` names a step that asserts positions of a list whose items sort alike under two or more
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
@@ -1423,9 +1428,14 @@ be kept red as a whole if you want the other 45 steps guarded by `verify`, since
 shrt run orders -keep-going                                   # red at confirm_order_insufficient_stock_last_item
 shrt chain slice orders -step confirm_order_insufficient_stock_last_item \
     -kept-red -verify -run latest -var tag=<fresh> -write orders-last-line-red
-shrt chain slice orders -without failed -run latest -write orders-rest
-shrt run orders-rest -var tag=<fresh>                          # green: propose and approve it
+shrt chain slice orders -without failed -run latest -write .shrt/chains/orders.yaml
+shrt run orders -var tag=<fresh>                               # green: propose and approve it
 ```
+
+The third command replaces `orders` itself, so the gate runs the rest green and the defect is red
+in its slice only; `-kept-red` prints it in that form. Writing the rest under a new name
+(`-write orders-rest`) keeps the red `orders` in the chains directory, where the gate still runs
+it: move it out if you do.
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
 [{step, path, got}]`, `got` being the value it failed with when that is stable: a bool, a number,
@@ -1449,7 +1459,11 @@ hypothesis: a run saying `PINNED DEFECT GONE` while the chain still fails means 
 `-without <id,...>` writes the chain minus those steps and every step that reads one of them, by a
 reference or an export; `-without failed` names every step that failed in the run (`-run`, default
 latest), which leaves out the after-reads that fail with the defect too. It lists each step left out
-and why, and drops their `kept_red` pins. A step left in can still depend on what a left-out write
+and why, and drops their `kept_red` pins; its count (`the new chain holds 220 of the 229 steps`)
+is what the file holds, not steps known to pass. It writes the chain's `vars:` as the chain
+declares them and applies no `-var`. A `tag: kr1` in a slice written with `-kept-red -verify -var
+tag=kr1` is deliberate: a written slice declares a fresh var with the value its verified run sent
+(5 in the slice section below). A step left in can still depend on what a left-out write
 did to shared state, so run the rest before proposing it; `-write <chain>.yaml` replaces the chain
 itself. Remove the kept-red slice and plan again once the defect is fixed.
 
@@ -1564,7 +1578,11 @@ shrt chain which -code 1218 -json
    `-keep writes` and no `-run`: pinning would re-send the write on the entities the recorded run
    created and already changed, and a confirm then answers `OrderAlreadyConfirmed` instead of
    reproducing anything; `-keep writes` keeps each earlier write its state may depend on (a
-   restock the closure alone would drop). When a write the slice keeps interpolates a var into what it creates, the line ends
+   restock the closure alone would drop). When the cited run shows no write the plain closure
+   leaves out acting on an entity the step uses, the plain closure is the `reproduce:` line and
+   `-keep writes` follows it as `if that does not reproduce:`, each with its step count
+   (`(6 of 72 steps)`, `(29 of 72 steps)`; `command_steps`, `fallback_command` and `fallback_steps`
+   under `-json`). When a write the slice keeps interpolates a var into what it creates, the line ends
    with `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a string that a
    dropped step before the target also sent, template for template (`w-${vars.tag}` in both), is
    not counted: the kept write names what that step created under the run's value, so the slice

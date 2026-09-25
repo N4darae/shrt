@@ -108,7 +108,14 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 	out, fresh := []string{}, []string{}
 	unpinned := false
 	seen := map[int]bool{}
-	for _, ex := range sr.Expect {
+	kinds := listChangeKinds(sr)
+	kindOf := func(n int) string {
+		if kinds[n] == "" {
+			return ""
+		}
+		return " (" + kinds[n] + ")"
+	}
+	for n, ex := range sr.Expect {
 		if ex.Passed {
 			continue
 		}
@@ -124,12 +131,12 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 				continue
 			}
 			if k.Got != nil && gotText(ex.Got) != *k.Got {
-				out = append(out, fmt.Sprintf("step %q failed on %s with got=%s, not the pinned got=%s", id, ex.Path, gotText(ex.Got), *k.Got))
+				out = append(out, fmt.Sprintf("step %q failed on %s with got=%s, not the pinned got=%s%s", id, ex.Path, gotText(ex.Got), *k.Got, kindOf(n)))
 			}
 		}
 		if !matched {
 			unpinned = true
-			fresh = append(fresh, id+" "+chain.DescribeFailure(ex))
+			fresh = append(fresh, id+" "+chain.DescribeFailure(ex)+kindOf(n))
 		}
 	}
 	for i, k := range want {

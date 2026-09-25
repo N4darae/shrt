@@ -185,7 +185,7 @@ func EnvelopeOnlyMessage(rpc string, facts []string) string {
 
 func stepExpectsSuccess(s *chain.Step) bool {
 	for _, e := range s.Expect {
-		if chain.ExpectsTransportRefusal(e) {
+		if chain.ExpectsTransportRefusal(e) || chain.PinsVerdictCode(e) {
 			return false
 		}
 		if e.Path != chain.EnvelopePath() {

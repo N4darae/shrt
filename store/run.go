@@ -173,9 +173,8 @@ func (s *Store) sortByStart(chainName string, ids []string) {
 	started := make(map[string]time.Time, len(ids))
 	modified := make(map[string]time.Time, len(ids))
 	for _, id := range ids {
-		rec := &runner.Record{}
-		if err := readJSON(s.runPath(chainName, id), rec); err == nil {
-			started[id] = rec.StartedAt
+		if at, ok := recordStartedAt(s.runPath(chainName, id)); ok {
+			started[id] = at
 		}
 		if info, err := os.Stat(s.runPath(chainName, id)); err == nil {
 			modified[id] = info.ModTime()
@@ -191,6 +190,36 @@ func (s *Store) sortByStart(chainName string, ids []string) {
 		}
 		return x < y
 	})
+}
+
+func recordStartedAt(path string) (time.Time, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer f.Close()
+	dec := json.NewDecoder(f)
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return time.Time{}, false
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return time.Time{}, false
+		}
+		if key == "started_at" {
+			var at time.Time
+			if err := dec.Decode(&at); err != nil {
+				return time.Time{}, false
+			}
+			return at, true
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return time.Time{}, false
+		}
+	}
+	return time.Time{}, false
 }
 
 func (s *Store) FindRun(runID string) ([]*runner.Record, error) {

@@ -14,6 +14,7 @@ import (
 
 type Masker struct {
 	patterns    []string
+	split       [][]string
 	value       string
 	secretsOnly bool
 	numeric     func(path string) bool
@@ -26,11 +27,11 @@ type secretSet struct {
 }
 
 func NewMasker(patterns []string) *Masker {
-	return &Masker{patterns: patterns, value: MaskVolatile}
+	return &Masker{patterns: patterns, split: splitPatterns(patterns), value: MaskVolatile}
 }
 
 func NewRedactor(patterns []string) *Masker {
-	return &Masker{patterns: patterns, value: MaskRedacted, secretsOnly: true, secrets: &secretSet{}}
+	return &Masker{patterns: patterns, split: splitPatterns(patterns), value: MaskRedacted, secretsOnly: true, secrets: &secretSet{}}
 }
 
 const minSubstringSecret = 4
@@ -109,6 +110,9 @@ func scrubText(s string, secrets []string) string {
 }
 
 func replaceFold(s, secret string) string {
+	if isASCII(s) && isASCII(secret) && !strings.Contains(strings.ToLower(s), strings.ToLower(secret)) {
+		return s
+	}
 	pieces := strings.Split(s, MaskRedacted)
 	for i, piece := range pieces {
 		var b strings.Builder
@@ -129,6 +133,15 @@ func replaceFold(s, secret string) string {
 		}
 	}
 	return strings.Join(pieces, MaskRedacted)
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
 }
 
 func tokenTail(secret string) string {
@@ -334,9 +347,27 @@ func isEmpty(v any) bool {
 	return false
 }
 
+func splitPatterns(patterns []string) [][]string {
+	out := make([][]string, 0, len(patterns))
+	for _, p := range patterns {
+		out = append(out, foldSegments(strings.Split(p, ".")))
+	}
+	return out
+}
+
+func foldSegments(segs []string) []string {
+	for i, seg := range segs {
+		if seg != "**" {
+			segs[i] = namecase.Fold(seg)
+		}
+	}
+	return segs
+}
+
 func (m *Masker) masked(path string) bool {
-	for _, p := range m.patterns {
-		if Match(p, path) {
+	segs := foldSegments(strings.Split(path, "."))
+	for _, p := range m.split {
+		if matchFolded(p, segs) {
 			return true
 		}
 	}
@@ -367,6 +398,28 @@ func matchSegments(pat, seg []string) bool {
 		return false
 	}
 	return matchSegments(pat[1:], seg[1:])
+}
+
+func matchFolded(pat, seg []string) bool {
+	if len(pat) == 0 {
+		return len(seg) == 0
+	}
+	head := pat[0]
+	if head == "**" {
+		for i := 0; i <= len(seg); i++ {
+			if matchFolded(pat[1:], seg[i:]) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(seg) == 0 {
+		return false
+	}
+	if head != "*" && !globFolded(head, seg[0]) {
+		return false
+	}
+	return matchFolded(pat[1:], seg[1:])
 }
 
 func segmentMatches(pattern, segment string) bool {

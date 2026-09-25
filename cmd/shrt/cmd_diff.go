@@ -165,11 +165,7 @@ func currentVolatile(e *env, chainName string) []string {
 	if err != nil {
 		return out
 	}
-	out = append(out, c.Volatile...)
-	for _, s := range c.Steps {
-		out = append(out, s.Volatile...)
-	}
-	return out
+	return append(out, c.Volatile...)
 }
 
 func selectRun(e *env, chainName, sel string) (*runner.Record, error) {
