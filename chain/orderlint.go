@@ -135,7 +135,7 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		}
 	}
 	sort.Ints(idx)
-	if len(idx) < 2 {
+	if len(idx) < 2 || echoesRequestList(s.Body, at, idx) {
 		return Issue{}, false
 	}
 	steps := []*Step{}
@@ -194,4 +194,46 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 			"fixtures values that sort differently under each key, with three or more items (sku a < c < b, name b < a < c, "+
 			"price c < a < b, none in creation order)",
 		list, strings.Join(ids, ", "), strings.Join(agree, ", "))}, true
+}
+
+func echoesRequestList(v any, at map[int]string, idx []int) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, child := range t {
+			if echoesRequestList(child, at, idx) {
+				return true
+			}
+		}
+	case []any:
+		mirrors := true
+		for _, i := range idx {
+			if i >= len(t) || !referencesStep(t[i], at[i]) {
+				mirrors = false
+				break
+			}
+		}
+		if mirrors {
+			return true
+		}
+		for _, item := range t {
+			if echoesRequestList(item, at, idx) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func referencesStep(v any, step string) bool {
+	switch t := v.(type) {
+	case string:
+		return refStepOf(t) == step
+	case map[string]any:
+		for _, child := range t {
+			if referencesStep(child, step) {
+				return true
+			}
+		}
+	}
+	return false
 }

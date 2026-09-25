@@ -1288,7 +1288,10 @@ with one direction or the other. The assertion could not tell which key sorted.
 **Fix.** 2026-09-25: `contract plan` of a list rpc, and `chain new` with two or more creates feeding
 a list, scaffold three creates whose sort keys disagree pairwise and with creation order, and
 assert each position when the contract states the order. `chain lint` warns `indistinct-order` on a
-step asserting positions of items that two or more keys sort alike.
+step asserting positions of items that two or more keys sort alike. It first warned on
+CreateOrder's `order.lines` and AddStockBatch's `results` too, whose order is the request's own
+list, not a sort key; since 2026-09-25 a list whose asserted items mirror a list in the same step's
+request, item for item, is not warned on.
 
 ## 45. Email uniqueness that went case-sensitive, green in the planned chain
 
