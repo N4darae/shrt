@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,29 +28,14 @@ func init() {
 }
 
 func runInit(ctx context.Context, args []string) error {
-	saved := os.Stdout
-	r, w, err := os.Pipe()
 	started := false
-	if err != nil {
-		return initRepo(ctx, args, &started)
-	}
-	os.Stdout = w
-	done := make(chan []byte, 1)
-	go func() {
-		out, _ := io.ReadAll(r)
-		done <- out
-	}()
-	runErr := initRepo(ctx, args, &started)
-	_ = w.Close()
-	os.Stdout = saved
-	out := <-done
-	_ = r.Close()
+	out, err := quietly(func() error { return initRepo(ctx, args, &started) })
 	if unset := unexportedLoginVars(); started && len(unset) > 0 {
 		fmt.Printf("credentials not exported (%s): export them first, then shrt init observes the envelope; continuing without\n",
 			strings.Join(unset, ", "))
 	}
-	_, _ = os.Stdout.Write(out)
-	return runErr
+	fmt.Print(out)
+	return err
 }
 
 func unexportedLoginVars() []string {
