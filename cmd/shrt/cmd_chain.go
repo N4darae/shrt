@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -335,8 +336,16 @@ func chainLint(args []string) error {
 		errCount += len(dupes)
 		reports = append(reports, report{Chain: "<corpus>", Issues: dupes})
 	}
+	shellUnset := map[string][]string{}
+	shellChains := 0
 	for _, c := range targets {
-		issues := contract.LintChain(c, e.cat, opts)
+		if gaps := chain.UnsetAuthEnv(c, opts.Chain); len(gaps) > 0 {
+			shellChains++
+			for _, g := range gaps {
+				shellUnset[g.Profile] = g.Unset
+			}
+		}
+		issues := slices.DeleteFunc(contract.LintChain(c, e.cat, opts), func(i chain.Issue) bool { return i.Kind == chain.KindAuthEnvUnset })
 		if mm := nameMismatchIn(e, c); mm != nil {
 			issues = append([]chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindNameMismatch, Message: mm.Error() + ": " + mm.Remedy()}}, issues...)
 		}
@@ -346,6 +355,21 @@ func chainLint(args []string) error {
 			}
 		}
 		reports = append(reports, report{Chain: c.Name, Issues: issues})
+	}
+	if len(shellUnset) > 0 {
+		profiles := make([]string, 0, len(shellUnset))
+		for p := range shellUnset {
+			profiles = append(profiles, p)
+		}
+		sort.Strings(profiles)
+		named := []string{}
+		for _, p := range profiles {
+			named = append(named, fmt.Sprintf("%s (auth profile %q)", strings.Join(shellUnset[p], ", "), p))
+		}
+		reports = append([]report{{Chain: "<shell>", Issues: []chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindAuthEnvUnset, Message: fmt.Sprintf(
+			"login bodies read environment variables not exported in this shell: %s — shrt run refuses "+
+				"the %d chain(s) that use them before sending anything until they are set",
+			strings.Join(named, "; "), shellChains)}}}}, reports...)
 	}
 	if *asJSON {
 		if err := emitJSON(reports); err != nil {
