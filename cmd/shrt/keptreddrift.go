@@ -75,12 +75,10 @@ func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Re
 		shown = append(append([]string{}, drift[:5]...), fmt.Sprintf("and %d more", len(drift)-5))
 	}
 	rec.KeptRed = runner.KeptRedNotAsPinned
-	rec.KeptRedNote = fmt.Sprintf("kept_red pins %s, and every pinned expectation failed as pinned, but the pinned steps return something "+
-		"else than in run %s, the last run that failed as pinned (a = that run, b = this one): %s. A new defect may hide behind the pinned one: "+
-		"compare with shrt diff %s %s %s. If the change is intended, re-pin: shrt chain slice <source chain> -step <pinned step> -kept-red -write %s -force, "+
-		"or edit the chain file, and the next run that fails as pinned becomes the reference",
-		pinPathsOf(c.KeptRed), ref.RunID, strings.Join(shown, "; "), rec.Chain, ref.RunID, rec.RunID, rec.Chain)
-	rec.KeptRedNew = runner.NewFailurePrefix + "a pinned step returns something else than in run " + ref.RunID + ": " + strings.Join(shown, "; ")
+	rec.KeptRedNote = fmt.Sprintf("kept_red pins %s and every pin failed as pinned, but the pinned steps now return something else "+
+		"than in run %s, the last run that failed as pinned (a = that run, b = this one):\n%s\n"+
+		"compare: shrt diff %s %s %s; if intended, re-pin: shrt chain slice <source chain> -step <pinned step> -kept-red -write %s -force",
+		runner.PinCount(len(c.KeptRed)), ref.RunID, strings.Join(shown, "\n"), rec.Chain, ref.RunID, rec.RunID, rec.Chain)
 }
 
 func pinPathsOf(pins []chain.Pin) string {

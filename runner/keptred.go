@@ -86,7 +86,17 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 	if len(found) > 0 {
 		finding = NewFailurePrefix + strings.Join(found, "; ")
 	}
-	return KeptRedNotAsPinned, "kept_red pins " + pinSummary(c.KeptRed) + ", but " + strings.Join(problems, "; "), finding
+	if len(problems) == 1 {
+		return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but " + problems[0], finding
+	}
+	return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but:\n" + strings.Join(problems, "\n"), finding
+}
+
+func PinCount(n int) string {
+	if n == 1 {
+		return "1 path"
+	}
+	return fmt.Sprintf("%d paths", n)
 }
 
 func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []string, bool) {
@@ -131,7 +141,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 				continue
 			}
 			if k.Got != nil && gotText(ex.Got) != *k.Got {
-				out = append(out, fmt.Sprintf("step %q failed on %s with got=%s, not the pinned got=%s%s", id, ex.Path, gotText(ex.Got), *k.Got, kindOf(n)))
+				out = append(out, fmt.Sprintf("%s %s: pinned got=%s, now got=%s%s", id, ex.Path, *k.Got, gotText(ex.Got), kindOf(n)))
 			}
 		}
 		if !matched {

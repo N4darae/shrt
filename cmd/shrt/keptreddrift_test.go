@@ -57,6 +57,9 @@ steps:
 		if !strings.Contains(out, "re-pin") {
 			t.Fatalf("the note says how to accept the change:\n%s", out)
 		}
+		if strings.Contains(out, "NEW FAILURE") || !strings.Contains(err.Error(), "a pinned step now returns something else: fetch changed total a=5 b=7") {
+			t.Fatalf("a pinned step whose pins still fail as pinned is not a new failure outside the pinned defect: %v\n%s", err, out)
+		}
 	}
 	writeFile(t, filepath.Join(".shrt", "chains", "red.yaml"), `name: red
 kept_red:

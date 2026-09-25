@@ -400,7 +400,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			g.notes = append(g.notes, capText(line, 240))
 		}
 	}
-	why := errorLine(out.stderr, "shrt "+what+": ")
+	why := strings.TrimPrefix(errorLine(out.stderr, "shrt "+what+": "), "chain "+g.name+": ")
 	switch {
 	case out.code == 0:
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
