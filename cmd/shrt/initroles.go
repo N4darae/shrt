@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/config"
+	"gopkg.in/yaml.v3"
 )
 
 type credentialSet struct {
@@ -150,4 +152,92 @@ func roleProfileHint(cfg *config.Config) string {
 		"      ${env.%s_USER} and ${env.%s_PASSWORD}, and put auth: %s on the steps that act as it (GRAMMAR.md §4).\n"+
 		"      init writes such a profile itself when %s_USER and %s_PASSWORD are exported and the README names %s",
 		example, envName, envName, example, envName, envName, example)
+}
+
+func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error) {
+	if cfg.Auth == nil {
+		return nil, nil
+	}
+	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
+	if err != nil {
+		return nil, nil
+	}
+	found := catalog.DetectLogins(cat)
+	var best *catalog.LoginCandidate
+	for i := range found {
+		if found[i].Method.FullName == cfg.Auth.Call {
+			best = &found[i]
+			break
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	probe := &config.Config{Root: cfg.Root, Auth: &config.Auth{Profiles: map[string]*config.Auth{}}}
+	for name, p := range cfg.Auth.Profiles {
+		probe.Auth.Profiles[name] = p
+	}
+	added := addRoleProfiles(probe, *best, os.Environ())
+	if len(added) == 0 {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(cfgPath)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return nil, err
+	}
+	auth := mappingValue(doc.Content[0], "auth")
+	if auth == nil || auth.Kind != yaml.MappingNode {
+		return nil, nil
+	}
+	profiles := mappingValue(auth, "profiles")
+	if profiles == nil {
+		profiles = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		auth.Content = append(auth.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "profiles"}, profiles)
+	}
+	names := []string{}
+	for name := range probe.Auth.Profiles {
+		if _, had := cfg.Auth.Profiles[name]; !had {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		var value yaml.Node
+		if err := value.Encode(probe.Auth.Profiles[name]); err != nil {
+			return nil, err
+		}
+		profiles.Content = append(profiles.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name}, &value)
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(4)
+	if err := enc.Encode(&doc); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
+		return nil, err
+	}
+	if cfg.Auth.Profiles == nil {
+		cfg.Auth.Profiles = map[string]*config.Auth{}
+	}
+	for _, name := range names {
+		cfg.Auth.Profiles[name] = probe.Auth.Profiles[name]
+	}
+	return added, nil
+}
+
+func mappingValue(m *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
 }

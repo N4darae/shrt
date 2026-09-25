@@ -155,6 +155,17 @@ func runInit(ctx context.Context, args []string) error {
 		if err := scaffoldAuth(loaded); err != nil {
 			return err
 		}
+	} else if !wroteConfig {
+		roles, err := addMissingRoleProfiles(loaded, cfgPath)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			fmt.Printf("write %s auth.profiles, keeping the rest of it as it was:\n", rel(root, cfgPath))
+			for _, r := range roles {
+				fmt.Printf("      role profile %s\n", r)
+			}
+		}
 	}
 	if wroteConfig {
 		guidePath, _ := exampleEnvelope(loaded)

@@ -78,7 +78,9 @@ another domain. Two roles that log in through the SAME rpc (an admin and a clerk
 profile only when init can see the second credential set: a pair of environment variables
 `<ROLE>_USER` (or `_USERNAME`) and `<ROLE>_PASSWORD` (or `_PASS`) exported when init runs, whose
 `<role>` the repo's README names (`CLERK_USER`/`CLERK_PASSWORD` and a README that says `clerk`
-give profile `clerk`; `DB_USER` with no `db` in the README gives nothing). Otherwise init prints
+give profile `clerk`; `DB_USER` with no `db` in the README gives nothing). Re-running init with
+such a pair exported adds the missing profile to an existing `.shrt/config.yaml` under
+`auth.profiles`, leaving every other line of it as it was. Otherwise init prints
 how to add one per role, naming the accounts a README table lists. It says so when it does, because
 a guess is not a fact: **check the call it picked** before the first run. If nothing looked like a login it writes no block at all and says that too;
 `GRAMMAR.md` §4 is the key table for writing one by hand.
