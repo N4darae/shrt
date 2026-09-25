@@ -79,6 +79,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintAuth(s, opts.AuthHeader)...)
 		issues = append(issues, lintAuthProfile(s, opts.AuthProfiles)...)
 		issues = append(issues, lintTransport(s, m)...)
+		issues = append(issues, lintDeprecated(s, m)...)
 		issues = append(issues, lintExpectRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -40,6 +41,18 @@ func newMethod(svc protoreflect.ServiceDescriptor, md protoreflect.MethodDescrip
 		ServerStreaming: md.IsStreamingServer(),
 		desc:            md,
 	}
+}
+
+func (m *Method) Deprecated() bool {
+	if opts, ok := m.desc.Options().(*descriptorpb.MethodOptions); ok && opts.GetDeprecated() {
+		return true
+	}
+	svc, ok := m.desc.Parent().(protoreflect.ServiceDescriptor)
+	if !ok {
+		return false
+	}
+	opts, ok := svc.Options().(*descriptorpb.ServiceOptions)
+	return ok && opts.GetDeprecated()
 }
 
 func (m *Method) Procedure() string { return "/" + m.FullName }
