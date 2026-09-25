@@ -354,13 +354,11 @@ func checkUnusedVars(c *chain.Chain, vars map[string]any, supplied map[string]an
 	for _, name := range ignored {
 		delete(supplied, name)
 	}
-	readsLine := "it reads no vars at all"
-	if len(reads) > 0 {
-		readsLine = "vars it reads: " + strings.Join(reads, ", ")
+	if len(reads) == 0 {
+		return nil
 	}
-	fmt.Fprintf(os.Stderr, "warning: -var %s: chain %q never reads %s, so %s no effect on this run (%s); "+
-		"a name close to one it reads is still refused as a likely typo\n",
-		strings.Join(ignored, ", "), c.Name, pluralWord(len(ignored), "it", "them"), pluralWord(len(ignored), "it has", "they have"), readsLine)
+	fmt.Fprintf(os.Stderr, "warning: -var %s: chain %q never reads %s (it reads %s)\n",
+		strings.Join(ignored, ", "), c.Name, pluralWord(len(ignored), "it", "them"), strings.Join(reads, ", "))
 	return nil
 }
 
