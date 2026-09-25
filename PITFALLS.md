@@ -2299,6 +2299,19 @@ it writes `vars:` as the chain declares them. `tag: kr1` came from `slice -kept-
 tag=kr1 -write`, which on purpose writes a fresh var with the value its verified run sent (commit
 eb654d7, PLAYBOOK slice step 5); that behaviour is kept.
 
+## 112. `chain new` with 11 CreateProduct steps asserted a list of 3
+
+**Symptom.** `shrt chain new -name cn CreateProduct ×11 ListProducts` asserted three positions and
+`products.3 exists: false` on a `sku_prefix: sku-${vars.tag}-` list that holds all eleven, in an
+order that was wrong for eleven (`sku-…-10-` sorts before `sku-…-a-`). The first run failed.
+
+**Fix.** 2026-09-25: the order discrimination still varies the first three creates, but the list
+now asserts every fixture: each position by id when the stated sort key orders them all apart
+(numbers, or texts compared after the start they share, which holds no reference; creation order
+always does), and otherwise each fixture by id (`includes:`) and the exact count, with a note
+saying which values tie or depend on a reference. A list that filters on the first create's own
+value (`${steps.create_product.request.sku}`) lists only the three it varied, as before.
+
 ---
 
 # Decisions, so they are not relitigated

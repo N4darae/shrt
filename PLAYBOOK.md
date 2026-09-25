@@ -317,6 +317,11 @@ like their skus pass a backend sorting by name. When the list's contract states 
 fixtures have no field to vary; when it states none, it asserts the count and each fixture's
 membership by id (`path: orders` `includes: {id_order: ${create_order_2.order.id_order}}`), so a
 missing item is named, and says how to have the order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+With more than three creates feeding a list that does not filter on the first one's value, it varies the first three
+and asserts every fixture: each position by id when the stated key orders them all apart (`sku-${vars.tag}-10-` before
+`sku-${vars.tag}-4-` and `sku-${vars.tag}-a-`, compared after the start they share; creation order always does), and
+otherwise each fixture's membership by id and the exact count, with a note naming the tie or the reference that
+keeps the order unknown (`sku-${vars.tag}-${uuid}`).
 `chain lint` names a step that asserts positions of a list whose items sort alike under two or more
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,

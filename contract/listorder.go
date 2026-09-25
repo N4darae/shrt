@@ -30,6 +30,7 @@ type listTarget struct {
 	itemMsg   string
 	itemID    string
 	producers []*chain.Step
+	extra     []*chain.Step
 	carrier   string
 	anchor    string
 	unscoped  bool
@@ -146,6 +147,9 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 		clone := copyStep(first, id)
 		p.insertAfter(last.ID, clone)
 		t.producers = append(t.producers, clone)
+	}
+	if t.anchor == "" {
+		t.extra = append([]*chain.Step{}, t.producers[orderedItems:]...)
 	}
 	t.producers = t.producers[:orderedItems]
 	pm, err := p.cat.Lookup(first.Call)
@@ -273,8 +277,9 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	for _, prod := range t.producers {
 		ids = append(ids, prod.ID)
 	}
+	members := append(append([]*chain.Step{}, t.producers...), t.extra...)
 	if t.unscoped {
-		p.noteUnscopedList(t, len(ids))
+		p.noteUnscopedList(t, len(members))
 		return
 	}
 	keys := make([]string, 0, len(ranks))
@@ -295,7 +300,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 			"sort key but creation order agrees; give them values that sort differently before asserting an order",
 			t.step.ID, listRPC, strings.Join(ids, ", "))
 		p.assertMembers(t)
-		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
+		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
 		return
 	}
 	if len(keys) > 0 {
@@ -308,7 +313,11 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 			"in it by id (includes:); if it promises one, say so in its summary (\"sorted by <field>\", \"newest first\", "+
 			"\"oldest first\") and plan again", t.step.ID, listRPC, t.listPath)
 		p.assertMembers(t)
-		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
+		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
+		return
+	}
+	if len(t.extra) > 0 {
+		p.orderAllMembers(t, members, key, desc)
 		return
 	}
 	var order []int
@@ -344,8 +353,104 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 
 func boolPtr(b bool) *bool { return &b }
 
+func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string, desc bool) {
+	ids := make([]string, 0, len(members))
+	for _, prod := range members {
+		ids = append(ids, prod.ID)
+	}
+	order, why := memberOrder(members, key)
+	if order == nil {
+		p.note("step %s: %d steps create what %s lists (%s), and the %d beyond the %d shrt varied for the order %s, "+
+			"so no position is asserted, only that each fixture is in it by id (includes:) and that it holds exactly %d; "+
+			"give them values that sort apart under %s, or drop the extra creates, to have the order asserted",
+			t.step.ID, len(members), shortRPC(t.step.Call), strings.Join(ids, ", "), len(t.extra), orderedItems, why, len(members), key)
+		p.assertMembers(t)
+		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
+		return
+	}
+	if desc {
+		for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
+			order[i], order[j] = order[j], order[i]
+		}
+	}
+	for i, k := range order {
+		prod := members[k]
+		t.step.Expect = append(t.step.Expect, chain.Expectation{
+			Path:   fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID),
+			Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}",
+		})
+	}
+	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(order)), Exists: boolPtr(false)})
+}
+
+func memberOrder(members []*chain.Step, key string) ([]int, string) {
+	order := make([]int, len(members))
+	for i := range order {
+		order[i] = i
+	}
+	if creationWord.MatchString(key) {
+		return order, ""
+	}
+	values := make([]any, len(members))
+	for i, prod := range members {
+		k, ok := namecase.LookupKey(prod.Body, key)
+		if !ok {
+			return nil, fmt.Sprintf("do not all send %s", key)
+		}
+		values[i] = prod.Body[k]
+	}
+	nums := make([]float64, len(values))
+	numeric := true
+	for i, v := range values {
+		n, err := strconv.ParseFloat(fmt.Sprint(v), 64)
+		if err != nil {
+			numeric = false
+			break
+		}
+		nums[i] = n
+	}
+	texts := make([]string, len(values))
+	if !numeric {
+		for i, v := range values {
+			text, ok := v.(string)
+			if !ok {
+				return nil, fmt.Sprintf("send a %s that is neither a number nor text", key)
+			}
+			texts[i] = text
+		}
+		common := texts[0]
+		for _, text := range texts[1:] {
+			for !strings.HasPrefix(text, common) {
+				common = common[:len(common)-1]
+			}
+		}
+		if open := strings.LastIndex(common, "${"); open > strings.LastIndex(common, "}") {
+			common = common[:open]
+		}
+		for i := range texts {
+			texts[i] = texts[i][len(common):]
+			if strings.Contains(texts[i], "${") {
+				return nil, fmt.Sprintf("send %s values whose order depends on what their references resolve to", key)
+			}
+		}
+	}
+	less := func(a, b int) bool {
+		if numeric {
+			return nums[a] < nums[b]
+		}
+		return texts[a] < texts[b]
+	}
+	sort.SliceStable(order, func(i, j int) bool { return less(order[i], order[j]) })
+	for i := 1; i < len(order); i++ {
+		if !less(order[i-1], order[i]) {
+			return nil, fmt.Sprintf("send %s values that tie (%s and %s), which the backend may list either way", key, members[order[i-1]].ID, members[order[i]].ID)
+		}
+	}
+	return order, ""
+}
+
 func (p *Plan) assertMembers(t *listTarget) {
-	for _, prod := range t.producers {
+	for _, prod := range append(append([]*chain.Step{}, t.producers...), t.extra...) {
 		want := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
 		held := false
 		for _, e := range t.step.Expect {
