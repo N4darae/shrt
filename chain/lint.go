@@ -3,6 +3,7 @@ package chain
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,6 +88,8 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
 		issues = append(issues, lintLiteralIdempotency(s)...)
+		issues = append(issues, lintUnterminatedPrefix(s)...)
+		issues = append(issues, lintUnevaluableOnRefusal(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
 		noteExports(s, exports)
@@ -1172,8 +1175,10 @@ const (
 	KindArithmetic     = "interpolated-arithmetic"
 	KindEnvelopeOnly   = "envelope-only"
 
-	KindLiteralIdempotency = "literal-idempotency-key"
-	KindNameMismatch       = "name-differs-from-file"
+	KindLiteralIdempotency   = "literal-idempotency-key"
+	KindUnterminatedPrefix   = "unterminated-prefix"
+	KindUnevaluableOnRefusal = "unevaluable-on-refusal"
+	KindNameMismatch         = "name-differs-from-file"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
@@ -1245,6 +1250,83 @@ func lintLiteralIdempotency(s *Step) []Issue {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)
 		}
+	}
+	return issues
+}
+
+var endsInVarRef = regexp.MustCompile(`\$\{\s*vars\.([^}]+?)\s*\}$`)
+
+func lintUnevaluableOnRefusal(s *Step) []Issue {
+	refusal := ""
+	for _, e := range s.Expect {
+		if ExpectsTransportRefusal(e) {
+			want := e.Equals
+			if want == nil {
+				want = "not " + stringify(e.NotEqual)
+			}
+			refusal = fmt.Sprintf("%s %v", e.Path, want)
+			break
+		}
+	}
+	if refusal == "" {
+		return nil
+	}
+	why := ""
+	switch {
+	case s.SkipAuth:
+		why = " (it sends no token, skip_auth: true)"
+	case strings.TrimSpace(s.Auth) == InvalidTokenAuth:
+		why = " (it sends a token the backend never issued, auth: invalid)"
+	}
+	issues := []Issue{}
+	for _, e := range s.Expect {
+		if IsTransportPath(e.Path) {
+			continue
+		}
+		path := e.Path
+		if path == "" {
+			path = "the whole response"
+		}
+		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnevaluableOnRefusal, Message: fmt.Sprintf(
+			"expects to be refused at the transport%s, %s, so no response body exists and the expectation on %s is never "+
+				"evaluated: the step fails every time it is refused as expected. Assert the refusal only (transport.code, "+
+				"transport.http_status, transport.message), or move this expectation to a step that is answered", why, refusal, path)})
+	}
+	return issues
+}
+
+func lintUnterminatedPrefix(s *Step) []Issue {
+	positional := false
+	for _, e := range s.Expect {
+		for _, seg := range SplitPath(e.Path) {
+			if _, err := strconv.Atoi(seg); err == nil {
+				positional = true
+			}
+		}
+	}
+	if !positional {
+		return nil
+	}
+	issues := []Issue{}
+	keys := make([]string, 0, len(s.Body))
+	for k := range s.Body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		text, ok := s.Body[k].(string)
+		if !ok || !strings.Contains(namecase.Fold(k), "prefix") {
+			continue
+		}
+		m := endsInVarRef.FindStringSubmatch(text)
+		if m == nil {
+			continue
+		}
+		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnterminatedPrefix, Message: fmt.Sprintf(
+			"%s is %q, built from ${vars.%s} with nothing after it: a run with %s=cp-1 also lists what a run with %s=cp-10 "+
+				"created, since those values start with the same text, so the item count or positions this step asserts fail "+
+				"when one run's value is a prefix of another's. End the prefix with a terminator every fixture carries after "+
+				"the var: %s: %s- with fixtures such as %s-a", k, text, m[1], m[1], m[1], k, text, text)})
 	}
 	return issues
 }

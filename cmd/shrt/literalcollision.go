@@ -99,14 +99,18 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 			}
 			return
 		}
-		if !isText || len(value) < 3 {
+		if !isText || value == "" {
 			return
 		}
-		sent[path] = value
-		if strings.Contains(why, value) {
+		switch name := foldName(leafName(path)); {
+		case quotesValue(why, value):
+			sent[path] = value
 			byValue = append(byValue, path)
-		} else if name := foldName(leafName(path)); name != "" && strings.Contains(folded, name) {
+		case name != "" && strings.Contains(folded, name):
+			sent[path] = value
 			byName = append(byName, path)
+		case len(value) >= 3:
+			sent[path] = value
 		}
 	})
 	if varBuilt {
@@ -173,37 +177,59 @@ func suggestedVar(c *chain.Chain) string {
 	return "tag"
 }
 
+func quotesValue(why, value string) bool {
+	if len(value) >= 3 {
+		return strings.Contains(why, value)
+	}
+	for _, word := range strings.Fields(why) {
+		if strings.Trim(word, "\"'`()[]{}<>,;:.!?") == value {
+			return true
+		}
+	}
+	return false
+}
+
 func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord, paths []string, sent map[string]string) []string {
 	if e == nil || len(paths) == 0 {
 		return paths
 	}
-	accepted := map[string]int{}
 	ids, _ := e.store.ListRuns(rec.Chain)
+	runs := []*runner.Record{}
 	for _, id := range ids {
 		if id == rec.RunID {
 			continue
 		}
 		prev, err := e.store.LoadRun(rec.Chain, id)
-		if err != nil || prev.DryRun {
-			continue
+		if err == nil && !prev.DryRun && ranBefore(prev, rec) {
+			runs = append(runs, prev)
 		}
+	}
+	sort.SliceStable(runs, func(a, b int) bool { return ranBefore(runs[a], runs[b]) })
+	lastAccepted, twice := map[string]bool{}, map[string]bool{}
+	for _, prev := range runs {
 		st, ok := prev.Step(first.ID)
-		if !ok || st.Call != first.Call || !createdStep(st) {
+		if !ok || st.Call != first.Call || st.Status == runner.StatusSkipped || len(st.Response) == 0 && st.HTTPStatus == 0 {
 			continue
 		}
 		var req any
 		if json.Unmarshal(st.Request, &req) != nil {
 			continue
 		}
+		created := createdStep(st)
 		for _, path := range paths {
-			if got, ok := chain.Get(req, path); ok && got != nil && fmt.Sprint(got) == sent[path] {
-				accepted[path]++
+			got, ok := chain.Get(req, path)
+			if !ok || got == nil || fmt.Sprint(got) != sent[path] {
+				continue
 			}
+			if created && lastAccepted[path] {
+				twice[path] = true
+			}
+			lastAccepted[path] = created
 		}
 	}
 	out := []string{}
 	for _, path := range paths {
-		if accepted[path] < 2 {
+		if !twice[path] {
 			out = append(out, path)
 		}
 	}
@@ -217,16 +243,19 @@ func collisionWithinRun(e *env, c *chain.Chain, rec *runner.Record, first *runne
 	visitLeaves(req, "", func(path string) {
 		got, ok := chain.Get(req, path)
 		text, isText := got.(string)
-		if !ok || !isText || len(text) < 3 {
+		if !ok || !isText || text == "" {
+			return
+		}
+		switch name := foldName(leafName(path)); {
+		case quotesValue(why, text):
+			quoted = append(quoted, path)
+		case name != "" && strings.Contains(folded, name):
+			named = append(named, path)
+		case len(text) < 3:
 			return
 		}
 		sent[path] = text
 		all = append(all, path)
-		if strings.Contains(why, text) {
-			quoted = append(quoted, path)
-		} else if name := foldName(leafName(path)); name != "" && strings.Contains(folded, name) {
-			named = append(named, path)
-		}
 	})
 	pick, every := quoted, false
 	if len(pick) == 0 {

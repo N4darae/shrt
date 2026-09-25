@@ -71,6 +71,7 @@ func runInit(ctx context.Context, args []string) error {
 		cfg.Descriptor.Source = *proto
 	}
 	cfg.Volatile = []string{"**.created_at", "**.updated_at"}
+	cfg.Latency = &config.Latency{Fail: true}
 
 	cfgPath := filepath.Join(root, config.DirName, config.FileName)
 	wroteConfig := false
@@ -87,6 +88,8 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("write %s\n", rel(root, cfgPath))
+		fmt.Println("      latency: {fail: true}: a slowdown verify confirms (a slow read re-sent and slow every time) fails it, so a CI gate " +
+			"is red on one; set fail: false to keep it a LATENCY warning line")
 		if portFile != "" {
 			fmt.Printf("      target.base_url: %s, from the port in .port at the repo root (pass -base-url to choose another)\n", portFile)
 		}

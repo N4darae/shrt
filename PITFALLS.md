@@ -1481,6 +1481,101 @@ for each entity it touches through its references (the order, then each line's p
 runs; a missing one is added right after the entity is created (`add_stock_for_create_product_2`),
 with a note.
 
+## 59. Sessions that die after 20 seconds, green in every gate
+
+**Symptom.** Login's `expires_at` said one hour, and the backend refused its tokens about 20 seconds
+after issuing them. Every gate stayed green: the only trace was a `warning [...] cached token refused
+... logged in again and re-sent` line under one step. A chain slow enough to hit it in-run was
+reported first as `it likely restarted mid-run`, then, on the repeat, as a refusal `specific to that
+rpc`: both wrong.
+
+**Cause.** shrt re-logs in and re-sends a call refused at authentication (a read, or a call carrying
+an untried cached token), which is right for a restart and hides a short session just as well. It
+kept no record of when a token was issued, so nothing compared the refusal with the lifetime the
+login had stated.
+
+**Fix.** 2026-09-25: the step records every refused token (`token_refused`, GRAMMAR §5) with when it
+was issued, its stated expiry and when it was refused. A token refused with more than a minute, or a
+tenth of its stated lifetime, still to go prints `WARNING: token refused <N>s after issue although
+the login said it expires in <M>s (auth profile <p>, ...)` in the run and verify summary, `-quiet`
+included, and is never called a restart without evidence of one. It is `FINDING:`, exit 1, when the
+fresh token the re-login issued is refused early too in the same run, or when the previous run of
+the chain had a token refused early after it was accepted in that run; a restart shown in either run
+(a step the service did not answer, a build change, data created before the refusal gone after it)
+keeps it exit 3. A cached token refused early on its first use stays a warning, since a deploy
+between runs explains it; the CI gate in README counts those lines per auth profile and fails when
+one profile's tokens die early twice in one gate.
+
+## 60. A slice of a refused confirm that dropped the stock of the product it needed
+
+**Symptom.** `chain slice orders-confirm -step confirm_order_insufficient_stock_last_item` kept
+`add_stock_2` and dropped `add_stock`, though the order it confirms has a line on each product: the
+slice was NOT REPRODUCED 0/3 until `-keep add_stock` was added by hand. The same output said the
+dropped `confirm_order` changes no entity a kept step uses, though it reserved stock of both.
+
+**Cause.** A `needs` edge kept every call of the needed rpc that referenced a step the target
+referenced directly, and the confirm references only its order; failing that it kept the nearest
+call. Writes were modelled as acting only on the record their response returns.
+
+**Fix.** 2026-09-25: entities count through references (the confirm reaches the products through
+its order's lines), so both `AddStock`s are kept. An earlier write of the needed rpc, or of an rpc
+whose contract needs it, on one of those entities is kept with `changes the state <rpc> sets on
+<step>, which <target> needs`. For the dropped-write notes, a write whose contract needs another
+write and whose request names an existing record acts on the entities that record holds.
+
+## 61. A slice of a refused step that "no recorded run reached"
+
+**Symptom.** `chain slice .shrt/scratch/token-lifetime.yaml -step write_3 -verify -run latest`
+answered `no recorded run ... reached step "write_3" (the newest ... stopped before it: error)`,
+though write_3 had been sent and refused with a 401.
+
+**Cause.** A step counted as reached only when it passed or failed; a refused token makes it
+`error`.
+
+**Fix.** 2026-09-25: a step that was sent and answered (an HTTP status, a response or a transport
+error) is reached whatever its status. The slice verify then runs, and when the source refusal was
+a token refused long before its stated expiry, NOT REPRODUCED says the session's age is what no
+slice carries.
+
+## 62. A literal `email: '@'` that collided with itself, reported as a plain failure
+
+**Symptom.** A probe chain sending `email: '@'` failed its second run with only `FAIL status.code
+equals want=SUCCESS got=REJECTED (message="email @ is already registered" ...)`; the `the chain
+collides with itself: ... is the literal ...` line the docs promise never came.
+
+**Cause.** Values shorter than three characters were skipped when looking for the literal a
+refusal quotes, to keep `a` from matching inside every message. Separately, a literal accepted by
+two earlier runs was never blamed, even when each acceptance was the first run on an empty backend.
+
+**Fix.** 2026-09-25: a short value counts when the refusal quotes it as a separate word, or names
+its field. A literal is spared only when two runs in a row accepted it with no refusal between.
+
+## 63. A prefix list that counted another run's fixtures
+
+**Symptom.** `catalog-products` passed with `-var tag=cp-10`, then failed with `-var tag=cp-1`:
+`list_products: products.3 exists want=false got=true`. `chain lint -strict` said ok.
+
+**Cause.** `sku_prefix: sku-${vars.tag}` ends at the var, so the prefix `sku-cp-1` also matches
+`sku-cp-10-a`. `contract plan` copied the contract's `value:` for the prefix verbatim.
+
+**Fix.** 2026-09-25: `chain lint` warns `unterminated-prefix` on a `*prefix*` field that ends in a
+`${vars.*}` on a step asserting item positions or a count. `contract plan` ends such a prefix with
+the separator every fixture carries after it (`sku-${vars.tag}-` for skus `sku-${vars.tag}-a`), and
+says so in a note.
+
+## 64. A `product.created_at` check on a probe that sends no token
+
+**Symptom.** `chain lint -strict` said `ok` for `skip_auth: true` and `auth: invalid` steps that
+asserted `transport.code equals unauthenticated` and also `product.created_at equals ...`; every run
+failed both steps, `unevaluated`.
+
+**Cause.** A call refused at the transport has no response body, so an expectation on a response
+field never runs and counts as failed. Nothing checked that before a run.
+
+**Fix.** 2026-09-25: `chain lint` reports `unevaluable-on-refusal`, an error, for every expectation
+on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
+`transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
+
 ---
 
 # Decisions, so they are not relitigated

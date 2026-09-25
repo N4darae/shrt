@@ -41,6 +41,10 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     - the backend refused, at the same step, a token it had accepted earlier in both this run\n" +
 	"       and the previous run that sent that step: not a restart, a refusal specific to that rpc,\n" +
 	"       unless either run shows a restart (see 3)\n" +
+	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +
+	"       re-login's own token refused early too in this run, or a token accepted and then refused\n" +
+	"       early in this run and in the previous run, with no restart shown in either (a single\n" +
+	"       early refusal is a WARNING line: exit 3 when it left a step unanswered, else 0)\n" +
 	"     - a fixture collision on a field built from ${uuid} or a clock value, after a previous run\n" +
 	"       refused at the same step the same way: such values are unique to their run (a repeat on\n" +
 	"       var values stays exit 3, since another client may use the same values)\n" +
@@ -250,6 +254,10 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
 	loss := examineSessionLoss(e, rec)
+	life := examineTokenLifetime(e, rec)
+	if life != nil && driftedBefore(rec, report, life.first.index) {
+		life = nil
+	}
 	var fresh *freshRefusal
 	if loss == nil {
 		fresh = repeatedFreshRefusal(e, rec)
@@ -289,6 +297,11 @@ func runVerify(ctx context.Context, args []string) error {
 	var nonBackend error
 	headline, notVerdict := "", "this is not a verdict about the backend"
 	switch {
+	case life.finding():
+	case life != nil && !report.Clean() && life.first.step.Status != runner.StatusPassed:
+		headline = fmt.Sprintf("a %s at step %d %s", runner.TokenRefusalPhrase(life.first.r), life.first.step.Index, life.first.step.ID)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend", name, life.line(), life.first.step.Index)
 	case loss.finding():
 	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
 		headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
@@ -355,9 +368,13 @@ func runVerify(ctx context.Context, args []string) error {
 			if list := affectedSteps(rec, report); list != "" {
 				fmt.Println("  affected step(s), not judged: " + list)
 			}
-			if loss != nil {
+			if life != nil {
+				fmt.Println(life.label() + life.line())
+			} else if loss != nil {
 				fmt.Println("WARNING: " + loss.line())
 			}
+		case life.finding():
+			fmt.Println("FINDING: " + life.line())
 		case loss.finding():
 			fmt.Println("FINDING: " + loss.line())
 		case fresh != nil:
@@ -368,6 +385,9 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("FINDING: " + flaky.line())
 		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
+		}
+		if life != nil && !life.finding() && nonBackend == nil {
+			fmt.Println("WARNING: " + life.line())
 		}
 		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
@@ -436,6 +456,9 @@ func runVerify(ctx context.Context, args []string) error {
 		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
 			fmt.Println("warning: " + line)
 		}
+	}
+	if life.finding() {
+		return fmt.Errorf("%s: %s", name, life.line())
 	}
 	if loss.finding() && !driftedBefore(rec, report, loss.index) {
 		return fmt.Errorf("%s: %s", name, loss.line())

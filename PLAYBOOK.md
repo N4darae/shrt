@@ -210,9 +210,13 @@ sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-ve
 holds when the refusal quotes and names no field (`duplicate record`) while every field of the
 step built from a reference is built from `${uuid}` or a clock value: those are unique to their
 run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
-`${uuid}` one, and a repeat is not a `FINDING`. A literal is not blamed when two or more earlier
-recorded runs of the chain sent it at that step and were answered without a refusal: the backend
-accepted it after the record already existed, so it is not unique and cannot be what collides. With
+`${uuid}` one, and a repeat is not a `FINDING`. A literal as short as one character counts when
+the refusal quotes it as a word of its own (`email @ is already registered` for `email: '@'`) or
+spells the field's name. A literal is not blamed when two recorded runs of the chain in a row sent
+it at that step and were both answered without a refusal: the second was accepted after the record
+already existed, so it is not unique and cannot be what collides. Two accepting runs with a refusal
+between them are not that: each accepted the value on a backend that did not hold it yet (the
+first run, the first run after a reset), and the chain still collides with itself. With
 no literal left to blame and a refusal that names no field, verify gives its plain verdict against
 the safe spot (`regression: N change(s)`). The same holds when the refusal quotes or names that
 accepted literal (`name Bob Literal already exists` for `name: Bob Literal`): the backend now refuses
@@ -410,7 +414,10 @@ of `ListOrders`), a field named `...prefix` is a prefix. For a parent it adds an
 for a prefix, an item whose field contains the prefix not at the start (`x-sku-…`,
 `create_product_prefix_inside`) and, when the list's or the field's contract says `case-sensitive`
 or `exactly as sent`, one starting with it in another letter case (`create_product_prefix_case`).
-The list asserts its exact count, so letting any of them through fails. When the list request has
+The list asserts its exact count, so letting any of them through fails. A prefix that ends in a var
+(`sku-${vars.tag}`) gets the separator every fixture carries after it (`sku-${vars.tag}-`), or a run
+with `tag=cp-1` would count the items of a run with `tag=cp-10`; `chain lint` warns
+`unterminated-prefix` on a chain that still ends the prefix at the var. When the list request has
 an enum field whose values are those of an enum field of the items (`ListOrdersRequest.status`,
 `Order.status`), the plan finds the writes whose contract takes an item's id (`from:
 CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in
@@ -665,6 +672,18 @@ conflict with a value created before the refusal accepted instead), or a step be
 that got no answer from the service (a gateway answer, a dropped connection). Then it stays a
 restart, exit 3. A run that passed with a read re-sent after a refused token and accepted says only that
 (`a read was re-sent after a refused token at step <n> <id>`), with no restart or re-run advice.
+
+A token refused long before the expiry its login stated (more than a minute, or a tenth of the
+stated lifetime, still to go; `token_refused` in the step record keeps when it was issued, its
+stated expiry and when it was refused) is not called a restart, whatever the rules above would say:
+`run` and `verify` print `WARNING: token refused <N>s after issue although the login said it expires
+in <M>s (auth profile <p>, ...)`, and a write it refused is error, exit 3. It becomes `FINDING: token
+refused ...`, exit 1, when the fresh token the re-login issued is refused early too in the same run
+(one restart cannot end two sessions issued on either side of it), or when the previous run of the
+chain also had a token refused early after it was accepted in that run; either run showing a restart
+(a step the service did not answer, a build change, data created before the refusal gone after it)
+keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
+between runs explains it: the CI gate counts these lines (README).
 
 A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
 is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same
@@ -1521,7 +1540,14 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    gives it), preferring among those the one the body references; for an unaliased `needs` or
    `before` edge it keeps every call of that rpc that acts on an entity the step references (a
    `CreateOrder` whose lines name two products keeps the `AddStock` of each, not only the later
-   one), else the referenced step, else the nearest. An edge declared under one alias of a contract binds only
+   one; the entities count through references, so a `ConfirmOrder` of an order whose lines name
+   two products keeps both too), else the referenced step, else the nearest. A fourth reason,
+   `changes the state <rpc> sets on <step>, which <target> needs`, keeps an earlier write that
+   changes the state such an edge depends on: a write of that rpc, or of an rpc whose own contract
+   `needs` it (`ConfirmOrder` needs `AddStock`: an earlier confirm reserves stock), on one of the
+   same entities (an earlier confirm of another order with a line on the same product). A write
+   expected to be refused (an envelope `not_equal: <envelope_ok>` counts) changes nothing and is
+   not kept for this. An edge declared under one alias of a contract binds only
    a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
    literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
    refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
@@ -1588,9 +1614,13 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    cust-customers-k1@example.test, slice want Customer sl-c1 got cust-sl-c1@example.test` with
    `tag` customers-k1 in the source run and sl-c1 in the slice). `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
-   that REACHED the target (its step passed or failed) and say on stderr when that is not the
+   that REACHED the target (its step passed or failed, or was sent and answered with an error,
+   such as a token refused at authentication) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
-   that reached it. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
+   that reached it. When the source step was refused a token long before the expiry its login
+   stated and the slice's younger token is accepted, NOT REPRODUCED says the refusal depends on
+   how long the session had lived, which no slice carries, and points at the source chain instead
+   of at dropped writes. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
    and never lets one run stand for the whole: a backend that fails a step one call in four
    (a flaky dependency, a counter, a race) otherwise gives `reproduced` once and `NOT REPRODUCED`
    twice for the same command. The verdict line counts the runs (`verify reproduced 3/3`) and a
@@ -1642,7 +1672,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      line holds, an order created for the customer a `ListOrders` target lists: a write whose
      request carries an id the kept step's request carries and whose created entity is the kind
      of item the kept step's response lists or asserts), or whose entity cannot be told (a write
-     whose request and response carry no id). A match can come from state the slice never built,
+     whose request and response carry no id). A write whose contract `needs` another write, and
+     whose request names an existing record (a confirm naming its order), acts on the entities that
+     record holds too (the products on the order's lines), so it is never listed as changing no
+     entity a kept step uses. A match can come from state the slice never built,
      so it is not a receipt. Nor is a match on a failing expectation that compares with what a
      dropped write created in the source run (`orders.1.id_order equals` the id a dropped
      `CreateOrder` returned, under `-mode pin`): the slice never creates that item, so a correct

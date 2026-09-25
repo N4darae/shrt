@@ -152,6 +152,12 @@ func runRun(ctx context.Context, args []string) error {
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
+	if life := examineTokenLifetime(e, rec); life != nil && !*dry {
+		fmt.Println("  " + life.label() + life.line())
+		if life.finding() && rec.KeptRed == "" {
+			return fmt.Errorf("chain %s: %s", rec.Chain, life.line())
+		}
+	}
 	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
 		fmt.Println("  " + loss.line())
 		if loss.finding() && rec.KeptRed == "" {
@@ -188,6 +194,10 @@ const runExitCodes = "\nexit codes:\n" +
 	"       defect is gone\n" +
 	"     - a token the backend accepted earlier in the run and then refused, when the previous run\n" +
 	"       that sent that step was refused there the same way and neither run shows a restart (see 3)\n" +
+	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +
+	"       re-login's own token refused early too in this run, or a token accepted and then refused\n" +
+	"       early in this run and in the previous run, with no restart shown in either (a single\n" +
+	"       early refusal is a WARNING line: exit 3 when it left a step unanswered, else 0)\n" +
 	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
 	"       run that sent that step was refused there the same way, with its own freshly issued token\n" +
 	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +

@@ -937,9 +937,16 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
 		note := sliceCollisionNote(e, res, replayRec)
+		early := runner.EarlyRefusal(source.TokenRefused)
 		switch {
 		case note != "":
 			v.Reason = note
+		case early != nil && replay.Transport == nil:
+			v.Reason = fmt.Sprintf("in source run %s step %s was refused at authentication: the %s. The slice sent it with a "+
+				"younger token, which was accepted. The refusal depends on how long the session had lived, which no slice carries "+
+				"and no dropped step explains: reproduce it with the source chain (shrt run %s), where it is reported as a "+
+				"finding when it repeats", rec.RunID, res.Target,
+				strings.Replace(runner.TokenRefusalPhrase(*early), "token refused", "token was refused", 1), res.SourceCommandRef())
 		case len(related) > 0:
 			v.Reason = fmt.Sprintf("the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
@@ -1419,6 +1426,9 @@ func reachedStep(rec *runner.Record, step string) (bool, string) {
 		return false, "not in run, " + rec.Status
 	}
 	if sr.Status == runner.StatusPassed || sr.Status == runner.StatusFailed {
+		return true, sr.Status
+	}
+	if sr.Status == runner.StatusError && (sr.HTTPStatus != 0 || len(sr.Response) > 0 || sr.Transport != nil) {
 		return true, sr.Status
 	}
 	return false, sr.Status

@@ -21,7 +21,7 @@ func TestTheReadmeGateCheckLeaksNoVariableButItsVerdicts(t *testing.T) {
 	}
 	fn := script[start : start+end+3]
 	probe := "shrt() { return 0; }\nsleep() { :; }\n" + fn +
-		"tag=t; fail=0; unverified=0\n" +
+		"tag=t; fail=0; unverified=0; early=\"\"\n" +
 		"before=$(compgen -v | sort)\n" +
 		"check run flow /dev/null \"\"\n" +
 		"comm -13 <(echo \"$before\") <(compgen -v | sort) | grep -vx 'before' || true\n"

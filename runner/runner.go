@@ -467,11 +467,18 @@ func NotAnsweredByService(sr *StepRecord) bool {
 	return sr != nil && sr.Status == StatusError && sr.Transport != nil && unavailableAnswer(sr.HTTPStatus, sr.Transport.Code)
 }
 
-func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
+func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.TokenRefusal) {
 	if sr.Status != StatusFailed {
 		return
 	}
 	sr.Status = StatusError
+	if fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil {
+		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run: the "+
+			wasRefused(EarlyRefusalText(refusals))+". Either it ends sessions long before the expiry its login states, or it restarted "+
+			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused "+
+			"early again, with nothing showing a restart, is reported as a finding")
+		return
+	}
 	if fresh == transport.FreshTokenAccepted {
 		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run (issued by a "+
 			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
@@ -501,6 +508,41 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 	}
 	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
 		"check the credentials of the step's auth profile and re-run")
+}
+
+func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
+	for i := range refusals {
+		if refusals[i].Early() {
+			return &refusals[i]
+		}
+	}
+	return nil
+}
+
+func EarlyRefusalText(refusals []transport.TokenRefusal) string {
+	r := EarlyRefusal(refusals)
+	if r == nil {
+		return ""
+	}
+	return TokenRefusalPhrase(*r)
+}
+
+func TokenRefusalPhrase(r transport.TokenRefusal) string {
+	stated, statedOK := r.Stated()
+	age, ageOK := r.Age()
+	left, _ := r.Left()
+	if !ageOK || !statedOK {
+		return fmt.Sprintf("token refused %ds before the expiry its login stated", Seconds(left))
+	}
+	return fmt.Sprintf("token refused %ds after issue although the login said it expires in %ds", Seconds(age), Seconds(stated))
+}
+
+func wasRefused(phrase string) string {
+	return strings.Replace(phrase, "token refused", "token was refused", 1)
+}
+
+func Seconds(d time.Duration) int64 {
+	return int64(d.Round(time.Second) / time.Second)
 }
 
 const CachedTokenResent = "cached token refused before the handler ran (backend restarted or token revoked); " +
@@ -1249,15 +1291,19 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
 		sr.AuthPrincipal = opts.principals[profile]
 	}
+	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
 		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
 		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached, fresh == transport.FreshTokenRelogin))
+		if early := EarlyRefusalText(sr.TokenRefused); early != "" && retry == AuthRetryResent {
+			sr.Warning = joinLines(sr.Warning, "the "+wasRefused(early))
+		}
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
 		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
-		defer authRefusedIsNoVerdict(sr, fresh)
+		defer authRefusedIsNoVerdict(sr, fresh, sr.TokenRefused)
 	}
 	if err != nil {
 		if transport.Unreachable(err) {

@@ -34,10 +34,17 @@ echo "$n" > "$FAKE_DIR/count-$1"
 echo "$*" >> "$FAKE_DIR/calls"
 codes="FAKE_$(echo "$1" | tr a-z A-Z)"
 code=$(echo "${!codes:-0}" | cut -d, -f"$n")
+said="FAKE_SAY_$(echo "$1" | tr a-z A-Z)"
+[ -n "${!said:-}" ] && printf '%s\n' "${!said}"
 exit "${code:-0}"
 `
 
 func runReadmeGate(t *testing.T, verifyCodes string) (string, int, string) {
+	t.Helper()
+	return runReadmeGateWith(t, "FAKE_VERIFY="+verifyCodes)
+}
+
+func runReadmeGateWith(t *testing.T, env ...string) (string, int, string) {
 	t.Helper()
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
@@ -65,7 +72,8 @@ func runReadmeGate(t *testing.T, verifyCodes string) (string, int, string) {
 	}
 	cmd := exec.Command("bash", "gate.sh")
 	cmd.Dir = work
-	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FAKE_DIR="+dir, "FAKE_VERIFY="+verifyCodes)
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FAKE_DIR="+dir)
+	cmd.Env = append(cmd.Env, env...)
 	out, _ := cmd.CombinedOutput()
 	calls, _ := os.ReadFile(filepath.Join(dir, "calls"))
 	return string(out), cmd.ProcessState.ExitCode(), string(calls)
@@ -98,5 +106,22 @@ func TestTheReadmeGateDoesNotRetryARegression(t *testing.T) {
 	out, code, calls := runReadmeGate(t, "1")
 	if code != 1 || strings.Count(calls, "verify flow") != 1 || !strings.Contains(out, "gate: verify flow exited 1") {
 		t.Fatalf("a regression fails the gate at once, exit 1, got %d:\n%s\n%s", code, out, calls)
+	}
+}
+
+func TestTheReadmeGateFailsWhenOneProfilesTokensAreRefusedEarlyInTwoRuns(t *testing.T) {
+	line := "  WARNING: token refused 25s after issue although the login said it expires in 3600s (auth profile default, the cached token, on its first use in this run, at step 1 create): ..."
+	out, code, _ := runReadmeGateWith(t, "FAKE_SAY_RUN="+line)
+	if code != 0 || !strings.Contains(out, "gate: WARNING: 1 run(s) had a token refused long before the expiry its login stated") {
+		t.Fatalf("one early refusal is a warning at the end of the gate, exit 0; got %d:\n%s", code, out)
+	}
+	out, code, _ = runReadmeGateWith(t, "FAKE_SAY_RUN="+line, "FAKE_SAY_VERIFY="+line)
+	if code != 1 || !strings.Contains(out, "gate: FINDING: tokens of one auth profile were refused early in two runs of this gate") {
+		t.Fatalf("the same profile's tokens refused early twice in one gate fail it; got %d:\n%s", code, out)
+	}
+	other := strings.Replace(line, "auth profile default", "auth profile clerk", 1)
+	out, code, _ = runReadmeGateWith(t, "FAKE_SAY_RUN="+line, "FAKE_SAY_VERIFY="+other)
+	if code != 0 {
+		t.Fatalf("one early refusal per profile is what a single restart explains; got %d:\n%s", code, out)
 	}
 }

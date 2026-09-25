@@ -43,6 +43,7 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 			said = append(said, p.otherParent(lib, t, scope)...)
 		}
 		if scope.prefixKey != "" && scope.target != "" {
+			p.terminatePrefix(t, &scope)
 			said = append(said, p.prefixExclusions(lib, t, scope)...)
 		}
 		if !hasExistsFalse(st, t.listPath) {
@@ -161,6 +162,38 @@ func (p *Plan) otherParent(lib *Library, t *listTarget, scope listScope) []strin
 	return []string{fmt.Sprintf("%s, which belongs to %s (another %s)", item.ID, parent.ID, noun)}
 }
 
+var endsInVar = regexp.MustCompile(`\$\{\s*vars\.[^}]+\}$`)
+
+func (p *Plan) terminatePrefix(t *listTarget, scope *listScope) {
+	if !endsInVar.MatchString(scope.prefix) {
+		return
+	}
+	next := byte(0)
+	for _, prod := range t.producers {
+		v, _ := prod.Body[scope.target].(string)
+		if !strings.HasPrefix(v, scope.prefix) || len(v) == len(scope.prefix) {
+			p.note("step %s: %s %q ends in a var with nothing after it, so a run whose tag is a prefix of another run's "+
+				"(cp-1, cp-10) also lists that run's items; %s's %s %q carries no terminator after the prefix to end it with",
+				t.step.ID, scope.prefixKey, scope.prefix, prod.ID, scope.target, v)
+			return
+		}
+		c := v[len(scope.prefix)]
+		if next != 0 && c != next || strings.IndexByte("-_./:#|~", c) < 0 {
+			return
+		}
+		next = c
+	}
+	if next == 0 {
+		return
+	}
+	was := scope.prefix
+	scope.prefix += string(next)
+	t.step.Body[scope.prefixKey] = scope.prefix
+	p.note("step %s: %s is %q, not %q: the terminator %q after the var keeps a run whose tag is a prefix of another run's "+
+		"(cp-1, cp-10) from listing that run's items too, and every fixture's %s carries it", t.step.ID, scope.prefixKey,
+		scope.prefix, was, string(next), scope.target)
+}
+
 func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []string {
 	first := t.producers[0]
 	said := []string{}
@@ -194,7 +227,7 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 		cased := copyStep(first, p.freeStepID(first.ID+"_prefix_case"))
 		cased.Export = nil
 		renameStepRefs(cased, first.ID, cased.ID)
-		cased.Body[scope.target] = swapped + "-case"
+		cased.Body[scope.target] = strings.TrimRight(swapped, "-_./:#|~") + "-case"
 		cased.Description = fmt.Sprintf("its %s starts with the %s in another letter case; the comparison is case-sensitive, so %s must not list it.", scope.target, scope.prefixKey, t.step.ID)
 		added = append(added, cased)
 		said = append(said, fmt.Sprintf("%s (the prefix in another case)", cased.ID))
