@@ -1017,12 +1017,15 @@ func show(v any) string {
 }
 
 func sentUnanswered(st *runner.StepRecord) bool {
-	return st.Status == runner.StatusError && strings.Contains(st.Error, transport.NoAnswerBeforeTimeout)
+	return st.Status == runner.StatusError && !strings.HasPrefix(st.Error, "not sent") && strings.Contains(st.Error, transport.SentNoAnswer)
 }
 
 func sentOrNot(detail string) string {
 	if strings.Contains(detail, transport.NoAnswerBeforeTimeout) && !strings.HasPrefix(detail, "not sent") {
 		return transport.NoAnswerBeforeTimeout
+	}
+	if strings.Contains(detail, transport.SentNoAnswer) && !strings.HasPrefix(detail, "not sent") {
+		return transport.SentNoAnswer
 	}
 	return "not sent"
 }

@@ -478,6 +478,12 @@ answering later steps too, the backend is up and fails that one rpc every time: 
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
 answered.
 
+A connection the backend closed after the request was written is `sent, no answer: the backend
+closed the connection ...`, like a timeout: the call may have taken effect, `verify` counts the step
+as a status change rather than `not sent` when an earlier change is the verdict, and `shrt diff`
+lists it as `sent in B, no answer (the connection closed)`. Only a connection closed before the
+request was written says `so it was not sent and took no effect`.
+
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
 - A login step is optional. Write one only when the chain is *testing* login, or when the flow

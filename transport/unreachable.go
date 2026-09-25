@@ -24,7 +24,11 @@ func Unreachable(err error) bool {
 	return errors.As(err, &op) && op.Op == "dial"
 }
 
-const NoAnswerBeforeTimeout = "sent, no answer before target.timeout"
+const SentNoAnswer = "sent, no answer"
+
+const NoAnswerBeforeTimeout = SentNoAnswer + " before target.timeout"
+
+const ClosedAfterSending = SentNoAnswer + ": the backend closed the connection"
 
 func TimedOut(err error) bool {
 	var ne net.Error
@@ -36,8 +40,12 @@ func ConnectionClosed(err error) bool {
 		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNABORTED))
 }
 
-func closedError(err error) error {
-	return fmt.Errorf("the backend closed the connection before a response arrived (%w): it most likely stopped or "+
+func closedError(err error, sent bool) error {
+	if !sent {
+		return fmt.Errorf("the backend closed the connection before the request was written (%w), so it was not sent "+
+			"and took no effect. This is not a verdict about the rpc: check the backend is up and run again", err)
+	}
+	return fmt.Errorf("%s before a response arrived (%w): it most likely stopped or "+
 		"crashed while this request was in flight, so whether the call took effect is unknown. This is not a verdict "+
-		"about the rpc: check the backend is up and run again", err)
+		"about the rpc: check the backend is up and run again", ClosedAfterSending, err)
 }
