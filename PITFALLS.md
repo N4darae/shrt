@@ -2323,6 +2323,19 @@ did.
 envelope's parent, which names the refusal as the runner already reads it (GRAMMAR, `StepRecord.expect`),
 marks the step as expecting a refusal, so the warning, and `-strict`'s error, no longer fire on it.
 
+## 114. A step's `volatile: [products]` masked `products` on every other step too
+
+**Symptom.** `shrt verify catalog-listproducts -masked` listed `list_products products.0.sku
+(sku-p3-… -> sku-msk1-…) hidden by products`, a pattern declared only on
+`list_products_empty_sku_prefix`. It was not a wrong label: `verify`, `diff`, `confirm` and the
+kept-red comparison took the current chain's patterns from the config, the chain and every step,
+flattened into one list applied to all steps, so a step-level pattern hid real changes at the same
+path on every other step of the chain.
+
+**Fix.** 2026-09-25: only the config's and the chain's own patterns apply chain-wide; a step's
+`volatile` applies to that step, from its step record, as GRAMMAR says ("for this step only"). The
+values it used to hide elsewhere are listed where they belong: an id, a fixture echo, or a change.
+
 ---
 
 # Decisions, so they are not relitigated
