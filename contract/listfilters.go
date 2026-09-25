@@ -417,6 +417,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	if len(moveIDs) > 0 {
 		after = copyStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
 		after.Export = nil
+		delete(after.Body, filterKey)
 		after.Description = fmt.Sprintf("the list as before, with no filter, after %s: every fixture is still listed, in the state it was left in.", strings.Join(moveIDs, ", "))
 		after.Expect = SuccessExpectation(lm)
 		for i, prod := range t.producers {
