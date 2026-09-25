@@ -24,6 +24,8 @@ const (
 
 const SliceKeepWrites = "writes"
 
+const RefusedNotSent = "not sent"
+
 func DefaultReadOnlyPrefixes() []string {
 	return []string{
 		"Fetch", "Get", "List", "Preview", "Search",
@@ -133,7 +135,7 @@ type Dropped struct {
 	Index  int    `json:"index"`
 	ID     string `json:"id"`
 	Call   string `json:"call"`
-	Reason string `json:"wrote_nothing,omitempty"`
+	Reason string `json:"refused,omitempty"`
 }
 
 const (
@@ -223,11 +225,6 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			for w, s := range c.Steps[:at] {
 				if !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 					continue
-				}
-				if opts.Refused != nil {
-					if _, refused := opts.Refused(s.ID); refused {
-						continue
-					}
 				}
 				add(w, KeepAsked, "kept by -keep writes")
 			}
@@ -773,7 +770,7 @@ func sliceDescription(res *SliceResult) string {
 		for _, d := range res.RefusedWrites {
 			names = append(names, d.ID)
 		}
-		fmt.Fprintf(&b, "\n%d dropped write step(s) were refused in run %s and wrote nothing: %s.\n", len(names), res.Run, listSome(names, 8))
+		fmt.Fprintf(&b, "\n%d dropped write step(s) were refused in run %s and act on no entity a kept step uses: %s.\n", len(names), res.Run, listSome(names, 8))
 	}
 	if len(res.Unmet) > 0 {
 		names := []string{}
@@ -957,7 +954,7 @@ func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, mode string, o
 			continue
 		}
 		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
 		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
@@ -1046,7 +1043,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, mode string, opts S
 			continue
 		}
 		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
 		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
@@ -1124,6 +1121,14 @@ func producesNothing(s *Step, opts SliceOptions) bool {
 		}
 	}
 	return ExpectsRefusal(s)
+}
+
+func notSent(s *Step, opts SliceOptions) bool {
+	if opts.Refused == nil {
+		return false
+	}
+	why, refused := opts.Refused(s.ID)
+	return refused && why == RefusedNotSent
 }
 
 func ExpectsRefusal(s *Step) bool {

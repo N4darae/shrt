@@ -20,7 +20,7 @@ func relaxableIn(rec *runner.Record) func(string) bool {
 		if sr.HTTPStatus == 0 && len(sr.Response) == 0 {
 			return false
 		}
-		if _, wroteNothing := refused(id); wroteNothing {
+		if _, wroteNothing := refused(id); wroteNothing && chain.IsReadOnlyCall(sr.Call) {
 			return false
 		}
 		failed := 0

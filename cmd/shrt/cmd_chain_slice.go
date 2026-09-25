@@ -481,7 +481,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 		}
 	}
 	if len(res.RefusedWrites) > 0 {
-		fmt.Printf("\n%d dropped write step(s) wrote nothing in run %s, so they do not count toward under-inclusion:\n", len(res.RefusedWrites), res.Run)
+		fmt.Printf("\n%d dropped write step(s) were refused in run %s and act on no entity a kept step uses, so they do not count toward under-inclusion:\n", len(res.RefusedWrites), res.Run)
 		dropW, callW := 0, 0
 		for _, d := range res.RefusedWrites {
 			if n := len(d.ID); n > dropW {
@@ -1491,7 +1491,7 @@ func refusedIn(rec *runner.Record) func(string) (string, bool) {
 		}
 		switch {
 		case sr.Status == runner.StatusSkipped:
-			return "not sent", true
+			return chain.RefusedNotSent, true
 		case sr.Transport != nil:
 			return "refused: transport " + sr.Transport.Code, true
 		}

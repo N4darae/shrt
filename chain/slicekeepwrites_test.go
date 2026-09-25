@@ -42,7 +42,7 @@ func TestSliceKeepWritesCombinesWithIDs(t *testing.T) {
 	}
 }
 
-func TestSliceKeepWritesLeavesOutAWriteTheSourceRunShowsRefused(t *testing.T) {
+func TestSliceKeepWritesKeepsAWriteTheSourceRunShowsRefused(t *testing.T) {
 	c := &chain.Chain{Name: "refusals", Steps: []*chain.Step{
 		{ID: "make", Call: "pkg.Svc/Create"},
 		{ID: "owner", Call: "pkg.Svc/Create"},
@@ -56,12 +56,10 @@ func TestSliceKeepWritesLeavesOutAWriteTheSourceRunShowsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range res.Kept {
-		if k.ID == "owner" {
-			t.Fatalf("a refused write wrote nothing, -keep writes must not re-send it: %+v", res.Kept)
-		}
+	if len(res.Kept) != 3 || res.Kept[1].ID != "owner" {
+		t.Fatalf("a refused write can still change state, so -keep writes keeps it: %+v", res.Kept)
 	}
-	if res.UnderIncluded {
-		t.Fatalf("nothing that wrote state was dropped: %+v", res.DroppedWrites)
+	if res.UnderIncluded || len(res.RefusedWrites) != 0 {
+		t.Fatalf("nothing is dropped: %+v %+v", res.DroppedWrites, res.RefusedWrites)
 	}
 }

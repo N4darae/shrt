@@ -67,7 +67,7 @@ func TestSliceKeepsTheNeededCallForEveryEntityTheTargetReachesThroughItsOrder(t 
 	}
 }
 
-func TestSliceDoesNotKeepAWriteThatExpectsToBeRefusedForItsSideEffects(t *testing.T) {
+func TestSliceKeepsAWriteThatExpectsToBeRefusedForItsSideEffects(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	chain.SetEnvelope("status.code", "SUCCESS")
 	c := confirmShortageChain()
@@ -80,9 +80,16 @@ func TestSliceDoesNotKeepAWriteThatExpectsToBeRefusedForItsSideEffects(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
+	kept := map[string]bool{}
 	for _, k := range res.Kept {
-		if k.ID == "confirm_order" || k.ID == "create_order" {
-			t.Fatalf("a confirm expected to be refused changes nothing, so it is not kept for its side effects: %+v", res.Kept)
+		kept[k.ID] = true
+	}
+	if !kept["confirm_order"] || !kept["create_order"] {
+		t.Fatalf("a refused confirm on the same products can still move their stock, so it is kept: %+v", res.Kept)
+	}
+	for _, id := range []string{"confirm_order_3", "create_order_3"} {
+		if kept[id] {
+			t.Fatalf("%s acts on another product: %+v", id, res.Kept)
 		}
 	}
 }
