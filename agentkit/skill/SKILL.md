@@ -5,94 +5,50 @@ description: Use when defining, running, or verifying an ordered chain of intern
 
 # shrt
 
-Record, replay and verify ordered chains of internal API calls.
-
-A **chain** is an ordered sequence of RPC calls that reproduces a specific backend state.
-A **safe spot** is a chain run **a person approved as correct**. It is the ground truth a later
-replay is diffed against, so a regression names the RPC that changed instead of guessing.
-
-This file is the overview and the router. The working surface is `.shrt/docs/` — four files that
-`shrt init` installed into this repo alongside the chains. Read them before composing anything.
+Record, replay and verify ordered chains of internal API calls. A **chain** is an ordered list of
+RPC calls that reproduces a backend state. A **safe spot** is a run a person approved as correct;
+later replays are diffed against it, so a regression names the rpc that changed.
 
 ## Before the first command
-
-Run from the repo root, whichever clone this is — nothing here assumes one machine's path:
 
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 shrt init -agents=false -build=false # only if .shrt/docs/ is missing, as on a fresh clone
-shrt catalog build                   # the descriptor; without it every catalog command fails
+shrt catalog build                   # the descriptor; rebuild after any proto change
 shrt catalog ls -filter invoice      # what rpcs exist
 ```
 
-`.shrt/docs/` is build output and gitignored, so a fresh clone has none of the four files this
-skill routes to. `shrt init -agents=false -build=false` writes them from the copy embedded in the
-binary and touches nothing that already exists, though on a clone missing them it can also add
-`.gitignore` entries or a `.shrt/config.yaml`; say so if it did. The descriptor is build output
-too, so a fresh clone has none. Rebuild it after any proto change: it fails quietly rather than
-loudly, which is `.shrt/docs/PITFALLS.md` §2.
-
-`.claude/` (this skill and the `shrt-contract-author` subagent) is the agent kit, and `shrt init`
-does not gitignore it. Commit it: an agent on a fresh clone finds shrt only through this file,
-and this file is what tells it to recover `.shrt/docs/`. A committed kit can drift from the
-binary, so after upgrading shrt refresh it with `shrt init -force -build=false`, which rewrites
-the docs and the kit but never your config, and commit the diff.
-
-`shrt` itself comes from `go install github.com/N4darae/shrt/cmd/shrt@latest`. Inside a
-clone of the shrt repo the binary is gitignored and built from source instead, and must be rebuilt
-after any change to that source, because a stale binary lints with the OLD rules and tells you
-everything is fine — `.shrt/docs/README.md` has the build command for that case.
+`.shrt/docs/` and the descriptor are gitignored build output; the first line restores the docs
+from the binary and says if it wrote anything else. Commit `.claude/` (this skill and the
+`shrt-contract-author` subagent); after upgrading shrt, `shrt init -force -build=false` refreshes
+docs and kit but never your config.
 
 ## The rules
 
-`.shrt/docs/README.md`, "Four rules that are never negotiable", owns them. Read it there; this
-file deliberately keeps no second copy. The shortest of the four: propose a safe spot with `shrt confirm <c> -note`, present it and `-approve` only on the user's yes, never
-reorder steps, never hand-write a body from memory, never leave a step asserting only that the
-server did not crash.
+`.shrt/docs/README.md` owns the four rules: approve a safe spot only on the user's yes to a
+proposal you presented, never reorder steps, never hand-write a body from memory, never leave a
+step asserting only that the server did not crash.
 
 ## Route
 
 | question | file |
 |---|---|
-| what am I allowed to do, and what is the loop | `.shrt/docs/README.md` |
-| which keys exist, with types — chain, contract, config, run record, `${...}` forms, volatile patterns, the command list | `.shrt/docs/GRAMMAR.md` (generated from the Go structs, so an invented key is not in it) |
-| compose a chain from a contract · with no contract · fill bodies · assert something that can fail · probe one failure code · cross a principal boundary · author a contract · run, hand off, verify · refactor against a safe spot · find the chain for an rpc or code · cut a minimal reproduction | `.shrt/docs/PLAYBOOK.md` §1-§11 |
-| it did something strange | `.shrt/docs/PITFALLS.md`, symptom → cause → fix |
+| commands, exit codes, the loop, the rules | `.shrt/docs/README.md` |
+| which keys exist, with types; `${...}` forms; what verify compares | `.shrt/docs/GRAMMAR.md` |
+| compose, fill, assert, probe, principals, author a contract, verify, find, slice | `.shrt/docs/PLAYBOOK.md` §1-§11 |
+| it did something strange | `.shrt/docs/PITFALLS.md` |
 
-## Things the route does not cover
+Every command prints its flags and exit codes with `-h`.
 
-- **The contract is two layers.** The *generated* layer comes from the descriptor and is always
-  right about shape; the *curated* layer is what someone wrote down about behaviour. `shrt contract
-  show <rpc>` prints both (`-json` for tooling); `-filter <word>` prints every rpc whose name
-  contains the word, which can reach past one domain. If the descriptor is stale because
-  the proto changed, rebuild it with `shrt catalog build`.
-- **What `shrt chain lint` checks:** every body against its proto message, `${...}` references to
-  steps that do not run earlier, and exports reading response fields that do not exist.
-- **What a `shrt verify` diff tells you:** each change names the step, its kind, the JSON path, the
-  confirmed value and the value now returned — so a non-empty diff points at an RPC, not at a chain.
-  Volatile paths and id- or timestamp-shaped values are masked. A clean verify covers only the steps
-  of that chain's safe spot, not paths no safe spot exercises.
-- **No safe spot? `shrt diff <chain>` compares the last two runs** (or `shrt diff <chain> <run-a>
-  <run-b>`): status changes, where the first failure moved, steps no longer reached, response
-  fields, with volatile paths, ids and timestamps masked. It is a comparison between two runs, not
-  a verdict — never create the safe spot yourself to get one; `shrt confirm -note` only proposes, and only the user's yes approves.
-- **`shrt contract init -all`** scaffolds every domain at once into `.shrt/contracts/`; existing
-  curation is carried forward, never overwritten. A domain is the package segment after the
-  organisation root once the trailing version is dropped, so
-  `acme.billing.invoice.v1.InvoiceService` is domain `billing`, and a package with no organisation
-  root — `inv.v1.InventoryService` — is domain `inv`.
-- **To fill an unexplored domain, dispatch one `shrt-contract-author` subagent per domain** — they
-  share no state and each owns one file.
-- **Then do the `before:` pass yourself, once, over the finished library.** It cannot be delegated
-  with the rest: `before:` is the edge a PRODUCER declares about a consumer in another domain, and
-  a per-domain author cannot see consumers that are still being written beside it. Measured on the
-  first surface this kit was used against, three parallel authors wrote **zero** `before:` entries
-  while the finished library needed thirteen. After every domain is authored:
+## Contracts
 
-  ```bash
-  shrt contract quality            # every 'read rpc with no producer' line is a candidate
-  shrt contract plan <that-rpc>    # a one-step order confirms the producer edge is missing
-  ```
-
-  For each, find the write that puts those rows there and add `before:` on it, or `no_producer:` on
-  the read if nothing in this API does. A read whose plan is one step long is the signal.
+- `shrt contract show <rpc>` prints the generated schema and the curated layer; `shrt contract plan
+  <rpc> -write` composes a chain from it.
+- `shrt contract init -all` scaffolds every domain; existing curation is kept. A domain is the
+  package segment after the organisation root (`acme.billing.invoice.v1.InvoiceService` is
+  `billing`).
+- To fill unexplored domains, dispatch one `shrt-contract-author` subagent per domain.
+- Then do the `before:` pass yourself over the finished library, since a per-domain author cannot
+  see consumers in other domains: every `read rpc with no producer` line of `shrt contract quality`
+  and every one-step `shrt contract plan <read>` is a candidate for `before:` on the write that
+  creates those rows, or `no_producer:` on the read.
