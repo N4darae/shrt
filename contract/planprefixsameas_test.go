@@ -1,0 +1,37 @@
+package contract_test
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/N4darae/shrt/contract"
+)
+
+func TestPlanForAPrefixFilterDeclaredSameAsAFullValueStillPlansTheCaseVariant(t *testing.T) {
+	forms := map[string]func(rpcs map[string]*contract.RPCContract){
+		"value": func(map[string]*contract.RPCContract) {},
+		"same_as": func(rpcs map[string]*contract.RPCContract) {
+			if c := rpcs["shop.catalog.v1.ProductService/CreateProduct"]; c != nil {
+				c.Fields["sku"].Value = "sku-${vars.tag}-a"
+			}
+			if c := rpcs["shop.catalog.v1.ProductService/ListProducts"]; c != nil {
+				c.Fields["sku_prefix"].Value = ""
+				c.Fields["sku_prefix"].SameAs = "shop.catalog.v1.ProductService/CreateProduct->sku"
+				c.Fields["sku_prefix"].Note = "filter by prefix, case-sensitive; empty lists all"
+			}
+		},
+	}
+	for name, mutate := range forms {
+		p, text := shopDemoMutated(t, contract.PlanOptions{}, mutate, "ListProducts")
+		prefix := bodyAt(t, planStep(t, p, "list_products"), "sku_prefix")
+		if strings.Contains(prefix, "${steps.") {
+			t.Fatalf("%s: the prefix is the start the fixtures share, not a reference to one whole sku: %s\n%s", name, prefix, text)
+		}
+		cased := bodyAt(t, planStep(t, p, "create_product_prefix_case"), "sku")
+		if !strings.HasPrefix(strings.ToLower(cased), strings.ToLower(prefix)) || strings.HasPrefix(cased, prefix) {
+			t.Fatalf("%s: the case fixture starts with the prefix in another letter case: prefix %s, sku %s\n%s", name, prefix, cased, text)
+		}
+		planStep(t, p, "create_product_prefix_inside")
+		wantExists(t, planStep(t, p, "list_products"), "products.3", false)
+	}
+}

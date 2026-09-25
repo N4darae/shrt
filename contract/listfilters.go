@@ -97,6 +97,12 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 		if strings.Contains(namecase.Fold(key), "prefix") {
 			scope.prefixKey, scope.prefix = key, text
 			scope.target = t.anchor
+			if shared := p.sharedAnchorPrefix(t); shared != "" {
+				scope.prefix = shared
+				t.step.Body[key] = shared
+				p.note("step %s: %s is %q, the start every fixture's %s shares, not %s's whole %s, so the prefix probes "+
+					"below have letters to vary", t.step.ID, key, shared, t.anchor, t.producers[0].ID, t.anchor)
+			}
 			if scope.target == "" {
 				want := namecase.Fold(strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(key), "prefix", ""), "_"), "_"))
 				for k := range t.producers[0].Body {
@@ -126,6 +132,31 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 		}
 	}
 	return scope
+}
+
+func (p *Plan) anchorValue(t *listTarget, prod *chain.Step) string {
+	v, _ := prod.Body[t.anchor].(string)
+	base := "${steps." + t.producers[0].ID + ".request." + t.anchor + "}"
+	if seed, ok := t.producers[0].Body[t.anchor].(string); ok && prod != t.producers[0] && strings.HasPrefix(v, base) {
+		return seed + strings.TrimPrefix(v, base)
+	}
+	return v
+}
+
+func (p *Plan) sharedAnchorPrefix(t *listTarget) string {
+	if t.anchor == "" {
+		return ""
+	}
+	prefix := runPrefix(p.anchorValue(t, t.producers[0]))
+	if prefix == "" {
+		return ""
+	}
+	for _, prod := range t.producers {
+		if !strings.HasPrefix(p.anchorValue(t, prod), prefix) {
+			return ""
+		}
+	}
+	return prefix
 }
 
 func containsStep(list []*chain.Step, st *chain.Step) bool {
@@ -175,6 +206,9 @@ func (p *Plan) terminatePrefix(t *listTarget, scope *listScope) {
 	next := byte(0)
 	for _, prod := range t.producers {
 		v, _ := prod.Body[scope.target].(string)
+		if scope.target == t.anchor {
+			v = p.anchorValue(t, prod)
+		}
 		if !strings.HasPrefix(v, scope.prefix) || len(v) == len(scope.prefix) {
 			p.note("step %s: %s %q ends in a var with nothing after it, so a run whose tag is a prefix of another run's "+
 				"(cp-1, cp-10) also lists that run's items; %s's %s %q carries no terminator after the prefix to end it with",
