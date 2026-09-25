@@ -13,6 +13,28 @@ here; `shrt init` installs these four files into `.shrt/docs/`:
 A package path such as `runner/runner.go` is a file in the shrt module
 (`github.com/N4darae/shrt`). Every command prints its flags and exit codes with `-h`.
 
+## Quickstart: a regression suite for a service
+
+This is the path that finds regressions. Chains written by hand miss most of what the planner
+probes (boundaries, the last item of a list, other roles, missing tokens, read-backs after every
+write, repeats), so write contracts and let `plan` compose the chains.
+
+```bash
+export API_USER=... API_PASSWORD=...           # the login's credentials, and <ROLE>_USER/_PASSWORD
+shrt init                                      # observes the envelope from one real login
+shrt contract init -all                        # one overlay per domain under .shrt/contracts/
+#   fill each overlay from the service's code: required, failures, effects, fields.<f>.value
+shrt contract lint && shrt contract status -gaps
+shrt contract plan -all -write                 # one chain per rpc; fix every fill:/gap: line, re-plan -force
+shrt run <chain>                               # every chain; a red one on a correct backend is
+#   a real defect: pin it with chain slice -kept-red, and slice -without failed for the rest
+shrt confirm -all -note "..."                  # show the user the table; approve only on their yes
+shrt gate                                      # later, against every new release
+```
+
+A contract states behaviour; `effects:` states what a write does to numbers (`GRAMMAR.md` §3).
+`summary` and `note` are prose for people.
+
 ## Before the first command
 
 ```bash

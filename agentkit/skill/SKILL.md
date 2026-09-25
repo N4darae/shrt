@@ -23,6 +23,13 @@ from the binary and says if it wrote anything else. Commit `.claude/` (this skil
 `shrt-contract-author` subagent); after upgrading shrt, `shrt init -force -build=false` refreshes
 docs and kit but never your config.
 
+## Building a regression suite
+
+Follow `.shrt/docs/README.md` "Quickstart" in order: export the login credentials, `shrt init`,
+fill the contracts, `shrt contract plan -all -write`, run, pin real defects with `chain slice`,
+`shrt confirm -all`, then `shrt gate` per release. Do not hand-write the chains: the planner's
+probes find what hand-written chains miss.
+
 ## The rules
 
 `.shrt/docs/README.md` owns the four rules: approve a safe spot only on the user's yes to a
