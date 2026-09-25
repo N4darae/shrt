@@ -476,7 +476,8 @@ run were answered, and the previous run that sent that step got no answer there 
 answering later steps too, the backend is up and fails that one rpc every time: `verify` prints
 `FINDING: ... the backend fails this rpc every time while answering others`, naming the rpc, and
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
-answered.
+answered, and so does a repeat where the same rpc answered another step of either run: then that
+call failed, not the rpc, which looks intermittent.
 
 A connection the backend closed after the request was written is `sent, no answer: the backend
 closed the connection ...`, like a timeout: the call may have taken effect, `verify` counts the step

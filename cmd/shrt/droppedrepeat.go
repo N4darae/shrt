@@ -55,7 +55,7 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 	}
 	st, later := answeredAfter(rec, step)
 	how := unansweredKind(st)
-	if how == "" || later == 0 {
+	if how == "" || later == 0 || answeredElsewhere(rec, st) {
 		return nil
 	}
 	prev := previousRunAttempting(e, rec, step)
@@ -63,7 +63,7 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 		return nil
 	}
 	was, before := answeredAfter(prev, step)
-	if was == nil || was.Call != st.Call || unansweredKind(was) != how || before == 0 {
+	if was == nil || was.Call != st.Call || unansweredKind(was) != how || before == 0 || answeredElsewhere(prev, was) {
 		return nil
 	}
 	return &unansweredRepeat{step: st, how: how, later: later, before: before, repeat: prev.RunID}
@@ -93,4 +93,13 @@ func previousRunAttempting(e *env, rec *runner.Record, step string) *runner.Reco
 func attempted(rec *runner.Record, step string) bool {
 	st, ok := rec.Step(step)
 	return ok && st.Status != runner.StatusSkipped && (st.HTTPStatus != 0 || len(st.Response) > 0 || unansweredKind(st) != "")
+}
+
+func answeredElsewhere(rec *runner.Record, at *runner.StepRecord) bool {
+	for _, st := range rec.Steps {
+		if st != nil && st != at && st.Call == at.Call && answeredByService(st) {
+			return true
+		}
+	}
+	return false
 }

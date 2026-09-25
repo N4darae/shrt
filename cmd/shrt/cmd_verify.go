@@ -46,7 +46,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
 	"       re-sent too: a possible auth regression\n" +
 	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
-	"       steps were answered, in this run and the previous one: the backend fails that rpc every time\n" +
+	"       steps were answered, in this run and the previous one, and that rpc answered no other step\n" +
+	"       of either: the backend fails that rpc every time\n" +
 	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
 	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
 	"       defect (built from a var: fixture reused, exit 3)\n" +
@@ -1098,7 +1099,10 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = timeoutRemedy + ", and run verify again"
 	}
-	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" {
+	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" && answeredElsewhere(rec, st) {
+		remedy += fmt.Sprintf("; %s answered another call in this run, so this step failed, not the rpc: it looks intermittent, "+
+			"and a repeat is not reported as a finding", st.Call)
+	} else if answered > 0 && unansweredKind(st) != "" {
 		remedy += "; the backend answered later steps, so if the next run fails this rpc the same way while answering others, " +
 			"verify reports it as a finding"
 	}
