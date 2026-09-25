@@ -1186,6 +1186,19 @@ func (r *Report) MaskedList() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func (r *Report) QuietText() string {
+	if !r.Clean() || r.PrincipalChanged() || len(r.FullyMasked) > 0 || len(r.UnapprovedVolatile) > 0 ||
+		len(r.UnapprovedRedact) > 0 || len(r.RequestChanges) > 0 || len(r.RenamedSteps) > 0 {
+		return r.Text()
+	}
+	var b strings.Builder
+	if r.Chain != "" {
+		fmt.Fprintf(&b, "%s: ", r.Chain)
+	}
+	fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
+	return b.String()
+}
+
 func (r *Report) Text() string {
 	parts := []string{}
 	if r.Masked > 0 {

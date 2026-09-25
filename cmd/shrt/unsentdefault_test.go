@@ -81,7 +81,7 @@ func TestCLIVerifyDoesNotReportAFieldTheBackendNeverSent(t *testing.T) {
 	addedFieldWorkspace(t, &total)
 	var verr error
 	out := captureStdout(t, func() {
-		verr = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"})
+		verr = runVerify(context.Background(), []string{"cli-thing-flow"})
 	})
 	if verr != nil {
 		t.Fatalf("a field the descriptor gained but the backend never sends is not drift, got %v\n%s", verr, out)

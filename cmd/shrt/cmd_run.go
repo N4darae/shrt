@@ -58,7 +58,7 @@ func runRun(ctx context.Context, args []string) error {
 	save := fs.Bool("save", true, "persist the run record")
 	dry := fs.Bool("dry-run", false, "resolve and validate every request without sending it")
 	asJSON := fs.Bool("json", false, "emit the run record as JSON")
-	quiet := fs.Bool("quiet", false, "suppress per-step progress")
+	quiet := fs.Bool("quiet", false, "suppress per-step progress; a green chain prints its verdict line only")
 	build := fs.String("build", "", buildFlagUsage)
 	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent, unless it reads a field no failed expectation covers; once the target is unreachable (connection refused, dial or DNS failure) nothing more is sent; the run stays failed")
 	fs.Usage = func() {
@@ -102,12 +102,14 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	savedPath := ""
 	if *save && !*dry {
 		path, err := e.store.SaveRun(rec)
 		if err != nil {
 			return err
 		}
-		if !*asJSON {
+		savedPath = path
+		if !*asJSON && !*quiet {
 			fmt.Printf("\nrun %s -> %s\n", rec.RunID, path)
 		}
 	}
@@ -130,7 +132,14 @@ func runRun(ctx context.Context, args []string) error {
 	if lead != "" && rec.KeptRed == runner.KeptRedNotAsPinned {
 		rec.KeptRedNote = keptRedNotJudged(rec.KeptRedNote)
 	}
-	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
+	if *quiet {
+		fmt.Println(runSummary(quietRecord(rec), *dry, false, lead))
+		if savedPath != "" && !quietlyGreen(rec) {
+			fmt.Printf("  run %s -> %s\n", rec.RunID, savedPath)
+		}
+	} else {
+		fmt.Println(runSummary(rec, *dry, true, lead))
+	}
 	if line := neverRanLine(c, rec); line != "" && !*dry {
 		fmt.Println("  " + line)
 	}
@@ -455,6 +464,25 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 	}
 	return b.String()
+}
+
+func quietlyGreen(rec *runner.Record) bool {
+	return rec.Passed() || rec.KeptRed == runner.KeptRedAsPinned
+}
+
+func quietRecord(rec *runner.Record) *runner.Record {
+	if !quietlyGreen(rec) {
+		return rec
+	}
+	c := *rec
+	c.Exports = nil
+	c.Build = ""
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		c.FailedSteps = nil
+		c.Failure = ""
+		c.KeptRedNote = ""
+	}
+	return &c
 }
 
 func warningLines(rec *runner.Record) []string {

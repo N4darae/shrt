@@ -208,6 +208,13 @@ regression is never reported as merely unverified). Treat 3 in CI as "no verdict
 once the backend is up, or retry it automatically; do not mark the change red, and do not count it
 as green either.
 
+Under `-quiet` a green chain prints one line, `<chain>: PASSED in 32ms` from `run` (a chain that
+fails exactly as its `kept_red` pins, `<chain>: FAILED AS PINNED (kept red) in 25ms`) and
+`<chain>: no drift vs safe spot <id>` from a clean `verify`, with no run-record path and no notes on
+what was masked or covered; step warnings, `LATENCY`, `FINDING`, `REGRESSION` and `CHAIN DEFECT`
+lines are printed whatever the verdict, and a chain that fails keeps its detail and the path of its
+run record (`  run <id> -> <path>`). Drop `-quiet` to see the rest.
+
 A `run` in the gate stops at its chain's first failure, so under `-quiet` a red chain shows that
 one failing step, and the steps after it were never sent: they may pass or fail. The run says so
 on a line of its own, `N later step(s) were not run (...)`, naming them. Treat the first failure as

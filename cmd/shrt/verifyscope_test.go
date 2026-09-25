@@ -21,7 +21,7 @@ func TestCLIVerifyCleanSaysWhatNoDriftCovers(t *testing.T) {
 	}
 	var err error
 	out := captureStdout(t, func() {
-		err = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"})
+		err = runVerify(context.Background(), []string{"cli-thing-flow"})
 	})
 	if err != nil {
 		t.Fatalf("verify: %v\n%s", err, out)

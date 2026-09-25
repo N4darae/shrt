@@ -91,7 +91,7 @@ func runVerify(ctx context.Context, args []string) error {
 	fs.Var(vars, "var", "override a chain var, repeatable: -var key=value")
 	useRun := fs.String("run", "", "diff a recorded run id instead of replaying; 'latest' is the newest run record of the chain, a verify replay included, and verify names the run it picked")
 	asJSON := fs.Bool("json", false, "emit the diff report as JSON")
-	quiet := fs.Bool("quiet", false, "suppress per-step progress")
+	quiet := fs.Bool("quiet", false, "suppress per-step progress; a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
 	verbose := fs.Bool("v", false, "also list each change at a step not judged because its response does not match the descriptor (folded into one line by default)")
@@ -338,14 +338,16 @@ func runVerify(ctx context.Context, args []string) error {
 			return err
 		}
 	} else {
-		fmt.Println()
+		if !*quiet {
+			fmt.Println()
+		}
 		if nonBackend != nil {
 			fmt.Printf("could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
 		}
-		if olderSpot != "" {
+		if olderSpot != "" && !*quiet {
 			fmt.Println(olderSpot)
 		}
-		if spot.Build != "" || rec.Build != "" {
+		if (spot.Build != "" || rec.Build != "") && !*quiet {
 			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		switch {
@@ -373,7 +375,11 @@ func runVerify(ctx context.Context, args []string) error {
 					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 					"or add -v to list them", driftWhy))
 			}
-			fmt.Println(report.Text())
+			if *quiet {
+				fmt.Println(report.QuietText())
+			} else {
+				fmt.Println(report.Text())
+			}
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
 			}
@@ -419,7 +425,7 @@ func runVerify(ctx context.Context, args []string) error {
 					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
 					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
 			}
-			if report.Clean() && !report.Widened() && !report.PrincipalChanged() {
+			if report.Clean() && !report.Widened() && !report.PrincipalChanged() && !*quiet {
 				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
