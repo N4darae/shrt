@@ -17,6 +17,7 @@ type Issue struct {
 	Severity string `json:"severity"`
 	Kind     string `json:"kind,omitempty"`
 	Message  string `json:"message"`
+	Why      string `json:"why,omitempty"`
 }
 
 func (i Issue) IsError() bool { return i.Severity == SeverityError }
@@ -599,6 +600,8 @@ func headerValues(in map[string]string) []any {
 	return out
 }
 
+const unfailableWhy = "An assertion that cannot fail is the one fault no gate downstream can see: a green step proves nothing"
+
 func lintAssertsSomething(s *Step) []Issue {
 	if len(s.Expect) > 0 {
 		return nil
@@ -606,8 +609,9 @@ func lintAssertsSomething(s *Step) []Issue {
 	return []Issue{{
 		Step:     s.ID,
 		Severity: SeverityWarn,
-		Kind:     KindAssertsNone, Message: "asserts nothing at all, so it passes whatever the server answers — even an empty body " +
-			"or a refusal. Give it at least one expect entry saying what this step should have done",
+		Kind:     KindAssertsNone, Message: "asserts nothing at all",
+		Why: "A step with no expect entry passes whatever the server answers, even an empty body or a refusal: " +
+			"give it at least one saying what the step should have done",
 	}}
 }
 
@@ -671,9 +675,8 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 			}
 			if why := EnumTautologyReason(e, enumValuesAt(schema.Fields, SplitPath(e.Path))); why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
-					"expect on %q %s, so it passes whatever the server answers. An assertion that cannot "+
-						"fail is the one fault no gate downstream can see — a green step proves nothing. "+
-						"Assert the value this step should have produced", e.Path, why)})
+					"expect on %q %s, so it passes whatever the server answers. Assert the value this step should have produced",
+					e.Path, why), Why: unfailableWhy})
 			}
 			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" && EnvelopeOK() != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
@@ -1109,9 +1112,7 @@ func lintExpectRules(s *Step) []Issue {
 		}
 		if why := TautologyReason(e); why != "" {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
-				"expect on %q %s, so it passes whatever the server answers. An assertion that cannot "+
-					"fail is the one fault no gate downstream can see — a green step proves nothing. %s",
-				e.Path, why, TautologyRemedy(e))})
+				"expect on %q %s, so it passes whatever the server answers. %s", e.Path, why, TautologyRemedy(e)), Why: unfailableWhy})
 		}
 	}
 	return issues
@@ -1235,9 +1236,9 @@ func lintLiteralIdempotency(s *Step) []Issue {
 	issues := []Issue{}
 	warn := func(field, value string) {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindLiteralIdempotency, Message: fmt.Sprintf(
-			"%s is the literal %q: every run after the first sends the same idempotency key, so the backend answers it "+
-				"with the first run's result (the same order, the same id) instead of performing the call, and verify "+
-				"compares that replay, not the call. Build it from ${uuid}, fresh per run", field, value)})
+			"%s is the literal %q: build it from ${uuid}, fresh per run", field, value),
+			Why: "Every run after the first sends the same idempotency key, so the backend answers it with the first run's " +
+				"result (the same record, the same id) instead of performing the call, and verify compares that replay, not the call"})
 	}
 	var visit func(v any, path, key string)
 	visit = func(v any, path, key string) {

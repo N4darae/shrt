@@ -144,18 +144,24 @@ func timestampHint(s *Step, path string, earlier map[string]*catalog.Method) str
 	}
 	switch {
 	case IsExpiryName(last):
-		return fmt.Sprintf(`%s %s within: {of: "${nowunix+3600}", by: 5} for an hour-long expiry, or gte: "${nowunix}"`, s.ID, path)
+		return `within: {of: "${nowunix+3600}", by: 5} for an hour-long expiry, or gte: "${nowunix}"`
 	case IsCreationStampName(last):
 		if src := StampSource(s, path, earlier); src != "" {
-			return fmt.Sprintf("%s %s equals: ${%s.%s}", s.ID, path, src, path)
+			return fmt.Sprintf("equals: ${%s.%s}", src, path)
 		}
 	}
-	return fmt.Sprintf(`%s %s within: {of: "${nowunix}", by: 300}`, s.ID, path)
+	return `within: {of: "${nowunix}", by: 300}`
 }
 
+const unassertedTimestampWhy = "verify masks a timestamp's value as volatile, so a clock value in the wrong unit, zone or " +
+	"offset (milliseconds for seconds, a token that expires at once) passes every check unless an expectation reads it. " +
+	"A stamp a call makes is now, within the chain's run and clock skew (300s); a creation stamp read back equals the one " +
+	"the step that created it received; only an expiry sits its lifetime ahead"
+
 func lintUnassertedTimestamps(c *Chain, methods map[string]*catalog.Method) []Issue {
-	missing := []string{}
-	hints := []string{}
+	var order []string
+	steps := map[string][]string{}
+	fixes := map[string]string{}
 	earlier := map[string]*catalog.Method{}
 	for _, s := range c.Steps {
 		m := methods[s.ID]
@@ -164,29 +170,41 @@ func lintUnassertedTimestamps(c *Chain, methods map[string]*catalog.Method) []Is
 				if assertsPath(s, path) || assertsAbsent(s, path) {
 					continue
 				}
-				missing = append(missing, fmt.Sprintf("%s (%s)", path, s.ID))
-				hints = append(hints, timestampHint(s, path, earlier))
+				fix := timestampHint(s, path, earlier)
+				key := path + "\x00" + fix
+				if strings.HasPrefix(fix, "equals: ${") {
+					key = path + "\x00read-back"
+				}
+				if steps[key] == nil {
+					order = append(order, key)
+					fixes[key] = fix
+				}
+				steps[key] = append(steps[key], s.ID)
 			}
 		}
 		if m != nil {
 			earlier[s.ID] = m
 		}
 	}
-	if len(missing) == 0 {
-		return nil
+	var issues []Issue
+	for _, key := range order {
+		path, _, _ := strings.Cut(key, "\x00")
+		ids, fix := steps[key], fixes[key]
+		i := Issue{Step: ids[0], Severity: SeverityWarn, Kind: KindUnassertedTimestamp, Why: unassertedTimestampWhy,
+			Message: fmt.Sprintf("timestamp %s unasserted; expect %s", path, fix)}
+		if len(ids) > 1 {
+			shown := ids[:min(len(ids), 3)]
+			more := ""
+			if len(ids) > len(shown) {
+				more = fmt.Sprintf(" and %d more", len(ids)-len(shown))
+			}
+			if strings.HasSuffix(key, "\x00read-back") {
+				fix = fmt.Sprintf("equals: the stamp the step that created it received, e.g. %s %s", ids[0], fix)
+			}
+			i.Step = ""
+			i.Message = fmt.Sprintf("timestamp %s unasserted at %d steps (%s%s); expect %s", path, len(ids), strings.Join(shown, ", "), more, fix)
+		}
+		issues = append(issues, i)
 	}
-	return []Issue{{Severity: SeverityWarn, Kind: KindUnassertedTimestamp, Message: fmt.Sprintf(
-		"no expectation reads the timestamp field(s) %s, and verify masks a timestamp's value as volatile, so a clock "+
-			"value in the wrong unit, zone or offset (milliseconds for seconds, a token that expires at once) passes every "+
-			"check. Assert what each promises: %s. A stamp a call makes is now, within the chain's run and clock skew "+
-			"(300s); a creation stamp read back equals the one the step that created it received; only an expiry sits its "+
-			"lifetime ahead",
-		listSome(missing, 6), strings.Join(firstN(hints, 6), "; "))}}
-}
-
-func firstN(list []string, n int) []string {
-	if len(list) <= n {
-		return list
-	}
-	return list[:n]
+	return issues
 }

@@ -90,3 +90,44 @@ func TestStatedLifetimePicksTheRoundFigureTheLoginWindowAllows(t *testing.T) {
 		}
 	}
 }
+
+func TestACachedReloginTokenAcceptedYoungerThanTheRefusalsKeepsTheChain(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		age  time.Duration
+		kept bool
+	}{
+		{"younger than the refusal", 5 * time.Second, true},
+		{"older than the refusal", 30 * time.Second, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "token.json")
+			src := transport.NewLoginTokenSource(cacheSpec(), func(ctx context.Context, call *transport.Call) (*transport.Result, error) {
+				t.Fatal("the cached token must be reused")
+				return nil, nil
+			})
+			src.UseCache(path, "default")
+			now := time.Now()
+			refused := now.Add(-tc.age)
+			entry := fmt.Sprintf(`{%q:{"token":"tok-relogin","expires_at":%q,"issued_at":%q,"relogins":[%q],"relogin_ages":[%d]}}`,
+				src.CacheKey(), now.Add(time.Hour).Format(time.RFC3339Nano), refused.Format(time.RFC3339Nano),
+				refused.Format(time.RFC3339Nano), int64(20*time.Second))
+			if err := os.WriteFile(path, []byte(entry), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			tok, err := src.Token(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			src.Accepted(tok)
+			r, _ := src.Refusal(tok, time.Now())
+			if kept := len(r.Relogins) == 1; kept != tc.kept {
+				t.Fatalf("a token accepted at %v after a refusal at 20s: chain kept=%v, want %v", tc.age, kept, tc.kept)
+			}
+			raw, _ := os.ReadFile(path)
+			if kept := strings.Contains(string(raw), "relogins"); kept != tc.kept {
+				t.Fatalf("the cache must keep the chain only while the token is younger than the refusal: %s", raw)
+			}
+		})
+	}
+}

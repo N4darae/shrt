@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -57,6 +58,9 @@ func runReadmeGateWith(t *testing.T, env ...string) (string, int, string) {
 	writeFile(t, filepath.Join(work, ".shrt", "chains", "flow.yaml"), "name: flow\nvars:\n  tag: t\n")
 	writeFile(t, filepath.Join(work, ".shrt", "safespots", "flow.json"), "{}\n")
 	writeFile(t, filepath.Join(work, "gate.sh"), readmeGateScript(t))
+	if !slices.Contains(env, "NO_OVERLAY=1") {
+		writeFile(t, filepath.Join(work, ".shrt", "contracts", "items.yaml"), "domain: items\n")
+	}
 	for name, body := range map[string]string{
 		"shrt":  fakeShrt,
 		"git":   "#!/usr/bin/env bash\npwd\n",
@@ -96,5 +100,16 @@ func TestTheReadmeGateExitsAsShrtGateDoes(t *testing.T) {
 	_, got, calls := runReadmeGateWith(t, "FAKE_DOCTOR=1")
 	if got != 1 || strings.Contains(calls, "gate") {
 		t.Fatalf("a failed static check stops the wrapper before the gate: exit %d\n%s", got, calls)
+	}
+}
+
+func TestTheReadmeGateSkipsTheContractChecksWithoutAnOverlay(t *testing.T) {
+	out, code, calls := runReadmeGateWith(t, "NO_OVERLAY=1", "FAKE_CONTRACT=1")
+	if code != 0 || strings.Contains(calls, "contract") || !strings.Contains(calls, "chain lint -strict\ngate\n") {
+		t.Fatalf("a repo with chains and no contracts passes the wrapper, which never runs the contract checks: exit %d\n%s\n%s", code, out, calls)
+	}
+	_, code, _ = runReadmeGateWith(t, "FAKE_CONTRACT=1")
+	if code != 1 {
+		t.Fatalf("with an overlay, a contract error still fails the wrapper, got %d", code)
 	}
 }

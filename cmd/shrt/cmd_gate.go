@@ -35,10 +35,13 @@ const gateExitCodes = "\nexit codes:\n" +
 	"  3  no verdict: a run or verify exited 3 twice (backend down, restarting, refusing auth); re-run\n"
 
 type gateSidecar struct {
-	KeptRed      string            `json:"kept_red,omitempty"`
-	EarlyProfile string            `json:"early_profile,omitempty"`
-	Items        []gateItem        `json:"items,omitempty"`
-	Sent         map[string]string `json:"sent,omitempty"`
+	KeptRed      string              `json:"kept_red,omitempty"`
+	EarlyProfile string              `json:"early_profile,omitempty"`
+	EarlyAge     time.Duration       `json:"early_age,omitempty"`
+	EarlyStated  time.Duration       `json:"early_stated,omitempty"`
+	Reads        map[string]gateRead `json:"reads,omitempty"`
+	Items        []gateItem          `json:"items,omitempty"`
+	Sent         map[string]string   `json:"sent,omitempty"`
 }
 
 type gateItem struct {
@@ -111,7 +114,8 @@ func writeGateSidecar(side gateSidecar) {
 }
 
 func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
-	side := gateSidecar{KeptRed: rec.KeptRed, EarlyProfile: earlyProfile(e, rec)}
+	side := earlySidecar(e, rec)
+	side.KeptRed = rec.KeptRed
 	pinned := map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
@@ -331,7 +335,7 @@ func pinnedStep(c *chain.Chain, step string) bool {
 }
 
 func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []diff.LatencyFlag) gateSidecar {
-	side := gateSidecar{EarlyProfile: earlyProfile(e, rec)}
+	side := earlySidecar(e, rec)
 	changed := map[string]bool{}
 	for _, c := range report.Changes {
 		if c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
@@ -375,12 +379,16 @@ func latencyItems(flags []diff.LatencyFlag) []gateItem {
 
 var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
 
-func earlyProfile(e *env, rec *runner.Record) string {
+func earlySidecar(e *env, rec *runner.Record) gateSidecar {
+	side := gateSidecar{Reads: sessionReads(e, rec)}
 	life := examineTokenLifetime(e, rec)
 	if life == nil || life.finding() {
-		return ""
+		return side
 	}
-	return life.profile(life.first)
+	side.EarlyProfile = life.profile(life.first)
+	side.EarlyAge, _ = life.first.r.Age()
+	side.EarlyStated, _ = life.first.r.Stated()
+	return side
 }
 
 func gatePair(want, got any) (string, string) {
@@ -425,6 +433,7 @@ func runGate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	wait := fs.Duration("retry-wait", 20*time.Second, "wait before re-running a run or verify that exited 3")
 	verbose := fs.Bool("v", false, "under each failing chain, every changed step and path")
+	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   run each chain, verify each safe spot (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
@@ -448,6 +457,8 @@ func runGate(ctx context.Context, args []string) error {
 		width = max(width, len(g.name))
 	}
 	early := map[string]int{}
+	earlyAt := map[string]gateEarly{}
+	reads := map[string]gateRead{}
 	for _, g := range chains {
 		readsTag := false
 		if c, err := e.resolveChain(g.name); err == nil {
@@ -462,8 +473,16 @@ func runGate(ctx context.Context, args []string) error {
 		}
 		for _, what := range steps {
 			out := gateAttempt(ctx, what, g.name, tag, readsTag, *wait)
-			if out.side.EarlyProfile != "" {
-				early[out.side.EarlyProfile]++
+			if p := out.side.EarlyProfile; p != "" {
+				early[p]++
+				if _, ok := earlyAt[p]; !ok {
+					earlyAt[p] = gateEarly{age: out.side.EarlyAge, stated: out.side.EarlyStated}
+				}
+			}
+			for p, read := range out.side.Reads {
+				if _, ok := reads[p]; !ok {
+					reads[p] = read
+				}
 			}
 			g.absorb(what, out)
 		}
@@ -505,9 +524,19 @@ func runGate(ctx context.Context, args []string) error {
 		if early[p] > 1 {
 			findings = append(findings, fmt.Sprintf("FINDING: tokens of auth profile %s were refused early in %d runs of this gate: "+
 				"the backend ends sessions long before the expiry its login states", p, early[p]))
-		} else {
-			once = append(once, p)
+			continue
 		}
+		if !*noSessionCheck {
+			if line, finding, ok := checkSession(ctx, e, p, earlyAt[p], reads); ok {
+				if finding {
+					findings = append(findings, line)
+				} else {
+					fmt.Println(line)
+				}
+				continue
+			}
+		}
+		once = append(once, p)
 	}
 	switch len(once) {
 	case 0:
@@ -519,6 +548,11 @@ func runGate(ctx context.Context, args []string) error {
 	printGateGroups(chains)
 	for _, f := range findings {
 		fmt.Println(f)
+	}
+	if len(only) == 0 {
+		if line := gateCoverage(e); line != "" {
+			fmt.Println(line)
+		}
 	}
 	switch {
 	case failed > 0 || len(findings) > 0:

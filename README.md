@@ -140,11 +140,16 @@ failures by suspect rpc (the read itself, or the failing or changed write it obs
 ```
 
 Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
-of the gate (one is a note: a deploy before the gate explains it), or the ratchet; 3 is no verdict
+of the gate, or the ratchet. Refused early once, the gate logs in afresh, holds the token as long as
+the refused one lived (at most 90s) and re-sends a read that passed: accepted, it was a restart;
+refused twice, a `FINDING` (`-no-session-check` skips this). 3 is no verdict
 (the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
-nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
+nor green. `shrt gate <chain>...` gates a subset, without the ratchet. With no overlay, or an rpc
+whose contract no chain calls, the gate ends with one `coverage:` line naming the command that plans
+the missing probes; it never changes the exit code.
 
-`shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it).
+`shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it); it
+skips the contract checks while `.shrt/contracts` holds no overlay.
 Write `0` into `.shrt/quality-baseline` first; a gate failing on it names the current score, to
 write in as a reviewed edit. The first gate outside CI writes `.shrt/hollow-baseline` with today's
 count and says so; commit it. With `CI` set, a missing baseline fails the gate.
@@ -155,8 +160,10 @@ cd "$(git rev-parse --show-toplevel)"
 [ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
 shrt catalog build
 shrt doctor -strict
-shrt contract lint
-shrt contract quality -gate -baseline .shrt/quality-baseline
+if compgen -G '.shrt/contracts/*.y*ml' > /dev/null; then
+  shrt contract lint
+  shrt contract quality -gate -baseline .shrt/quality-baseline
+fi
 shrt chain lint -strict
 exec shrt gate
 ```
