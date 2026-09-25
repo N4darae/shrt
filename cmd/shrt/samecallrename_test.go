@@ -131,3 +131,49 @@ func TestRenamingTwoStepsThatShareACallIsARename(t *testing.T) {
 		t.Errorf("the renamed step's change is shown under its new name:\n%s", out)
 	}
 }
+
+func TestSwappingTheIDsOfTwoSameCallStepsIsTwoRenames(t *testing.T) {
+	total := 750
+	confirmSameCallChain(t, &total)
+	editPairFlow(t, "- id: c1\n", "- id: c2\n", "- id: c2\n", "- id: c1\n", "${c1.id}", "${c2.id}", "${c2.id}", "${c1.id}")
+	ctx := context.Background()
+
+	var verr error
+	out := captureStdout(t, func() { verr = runVerify(ctx, []string{"pair-flow", "-quiet"}) })
+	if verr != nil {
+		t.Fatalf("the ids of two Create steps were swapped with their bodies in place: want no drift, got %v\n%s", verr, out)
+	}
+	for _, not := range []string{"moved", "regression:", "not renamed consistently"} {
+		if strings.Contains(out, not) {
+			t.Errorf("a swap of two same-call step ids is not a move (%q):\n%s", not, out)
+		}
+	}
+	if !strings.Contains(out, "c1 -> c2") || !strings.Contains(out, "c2 -> c1") {
+		t.Errorf("verify names the swap as two renames:\n%s", out)
+	}
+}
+
+func TestAStepOrderMoveIsAChainChangeEvenBesideAnExpectationEdit(t *testing.T) {
+	total := 750
+	confirmSameCallChain(t, &total)
+	raw, err := os.ReadFile(".shrt/chains/pair-flow.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	c2Start := strings.Index(s, "    - id: c2\n")
+	f1Start := strings.Index(s, "    - id: f1\n")
+	f2Start := strings.Index(s, "    - id: f2\n")
+	moved := s[:c2Start] + s[f1Start:f2Start] + s[c2Start:f1Start] + s[f2Start:]
+	moved = strings.Replace(moved, "            equals: beta\n", "            equals: beta\n          - path: id\n            not_empty: true\n", 1)
+	writeFile(t, ".shrt/chains/pair-flow.yaml", moved)
+
+	var verr error
+	out := captureStdout(t, func() { verr = runVerify(context.Background(), []string{"pair-flow", "-quiet"}) })
+	if verr == nil || strings.Contains(verr.Error(), "regression") {
+		t.Fatalf("c2 moved after f1 and an expectation was added: want drift after a chain change, got %v\n%s", verr, out)
+	}
+	if !strings.Contains(verr.Error(), "chain change") {
+		t.Errorf("the move is a chain change: %v\n%s", verr, out)
+	}
+}

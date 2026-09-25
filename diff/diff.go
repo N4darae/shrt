@@ -485,9 +485,20 @@ func ChainChangesIn(spot *store.SafeSpot, c *chain.Chain, rec *runner.Record) []
 				Detail: "the chain has a step the confirmed run did not"})
 		}
 	}
-	if len(out) == 0 && strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+	wasKept, nowKept := []string{}, []string{}
+	for _, id := range wasOrder {
+		if now[id] != nil {
+			wasKept = append(wasKept, id)
+		}
+	}
+	for _, id := range nowOrder {
+		if was[id] {
+			nowKept = append(nowKept, id)
+		}
+	}
+	if strings.Join(wasKept, ",") != strings.Join(nowKept, ",") {
 		out = append(out, Change{Step: "-", Path: "steps", Kind: KindOrder,
-			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+			Want: strings.Join(wasKept, ", "), Got: strings.Join(nowKept, ", ")})
 	}
 	return out
 }
