@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -91,6 +92,40 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 		return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but " + problems[0], finding
 	}
 	return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but:\n" + strings.Join(problems, "\n"), finding
+}
+
+func PinsHeld(c *chain.Chain, rec *Record) bool {
+	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
+		return false
+	}
+	pins := map[string][]chain.Pin{}
+	for _, k := range c.KeptRed {
+		pins[k.Step] = append(pins[k.Step], k)
+	}
+	scope := chain.NewScope(rec.Vars)
+	for _, st := range rec.Steps {
+		if st == nil {
+			continue
+		}
+		var req, resp any
+		_ = json.Unmarshal(st.Request, &req)
+		_ = json.Unmarshal(st.Response, &resp)
+		scope.Record(st.ID, req, resp)
+	}
+	for _, step := range c.Steps {
+		sr, ok := rec.Step(step.ID)
+		if !ok || sr.Status == StatusSkipped {
+			return false
+		}
+		want := pins[step.ID]
+		if len(want) == 0 {
+			continue
+		}
+		if mismatch, _, _ := stepMismatch(step.ID, sr, resolvedPins(want, scope)); sr.Status == StatusPassed || len(mismatch) > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func resolvedPins(pins []chain.Pin, scope *chain.Scope) []chain.Pin {

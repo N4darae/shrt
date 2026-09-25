@@ -59,3 +59,28 @@ func TestAListOfTheSameLengthWithOtherItemsSaysSoOnce(t *testing.T) {
 		t.Fatalf("a replaced item must be one membership line:\n%s", text)
 	}
 }
+
+func TestAListThatGainedItemsTestsThePrefixFilterAndComparesItemsById(t *testing.T) {
+	item := func(id, code, n string) string {
+		return `{"id_item":"itm-` + id + `","code":"` + code + `","n":"` + n + `"}`
+	}
+	spot := spotOf(nil,
+		step("make_item", `{"item":`+item("111111111111", "ab-1", "5")+`}`),
+		step("make_item_2", `{"item":`+item("222222222222", "ab-2", "6")+`}`),
+		requestStep("list_items", `{"code_prefix":"ab-"}`, `{"items":[`+item("111111111111", "ab-1", "5")+`,`+item("222222222222", "ab-2", "6")+`]}`))
+	rec := recOf(
+		step("make_item", `{"item":`+item("333333333333", "ab-1", "5")+`}`),
+		step("make_item_2", `{"item":`+item("444444444444", "ab-2", "6")+`}`),
+		requestStep("list_items", `{"code_prefix":"ab-"}`, `{"items":[`+item("000000000000", "AB-0", "1")+`,`+item("333333333333", "ab-1", "5")+`,`+
+			item("444444444444", "ab-2", "7")+`]}`))
+	text := diff.Compare(spot, rec).Text()
+	if !strings.Contains(text, `(1 added, 0 dropped, by id_item; 1 added have code not starting with code_prefix "ab-"`) {
+		t.Errorf("an added item outside the prefix filter is counted:\n%s", text)
+	}
+	if strings.Contains(text, "items.0.") || strings.Contains(text, "items.1.") {
+		t.Errorf("positional lines of a list whose items were added are dropped:\n%s", text)
+	}
+	if !strings.Contains(text, "items.2.n want=6 got=7") {
+		t.Errorf("an item present in both, compared by its id, still reports its change:\n%s", text)
+	}
+}

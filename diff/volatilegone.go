@@ -49,7 +49,7 @@ func valueVanished(c Change) bool {
 		wantBlank, gotBlank = blankValue(c.Want), true
 	case KindUnexpected:
 		wantBlank, gotBlank = true, blankValue(c.Got)
-	case KindChanged, KindType:
+	case KindChanged, KindType, KindLength:
 		wantBlank, gotBlank = blankValue(c.Want), blankValue(c.Got)
 	default:
 		return false

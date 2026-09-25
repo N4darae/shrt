@@ -126,6 +126,7 @@ type attribution struct {
 	reordered func(step, path string) bool
 	changed   func(step string) []string
 	resized   func(step, path string) string
+	was       func(step, path string) (any, bool)
 }
 
 func (a attribution) of(step, path string) blame {
@@ -153,18 +154,31 @@ func (a attribution) of(step, path string) blame {
 	if w, why := a.afterFailedWrite(step, path); w >= 0 {
 		return blame{write: w, cascade: why}
 	}
+	if why := a.refused(st); why != "" && !isWrite(st) && !a.writeRefusedBefore(step) {
+		b.own = why
+		return b
+	}
 	if e, p := a.earlier(step, path); e >= 0 {
 		if isWrite(a.rec.Steps[e]) {
+			if w := a.recomputed(a.rec.Steps[e].ID, p); w >= 0 {
+				return blame{write: w}
+			}
 			return blame{write: e}
 		}
 		return a.of(a.rec.Steps[e].ID, p)
 	}
+	if w := a.recomputed(step, path); w >= 0 {
+		return blame{write: w}
+	}
 	if isWrite(st) {
 		return b
 	}
-	if a.resized != nil && path != "" && !a.writeChangedBefore(step) {
-		if list := a.resized(step, path); list != "" {
-			b.own = fmt.Sprintf("%s answers another set of %s, and the writes before it answered as before", methodName(st.Call), list)
+	if list := ""; a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
+		if list = a.resized(step, path); list != "" {
+			b.own = fmt.Sprintf("%s answers another set of %s", methodName(st.Call), list)
+			if !a.writeChangedBefore(step) {
+				b.own += ", and the writes before it answered as before"
+			}
 			return b
 		}
 	}
@@ -173,6 +187,9 @@ func (a attribution) of(step, path string) blame {
 		return b
 	}
 	b.write, b.knock = suspectWrite(a.rec, step, a.bad)
+	if b.knock && !a.explains(b.write, st, path) {
+		b.write, b.knock = -1, false
+	}
 	if b.write >= 0 && !b.knock {
 		w := a.rec.Steps[b.write]
 		if t, ok := a.echoed(b.write, st, path); ok {
@@ -210,6 +227,239 @@ func (a attribution) writeChangedBefore(step string) bool {
 		}
 	}
 	return false
+}
+
+func (a attribution) writeRefusedBefore(step string) bool {
+	for _, st := range a.rec.Steps {
+		if st == nil || st.ID == step {
+			return false
+		}
+		if isWrite(st) && a.bad[st.ID] && (a.flipped(st) != "" || st.Transport != nil || a.changed == nil || len(a.changed(st.ID)) == 0) {
+			return true
+		}
+	}
+	return false
+}
+
+func (a attribution) flipped(st *runner.StepRecord) string {
+	why := refusalOf(st)
+	if why == "" || !a.bad[st.ID] {
+		return ""
+	}
+	if st.Transport != nil {
+		return why
+	}
+	if a.was != nil {
+		if _, ok := a.was(st.ID, chain.EnvelopePath()); ok {
+			return why
+		}
+	}
+	return ""
+}
+
+func refusalOf(st *runner.StepRecord) string {
+	if st.Transport != nil {
+		return st.Transport.Code
+	}
+	v := verdictOf(st)
+	if v.ErrorCode == "" || v.ErrorCode == chain.EnvelopeOK() {
+		return ""
+	}
+	parts := []string{}
+	for _, f := range []string{"app_code", "reason"} {
+		if s := v.Refusal[f]; s != "" {
+			parts = append(parts, s)
+		}
+	}
+	if len(parts) == 0 {
+		return v.ErrorCode
+	}
+	return strings.Join(parts, " ")
+}
+
+func (a attribution) refused(st *runner.StepRecord) string {
+	why := a.flipped(st)
+	if why == "" {
+		return ""
+	}
+	for _, o := range a.rec.Steps {
+		if o == nil || o == st || o.Call != st.Call || profileOf(o) == profileOf(st) || o.Status == runner.StatusSkipped || len(o.Response) == 0 || refusalOf(o) != "" {
+			continue
+		}
+		return fmt.Sprintf("%s passes as %s, refused as %s (%s)", methodName(st.Call), profileOf(o), profileOf(st), why)
+	}
+	return fmt.Sprintf("%s is refused (%s)", methodName(st.Call), why)
+}
+
+func profileOf(st *runner.StepRecord) string {
+	if st.AuthProfile == "" {
+		return "default"
+	}
+	return st.AuthProfile
+}
+
+func (a attribution) explains(wi int, st *runner.StepRecord, path string) bool {
+	if wi < 0 || a.changed == nil || path == "" {
+		return false
+	}
+	w := a.rec.Steps[wi]
+	var rb, wb any
+	if json.Unmarshal(st.Response, &rb) != nil || json.Unmarshal(w.Response, &wb) != nil {
+		return false
+	}
+	rv, ok := chain.Get(rb, path)
+	if !ok {
+		return false
+	}
+	for _, p := range a.changed(w.ID) {
+		if v, ok := chain.Get(wb, p); ok && compactValue(v) == compactValue(rv) {
+			return true
+		}
+	}
+	return false
+}
+
+func number(v any) (float64, bool) {
+	switch v.(type) {
+	case nil, bool, map[string]any, []any:
+		return 0, false
+	}
+	n, err := strconv.ParseFloat(fmt.Sprint(v), 64)
+	return n, err == nil
+}
+
+type input struct {
+	was, now float64
+	at       int
+}
+
+func (a attribution) recomputed(step, path string) int {
+	at := a.index(step)
+	if at < 0 || a.was == nil || path == "" {
+		return -1
+	}
+	var body any
+	if json.Unmarshal(a.rec.Steps[at].Response, &body) != nil {
+		return -1
+	}
+	now, _ := chain.Get(body, path)
+	old, _ := a.was(step, path)
+	nv, okNow := number(now)
+	wv, okWas := number(old)
+	if !okNow || !okWas || nv == wv {
+		return -1
+	}
+	segs := chain.SplitPath(path)
+	holder := body
+	if len(segs) > 1 {
+		holder, _ = chain.Get(body, strings.Join(segs[:len(segs)-1], "."))
+	}
+	obj, ok := holder.(map[string]any)
+	if !ok {
+		return -1
+	}
+	inputs := a.inputsBefore(at)
+	for _, v := range obj {
+		lines, ok := v.([]any)
+		if !ok || len(lines) == 0 {
+			continue
+		}
+		for _, known := range inputs {
+			if w := linesSum(lines, known, nv, wv); w >= 0 {
+				return w
+			}
+		}
+	}
+	return -1
+}
+
+func (a attribution) inputsBefore(at int) map[string]map[string]input {
+	inputs := map[string]map[string]input{}
+	for i := 0; i < at; i++ {
+		prev := a.rec.Steps[i]
+		var pb any
+		if prev == nil || json.Unmarshal(prev.Response, &pb) != nil {
+			continue
+		}
+		eachLeaf(pb, "", func(p string, v any) {
+			n, ok := number(v)
+			ps := chain.SplitPath(p)
+			if !ok || len(ps) < 2 {
+				return
+			}
+			leaf := ps[len(ps)-1]
+			parent, _ := chain.Get(pb, strings.Join(ps[:len(ps)-1], "."))
+			for _, id := range idsOf(parent) {
+				in := input{was: n, now: n, at: -1}
+				if old, ok := a.was(prev.ID, p); ok {
+					if o, ok := number(old); ok && o != n {
+						in.was, in.at = o, i
+					}
+				}
+				if inputs[leaf] == nil {
+					inputs[leaf] = map[string]input{}
+				}
+				if cur, seen := inputs[leaf][id]; seen && cur.at >= 0 {
+					in.was, in.at = cur.was, cur.at
+				}
+				inputs[leaf][id] = in
+			}
+		})
+	}
+	return inputs
+}
+
+func idsOf(v any) []string {
+	m, _ := v.(map[string]any)
+	var out []string
+	for k, x := range m {
+		lower := strings.ToLower(k)
+		if s, ok := x.(string); ok && s != "" && (lower == "id" || strings.HasPrefix(lower, "id_") || strings.HasSuffix(lower, "_id")) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func linesSum(lines []any, known map[string]input, nv, wv float64) int {
+	first, _ := lines[0].(map[string]any)
+	factors := []string{""}
+	for k, x := range first {
+		if _, ok := number(x); ok {
+			factors = append(factors, k)
+		}
+	}
+	for _, f := range factors {
+		sumNow, sumWas, from := 0.0, 0.0, -1
+		for _, l := range lines {
+			m, _ := l.(map[string]any)
+			in, found := input{}, false
+			for _, x := range m {
+				if s, ok := x.(string); ok {
+					if got, ok := known[s]; ok {
+						in, found = got, true
+					}
+				}
+			}
+			q, ok := 1.0, true
+			if f != "" {
+				q, ok = number(m[f])
+			}
+			if !found || !ok {
+				from = -2
+				break
+			}
+			sumNow += q * in.now
+			sumWas += q * in.was
+			if in.at >= 0 && (from < 0 || in.at < from) {
+				from = in.at
+			}
+		}
+		if from >= 0 && sumNow == nv && sumWas == wv {
+			return from
+		}
+	}
+	return -1
 }
 
 func (a attribution) lost(src, path string) string {
