@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -187,13 +188,14 @@ func chainList(args []string) error {
 		Proposed    bool   `json:"proposed,omitempty"`
 		Description string `json:"description,omitempty"`
 		Path        string `json:"path"`
+		File        string `json:"file_differs,omitempty"`
 	}
 	sort.SliceStable(chains, func(i, j int) bool { return chains[i].Name < chains[j].Name })
 	rows := make([]row, 0, len(chains))
 	for _, c := range chains {
 		rows = append(rows, row{
 			Name: c.Name, Steps: len(c.Steps), SafeSpot: e.store.HasSafeSpot(c.Name), Proposed: e.store.HasProposal(c.Name),
-			Description: c.Description, Path: c.SourcePath,
+			Description: c.Description, Path: c.SourcePath, File: mismatchedFile(e, c),
 		})
 	}
 	if *asJSON {
@@ -229,6 +231,9 @@ func chainList(args []string) error {
 			continue
 		}
 		fmt.Printf("%s %-*s %2d step(s)  %s\n", mark, nameW, r.Name, r.Steps, summarise(r.Description, descWidth(nameW)))
+		if r.File != "" {
+			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
+		}
 	}
 	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval", len(rows))
 	if *long {
@@ -334,6 +339,9 @@ func chainLint(args []string) error {
 	}
 	for _, c := range targets {
 		issues := contract.LintChain(c, e.cat, opts)
+		if mm := nameMismatchIn(e, c); mm != nil {
+			issues = append([]chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindNameMismatch, Message: mm.Error() + ": " + mm.Remedy()}}, issues...)
+		}
 		for _, i := range issues {
 			if i.Severity == chain.SeverityError {
 				errCount++
@@ -438,4 +446,37 @@ func (o *optionalString) Set(s string) error {
 		o.value = s
 	}
 	return nil
+}
+
+func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
+	var mm *chain.NameMismatchError
+	if c == nil || !errors.As(chain.NameMismatch(c), &mm) {
+		return nil
+	}
+	dir, err1 := filepath.Abs(filepath.Dir(c.SourcePath))
+	chains, err2 := filepath.Abs(e.chainsDir())
+	if err1 != nil || err2 != nil || dir != chains {
+		return nil
+	}
+	return mm
+}
+
+func mismatchedFile(e *env, c *chain.Chain) string {
+	if nameMismatchIn(e, c) == nil {
+		return ""
+	}
+	return filepath.Base(c.SourcePath)
+}
+
+func (e *env) chainName(ref string) string {
+	if strings.ContainsAny(ref, "/\\") || strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") {
+		return ref
+	}
+	c, err := chain.Resolve(e.chainsDir(), ref)
+	if err != nil || c.Name == ref || nameMismatchIn(e, c) == nil {
+		return ref
+	}
+	fmt.Fprintf(os.Stderr, "shrt: %s is chain %s (its name: differs from its file name), so its runs and safe spot are %s's\n",
+		rel(e.cfg.Root, c.SourcePath), c.Name, c.Name)
+	return c.Name
 }

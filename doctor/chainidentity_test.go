@@ -79,4 +79,11 @@ func TestAChainFileWhoseNameDiffersFromItsFileIsAWarning(t *testing.T) {
 	if !strings.Contains(f.Remedy, "rename the file to conf-new.yaml, or set name: conf") {
 		t.Errorf("the remedy says how to make them agree: %s", f.Remedy)
 	}
+	orphan := false
+	for _, g := range findAll(r, doctor.CheckSafeSpots) {
+		orphan = orphan || strings.Contains(g.Detail, `no chain "conf"`) && strings.Contains(g.Detail, `chain "conf-new"`)
+	}
+	if !orphan {
+		t.Errorf("conf.json belongs to no chain now that conf.yaml is chain conf-new, so it is an orphan naming conf-new:\n%s", r.Text())
+	}
 }

@@ -1158,6 +1158,7 @@ const (
 	KindEnvelopeOnly   = "envelope-only"
 
 	KindLiteralIdempotency = "literal-idempotency-key"
+	KindNameMismatch       = "name-differs-from-file"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {

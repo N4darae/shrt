@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,7 +63,7 @@ func OrphanSafeSpots(cfg *config.Config) []Orphan {
 		return nil
 	}
 	chainsDir := cfg.Abs(cfg.Paths.Chains)
-	names := chain.Names(chainsDir)
+	names := declaredNames(chainsDir)
 	out := []Orphan{}
 	for _, e := range entries {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
@@ -153,6 +154,20 @@ func sameStepsAs(spotPath, spotsDir, chainsDir string, names []string) (string, 
 	return "", nil
 }
 
+func declaredNames(chainsDir string) []string {
+	out := []string{}
+	for _, n := range chain.Names(chainsDir) {
+		name := n
+		for _, ext := range []string{".yaml", ".yml"} {
+			if c, err := chain.LoadFile(filepath.Join(chainsDir, n+ext)); err == nil {
+				name = c.Name
+			}
+		}
+		out = append(out, name)
+	}
+	return out
+}
+
 func methodName(call string) string {
 	return call[strings.LastIndex(call, "/")+1:]
 }
@@ -166,10 +181,12 @@ func checkSafeSpots(_ context.Context, cfg *config.Config, _ Options, r *Report)
 			if err != nil {
 				continue
 			}
-			if err := chain.NameMismatch(c); err != nil {
+			var mm *chain.NameMismatchError
+			if errors.As(chain.NameMismatch(c), &mm) {
 				mismatched++
-				r.add(CheckSafeSpots, LevelWarn, fmt.Sprintf("chain file %s declares name: %s: shrt run, verify and confirm refuse it until its name and file agree",
-					filepath.ToSlash(filepath.Join(cfg.Paths.Chains, n+ext)), c.Name), err.Error())
+				r.add(CheckSafeSpots, LevelWarn, fmt.Sprintf("chain file %s declares name: %s: its runs and safe spot are %s's, and shrt verify %s "+
+					"and shrt verify %s both verify it against that safe spot, but the file name does not say so",
+					filepath.ToSlash(filepath.Join(cfg.Paths.Chains, n+ext)), c.Name, c.Name, n, c.Name), mm.Remedy())
 			}
 		}
 	}
@@ -190,6 +207,10 @@ func checkSafeSpots(_ context.Context, cfg *config.Config, _ Options, r *Report)
 		return
 	}
 	for _, o := range orphans {
-		r.add(CheckSafeSpots, LevelWarn, o.Line()+fmt.Sprintf("; shrt verify %s fails with chain not found, and so does a gate that verifies every safe spot", o.Name), o.Remedy())
+		fate := fmt.Sprintf("; shrt verify %s fails with chain not found, and so does a gate that verifies every safe spot", o.Name)
+		if c, err := chain.Resolve(chainsDir, o.Name); err == nil && c.Name != o.Name {
+			fate = fmt.Sprintf("; shrt verify %s verifies chain %s against %s's safe spot, never this one", o.Name, c.Name, c.Name)
+		}
+		r.add(CheckSafeSpots, LevelWarn, o.Line()+fate, o.Remedy())
 	}
 }
