@@ -1678,6 +1678,8 @@ func pinsVerdict(scope *chain.Scope, expect []chain.Expectation, absent bool) bo
 			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
 				return true
 			}
+		case chain.PinsVerdictCode(e):
+			return true
 		case chain.CoversVerdict(e.Path):
 			if absent && e.NotEqual != nil {
 				continue

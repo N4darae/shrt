@@ -1183,6 +1183,21 @@ answered this one. Still exit 1, never 0: the backend fails. When the only evide
 previous run answered the step, it stays a regression with a `looks intermittent` note, since a
 deploy between the runs looks the same. `run` prints the same finding in its summary.
 
+## 41. A refusal pinned by its app_code, failed as unpinned
+
+**Symptom.** A step asserting only `status.details.0.app_code equals: 1101` on a duplicate-email
+CreateCustomer failed with `status.code envelope want=SUCCESS got=REJECTED (... no expectation on
+this step pins the verdict ...)`, while the same pin on a refused batch line declared that line.
+
+**Cause.** At the top level only a rule on the envelope path (or a parent) pinned the verdict; the
+item-level rule also accepted a pin on a `code_fields` entry.
+
+**Fix.** 2026-09-25: one rule for both. An `equals` or `contains` of a non-empty value on a
+`code_fields` entry (default `app_code`, `reason`, `error_code`) under the envelope's parent, or
+under the refused line, pins the refusal. A `not_equal`, `not_empty`, `exists` or `equals: ""` on
+such a field names no code and pins nothing, at either level (the item-level rule used to accept a
+`not_equal` there, which holds on nearly any refusal).
+
 ---
 
 # Decisions, so they are not relitigated

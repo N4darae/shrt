@@ -36,6 +36,8 @@ func TestAPinOnARefusedLinesAppCodeDeclaresTheRefusal(t *testing.T) {
 		{"app_code on line 10", chain.Expectation{Path: "results.10.status.details.0.app_code", Equals: 1204}, false},
 		{"app_code exists", chain.Expectation{Path: "results.1.status.details.0.app_code", Exists: boolPtr(true)}, false},
 		{"app_code not_empty", chain.Expectation{Path: "results.1.status.details.0.app_code", NotEmpty: true}, false},
+		{"app_code not_equal", chain.Expectation{Path: "results.1.status.details.0.app_code", NotEqual: 9999}, false},
+		{"reason equals empty", chain.Expectation{Path: "results.1.status.details.0.reason", Equals: ""}, false},
 		{"a non-code field", chain.Expectation{Path: "results.1.id_product", Equals: "prd-x"}, false},
 	}
 	for _, c := range cases {

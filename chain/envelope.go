@@ -446,19 +446,16 @@ func DeclaresRefusal(expect []Expectation, r ItemRefusal) bool {
 	if line == "" {
 		return false
 	}
-	codes := CodeFields()
 	for _, e := range expect {
-		if !e.PinsValue() {
+		if !namesCode(e) {
 			continue
 		}
 		segs := SplitPath(e.Path)
 		if len(segs) == 0 || !strings.HasPrefix(strings.Join(segs, "."), line+".") {
 			continue
 		}
-		for _, name := range codes {
-			if segs[len(segs)-1] == name {
-				return true
-			}
+		if isCodeField(segs) {
+			return true
 		}
 	}
 	return false
@@ -496,6 +493,39 @@ func CoversVerdict(path string) bool {
 		}
 	}
 	return true
+}
+
+func namesCode(e Expectation) bool {
+	return e.Contains != "" || (e.Equals != nil && stringify(e.Equals) != "")
+}
+
+func isCodeField(segs []string) bool {
+	if len(segs) == 0 {
+		return false
+	}
+	for _, name := range CodeFields() {
+		if segs[len(segs)-1] == name {
+			return true
+		}
+	}
+	return false
+}
+
+func PinsVerdictCode(e Expectation) bool {
+	if !namesCode(e) || EnvelopePath() == "" {
+		return false
+	}
+	segs := SplitPath(e.Path)
+	verdict := SplitPath(EnvelopePath())
+	if len(segs) == 0 || len(segs) < len(verdict) {
+		return false
+	}
+	for i, seg := range verdict[:len(verdict)-1] {
+		if !namecase.Equal(segs[i], seg) {
+			return false
+		}
+	}
+	return isCodeField(segs)
 }
 
 func IsVerdictItself(path string) bool {

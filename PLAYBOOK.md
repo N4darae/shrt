@@ -822,7 +822,7 @@ declares expectations and is refused in-band FAILS unless one of them pins the v
 on the envelope path itself, or any rule on the envelope path or a `transport.*` path that would
 FAIL on a successful answer, such as `not_equal: SUCCESS`): `expect qty_on_hand equals: 0` holds on
 the zero a refusal leaves, and must not turn the step green. A rule on a sibling of the verdict
-(`status.message`, `status.details.0.reason`) pins nothing; path case does not matter. A pin the refusal and the ok value both satisfy
+(`status.message`, `status.details.0.reason not_equal: X`) pins nothing, except an `equals` or `contains` of a non-empty value on a `code_fields` entry under the envelope's parent (`status.details.0.app_code equals: 1101`, `status.details.0.reason equals: EmailTaken`), which names the refusal exactly as it does on a refused batch line; path case does not matter. A pin the refusal and the ok value both satisfy
 declares nothing: `status.code not_equal: ""`, `not_equal: REJECTD` (a typo), or `transport.code
 equals: ok` on a call refused in-band. References in a pin are resolved first, and `chain lint`
 warns on `not_equal: ""` on the envelope, which `-strict` fails. The same holds for a
