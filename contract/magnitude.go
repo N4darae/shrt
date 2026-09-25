@@ -135,6 +135,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			if probe := p.largeBatchQuantities(lib, st, b); probe != "" {
 				said = append(said, probe)
 			}
+		} else if probe := p.largeBatchLine(lib, rules, st, c, m); probe != "" {
+			said = append(said, probe)
 		}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
@@ -319,6 +321,100 @@ func (p *Plan) largeBatchQuantities(lib *Library, st *chain.Step, b *batchRule) 
 	p.Chain.Steps = append(p.Chain.Steps, probe)
 	return fmt.Sprintf("%s (%s.%s = %s, additions the fixtures' small quantities never make, so a cap or overflow shows in each %s.N.%s)",
 		probe.ID, b.list, b.stock.qtyField, joinInts(largeQuantities), b.results, b.stock.moved)
+}
+
+func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) string {
+	results := p.perItemResults(lib, st.Call, c, m)
+	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
+	if results == nil || !ok {
+		return ""
+	}
+	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
+		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
+			continue
+		}
+		key, ok := namecase.LookupKey(st.Body, rf.Name)
+		if !ok {
+			continue
+		}
+		items, _ := st.Body[key].([]any)
+		if len(items) == 0 {
+			continue
+		}
+		first, ok1 := items[0].(map[string]any)
+		last, ok2 := items[len(items)-1].(map[string]any)
+		if !ok1 || !ok2 {
+			continue
+		}
+		single, field, inc := p.singleItemLarge(lib, rules, st.Call, rf)
+		if single == "" {
+			continue
+		}
+		subKey, ok := namecase.LookupKey(first, field)
+		if !ok {
+			continue
+		}
+		large, _ := cloneBody(first).(map[string]any)
+		large[subKey] = strconv.Itoa(largeValue)
+		probe, reads := p.batchProbe(lib, st, m, key, results, listPath, verdict, field+"_large",
+			fmt.Sprintf("%s.0 has %s %d, a magnitude the fixtures do not reach, as %s is probed; %s.1 is a normal line. Both are applied.",
+				rf.Name, field, largeValue, shortRPC(single), rf.Name),
+			[]batchLine{{item: large}, {item: cloneBody(last)}})
+		grew := ""
+		if inc != nil {
+			for _, f := range results.Fields {
+				if f.Name == inc.moved && chain.IsNumericKind(f.Kind) && !f.Repeated {
+					probe.Expect = append(probe.Expect, chain.Expectation{Path: fmt.Sprintf("%s.0.%s", listPath, f.Name), Gte: strconv.Itoa(largeValue)})
+					grew = fmt.Sprintf(", %s.0.%s at least %d", listPath, f.Name, largeValue)
+				}
+			}
+		}
+		return fmt.Sprintf("%s (%s.0.%s = %d beside a normal line, as %s gets, each line applied%s, and %s read back what each line "+
+			"reported, so a cap or overflow on the batch line shows)", probe.ID, rf.Name, field, largeValue, shortRPC(single), grew, stepIDList(reads))
+	}
+	return ""
+}
+
+func (p *Plan) singleItemLarge(lib *Library, rules *effectRules, batch string, rf *catalog.Field) (string, string, *stockRule) {
+	for _, rpc := range lib.RPCs() {
+		if rpc == batch || chain.IsReadOnlyCall(rpc) {
+			continue
+		}
+		m, err := p.cat.Lookup(rpc)
+		if err != nil || m.Streaming() {
+			continue
+		}
+		in := map[string]*catalog.Field{}
+		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+			if !f.Repeated && f.MapKey == "" {
+				in[f.Name] = f
+			}
+		}
+		mirrors, idShared := true, false
+		for _, sub := range rf.Fields {
+			f := in[sub.Name]
+			if f == nil || f.Kind != sub.Kind {
+				mirrors = false
+				break
+			}
+			idShared = idShared || idLike(sub.Name)
+		}
+		if !mirrors || !idShared {
+			continue
+		}
+		for _, sub := range rf.Fields {
+			if sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) || len(sub.EnumValues) > 0 {
+				continue
+			}
+			if inc := rules.increase[rpc]; inc != nil && inc.qtyField == sub.Name {
+				return rpc, sub.Name, inc
+			}
+			if !isQuantityName(sub.Name) {
+				return rpc, sub.Name, nil
+			}
+		}
+	}
+	return "", "", nil
 }
 
 const (
