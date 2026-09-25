@@ -188,6 +188,8 @@ func runInit(ctx context.Context, args []string) error {
 			for _, r := range roles {
 				fmt.Printf("      role profile %s\n", r)
 			}
+		} else if hint := roleProfileHint(loaded); hint != "" && len(readmeAccounts(rootReadme(root))) > 0 {
+			fmt.Println(hint)
 		}
 	}
 	if wroteConfig {
