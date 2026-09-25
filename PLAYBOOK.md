@@ -949,6 +949,26 @@ orphan `renamed to <new>`, explained as a rename rather than a deleted chain (ex
 counts and the gate; the renamed chain's own runs count), and the command prints the `rm -rf` that
 removes them.
 
+Two branches can each supersede the same safe spot, each approved by a person on its branch. The
+merge then conflicts in `.shrt/safespots/<chain>.json`, and neither side is right for the merged
+backend until it is checked there. Resolve it this way, never by editing the JSON by hand (a hand
+merge breaks the digest, and `verify` refuses it):
+
+1. Take one side whole: `git checkout --ours .shrt/safespots/<chain>.json` or `--theirs`. Pick the
+   side whose chain file the merge keeps; if the chain file conflicted too, resolve it first and
+   take the safe spot of the branch whose chain won.
+2. Finish the merge of the code, rebuild and deploy the merged backend, and run the gate on it
+   (`shrt doctor -strict`, then `shrt verify <chain>` for each safe spot).
+3. If `verify` passes, commit the merge. If it reports drift, or the merged chain is neither side's
+   chain as approved, run the chain on the merged backend, propose it
+   (`shrt confirm <chain> -supersede -note "merged <a> and <b>: ..."`) and have a person approve it.
+4. The losing side's approval is not lost: it stays in git history on its branch and in the merge
+   commit's parent, which is where an audit reads it.
+
+A safe spot left with conflict markers is caught: `shrt verify` refuses it with `git merge conflict
+markers in safe spot ...` and this remedy instead of a JSON parse error, and `shrt doctor` FAILs its
+`safespot-digests` check on it.
+
 ## 9. Refactor and test against a safe spot
 
 This is what the whole loop is for, and it is the section most likely to be skipped, because a

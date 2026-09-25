@@ -114,6 +114,9 @@ func runVerify(ctx context.Context, args []string) error {
 	if errors.Is(err, os.ErrNotExist) {
 		err = fmt.Errorf("chain %s has no safe spot: nothing is confirmed at %s", name, e.store.SafeSpotPath(name))
 	}
+	if errors.Is(err, store.ErrMergeConflict) {
+		return err
+	}
 	if err != nil {
 		if e.store.HasProposal(name) {
 			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)

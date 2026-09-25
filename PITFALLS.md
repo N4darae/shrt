@@ -1172,6 +1172,23 @@ undeclared var the slice reads is what `-verify` refuses as missing and what a w
 reports under `vars the chain does not declare`, and the file should say what the verified run sent.
 Either way a later run needs a fresh `-var`, which the slice's description says.
 
+## 39. Two branches supersede the same safe spot
+
+**Symptom.** `feat/a` and `feat/b` each re-approved `order-confirm`. Merging the second gives
+`CONFLICT (content): Merge conflict in .shrt/safespots/order-confirm.json`, and `shrt verify`
+answered `invalid character '<' looking for beginning of object key string`, then told you to
+propose a first safe spot, as if there were none.
+
+**Cause.** A safe spot is one sealed JSON document per chain. Git merges it line by line like any
+text, so two approvals of the same chain always conflict, and a line-level merge of the two is
+neither approval: its digest matches neither side.
+
+**Fix.** Take one side whole (`git checkout --ours|--theirs .shrt/safespots/<chain>.json`), run the
+gate on the merged backend, and re-propose and approve when it drifts or the merged chain is neither
+side's (PLAYBOOK §8 has the steps). The losing side's approval stays in git history. Since
+2026-09-25 `verify` names the conflict markers and that remedy, and `shrt doctor` FAILs the
+`safespot-digests` check on the file, alongside a safe spot edited after approval.
+
 ---
 
 # Decisions, so they are not relitigated
