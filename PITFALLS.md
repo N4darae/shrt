@@ -1455,6 +1455,19 @@ error) is reached whatever its status. The slice verify then runs, and when the 
 a token refused long before its stated expiry, NOT REPRODUCED says the session's age is what no
 slice carries.
 
+## 56. A literal `email: '@'` that collided with itself, reported as a plain failure
+
+**Symptom.** A probe chain sending `email: '@'` failed its second run with only `FAIL status.code
+equals want=SUCCESS got=REJECTED (message="email @ is already registered" ...)`; the `the chain
+collides with itself: ... is the literal ...` line the docs promise never came.
+
+**Cause.** Values shorter than three characters were skipped when looking for the literal a
+refusal quotes, to keep `a` from matching inside every message. Separately, a literal accepted by
+two earlier runs was never blamed, even when each acceptance was the first run on an empty backend.
+
+**Fix.** 2026-09-25: a short value counts when the refusal quotes it as a separate word, or names
+its field. A literal is spared only when two runs in a row accepted it with no refusal between.
+
 ---
 
 # Decisions, so they are not relitigated

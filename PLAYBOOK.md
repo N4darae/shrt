@@ -200,9 +200,13 @@ sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-ve
 holds when the refusal quotes and names no field (`duplicate record`) while every field of the
 step built from a reference is built from `${uuid}` or a clock value: those are unique to their
 run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
-`${uuid}` one, and a repeat is not a `FINDING`. A literal is not blamed when two or more earlier
-recorded runs of the chain sent it at that step and were answered without a refusal: the backend
-accepted it after the record already existed, so it is not unique and cannot be what collides. With
+`${uuid}` one, and a repeat is not a `FINDING`. A literal as short as one character counts when
+the refusal quotes it as a word of its own (`email @ is already registered` for `email: '@'`) or
+spells the field's name. A literal is not blamed when two recorded runs of the chain in a row sent
+it at that step and were both answered without a refusal: the second was accepted after the record
+already existed, so it is not unique and cannot be what collides. Two accepting runs with a refusal
+between them are not that: each accepted the value on a backend that did not hold it yet (the
+first run, the first run after a reset), and the chain still collides with itself. With
 no literal left to blame and a refusal that names no field, verify gives its plain verdict against
 the safe spot (`regression: N change(s)`). The same holds when the refusal quotes or names that
 accepted literal (`name Bob Literal already exists` for `name: Bob Literal`): the backend now refuses
