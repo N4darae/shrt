@@ -903,7 +903,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			res.Target, replay.Transport.Code, replay.Transport.Message))
 	}
 	v.Replay = verdictOf(replay)
-	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
+	v.Differences = compareSliceVerdicts(res, v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	related, other := relatedDroppedWrites(res, rec)
 	related, reads := classifyFieldReads(e, res, rec, related)
 	uncreated := uncreatedExpected(res, source)
@@ -1167,6 +1167,14 @@ func sameUpToIDs(path string, a, b any) bool {
 		}
 	}
 	return true
+}
+
+func compareSliceVerdicts(res *chain.SliceResult, source, replay chain.Verdict, same func(path string, a, b any) bool) []string {
+	step, _ := res.Chain.Step(res.Target)
+	alike := func(path string, a, b any) bool {
+		return chain.SameClockOffset(a, b) || (same != nil && same(path, a, b))
+	}
+	return chain.CompareVerdictsMasking(chain.ClockRelative(step, source), chain.ClockRelative(step, replay), alike)
 }
 
 func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any) bool {

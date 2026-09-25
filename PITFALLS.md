@@ -1589,6 +1589,19 @@ that became null, `""`, `0`, an empty list or object or a zero time, or disappea
 side had a value (or the reverse), is reported in `verify` and `shrt diff`, naming the pattern
 (`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`).
 
+## 66. A slice of a `within: {of: ${nowunix}}` failure that never reproduced
+
+**Symptom.** `chain slice -verify` of a step failing `product.created_at within {of: ${nowunix}, by:
+300}` said `NOT REPRODUCED` every time: `failed in both, with other values: source want
+{"by":300,"of":"1790325508"} ..., slice want {"by":300,"of":"1790325514"}`.
+
+**Cause.** The verdict compared each failing expectation's resolved bound, and a bound relative to
+the clock resolves to another number in every run.
+
+**Fix.** 2026-09-25: an expectation whose bound carries `${now...}` is compared as written in the
+chain, and the value it got as its distance from the bound each run resolved, equal within 2s; a
+stamp an hour ahead in both runs fails the same way, one ahead in one and behind in the other does not.
+
 ---
 
 # Decisions, so they are not relitigated
