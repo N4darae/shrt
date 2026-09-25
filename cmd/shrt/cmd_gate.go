@@ -245,6 +245,18 @@ func runAttribution(e *env, rec *runner.Record) attribution {
 			}
 			return listUnder(runResized(st), path)
 		},
+		was: func(step, path string) (any, bool) {
+			st, ok := rec.Step(step)
+			if !ok || st == nil {
+				return nil, false
+			}
+			for _, ex := range st.Expect {
+				if !ex.Passed && ex.Rule == "equals" && namecase.Equal(ex.Path, path) {
+					return ex.Want, true
+				}
+			}
+			return nil, false
+		},
 	}
 }
 
@@ -336,6 +348,14 @@ func verifyAttribution(e *env, rec *runner.Record, report *diff.Report) attribut
 				}
 			}
 			return listUnder(lists, path)
+		},
+		was: func(step, path string) (any, bool) {
+			for _, c := range report.Changes {
+				if c.Step == step && c.Path == path && c.Kind == diff.KindChanged {
+					return c.Want, true
+				}
+			}
+			return nil, false
 		},
 	}
 }
