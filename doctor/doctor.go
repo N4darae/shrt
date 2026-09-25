@@ -37,6 +37,24 @@ func (l Level) String() string {
 	}
 }
 
+func (l Level) MarshalText() ([]byte, error) {
+	return []byte(l.String()), nil
+}
+
+func (l *Level) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "ok":
+		*l = LevelOK
+	case "WARN":
+		*l = LevelWarn
+	case "FAIL":
+		*l = LevelError
+	default:
+		return fmt.Errorf("unknown doctor level %q, want ok, WARN or FAIL", text)
+	}
+	return nil
+}
+
 type Finding struct {
 	Check  string
 	Level  Level
