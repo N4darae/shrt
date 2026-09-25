@@ -151,13 +151,27 @@ func runRun(ctx context.Context, args []string) error {
 	if lead != "" && rec.KeptRed == runner.KeptRedNotAsPinned {
 		rec.KeptRedNote = keptRedNotJudged(rec.KeptRedNote)
 	}
+	var life *tokenLifetime
+	var loss *sessionLoss
+	var fresh *freshRefusal
+	var flaky *intermittentFailure
+	if !*dry {
+		life, loss = examineTokenLifetime(e, rec), examineSessionLoss(e, rec)
+		if loss == nil {
+			fresh = repeatedFreshRefusal(e, rec)
+		}
+		if loss == nil && fresh == nil && !rec.Passed() {
+			flaky = detectIntermittent(e, rec)
+		}
+	}
+	finding := rec.KeptRed == "" && (life.finding() || loss.finding() || fresh != nil)
 	if *quiet {
-		fmt.Println(runSummary(e, quietRecord(rec), *dry, false, lead))
+		fmt.Println(runSummary(e, quietRecord(rec), *dry, false, lead, finding))
 		if savedPath != "" && !quietlyGreen(rec) {
 			fmt.Printf("  run %s -> %s\n", rec.RunID, savedPath)
 		}
 	} else {
-		fmt.Println(runSummary(e, rec, *dry, true, lead))
+		fmt.Println(runSummary(e, rec, *dry, true, lead, finding))
 	}
 	if line := neverRanLine(c, rec); line != "" && !*dry {
 		fmt.Println("  " + line)
@@ -174,23 +188,23 @@ func runRun(ctx context.Context, args []string) error {
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
-	if life := examineTokenLifetime(e, rec); life != nil && !*dry {
+	if life != nil {
 		fmt.Println("  " + life.label() + life.line())
 		if life.finding() && rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, life.line())
 		}
 	}
-	if loss := examineSessionLoss(e, rec); loss != nil && !*dry {
+	if loss != nil {
 		fmt.Println("  " + loss.line())
 		if loss.finding() && rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, loss.line())
 		}
-	} else if fresh := repeatedFreshRefusal(e, rec); fresh != nil && !*dry {
+	} else if fresh != nil {
 		fmt.Println("  " + fresh.line())
 		if rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, fresh.line())
 		}
-	} else if flaky := detectIntermittent(e, rec); flaky != nil && !*dry && !rec.Passed() {
+	} else if flaky != nil {
 		for _, line := range flaky.notes() {
 			fmt.Println("  note: " + line)
 		}
@@ -201,6 +215,9 @@ func runRun(ctx context.Context, args []string) error {
 			}
 			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
 		}
+	}
+	if line := pinItLine(sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
+		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
 		return err
@@ -425,7 +442,29 @@ func statusMark(s string, dry bool) string {
 }
 
 func summary(rec *runner.Record, dry bool) string {
-	return runSummary(nil, rec, dry, false, "")
+	return runSummary(nil, rec, dry, false, "", false)
+}
+
+func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
+	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
+		return ""
+	}
+	steps := []string{}
+	for _, st := range rec.Steps {
+		if st == nil || st.Status != runner.StatusFailed {
+			continue
+		}
+		for _, x := range st.Expect {
+			if !x.Passed && x.Rule != "unevaluated" {
+				steps = append(steps, st.ID)
+				break
+			}
+		}
+	}
+	if len(steps) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("pin it: shrt chain slice %s -step %s -kept-red=%s -verify -write", ref, steps[0], strings.Join(steps, ","))
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {
@@ -452,9 +491,12 @@ func neverRanLine(c *chain.Chain, rec *runner.Record) string {
 		len(left), capList(left, 10))
 }
 
-func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string) string {
+func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, finding bool) string {
 	var b strings.Builder
 	verdict := strings.ToUpper(rec.Status)
+	if finding && rec.Passed() {
+		verdict = "FINDING (every step passed)"
+	}
 	if dry && rec.Passed() {
 		verdict = "DRY-RUN OK (resolved and validated, nothing sent)"
 	}

@@ -142,7 +142,7 @@ func TestTwoTokensOfOneRunRefusedEarlyAreAFindingEvenWhenEveryReadWasResent(t *t
 	if err == nil || errors.As(err, &coded) {
 		t.Fatalf("the re-login's own token was refused early too: a finding, exit 1, though every step passed: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "PASSED") || !strings.Contains(out, "FINDING: token refused") ||
+	if strings.Contains(out, "PASSED") || !strings.Contains(out, "cli-thing-flow: FINDING (every step passed) in ") || !strings.Contains(out, "FINDING: token refused") ||
 		!strings.Contains(out, "the fresh token the re-login issued was refused") {
 		t.Fatalf("the run passed step by step and the finding names both refusals:\n%s", out)
 	}

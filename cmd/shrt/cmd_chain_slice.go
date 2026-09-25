@@ -79,6 +79,15 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		return errors.New(sliceUsage)
 	}
 	name := write.value
+	for _, v := range append([]string{name}, rest[1:]...) {
+		if strings.HasPrefix(v, "=") {
+			named := "-write"
+			if keptRed.on && len(keptRed.steps) == 0 {
+				named = "-kept-red"
+			}
+			return fmt.Errorf("unexpected argument %q: did you mean %s%s (no space before the equals sign)?", v, named, v)
+		}
+	}
 	if len(rest) == 2 {
 		if !write.set || name != "" {
 			if keptRed.on {
@@ -97,6 +106,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if *step == "" {
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")
 	}
+	keptRed.steps = slices.DeleteFunc(keptRed.steps, func(id string) bool { return id == *step })
 	if keptRed.on && *runID == "" {
 		*runID = "latest"
 	}
@@ -171,7 +181,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	redPins, pinned := []chain.Pin{}, []chain.Pin{}
 	if keptRed.on {
 		if redPins, err = failurePins(res.Chain, rec, *step); err != nil {
-			return err
+			return readsFailedAfter(e, ref, rec, *step, err)
 		}
 		stepPins, err := keptStepPins(res, rec, keptRed.steps)
 		if err != nil {
@@ -196,7 +206,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		}
 	}
 
-	whole := write.set && name == "" && len(res.Kept) == res.Total && c.SourcePath != ""
+	whole := write.set && name == "" && len(res.Kept) == res.Total && c.SourcePath != "" && !keptRed.on
 	if whole {
 		res.Chain.Name = c.Name
 	}
@@ -216,6 +226,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			path = writePath
 		}
 		source := writePath != "" && sameSliceFile(path, c.SourcePath)
+		if source {
+			res.Chain.Name = c.Name
+		}
 		if err := mayOverwriteSlice(path, res, *force || source, *verify); err != nil {
 			return err
 		}
@@ -333,15 +346,17 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	printSlice(res, written, verdict)
 	if len(pinned) > 0 && (verdict == nil || verdict.Outcome == sliceReproduced) {
-		fmt.Printf("\nkept_red: pinned on %s, as %s failed in run %s; its run exits 0 while it fails exactly so. "+
-			"Leave the failed steps out of %s in place, so the gate runs the rest green: shrt chain slice %s -without failed -run %s -write %s\n",
-			pinList(res.Chain, pinned), pinSubject(pinned), rec.RunID, c.Name, ref, rec.RunID, sourceFileArg(c))
+		fmt.Print(keptRedLine(c, ref, rec, res.Chain, pinned, written))
 		if verdict == nil {
 			fmt.Println("unverified: add -verify to run the slice before pinning; a slice that lost a dependency on state shows the defect gone")
 		}
 	} else if keptRed.on && verdict != nil {
+		follow := ""
+		if verdict.Next != "" {
+			follow = "follow the next: line above, or "
+		}
 		fmt.Printf("\nkept_red: NOT pinned, since the slice did not reproduce %s's verdict in run %s; a slice that does not show the defect "+
-			"cannot be kept red on it, so it was not written either. Follow the next: line above, or pin the defect in %s itself\n", *step, rec.RunID, c.Name)
+			"cannot be kept red on it, so it was not written either: %spin the defect in %s itself\n", *step, rec.RunID, follow, c.Name)
 	}
 	if pinned := pinnedWrites(res); len(pinned) > 0 && verdict == nil && !*resend {
 		fmt.Printf("\nWARNING: running this slice re-sends write step(s) on what run %s created: %s.\n"+
@@ -349,7 +364,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			"  write, not the first. To reproduce a write, slice in closure mode: %s\n",
 			res.Run, strings.Join(pinned, "; "), closureCommand(c, *step, opts, res, vars))
 	}
-	if written != "" {
+	if written != "" && !sameSliceFile(written, c.SourcePath) {
 		fmt.Print(sweepNote(e, written, res.Chain.Name))
 	}
 	if !write.set && !*verify {
@@ -922,6 +937,13 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.Reason += "\n" + note
 			return v, v.err()
 		}
+		if stop := stoppedAsInSource(replayRec, rec); stop != "" && a.keptRed != "" {
+			named := strings.TrimPrefix(strings.TrimPrefix(a.keptRed, "-kept-red"), "=")
+			a.keptRed = "-kept-red=" + strings.TrimPrefix(named+","+stop, ",")
+			v.Reason += fmt.Sprintf("\nStep %s failed in source run %s too; pin it as well, so the slice runs on to %s", stop, rec.RunID, res.Target)
+			v.Next = sliceVerifyCommand(res, rec.RunID, a, a.keep)
+			return v, v.err()
+		}
 		if at := stoppedWhereSourcePassed(replayRec, rec); at != "" {
 			if related, other := relatedDroppedWrites(res, rec); len(related) > 0 {
 				v.Reason += fmt.Sprintf("\nStep %s passed in source run %s and fails here, so it likely reads state a dropped write built:\n"+
@@ -1382,12 +1404,18 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 }
 
 func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, dropped []string, allWrites bool) string {
-	keep := keepList(a.keep, dropped, allWrites)
+	return sliceVerifyCommand(res, runID, a, keepList(a.keep, dropped, allWrites))
+}
+
+func sliceVerifyCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, keep []string) string {
 	parts := []string{"shrt chain slice", res.SourceCommandRef(), "-step", res.Target}
 	if res.Mode != chain.SliceModeClosure {
 		parts = append(parts, "-mode", res.Mode)
 	}
-	parts = append(parts, "-run", runID, "-keep", strings.Join(keep, ","))
+	parts = append(parts, "-run", runID)
+	if len(keep) > 0 {
+		parts = append(parts, "-keep", strings.Join(keep, ","))
+	}
 	interpolated := freshSet(res)
 	if a.reslice != nil {
 		if next := a.reslice(keep); next != nil {
