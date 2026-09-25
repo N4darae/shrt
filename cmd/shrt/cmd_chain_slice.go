@@ -684,6 +684,7 @@ type sliceVerdict struct {
 	BlockedBy      []string          `json:"unevaluated_behind,omitempty"`
 	Recorded       string            `json:"verdict_written_to,omitempty"`
 	OutsideState   []string          `json:"outside_state,omitempty"`
+	ByDistance     []string          `json:"compared_by_distance,omitempty"`
 }
 
 type stepList []string
@@ -762,6 +763,9 @@ func (v *sliceVerdict) text() string {
 	} else {
 		fmt.Fprintf(&b, "  slice:  status %s, %s %q%s\n", v.Replay.Status, v.EnvelopePath, v.Replay.ErrorCode, refusalText(v.Replay))
 		for _, line := range failedExpectLines(v.Source, v.Replay) {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
+		for _, line := range v.ByDistance {
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
 	}
@@ -932,6 +936,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	}
 	v.Replay = verdictOf(replay)
 	v.Differences = compareSliceVerdicts(res, v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
+	v.ByDistance = clockDistanceLines(res, v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	blocked := blockedReads(v.Source, v.Replay)
 	upstreamOnly := false
 	if evaluatedBlocked(blocked) {
@@ -1228,6 +1233,36 @@ func compareSliceVerdicts(res *chain.SliceResult, source, replay chain.Verdict, 
 		return chain.SameClockOffset(a, b) || (same != nil && same(path, a, b))
 	}
 	return chain.CompareVerdictsMasking(chain.ClockRelative(step, source), chain.ClockRelative(step, replay), alike)
+}
+
+func clockDistanceLines(res *chain.SliceResult, source, replay chain.Verdict, same func(path string, a, b any) bool) []string {
+	step, ok := res.Chain.Step(res.Target)
+	if !ok || len(source.Expect) != len(replay.Expect) {
+		return nil
+	}
+	near, far := chain.ClockRelative(step, source), chain.ClockRelative(step, replay)
+	out := []string{}
+	for i, e := range source.Expect {
+		r := replay.Expect[i]
+		if i >= len(step.Expect) || e.Path != r.Path || e.Rule != r.Rule || e.Passed || r.Passed || !chain.ClockRelativeExpectation(step.Expect[i]) {
+			continue
+		}
+		if fmt.Sprint(e.Got) == fmt.Sprint(r.Got) {
+			continue
+		}
+		verdict := "the same distance, so they match"
+		switch {
+		case chain.SameClockOffset(near.Expect[i].Got, far.Expect[i].Got):
+		case same != nil && same(e.Path, e.Got, r.Got):
+			verdict = "the distances differ, and both values are timestamp-shaped, which differ every run, so they were matched as timestamps, not by distance"
+		default:
+			verdict = "the distances differ, so they differ"
+		}
+		out = append(out, fmt.Sprintf("compared by distance from the bound: %s %s reads the clock, so the got values differ "+
+			"(source %s, slice %s) and each is compared by its distance from the bound its own run computed (source %s, slice %s): %s",
+			e.Path, e.Rule, quoted(e.Got), quoted(r.Got), quoted(near.Expect[i].Got), quoted(far.Expect[i].Got), verdict))
+	}
+	return out
 }
 
 func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any) bool {

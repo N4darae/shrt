@@ -2212,6 +2212,18 @@ in one gate.
 same one the `not renamed consistently` line reports the later position against; `verify` and
 `shrt diff` apply that renaming inside text, so the message is masked and the list is still reported.
 
+## 105. `slice -verify` "reproduced" with two different `expires_at` values and no word why
+
+**Symptom.** A slice of a login whose `expires_at within: {of: ${nowunix+3600}, by: 5}` failed printed
+`verify reproduced` over `source got=1790352729682, slice got=1790352757712`, with nothing saying how
+two different values could be the same verdict.
+
+**Fix.** 2026-09-25: for a failing expectation whose bound reads the clock and whose got values
+differ, the verdict adds a `compared by distance from the bound:` line with both values, each run's
+distance from the bound its own run computed, and how they were matched: the same distance, or, when
+the distances differ but both values are timestamp-shaped (as a millisecond value against a seconds
+bound is), matched as timestamps rather than by distance. `-json` carries it as `compared_by_distance`.
+
 ---
 
 # Decisions, so they are not relitigated
