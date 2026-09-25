@@ -102,7 +102,7 @@ kit's.
 | `shrt contract init <domain>` | scaffold the curated contract; re-running keeps what you wrote, and leaves an overlay alone (`unchanged`) when its content would not change, whatever its YAML layout; when it does write (an rpc to scaffold), the entries already in the file keep their order, their comments and their flow- or block-style lists |
 | `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter <word>` for every rpc whose name contains the word |
 | `shrt contract lint` | validate contracts against the descriptor |
-| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
+| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired to the producing step's response (`${create_order.order.id_order}`), so it writes no `export:` a step does not read |
 | `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing; an rpc in the catalog with no contract in any overlay is charged too, so deleting an overlay makes `-gate` fail |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
