@@ -18,7 +18,7 @@ func TestGateScriptIsTheWholeReadmeBlock(t *testing.T) {
 		t.Fatalf("the script starts with its shebang and the block's first line:\n%s", raw[:80])
 	}
 	lines := strings.Split(strings.TrimRight(string(raw), "\n"), "\n")
-	if last := lines[len(lines)-1]; !strings.Contains(last, "exit 3; fi") {
+	if last := lines[len(lines)-1]; last != "exec shrt gate" {
 		t.Fatalf("the script must end with the block's last line, got %q", last)
 	}
 	if strings.Contains(string(raw), "```") {

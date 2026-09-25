@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -38,11 +39,6 @@ said="FAKE_SAY_$(echo "$1" | tr a-z A-Z)"
 [ -n "${!said:-}" ] && printf '%s\n' "${!said}"
 exit "${code:-0}"
 `
-
-func runReadmeGate(t *testing.T, verifyCodes string) (string, int, string) {
-	t.Helper()
-	return runReadmeGateWith(t, "FAKE_VERIFY="+verifyCodes)
-}
 
 func runReadmeGateWith(t *testing.T, env ...string) (string, int, string) {
 	t.Helper()
@@ -79,49 +75,26 @@ func runReadmeGateWith(t *testing.T, env ...string) (string, int, string) {
 	return string(out), cmd.ProcessState.ExitCode(), string(calls)
 }
 
-func TestTheReadmeGateRetriesAVerifyThatCouldNotVerify(t *testing.T) {
-	out, code, calls := runReadmeGate(t, "3,0")
+func TestTheReadmeGateRunsTheStaticChecksThenShrtGate(t *testing.T) {
+	out, code, calls := runReadmeGateWith(t)
 	if code != 0 {
-		t.Fatalf("a verify that exits 3 and then 0 on the retry passes the gate, got exit %d:\n%s\n%s", code, out, calls)
+		t.Fatalf("a green wrapper exits 0, got %d:\n%s\n%s", code, out, calls)
 	}
-	if strings.Count(calls, "verify flow") != 2 {
-		t.Fatalf("the verify is retried once:\n%s", calls)
-	}
-}
-
-func TestTheReadmeGateSaysCouldNotVerifyWhenTheRetryExits3Too(t *testing.T) {
-	out, code, calls := runReadmeGate(t, "3,3")
-	if code == 0 {
-		t.Fatalf("two exit 3 in a row fail the gate:\n%s", out)
-	}
-	if strings.Count(calls, "verify flow") != 2 {
-		t.Fatalf("the verify is retried once, not more:\n%s", calls)
-	}
-	if !strings.Contains(out, "could not verify") || strings.Contains(out, "gate: verify flow exited 3") {
-		t.Fatalf("an exit 3 twice is reported as could not verify, not as a failed verify:\n%s", out)
+	want := "catalog build\ndoctor -strict\ncontract lint\ncontract quality -gate -baseline .shrt/quality-baseline\nchain lint -strict\ngate\n"
+	if calls != want {
+		t.Fatalf("the wrapper runs the static checks in order, then shrt gate:\n%s", calls)
 	}
 }
 
-func TestTheReadmeGateDoesNotRetryARegression(t *testing.T) {
-	out, code, calls := runReadmeGate(t, "1")
-	if code != 1 || strings.Count(calls, "verify flow") != 1 || !strings.Contains(out, "gate: verify flow exited 1") {
-		t.Fatalf("a regression fails the gate at once, exit 1, got %d:\n%s\n%s", code, out, calls)
+func TestTheReadmeGateExitsAsShrtGateDoes(t *testing.T) {
+	for _, code := range []int{1, 3} {
+		_, got, _ := runReadmeGateWith(t, "FAKE_GATE="+strconv.Itoa(code))
+		if got != code {
+			t.Fatalf("shrt gate exiting %d must exit the wrapper %d, got %d", code, code, got)
+		}
 	}
-}
-
-func TestTheReadmeGateFailsWhenOneProfilesTokensAreRefusedEarlyInTwoRuns(t *testing.T) {
-	line := "  WARNING: token refused 25s after issue although the login said it expires in 3600s (auth profile default, the cached token, on its first use in this run, at step 1 create): ..."
-	out, code, _ := runReadmeGateWith(t, "FAKE_SAY_RUN="+line)
-	if code != 0 || !strings.Contains(out, "gate: WARNING: 1 run(s) had a token refused long before the expiry its login stated") {
-		t.Fatalf("one early refusal is a warning at the end of the gate, exit 0; got %d:\n%s", code, out)
-	}
-	out, code, _ = runReadmeGateWith(t, "FAKE_SAY_RUN="+line, "FAKE_SAY_VERIFY="+line)
-	if code != 1 || !strings.Contains(out, "gate: FINDING: tokens of one auth profile were refused early in two runs of this gate") {
-		t.Fatalf("the same profile's tokens refused early twice in one gate fail it; got %d:\n%s", code, out)
-	}
-	other := strings.Replace(line, "auth profile default", "auth profile clerk", 1)
-	out, code, _ = runReadmeGateWith(t, "FAKE_SAY_RUN="+line, "FAKE_SAY_VERIFY="+other)
-	if code != 0 {
-		t.Fatalf("one early refusal per profile is what a single restart explains; got %d:\n%s", code, out)
+	_, got, calls := runReadmeGateWith(t, "FAKE_DOCTOR=1")
+	if got != 1 || strings.Contains(calls, "gate") {
+		t.Fatalf("a failed static check stops the wrapper before the gate: exit %d\n%s", got, calls)
 	}
 }

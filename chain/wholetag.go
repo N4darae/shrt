@@ -34,7 +34,7 @@ func lintWholeTag(c *Chain, s *Step, m *catalog.Method) []Issue {
 			return
 		}
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: fmt.Sprintf(
-			"%s is ${vars.tag} as a whole value, so it is input, not a fixture name: the README's CI gate passes a "+
+			"%s is ${vars.tag} as a whole value, so it is input, not a fixture name: shrt gate passes a "+
 				"fresh -var tag to every run and verify, and each verify then fails with `drift with different input`. "+
 				"Build it inside other text, such as %s-${vars.tag}, which verify treats as a fixture name", path, leaf)})
 	})

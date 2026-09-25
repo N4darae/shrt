@@ -136,7 +136,7 @@ func runInit(ctx context.Context, args []string) error {
 	case err != nil:
 		return err
 	case wrote:
-		fmt.Printf("write %s (the CI gate from %s/README.md; run it with bash %s)\n", agentkit.GateScriptPath, agentkit.DocsDir, agentkit.GateScriptPath)
+		fmt.Printf("write %s (static checks, then shrt gate; run it with bash %s)\n", agentkit.GateScriptPath, agentkit.GateScriptPath)
 	}
 
 	switch added, err := ensureGitignore(root, initGitignore(loaded)); {

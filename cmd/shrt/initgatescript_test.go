@@ -19,7 +19,7 @@ func TestInitWritesTheCIGateScriptAsAFile(t *testing.T) {
 		t.Fatalf("init must write the CI gate as a file: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "write .shrt/ci-gate.sh") || !strings.Contains(string(raw), "shrt chain lint -strict\n") ||
-		!strings.HasSuffix(string(raw), "exit 3; fi\n") {
+		!strings.HasSuffix(string(raw), "exec shrt gate\n") {
 		t.Fatalf("the gate file is the whole README block, and init says it wrote it:\n%s\n---\n%s", out, raw)
 	}
 }

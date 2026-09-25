@@ -109,6 +109,7 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { writeGateSidecar(runSidecar(e, c, rec)) }()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
 		judgePinnedDrift(e, c, rec, pinnedRef)

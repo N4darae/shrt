@@ -150,15 +150,27 @@ error), and 0 for `-h`.
 
 ### CI gate
 
-`shrt init` writes the script below to `.shrt/ci-gate.sh`, byte for byte (with a `#!/usr/bin/env
-bash` line on top), so CI runs `bash .shrt/ci-gate.sh` instead of a copy cut out of this page;
-commit it. Re-running `init` keeps an edited copy; `shrt init -force` rewrites it from the binary's
-own README after an upgrade.
+`shrt gate` runs every chain in `.shrt/chains` (not `.shrt/scratch/`) and verifies every safe spot,
+each with a fresh `-var tag` when the chain reads one, retries an exit 3 once after `-retry-wait`
+(20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
+`PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` or `NO VERDICT` with the first
+failing step and path, then groups every failure across chains by rpc and response path, most
+widespread first:
 
-In this order, with every env var the `auth:` bodies read exported first (a missing one makes
-`doctor -strict` warn and `run` refuse). The static checks stop the gate at the first failure; the
-runs, replays and the hollow ratchet each have their exit checked, so one red chain does not hide
-the rest, and the gate fails at the end if any of them did:
+```
+FAIL       checkout   create_item (ItemService/CreateItem) item.price want=250 got=249
+failures by rpc and path, most widespread first:
+  ItemService/CreateItem item.price: 12 step(s) in 5 chain(s), e.g. checkout create_item want=250 got=249
+```
+
+Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
+of the gate (one is a note: a deploy before the gate explains it), or the ratchet; 3 is no verdict
+(the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
+nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
+
+`shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it).
+Write `0` into `.shrt/quality-baseline` and `.shrt/hollow-baseline` first; a gate failing on one
+names the current score, to write in as a reviewed edit.
 
 ```bash
 set -euo pipefail
@@ -169,155 +181,12 @@ shrt doctor -strict
 shrt contract lint
 shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
-tag="ci$(date +%s)$RANDOM"
-fail=0
-unverified=0
-early=""
-shopt -s nullglob
-check() {
-  local what="$1" c="$2" file="$3" prefix="$4" try rc args out
-  for try in 1 2; do
-    args=(-quiet)
-    if grep -qs 'vars\.tag' "$file"; then args+=(-var "tag=$tag-$prefix$c-$try"); fi
-    rc=0; out="$(shrt "$what" "$c" "${args[@]}")" || rc=$?
-    printf '%s\n' "$out"
-    early+="$(printf '%s\n' "$out" | sed -n 's/^ *WARNING: token refused .*(auth profile \([^,]*\),.*/\1/p')"$'\n'
-    if [ "$rc" -ne 3 ] || [ "$try" -eq 2 ]; then break; fi
-    echo "gate: $what $c: no verdict (exit 3); retrying once in 20s" >&2
-    sleep 20
-  done
-  case "$rc" in
-    0) ;;
-    3) echo "gate: could not verify $c: $what exited 3 twice (backend unreachable, restarting or refusing auth); not a regression" >&2
-       unverified=1 ;;
-    *) echo "gate: $what $c exited $rc" >&2; fail=1 ;;
-  esac
-}
-for f in .shrt/chains/*.yaml; do
-  check run "$(basename "$f" .yaml)" "$f" ""
-done
-for s in .shrt/safespots/*.json; do
-  c="$(basename "$s" .json)"
-  check verify "$c" ".shrt/chains/$c.yaml" "v-"
-done
-rc=0; shrt chain hollow -gate -baseline .shrt/hollow-baseline || rc=$?
-[ "$rc" -eq 0 ] || { echo "gate: chain hollow -gate exited $rc" >&2; fail=1; }
-early="$(printf '%s' "$early" | sed '/^$/d')"
-if [ -n "$early" ]; then
-  echo "gate: WARNING: $(printf '%s\n' "$early" | wc -l) run(s) had a token refused long before the expiry its login stated (the WARNING: token refused lines above)" >&2
-  if [ -n "$(printf '%s\n' "$early" | sort | uniq -d)" ]; then
-    echo "gate: FINDING: tokens of one auth profile were refused early in two runs of this gate: the backend ends sessions long before the expiry its login states" >&2
-    fail=1
-  fi
-fi
-if [ "$fail" -ne 0 ]; then exit 1; fi
-if [ "$unverified" -ne 0 ]; then echo "gate: could not verify every chain; re-run the gate once the backend is up" >&2; exit 3; fi
+exec shrt gate
 ```
 
-Exit 3 from `run` or `verify` is not a verdict: the backend was unreachable, a gateway answered for
-it, it restarted mid-run, or it refused authentication, and the output says which, followed by
-`re-run`. A rolling restart does that routinely, so the gate retries such a chain once, after a
-short wait and with a fresh tag (the first attempt may have created some of its fixtures), and never
-retries exit 1 or 2. Still 3 on the retry, it prints `gate: could not verify <chain>: ...`
-instead of a failure line, and the gate exits 3 when nothing else failed (1 when something did, so a
-regression is never reported as merely unverified). Treat 3 in CI as "no verdict": re-run the job
-once the backend is up, or retry it automatically; do not mark the change red, and do not count it
-as green either.
-
-Under `-quiet` a green chain prints one line, `<chain>: PASSED in 32ms` from `run` (a chain that
-fails exactly as its `kept_red` pins, `<chain>: FAILED AS PINNED (kept red) in 25ms`) and
-`<chain>: no drift vs safe spot <id>` from a clean `verify`, with no run-record path and no notes on
-what was masked or covered; step warnings, `LATENCY`, `FINDING`, `REGRESSION` and `CHAIN DEFECT`
-lines are printed whatever the verdict, and a chain that fails keeps its detail and the path of its
-run record (`  run <id> -> <path>`). Drop `-quiet` to see the rest.
-
-A token refused long before the expiry its login stated is invisible in a green gate otherwise:
-shrt logs in again and re-sends the call, and the run passes. Each such run prints `WARNING: token
-refused <N>s after issue although the login said it expires in <M>s (auth profile <p>, ...)`, and the
-gate collects those lines. One is a warning at the end of the gate, since a deploy between the
-previous gate and this one explains a cached token refused on its first use. Two for the same auth
-profile in one gate fail it: the second token was issued during this gate, so a single restart does
-not explain both (a restart during the gate, on top of a deploy before it, would; re-run the gate
-to tell). A run that sees the re-login's own token refused early too, or the same early refusal as
-the chain's previous run, exits 1 with `FINDING: token refused ...` by itself.
-To prove it in one short run instead, hold a token past the lifetime you suspect with a step's
-`wait:` (GRAMMAR §1, at most 10m, never counted as latency): two held reads after the login, each
-waiting longer than that lifetime, reach the `FINDING` (PITFALLS 67). `contract plan` does not write
-such a chain; keep it out of the per-commit gate, since its waits are its runtime.
-
-A slowdown fails the gate only through `verify`, and only with `latency: {fail: true}` in the
-config, which `shrt init` writes into every config it creates. Without it a step 700 times slower
-than in the safe spot's run prints a `LATENCY` line and the gate exits 0: check that an older config
-has it. The verdict stays safe from one slow answer: a slow read is re-sent (`latency.remeasure`,
-default 2) and judged on its fastest answer, and a write, which is not re-sent, is judged only when
-the previous run was slow there too (`LATENCY (unconfirmed)` otherwise, never a failure); a step must
-be both 250ms slower and 3 times as slow (`floor_ms`, `ratio`).
-
-A `run` in the gate stops at its chain's first failure, so under `-quiet` a red chain shows that
-one failing step, and the steps after it were never sent: they may pass or fail. The run says so
-on a line of its own, `N later step(s) were not run (...)`, naming them. Treat the first failure as
-a lower bound on the blast radius, and re-run the chain with `-keep-going` to see which of the later
-steps fail too. A `verify` in the gate replays as `-keep-going` does and lists every step that did
-not pass, and so does a chain with `kept_red`.
-
-Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
-uniqueness constraints; a `-var` the chain never reads is ignored with a `warning:` line, so a loop may pass the tag
-to every chain, but one whose name is close to a var the chain reads (`-var tga=...` for `tag`) is
-refused as a likely typo. Build the tag INTO other text (`sku: sku-${vars.tag}`, or a header value `X-Tag: t-${vars.tag}`): verify
-treats a var inside other text, in a body field or a header alike, as a fixture name and does not count a new one as a change (a list filter on a prefix built this way needs a terminator after the var, `sku_prefix: sku-${vars.tag}-`, or a tag that is a prefix of another, `ci1-x-1` and `ci1-x-10`, lists the other run's items too), but a
-field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `verify` of that chain
-fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0 (3 is retried once, as above),
-and so must every `verify`. A chain kept
-red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
-§1): its run goes past every failure, pinned or not, as `-keep-going` would, with no flag, so every
-pin and every later step is evaluated even after an unpinned failure (a step that reads a failed
-step is not sent, and says so); it exits 0 only when it fails exactly there, and exits 1 when it
-fails anywhere else, fails differently, leaves a step unsent, or passes (the defect is gone), so a
-regression in an earlier or a later step of that chain fails the gate instead of hiding behind the
-known red; the run names that regression under its verdict line and in its exit message, e.g.
-`NEW FAILURE outside the pinned defect: create_order order.total_minor want=1250 got=500` (with the
-step lines shown, no `-quiet`, the verdict line names only `create_order`, whose own line has the values). A list
-of red chain names beside the gate, checked
-only for exit 1, cannot tell those apart: do not keep one.
-
-The loop runs every file directly in `.shrt/chains` (the glob does not descend), and that is where
-`shrt chain slice -write <name>` writes, so a slice written by name joins the gate at once
-(`slice -write` says so). Keep a slice you want gated there, with `kept_red` if it is red on
-purpose; a bare file name, `-write <name>.yaml`, lands there too, beside the source chain, and
-`-write <chain>.yaml` replaces the chain itself. Write an exploratory one outside it by giving
-`-write` a path, a value with a slash, which is written exactly there, relative to the current
-directory (`./<name>.yaml` for the current directory itself), and never over a file that is not the
-same slice: `shrt chain slice <chain> -step <id> -write
-.shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`, and `shrt init` adds it to `.gitignore`
-(`shrt doctor` suggests it where it is missing); run it by path:
-`shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
-nothing, a file given by path whose `name:` is that of a chain in `paths.chains` unless it IS that
-chain's file: rename it (`name: <name>-scratch`), or its runs would be proposed and counted as that chain's.
-
-The gate proves only what the chains send. A repeated request field that every chain sends with
-one item (one order line) leaves per-item logic untested: a total computed wrong only for two or
-more lines passes every chain above. `shrt contract status -gaps` lists each such field as
-`one item`; cover it with a step that sends two items with different values and asserts what
-depends on both, before trusting a green gate on that rpc. Two items that both read
-`${create_product.product.id_product}` are still one product: a backend that prices every line at
-the first line's product passes them, so `-gaps` lists such a field as `same resource`. `shrt
-contract plan` scaffolds two items for that reason, the second reading a second producer step
-(`create_product_2`, with its own sku and price) so a safe spot records a total that depends on
-both. The opposite gap is as real: a backend that merges lines naming one product, or takes stock
-once per product rather than per line, passes every chain whose items always point at different
-resources, so `-gaps` lists such a field as `no repeat`, and the plan adds
-`<step>_same_<noun>_twice` (`create_order_same_product_twice` with its total,
-`add_stock_batch_same_product_twice` with each line's level and a read after it,
-`confirm_order_same_product_twice` with the stock read after it).
-
-Both baseline files are committed, and each holds one number, the score its gate must equal; a
-missing file fails the gate. Create them once, before the first gate run: write `0` into each
-(`echo 0 > .shrt/quality-baseline; echo 0 > .shrt/hollow-baseline`), run
-`shrt contract quality -gate -baseline .shrt/quality-baseline`, and if it fails, the message names
-the current score: read what it counts with `shrt contract quality` and write that number into the
-file. Do the same for `shrt chain hollow -gate -baseline .shrt/hollow-baseline` after running the
-chains, since it reads the run records they leave (run records are gitignored, so on a fresh clone
-the gate's own runs are what it reads). From then on, change a baseline only as a reviewed edit.
+Build the tag into other text (`name: item-${vars.tag}`): a field that is `${vars.tag}` alone is
+input, so the fresh tag makes every verify of it drift. A slowdown fails the gate only with
+`latency: {fail: true}`, which `shrt init` writes into every new config.
 
 ## The loop
 
