@@ -1032,8 +1032,17 @@ percent-encoded (`s3cret%2Dadmin`). A secret of 8 characters or more is now also
 standard and URL-safe base64 forms, with and without padding, including where it sits inside a
 longer base64 value at any byte offset (a detail message that holds the token among other fields),
 and percent-encoded in any mix of `%XX` (either hex case) and plain characters, `+` for a space.
-Other transformations are left alone on purpose: a secret echoed reversed, with spaces between its
-characters, hashed, or encoded twice is NOT scrubbed, since recognising it would mean guessing at
+A later tester still found three encodings in clear, in the terminal and the run record: the admin
+password as hex (`7333637265742d61646d696e`), as an HTML character reference (`s3cret&#45;admin`)
+and as base32 (`OMZWG4TFOQWWCZDNNFXA====`). Since 2026-09-25 a secret of 8 characters or more is
+also scrubbed as hex in either case (inside a longer hex value too), with any of its characters
+written as an HTML character reference (`&#45;`, `&#x2d;`, `&#X2D;`, leading zeros allowed, and
+`&amp;` `&lt;` `&gt;` `&quot;` `&apos;` for those five characters), and as base32 in the standard
+and extended-hex alphabets, in either case, padded or not, at any byte offset inside a longer
+base32 value. Other transformations are left alone on purpose: a secret echoed reversed, with
+spaces between its characters, hashed, encrypted, in an encoding not listed here (ascii85,
+base58, quoted-printable, an HTML reference without its `;`), or
+encoded twice is NOT scrubbed, since recognising it would mean guessing at
 arbitrary transforms and blanking unrelated values. Keep such echoes out of committed runs.
 
 A scratch chain run by path took its runs directory from its `name:`, not its file: `.scratch/fake.yaml`

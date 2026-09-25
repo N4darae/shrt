@@ -489,8 +489,12 @@ in `-json`), so a field the backend echoes a credential into is not mistaken for
 A secret of 8 characters or more is scrubbed in any case, and the tail of a token with a short
 alphabetic prefix and a separator (`tok-`, `sk_`) is scrubbed on its own when 8 characters or more.
 Such a secret is scrubbed encoded too: standard and URL-safe base64, padded or not and at any offset
-inside a longer base64 value (a Connect error detail), and percent-encoded (`s3cret%2Dadmin`). A
-secret echoed reversed, spaced out, hashed or encoded twice is not recognised.
+inside a longer base64 value (a Connect error detail), percent-encoded (`s3cret%2Dadmin`), hex in
+either case (`7333637265742d61646d696e`), HTML character references, decimal, hex or named
+(`s3cret&#45;admin`, `&#x73;3cret-admin`, `&amp;`), and base32, standard or extended-hex alphabet,
+in either case, padded or not and at any byte offset inside a longer base32 value. A secret echoed
+reversed, spaced out, hashed, encrypted, in another encoding (ascii85, base58, quoted-printable,
+an HTML reference without its `;`) or encoded twice is not recognised.
 
 Before the responses, verify compares each step's recorded REQUEST with the safe spot's and prints
 every difference first, as `request differs from the confirmed run at <step> <path> (a -> b)`. A
