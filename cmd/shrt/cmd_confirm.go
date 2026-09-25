@@ -230,7 +230,13 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		out = append(out, store.Differ{Step: "-", Side: "target", Path: "base_url", Delta: orUnknown(spot.Target) + " -> " + orUnknown(rec.Target)})
 	}
 	edited := diff.ChainChanges(spot, c)
+	reordered := false
 	for _, ch := range edited {
+		if ch.StepOrder() {
+			reordered = true
+			out = append(out, store.Differ{Step: "step order", Side: "chain", Path: "moved:", Delta: ch.Moves()})
+			continue
+		}
 		out = append(out, store.Differ{Step: ch.Step, Side: "chain", Path: ch.Path, Delta: ch.Transition()})
 	}
 	for _, a := range diff.UnorderedAdditions(spot, rec) {
@@ -245,6 +251,12 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 		out = append(out, store.Differ{Step: c.Step, Side: "request", Path: c.Path, Delta: c.Transition()})
 	}
 	for _, c := range rep.Changes {
+		if c.StepOrder() {
+			if !reordered {
+				out = append(out, store.Differ{Step: "step order", Side: "chain", Path: "moved:", Delta: c.Moves()})
+			}
+			continue
+		}
 		side := "response"
 		switch c.Kind {
 		case diff.KindStatus, diff.KindNotReached, diff.KindOrder:

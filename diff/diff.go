@@ -944,6 +944,26 @@ func pathOr(p string) string {
 	return p
 }
 
+func (c Change) StepOrder() bool {
+	return c.Kind == KindOrder && c.Path == "steps" && (c.Step == "-" || c.Step == "")
+}
+
+func (c Change) Moves() string {
+	was := strings.Split(fmt.Sprint(c.Want), ", ")
+	now := strings.Split(fmt.Sprint(c.Got), ", ")
+	at := map[string]int{}
+	for i, id := range was {
+		at[id] = i + 1
+	}
+	out := []string{}
+	for i, id := range now {
+		if j, ok := at[id]; ok && j != i+1 {
+			out = append(out, fmt.Sprintf("%s step %d -> %d", id, j, i+1))
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
 func (c Change) describe() string {
 	out := c.describeValues()
 	if c.Detail != "" {
@@ -1102,6 +1122,10 @@ func (r *Report) Text() string {
 			fmt.Fprintf(&b, "expectation differs from the confirmed run at %s: %v -> %v (%s)\n", c.Step, c.Want, c.Got, c.Detail)
 			continue
 		}
+		if c.StepOrder() {
+			fmt.Fprintf(&b, "chain differs from the confirmed run in its step order: %s (was %v; now %v)\n", c.Moves(), c.Want, c.Got)
+			continue
+		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
 	}
 	if len(r.FixtureInput) > 0 {
@@ -1186,6 +1210,10 @@ func (r *Report) Text() string {
 			if expectOnly {
 				after = " (explained by the failed changed expectation)"
 			}
+		}
+		if c.StepOrder() {
+			fmt.Fprintf(&b, "  [step order] moved: %s (was %v; now %v)%s\n", c.Moves(), c.Want, c.Got, after)
+			continue
 		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
