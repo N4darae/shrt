@@ -2275,6 +2275,17 @@ exists`, `unregistered`, `non-existent`, `doesn't exist`, and a reason such as `
 another failure of the login; when no failure reads as one, a note quotes the `when:` it could not
 read and says how to phrase it.
 
+## 111. "adds zero stock" and "does not touch stock" stated, never asserted
+
+**Symptom.** A `CreateProduct` whose contract says `Add a product with zero stock` and a
+`CreateOrder` whose contract says `does not touch stock` were planned without an assertion of either:
+the effect model used the sentences to keep tracking levels, but asserted a level only after a write
+that moved it, so a create that started at 1 or an order that took a unit passed their own plans.
+
+**Fix.** 2026-09-25: a create target whose contract says it starts with none asserts the level 0 in
+its response and in the read right after it; a target whose contract says it leaves the level alone
+is followed by reads asserting each level it names unchanged. A note quotes the sentence each came from.
+
 ---
 
 # Decisions, so they are not relitigated

@@ -558,6 +558,14 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		if s := r.byEntity[rpc]; s != nil && out == outcomeSuccess {
 			md.stockOf[st.ID] = s
 			md.level[st.ID], md.known[st.ID] = 0, p.startsEmpty(lib, rpc, s)
+			if md.known[st.ID] && p.isTargetStep(st.ID) {
+				md.dirty[st.ID] = true
+				if m, err := p.cat.Lookup(st.Call); err == nil {
+					if carrier := carrierHolding(m, s.moved); carrier != "" && md.set(st, carrier+"."+s.moved, 0) {
+						mark("zero", st.ID)
+					}
+				}
+			}
 		}
 		if out == outcomeRefused {
 			continue
@@ -615,6 +623,18 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		}
 		if touched := p.stockTouched(md, st); len(touched) > 0 {
 			if c, ok := lib.Get(rpc); ok && p.saysUntouched(c, touched, md) {
+				if out == outcomeSuccess && p.isTargetStep(st.ID) {
+					md.pending, md.waiting = st, nil
+					for _, e := range touched {
+						if md.known[e] {
+							md.dirty[e] = true
+							md.waiting = append(md.waiting, e)
+						}
+					}
+					if len(md.waiting) > 0 {
+						mark("untouched", st.ID)
+					}
+				}
 				continue
 			}
 			for _, e := range touched {
@@ -871,7 +891,28 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 	}
 }
 
+func (p *Plan) isTargetStep(id string) bool {
+	for _, node := range p.Targets {
+		if p.stepOf[node] == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent map[string]bool) {
+	for _, id := range asserted["zero"] {
+		st := p.stepByID(id)
+		if s := r.byEntity[canonicalCall(p.cat, st.Call)]; s != nil {
+			p.note("step %s: its contract says it starts with none (%q), so it asserts %s 0, and so does the read of it right after", id,
+				startsAtZero.FindString(p.summaryOf(st)), s.moved)
+		}
+	}
+	for _, id := range asserted["untouched"] {
+		st := p.stepByID(id)
+		p.note("step %s: its contract says it leaves the stock alone (%q), so the reads right after it assert every level "+
+			"it names unchanged: a backend that reserves or takes stock at this step fails there", id, untouchedWords.FindString(p.summaryOf(st)))
+	}
 	said := []string{}
 	called := map[string]bool{}
 	for _, st := range p.Chain.Steps {
@@ -924,6 +965,17 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			strings.Join(names, ", "), pluralVerb(len(names), "touches", "touch"), pluralVerb(len(names), "its contract says", "their contracts say"),
 			pluralVerb(len(names), "it", "each"), pluralVerb(len(names), "it", "them"))
 	}
+}
+
+func (p *Plan) summaryOf(st *chain.Step) string {
+	if p.lib == nil || st == nil {
+		return ""
+	}
+	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
+	if !ok {
+		return ""
+	}
+	return c.Summary
 }
 
 func sortedRuleKeys[T any](m map[string]T) []string {
