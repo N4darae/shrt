@@ -27,8 +27,16 @@ type Observation struct {
 }
 
 type WhichQuery struct {
-	RPC  string
-	Code string
+	RPC     string
+	Code    string
+	Aliases []string
+}
+
+func (q WhichQuery) Codes() []string {
+	if q.Code == "" {
+		return nil
+	}
+	return append([]string{q.Code}, q.Aliases...)
 }
 
 type WhichOptions struct {
@@ -143,7 +151,7 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 			}
 			asserts := assertedCodes(s)
 			if q.Code != "" {
-				if !assertsCode(asserts, q.Code) {
+				if !assertsAnyCode(asserts, q.Codes()) {
 					continue
 				}
 				why = append(why, WhyCode)
@@ -159,7 +167,7 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		byStep, order := observationsFor(c.Name, opts.Observations)
 		hit.Runs = len(order)
 		for i := range matches {
-			assert, _ := PrimaryAssertion(matches[i].Asserts, q.Code)
+			assert, _ := PrimaryAssertionFor(matches[i].Asserts, q)
 			matches[i].Observed = evidenceFor(byStep[matches[i].Step], order, paths, assert, q.Code != "")
 			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, lastStepOf(c.Name, opts.Observations))
 			if matches[i].Observed != nil {
@@ -228,6 +236,18 @@ func observationsFor(chainName string, load func(string) []Observation) (map[str
 		}
 	}
 	return byStep, order
+}
+
+func PrimaryAssertionFor(asserts []CodeAssertion, q WhichQuery) (CodeAssertion, bool) {
+	for _, code := range q.Codes() {
+		if a, ok := PrimaryAssertion(asserts, code); ok {
+			return a, true
+		}
+	}
+	if q.Code != "" {
+		return CodeAssertion{}, false
+	}
+	return PrimaryAssertion(asserts, "")
 }
 
 func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool) {
@@ -367,6 +387,15 @@ func scalarText(v any) string {
 	return stringify(v)
 }
 
+func assertsAnyCode(asserts []CodeAssertion, codes []string) bool {
+	for _, code := range codes {
+		if assertsCode(asserts, code) {
+			return true
+		}
+	}
+	return false
+}
+
 func assertsCode(asserts []CodeAssertion, want string) bool {
 	for _, a := range asserts {
 		if strings.EqualFold(a.Value, want) {
@@ -474,7 +503,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 			if q.RPC != "" && !stepCalls(s, q.RPC, opts.RPCOf) {
 				continue
 			}
-			if assertsCode(assertedCodes(s), q.Code) {
+			if assertsAnyCode(assertedCodes(s), q.Codes()) {
 				continue
 			}
 			var hit *WhichUnasserted
@@ -482,16 +511,17 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 				if !o.Reached {
 					continue
 				}
-				path, ok := findCode(o.Response, q.Code, "")
-				if !ok {
-					continue
+				for _, code := range q.Codes() {
+					if path, ok := findCode(o.Response, code, ""); ok {
+						hit = &WhichUnasserted{Chain: c.Name, Step: s.ID, Index: i + 1, Call: s.Call, Run: o.Run, Status: o.Status, Path: path, Code: code}
+						break
+					}
 				}
-				hit = &WhichUnasserted{Chain: c.Name, Step: s.ID, Index: i + 1, Call: s.Call, Run: o.Run, Status: o.Status, Path: path, Code: q.Code}
 			}
 			if hit == nil {
 				continue
 			}
-			hit.Command = "shrt chain slice " + c.Name + " -step " + s.ID + " -mode pin -run " + hit.Run + freshFlags(c, s.ID, hit.Run, opts.FreshVars)
+			hit.Command = reproCommand(c, WhichStep{Step: s.ID, Observed: &WhichEvidence{Run: hit.Run}}, opts.FreshVars)
 			out = append(out, *hit)
 		}
 	}
@@ -536,4 +566,49 @@ func findCode(v any, code, prefix string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func CodeAliases(code string, responses []any) []string {
+	if code == "" {
+		return nil
+	}
+	seen := map[string]bool{strings.ToLower(code): true}
+	out := []string{}
+	var walk func(v any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case map[string]any:
+			names := CodeFields()
+			hit := false
+			for _, name := range names {
+				if x, ok := t[name]; ok && strings.EqualFold(stringify(x), code) {
+					hit = true
+				}
+			}
+			if hit {
+				for _, name := range names {
+					x, ok := t[name]
+					if !ok || x == nil {
+						continue
+					}
+					if text := stringify(x); text != "" && !seen[strings.ToLower(text)] {
+						seen[strings.ToLower(text)] = true
+						out = append(out, text)
+					}
+				}
+			}
+			for _, item := range t {
+				walk(item)
+			}
+		case []any:
+			for _, item := range t {
+				walk(item)
+			}
+		}
+	}
+	for _, r := range responses {
+		walk(r)
+	}
+	sort.Strings(out)
+	return out
 }

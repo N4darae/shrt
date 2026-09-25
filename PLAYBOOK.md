@@ -1185,7 +1185,11 @@ shrt chain which -code 1218 -json
    as observed: the backend answered it. The searchable paths are
    derived from the corpus, so a chain asserting a code under a batch result — the corpus has
    `results.0.error.details.0.app_code` — is found without teaching the command a new shape. Both
-   selectors together intersect.
+   selectors together intersect. An `app_code` and a `reason` (any two `code_fields`) that a local
+   run record carried side by side in one object, or that a contract's `failures:` entry declares
+   together (`code: 1603`, `reason: PermissionDenied`), name the same refusal, so `-code 1603`
+   also finds a step asserting only `reason: PermissionDenied`, and the other way round; the header
+   line lists the aliases it searched (`asserts 1603 or PermissionDenied (seen with it ...)`).
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
@@ -1232,7 +1236,9 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command, and exits 0. The backend exercises the code and no expectation pins
+   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write),
+   and exits 0. A step that asserts the code's alias (the `reason` seen with it) is an asserting
+   match, not one of these. The backend exercises the code and no expectation pins
    it, but that is not always unguarded: each step also says when an expectation pins a sibling of
    the same detail (`results.1.status.details.0.reason equals ProductNotFound`, which fails `shrt run`
    on a different refusal) and when the chain's safe spot holds the code at that path (`baselined:`),

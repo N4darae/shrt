@@ -60,6 +60,7 @@ func chainWhich(args []string) error {
 		Observations: runObservations(e),
 		FreshVars:    freshVarsOf(e, lib),
 	}
+	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
@@ -85,7 +86,11 @@ func describeWhichQuery(q chain.WhichQuery) string {
 		parts = append(parts, "calls "+q.RPC)
 	}
 	if q.Code != "" {
-		parts = append(parts, "asserts "+q.Code)
+		asserts := "asserts " + q.Code
+		if len(q.Aliases) > 0 {
+			asserts += " or " + strings.Join(q.Aliases, " or ") + " (seen with it in a run record or a contract failure, so the same refusal)"
+		}
+		parts = append(parts, asserts)
 	}
 	return strings.Join(parts, " and ")
 }
@@ -290,7 +295,7 @@ func runCount(n int) string {
 }
 
 func whichCodeCell(m chain.WhichStep, q chain.WhichQuery) string {
-	if a, ok := chain.PrimaryAssertion(m.Asserts, q.Code); ok {
+	if a, ok := chain.PrimaryAssertionFor(m.Asserts, q); ok {
 		return a.Value
 	}
 	if q.Code != "" {
