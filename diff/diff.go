@@ -633,8 +633,8 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 				continue
 			}
 			same := w.Rule == r.Rule
-			if text, templated := r.Want.(string); same && !(templated && strings.Contains(text, "${")) && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
-				same = fmt.Sprint(w.Want) == fmt.Sprint(r.Want)
+			if same && fmt.Sprint(w.Want) != pathmask.MaskRedacted {
+				same = sameDeclaredOperand(w.Want, r.Want)
 			}
 			if !same {
 				out = append(out, Change{Step: was.ID, Path: ExpectPath, Kind: KindChanged, Want: expectText(w.Path, w.Rule, w.Want), Got: shown(j)})
@@ -647,6 +647,57 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 		}
 	}
 	return out
+}
+
+func sameDeclaredOperand(recorded, declared any) bool {
+	switch d := declared.(type) {
+	case map[string]any:
+		if text, ok := recorded.(string); ok {
+			of, by, split := strings.Cut(text, " ± ")
+			return split && len(d) == 2 && sameDeclaredScalar(of, d["of"]) && sameDeclaredScalar(by, d["by"])
+		}
+		r, ok := recorded.(map[string]any)
+		if !ok || len(r) != len(d) {
+			return false
+		}
+		for k, v := range d {
+			if rv, ok := r[k]; !ok || !sameDeclaredOperand(rv, v) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		r, ok := recorded.([]any)
+		if text, isText := recorded.(string); isText && strings.HasPrefix(text, "[") && strings.HasSuffix(text, "]") {
+			r = nil
+			for _, part := range strings.Split(strings.TrimSuffix(strings.TrimPrefix(text, "["), "]"), ", ") {
+				r = append(r, part)
+			}
+			ok = true
+		}
+		if !ok || len(r) != len(d) {
+			return false
+		}
+		for i := range d {
+			if !sameDeclaredOperand(r[i], d[i]) {
+				return false
+			}
+		}
+		return true
+	}
+	return sameDeclaredScalar(recorded, declared)
+}
+
+func sameDeclaredScalar(recorded, declared any) bool {
+	if text, ok := declared.(string); ok && strings.Contains(text, "${") {
+		return true
+	}
+	if fmt.Sprint(recorded) == fmt.Sprint(declared) {
+		return true
+	}
+	a, okA := chain.OperandText(recorded)
+	b, okB := chain.OperandText(declared)
+	return okA && okB && a == b
 }
 
 func pairExpectations(was, now []chain.ExpectResult) []int {

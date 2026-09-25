@@ -1235,7 +1235,8 @@ Three things that decide whether this works for a given chain:
   `drift, principal not checked` (exit 1), not `regression`. Turn it on with
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   The chain's step list and expectations are compared too: a step removed, added, moved or
-  re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
+  re-pointed, an expectation edited (compared as the chain declares it, so `within: {of: "${nowunix+3600}", by: 10}`
+  resolving to another second is no edit), or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`; a move is
   never a response change, so beside an expectation edit it still makes the verdict a chain change. A removed, added or
   re-called step explains only the steps it can affect: itself, every step after it when it is a write, and every step

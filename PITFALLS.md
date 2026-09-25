@@ -1268,6 +1268,14 @@ and the lifetime template only for an expiry; `plan` scaffolds the same `equals`
 expecting a refusal (`not_equal` the ok verdict included) or asserting the message absent (`product
 exists: false`) gets no hint.
 
+A range with a clock bound resolves to another number every run, and `verify` at first compared
+the resolved bounds against the safe spot's: `chain differs from the confirmed run at login_admin
+expect (expires_at within 1790314828 ± 10 -> expires_at within 1790314900 ± 10)` on an untouched
+chain, and on a real regression "the expectation change explains none of them". Since 2026-09-25 an
+expectation is compared by what the chain declares: a `${...}` operand (`${nowunix+N}`, `${now}`,
+`${uuid}`) matches whatever it resolved to, and only its literal operands (`by: 10`, a literal
+bound) and its rule are compared.
+
 ## 44. A list "sorted by sku" that a backend sorting by name also passes
 
 **Symptom.** ListProducts started sorting by name. A chain asserting `products.0.sku` and
