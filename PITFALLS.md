@@ -191,8 +191,11 @@ chain's own tag isolates.
 PASS means the fix that made it fail has fallen off the target — a deploy regression, not a chain
 bug.
 
-In a shrt corpus the same chain declares `kept_red`, and its run says so itself: `kept red
-(defect_gone)` and exit 1. The opposite failure is quieter and worse: a gate that only checks a
+In a shrt corpus the same chain declares `kept_red`, and its run says so itself: the headline
+reads `PINNED DEFECT GONE (kept red, every step passed; exit 1 until kept_red is removed)`, never
+`PASSED`, with `kept red (defect_gone)` and exit 1. A kept-red run that collided with data an
+earlier run left (`fixture reused` or `fixture collision`) says `kept red (not_as_pinned): not
+judged: ...` in one sentence instead of listing every failed and unsent step. The opposite failure is quieter and worse: a gate that only checks a
 kept-red chain exits 1 stays green when a regression makes the chain fail EARLIER, at a step the
 defect never touched (`create_order` total wrong, so `confirm_order` is never reached). `kept_red`
 pins the step and path, so that run says `not_as_pinned` and exits 1. Until 2026-09-24 a plain run

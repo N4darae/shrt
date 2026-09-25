@@ -489,6 +489,9 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 		"check the credentials of the step's auth profile and re-run")
 }
 
+const CachedTokenResent = "cached token refused before the handler ran (backend restarted or token revoked); " +
+	"logged in again and re-sent: this is the second answer"
+
 func authRetryWarning(retry string, cached, freshRefused bool) string {
 	if retry == AuthRetryResent && cached && freshRefused {
 		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
@@ -497,9 +500,7 @@ func authRetryWarning(retry string, cached, freshRefused bool) string {
 			"refusal. This record is the second answer"
 	}
 	if retry == AuthRetryResent && cached {
-		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
-			"and the backend refused it at authentication (a restart or a revoke), so it did not perform the call: the " +
-			"token was dropped, a fresh login made, and this call re-sent. This record is the second answer"
+		return CachedTokenResent
 	}
 	if retry == AuthRetryResent {
 		return "the first attempt was answered unauthenticated, so the token was dropped, a fresh login made, " +
