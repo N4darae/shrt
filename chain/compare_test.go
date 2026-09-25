@@ -86,3 +86,30 @@ steps:
 		t.Fatalf("a bound referencing a later step cannot resolve and is linted like an equals value:\n%s", all)
 	}
 }
+
+func TestComparisonOnAnAbsentPathSaysItIsNotPresent(t *testing.T) {
+	for _, e := range []chain.Expectation{
+		{Path: "product.created_at", Within: &chain.Within{Of: "1789123474", By: 300}},
+		{Path: "product.created_at", Gte: "1789123474"},
+		{Path: "product.created_at", Lte: "1789123474"},
+	} {
+		canonical := map[string]any{"product": map[string]any{"id": "p1", "created_at": nil}}
+		sent := map[string]any{"product": map[string]any{"id": "p1"}}
+		r := e.EvaluateTyped(canonical, sent, "")
+		if r.Passed || r.Detail != "path not present in response" {
+			t.Fatalf("a path the response does not carry is not present, not a value of the wrong kind: %+v", r)
+		}
+		r = e.EvaluateTyped(map[string]any{"product": map[string]any{}}, map[string]any{"product": map[string]any{}}, "")
+		if r.Passed || r.Detail != "path not present in response" {
+			t.Fatalf("absent from both: %+v", r)
+		}
+		r = e.EvaluateTyped(canonical, canonical, "")
+		if r.Passed || !strings.Contains(r.Detail, "null") {
+			t.Fatalf("a null the response sent is named as null: %+v", r)
+		}
+		r = e.EvaluateTyped(map[string]any{"product": map[string]any{"created_at": "soon"}}, nil, "")
+		if r.Passed || !strings.Contains(r.Detail, "not a number or an RFC3339 time") {
+			t.Fatalf("a present value of the wrong kind keeps its wording: %+v", r)
+		}
+	}
+}

@@ -1576,6 +1576,32 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. A `created_at` that turned null, hidden by the volatile mask `shrt init` writes
+
+**Symptom.** CreateProduct started answering `created_at: null`. `shrt verify` reported no drift and
+`shrt diff` no difference; only a chain that asserted the field by hand went red.
+
+**Cause.** A volatile pattern hid every difference under it, so a value that vanished was masked as
+if it had merely changed. `**.created_at` is in every config `shrt init` writes.
+
+**Fix.** 2026-09-25: a volatile pattern tolerates a changed value, not a lost one. A value under it
+that became null, `""`, `0`, an empty list or object or a zero time, or disappeared, where the other
+side had a value (or the reverse), is reported in `verify` and `shrt diff`, naming the pattern
+(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`).
+
+## 66. A slice of a `within: {of: ${nowunix}}` failure that never reproduced
+
+**Symptom.** `chain slice -verify` of a step failing `product.created_at within {of: ${nowunix}, by:
+300}` said `NOT REPRODUCED` every time: `failed in both, with other values: source want
+{"by":300,"of":"1790325508"} ..., slice want {"by":300,"of":"1790325514"}`.
+
+**Cause.** The verdict compared each failing expectation's resolved bound, and a bound relative to
+the clock resolves to another number in every run.
+
+**Fix.** 2026-09-25: an expectation whose bound carries `${now...}` is compared as written in the
+chain, and the value it got as its distance from the bound each run resolved, equal within 2s; a
+stamp an hour ahead in both runs fails the same way, one ahead in one and behind in the other does not.
+
 ---
 
 # Decisions, so they are not relitigated

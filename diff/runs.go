@@ -60,6 +60,7 @@ type RunReport struct {
 	FixtureEchoed     int          `json:"fixture_echoed,omitempty"`
 	Changes           []Change     `json:"changes,omitempty"`
 	Masked            int          `json:"masked"`
+	MaskedChanges     []Change     `json:"masked_changes,omitempty"`
 	FullyMasked       []string     `json:"fully_masked,omitempty"`
 	RenamedSteps      []StepRename `json:"renamed_steps,omitempty"`
 	UnsentDefaults    []string     `json:"unsent_defaults,omitempty"`
@@ -182,9 +183,11 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	var renamed, echoed []Change
 	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
+	rep.MaskedChanges = append(rep.MaskedChanges, withMask(renamed, renamedMask)...)
 	var stale []Change
 	rep.Changes, echoed, stale = splitStaleEchoes(rep.Changes, rep.compared, append(rep.fixturePairs, renames...))
 	rep.FixtureEchoed += len(echoed)
+	rep.MaskedChanges = append(rep.MaskedChanges, withMask(echoed, fixtureMask)...)
 	rep.Changes = append(rep.Changes, stale...)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
@@ -262,12 +265,23 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		if c.Kind == KindChanged {
 			shaped, why = volatileIn(c.Path, c.Want, c.Got, r.winA, r.winB)
 		}
-		if underMask(masker, c.Path) || shaped {
+		gone := valueVanished(c)
+		volatile := underMask(masker, c.Path) && !(gone && masker.Masks(c.Path))
+		if volatile || (shaped && !gone) {
 			r.Masked++
+			c.Step = sa.ID
+			c.Mask = shapeMask
+			if volatile {
+				c.Mask = hidingPattern(masker, c.Path, true)
+			}
+			r.MaskedChanges = append(r.MaskedChanges, c)
 			return
 		}
 		if why != "" {
 			c.Detail = why
+		}
+		if c.Detail == "" && gone && masker.Masks(c.Path) {
+			c.Detail = vanishedDetail(masker, c, "run A", "run B")
 		}
 		noteTimeUnit(&c)
 		c.Step = sa.ID
@@ -308,8 +322,14 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 				}
 			}
 		}
-		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
+			hidden := c
+			hidden.Step, hidden.Path, hidden.Mask = sa.ID, "request."+c.Path, shapeMask
+			if volatile {
+				hidden.Mask = maskOf(masker, c)
+			}
+			r.MaskedChanges = append(r.MaskedChanges, hidden)
 			return
 		}
 		if fixture {

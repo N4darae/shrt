@@ -111,7 +111,7 @@ func OperandText(v any) (string, bool) {
 	return numberText(n), true
 }
 
-func (e Expectation) evaluateComparison(got any, found bool) (ExpectResult, bool) {
+func (e Expectation) evaluateComparison(got any, found bool, presence any) (ExpectResult, bool) {
 	type bound struct {
 		rule string
 		want any
@@ -143,6 +143,12 @@ func (e Expectation) evaluateComparison(got any, found bool) (ExpectResult, bool
 		return result(e.Path, rule, want, nil, false, "path not present in response"), true
 	}
 	g, ok := numberOf(got)
+	if _, sent := Get(presence, e.Path); !ok && !sent && isEmpty(got) {
+		return result(e.Path, rule, want, got, false, "path not present in response"), true
+	}
+	if !ok && got == nil {
+		return result(e.Path, rule, want, got, false, "the value is null, not a number or an RFC3339 time, so it cannot be compared"), true
+	}
 	if !ok {
 		return result(e.Path, rule, want, got, false, "the value is not a number or an RFC3339 time, so it cannot be compared"), true
 	}

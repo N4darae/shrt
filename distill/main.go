@@ -58,7 +58,7 @@ var notes = map[string]string{
 	"Expectation.not_equal": "The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`. A single value on a path that holds an object, a list or a map (`status not_equal: SUCCESS`, where `status` is the envelope's parent message) differs from every answer and cannot fail: `chain lint` warns `unfailable-assertion`, which `-strict` fails.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
 	"Expectation.exists":    "Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1.",
-	"Expectation.gt":        "Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so.",
+	"Expectation.gt":        "Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so; a path the server did not send fails it with `path not present in response`, and a null it sent is named as null.",
 	"Expectation.gte":       "As `gt`, greater than or equal. `expires_at gte: ${nowunix}` asserts a login did not hand out an already-expired token.",
 	"Expectation.lt":        "As `gt`, less than.",
 	"Expectation.lte":       "As `gt`, less than or equal. `created_at lte: ${nowunix}` asserts a record was not stamped in the future.",
@@ -737,6 +737,7 @@ func exerciseDiff() (string, error) {
 		Steps: []*runner.StepRecord{
 			step("a", "S/A", runner.StatusPassed, `{"qty":1,"created_at":"T0","note":"x","owner_id":"u-1","seen":"2026-09-01T10:00:00Z","lines":[1,2]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":"1"}`),
+			step("c", "S/C", runner.StatusPassed, `{"created_at":"2026-09-01T10:00:00Z"}`),
 		},
 		Volatile: []string{"**.created_at"},
 	}
@@ -745,6 +746,7 @@ func exerciseDiff() (string, error) {
 		Steps: []*runner.StepRecord{
 			step("a", "S/A", runner.StatusPassed, `{"qty":2,"created_at":"T1","note":"x","owner_id":"u-2","seen":"2026-09-02T11:30:00Z","lines":[1]}`),
 			step("b", "S/B", runner.StatusPassed, `{"qty":1}`),
+			step("c", "S/C", runner.StatusPassed, `{"created_at":null}`),
 		},
 	}
 	rep := diff.Compare(spot, rec)
@@ -756,6 +758,7 @@ func exerciseDiff() (string, error) {
 	}
 	fmt.Fprintf(&b, "| `qty` went from `1` to `2` | %s |\n", yesNo(seen["a|qty"]))
 	fmt.Fprintf(&b, "| `created_at` changed, and is `volatile` | %s |\n", yesNo(seen["a|created_at"]))
+	fmt.Fprintf(&b, "| `created_at` became null, and is `volatile` | %s |\n", yesNo(seen["c|created_at"]))
 	fmt.Fprintf(&b, "| `note` did not change | %s |\n", yesNo(seen["a|note"]))
 	fmt.Fprintf(&b, "| `owner_id` changed, NOT volatile, but its name is id-shaped | %s |\n", yesNo(seen["a|owner_id"]))
 	fmt.Fprintf(&b, "| `seen` changed, NOT volatile, but both values are timestamps | %s |\n", yesNo(seen["a|seen"]))
@@ -804,8 +807,14 @@ func exerciseDiff() (string, error) {
 	b.WriteString("(`chain change since the safe spot's run: ... added`, once `at chain level` when every step gained it,\n")
 	b.WriteString("in verify and in the confirm proposal alike); it can hide only a change of order, never a\n")
 	b.WriteString("changed, added or removed item, so it does not fail verify. `shrt verify\n")
-	b.WriteString("-masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare\n")
-	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped.\n")
+	b.WriteString("-masked` lists every masked value, volatile or shape-masked, with its path, both values and the pattern\n")
+	b.WriteString("that hid it; `shrt diff -masked` does the same for two runs. Declare\n")
+	b.WriteString("a path `volatile` when its value changes every run without being id- or timestamp-shaped. A `volatile`\n")
+	b.WriteString("pattern tolerates a changed value, not a lost one: a value under it that became null, `\"\"`, `0`,\n")
+	b.WriteString("an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:00:00Z`), or\n")
+	b.WriteString("disappeared, where the other side had a value, or the reverse, is reported, naming the pattern\n")
+	b.WriteString("(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in\n")
+	b.WriteString("`verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.\n")
 	b.WriteString("\nA timestamp is masked only when both values are the same kind of time and close to their run's\n")
 	b.WriteString("clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,\n")
 	b.WriteString("`*Time`, `*timestamp*`), a unix time told by its digit count: 10 digits seconds, 13 milliseconds, 16\n")

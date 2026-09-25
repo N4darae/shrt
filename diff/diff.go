@@ -37,6 +37,7 @@ type Change struct {
 
 	WithInput  bool   `json:"with_different_input,omitempty"`
 	ReplayPath string `json:"replay_path,omitempty"`
+	Mask       string `json:"mask,omitempty"`
 }
 
 type Report struct {
@@ -330,17 +331,21 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
-			case c.Path != "response" && maskedAt(stepMask, c):
+			case c.Path != "response" && maskedAt(stepMask, c) && !vanishedUnderMask(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
+				c.Mask = maskOf(stepMask, c)
 				rep.VolatileValues = append(rep.VolatileValues, c)
 				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
-			case shaped:
+			case shaped && !valueVanished(c):
 				rep.Masked++
 				rep.ShapeMasked = append(rep.ShapeMasked, c)
 			default:
+				if c.Detail == "" && vanishedUnderMask(stepMask, c) {
+					c.Detail = vanishedDetail(stepMask, c, "the safe spot", "this run")
+				}
 				if why != "" && c.Detail == "" {
 					c.Detail = why
 				}
@@ -1177,7 +1182,7 @@ func (r *Report) MaskedList() string {
 		}
 		fmt.Fprintf(&b, "%s, not compared:\n", title)
 		for _, c := range cs {
-			fmt.Fprintf(&b, "  %s %s (%s)\n", c.Step, c.Path, c.Transition())
+			fmt.Fprintf(&b, "  %s %s (%s)%s\n", c.Step, c.Path, c.Transition(), maskSuffix(c))
 		}
 	}
 	section("values under volatile paths", r.VolatileValues)

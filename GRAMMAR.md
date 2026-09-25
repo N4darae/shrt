@@ -53,7 +53,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
 | `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `"0"`. |
-| `gt` | any |  | Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so. |
+| `gt` | any |  | Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so; a path the server did not send fails it with `path not present in response`, and a null it sent is named as null. |
 | `gte` | any |  | As `gt`, greater than or equal. `expires_at gte: ${nowunix}` asserts a login did not hand out an already-expired token. |
 | `lt` | any |  | As `gt`, less than. |
 | `lte` | any |  | As `gt`, less than or equal. `created_at lte: ${nowunix}` asserts a record was not stamped in the future. |
@@ -464,6 +464,7 @@ Produced by running `diff.Compare` on a fabricated safe spot and replay:
 |---|---|
 | `qty` went from `1` to `2` | **yes** |
 | `created_at` changed, and is `volatile` | no |
+| `created_at` became null, and is `volatile` | **yes** |
 | `note` did not change | no |
 | `owner_id` changed, NOT volatile, but its name is id-shaped | no |
 | `seen` changed, NOT volatile, but both values are timestamps | no |
@@ -514,8 +515,14 @@ first item as sent. An `unordered` path added after approval is named as a chain
 (`chain change since the safe spot's run: ... added`, once `at chain level` when every step gained it,
 in verify and in the confirm proposal alike); it can hide only a change of order, never a
 changed, added or removed item, so it does not fail verify. `shrt verify
--masked` lists every masked value, volatile or shape-masked, with its path and both values. Declare
-a path `volatile` when its value changes every run without being id- or timestamp-shaped.
+-masked` lists every masked value, volatile or shape-masked, with its path, both values and the pattern
+that hid it; `shrt diff -masked` does the same for two runs. Declare
+a path `volatile` when its value changes every run without being id- or timestamp-shaped. A `volatile`
+pattern tolerates a changed value, not a lost one: a value under it that became null, `""`, `0`,
+an empty list or object or a zero time (`1970-01-01T00:00:00Z`, `0001-01-01T00:00:00Z`), or
+disappeared, where the other side had a value, or the reverse, is reported, naming the pattern
+(`under volatile pattern **.created_at, which tolerates a changed value but not a lost one`), in
+`verify` and `shrt diff` alike; so is an id- or timestamp-shaped value that became a zero time.
 
 A timestamp is masked only when both values are the same kind of time and close to their run's
 clock. The kind is an RFC 3339 text anywhere, or, under a time-shaped name (`*_at`, `*At`, `*_time`,
