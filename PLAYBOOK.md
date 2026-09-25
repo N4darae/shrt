@@ -842,7 +842,11 @@ safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`
 then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
 of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
-spot, and says so: a regression in a path no safe spot exercises is not seen.
+spot, and says so: a regression in a path no safe spot exercises is not seen. A `regression` verdict
+ends with the next step for a change you meant (`If the change is intended ... shrt confirm <name>
+-supersede -note "..."`, then a person approves it), and says so when every change is a response
+field the safe spot does not have (`all of them response field(s) the safe spot does not have:
+create_order order.currency, ...`), the shape of a field added on purpose.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:

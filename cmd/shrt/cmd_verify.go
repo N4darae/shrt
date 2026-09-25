@@ -409,7 +409,7 @@ func runVerify(ctx context.Context, args []string) error {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		return fmt.Errorf("regression: %d change(s) vs safe spot", report.Counted())
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s.\n%s", report.Counted(), regressionShape(report), intendedChangeNext(name))
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -912,6 +912,29 @@ func unsentWritesNote(rec *runner.Record, at int) string {
 	}
 	return fmt.Sprintf("; the write(s) %s after it were not sent, so a later step's difference may be their missing side effect "+
 		"and is not independent evidence", capList(writes, 4))
+}
+
+func regressionShape(report *diff.Report) string {
+	added := []string{}
+	for _, c := range report.Changes {
+		if c.Kind == diff.KindNotReached {
+			continue
+		}
+		if c.Kind != diff.KindUnexpected {
+			return ""
+		}
+		added = append(added, c.Step+" "+c.Path)
+	}
+	if len(added) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", all of them response field(s) the safe spot does not have: %s", capList(added, 4))
+}
+
+func intendedChangeNext(name string) string {
+	return fmt.Sprintf("If the change is intended (a field added or a value changed on purpose), run the chain until it passes, "+
+		"propose that run in place of the safe spot (shrt confirm %s -supersede -note \"...\"), and a person approves it; "+
+		"if it is not, it is a regression to fix in the backend", name)
 }
 
 func describeChanges(changes []diff.Change) string {
