@@ -1334,6 +1334,33 @@ Three things that decide whether this works for a given chain:
   step is left unsent, the failure changes, or the defect is gone. `shrt confirm` refuses a chain
   with `kept_red`, saying so, even when its run passed. `PITFALLS.md` §11.
 
+**One real defect in a long chain: keep it red in a slice of its own, confirm the rest.** A planned
+chain of 49 steps that shows one baseline defect cannot be confirmed (it did not pass) and must not
+be kept red as a whole if you want the other 45 steps guarded by `verify`, since a chain with
+`kept_red` never gets a safe spot. Split it in two commands, from the run that showed the defect:
+
+```bash
+shrt run orders -keep-going                                   # red at confirm_order_insufficient_stock_last_item
+shrt chain slice orders -step confirm_order_insufficient_stock_last_item \
+    -kept-red -verify -run latest -var tag=<fresh> -write orders-last-line-red
+shrt chain slice orders -without failed -run latest -write orders-rest
+shrt run orders-rest -var tag=<fresh>                          # green: propose and approve it
+```
+
+`-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
+[{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
+gone or anything else fails. With `-verify` it pins only a slice that reproduced the step's verdict:
+a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
+the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
+line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a
+hypothesis: a run saying `PINNED DEFECT GONE` while the chain still fails means exactly that.
+`-without <id,...>` writes the chain minus those steps and every step that reads one of them, by a
+reference or an export; `-without failed` names every step that failed in the run (`-run`, default
+latest), which leaves out the after-reads that fail with the defect too. It lists each step left out
+and why, and drops their `kept_red` pins. A step left in can still depend on what a left-out write
+did to shared state, so run the rest before proposing it; `-write <chain>.yaml` replaces the chain
+itself. Remove the kept-red slice and plan again once the defect is fixed.
+
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:
 

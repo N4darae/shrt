@@ -1449,6 +1449,21 @@ long enough to be cut and nothing compared what came back.
 free text, `<step>_unicode_text`, asserting echo and read-back equal to the request; a stated
 maximum length is probed at it and one over it instead.
 
+## 57. One baseline defect left 45 planned steps without a safe spot
+
+**Symptom.** A planned chain failed at one step because of a real baseline defect. It could not be
+confirmed, and pinning it `kept_red` would also have kept every other step out of `verify`, so the
+agent either deleted the probe or left the whole chain unguarded.
+
+**Cause.** There was no short path from "this chain shows one defect" to "a red chain for the
+defect and a green one for the rest": slicing did not pin, and nothing removed a step together with
+what reads it.
+
+**Fix.** 2026-09-25: `shrt chain slice <c> -step <id> -kept-red [-verify]` writes the slice pinned on
+the step's failing expectations (only when it reproduced, under `-verify`), and `shrt chain slice
+<c> -without failed` writes the chain minus the failed steps and whatever reads them, to run and
+confirm.
+
 ---
 
 # Decisions, so they are not relitigated
