@@ -11,7 +11,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var perItemFailure = regexp.MustCompile(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) only\b|\bper[- ](?:line|item|entry)\b|\bindependently\b`)
+var perItemFailure = regexp.MustCompile(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
@@ -30,24 +30,36 @@ func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 		if err != nil {
 			continue
 		}
-		var results *catalog.Field
-		for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-			if f.Name == listPath && f.Repeated && f.Kind == "message" {
-				results = f
-			}
-		}
+		results := p.perItemResults(lib, st.Call, c, m)
 		if results == nil {
-			continue
-		}
-		stated := perItemFailure.MatchString(c.Summary)
-		for _, f := range lib.AllFailures(st.Call) {
-			stated = stated || perItemFailure.MatchString(f.When)
-		}
-		if !stated {
 			continue
 		}
 		p.addPartialBatch(lib, st, c, m, results, listPath, verdict)
 	}
+}
+
+func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catalog.Method) *catalog.Field {
+	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
+	if !ok || listPath == "" || verdict == "" || chain.IsReadOnlyCall(rpc) {
+		return nil
+	}
+	var results *catalog.Field
+	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
+		if f.Name == listPath && f.Repeated && f.Kind == "message" {
+			results = f
+		}
+	}
+	if results == nil {
+		return nil
+	}
+	stated := perItemFailure.MatchString(c.Summary)
+	for _, f := range lib.AllFailures(rpc) {
+		stated = stated || perItemFailure.MatchString(f.When)
+	}
+	if !stated {
+		return nil
+	}
+	return results
 }
 
 type batchLine struct {
@@ -122,7 +134,8 @@ func (p *Plan) unknownBatchLine(lib *Library, st *chain.Step, c *RPCContract, m 
 	results *catalog.Field, listPath, verdict string) string {
 	failures := []Failure{}
 	for _, f := range lib.AllFailures(st.Call) {
-		if f.Unreachable != "" || isUnauthenticated(f) || f.ConnectCode == invalidArgCode || !perItemFailure.MatchString(f.When) {
+		itemField := strings.HasPrefix(stripIndexes(f.Field), rf.Name+".")
+		if f.Unreachable != "" || isUnauthenticated(f) || f.ConnectCode == invalidArgCode || !(itemField || perItemFailure.MatchString(f.When)) {
 			continue
 		}
 		if notFoundReason.MatchString(f.Reason) || notFoundWhen.MatchString(f.When) {
