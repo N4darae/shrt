@@ -263,19 +263,16 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 }
 
 func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*yaml.Node, []string, error) {
-	p := &Plan{stepOf: map[string]string{}, cat: cat}
-	methods := make([]*catalog.Method, len(refs))
-	for i, ref := range refs {
-		m, err := cat.Lookup(ref)
+	p, err := scaffoldPlan("", refs, ids, lib, cat)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodes := make([]*yaml.Node, 0, len(refs))
+	for _, step := range p.Chain.Steps {
+		m, err := cat.Lookup(step.Call)
 		if err != nil {
 			return nil, nil, err
 		}
-		methods[i] = m
-		p.stepOf[m.FullName] = ids[i]
-	}
-	nodes := make([]*yaml.Node, 0, len(refs))
-	for i, m := range methods {
-		step := p.buildStep(ids[i], "", m, lib)
 		body := step.Body
 		bare := *step
 		bare.Body = nil

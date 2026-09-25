@@ -101,23 +101,12 @@ func chainNew(args []string) error {
 		refs = append(refs, m.FullName)
 		ids = append(ids, id)
 	}
-	built, notes, err := contract.ScaffoldSteps(refs, ids, lib, e.cat)
+	raw, notes, err := contract.ScaffoldChain(*name, *desc, refs, ids, lib, e.cat)
 	if err != nil {
 		return err
 	}
-	stepNodes := &yaml.Node{Kind: yaml.SequenceNode, Content: built}
 	for _, n := range notes {
 		fmt.Fprintf(os.Stderr, "note: %s\n", n)
-	}
-
-	doc := &yaml.Node{}
-	if err := doc.Encode(&chain.Chain{APIVersion: chain.APIVersion, Name: *name, Description: *desc}); err != nil {
-		return err
-	}
-	setKey(doc, "steps", stepNodes)
-	raw, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
 	}
 	if *stdout {
 		fmt.Print(string(raw))

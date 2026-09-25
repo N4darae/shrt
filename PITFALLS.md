@@ -881,6 +881,16 @@ stderr rather than left as a silent empty string (`contract show` since 2026-09-
 its CHAIN STEP left the empty string without a word). The summary becomes the step description and the
 contract's `exports:` are written out.
 
+2026-09-25: an rpc named twice (`chain new -name css CreateProduct CreateProduct AddStock ...
+CreateOrder`) used to give both steps the same `sku: sku-${vars.tag}`, wire every reference to the
+last one, read `${vars.tag}` without declaring it, and export whole messages nothing read. Now a
+reference goes to a producer before the step, the least-read one first; the entries of a repeated
+field go to distinct producers in order (`lines.0` to `create_product`, `lines.1` to
+`create_product_2`); a repeat's value built from a var gets the step's suffix after the var
+(`sku-${vars.tag}-2`); `vars:` declares an interpolated var as `contract plan` does; an export no
+step reads is left out. When one producer is read by a write the other is not (`add_stock` stocks
+only the first product), a note says so and names the step to add if both need it.
+
 Measured on the backend this kit was first written for, `chain new` over CreateBook + CreateAsset + CreateDeal: 14 lint errors before, 10
 after, and the 10 are fields whose producers genuinely are not in the list — each named in a note.
 
