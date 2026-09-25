@@ -139,7 +139,10 @@ honours the key answers a repeat with the first run's result, so `verify` does n
 regression: when the step sent the key the confirmed run sent and answered with the confirmed run's
 id (`order.id_order`), it prints `CHAIN DEFECT: ... an idempotent replay` and exits 1 for a literal,
 or `fixture reused: ... the confirmed run's idempotency key` with a fresh `-var` hint and exits 3 for
-a key built from a var (`${vars.ik}` left at the confirmed value).
+a key built from a var (`${vars.ik}` left at the confirmed value). The same holds for a key any other
+recorded run sent, of this chain or another: `shrt run idem -var tag=G1` then `shrt verify idem
+-var tag=G1` names that run (`the idempotency key the recorded run ... of this chain already sent`)
+and exits 3, since the backend answered with what that run created.
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`

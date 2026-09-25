@@ -47,8 +47,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       re-sent too: a possible auth regression\n" +
 	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
 	"       steps were answered, in this run and the previous one: the backend fails that rpc every time\n" +
-	"     - a step sent the confirmed run's literal idempotency key and answered with the confirmed\n" +
-	"       run's id: an idempotent replay, a chain defect (built from a var: fixture reused, exit 3)\n" +
+	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
+	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
+	"       defect (built from a var: fixture reused, exit 3)\n" +
 	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
 	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
 	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
@@ -252,7 +253,7 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	var idem *idempotentReplay
 	if literal == nil && reuse == nil {
-		if idem = detectIdempotentReplay(c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
+		if idem = detectIdempotentReplay(e, c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
 			idem = nil
 		}
 	}
@@ -296,7 +297,7 @@ func runVerify(ctx context.Context, args []string) error {
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, driftStep, driftWhy, unsentWritesNote(rec, driftAt), driftRemedy(ctx, e, driftWhy))
 	case idem != nil && !idem.literal && !unanswered:
-		headline = fmt.Sprintf("fixture reused: step %s sent the confirmed run's idempotency key", idem.step)
+		headline = idem.headline()
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, idem.line(), name, idem.fresh())
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
