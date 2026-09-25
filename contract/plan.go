@@ -32,6 +32,7 @@ type Plan struct {
 	opts     PlanOptions
 	region   *fixtureRegion
 	isolated []string
+	parities []parityCopy
 }
 
 type PlanOptions struct {
