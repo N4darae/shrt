@@ -1515,7 +1515,9 @@ fresh token the re-login issued is refused early too in the same run, or when th
 the chain had a token refused early after it was accepted in that run; a restart shown in either run
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use stays a warning, since a deploy
-between runs explains it; the CI gate in README counts those lines per auth profile and fails when
+between runs explains it, and says so: `possibly a restart since the token was cached` (until
+2026-09-25 it said `nothing in this run shows a restart` right after a deploy had restarted the
+in-memory backend, which the run cannot see); the CI gate in README counts those lines per auth profile and fails when
 one profile's tokens die early twice in one gate.
 
 ## 60. A slice of a refused confirm that dropped the stock of the product it needed

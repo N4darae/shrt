@@ -721,7 +721,7 @@ refused ...`, exit 1, when the fresh token the re-login issued is refused early 
 chain also had a token refused early after it was accepted in that run; either run showing a restart
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
-between runs explains it: the CI gate counts these lines (README).
+between runs explains it, and it says `possibly a restart since the token was cached`: the CI gate counts these lines (README).
 To settle a single `WARNING: token refused` in one run instead of two, write a short chain whose
 reads carry `wait:` longer than the lifetime the warning suggests (two held reads: the first
 token's refusal and the re-login's), which prints the `FINDING` against a backend that ends

@@ -188,9 +188,14 @@ func (t *tokenLifetime) line() string {
 			"expiry its login states. This is a finding about the backend", t.prevRun,
 			strings.TrimPrefix(runner.TokenRefusalPhrase(t.prev.r), "token "), t.prev.step.Index, t.prev.step.ID)
 	}
+	again := " Refused early again, a token this run's login issued or the one the re-login issued, it is reported as a finding"
+	if t.first.r.Cached && t.first.r.FirstUse {
+		return head + ": possibly a restart since the token was cached. The token comes from an earlier run's login, and a backend " +
+			"restarted since then (a deploy, say) refuses it just as one that ends sessions long before the expiry its login states " +
+			"does; a first use of a cached token cannot tell the two apart." + again
+	}
 	return head + ": the backend ends sessions long before the expiry its login states, or it restarted since that login; " +
-		"nothing in this run shows a restart. Refused early again, a token this run's login issued or the one the re-login " +
-		"issued, it is reported as a finding"
+		"nothing in this run shows a restart." + again
 }
 
 func (t *tokenLifetime) label() string {
