@@ -20,12 +20,25 @@ var secretHeaderWords = map[string]bool{
 	"clientsecret": true, "secretkey": true, "accesskey": true, "privatekey": true,
 }
 
-var secretHeaderHints = []string{"password", "passwd", "passphrase", "passcode", "apikey", "credential", "privatekey", "cookie"}
+var secretHeaderHints = []string{"password", "passwd", "passphrase", "passcode", "apikey", "credential", "privatekey", "cookie", "csrf", "xsrf"}
+
+var secretHeaderWordEndings = []string{"token", "tokens", "secret", "secrets"}
+
+var secondFactorHeaderWords = map[string]bool{
+	"mfa": true, "totp": true, "2fa": true, "otp": true, "oauth": true, "authz": true, "authn": true,
+	"recovery": true, "magic": true, "signed": true,
+}
+
+var weakSecretHeaderWords = map[string]bool{"pass": true, "session": true}
+
+var clearAfterWeakSecretWord = map[string]bool{
+	"through": true, "region": true, "zone": true, "locale": true, "language": true, "timezone": true, "mode": true, "type": true,
+}
 
 var notSecretHeaderSuffixes = map[string]bool{"id": true, "remaining": true, "count": true}
 
 func secretHeader(name string) bool {
-	lower := strings.ToLower(name)
+	lower := strings.ReplaceAll(strings.ToLower(name), "0", "o")
 	words := strings.FieldsFunc(lower, func(r rune) bool { return r == '-' || r == '_' || r == '.' })
 	if n := len(words); n > 1 && notSecretHeaderSuffixes[words[n-1]] && !(words[n-2] == "session" && words[n-1] == "id") {
 		return false
@@ -35,9 +48,20 @@ func secretHeader(name string) bool {
 			return true
 		}
 	}
-	for _, word := range words {
-		if secretHeaderWords[word] {
+	for i, word := range words {
+		if weakSecretHeaderWords[word] {
+			if i+1 < len(words) && clearAfterWeakSecretWord[words[i+1]] {
+				continue
+			}
 			return true
+		}
+		if secretHeaderWords[word] || secondFactorHeaderWords[word] {
+			return true
+		}
+		for _, ending := range secretHeaderWordEndings {
+			if strings.HasSuffix(word, ending) {
+				return true
+			}
 		}
 	}
 	return false

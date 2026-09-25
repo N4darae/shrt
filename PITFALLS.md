@@ -1045,6 +1045,17 @@ values scrubbed out of every response (`customer.name` recorded as `author=<reda
 never compared it), while `X-Hmac`, a signature, was stored in clear. They match as whole words
 now, a name whose last word is `id`, `remaining` or `count` (`X-Api-Key-Id`) is not a credential
 (`X-Session-Id` excepted), and `hmac` is one.
+Whole words alone left joined and second-factor names in clear in the run record and the approved
+safe spot: `X-Apitoken`, `X-Apisecret`, `X-Csrftoken`, `X-Mfa-Code`, `X-Totp`, `X-2fa-Code`,
+`X-Oauth`, `X-Authz`, `X-Passw0rd`, `X-Recovery-Code`, `X-Magic-Link` and `X-Signed-Url`, while
+`X-Clientsecret` and `X-Sessiontoken` were digested because they happened to be listed; the var
+such a header read (`apitok=vvTopSecret789`) was printed in `vars` and the proposal too. Since
+2026-09-25 a word that ends with `token` or `secret`, a name containing `csrf` or `xsrf`, and the
+words `mfa`, `totp`, `2fa`, `otp`, `oauth`, `authz`, `authn`, `recovery`, `magic` and `signed` are
+credentials, `0` is read as `o` (`passw0rd`), and every var a credential header reads is a secret.
+`X-Secret-Id`, like `X-Api-Key-Id`, stays in clear: an id names a secret without being one. `pass`
+and `session` followed by `through`, `region`, `zone`, `locale`, `language`, `timezone`, `mode` or
+`type` (`X-Pass-Through`, `X-Session-Region`) are no longer digested.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
