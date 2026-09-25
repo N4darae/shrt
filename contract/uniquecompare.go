@@ -41,6 +41,14 @@ func ignoresCase(f Failure, text string) bool {
 	return yes && !no
 }
 
+func comparesCaseExactly(f Failure, text string) bool {
+	if f.Unique != nil && f.Unique.Case != "" {
+		return f.Unique.Case == UniqueCaseExact
+	}
+	yes, no := claims(text, caseSensitive, nil)
+	return yes && !no
+}
+
 func trimsSpace(f Failure, text string) bool {
 	if f.Unique != nil && f.Unique.Trim != nil {
 		return *f.Unique.Trim

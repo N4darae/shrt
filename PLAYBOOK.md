@@ -337,7 +337,8 @@ says nothing about case, a note says how to ask for the variant rather than gues
 
 A refused write must change nothing, and only a read proves it. For a target whose contract declares
 a shortage refusal (`InsufficientStock`, a `when:` saying more than, exceeds, not enough), the plan
-asks for 100000 of the first quantity field (`qty`, `quantity`, `count`, `amount`) it finds, in the
+asks for one more than the stock the chain's own writes added to that item (a write whose contract summary
+says add or increase, such as `add_stock`; 100000 only when no such write exists) of the first quantity field (`qty`, `quantity`, `count`, `amount`) it finds, in the
 step's own body or in a copy of the step it reads (`create_order_for_insufficient_stock`, the order
 `confirm_order_insufficient_stock` then confirms), expecting the refusal. It does so once with the
 shortage on the first item and once on the last (`..._last_item`): a backend that checks only the
@@ -388,7 +389,9 @@ object unchanged (`product.price_minor equals ${steps.create_product.request.pri
 also gets `<step>_<field>_large` (12345; never for a quantity, which runs into stock rules) and, when
 a failure's `when:` or the field's note states a minimum (`qty is zero or negative`, `must be greater
 than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
-`<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
+`<step>_<field>_below_min` one below, expected refused with that failure, and, for a signed field whose
+minimum is 1 or more, `<step>_<field>_negative` at -1, refused the same way (a check for zero alone
+lets a negative quantity through and subtracts it), each between reads proving the
 refused write changed nothing.
 
 Text is tested at lengths and in characters the fixtures never use, since a column that truncates

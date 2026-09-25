@@ -31,6 +31,7 @@ type listTarget struct {
 	producers []*chain.Step
 	carrier   string
 	anchor    string
+	unscoped  bool
 }
 
 func (p *Plan) discriminateListOrder(lib *Library, grow func(*chain.Step) bool) {
@@ -39,6 +40,7 @@ func (p *Plan) discriminateListOrder(lib *Library, grow func(*chain.Step) bool) 
 		if t == nil {
 			continue
 		}
+		p.scopeUnscopedList(t)
 		p.orderFixtures(t, lib)
 	}
 }
@@ -267,6 +269,10 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	for _, prod := range t.producers {
 		ids = append(ids, prod.ID)
 	}
+	if t.unscoped {
+		p.noteUnscopedList(t, len(ids))
+		return
+	}
 	keys := make([]string, 0, len(ranks))
 	for k := range ranks {
 		keys = append(keys, k)
@@ -293,6 +299,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 		p.note("step %s: the contract for %s states no order for %s, so no position is asserted; if it promises one, say so in "+
 			"its summary (\"sorted by <field>\", \"newest first\") and plan again", t.step.ID, listRPC, t.listPath)
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
+		assertLowerBound(t.step, t.listPath)
 		return
 	}
 	var order []int

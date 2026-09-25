@@ -1308,6 +1308,8 @@ created object). When the failure's `when:` or the field's note says the compari
 adds the value with its letters' case swapped, and when it says surrounding whitespace is trimmed,
 the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
 and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
+A contract that already answers the question, `unique: {case: exact}` or a `when:` saying
+case-sensitive, gets neither the variant nor the note (the note used to be printed regardless).
 
 ## 46. A duplicate sku accepted under another name, green in the planned chain
 
@@ -1763,6 +1765,110 @@ step, evaluated the expectation, and the comparison read "unevaluated vs evaluat
 else differs the verdict is INCONCLUSIVE (exit 3, `unevaluated_behind` in JSON), naming the upstream
 step and what the evaluation gave, with no `-keep` advice. `chain which` prints, under such a
 failure, the step that blocked it and the `chain slice ... -verify` that evaluates it on its own.
+
+## 77. "No read rpc takes the id" printed where one does, or where there is no id
+
+**Symptom.** `contract plan CreateProduct` noted "step create_product_as_clerk: no read rpc in the
+contracts takes the id of anything it touches" for a create expected to be refused, and `contract
+plan CreateCustomer` noted "no read rpc in the contracts takes the id of what it changes" although
+`GetCustomer` is wired `from: CreateCustomer->customer.id_customer`.
+
+**Cause.** Both notes fired whenever no read could be *compared*, which needs a number or a state
+in the read's answer. A refused create has no id at all, and `GetCustomer` answers only text.
+
+**Fix.** 2026-09-25: steps that expect a create to be refused get one note saying they leave no id
+to read back. Where a read does take the id but answers only text and ids, the note names that read
+and says why it cannot compare before and after, or one profile with another.
+
+## 78. A negative AddStock that subtracts stock, green in the planned chain
+
+**Symptom.** AddStock began accepting `qty: -5` and subtracting it. The planned chain stayed green:
+its boundary probe sent `qty: 0`, which the backend still refused.
+
+**Cause.** The minimum probe went one below the stated minimum and no further, and a backend that
+checks `qty == 0` instead of `qty <= 0` refuses 0 and lets every negative value through.
+
+**Fix.** 2026-09-25: for a signed numeric field whose stated minimum is 1 or more, `contract plan`
+adds `<step>_<field>_negative` at -1 next to `_below_min`, expecting the same refusal, between reads
+proving the stock did not move.
+
+## 79. A shortage probe that tested a quantity cap instead of the shortage
+
+**Symptom.** A CreateOrder that began refusing `qty > 99` as `invalid_argument` made the planned
+`create_order_for_insufficient_stock` fail with "qty too large", so the two `ConfirmOrder` shortage
+probes were never sent and the run said nothing about stock.
+
+**Cause.** The plan asked for 100000 units, far above any fixture but also above any cap a backend
+puts on the quantity field.
+
+**Fix.** 2026-09-25: the shortage asks for one more than the stock the chain's own writes added to
+that item (a write whose contract summary says add or increase, such as `add_stock` with `qty: 10`
+giving 11). 100000 is used only when no write in the chain adds to the item, and a note says so.
+
+## 80. An exact count on a list nothing scopes, green in lint and red on the second run
+
+**Symptom.** A contract whose `ListProducts` left `sku_prefix` without a `value:` got a plan with
+`sku_prefix: ""`, item positions and `products.3 exists: false`. `chain lint` said `ok`; the first
+run against a database holding other products failed, and so did every later one.
+
+**Cause.** An empty prefix lists every product. The plan asserted the three fixtures as the whole
+list, which only holds against an empty database.
+
+**Fix.** 2026-09-25: `contract plan` scopes such a list to the start every fixture's value shares
+(`sku-${vars.tag}-` for skus `sku-${vars.tag}-a`) and says so in a note; when no fixture value
+varies per run, it asserts only a lower bound (`products.2 exists: true`) and no position. `chain
+lint` warns `unscoped-count` on a read asserting an exact count while no field of its request reads
+a var, a step or a generator.
+
+## 81. "Holds exactly 3 item(s)" backed only by an upper bound
+
+**Symptom.** The plan noted that `list_orders` "asserts it holds exactly 3 item(s)", but its only
+count assertion was `orders.3 exists: false`, which an empty list passes.
+
+**Fix.** 2026-09-25: wherever the plan asserts that a list ends after N items, it also asserts
+`<list>.<N-1> exists: true`, unless an assertion on that item already implies it.
+
+## 82. A status-filtered list expecting a fixture the chain had already moved
+
+**Symptom.** `contract plan CreateOrder ConfirmOrder CancelOrder FetchOrder ListOrders` planned
+`list_orders_pending` expecting `create_order` with `ORDER_STATUS_PENDING`, but the chain's own
+`confirm_order` and `cancel_order` had moved that order to CANCELLED first. A backend whose status
+filter works failed it: `orders.0.status want=ORDER_STATUS_PENDING got=ORDER_STATUS_CANCELLED`.
+
+**Cause.** The filter probe assumed the first fixture still sat in the state its create left it
+in, and moved only the others.
+
+**Fix.** 2026-09-25: before planning the filtered lists, the plan follows each fixture through the
+writes before the list that take its id and whose contract names the state they leave it in. A
+fixture already moved is expected in that state; the fixtures not yet moved fill the states still
+missing (the initial one first), and a note names the fixtures that were moved.
+
+## 83. A GetProduct that answers SUCCESS for an id nobody created, green in the planned chain
+
+**Symptom.** A GetProduct that returned `SUCCESS` with an empty product for an unknown id, instead
+of `1204 ProductNotFound`, passed every planned chain: each one read only ids the chain had just
+created.
+
+**Fix.** 2026-09-25: for each planned target taking an id (a field wired with `from:`, not
+`checked_by: none`) whose contract declares a not-found failure for it (a reason such as
+`ProductNotFound`, or a `when:` such as "no product has this id"), `contract plan` adds
+`<step>_unknown_<field>`, sending the real id with `-unknown` appended (so a format check still
+passes) and expecting that failure.
+
+## 84. A GetCustomer that lowercases the email, green in the planned chain
+
+**Symptom.** GetCustomer began returning the email lowercased. `contract plan CreateCustomer` and
+`contract plan GetCustomer` stayed green: the read asserted only the id, and every planned email
+was lowercase already.
+
+**Fix.** 2026-09-25: every read of a record the chain created or updated asserts each field the
+write sent equals what it sent (the last write before the read that sent that field), and a planned
+create is read back right after it when no read follows it yet. A field the contract says the backend
+normalises (a uniqueness refusal with `unique: {case: ignore}` or `trim: true`, or a note such as
+"stored lowercased") is compared with the write's own response echo instead of its request, so a
+backend that normalises consistently passes and one whose read disagrees with its write does not.
+For a create target, and for the create behind a read target, the plan also adds
+`<step>_mixed_case`, sending the text fields with their letters' case swapped, and reads it back.
 
 ---
 

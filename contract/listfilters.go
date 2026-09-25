@@ -49,6 +49,7 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 		if !hasExistsFalse(st, t.listPath) {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}
+		assertLowerBound(st, t.listPath)
 		if n, ok := assertedLength(st, t.listPath); ok && len(said) > 0 {
 			p.note("step %s: %s must not appear in %s, which asserts it holds exactly %d item(s): a filter that lets them through fails",
 				st.ID, strings.Join(said, " and "), st.ID, n)
@@ -326,20 +327,32 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		initial = stateIn([]string{c.Exports[t.carrier], c.Summary}, values, short)
 	}
 	transitions, blocked := p.transitionsFor(lib, t, first, values, short, initial)
+	moved := p.statesBefore(lib, t, values, short)
+	assigned, moves := assignStates(t.producers, moved, initial, transitions)
 	states := map[string][]*chain.Step{}
 	order := []string{}
 	if initial != "" {
 		order = append(order, initial)
 	}
+	for _, tr := range transitions {
+		order = append(order, tr.value)
+	}
+	for _, prod := range t.producers {
+		if v := moved[prod.ID]; v != "" && !containsString(order, v) {
+			order = append(order, v)
+		}
+	}
 	added := []*chain.Step{}
-	for i, prod := range t.producers {
-		if i == 0 || i-1 >= len(transitions) {
-			if initial != "" {
-				states[initial] = append(states[initial], prod)
-			}
+	for _, prod := range t.producers {
+		v, known := assigned[prod]
+		if !known {
 			continue
 		}
-		tr := transitions[i-1]
+		states[v] = append(states[v], prod)
+		tr := moves[prod]
+		if tr == nil {
+			continue
+		}
 		suffix := strings.TrimPrefix(prod.ID, first.ID)
 		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
 		setBodyPath(body, tr.field, "${"+prod.ID+"."+t.carrier+"."+t.itemID+"}")
@@ -352,8 +365,6 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: t.carrier + "." + stateField.Name, Equals: tr.value}),
 		}
 		added = append(added, step)
-		states[tr.value] = append(states[tr.value], prod)
-		order = append(order, tr.value)
 	}
 	creation := false
 	if c, ok := lib.Get(canonicalCall(p.cat, t.step.Call)); ok {
@@ -405,6 +416,9 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	msg := fmt.Sprintf("step %s: %s filters on %s; after it, the fixtures are moved into different states and %s each assert only "+
 		"the fixtures in that state come back, so a filter that is ignored or matches the wrong value fails", t.step.ID, shortRPC(t.step.Call),
 		filter.Name, strings.Join(ids, ", "))
+	if len(moved) > 0 {
+		msg += ". " + movedNote(t.producers, moved, short)
+	}
 	if len(unreached) > 0 {
 		msg += fmt.Sprintf(". No producer in the contracts reaches %s (a write whose response carries the %s and whose summary or "+
 			"exports name the state it leaves it in), so the filter on it is not probed", strings.Join(unreached, ", "), t.carrier)
