@@ -28,14 +28,16 @@ func init() {
 }
 
 func runInit(ctx context.Context, args []string) error {
-	started := false
-	out, err := quietly(func() error { return initRepo(ctx, args, &started) })
-	if unset := unexportedLoginVars(); started && len(unset) > 0 {
-		fmt.Printf("credentials not exported (%s): export them first, then shrt init observes the envelope; continuing without\n",
-			strings.Join(unset, ", "))
+	loginUnsent := false
+	err := initRepo(ctx, args, &loginUnsent)
+	if err != nil || !loginUnsent {
+		return err
 	}
-	fmt.Print(out)
-	return err
+	vars := "the login credentials"
+	if unset := unexportedLoginVars(); len(unset) > 0 {
+		vars = strings.Join(unset, ", ")
+	}
+	return exitWith(3, "init incomplete: conventions not observed; export %s and re-run shrt init", vars)
 }
 
 func unexportedLoginVars() []string {
@@ -56,7 +58,7 @@ func unexportedLoginVars() []string {
 	return unset
 }
 
-func initRepo(ctx context.Context, args []string, started *bool) error {
+func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	baseURL := fs.String("base-url", "http://127.0.0.1:8080", "backend the chains run against")
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
@@ -70,11 +72,12 @@ func initRepo(ctx context.Context, args []string, started *bool) error {
 		"\nexit codes:\n  0  .shrt/ written, or already there and refreshed\n"+
 			"  1  init stopped: a flag that cannot be parsed, a .shrt/config.yaml that does not parse, a file it\n"+
 			"     could not write\n"+
-			"  2  the files were written but the descriptor did not build; fix the cause and run 'shrt catalog build'\n")
+			"  2  the files were written but the descriptor did not build; fix the cause and run 'shrt catalog build'\n"+
+			"  3  the files were written but the login credentials are not exported, so conventions were not observed;\n"+
+			"     export them and re-run shrt init\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	*started = true
 	baseURLGiven := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "base-url" {
@@ -228,12 +231,11 @@ func initRepo(ctx context.Context, args []string, started *bool) error {
 	if err != nil {
 		return err
 	}
+	*loginUnsent = strings.HasPrefix(unobserved, "the login was not sent")
 	if unobserved != "" || (wroteConfig && loaded.Conventions.EnvelopePath == "") {
 		guidePath, _ := exampleEnvelope(loaded)
 		switch {
-		case wroteConfig && strings.HasPrefix(unobserved, "the login was not sent") && !*verbose:
-			fmt.Printf("conventions: not written, init did not read envelope_ok (%s); export the login credentials and re-run shrt init, "+
-				"which observes %s and writes them (-v prints the block to paste)\n", unobserved, guidePath)
+		case *loginUnsent && !*verbose:
 		case wroteConfig:
 			fmt.Print("\n" + config.ConventionsGuideFor(guidePath))
 			if unobserved != "" {
@@ -246,6 +248,9 @@ func initRepo(ctx context.Context, args []string, started *bool) error {
 	}
 	if err := writeExampleChain(root, loaded, *force); err != nil {
 		return err
+	}
+	if *loginUnsent {
+		return nil
 	}
 
 	if !wroteConfig {

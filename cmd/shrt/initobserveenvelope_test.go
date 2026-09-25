@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -86,7 +87,7 @@ func TestInitPrintsTheConventionsAdviceOnceWhenItCannotObserve(t *testing.T) {
 	}
 }
 
-func TestInitWithoutTheLoginCredentialsSaysInOneLineToExportThemAndRerun(t *testing.T) {
+func TestInitWithoutTheLoginCredentialsExitsThreeAndSaysWhatToExport(t *testing.T) {
 	srv := loginServer(t, `{"error":{"code":"DONE"},"access_token":"tok","expires_at":"0"}`)
 	t.Setenv("API_USER", "")
 	t.Setenv("API_PASSWORD", "")
@@ -99,15 +100,35 @@ func TestInitWithoutTheLoginCredentialsSaysInOneLineToExportThemAndRerun(t *test
 		if verbose {
 			args = append(args, "-v")
 		}
-		out := captureStdout(t, func() {
-			if err := runInit(t.Context(), args); err != nil {
-				t.Fatalf("init: %v", err)
-			}
-		})
+		var err error
+		out := captureStdout(t, func() { err = runInit(t.Context(), args) })
 		restore()
-		if strings.Contains(out, "no conventions: block declared") != verbose ||
-			!verbose && !strings.Contains(out, "export the login credentials and re-run shrt init, which observes error.code and writes them") {
-			t.Errorf("-v %v: without credentials init says to export them in one line, and prints the block only under -v:\n%s", verbose, out)
+		var coded *exitError
+		if !errors.As(err, &coded) || coded.code != 3 ||
+			err.Error() != "init incomplete: conventions not observed; export API_PASSWORD, API_USER and re-run shrt init" {
+			t.Fatalf("-v %v: init that could not observe the conventions exits 3 naming what to export, got %v:\n%s", verbose, err, out)
+		}
+		if strings.Contains(out, "no conventions: block declared") != verbose || strings.Contains(out, "next:") ||
+			strings.Contains(out, "credentials not exported") || !strings.Contains(out, "write .shrt/chains/example.yaml.template") {
+			t.Errorf("-v %v: init writes what it can, prints the block only under -v and leaves the rest to its last line:\n%s", verbose, out)
 		}
 	}
+	dir := loginWorkspace(t, "")
+	restore := chdir(t, dir)
+	defer restore()
+	writeFile(t, filepath.Join(dir, ".shrt", "config.yaml"), "target:\n    base_url: "+srv.URL+"\nauth:\n    call: shop.auth.v1.AuthService/Login\n    body:\n        username: ${env.API_USER}\n        password: ${env.API_PASSWORD}\n    token_path: access_token\nconventions:\n    envelope_path: error.code\n    envelope_ok: DONE\n")
+	var err error
+	out := captureStdout(t, func() { err = runInit(t.Context(), []string{"-build=false", "-agents=false"}) })
+	if err != nil {
+		t.Fatalf("conventions already declared, so init is complete without the credentials: %v\n%s", err, out)
+	}
+}
+
+func initAllowingIncomplete(t *testing.T, args []string) error {
+	err := runInit(t.Context(), args)
+	var coded *exitError
+	if errors.As(err, &coded) && coded.code == 3 {
+		return nil
+	}
+	return err
 }

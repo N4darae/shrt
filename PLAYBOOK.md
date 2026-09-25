@@ -112,7 +112,8 @@ conventions:
 
 A path no response message declares fails `shrt run` before anything is sent. With the login
 credentials exported, `shrt init` logs in once and writes `envelope_path`, the `envelope_ok` it read
-and an unambiguous `item_envelope_path`; otherwise it prints every key once. It never rewrites a
+and an unambiguous `item_envelope_path`; otherwise it exits 3 naming the variables to export
+(`-v` prints the block to paste). It never rewrites a
 `conventions:` block already there. `GRAMMAR.md` §4 is the key table.
 
 ## 4. Assert something that can fail
