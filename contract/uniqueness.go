@@ -213,7 +213,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		note := ""
 		if stable != value {
 			note = fmt.Sprintf("; %s now reads ${vars.tag} instead of a fresh reference, so both steps send the same "+
-				"value, and every run needs -var tag=<fresh>", field)
+				"value (a run without -var tag gets a fresh tag)", field)
 		}
 		p.note("step %s: the contract says %s is unique ignoring case, so the plan sends a case variant "+
 			"(step %s) as well as the exact duplicate%s", st.ID, field, added[len(added)-1].ID, note)

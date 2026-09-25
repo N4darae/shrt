@@ -33,7 +33,7 @@ var notes = map[string]string{
 	"Chain.apiVersion":  "`shrt/v1`. Defaults to it when omitted.",
 	"Chain.name":        "Names the run directory and the safe spot. Defaults to the file name; a different name is a lint warning, and two files with one name are a lint error.",
 	"Chain.description": "What state this chain reproduces, for the next reader.",
-	"Chain.vars":        "Referenced as `${vars.x}`; override per run with `-var x=y`. A var the chain reads without declaring must be given with `-var`, or `run` and `verify` refuse before sending.",
+	"Chain.vars":        "Referenced as `${vars.x}`; override per run with `-var x=y`. A var the chain reads without declaring must be given with `-var`, or `run` and `verify` refuse before sending; the exception is `tag`, which gets a fresh value each run, recorded in the run's `vars`.",
 	"Chain.volatile":    "Response paths `shrt verify` and `shrt diff` mask in every step. Expectations still see the real value.",
 	"Chain.unordered":   "Response lists `shrt verify` compares as a multiset in every step, for an rpc that promises no order. Name the list without indices (`items`, `invoices.lines`).",
 	"Chain.redact":      "Paths blanked in the run record (requests, responses, vars, exports, `want`/`got`) and so never compared by `verify`, added to the config's. Redact only what must not be stored.",

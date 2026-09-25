@@ -148,10 +148,9 @@ func roleProfileHint(cfg *config.Config) string {
 	case len(cfg.Auth.Profiles) > 0 || len(accounts) > 0:
 		return ""
 	}
-	return lead + "\n" + fmt.Sprintf("      For each other role add auth.profiles.%s: the same call, token_path and expires_path, a body reading\n"+
-		"      ${env.%s_USER} and ${env.%s_PASSWORD}, and put auth: %s on the steps that act as it (GRAMMAR.md §4).\n"+
-		"      init writes such a profile itself when %s_USER and %s_PASSWORD are exported and the README names %s",
-		example, envName, envName, example, envName, envName, example)
+	return lead + "\n" + fmt.Sprintf("      For each other role export %s_USER and %s_PASSWORD and re-run shrt init: it adds auth.profiles.%s and\n"+
+		"      keeps the rest of the config. Put auth: %s on the steps that act as it (GRAMMAR.md §4).",
+		envName, envName, example, example)
 }
 
 func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error) {

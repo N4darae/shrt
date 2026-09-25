@@ -56,7 +56,6 @@ func TestPlanForAUniquenessRefusalThatIgnoresCaseTriesTheSameValueInAnotherCase(
 		"- path: status.details.0.reason\n          equals: EmailTaken",
 		"- path: status.details.0.app_code\n          equals: 1101",
 		"- path: customer\n          exists: false",
-		"tag: cust",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("want %q in the plan:\n%s\n%s", want, text, notes)

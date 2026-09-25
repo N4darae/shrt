@@ -70,8 +70,8 @@ func TestChainNewScaffoldsARepeatedProducerThatCanRun(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Vars["tag"] == nil {
-		t.Fatalf("a chain reading ${vars.tag} must declare it:\n%s", raw)
+	if missing, _ := chain.ExternalInputs(&c); len(missing) > 0 {
+		t.Fatalf("a chain reading ${vars.tag} runs without -var, got %v missing:\n%s", missing, raw)
 	}
 	first, _ := c.Step("create_product")
 	second, _ := c.Step("create_product_2")

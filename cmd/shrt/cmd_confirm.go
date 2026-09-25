@@ -113,7 +113,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("proposed run %s as the safe spot for %q — NOT a safe spot yet\n  full report: %s\n",
+	fmt.Printf("proposed run %s as the safe spot for %q — NOT a safe spot yet\n  full report, step by step: %s\n",
 		p.RunID, p.Chain, rel(e.cfg.Root, p.Report))
 	if p.Replaces != "" {
 		fmt.Printf("  replaces the safe spot from run %s once approved\n", p.Replaces)
@@ -129,7 +129,11 @@ func runConfirm(ctx context.Context, args []string) error {
 		fmt.Printf("  WARNING: %s\n", why)
 	}
 	fmt.Printf("\nshow the user this summary in the conversation, with what you checked, and ask them to approve or reject:\n\n")
-	fmt.Print(store.ProposalSummary(p, rec))
+	description := ""
+	if c, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
+		description = c.Description
+	}
+	fmt.Print(store.ProposalBrief(p, rec, description))
 	fmt.Printf("\nonly after the user says yes:  shrt confirm %s -approve -by <their email>\n"+
 		"if they say no:                shrt confirm %s -reject\n", p.Chain, p.Chain)
 	return nil

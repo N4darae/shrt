@@ -9,11 +9,15 @@ import (
 )
 
 func twoProductChain() *chain.Chain {
+	return productChainReading("tag")
+}
+
+func productChainReading(name string) *chain.Chain {
 	return &chain.Chain{
 		Name: "stock",
 		Steps: []*chain.Step{
-			{ID: "create_product_first", Call: "ProductService/CreateProduct", Body: map[string]any{"sku": "${vars.tag}-A"}},
-			{ID: "create_product_second", Call: "ProductService/CreateProduct", Body: map[string]any{"sku": "${vars.tag}-B"}},
+			{ID: "create_product_first", Call: "ProductService/CreateProduct", Body: map[string]any{"sku": "${vars." + name + "}-A"}},
+			{ID: "create_product_second", Call: "ProductService/CreateProduct", Body: map[string]any{"sku": "${vars." + name + "}-B"}},
 			{ID: "add_stock_second", Call: "StockService/AddStock", Body: map[string]any{"id_product": "${create_product_second.product.id_product}"}},
 		},
 	}
@@ -62,42 +66,58 @@ func TestSliceSkipsAPrerequisiteScopedToAnotherAlias(t *testing.T) {
 }
 
 func TestPinSliceTakesAnUndeclaredVarFromTheSourceRun(t *testing.T) {
-	c := twoProductChain()
+	c := productChainReading("batch")
 	res, err := chain.Slice(c, "create_product_second", chain.SliceOptions{
 		Mode: chain.SliceModePin, RunID: "r1",
 		Value:   func(string) (any, bool) { return nil, false },
-		RunVars: map[string]any{"tag": "T1"},
+		RunVars: map[string]any{"batch": "T1"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Chain.Vars["tag"] != "T1" || len(res.MissingVars) != 0 {
+	if res.Chain.Vars["batch"] != "T1" || len(res.MissingVars) != 0 {
 		t.Fatalf("pin mode reuses the value the run used, got vars %v missing %v", res.Chain.Vars, res.MissingVars)
 	}
 	if len(res.FilledVars) != 1 || res.FilledVars[0].From != chain.VarFromRun {
 		t.Fatalf("the filled var must say it came from the run: %+v", res.FilledVars)
 	}
-	if !strings.Contains(res.Chain.Description, "Var tag is not declared") {
-		t.Fatalf("the description must say where tag came from:\n%s", res.Chain.Description)
+	if !strings.Contains(res.Chain.Description, "Var batch is not declared") {
+		t.Fatalf("the description must say where batch came from:\n%s", res.Chain.Description)
 	}
 }
 
 func TestClosureSliceNeverReusesTheRunsVarAndReportsItMissing(t *testing.T) {
-	res, err := chain.Slice(twoProductChain(), "create_product_second", chain.SliceOptions{
-		RunID: "r1", RunVars: map[string]any{"tag": "T1"},
+	res, err := chain.Slice(productChainReading("batch"), "create_product_second", chain.SliceOptions{
+		RunID: "r1", RunVars: map[string]any{"batch": "T1"},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(res.MissingVars, ",") != "tag" || res.Chain.Vars["tag"] != nil {
-		t.Fatalf("closure re-creates what the run created, so the run's tag collides: vars %v missing %v", res.Chain.Vars, res.MissingVars)
+	if strings.Join(res.MissingVars, ",") != "batch" || res.Chain.Vars["batch"] != nil {
+		t.Fatalf("closure re-creates what the run created, so the run's batch collides: vars %v missing %v", res.Chain.Vars, res.MissingVars)
 	}
-	res, err = chain.Slice(twoProductChain(), "create_product_second", chain.SliceOptions{Vars: map[string]any{"tag": "T2"}})
+	res, err = chain.Slice(productChainReading("batch"), "create_product_second", chain.SliceOptions{Vars: map[string]any{"batch": "T2"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Chain.Vars["tag"] != "T2" || len(res.MissingVars) != 0 || res.FilledVars[0].From != chain.VarFromFlag {
+	if res.Chain.Vars["batch"] != "T2" || len(res.MissingVars) != 0 || res.FilledVars[0].From != chain.VarFromFlag {
 		t.Fatalf("a -var value fills an undeclared var: vars %v filled %+v", res.Chain.Vars, res.FilledVars)
+	}
+}
+
+func TestSliceLeavesAnUndeclaredTagToTheRunsFreshOne(t *testing.T) {
+	for _, mode := range []string{chain.SliceModeClosure, chain.SliceModePin} {
+		res, err := chain.Slice(twoProductChain(), "create_product_second", chain.SliceOptions{
+			Mode: mode, RunID: "r1", RunVars: map[string]any{"tag": "T1"},
+			Value: func(string) (any, bool) { return nil, false },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Chain.Vars["tag"] != nil || len(res.MissingVars) != 0 || len(res.FreshVars) != 0 {
+			t.Fatalf("%s: a run of the slice gets a fresh tag of its own, so none is copied, missing or asked for: vars %v missing %v fresh %v",
+				mode, res.Chain.Vars, res.MissingVars, res.FreshVars)
+		}
 	}
 }
 

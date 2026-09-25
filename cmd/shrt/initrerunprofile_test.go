@@ -25,6 +25,14 @@ func TestInitRerunAddsAMissingRoleProfileAndKeepsTheRestOfTheConfig(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	unset := captureStdout(t, func() {
+		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+			t.Fatalf("init with the clerk credentials still unset: %v", err)
+		}
+	})
+	if !strings.Contains(unset, "CLERK_USER") || !strings.Contains(unset, "re-run shrt init") {
+		t.Fatalf("the README names clerk and no profile exists yet, so a re-run says how to get one:\n%s", unset)
+	}
 	edited := strings.Replace(string(raw), "target:\n    base_url: http://127.0.0.1:8080", "target:\n    base_url: http://127.0.0.1:9999", 1)
 	edited = strings.Replace(edited, "    - '**.created_at'\n", "    - '**.created_at'\n    - '**.kept_by_hand'\n", 1)
 	writeFile(t, path, edited)
