@@ -233,7 +233,7 @@ func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, strin
 	login := isLoginStep(e)
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts
-		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) {
+		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) && !chain.IsAuthProbe(s) {
 			o.Keep = []string{chain.SliceKeepWrites}
 		}
 		if run != "" {
@@ -285,6 +285,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 			}
 			line := fmt.Sprintf("  %s  %-*s  asserts %-*s  slice %d/%d",
 				mark, idW, m.Step, codeW, whichCodeCell(m, q), m.SliceSteps, h.Steps)
+			if m.Kind == chain.WhichKindAuthProbe {
+				line += "  auth probe"
+			}
 			if m.Observed == nil {
 				fmt.Println(line)
 				if m.ByReason != "" {
@@ -320,7 +323,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
 	fmt.Println("A write step is reproduced in closure mode with -keep writes, which creates what it needs afresh and keeps every earlier\n" +
 		"write its state may depend on: -mode pin would re-send the write against the entities the recorded run created, which that\n" +
-		"run already changed (a confirm answers AlreadyConfirmed).")
+		"run already changed (a confirm answers AlreadyConfirmed). A step marked auth probe (skip_auth, auth: invalid, or a\n" +
+		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +
+		"writes do not change its verdict, and -keep writes would only add steps.")
 }
 
 func byReasonNote(m chain.WhichStep, q chain.WhichQuery) string {

@@ -1603,6 +1603,21 @@ asserted any alias, even a step that also asserted another app_code.
 asserts no numeric code, and such a match says `matched by reason ... only`. The run-record fallback
 skips a reason whose sibling code field holds another code.
 
+## 67. `chain which` told a missing-token probe to keep every write
+
+**Symptom.** For `cancel_order_confirmed_without_token` (`skip_auth: true`, asserting
+`transport.code equals unauthenticated`) the reproduce line was `chain slice ... -keep writes`,
+which re-sends every earlier write of the chain for a call the backend refuses before it looks at
+any state.
+
+**Cause.** The reproduce command chose by the rpc's name alone: CancelOrder is a write, so it got
+`-keep writes` like a real cancel.
+
+**Fix.** 2026-09-25: a step sent with `skip_auth` or `auth: invalid` that expects a transport
+refusal, or any step expecting `unauthenticated`/`permission_denied` (401/403) at the transport, is
+an auth probe: `chain which` marks it `auth probe` (`kind: auth_probe` in JSON) and reproduces it
+with a plain closure slice.
+
 ---
 
 # Decisions, so they are not relitigated

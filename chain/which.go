@@ -75,6 +75,29 @@ type WhichStep struct {
 	Observed   *WhichEvidence  `json:"observed,omitempty"`
 	Newest     *WhichNewest    `json:"newest_unreached,omitempty"`
 	ByReason   string          `json:"matched_by_reason,omitempty"`
+	Kind       string          `json:"kind,omitempty"`
+}
+
+const WhichKindAuthProbe = "auth_probe"
+
+func IsAuthProbe(s *Step) bool {
+	if s == nil {
+		return false
+	}
+	withoutToken := s.SkipAuth || s.Auth == InvalidTokenAuth
+	for _, e := range s.Expect {
+		if !ExpectsTransportRefusal(e) {
+			continue
+		}
+		if withoutToken {
+			return true
+		}
+		switch strings.ToLower(stringify(e.Equals)) {
+		case "unauthenticated", "permission_denied", "401", "403":
+			return true
+		}
+	}
+	return false
 }
 
 type WhichChain struct {
@@ -161,8 +184,12 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 				byReason = reason
 				why = append(why, WhyCode)
 			}
+			kind := ""
+			if IsAuthProbe(s) {
+				kind = WhichKindAuthProbe
+			}
 			matches = append(matches, WhichStep{
-				Step: s.ID, Index: i + 1, Call: s.Call, Why: why, Asserts: asserts, ByReason: byReason,
+				Step: s.ID, Index: i + 1, Call: s.Call, Why: why, Asserts: asserts, ByReason: byReason, Kind: kind,
 			})
 		}
 		if len(matches) == 0 {
@@ -204,8 +231,10 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
 	run := ""
+	step, _ := c.Step(best.Step)
 	switch {
 	case best.Observed == nil:
+	case IsAuthProbe(step):
 	case writeStep(c, best.Step, opts.ReadsOnly):
 		cmd += " -keep " + SliceKeepWrites
 	default:
