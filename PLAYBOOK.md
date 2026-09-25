@@ -123,7 +123,8 @@ product, qty 3 and 4). A note names each such field. Give the second item its ow
 it at a second resource through an aliased producer step when the rpc wants distinct ones, and
 assert what depends on both (`order.total_minor` for the pair, `order.lines.1.qty`).
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
-sends but no chain sends with two or more items.
+sends but no chain sends with two or more items, and, as `no chain`, each unary rpc no chain calls
+at all, with the repeated message fields it takes, since those are never sent even once.
 
 Three habits that keep a chain re-runnable:
 
