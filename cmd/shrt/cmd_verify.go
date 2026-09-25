@@ -496,11 +496,11 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if report.OnlyReordered() {
 		failed := ""
 		if list := report.ReorderedExpectations(); len(list) > 0 {
-			failed = "; the expectation(s) reading it by position failed: " + strings.Join(list, "; ")
+			failed = "; the expectation(s) reading it by position failed: " + capList(list, 3)
 		}
 		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s.\n"+
 			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
-			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "), failed)
+			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.ReorderedLists(), "; "), failed)
 	}
 	if len(declared) == 0 && len(independent) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
