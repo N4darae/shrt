@@ -50,6 +50,13 @@ func (c *RPCContract) Text(lib *Library, rpc string) string {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Aliases[alias].Fields[n]))
 		}
 	}
+	if len(c.Effects) > 0 {
+		effects := map[string]string{}
+		for k, e := range c.Effects {
+			effects[k] = e.String()
+		}
+		writeMap(&b, "effects", effects)
+	}
 	writeMap(&b, "exports", c.Exports)
 	writeMap(&b, "terminal (no consumer)", c.Terminal)
 	writeMap(&b, "soft_signals", c.SoftSignals)
