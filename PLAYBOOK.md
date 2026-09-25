@@ -911,7 +911,16 @@ a record look older: every sealing build also writes `format`, and a record that
 not a signature. Approval refuses a run record rewritten
 after the proposal, since the user approved what the summary showed: the proposal's digest covers
 everything that becomes the safe spot (target, build, vars, volatile, and every step's status,
-request, response, http status and transport error), not only the responses. The safe spot
+request, response, http status and transport error), not only the responses. The proposal also
+records the branch and commit it was proposed on (the summary names them), and `-approve` refuses
+when the chain checked out now has another `chain_digest` than the one the proposed run recorded,
+naming each difference a run record shows (a step changed, added, removed or reordered, a body
+template that no longer produces what was sent) or saying it lies where a record does not show
+(vars defaults, allow_fail, export, redact, kept_red, a description): a proposal
+made on a feature branch and approved after `git checkout main` would otherwise baseline a chain
+main does not have, and the next `verify` there reports drift with different input. Check out the
+branch the proposal came from and approve there, or run the chain as it is now and propose that
+run. The pending proposal is kept on refusal. The safe spot
 keeps that digest, sealed together with who approved it and when (`confirmed_by`, `confirmed_at`,
 `note`), and `verify` refuses a safe spot whose content or approval no longer matches it: a hand
 edit is not what a person approved. A safe spot sealed before the approval was covered still

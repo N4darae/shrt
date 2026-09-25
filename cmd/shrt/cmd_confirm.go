@@ -102,8 +102,10 @@ func runConfirm(ctx context.Context, args []string) error {
 		return err
 	}
 	comparedTo, unstable, carried := unstableFields(e, rec)
+	branch, commit := gitWhere(e.cfg.Root)
 	p, err := e.store.Propose(rec, store.ProposalInput{By: *by, Checked: *note, Supersede: *supersede, Now: time.Now(),
-		ComparedTo: comparedTo, Unstable: unstable, Carried: carried, Replaced: differsFromSafeSpot(e, rec)})
+		ComparedTo: comparedTo, Unstable: unstable, Carried: carried, Replaced: differsFromSafeSpot(e, rec),
+		Branch: branch, Commit: commit})
 	if errors.Is(err, store.ErrNoEvidence) {
 		return fmt.Errorf("%w: pass -note with what you inspected in the responses and why they are correct, not only that the run is green", err)
 	}
@@ -197,6 +199,9 @@ func approveProposal(e *env, name, by, note string) error {
 	p, err := e.store.LoadProposal(name)
 	if err != nil {
 		return fmt.Errorf("%w\npropose first: shrt confirm %s -note \"...\"", err, name)
+	}
+	if err := proposalChainMatches(e, p); err != nil {
+		return err
 	}
 	spot, path, err := e.store.Approve(name, store.Confirmation{By: by, Note: note, Acknowledged: true, Now: time.Now()})
 	if err != nil {
