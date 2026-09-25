@@ -190,7 +190,10 @@ run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is 
 recorded runs of the chain sent it at that step and were answered without a refusal: the backend
 accepted it after the record already existed, so it is not unique and cannot be what collides. With
 no literal left to blame and a refusal that names no field, verify gives its plain verdict against
-the safe spot (`regression: N change(s)`). When an earlier step of the same run, calling the same
+the safe spot (`regression: N change(s)`). The same holds when the refusal quotes or names that
+accepted literal (`name Bob Literal already exists` for `name: Bob Literal`): the backend now refuses
+what it accepted, a regression, exit 1, and the var-built field next to it (`email:
+l-${vars.tag}@example.test`) is not blamed, so it is no `fixture collision` either. When an earlier step of the same run, calling the same
 rpc, sent the identical value on the conflicting field and was accepted (two `CreateProduct` steps
 both sending `sku: sku-${vars.tag}`), `run` and `verify` say `the chain collides with itself within
 one run: ... the value step "create_product" of this same run sent there` and exit 1: every run

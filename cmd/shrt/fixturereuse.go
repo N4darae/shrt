@@ -160,6 +160,9 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 		fields = append(fields, f)
 	})
+	if refusalBlamesALiteral(c, first.ID, req, why, fields) {
+		return nil
+	}
 	fed := map[string]bool{}
 	conflicting := conflictingFields(fields, why)
 	unique := []string{}
@@ -328,6 +331,46 @@ func refusedSameWay(why string, all, conflicting []fixtureField, prev *runner.St
 		then = append(then, f)
 	}
 	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(conflictingFields(then, was)) == fieldPaths(conflicting)
+}
+
+func refusalBlamesALiteral(c *chain.Chain, step string, req any, why string, fields []fixtureField) bool {
+	literals := []fixtureField{}
+	visitLeaves(req, "", func(path string) {
+		v, ok := requestTemplate(c, step, path)
+		text, isText := v.(string)
+		if !ok || !isText || requestRef.MatchString(text) {
+			return
+		}
+		if sent, ok := chain.Get(req, path); ok && sent != nil && len(fmt.Sprint(sent)) >= 3 {
+			literals = append(literals, fixtureField{path: path, sent: fmt.Sprint(sent)})
+		}
+	})
+	quoted := func(set []fixtureField) bool {
+		for _, f := range set {
+			if f.sent != "" && strings.Contains(why, f.sent) {
+				return true
+			}
+		}
+		return false
+	}
+	named := func(set []fixtureField) bool {
+		folded := foldName(why)
+		for _, f := range set {
+			if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case quoted(fields):
+		return false
+	case quoted(literals):
+		return true
+	case named(fields):
+		return false
+	}
+	return named(literals)
 }
 
 func fieldPaths(fields []fixtureField) string {
