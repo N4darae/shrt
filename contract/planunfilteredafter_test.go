@@ -21,10 +21,8 @@ func TestTheListAfterTheMovesSendsNoFilterEvenWhenTheContractGivesTheFilterAValu
 		t.Fatal(err)
 	}
 	after := planStep(t, p, "list_orders_after_moves")
-	for k := range after.Body {
-		if strings.EqualFold(k, "status") {
-			raw, _ := p.YAML()
-			t.Fatalf("the list described as having no filter sends none, got %s=%v:\n%s", k, after.Body[k], raw)
-		}
+	if got := bodyAt(t, after, "status"); got != "ORDER_STATUS_UNSPECIFIED" {
+		raw, _ := p.YAML()
+		t.Fatalf("the list described as having no filter sends the unset value, not the contract's value, got %v:\n%s", got, raw)
 	}
 }
