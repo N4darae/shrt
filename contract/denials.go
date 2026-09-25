@@ -115,7 +115,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		if !tokenDone {
 			tokenDone = true
 			expect := []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}}
-			how := "Connect unauthenticated, which no failure in its contract declares (declare one with connect_code: unauthenticated on the domain)"
+			how := "Connect unauthenticated, which no failure in its contract declares (declare one with connect_code: unauthenticated in the domain-level failures:, or once with scope: all in any overlay to share it with every domain)"
 			if f, found := unauthFailure(lib, st.Call); found {
 				expect = refusalFor(m, f)
 				how = f.Label()

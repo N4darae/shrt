@@ -71,7 +71,7 @@ var notes = map[string]string{
 	"Overlay.apiVersion":  "`shrt/contract/v1`.",
 	"Overlay.domain":      "Defaults to the file name.",
 	"Overlay.description": "Domain-wide prose: the invariants and call order every rpc here shares.",
-	"Overlay.failures":    "Inherited by every rpc in the domain. Envelope-wide codes (authn, authz) belong here, stated once.",
+	"Overlay.failures":    "Inherited by every rpc in the domain. Envelope-wide codes (authn, authz) belong here, stated once; one with `scope: all` is inherited by every rpc of every domain, so a transport-wide refusal such as `unauthenticated` is stated once in the whole library.",
 	"Overlay.rpcs":        "Keyed by the fully qualified `package.Service/Rpc`.",
 
 	"RPCContract.summary":       "What it does and when you would call it.",
@@ -113,6 +113,7 @@ var notes = map[string]string{
 	"Failure.unique":         "How the backend compares the value of a uniqueness refusal, stated as data instead of prose: `unique: {case: ignore, trim: true}`. It decides which duplicate attempts `contract plan` adds, and wins over the prose. Unset (or a key of it unset), the plan reads the failure's `when`, its `message`, the rpc's `summary` and the field's `note`, and a negated phrase counts against: `no trimming`, `not trimmed`, `without trimming`, `untrimmed`, `case-sensitive`, `not ignoring case` mean no padded or case variant; a bare mention of whitespace (`whitespace only is invalid_argument`) says nothing about trimming. On a failure that is not a uniqueness refusal `contract lint` warns.",
 	"UniqueCompare.case":     "`ignore`: the value in another letter case is the same value, so the plan adds a case variant expecting the refusal. `exact`: case matters, no case variant. Anything else is a `contract lint` error.",
 	"UniqueCompare.trim":     "`true`: surrounding whitespace is trimmed before the comparison, so the plan adds the value padded with spaces, expecting the refusal. `false`: no padded variant.",
+	"Failure.scope":          "Only on a failure in an overlay's domain-level `failures:` block. `all` shares it with every rpc of every domain, not only this overlay's: declare `connect_code: unauthenticated` once, in `auth.yaml`, with `scope: all`, instead of copying it into each overlay. Left out, the failure is this domain's. Any other value, or `scope:` on a failure under one rpc, is a `contract lint` error.",
 	"Failure.pending_deploy": "Declared, correct, and not yet on the box. Carries the commit that will make it reachable.",
 
 	"Config.target":      "Where chains run.",

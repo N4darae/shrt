@@ -51,6 +51,13 @@ func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 	for i, f := range o.Failures {
 		issues = append(issues, lintFailure(o.Domain, "", fmt.Sprintf("domain failure %d", i+1), f)...)
 	}
+	for i, f := range o.Failures {
+		if f.Scope != "" && f.Scope != FailureScopeAll {
+			issues = append(issues, Issue{Domain: o.Domain, Field: fmt.Sprintf("domain failure %d", i+1), Severity: SeverityError,
+				Message: fmt.Sprintf("scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
+					"write scope: all for one every rpc of every domain shares", f.Scope)})
+		}
+	}
 	for _, rpc := range sortedRPCNames(o.RPCs) {
 		issues = append(issues, lintRPC(o.Domain, rpc, o.RPCs[rpc], lib, cat)...)
 	}
@@ -171,6 +178,11 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	seen := map[string]int{}
 	for i, f := range c.Failures {
 		issues = append(issues, lintFailure(domain, rpc, fmt.Sprintf("failure %d", i+1), f)...)
+		if f.Scope != "" {
+			issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: fmt.Sprintf("failure %d", i+1), Severity: SeverityError,
+				Message: "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every " +
+					"rpc of every domain; a failure under one rpc is that rpc's alone"})
+		}
 		if f.Code != 0 {
 			key := f.Label() + "\x00" + f.Field
 			if prior, dup := seen[key]; dup {

@@ -344,7 +344,10 @@ for a caller without the role (a reason such as `PermissionDenied`, or a `when:`
 the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
 target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
 invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
-pair per plan, not per rpc). For a write, all of these sit between reads of what it touches
+pair per plan, not per rpc). A refusal every rpc of every domain shares, as `unauthenticated` usually
+is, is declared once: put it in one overlay's domain-level `failures:` with `scope: all` (in
+`auth.yaml`, say) rather than copying the block into each overlay; without `scope: all` a
+domain-level failure reaches only its own overlay's rpcs. For a write, all of these sit between reads of what it touches
 (`get_product_before_add_stock_denied` / `…_after_…`), so a denied call that still wrote fails.
 `shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
 probe`) and the chained rpcs no chain calls without a token (`no token`).

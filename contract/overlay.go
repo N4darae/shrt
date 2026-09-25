@@ -109,6 +109,8 @@ type FieldContract struct {
 	Note      string `yaml:"note,omitempty" json:"note,omitempty"`
 }
 
+const FailureScopeAll = "all"
+
 type Failure struct {
 	Code        int    `yaml:"code,omitempty" json:"code,omitempty"`
 	ConnectCode string `yaml:"connect_code,omitempty" json:"connect_code,omitempty"`
@@ -117,6 +119,7 @@ type Failure struct {
 	Field       string `yaml:"field,omitempty" json:"field,omitempty"`
 	When        string `yaml:"when,omitempty" json:"when,omitempty"`
 	Unreachable string `yaml:"unreachable,omitempty" json:"unreachable,omitempty"`
+	Scope       string `yaml:"scope,omitempty" json:"scope,omitempty"`
 
 	PendingDeploy string `yaml:"pending_deploy,omitempty" json:"pending_deploy,omitempty"`
 
@@ -495,12 +498,28 @@ func NewLibrary(overlays []*Overlay) *Library {
 		inherited: map[string][]Failure{},
 		before:    map[string][]string{},
 	}
+	shared := map[*Overlay][]Failure{}
+	for _, o := range overlays {
+		for _, f := range o.Failures {
+			if f.Scope == FailureScopeAll {
+				shared[o] = append(shared[o], f)
+			}
+		}
+	}
 	for _, o := range overlays {
 		for rpc, c := range o.RPCs {
 			lib.byRPC[rpc] = c
 			lib.domainOf[rpc] = o.Domain
 			if len(o.Failures) > 0 {
-				lib.inherited[rpc] = o.Failures
+				lib.inherited[rpc] = append([]Failure{}, o.Failures...)
+			}
+			for _, other := range overlays {
+				if other != o {
+					lib.inherited[rpc] = append(lib.inherited[rpc], shared[other]...)
+				}
+			}
+			if len(lib.inherited[rpc]) == 0 {
+				delete(lib.inherited, rpc)
 			}
 			for _, target := range c.Before {
 				rpcOnly, _ := SplitNode(target)
