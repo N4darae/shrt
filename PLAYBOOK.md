@@ -911,11 +911,13 @@ rename is all that changed, carry the approved safe spot across instead of askin
 approval: `shrt confirm <new> -rename-from <old> -by <email>`, with the email of the user who
 agreed to the rename (the same rule as `-approve`). It refuses unless `<old>` has a safe spot and
 no chain file any more, `<new>` has no safe spot, nothing is pending for either, and `<new>` is
-identical to what the safe spot recorded: step ids, order and calls, expectations, references,
-literal body values and headers, auth profiles, volatile and unordered paths; when the last commit
-still holds `<old>.yaml`, the whole file must match apart from `name:` (vars defaults, redact,
-descriptions). Any other difference is refused with the first one named, and the chain is run,
-proposed and approved normally. On success it moves `<old>.json` to `<new>.json` keeping
+identical, apart from `name:`, to the chain file the approved run ran: the safe spot keeps its
+`chain_digest`, so every body template (not only the value it resolved to), vars default,
+`allow_fail`, `export`, `redact`, `kept_red`, `unordered`, expectation and description is
+compared, whether or not the rename is committed yet. Any other difference is refused, naming
+where it differs from the last committed `<old>.yaml` when that is the approved file, and the chain
+is run, proposed and approved normally. A safe spot approved by an older shrt has no
+`chain_digest`, so nothing proves the rename pure: it is refused the same way. On success it moves `<old>.json` to `<new>.json` keeping
 `confirmed_by`, `confirmed_at` and `note`, records the rename under `renamed` and re-seals the
 digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` lists them as an
 orphan `renamed to <new>`, and the command prints the `rm -rf` that removes them.

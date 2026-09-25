@@ -28,6 +28,7 @@ type Record struct {
 	RunID       string         `json:"run_id"`
 	Chain       string         `json:"chain"`
 	ChainSource string         `json:"chain_source,omitempty"`
+	ChainDigest string         `json:"chain_digest,omitempty"`
 	Target      string         `json:"target"`
 	Build       string         `json:"build,omitempty"`
 	StartedAt   time.Time      `json:"started_at"`

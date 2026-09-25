@@ -33,6 +33,7 @@ type SafeSpot struct {
 	Supersedes  string               `json:"supersedes,omitempty"`
 	Volatile    []string             `json:"volatile,omitempty"`
 	Renamed     []Rename             `json:"renamed,omitempty"`
+	ChainDigest string               `json:"chain_digest,omitempty"`
 	Digest      string               `json:"digest"`
 	Steps       []*runner.StepRecord `json:"steps"`
 }
@@ -91,6 +92,7 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 		ConfirmedAt: now.UTC(),
 		Note:        c.Note,
 		Volatile:    rec.Volatile,
+		ChainDigest: rec.ChainDigest,
 		Steps:       rec.Steps,
 	}
 	if prev != nil {
@@ -233,6 +235,14 @@ func (spot *SafeSpot) ComputeDigest() string {
 }
 
 func (spot *SafeSpot) ContentDigest() string {
+	if spot.ChainDigest != "" {
+		return hashJSON(struct {
+			Chain, RunID, Target, Build string
+			Volatile                    []string
+			ChainDigest                 string
+			Steps                       []*runner.StepRecord
+		}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.ChainDigest, spot.Steps})
+	}
 	return hashJSON(struct {
 		Chain, RunID, Target, Build string
 		Volatile                    []string

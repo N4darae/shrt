@@ -51,6 +51,12 @@ func renameSafeSpot(e *env, to, from, by string) error {
 	if err := keptRedNeverConfirmed(e, to); err != nil {
 		return err
 	}
+	if spot.ChainDigest == "" {
+		return fmt.Errorf("chain %s cannot be shown to be %s renamed: the safe spot %s does not record the chain it was confirmed with "+
+			"(it was approved by an older shrt), so nothing proves that vars defaults, templates, allow_fail, exports, redact or kept_red "+
+			"are unchanged.\nRun %s, propose that run (shrt confirm %s -note \"...\") and have a person approve it",
+			to, from, rel(e.cfg.Root, e.store.SafeSpotPath(from)), to, to)
+	}
 	compared, diffErr := renameDifference(e, spot, c, from)
 	if diffErr != "" {
 		return fmt.Errorf("chain %s is not %s renamed: %s.\nA safe spot carries its approval across a pure rename only, so run %s, "+
@@ -91,20 +97,20 @@ func renameDifference(e *env, spot *store.SafeSpot, c *chain.Chain, from string)
 			return "", "step " + st.ID + ": " + why
 		}
 	}
-	compared := "same steps, calls, expectations, references, literal body values and headers, auth profiles, volatile and unordered paths as the safe spot recorded"
-	old, found, err := chainAtHead(e, from)
-	switch {
-	case err != nil:
-		compared += "; the old chain file could not be read from git HEAD (" + err.Error() + "), so vars defaults, redact and descriptions were not compared"
-	case !found:
-		compared += "; the old chain file is not in git HEAD, so vars defaults, redact and descriptions were not compared"
-	default:
-		if why := chainFileDiffers(old, c); why != "" {
-			return "", "the chain differs from " + from + ".yaml at git HEAD in " + why
+	now := c.Digest()
+	if now != spot.ChainDigest {
+		why := fmt.Sprintf("the chain file is not the one the safe spot was confirmed with (chain digest %s, now %s)", spot.ChainDigest, now)
+		if old, where, ok := chainLastCommitted(e, from); ok && old.Digest() == spot.ChainDigest {
+			if at := chainFileDiffers(old, c); at != "" {
+				why += "; against " + from + ".yaml at " + where + " it differs in " + at
+			}
+		} else {
+			why += "; it differs somewhere a run record does not show, such as vars defaults, a template that resolves to the same value, " +
+				"allow_fail, export, redact, kept_red, unordered or a description"
 		}
-		compared += ", and identical to " + from + ".yaml at git HEAD apart from its name"
+		return "", why
 	}
-	return compared, ""
+	return "identical, apart from its name, to the chain the safe spot was confirmed with (chain digest " + now + ")", ""
 }
 
 func volatileDiffers(recorded, now []string) string {
@@ -255,34 +261,47 @@ func orNone(s string) string {
 	return s
 }
 
-func chainAtHead(e *env, name string) (*chain.Chain, bool, error) {
+func chainLastCommitted(e *env, name string) (*chain.Chain, string, bool) {
 	if _, err := exec.LookPath("git"); err != nil {
-		return nil, false, fmt.Errorf("git is not installed")
+		return nil, "", false
 	}
 	relPath, err := filepath.Rel(e.cfg.Root, filepath.Join(e.chainsDir(), name+".yaml"))
 	if err != nil {
-		return nil, false, err
+		return nil, "", false
 	}
-	cmd := exec.Command("git", "show", "HEAD:"+filepath.ToSlash(relPath))
-	cmd.Dir = e.cfg.Root
-	raw, err := cmd.Output()
+	relPath = filepath.ToSlash(relPath)
+	git := func(args ...string) ([]byte, error) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = e.cfg.Root
+		return cmd.Output()
+	}
+	where := "git HEAD"
+	raw, err := git("show", "HEAD:"+relPath)
 	if err != nil {
-		return nil, false, nil
+		last, lerr := git("rev-list", "-1", "HEAD", "--", relPath)
+		commit := strings.TrimSpace(string(last))
+		if lerr != nil || commit == "" {
+			return nil, "", false
+		}
+		if raw, err = git("show", commit+"^:"+relPath); err != nil {
+			return nil, "", false
+		}
+		where = "commit " + commit[:min(len(commit), 12)] + "^"
 	}
 	dir, err := os.MkdirTemp("", "shrt-rename-")
 	if err != nil {
-		return nil, false, err
+		return nil, "", false
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, name+".yaml")
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
-		return nil, false, err
+		return nil, "", false
 	}
 	old, err := chain.LoadFile(path)
 	if err != nil {
-		return nil, false, fmt.Errorf("the HEAD copy does not load: %v", err)
+		return nil, "", false
 	}
-	return old, true, nil
+	return old, where, true
 }
 
 func chainFileDiffers(old, now *chain.Chain) string {
