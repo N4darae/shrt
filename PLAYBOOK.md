@@ -748,7 +748,9 @@ This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `
 prints a summary table: one row per step with an excerpt of what was sent, what it asserted and
 what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
-uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
+uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them, abbreviated;
+a literal input is shown in full whatever its length (`email=cust-order-confirm@example.test`), so a
+fixture built from a long tag reads the same as one from a short tag; the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300

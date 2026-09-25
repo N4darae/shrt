@@ -297,7 +297,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		if also := alsoBaselined(rec, st); also != "" {
 			answered += "; also baselined: " + also
 		}
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), answered)
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), flat(sentSummary(st)), assertedSummary(st), answered)
 		if p.Replaces != "" {
 			fmt.Fprintf(&b, " %s |", cell(replacedSummary(p.Replaced, st.ID)))
 		}
@@ -498,6 +498,18 @@ func shortValue(v any) string {
 	return clipMiddle(flat(fmt.Sprint(v)), summaryValue)
 }
 
+func fullValue(v any) string {
+	if s, isString := v.(string); isString && (s == "" || strings.TrimSpace(s) != s) {
+		return strconv.Quote(s)
+	}
+	if _, isString := v.(string); !isString {
+		if b, err := json.Marshal(v); err == nil {
+			return flat(string(b))
+		}
+	}
+	return flat(fmt.Sprint(v))
+}
+
 func clipMiddle(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -615,11 +627,10 @@ func sentSummary(st *runner.StepRecord) string {
 				walk(joinKey(prefix, fmt.Sprint(i)), e)
 			}
 		default:
-			leaf := prefix + "=" + shortValue(t)
 			if referenceLike(prefix, t) {
-				refs = append(refs, leaf)
+				refs = append(refs, prefix+"="+shortValue(t))
 			} else {
-				leaves = append(leaves, leaf)
+				leaves = append(leaves, prefix+"="+fullValue(t))
 			}
 		}
 	}
