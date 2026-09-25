@@ -39,7 +39,7 @@ func (l *literalCollision) line() string {
 		"or backend problem, and a fresh -var does not help: build it from a var, e.g. %s: %s", l.step, l.why, l.field, l.value, l.field, l.hint)
 }
 
-func detectLiteralCollision(c *chain.Chain, rec *runner.Record) *literalCollision {
+func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literalCollision {
 	if c == nil || rec == nil || rec.DryRun {
 		return nil
 	}
@@ -112,6 +112,7 @@ func detectLiteralCollision(c *chain.Chain, rec *runner.Record) *literalCollisio
 		}
 		unnamed = true
 	}
+	pick = notAcceptedRepeatedly(e, rec, first, pick, sent)
 	if len(pick) == 0 {
 		return nil
 	}
@@ -159,4 +160,41 @@ func suggestedVar(c *chain.Chain) string {
 		return names[0]
 	}
 	return "tag"
+}
+
+func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord, paths []string, sent map[string]string) []string {
+	if e == nil || len(paths) == 0 {
+		return paths
+	}
+	accepted := map[string]int{}
+	ids, _ := e.store.ListRuns(rec.Chain)
+	for _, id := range ids {
+		if id == rec.RunID {
+			continue
+		}
+		prev, err := e.store.LoadRun(rec.Chain, id)
+		if err != nil || prev.DryRun {
+			continue
+		}
+		st, ok := prev.Step(first.ID)
+		if !ok || st.Call != first.Call || !createdStep(st) {
+			continue
+		}
+		var req any
+		if json.Unmarshal(st.Request, &req) != nil {
+			continue
+		}
+		for _, path := range paths {
+			if got, ok := chain.Get(req, path); ok && got != nil && fmt.Sprint(got) == sent[path] {
+				accepted[path]++
+			}
+		}
+	}
+	out := []string{}
+	for _, path := range paths {
+		if accepted[path] < 2 {
+			out = append(out, path)
+		}
+	}
+	return out
 }

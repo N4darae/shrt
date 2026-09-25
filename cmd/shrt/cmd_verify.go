@@ -244,7 +244,7 @@ func runVerify(ctx context.Context, args []string) error {
 	var reuse *fixtureReuse
 	var literal *literalCollision
 	if !report.Clean() {
-		literal = detectLiteralCollision(c, rec)
+		literal = detectLiteralCollision(e, c, rec)
 		if literal == nil {
 			reuse = detectFixtureReuse(e, c, rec)
 		} else if driftedBefore(rec, report, literal.index) {

@@ -182,7 +182,11 @@ sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-ve
 holds when the refusal quotes and names no field (`duplicate record`) while every field of the
 step built from a reference is built from `${uuid}` or a clock value: those are unique to their
 run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
-`${uuid}` one, and a repeat is not a `FINDING`. A var that
+`${uuid}` one, and a repeat is not a `FINDING`. A literal is not blamed when two or more earlier
+recorded runs of the chain sent it at that step and were answered without a refusal: the backend
+accepted it after the record already existed, so it is not unique and cannot be what collides. With
+no literal left to blame and a refusal that names no field, verify gives its plain verdict against
+the safe spot (`regression: N change(s)`). A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers

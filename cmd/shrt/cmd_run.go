@@ -111,7 +111,7 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	lead := ""
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
-		if literal := detectLiteralCollision(c, rec); literal != nil {
+		if literal := detectLiteralCollision(e, c, rec); literal != nil {
 			lead = literal.line()
 		} else if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
 			lead = "FINDING: " + reuse.line()

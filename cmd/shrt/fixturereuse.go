@@ -174,6 +174,9 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(unique) != len(conflicting) {
 		unique = nil
 	}
+	if len(unique) > 0 && !namesAField(fields, why) {
+		return nil
+	}
 	if len(unique) > 0 {
 		return uniqueCollision(e, rec, first, index, why, fields, conflicting, unique)
 	}
@@ -385,6 +388,19 @@ func conflictingFields(fields []fixtureField, why string) []fixtureField {
 		return byName
 	}
 	return fields
+}
+
+func namesAField(fields []fixtureField, why string) bool {
+	folded := foldName(why)
+	for _, f := range fields {
+		if f.sent != "" && strings.Contains(why, f.sent) {
+			return true
+		}
+		if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
+			return true
+		}
+	}
+	return false
 }
 
 func foldName(s string) string {
