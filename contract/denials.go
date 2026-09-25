@@ -134,9 +134,10 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		if chain.IsReadOnlyCall(st.Call) {
 			p.Chain.Steps = append(p.Chain.Steps, group...)
-		} else {
-			p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, group, st.ID+"_denied")...)
+			p.note("step %s: %s", st.ID, strings.Join(said, "; "))
+			continue
 		}
+		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, group, st.ID+"_denied")...)
 		p.note("step %s: %s; each is a write that must change nothing, so the reads around them assert the state it touches unchanged",
 			st.ID, strings.Join(said, "; "))
 	}

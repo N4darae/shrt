@@ -81,6 +81,16 @@ func wantExpect(t *testing.T, st *chain.Step, path string, want any) {
 	t.Fatalf("step %s: want %s equals %v, got %+v", st.ID, path, want, st.Expect)
 }
 
+func wantExists(t *testing.T, st *chain.Step, path string, want bool) {
+	t.Helper()
+	for _, e := range st.Expect {
+		if e.Path == path && e.Exists != nil && *e.Exists == want {
+			return
+		}
+	}
+	t.Fatalf("step %s: want %s exists %v, got %+v", st.ID, path, want, st.Expect)
+}
+
 func bodyAt(t *testing.T, st *chain.Step, path string) string {
 	t.Helper()
 	var cur any = st.Body

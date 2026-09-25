@@ -1,0 +1,423 @@
+package contract
+
+import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
+)
+
+var (
+	caseSensitive = regexp.MustCompile(`(?i)case[- ]sensitive|exactly as sent|exact case`)
+	toState       = regexp.MustCompile(`(?i)\b(?:to|status|now|becomes|is)\s+([A-Z][A-Z_]+)\b`)
+)
+
+type listScope struct {
+	parent    *chain.Step
+	parentKey string
+	prefixKey string
+	prefix    string
+	target    string
+}
+
+func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
+	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
+		if !isTarget(st) {
+			continue
+		}
+		t := p.listTargetFor(st, true)
+		if t == nil || len(t.producers) == 0 {
+			continue
+		}
+		scope := p.scopeOf(t)
+		if scope.parent == nil && scope.prefixKey == "" {
+			continue
+		}
+		said := []string{}
+		if scope.parent != nil {
+			said = append(said, p.otherParent(lib, t, scope)...)
+		}
+		if scope.prefixKey != "" && scope.target != "" {
+			said = append(said, p.prefixExclusions(lib, t, scope)...)
+		}
+		if !hasExistsFalse(st, t.listPath) {
+			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+		}
+		if len(said) > 0 {
+			p.note("step %s: %s must not appear in %s, which asserts it holds exactly %d item(s): a filter that lets them through fails",
+				st.ID, strings.Join(said, " and "), st.ID, len(t.producers))
+		}
+		p.filterByState(lib, t)
+	}
+}
+
+func hasExistsFalse(st *chain.Step, listPath string) bool {
+	for _, e := range st.Expect {
+		if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, listPath+".") && isIndexSegment(strings.TrimPrefix(e.Path, listPath+".")) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) scopeOf(t *listTarget) listScope {
+	scope := listScope{}
+	keys := make([]string, 0, len(t.step.Body))
+	for k := range t.step.Body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		text, ok := t.step.Body[key].(string)
+		if !ok || text == "" {
+			continue
+		}
+		if strings.Contains(namecase.Fold(key), "prefix") {
+			scope.prefixKey, scope.prefix = key, text
+			scope.target = t.anchor
+			if scope.target == "" {
+				want := namecase.Fold(strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(key), "prefix", ""), "_"), "_"))
+				for k := range t.producers[0].Body {
+					if namecase.Fold(k) == want {
+						scope.target = k
+					}
+				}
+			}
+			continue
+		}
+		src, isRef := refSource(text)
+		if !isRef {
+			continue
+		}
+		parent := p.stepByID(src)
+		if parent == nil || chain.IsReadOnlyCall(parent.Call) || containsStep(t.producers, parent) {
+			continue
+		}
+		all := true
+		for _, prod := range t.producers {
+			if !containsString(referencedSteps(prod.Body), src) {
+				all = false
+			}
+		}
+		if all {
+			scope.parent, scope.parentKey = parent, key
+		}
+	}
+	return scope
+}
+
+func containsStep(list []*chain.Step, st *chain.Step) bool {
+	for _, s := range list {
+		if s == st {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) insertBefore(id string, steps ...*chain.Step) {
+	for i, x := range p.Chain.Steps {
+		if x.ID == id {
+			out := append([]*chain.Step{}, p.Chain.Steps[:i]...)
+			out = append(out, steps...)
+			p.Chain.Steps = append(out, p.Chain.Steps[i:]...)
+			return
+		}
+	}
+	p.Chain.Steps = append(p.Chain.Steps, steps...)
+}
+
+func (p *Plan) otherParent(lib *Library, t *listTarget, scope listScope) []string {
+	noun := strings.TrimPrefix(scope.parent.ID, "create_")
+	parent := copyStep(scope.parent, p.freeStepID(scope.parent.ID+"_other"))
+	parent.Export = nil
+	parent.Description = fmt.Sprintf("another %s, whose items %s must not list.", noun, t.step.ID)
+	p.freshen(lib, parent)
+	renameStepRefs(parent, scope.parent.ID, parent.ID)
+	item := copyStep(t.producers[0], p.freeStepID(t.producers[0].ID+"_other_"+noun))
+	item.Export = nil
+	item.Description = fmt.Sprintf("an item of %s, not of %s, so %s must not list it.", parent.ID, scope.parent.ID, t.step.ID)
+	p.freshen(lib, item)
+	renameStepRefs(item, scope.parent.ID, parent.ID)
+	renameStepRefs(item, t.producers[0].ID, item.ID)
+	p.insertBefore(t.step.ID, parent, item)
+	return []string{fmt.Sprintf("%s, which belongs to %s (another %s)", item.ID, parent.ID, noun)}
+}
+
+func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []string {
+	first := t.producers[0]
+	said := []string{}
+	inside := copyStep(first, p.freeStepID(first.ID+"_prefix_inside"))
+	inside.Export = nil
+	inside.Body[scope.target] = "x-" + scope.prefix
+	renameStepRefs(inside, first.ID, inside.ID)
+	inside.Description = fmt.Sprintf("its %s contains the %s %q but does not start with it, so %s must not list it.", scope.target, scope.prefixKey, scope.prefix, t.step.ID)
+	added := []*chain.Step{inside}
+	said = append(said, fmt.Sprintf("%s (%s contains the prefix, not at the start)", inside.ID, scope.target))
+	text := ""
+	if c, ok := lib.Get(canonicalCall(p.cat, t.step.Call)); ok {
+		if fc := c.Fields[scope.prefixKey]; fc != nil {
+			text += fc.Note + " "
+		}
+		text += c.Summary + " "
+	}
+	if c, ok := lib.Get(canonicalCall(p.cat, first.Call)); ok {
+		if fc := c.Fields[scope.target]; fc != nil {
+			text += fc.Note
+		}
+	}
+	swapped := swapLiteralCase(scope.prefix)
+	switch {
+	case !caseSensitive.MatchString(text) || caseIgnored.MatchString(text):
+		p.note("step %s: the contracts do not say %s is compared case-sensitively, so no fixture with the prefix in "+
+			"another letter case was planned; say \"case-sensitive\" in the note of %s or %s to have one", t.step.ID, scope.target, scope.prefixKey, scope.target)
+	case swapped == scope.prefix:
+		p.note("step %s: the prefix %q has no letters outside references, so no case variant could be built", t.step.ID, scope.prefix)
+	default:
+		cased := copyStep(first, p.freeStepID(first.ID+"_prefix_case"))
+		cased.Export = nil
+		cased.Body[scope.target] = swapped + "-case"
+		renameStepRefs(cased, first.ID, cased.ID)
+		cased.Description = fmt.Sprintf("its %s starts with the %s in another letter case; the comparison is case-sensitive, so %s must not list it.", scope.target, scope.prefixKey, t.step.ID)
+		added = append(added, cased)
+		said = append(said, fmt.Sprintf("%s (the prefix in another case)", cased.ID))
+	}
+	p.insertBefore(t.step.ID, added...)
+	return said
+}
+
+type transition struct {
+	method   *catalog.Method
+	contract *RPCContract
+	field    string
+	value    string
+}
+
+func enumShort(values []string) map[string]string {
+	out := map[string]string{}
+	prefix := ""
+	if len(values) > 1 {
+		prefix = values[0]
+		for _, v := range values[1:] {
+			for !strings.HasPrefix(v, prefix) {
+				prefix = prefix[:len(prefix)-1]
+			}
+		}
+		if i := strings.LastIndex(prefix, "_"); i >= 0 {
+			prefix = prefix[:i+1]
+		} else {
+			prefix = ""
+		}
+	}
+	for _, v := range values {
+		out[v] = strings.TrimPrefix(v, prefix)
+	}
+	return out
+}
+
+func stateIn(texts []string, values []string, short map[string]string) string {
+	for _, text := range texts {
+		if text == "" {
+			continue
+		}
+		for _, m := range toState.FindAllStringSubmatch(text, -1) {
+			for _, v := range values {
+				if strings.EqualFold(m[1], short[v]) || m[1] == v {
+					return v
+				}
+			}
+		}
+		last, at := "", -1
+		for _, v := range values {
+			re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(short[v]) + `\b`)
+			if loc := re.FindAllStringIndex(text, -1); len(loc) > 0 && loc[len(loc)-1][0] > at {
+				last, at = v, loc[len(loc)-1][0]
+			}
+		}
+		if last != "" {
+			return last
+		}
+	}
+	return ""
+}
+
+func (p *Plan) filterByState(lib *Library, t *listTarget) {
+	lm, err := p.cat.Lookup(t.step.Call)
+	if err != nil {
+		return
+	}
+	list := repeatedMessageField(lm)
+	if list == nil {
+		return
+	}
+	var filter, stateField *catalog.Field
+	for _, rf := range catalog.DescribeMessage(lm.Input()).Fields {
+		if len(rf.EnumValues) == 0 || rf.Repeated {
+			continue
+		}
+		for _, item := range list.Fields {
+			if len(item.EnumValues) > 0 && !item.Repeated && sameValues(item.EnumValues, rf.EnumValues) {
+				filter, stateField = rf, item
+			}
+		}
+	}
+	if filter == nil {
+		return
+	}
+	filterKey, ok := namecase.LookupKey(t.step.Body, filter.Name)
+	if !ok {
+		filterKey = filter.Name
+	}
+	values := filter.EnumValues[1:]
+	short := enumShort(filter.EnumValues)
+	first := t.producers[0]
+	initial := ""
+	if c, ok := lib.Get(canonicalCall(p.cat, first.Call)); ok {
+		initial = stateIn([]string{c.Exports[t.carrier], c.Summary}, values, short)
+	}
+	transitions := p.transitionsFor(lib, t, first, values, short, initial)
+	states := map[string][]*chain.Step{}
+	order := []string{}
+	if initial != "" {
+		order = append(order, initial)
+	}
+	added := []*chain.Step{}
+	for i, prod := range t.producers {
+		if i == 0 || i-1 >= len(transitions) {
+			if initial != "" {
+				states[initial] = append(states[initial], prod)
+			}
+			continue
+		}
+		tr := transitions[i-1]
+		suffix := strings.TrimPrefix(prod.ID, first.ID)
+		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
+		setBodyPath(body, tr.field, "${"+prod.ID+"."+t.carrier+"."+t.itemID+"}")
+		step := &chain.Step{
+			ID:          p.freeStepID(defaultID(tr.method.Name) + suffix),
+			Description: fmt.Sprintf("moves %s to %s, so the fixtures sit in different states for the filtered lists.", prod.ID, short[tr.value]),
+			Call:        tr.method.FullName,
+			Auth:        tr.contract.Auth,
+			Body:        body,
+			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: t.carrier + "." + stateField.Name, Equals: tr.value}),
+		}
+		added = append(added, step)
+		states[tr.value] = append(states[tr.value], prod)
+		order = append(order, tr.value)
+	}
+	creation := false
+	if c, ok := lib.Get(canonicalCall(p.cat, t.step.Call)); ok {
+		key, desc, stated := stateOrder(c, t.listPath)
+		creation = stated && !desc && creationWord.MatchString(key)
+	}
+	ids := []string{}
+	for _, v := range order {
+		matching := states[v]
+		if len(matching) == 0 {
+			continue
+		}
+		filtered := copyStep(t.step, p.freeStepID(t.step.ID+"_"+strings.ToLower(short[v])))
+		filtered.Export = nil
+		filtered.Body[filterKey] = v
+		filtered.Description = fmt.Sprintf("filtered to %s: only %s, and nothing else of the scope.", short[v], stepIDList(matching))
+		filtered.Expect = SuccessExpectation(lm)
+		for i, prod := range matching {
+			if creation || len(matching) == 1 {
+				filtered.Expect = append(filtered.Expect, chain.Expectation{
+					Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"})
+			}
+			filtered.Expect = append(filtered.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField.Name), Equals: v})
+		}
+		filtered.Expect = append(filtered.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(matching)), Exists: boolPtr(false)})
+		added = append(added, filtered)
+		ids = append(ids, filtered.ID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	at := t.step.ID
+	for _, s := range added {
+		p.insertAfter(at, s)
+		at = s.ID
+	}
+	unreached := []string{}
+	for _, v := range values {
+		if len(states[v]) == 0 {
+			unreached = append(unreached, v)
+		}
+	}
+	msg := fmt.Sprintf("step %s: %s filters on %s; after it, the fixtures are moved into different states and %s each assert only "+
+		"the fixtures in that state come back, so a filter that is ignored or matches the wrong value fails", t.step.ID, shortRPC(t.step.Call),
+		filter.Name, strings.Join(ids, ", "))
+	if len(unreached) > 0 {
+		msg += fmt.Sprintf(". No producer in the contracts reaches %s (a write whose response carries the %s and whose summary or "+
+			"exports name the state it leaves it in), so the filter on it is not probed", strings.Join(unreached, ", "), t.carrier)
+	}
+	p.note("%s", msg)
+}
+
+func stepIDList(steps []*chain.Step) string {
+	ids := []string{}
+	for _, s := range steps {
+		ids = append(ids, s.ID)
+	}
+	return strings.Join(ids, ", ")
+}
+
+func sameValues(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step, values []string, short map[string]string, initial string) []transition {
+	pm, err := p.cat.Lookup(producer.Call)
+	if err != nil {
+		return nil
+	}
+	idPath := t.carrier + "." + t.itemID
+	out := []transition{}
+	seen := map[string]bool{initial: true}
+	rpcs := lib.RPCs()
+	sort.Strings(rpcs)
+	for _, rpc := range rpcs {
+		if chain.IsReadOnlyCall(rpc) || rpc == pm.FullName {
+			continue
+		}
+		m, err := p.cat.Lookup(rpc)
+		if err != nil || m.Streaming() {
+			continue
+		}
+		carrier := carrierField(m, t.itemMsg)
+		if carrier == "" {
+			continue
+		}
+		c, _ := lib.Get(rpc)
+		field := ""
+		for _, name := range sortedFieldNames(c.Fields) {
+			if ref, err := ParseRef(c.Fields[name].From); err == nil && canonicalCall(p.cat, ref.RPC) == pm.FullName && ref.Path == idPath {
+				field = name
+			}
+		}
+		if field == "" {
+			continue
+		}
+		value := stateIn([]string{c.Exports[carrier], c.Summary}, values, short)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, transition{method: m, contract: c, field: field, value: value})
+	}
+	return out
+}

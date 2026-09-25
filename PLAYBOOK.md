@@ -346,6 +346,22 @@ than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
 `<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
 refused write changed nothing.
 
+A list filter is tested by what it leaves out. For a list target the plan works out its scope: a
+request field holding a reference to a step that every fixture also reads is a parent (`id_customer`
+of `ListOrders`), a field named `...prefix` is a prefix. For a parent it adds another one
+(`create_customer_other`, unique fields changed) with an item of its own (`create_order_other_customer`);
+for a prefix, an item whose field contains the prefix not at the start (`x-sku-…`,
+`create_product_prefix_inside`) and, when the list's or the field's contract says `case-sensitive`
+or `exactly as sent`, one starting with it in another letter case (`create_product_prefix_case`).
+The list asserts its exact count, so letting any of them through fails. When the list request has
+an enum field whose values are those of an enum field of the items (`ListOrdersRequest.status`,
+`Order.status`), the plan finds the writes whose contract takes an item's id (`from:
+CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in
+(`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
+list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
+only the fixtures in that state come back: by id when the contract states creation order or one
+matches, their status always, and the count. A note names states no write reaches.
+
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by

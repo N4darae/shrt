@@ -1342,6 +1342,20 @@ the stored price, and no step sent a value at or below the stated minimum.
 `_below_min` probes where the contract states a minimum. Quantities grow by one, inside repeated
 items too, so three list fixtures are no longer the same order three times.
 
+## 50. A status filter that was ignored, green in the planned chain
+
+**Symptom.** ListOrders returned every order of the customer whatever `status` asked for. The planned
+chain sent `ORDER_STATUS_UNSPECIFIED` over three identical PENDING orders and passed.
+
+**Cause.** Every fixture was in the same state and the filter was never set, so a filter that did
+nothing could not be told from one that worked. Nothing outside the scope existed either: no other
+customer's order, no sku containing the prefix elsewhere.
+
+**Fix.** 2026-09-25: `contract plan` moves fixtures into each state a contracted write reaches and
+adds a filtered list per state, adds out-of-scope items (another parent's, a prefix inside or in
+another case) that the list, asserting its count, must not show. In the lab this found a baseline
+that ignores the filter.
+
 ---
 
 # Decisions, so they are not relitigated

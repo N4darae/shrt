@@ -119,6 +119,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	}
 	p.discriminateListOrder(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeUniqueness(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeListFilters(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
