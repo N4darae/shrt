@@ -424,17 +424,15 @@ step returns something else than in the last run that failed as pinned, or the d
 **One real defect in a long chain: keep it red in a slice, confirm the rest:**
 
 ```bash
-shrt run billing -keep-going
-shrt chain slice billing -step <failed step> -kept-red -verify -run latest \
-    -write billing-defect-red
-shrt chain slice billing -without failed -run latest -write .shrt/chains/billing.yaml
+shrt chain pin billing               # the failing steps kept red in a verified slice, billing without them
 shrt run billing                     # green: propose and approve it
 ```
 
-`-kept-red=<id,...>` pins further steps the same defect fails. `-without failed` drops every step
-that failed and every step reading one; its count is what the file holds, not steps known to pass.
-Writing the rest under another name leaves the red chain in the gate. Remove the red slice and plan
-again once the defect is fixed.
+`chain pin` runs the chain with `-keep-going` first when its latest run did not reach every step,
+and refuses when the slice does not reproduce or a FINDING or intermittent failure explains the red.
+By hand: `chain slice <c> -step <id> -kept-red=<id,...> -verify -write`, then `chain slice <c>
+-without failed -write .shrt/chains/<c>.yaml`. Remove the red slice and plan again once the defect
+is fixed.
 
 **No safe spot yet: `shrt diff`.**
 

@@ -451,22 +451,10 @@ func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
 	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
 		return ""
 	}
-	steps := []string{}
-	for _, st := range rec.Steps {
-		if st == nil || st.Status != runner.StatusFailed {
-			continue
-		}
-		for _, x := range st.Expect {
-			if !x.Passed && x.Rule != "unevaluated" {
-				steps = append(steps, st.ID)
-				break
-			}
-		}
-	}
-	if len(steps) == 0 {
+	if len(expectationFailures(rec)) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("pin it: shrt chain slice %s -step %s -kept-red=%s -verify -write", ref, steps[0], strings.Join(steps, ","))
+	return "pin it: shrt chain pin " + ref
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {

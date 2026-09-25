@@ -507,7 +507,7 @@ run 'shrt <command> -h' for command flags
 | group | subcommands |
 |---|---|
 | `shrt catalog` | `<build\|ls\|describe> [flags]` |
-| `shrt chain` | `<new\|ls\|which\|lint\|slice\|hollow> [flags]` |
+| `shrt chain` | `<new\|ls\|which\|lint\|slice\|pin\|hollow> [flags]` |
 | `shrt contract` | `<init\|lint\|show\|plan\|status\|quality> [flags]` |
 
 Every command prints its flags and exit codes with `-h`. A run id is accepted with or without `.json`.

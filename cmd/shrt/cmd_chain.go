@@ -31,6 +31,7 @@ var chainGroup = group{
 		{"which", "which chains exercise an rpc or assert a failure code"},
 		{"lint", "static validation against the catalog"},
 		{"slice", "the minimal ordered sub-chain that reproduces one step"},
+		{"pin", "keep a red chain's failures red in a slice and run the rest green"},
 		{"hollow", "read steps that passed while the response carried nothing"},
 	},
 }
@@ -54,6 +55,8 @@ func runChain(ctx context.Context, args []string) error {
 		return chainLint(args[1:])
 	case "slice":
 		return chainSlice(ctx, args[1:])
+	case "pin":
+		return chainPin(ctx, args[1:])
 	case "hollow":
 		return chainHollow(args[1:])
 	default:

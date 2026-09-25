@@ -356,9 +356,8 @@ run that failed as pinned. **Fix.** Treat it as a regression; re-pin with the sl
 
 ## 58. One real defect keeps a long chain from a safe spot
 
-**Fix.** Keep the defect red in a slice of its own and confirm the rest (`PLAYBOOK.md` §9):
-`chain slice <c> -step <id> -kept-red -verify`, then `chain slice <c> -without failed -write
-.shrt/chains/<c>.yaml`. Writing the rest under another name leaves the red chain in the gate.
+**Fix.** `shrt chain pin <c>` keeps the defect red in a slice of its own; confirm the rest
+(`PLAYBOOK.md` §9).
 
 ---
 
