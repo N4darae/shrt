@@ -86,9 +86,13 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 }
 
 func reloginChain(r transport.TokenRefusal) []time.Time {
+	window := reloginWindow
+	if !r.IssuedAt.IsZero() && r.ExpiresAt.After(r.IssuedAt) {
+		window = max(window, r.ExpiresAt.Sub(r.IssuedAt))
+	}
 	at := r.RefusedAt
 	for i := len(r.Relogins) - 1; i >= 0; i-- {
-		if at.Sub(r.Relogins[i]) > reloginWindow {
+		if at.Sub(r.Relogins[i]) > window {
 			return r.Relogins[i+1:]
 		}
 		at = r.Relogins[i]
