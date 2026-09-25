@@ -2276,6 +2276,17 @@ beside the source chain, which stayed in `.shrt/chains/` and still failed every 
 **Fix.** 2026-09-25: the line prints `-write .shrt/chains/<chain>.yaml`, which replaces the source
 chain itself, and says that another name leaves the red chain in the gate unless it is moved out.
 
+## 110. `slice -verify -run latest` sliced from a `verify` replay instead of the gate's run
+
+**Symptom.** In a gate that runs every chain and then `verify`s those with a safe spot, the newest
+record of a chain is often `verify`'s replay. `slice -verify -run latest` took it as the source run
+without saying so, though the run the gate reported red was the `shrt run` record before it.
+
+**Fix.** 2026-09-25: `-run latest` (with `-mode pin`, `-verify`, `-kept-red` and `-without failed`)
+prefers the newest `shrt run` record, prints a note naming the replay it passed over and the
+`-run <id>` that uses it, and uses a replay only when no run record reached the step, saying
+`(a shrt verify replay)` on the verdict line (`source_replay_of` under `-json`).
+
 ---
 
 # Decisions, so they are not relitigated

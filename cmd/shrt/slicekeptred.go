@@ -141,6 +141,13 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		if err != nil {
 			return err
 		}
+		if runID == "latest" && rec.ReplayOf != "" {
+			if own, _ := newestRecordReaching(e, c.Name, "", "", false); own != nil {
+				fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay, passed over: pass -run %s to use it\n",
+					own.RunID, c.Name, rec.RunID, rec.RunID)
+				rec = own
+			}
+		}
 		fromRun = rec.RunID
 		failed := failedSteps(rec)
 		if len(failed) == 0 {

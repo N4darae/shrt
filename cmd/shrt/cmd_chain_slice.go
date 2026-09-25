@@ -695,6 +695,7 @@ type sliceVerdict struct {
 	Recorded       string            `json:"verdict_written_to,omitempty"`
 	OutsideState   []string          `json:"outside_state,omitempty"`
 	ByDistance     []string          `json:"compared_by_distance,omitempty"`
+	SourceReplay   string            `json:"source_replay_of,omitempty"`
 }
 
 type stepList []string
@@ -757,10 +758,14 @@ func (v *sliceVerdict) text() string {
 	if slice == "" {
 		slice = "none"
 	}
+	source := v.SourceRun
+	if v.SourceReplay != "" {
+		source += " (a shrt verify replay)"
+	}
 	if v.Repeat > 1 {
-		fmt.Fprintf(&b, "verify %s: step %s, source run %s, %d slice runs, details from slice run %s", head, v.Step, v.SourceRun, v.Repeat, slice)
+		fmt.Fprintf(&b, "verify %s: step %s, source run %s, %d slice runs, details from slice run %s", head, v.Step, source, v.Repeat, slice)
 	} else {
-		fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s", head, v.Step, v.SourceRun, slice)
+		fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s", head, v.Step, source, slice)
 	}
 	if v.Build != "" {
 		fmt.Fprintf(&b, " on build %s", v.Build)
@@ -897,6 +902,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		Step:         res.Target,
 		EnvelopePath: chain.EnvelopePath(),
 		SourceRun:    rec.RunID,
+		SourceReplay: rec.ReplayOf,
 		Source:       verdictOf(source),
 	}
 	didNotRun := func(reason string) (*sliceVerdict, error) {
@@ -1568,6 +1574,14 @@ func reachedStep(rec *runner.Record, step string) (bool, string) {
 }
 
 func newestRunReaching(e *env, chainName, step, skip string) (*runner.Record, error) {
+	rec, err := newestRecordReaching(e, chainName, step, skip, false)
+	if rec != nil || err != nil {
+		return rec, err
+	}
+	return newestRecordReaching(e, chainName, step, skip, true)
+}
+
+func newestRecordReaching(e *env, chainName, step, skip string, replays bool) (*runner.Record, error) {
 	ids, err := e.store.ListRuns(chainName)
 	if err != nil {
 		return nil, err
@@ -1577,10 +1591,10 @@ func newestRunReaching(e *env, chainName, step, skip string) (*runner.Record, er
 			continue
 		}
 		rec, err := e.store.LoadRun(chainName, ids[i])
-		if err != nil {
+		if err != nil || (rec.ReplayOf != "") != replays {
 			continue
 		}
-		if ok, _ := reachedStep(rec, step); ok {
+		if ok, _ := reachedStep(rec, step); ok || step == "" {
 			return rec, nil
 		}
 	}
@@ -1593,11 +1607,11 @@ func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record
 		if err != nil {
 			return nil, err
 		}
-		if ok, _ := reachedStep(latest, step); ok {
+		reached, why := reachedStep(latest, step)
+		if reached && latest.ReplayOf == "" {
 			return latest, nil
 		}
-		_, why := reachedStep(latest, step)
-		rec, err := newestRunReaching(e, chainName, step, latest.RunID)
+		rec, err := newestRunReaching(e, chainName, step, "")
 		if err != nil {
 			return nil, err
 		}
@@ -1605,8 +1619,7 @@ func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record
 			return nil, fmt.Errorf("no recorded run of %s reached step %q (the newest, %s, stopped before it: %s), so there is no value to pin and no verdict to compare.\n"+
 				"Run the chain until it reaches the step: shrt run %s", chainName, step, latest.RunID, why, ref)
 		}
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest run of %s that reached step %s; the newest run, %s, did not (%s)\n",
-			rec.RunID, chainName, step, latest.RunID, why)
+		fmt.Fprintf(os.Stderr, "note: %s\n", latestPickNote(chainName, step, rec, latest, reached, why))
 		return rec, nil
 	}
 	rec, err := e.store.LoadRun(chainName, runID)
@@ -1626,6 +1639,23 @@ func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record
 		return nil, fmt.Errorf("%s, and no recorded run of %s reached it.\nRun the chain until it reaches the step: shrt run %s", msg, chainName, ref)
 	}
 	return nil, fmt.Errorf("%s.\nRun %s did: pass -run %s (or -run latest, which picks the newest run that reached the step)", msg, other.RunID, other.RunID)
+}
+
+func latestPickNote(chainName, step string, rec, latest *runner.Record, reached bool, why string) string {
+	picked := fmt.Sprintf("-run latest is run %s, the newest `shrt run` record of %s that reached step %s", rec.RunID, chainName, step)
+	if rec.ReplayOf != "" {
+		picked = fmt.Sprintf("-run latest is run %s, a `shrt verify` replay of %s: no `shrt run` record of it reached step %s", rec.RunID, chainName, step)
+	}
+	if rec.RunID == latest.RunID {
+		return picked
+	}
+	switch {
+	case latest.ReplayOf != "" && reached:
+		return fmt.Sprintf("%s; the newest record, %s, is a `shrt verify` replay (of safe spot run %s), passed over since the chain's own runs are the source a slice reproduces: pass -run %s to slice from it", picked, latest.RunID, latest.ReplayOf, latest.RunID)
+	case latest.ReplayOf != "":
+		return fmt.Sprintf("%s; the newest record, %s, a `shrt verify` replay, did not reach it (%s)", picked, latest.RunID, why)
+	}
+	return fmt.Sprintf("%s; the newest run, %s, did not (%s)", picked, latest.RunID, why)
 }
 
 func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Record, supplied varFlags) error {
