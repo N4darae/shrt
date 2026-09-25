@@ -256,6 +256,7 @@ func TestAReloginTokenAcceptedFromTheCacheIsAnOrdinaryCachedTokenAgain(t *testin
 	captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
 	restart()
 	captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
+	time.Sleep(200 * time.Millisecond)
 	captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
 	if err != nil {
 		t.Fatalf("the re-login's token is accepted from the cache: %v", err)
