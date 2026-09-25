@@ -56,6 +56,9 @@ func detectSessionLoss(rec *runner.Record) *sessionLoss {
 		if profile == "" || profile == runner.NoAuthProfile {
 			continue
 		}
+		if st.AuthRetry != "" && runner.RefusedFreshToken(st) {
+			return nil
+		}
 		if st.AuthRetry != "" && accepted[profile] {
 			return &sessionLoss{step: st, index: i, passed: rec.Passed() && resentAccepted(st)}
 		}

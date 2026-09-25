@@ -43,7 +43,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     used, so something else created the record (fixture collision: re-run with a fresh -var);\n" +
 	"     or the backend refused a\n" +
 	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
-	"     backend refused a token a login in this run had just issued, on its first use, the\n" +
+	"     backend refused a token a login in this run had just issued, on its first use (a read re-sent\n" +
+	"     after a fresh login and refused again counts, and is not called a restart), the\n" +
 	"     credentials work and it says this may be an auth regression (exit 1 as a finding when the\n" +
 	"     previous run that sent that step was refused there the same way); or the first failing step\n" +
 	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
@@ -211,7 +212,7 @@ func runVerify(ctx context.Context, args []string) error {
 		protoViolation(ctx, e, driftWhy)
 	independent := independentOfDrift(c, rec, report, driftStep, driftAt)
 	var nonBackend error
-	headline := ""
+	headline, notVerdict := "", "this is not a verdict about the backend"
 	switch {
 	case loss.finding():
 	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
@@ -226,6 +227,10 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", unansweredStep)
 		case strings.Contains(unansweredWhy, "a gateway answered for the service"):
 			headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", unansweredStep)
+		case strings.HasPrefix(unansweredWhy, "the backend refused authentication") && refusedFreshAt(rec, unansweredStep):
+			headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
+				"so the credentials work: this may be an auth regression", unansweredStep)
+			notVerdict = "re-run to confirm: a repeat at the same step is a finding"
 		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
@@ -252,7 +257,7 @@ func runVerify(ctx context.Context, args []string) error {
 	} else {
 		fmt.Println()
 		if nonBackend != nil {
-			fmt.Printf("could not verify %s: %s; this is not a verdict about the backend (why below)\n", name, headline)
+			fmt.Printf("could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
 		}
 		if olderSpot != "" {
 			fmt.Println(olderSpot)
@@ -904,6 +909,11 @@ func timedOutStep(rec *runner.Record) string {
 		}
 	}
 	return ""
+}
+
+func refusedFreshAt(rec *runner.Record, step string) bool {
+	st, ok := rec.Step(step)
+	return ok && runner.RefusedFreshToken(st)
 }
 
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
