@@ -46,6 +46,9 @@ type RunReport struct {
 	VarChanges        []VarChange  `json:"var_changes,omitempty"`
 	FirstFailureA     string       `json:"first_failure_a,omitempty"`
 	FirstFailureB     string       `json:"first_failure_b,omitempty"`
+	FailingA          []string     `json:"failing_a,omitempty"`
+	FailingB          []string     `json:"failing_b,omitempty"`
+	FailingAlike      bool         `json:"failing_alike,omitempty"`
 	StatusChanges     []StepStatus `json:"status_changes,omitempty"`
 	NoLongerReached   []string     `json:"no_longer_reached,omitempty"`
 	NewlyReached      []string     `json:"newly_reached,omitempty"`
@@ -104,6 +107,17 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
 		winA: recordWindow(a), winB: recordWindow(b),
+	}
+	if rep.FirstFailureA != "" && rep.FirstFailureA == rep.FirstFailureB {
+		sa, _ := a.Step(rep.FirstFailureA)
+		sb, _ := b.Step(rep.FirstFailureB)
+		rep.FailingA, rep.FailingB = failingLines(sa), failingLines(sb)
+		rep.FailingAlike = len(rep.FailingA) == len(rep.FailingB)
+		for i := range rep.FailingA {
+			if rep.FailingAlike && maskVarValues(a.Vars, rep.FailingA[i]) != maskVarValues(b.Vars, rep.FailingB[i]) {
+				rep.FailingAlike = false
+			}
+		}
 	}
 	if !config.SameTarget(a.Target, b.Target) {
 		rep.TargetA, rep.TargetB = a.Target, b.Target
@@ -509,7 +523,23 @@ func (r *RunReport) Text() string {
 	if r.FirstFailureA != r.FirstFailureB {
 		fmt.Fprintf(&b, "\nfirst failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
 	} else if r.FirstFailureA != "" {
-		fmt.Fprintf(&b, "\nfirst failing step unchanged: %s\n", r.FirstFailureA)
+		how := ""
+		switch {
+		case len(r.FailingA) == 0 && len(r.FailingB) == 0:
+		case r.FailingAlike && strings.Join(r.FailingA, "\n") == strings.Join(r.FailingB, "\n"):
+			how = ", failing the same way in both"
+		case r.FailingAlike:
+			how = ", failing the same way in both: the values differ only by the fixture name each run sent"
+		default:
+			how = ", failing differently"
+		}
+		fmt.Fprintf(&b, "\nfirst failing step unchanged: %s%s\n", r.FirstFailureA, how)
+		for _, line := range r.FailingA {
+			fmt.Fprintf(&b, "  A: %s\n", line)
+		}
+		for _, line := range r.FailingB {
+			fmt.Fprintf(&b, "  B: %s\n", line)
+		}
 	}
 	if len(r.StatusChanges) > 0 {
 		b.WriteString("\nstep status changes (A -> B):\n")
@@ -676,4 +706,39 @@ func sentWithoutAnswer(msg string) string {
 		return transport.ClosedAfterSending
 	}
 	return ""
+}
+
+func failingLines(s *runner.StepRecord) []string {
+	if s == nil {
+		return nil
+	}
+	out := []string{}
+	for _, e := range s.Expect {
+		if e.Passed || e.Rule == "unevaluated" {
+			continue
+		}
+		out = append(out, fmt.Sprintf("%s %s want=%v got=%v", e.Path, e.Rule, e.Want, e.Got))
+	}
+	if len(out) == 0 {
+		if s.Transport != nil {
+			out = append(out, fmt.Sprintf("transport %s: %s", s.Transport.Code, s.Transport.Message))
+		} else if s.Error != "" {
+			out = append(out, firstLineOf(s.Error))
+		}
+	}
+	return out
+}
+
+func maskVarValues(vars map[string]any, text string) string {
+	names := make([]string, 0, len(vars))
+	for name, v := range vars {
+		if value := fmt.Sprint(v); len(value) >= minFixtureEcho && value != pathmask.MaskRedacted {
+			names = append(names, name)
+		}
+	}
+	sort.Slice(names, func(i, j int) bool { return len(fmt.Sprint(vars[names[i]])) > len(fmt.Sprint(vars[names[j]])) })
+	for _, name := range names {
+		text = strings.ReplaceAll(text, fmt.Sprint(vars[name]), "${vars."+name+"}")
+	}
+	return text
 }
