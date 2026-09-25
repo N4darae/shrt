@@ -1098,6 +1098,10 @@ The `shrt confirm` summary table clipped values mid-word and mid-id: `order is a
 inside an id (`prd-3b0…`). A value is now clipped at word boundaries (`order is … confirmed`), an
 email keeps its `@domain` whole (`cust-pre2-…@example.test`), an id keeps its tail segments, and a
 cell that is too long ends at the last whole word or id segment before the `…`.
+Even clipped cleanly, the asserted and answered cells still showed `customer.name=Customer …` and
+`also baselined: product.sku=sku-…9bbef9cfb102` while the sent column showed the full value, so the
+approver could not see what they were approving. Since 2026-09-25 every asserted and answered value
+is shown in full; only the sent column's id-shaped references are still abbreviated.
 
 `shrt chain lint` printed `ok` for a clean chain and nothing at all in the status column of a
 chain with issues, so a chain with only warnings looked like neither a pass nor a failure. The

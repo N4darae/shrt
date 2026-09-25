@@ -47,10 +47,13 @@ func TestProposalSummaryShowsPerItemOutcomeSentAndReadableAssertions(t *testing.
 		t.Fatalf("the sent column must excerpt the request:\n%s", text)
 	}
 	if !strings.Contains(text, "results.1.status.details.0.app_code equals 1203") {
-		t.Fatalf("a long value must be abbreviated without cutting later assertions:\n%s", text)
+		t.Fatalf("a long value must not cut later assertions:\n%s", text)
 	}
-	if strings.Contains(text, strings.Repeat("x", 30)) {
-		t.Fatalf("a long asserted value must be abbreviated:\n%s", text)
+	if !strings.Contains(text, "results.0.note equals "+strings.Repeat("x", 200)+";") {
+		t.Fatalf("an asserted value is what the approver approves, so it is shown in full, like the sent column:\n%s", text)
+	}
+	if strings.Contains(text, "…") {
+		t.Fatalf("no asserted or answered value is clipped:\n%s", text)
 	}
 	if rows := strings.Count(text, "\n| 1 |"); rows != 1 {
 		t.Fatalf("the table must keep one row per step, got %d:\n%s", rows, text)

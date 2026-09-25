@@ -818,14 +818,16 @@ what the backend answered (for a batch, with the per-item verdicts `conventions.
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
 uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them, abbreviated;
 a literal input is shown in full whatever its length (`email=cust-order-confirm@example.test`), so a
-fixture built from a long tag reads the same as one from a short tag; the answered
+fixture built from a long tag reads the same as one from a short tag; the asserted cell shows every
+expectation with its value in full (`customer.name equals Customer for order-confirm`); the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300
 order.lines.0.qty=1`), leaving out ids, timestamps, everything under a volatile path (a step's
 `volatile: [products]` leaves out the whole list), empty strings and values echoing a var, and
 showing a list the step declares `unordered` as one entry (`products=3 item(s) in any order`), since
-verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; read
+verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; every
+value in the answered cell is shown in full, never clipped, since it is what the approver signs; read
 those too, since approving signs them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine

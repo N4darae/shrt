@@ -430,9 +430,7 @@ func replacedSummary(all []Differ, step string) string {
 
 const (
 	summaryCell   = 90
-	answeredCell  = 160
 	summaryValue  = 24
-	assertedCell  = 320
 	sentFieldsMax = 6
 
 	alsoBaselinedMax = 4
@@ -678,44 +676,22 @@ func assertedSummary(st *runner.StepRecord) string {
 	for _, e := range st.Expect {
 		part := e.Path + " " + e.Rule
 		if e.Want != nil {
-			part += " " + shortValue(e.Want)
+			part += " " + fullValue(e.Want)
 		}
 		parts = append(parts, flat(part))
 	}
-	out := ""
-	for i, part := range parts {
-		next := part
-		if i > 0 {
-			next = out + "; " + part
-		}
-		if i > 0 && len([]rune(next)) > assertedCell {
-			return out + fmt.Sprintf("; +%d more", len(parts)-i)
-		}
-		out = next
-	}
-	return out
+	return strings.Join(parts, "; ")
 }
 
 func answeredSummary(st *runner.StepRecord) string {
 	head, pairs := answerParts(st)
-	out := clip(flat(head), answeredCell)
+	out := flat(head)
 	for i, pair := range pairs {
-		pair = flat(pair)
 		sep := " "
 		if i == 0 {
 			sep = "; "
 		}
-		rest := ""
-		if i < len(pairs)-1 {
-			rest = fmt.Sprintf(" +%d more", len(pairs)-i-1)
-		}
-		if len([]rune(out+sep+pair+rest)) > answeredCell {
-			if i == 0 {
-				return out + fmt.Sprintf("; +%d more", len(pairs))
-			}
-			return out + fmt.Sprintf(" +%d more", len(pairs)-i)
-		}
-		out += sep + pair
+		out += sep + flat(pair)
 	}
 	return out
 }
@@ -807,7 +783,7 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 			parts = append(parts, fmt.Sprintf("+%d more", len(leaves)-i))
 			break
 		}
-		parts = append(parts, l.path+"="+shortValue(l.value))
+		parts = append(parts, l.path+"="+fullValue(l.value))
 	}
 	return strings.Join(parts, " ")
 }
@@ -853,7 +829,7 @@ func assertedValues(st *runner.StepRecord, envelope string) []string {
 			parts = append(parts, e.Path+map[bool]string{true: " present", false: " absent"}[present])
 			continue
 		}
-		parts = append(parts, e.Path+"="+shortValue(e.Got))
+		parts = append(parts, e.Path+"="+fullValue(e.Got))
 	}
 	return parts
 }
