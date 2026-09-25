@@ -13,7 +13,8 @@ import (
 
 var (
 	badSecretWhen = regexp.MustCompile(`(?i)\bpassword|\bpassphrase|\bcredential|\bsecret\b|\bdoes not match\b|\bwrong\b|\bincorrect\b`)
-	unknownUser   = regexp.MustCompile(`(?i)\b(?:unknown|no such|not (?:in|found|known|registered)|does not exist)\b`)
+	unknownUser   = regexp.MustCompile(`(?i)\b(?:unknown|unregistered|non-?existent|no such|not (?:in|found|known|registered)|(?:does not|doesn't|do not|don't) exist|no (?:account|user|login|member|one)s?\b[^.;]*?\b(?:has|have|with|named|called|matches|match|uses|use|by|for)\b|no (?:account|user)s? (?:exists?|found)|(?:account|user|username|login)\b[^.;]*?\b(?:missing|absent|not on file))`)
+	unknownReason = regexp.MustCompile(`(?i)(?:unknown|nosuch|no)(?:user|account|login)|(?:user|account|login)(?:notfound|unknown|missing)`)
 	roleWord      = regexp.MustCompile(`\b[A-Z][A-Z_]{2,}\b`)
 )
 
@@ -96,10 +97,40 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 		cur, _ := st.Body[key].(string)
 		add("bad_password", key, cur+"-not-it", "the right account with a password that is not its own")
 	}
-	if key := userKey(st.Body); key != "" && unknownUser.MatchString(f.When) {
-		add("unknown_user", key, "no-such-user-shrt", "an account name no one has")
+	if key := userKey(st.Body); key != "" {
+		if uf, ok := p.unknownUserFailure(m.FullName, f); ok {
+			f = uf
+			add("unknown_user", key, "no-such-user-shrt", "an account name no one has")
+		} else {
+			p.note("step %s: no failure of the login says what an unknown account gets: %s's when: (%q) does not read as "+
+				"one (unknown, no such user, no account has this username), so no %s_unknown_user probe was planned; say it "+
+				"in the when: (\"the username is unknown\") or declare the failure an unknown account gets, and plan again",
+				st.ID, f.Label(), strings.TrimSpace(f.When), st.ID)
+		}
 	}
 	return out
+}
+
+func (p *Plan) unknownUserFailure(rpc string, cred Failure) (Failure, bool) {
+	if p.lib == nil {
+		if unknownUser.MatchString(cred.When) {
+			return cred, true
+		}
+		return Failure{}, false
+	}
+	candidates := []Failure{cred}
+	for _, f := range p.lib.AllFailures(rpc) {
+		if isUnauthenticated(f) || f.Unreachable != "" || f.ConnectCode == invalidArgCode || f.Label() == cred.Label() {
+			continue
+		}
+		candidates = append(candidates, f)
+	}
+	for _, f := range candidates {
+		if unknownUser.MatchString(f.When) || unknownReason.MatchString(namecase.Fold(f.Reason)) {
+			return f, true
+		}
+	}
+	return Failure{}, false
 }
 
 func roleField(m *catalog.Method) string {

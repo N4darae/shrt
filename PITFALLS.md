@@ -2350,6 +2350,146 @@ order them; it now reads only `started_at`. Volatile patterns are split and case
 mask, not per value, name comparison no longer allocates, and redaction skips the case-folded scan
 of an ASCII value that does not contain the secret.
 
+## 116. A confirm refused when a line asked for exactly the stock on hand
+
+**Symptom.** A `ConfirmOrder` that refused `1305 InsufficientStock` when the first line asked for
+exactly the product's stock on hand passed every planned probe: the main path asks for less, and
+the shortage probes ask for one more.
+
+**Fix.** 2026-09-25: for a write whose contract declares a shortage refusal, the plan adds
+`<step>_exact_stock` on fixtures of its own, every line asking for exactly the stock the chain added,
+expecting success and a level of 0 in the reads after it.
+
+## 117. An order total that wrapped at 32 bits
+
+**Symptom.** A `CreateOrder` that summed `total_minor` in 32 bits passed every planned chain: the
+fixtures' totals (4250, a few thousand) never reach 2^31.
+
+**Fix.** 2026-09-25: for a target with a priced total in a 64-bit field, the plan adds
+`<step>_wide_total`, one line of 3 at price 1500000000 on a product of its own, asserting the total
+is exactly 4500000000, within any maximum the contract states.
+
+## 118. A name stored trimmed while the create echoed it as sent
+
+**Symptom.** A `CreateProduct` that stored the name with surrounding spaces trimmed, while its
+response echoed the name as sent, passed every planned chain: no fixture's text has surrounding
+spaces, so trimmed and untrimmed are the same.
+
+**Fix.** 2026-09-25: a create target gets `<step>_padded_text`, its free-text fields (and text the
+contract says is not trimmed) with two spaces before and after, asserting the echo and a read-back
+equal the request. A field the contract says is trimmed or normalised is left out, and a note names it.
+
+## 119. An unfiltered planned list that drifted every run
+
+**Symptom.** `shrt confirm` of a planned `ListProducts` chain warned `N field(s) differ (5 item(s)
+-> 112 item(s))` on `list_products_empty_sku_prefix`, and the step grew with every run: the plan
+wrote it without `volatile: [products]`, which three testers added by hand.
+
+**Fix.** 2026-09-25: a planned list step whose request nothing scopes to the run (no field reads a
+var, a step or a generator) declares its list volatile. The whole list is masked rather than the
+items' fields, since a per-item mask still reports every item another run added; a lost fixture
+stays visible through the `includes:` expectations, which a volatile path does not mask: `run` and
+`verify` (also with `-quiet`) name the missing id (`products includes want={"id_product":"prd-…"}
+got=0 (none of the 0 item(s) matches)`).
+
+## 120. Tag x's second product was tag x-2's first, and the collision blamed "something else"
+
+**Symptom.** `shrt run rpc-cancel-order -var tag=rpc-cancel-order-2` after a run with the default tag
+was refused `SkuTaken` at `create_product`, and printed `fixture collision ... no recorded run of this
+chain used that value`: the plan built the second product's sku `sku-${vars.tag}-2-`, which for tag
+`rpc-cancel-order` is the first product's sku for tag `rpc-cancel-order-2`.
+
+**Fix.** 2026-09-25: an ordinal fixture puts the ordinal after the character that follows the var
+(`sku-${vars.tag}-2`, `cust-${vars.tag}@2.example.test`), so it never ends with that character and no
+tag's fixture equals another tag's; the list prefix `sku-${vars.tag}-` still matches every fixture.
+A unique value ending in the var gets a note asking for a terminator. The collision line now says
+`fixture reused` and names the run, the step and the tag of this chain that already sent the value.
+
+## 121. Token probes for the first target only
+
+**Symptom.** `shrt contract plan AddStock ListProducts GetCustomer` scaffolded
+`<step>_without_token` and `<step>_with_bad_token` for `add_stock` only, so `contract status -gaps`
+kept listing `no token` for the other two, and testers planned every rpc separately to clear it.
+
+**Fix.** 2026-09-25: every target rpc of a plan gets its own pair (an rpc named twice, through an
+alias, gets one).
+
+## 122. "no account has this username" planned no unknown-user login
+
+**Symptom.** A login whose `BadCredentials` said `when: the password is wrong, or no account has this
+username` got `login_bad_password` but no `login_unknown_user`, and nothing said why: only a `when:`
+with `unknown`, `no such` or `does not exist` was read as one.
+
+**Fix.** 2026-09-25: the recogniser also reads `no account/user ... has/with/named`, `no user
+exists`, `unregistered`, `non-existent`, `doesn't exist`, and a reason such as `UserNotFound` on
+another failure of the login; when no failure reads as one, a note quotes the `when:` it could not
+read and says how to phrase it.
+
+## 123. "adds zero stock" and "does not touch stock" stated, never asserted
+
+**Symptom.** A `CreateProduct` whose contract says `Add a product with zero stock` and a
+`CreateOrder` whose contract says `does not touch stock` were planned without an assertion of either:
+the effect model used the sentences to keep tracking levels, but asserted a level only after a write
+that moved it, so a create that started at 1 or an order that took a unit passed their own plans.
+
+**Fix.** 2026-09-25: a create target whose contract says it starts with none asserts the level 0 in
+its response and in the read right after it; a target whose contract says it leaves the level alone
+is followed by reads asserting each level it names unchanged. A note quotes the sentence each came from.
+
+## 124. Zero on the last line only, and no clerk copy of a list or of CreateCustomer
+
+**Symptom.** The shape probe for `a line's qty is zero or negative` put `qty: 0` on the second line
+only, so a backend validating only the first line passed. `ListProducts`, `ListOrders` and
+`CreateCustomer`, which every role may call, got no `_as_clerk` copy: the list's only field is
+repeated, and GetCustomer answers only text, so the plan found nothing to compare; `-gaps` did not
+say so either.
+
+**Fix.** 2026-09-25: a shape probe on a repeated item's field also puts the value on the first item
+(`<step>_<field>_<kind>_first_item`). A list every role may call is read as each other profile and
+compared item by item when its length is asserted, or by the fixtures it includes; a create whose
+reads answer only text is repeated as that profile and read back. `-gaps` lists an rpc every role
+may call that no chain calls as a profile as `no profile probe`.
+
+## 125. `contract init` left out `lines.qty`
+
+**Symptom.** `shrt contract init -all` scaffolded `lines` and `lines.id_product` for `CreateOrder`
+and `AddStockBatch`, but not `lines.qty`: only id fields inside a repeated message were scaffolded,
+so the quantity every line needs had no entry to write its value and rule into.
+
+**Fix.** 2026-09-25: every scalar field of a repeated message's items is scaffolded, and re-running
+`init` on a curated entry adds an item field it does not document yet.
+
+## 126. A note that told a stock increase to say "Reserve stock for every line"
+
+**Symptom.** An `AddStockBatch` whose `lines` note did not say `one AddStock per line` got the note
+`... state it in the summary ("Reserve stock for every line", "does not touch stock")`: neither
+example fits a write that adds stock.
+
+**Fix.** 2026-09-25: the note is written per rpc and names the wording for its effect: a note on the
+list saying `one AddStock per line` for a batch whose text says it adds, a summary `Increase ... by
+<qty>` for a single write that adds, `Reserve stock for every line` for a write on an order with
+lines, and `does not touch stock` for the rest.
+
+## 127. A loop over every chain stopped at the first chain that reads no vars
+
+**Symptom.** `for c in ...; do shrt run $c -var tag=$T; done` stopped at `login`, which reads no vars:
+`-var tag names a variable chain "login" never reads ... this chain reads no vars at all, so any -var
+is rejected`. Several testers wrapped the loop in `grep -l vars.tag` by hand.
+
+**Fix.** 2026-09-25: an unread `-var` is a `warning:` line on stderr and is left out of the run; a
+name close to a var the chain reads (`namecase` distance of at most 2, or a third of the name) is
+still refused as a likely typo, naming the var it is close to.
+
+## 128. A batch probed with a refused middle line only
+
+**Symptom.** `add_stock_batch_partial` put the only refused line in the middle, with `qty: 0`, so a
+backend that validated all but the last line, or stopped at a refused first line, passed, and no
+plan sent a line naming an unknown product although the contract declares `ProductNotFound` per line.
+
+**Fix.** 2026-09-25: the batch also gets `<step>_partial_first`, `<step>_partial_last` and, for a
+per-line not-found failure, `<step>_unknown_id_product_line`; what only a refused line names is read
+before and after and must be unchanged, and what an applied line names must be what it reported.
+
 ---
 
 # Decisions, so they are not relitigated

@@ -76,7 +76,8 @@ func TestPlanNamesWhatToDeclareWhenAContractStatesNoEffect(t *testing.T) {
 	if _, ok := p.Chain.Step("confirm_order_same_product_twice"); ok {
 		t.Fatalf("without a stated reservation there is no per-line probe")
 	}
-	if !strings.Contains(notes, "ConfirmOrder, CreateOrder touch what the plan tracks") || !strings.Contains(notes, "does not touch stock") {
+	if !strings.Contains(notes, `ConfirmOrder touches what the plan tracks`) || !strings.Contains(notes, `"Reserve stock for every line" or "does not touch stock"`) ||
+		!strings.Contains(notes, `CreateOrder touches what the plan tracks`) {
 		t.Fatalf("the plan names what to declare:\n%s", notes)
 	}
 }

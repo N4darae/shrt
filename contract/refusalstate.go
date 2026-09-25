@@ -79,22 +79,11 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 
 func (p *Plan) probeInsufficiency(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
-		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
+		if !isTarget(st) {
 			continue
 		}
-		if _, ok := lib.Get(st.Call); !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
-		for _, f := range lib.AllFailures(st.Call) {
-			if !shortReason.MatchString(f.Reason) && !shortWhen.MatchString(f.When) {
-				continue
-			}
+		if m, f, ok := p.shortageFailure(lib, st); ok {
 			p.addInsufficiencyProbe(lib, st, m, f)
-			break
 		}
 	}
 }
@@ -105,26 +94,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		name = defaultID(f.Reason)
 	}
 	expect := withoutAbsentCarrier(refusalExpectations(m, f))
-	var source *chain.Step
-	var paths []string
-	if got := quantityPaths(st.Body, catalog.DescribeMessage(m.Input()).Fields); len(got) > 0 {
-		paths = got
-	} else {
-		for _, src := range referencedSteps(st.Body) {
-			prod := p.stepByID(src)
-			if prod == nil || chain.IsReadOnlyCall(prod.Call) {
-				continue
-			}
-			pm, err := p.cat.Lookup(prod.Call)
-			if err != nil {
-				continue
-			}
-			if got := quantityPaths(prod.Body, catalog.DescribeMessage(pm.Input()).Fields); len(got) > 0 {
-				source, paths = prod, got
-				break
-			}
-		}
-	}
+	source, paths := p.shortagePaths(st, m)
 	if len(paths) == 0 {
 		p.note("step %s: the contract declares %s, but no quantity field (qty, quantity, count, amount) was found in its "+
 			"body or in a step it reads, so no refused attempt was planned: write one that asks for more than there is, "+
@@ -174,6 +144,45 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		"a second probe, on the last, since a backend checking only the first item confirms the second",
 		st.ID, strings.Join(ids, " and "), f.Label())
 	p.noteShortageQuantity(st, unknown)
+}
+
+func (p *Plan) shortagePaths(st *chain.Step, m *catalog.Method) (*chain.Step, []string) {
+	if got := quantityPaths(st.Body, catalog.DescribeMessage(m.Input()).Fields); len(got) > 0 {
+		return nil, got
+	}
+	for _, src := range referencedSteps(st.Body) {
+		prod := p.stepByID(src)
+		if prod == nil || chain.IsReadOnlyCall(prod.Call) {
+			continue
+		}
+		pm, err := p.cat.Lookup(prod.Call)
+		if err != nil {
+			continue
+		}
+		if got := quantityPaths(prod.Body, catalog.DescribeMessage(pm.Input()).Fields); len(got) > 0 {
+			return prod, got
+		}
+	}
+	return nil, nil
+}
+
+func (p *Plan) shortageFailure(lib *Library, st *chain.Step) (*catalog.Method, Failure, bool) {
+	if chain.IsReadOnlyCall(st.Call) {
+		return nil, Failure{}, false
+	}
+	if _, ok := lib.Get(st.Call); !ok {
+		return nil, Failure{}, false
+	}
+	m, err := p.cat.Lookup(st.Call)
+	if err != nil {
+		return nil, Failure{}, false
+	}
+	for _, f := range lib.AllFailures(st.Call) {
+		if shortReason.MatchString(f.Reason) || shortWhen.MatchString(f.When) {
+			return m, f, true
+		}
+	}
+	return nil, Failure{}, false
 }
 
 func (p *Plan) freshen(lib *Library, st *chain.Step) {

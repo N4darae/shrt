@@ -121,7 +121,7 @@ func distinguishFixtures(step *chain.Step, id, first string) {
 			if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
 				return t
 			}
-			return t[:loc[1]] + "-" + suffix + t[loc[1]:]
+			return markAfterVar(t, loc, suffix)
 		}
 		return v
 	}

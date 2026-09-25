@@ -28,6 +28,8 @@ type fixtureReuse struct {
 	unique []string
 	chain  string
 	unsure bool
+	sentAt string
+	sentBy []string
 }
 
 func (f *fixtureReuse) finding() bool {
@@ -75,6 +77,15 @@ func (f *fixtureReuse) line() string {
 	if f.unsure {
 		held = "and whether the call took effect is unknown (it was sent and got no answer), so the backend most likely holds " +
 			"what that run created"
+	}
+	if f.sentAt != "" {
+		by := ""
+		if len(f.sentBy) > 0 {
+			by = " with " + strings.Join(f.sentBy, ", ")
+		}
+		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
+			"and run %s of this chain already sent that value at step %q%s, %s: two tags of this chain built the same value",
+			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.sentAt, by, held)
 	}
 	if f.chain != "" {
 		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
@@ -231,6 +242,10 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	f := &fixtureReuse{step: first.ID, index: index, why: why, vars: current}
+	if run, step, by, unsure := sentByThisChain(e, rec, names, sentValues); run != "" {
+		f.run, f.sentAt, f.sentBy, f.unsure = run, step, by, unsure
+		return f
+	}
 	if other, run, unsure := usedByAnotherChain(e, rec, sentValues); run != "" {
 		f.chain, f.run, f.unsure = other, run, unsure
 		return f
@@ -520,6 +535,35 @@ func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, st
 		}
 	}
 	return "", "", false
+}
+
+func sentByThisChain(e *env, rec *runner.Record, names, values []string) (string, string, []string, bool) {
+	if len(values) == 0 {
+		return "", "", nil, false
+	}
+	ids, _ := e.store.ListRuns(rec.Chain)
+	for i := len(ids) - 1; i >= 0; i-- {
+		if ids[i] == rec.RunID {
+			continue
+		}
+		prev, err := loadRunNamedAs(e, rec, ids[i])
+		if err != nil || prev.DryRun {
+			continue
+		}
+		for _, st := range prev.Steps {
+			if !(createdStep(st) || sentUnknown(st)) || !sendsAll(st, values) {
+				continue
+			}
+			by := []string{}
+			for _, n := range names {
+				if v, ok := prev.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+					by = append(by, fmt.Sprintf("%s=%v", n, v))
+				}
+			}
+			return prev.RunID, st.ID, by, !createdStep(st)
+		}
+	}
+	return "", "", nil, false
 }
 
 func sentUnknown(st *runner.StepRecord) bool {

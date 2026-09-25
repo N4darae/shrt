@@ -558,6 +558,14 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		if s := r.byEntity[rpc]; s != nil && out == outcomeSuccess {
 			md.stockOf[st.ID] = s
 			md.level[st.ID], md.known[st.ID] = 0, p.startsEmpty(lib, rpc, s)
+			if md.known[st.ID] && p.isTargetStep(st.ID) {
+				md.dirty[st.ID] = true
+				if m, err := p.cat.Lookup(st.Call); err == nil {
+					if carrier := carrierHolding(m, s.moved); carrier != "" && md.set(st, carrier+"."+s.moved, 0) {
+						mark("zero", st.ID)
+					}
+				}
+			}
 		}
 		if out == outcomeRefused {
 			continue
@@ -615,12 +623,24 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		}
 		if touched := p.stockTouched(md, st); len(touched) > 0 {
 			if c, ok := lib.Get(rpc); ok && p.saysUntouched(c, touched, md) {
+				if out == outcomeSuccess && p.isTargetStep(st.ID) {
+					md.pending, md.waiting = st, nil
+					for _, e := range touched {
+						if md.known[e] {
+							md.dirty[e] = true
+							md.waiting = append(md.waiting, e)
+						}
+					}
+					if len(md.waiting) > 0 {
+						mark("untouched", st.ID)
+					}
+				}
 				continue
 			}
 			for _, e := range touched {
 				md.known[e] = false
 			}
-			silent[shortRPC(rpc)] = true
+			silent[rpc] = true
 		}
 	}
 	md.flush()
@@ -871,7 +891,28 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 	}
 }
 
+func (p *Plan) isTargetStep(id string) bool {
+	for _, node := range p.Targets {
+		if p.stepOf[node] == id {
+			return true
+		}
+	}
+	return false
+}
+
 func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent map[string]bool) {
+	for _, id := range asserted["zero"] {
+		st := p.stepByID(id)
+		if s := r.byEntity[canonicalCall(p.cat, st.Call)]; s != nil {
+			p.note("step %s: its contract says it starts with none (%q), so it asserts %s 0, and so does the read of it right after", id,
+				startsAtZero.FindString(p.summaryOf(st)), s.moved)
+		}
+	}
+	for _, id := range asserted["untouched"] {
+		st := p.stepByID(id)
+		p.note("step %s: its contract says it leaves the stock alone (%q), so the reads right after it assert every level "+
+			"it names unchanged: a backend that reserves or takes stock at this step fails there", id, untouchedWords.FindString(p.summaryOf(st)))
+	}
 	said := []string{}
 	called := map[string]bool{}
 	for _, st := range p.Chain.Steps {
@@ -913,17 +954,75 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
 			strings.Join(shown, ", "), more, strings.Join(said, "; "))
 	}
-	if len(silent) > 0 {
-		names := []string{}
-		for n := range silent {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		p.note("%s %s what the plan tracks and %s neither what %s does to it nor that it leaves it alone, so no level is "+
-			"asserted after %s: state it in the summary (\"Reserve stock for every line\", \"does not touch stock\")",
-			strings.Join(names, ", "), pluralVerb(len(names), "touches", "touch"), pluralVerb(len(names), "its contract says", "their contracts say"),
-			pluralVerb(len(names), "it", "each"), pluralVerb(len(names), "it", "them"))
+	for _, rpc := range sortedRuleKeys(silent) {
+		p.note("%s touches what the plan tracks and its contract says neither what it does to it nor that it leaves it "+
+			"alone, so no level is asserted after it: state it as %s", shortRPC(rpc), p.effectWording(rpc))
 	}
+}
+
+var (
+	growVerb   = regexp.MustCompile(`(?i)\b(?:adds?|added|adding|increases?|increased|increasing|restocks?|replenish\w*|receives?|tops? up|credits?)\b`)
+	shrinkVerb = regexp.MustCompile(`(?i)\b(?:reserves?|takes?|deducts?|consumes?|removes?|decreases?|ships?|allocates?|subtracts?|sells?|debits?)\b`)
+)
+
+func (p *Plan) effectWording(rpc string) string {
+	r := p.effectRules(p.lib)
+	var inc *stockRule
+	for _, k := range sortedRuleKeys(r.increase) {
+		inc = r.increase[k]
+		break
+	}
+	stock := "stock"
+	if inc != nil && len(inc.words) > 0 {
+		stock = inc.words[0]
+	}
+	untouched := fmt.Sprintf("%q in the summary", "does not touch "+stock)
+	c, ok := p.lib.Get(rpc)
+	if !ok || inc == nil {
+		return untouched
+	}
+	texts := []string{c.Summary, c.Note}
+	for _, name := range sortedFieldNames(c.Fields) {
+		if f := c.Fields[name]; f != nil {
+			texts = append(texts, f.Note)
+		}
+	}
+	text := strings.Join(texts, " ")
+	grows, shrinks := growVerb.MatchString(text), shrinkVerb.MatchString(text)
+	if list, _, qty, _ := p.lineItems(rpc, c, ""); list != "" && grows && !shrinks {
+		return fmt.Sprintf("a note on %s saying %q, so each line is applied as %s (%q) by its %s, or %s",
+			list, "one "+shortRPC(inc.rpc)+" per line", shortRPC(inc.rpc), inc.sentence, qty, untouched)
+	}
+	m, err := p.cat.Lookup(rpc)
+	if err == nil && grows && !shrinks {
+		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+			if !f.Repeated && chain.IsNumericKind(f.Kind) && isQuantityName(f.Name) {
+				return fmt.Sprintf("a summary saying how it grows the level (%q, as %s's does), or %s",
+					"Increase "+strings.Join(inc.words, " ")+" by "+f.Name, shortRPC(inc.rpc), untouched)
+			}
+		}
+	}
+	for _, ref := range topFrom(c, p.cat) {
+		oc, ok := p.lib.Get(ref.RPC)
+		if !ok {
+			continue
+		}
+		if list, _, _, _ := p.lineItems(ref.RPC, oc, ""); list != "" {
+			return fmt.Sprintf("%q or %s", "Reserve "+stock+" for every line", untouched)
+		}
+	}
+	return untouched
+}
+
+func (p *Plan) summaryOf(st *chain.Step) string {
+	if p.lib == nil || st == nil {
+		return ""
+	}
+	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
+	if !ok {
+		return ""
+	}
+	return c.Summary
 }
 
 func sortedRuleKeys[T any](m map[string]T) []string {

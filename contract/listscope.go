@@ -45,13 +45,18 @@ func prefixTargetKey(prefixKey string, producer *chain.Step) string {
 	return ""
 }
 
+const (
+	prefixTerminators = "-_./:#|~"
+	varTerminators    = prefixTerminators + "@"
+)
+
 func runPrefix(v string) string {
 	loc := planVarRef.FindStringIndex(v)
 	if loc == nil || strings.Contains(v[:loc[0]], "${") {
 		return ""
 	}
 	end := loc[1]
-	if end < len(v) && strings.IndexByte("-_./:#|~", v[end]) >= 0 {
+	if end < len(v) && strings.IndexByte(prefixTerminators, v[end]) >= 0 {
 		end++
 	}
 	return v[:end]
@@ -126,4 +131,33 @@ func (p *Plan) noteUnscopedList(t *listTarget, n int) {
 		"fixture is among them by id (includes:), and no position or exact count, which would fail on the second run. "+
 		"Give the list a filter the fixtures share (a prefix built from ${vars.tag}) in the contract's value: to have "+
 		"the order and the count asserted", t.step.ID, t.listPath, n)
+}
+
+func (p *Plan) maskUnscopedLists() {
+	masked := []string{}
+	for _, st := range p.Chain.Steps {
+		if !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess || !listUnscoped(st) {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		list := repeatedMessageField(m)
+		if list == nil {
+			continue
+		}
+		if !containsString(st.Volatile, list.Name) {
+			st.Volatile = append(st.Volatile, list.Name)
+		}
+		masked = append(masked, st.ID)
+	}
+	if len(masked) == 0 {
+		return
+	}
+	p.note("%s %s everything the backend holds, which other runs add to, so %s %s its list volatile: verify and "+
+		"the confirm summary tolerate the list growing (5 item(s) -> 112 item(s)) instead of reporting drift every run, "+
+		"a list that came back empty is still reported, and the includes: expectations, which a volatile path does not "+
+		"mask, fail the run when a fixture this run created is missing, naming its id", strings.Join(masked, ", "),
+		pluralVerb(len(masked), "lists", "list"), pluralVerb(len(masked), "it", "each"), pluralVerb(len(masked), "declares", "declare"))
 }

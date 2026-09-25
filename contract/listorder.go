@@ -245,7 +245,7 @@ func orderedValue(v any, name, kind string, rank int) (any, bool) {
 		if strings.Contains(text[:loc[0]], "${") {
 			return v, false
 		}
-		return text[:loc[1]] + "-" + marker + text[loc[1]:], true
+		return markAfterVar(text, loc, marker), true
 	}
 	if strings.Contains(text, "${") {
 		return v, false

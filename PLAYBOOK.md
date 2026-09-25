@@ -128,7 +128,11 @@ repeated message field in a request with two items: the second is a copy of the 
 numbers raised by one and its free-text strings prefixed with `2-`, while ids, keys, enums, zeros
 and `${...}` references are copied unchanged, except a reference to a step of the chain that
 creates something: the second item reads a second copy of that step instead (`create_product_2`,
-its var-built values suffixed `-2` and its numbers raised by one, so a different sku and price),
+its var-built values given the ordinal and its numbers raised by one, so a different sku and price;
+the ordinal goes after the character that follows the var, `sku-${vars.tag}-` becoming
+`sku-${vars.tag}-2` and `cust-${vars.tag}@example.test` becoming `cust-${vars.tag}@2.example.test`,
+so no tag's second fixture equals another tag's first, as `sku-${vars.tag}-2-` did for tag `x` and
+tag `x-2`; a value ending in the var (`sku-${vars.tag}`) cannot be kept apart that way, and a note says to end it with a terminator),
 and each write step that prepares the first (`add_stock`) gets a copy for the second
 (`add_stock_2`, its var-built values suffixed and its numbers raised by one, so `qty: "11"` next to
 `qty: "10"`), whether that step runs before the order or is pulled in after it by another target's
@@ -175,10 +179,11 @@ changes at and after it are not read as more of the regression.
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
-refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
-run onto one key), so a sweep passes `-var tag=...` only to the chains that read `${vars.tag}`:
-check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which lists the vars the
-chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
+ignores a `-var` the chain never reads with a `warning:` line naming the vars it does read, so a
+sweep may pass `-var tag=...` to every chain; a name close to a var the chain reads (`tga` for
+`tag`, one or two edits apart, or the same name in another case) is refused instead, since a
+mistyped name would otherwise silently collapse every run onto one key, and the refusal lists the
+vars the chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
 interpolate (`sku-${vars.tag}`) under `vars:`, with the chain's name as its value, so a planned
 chain lints without a warning and its first run needs no `-var`. The second run sends the same
 values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt
@@ -190,7 +195,8 @@ whether it took effect is unknown, which the line then says), it prints `fixture
 exits 3 with `could not verify <chain>: fixture reused`, not `regression`. It is also `fixture
 reused`, naming the chain and run, when a recorded run of ANOTHER chain of this repo sent the same
 value in a step that created it (`happy` and `cust2` both creating `c-${vars.tag}@...` under one
-tag). When no recorded run of any chain used that value, the other record came from somewhere else
+tag), and naming the run, the step and its tag when a recorded run of this chain sent the value at
+another step under another tag (`already sent that value at step "create_product_2" with tag=x`). When no recorded run of any chain used that value, the other record came from somewhere else
 (another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
 way, with the same fresh `-var` hint. When the previous run of the chain that sent that step was
 refused there the same way with a different value that no recorded run had created, two fresh
@@ -355,6 +361,11 @@ directly or through the step it reads, with the read rpc whose contract takes th
 (`get_product_before_…`, `get_product_after_…`), and the after-read asserts each numeric and enum
 field equal to the before-read. A backend that refuses but still takes the first line's stock fails
 there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
+Next to the shortage probes, on fixtures of its own (`..._for_exact`), the plan asks for exactly the
+stock the chain added on every line (`create_order_for_confirm_order_exact_stock`,
+`confirm_order_exact_stock`) and expects success, the reads after it a level of 0: the shortage asks
+for one more, so together they pin the boundary, and a backend that refuses a quantity equal to the
+stock on hand (`>=` where `>` is meant) fails there.
 
 Each write probe group runs on fixtures of its own: the shortage probes, the token probes and the
 item-count probes each get copies of the steps that created and prepared the main path's fixtures,
@@ -376,7 +387,8 @@ A failure with `connect_code: invalid_argument` is turned into malformed request
 each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
 only whitespace, zero, negative, no `@`, which may be written `an at sign` or `at symbol`) becomes a
 probe expecting `transport.code equals invalid_argument` (`create_order_lines_empty`,
-`create_order_qty_zero` on the last line, `create_customer_email_no_at`). A clause it cannot read
+`create_order_qty_zero` on the last line and `create_order_qty_zero_first_item` on the first,
+`create_customer_email_no_at`). A clause it cannot read
 (`email is not a well-formed address`) is named in a note with the failure and the words it reads. A copy with the other references pointed at ids nothing created
 (`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
 before any lookup. When nothing declares a required field or a format, the plan says so and plans
@@ -394,10 +406,10 @@ When the config declares auth, the plan also probes who may call. For a target w
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
 for a caller without the role (a reason such as `PermissionDenied`, or a `when:` naming the role);
-the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
-target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
+the plan assumes such a profile lacks the role, so name profiles after their role. Every target
+rpc also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
 invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
-pair per plan, not per rpc). A refusal every rpc of every domain shares, as `unauthenticated` usually
+pair per target rpc, so a plan of several rpcs clears `-gaps` for each). A refusal every rpc of every domain shares, as `unauthenticated` usually
 is, is declared once: put it in one overlay's domain-level `failures:` with `scope: all` (in
 `auth.yaml`, say) rather than copying the block into each overlay; without `scope: all` a
 domain-level failure reaches only its own overlay's rpcs. For a write, all of these sit between reads of what it touches
@@ -411,8 +423,15 @@ gets a copy. A read is repeated right after itself as that profile (`get_product
 asserts every non-repeated field of the answer equal to the first read's (`product.price_minor
 equals ${get_product.product.price_minor}`), so a backend that zeroes the price for a clerk fails. A
 field that really differs by role is left out when the contract documents it under `terminal:` or
-`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`); a
-repeated field is not compared item by item, and a note says so. A write runs as that profile on
+`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`). A
+list is compared item by item when the first read asserts how many items it holds
+(`list_products_as_clerk`: `products.0.id_product equals ${list_products.products.0.id_product}` and
+so on, and no item past the last), or by the fixtures it must include when it is not scoped to the
+run; otherwise a note says it is not compared. A create whose reads answer only text and ids, so
+that no number compares the two profiles, is repeated as that profile with its unique fields
+changed and read back (`create_customer_as_clerk`, `get_customer_after_create_customer_as_clerk`).
+`shrt contract status -gaps` lists an rpc every role may call that no chain calls as a profile as
+`no profile probe`. A write runs as that profile on
 fixtures of its own, copied from the steps that created and prepared its fixtures with unique
 fields changed and every number kept (`create_product_for_clerk`, `add_stock_for_clerk` at the same
 `qty`, `create_order_for_clerk`, then `confirm_order_as_clerk`); the plan reads what the default
@@ -434,7 +453,12 @@ than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
 `<step>_<field>_below_min` one below, expected refused with that failure, and, for a signed field whose
 minimum is 1 or more, `<step>_<field>_negative` at -1, refused the same way (a check for zero alone
 lets a negative quantity through and subtracts it), each between reads proving the
-refused write changed nothing.
+refused write changed nothing. A target whose contract states a priced total over its lines (`total_minor
+is the sum of qty times price_minor`) held in a 64-bit field also gets `<step>_wide_total`: one line
+of 3 on its own product priced at 1500000000 (`create_product_for_create_order_wide_total`), the
+total asserted as the exact literal 4500000000, past 2^31 and 2^32, so a sum computed or stored in 32
+bits wraps and fails. A maximum the contract states on the price or the quantity (`at most N`) is
+kept; the quantity grows instead until the sum passes 2^32.
 
 Text is tested at lengths and in characters the fixtures never use, since a column that truncates
 at 20 characters or mangles UTF-8 passes every short ASCII name. For a write target whose response
@@ -484,7 +508,14 @@ the last item again. It asserts the batch verdict, `results.0` and `results.2` o
 with the failure's code and reason, and no fourth result; then one read per resource the applied
 items touch asserts that the stored value is the one its last item reported
 (`product.qty_on_hand equals ${add_stock_batch_partial.results.2.qty_on_hand}`). A batch that stops at
-the refused item, applies it, or reports stale values for later items fails.
+the refused item, applies it, or reports stale values for later items fails. Two items more are
+planned with the refused one first (`<step>_partial_first`) and last (`<step>_partial_last`), and,
+when the contract declares a per-item not-found failure for an item's id, one whose last item names
+an id no record has (`<step>_unknown_id_product_line`, the real id with `-unknown` appended,
+expecting `ProductNotFound` on that item). Around each, what only a refused item names is read
+before and after and must be unchanged, and what an applied item names is read after and must be
+what it reported: a batch that validates only the middle item, stops at a refused first item, or
+applies an unknown id fails.
 
 An idempotency key is tested by replaying it. When a create target's request has a key field
 (`idempotency_key`, `idempotent…`, `dedup…`, `request_id`, `client_token`), the plan adds

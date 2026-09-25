@@ -60,16 +60,25 @@ func TestPlanForARoleGatedWriteCallsItAsTheLowerProfileAndProvesNoEffect(t *test
 	}
 }
 
-func TestPlanProbesTheTokenOncePerPlanNotPerRPC(t *testing.T) {
-	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "AddStock", "CreateOrder")
-	n := 0
+func TestPlanProbesTheTokenForEveryTargetRPC(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "AddStock", "CreateOrder", "GetProduct@after")
+	bare := map[string]int{}
+	bad := map[string]int{}
 	for _, st := range p.Chain.Steps {
 		if st.SkipAuth {
-			n++
+			bare[st.Call]++
+		}
+		if st.Auth == "invalid" {
+			bad[st.Call]++
 		}
 	}
-	if n != 1 {
-		t.Fatalf("one missing-token probe per plan keeps the chain short, got %d:\n%s", n, text)
+	for _, rpc := range []string{"shop.catalog.v1.StockService/AddStock", "shop.orders.v1.OrderService/CreateOrder", "shop.catalog.v1.ProductService/GetProduct"} {
+		if bare[rpc] != 1 || bad[rpc] != 1 {
+			t.Fatalf("each target rpc gets one missing-token and one bad-token probe, %s got %d and %d:\n%s", rpc, bare[rpc], bad[rpc], text)
+		}
+	}
+	if len(bare) != 3 {
+		t.Fatalf("only the target rpcs are probed without a token, got %v:\n%s", bare, text)
 	}
 }
 

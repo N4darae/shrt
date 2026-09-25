@@ -320,3 +320,135 @@ func (p *Plan) largeBatchQuantities(lib *Library, st *chain.Step, b *batchRule) 
 	return fmt.Sprintf("%s (%s.%s = %s, additions the fixtures' small quantities never make, so a cap or overflow shows in each %s.N.%s)",
 		probe.ID, b.list, b.stock.qtyField, joinInts(largeQuantities), b.results, b.stock.moved)
 }
+
+const (
+	widePrice = int64(1500000000)
+	wideLimit = int64(1) << 31
+)
+
+var lengthUnit = regexp.MustCompile(`(?i)^\s*(?:characters|chars|char|letters|runes|code points|bytes|items|lines|entries)\b`)
+
+var aboveN = regexp.MustCompile(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
+
+func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string) (int64, bool) {
+	texts := []string{}
+	for _, f := range lib.AllFailures(rpc) {
+		if f.Field == name || mentionsField(f.When, name) {
+			texts = append(texts, f.When)
+		}
+	}
+	if c != nil {
+		if fc := c.Fields[name]; fc != nil {
+			texts = append(texts, fc.Note)
+		}
+	}
+	best, found := int64(0), false
+	for _, t := range texts {
+		for _, at := range aboveN.FindAllStringSubmatchIndex(t, -1) {
+			n, err := strconv.ParseInt(t[at[2]:at[3]], 10, 64)
+			if err != nil || n <= 0 || lengthUnit.MatchString(t[at[1]:]) {
+				continue
+			}
+			if !found || n < best {
+				best, found = n, true
+			}
+		}
+	}
+	return best, found
+}
+
+func is64BitKind(kind string) bool {
+	return strings.Contains(kind, "64")
+}
+
+func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
+	rules := p.effectRules(lib)
+	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
+		rpc := canonicalCall(p.cat, st.Call)
+		t := rules.total[rpc]
+		if t == nil || !isTarget(st) || effectOutcome(st) != outcomeSuccess {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		kind := ""
+		for _, sf := range carrierFields(m, t.carrier) {
+			if sf.Name == t.field {
+				kind = sf.Kind
+			}
+		}
+		if !is64BitKind(kind) {
+			continue
+		}
+		key, ok := namecase.LookupKey(st.Body, t.list)
+		if !ok {
+			continue
+		}
+		items, _ := st.Body[key].([]any)
+		if len(items) == 0 {
+			continue
+		}
+		first, ok := items[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		ref, _ := first[t.itemID].(string)
+		entity := p.stepByID(stepRefIn(ref))
+		if entity == nil || canonicalCall(p.cat, entity.Call) != t.entity {
+			continue
+		}
+		priceKey, ok := namecase.LookupKey(entity.Body, t.price)
+		if !ok {
+			continue
+		}
+		if _, literal := numericValue(entity.Body[priceKey]); !literal {
+			continue
+		}
+		price := widePrice
+		ec, _ := lib.Get(t.entity)
+		if max, ok := statedNumericMaximum(lib, t.entity, ec, t.price); ok && max < price {
+			price = max
+		}
+		qty := (wideLimit*2)/price + 1
+		sc, _ := lib.Get(rpc)
+		if max, ok := statedNumericMaximum(lib, rpc, sc, t.list+"."+t.itemQty); ok && max < qty {
+			qty = max
+		} else if max, ok := statedNumericMaximum(lib, rpc, sc, t.itemQty); ok && max < qty {
+			qty = max
+		}
+		if price*qty <= wideLimit {
+			p.note("step %s: %s.%s is a 64-bit number, but the bounds its contract states on %s and %s keep %s × %s at or below 2^31, "+
+				"so no probe checks the sum past 32 bits", st.ID, t.carrier, t.field, t.price, t.itemQty, t.price, t.itemQty)
+			continue
+		}
+		id := p.freeStepID(st.ID + "_wide_total")
+		prod := copyStep(entity, p.freeStepID(entity.ID+"_for_"+id))
+		prod.Export = nil
+		p.freshen(lib, prod)
+		prod.Body[priceKey] = strconv.FormatInt(price, 10)
+		renameStepRefs(prod, entity.ID, prod.ID)
+		prod.Description = fmt.Sprintf("as %s, but priced at %d, for %s.", entity.ID, price, id)
+		probe := copyStep(st, id)
+		probe.Export = nil
+		p.freshen(lib, probe)
+		line := cloneBody(first).(map[string]any)
+		line[t.itemID] = strings.Replace(ref, "${"+entity.ID+".", "${"+prod.ID+".", 1)
+		qtyKey, ok := namecase.LookupKey(line, t.itemQty)
+		if !ok {
+			qtyKey = t.itemQty
+		}
+		line[qtyKey] = strconv.FormatInt(qty, 10)
+		probe.Body[key] = []any{line}
+		renameStepRefs(probe, st.ID, probe.ID)
+		probe.Expect = SuccessExpectation(m)
+		p.assertEcho(probe)
+		probe.Description = fmt.Sprintf("one %s of %d at %d: %s.%s is %d, past 2^31 and 2^32, so a sum kept in 32 bits wraps and fails.",
+			strings.TrimSuffix(t.list, "s"), qty, price, t.carrier, t.field, price*qty)
+		p.Chain.Steps = append(p.Chain.Steps, prod, probe)
+		p.note("step %s: %s.%s is a 64-bit number, so %s sends one %s of %d at %s %d (from %s) and asserts it is exactly %d: "+
+			"the fixtures' totals fit in 32 bits, and a backend that computes or stores the sum in 32 bits wraps there",
+			st.ID, t.carrier, t.field, id, strings.TrimSuffix(t.list, "s"), qty, t.price, price, prod.ID, price*qty)
+	}
+}
