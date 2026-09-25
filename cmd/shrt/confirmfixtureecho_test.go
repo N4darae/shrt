@@ -41,7 +41,7 @@ func TestConfirmDoesNotWarnAboutAValueThatOnlyEchoesTheFixtureName(t *testing.T)
 	rec := echoRecord(t, "r2",
 		[3]any{"create", map[string]any{"name": "widget second"}, map[string]any{"name": "widget second", "label": "made widget second"}},
 		[3]any{"refuse", map[string]any{"name": "other"}, map[string]any{"message": "no stock for 7"}})
-	got := unstableAgainst(prev, rec, nil, echoChain())
+	got := unstableAgainst(prev, rec, nil, echoChain(), nil)
 	if strings.Join(got, ",") != "refuse message: no stock for 5 -> no stock for 7" {
 		t.Fatalf("verify masks a fixture echo, so confirm must not warn about it; only the real difference is unstable, got %v", got)
 	}

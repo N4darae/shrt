@@ -184,11 +184,20 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 func reproCommand(c *Chain, best WhichStep, fresh func(*Chain, string, string) []string) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
 	run := ""
-	if best.Observed != nil {
+	switch {
+	case best.Observed == nil:
+	case writeStep(c, best.Step):
+		cmd += " -keep " + SliceKeepWrites
+	default:
 		run = best.Observed.Run
 		cmd += " -mode pin -run " + run
 	}
 	return cmd + freshFlags(c, best.Step, run, fresh)
+}
+
+func writeStep(c *Chain, id string) bool {
+	s, ok := c.Step(id)
+	return ok && !IsReadOnlyCall(s.Call)
 }
 
 func freshFlags(c *Chain, step, run string, fresh func(*Chain, string, string) []string) string {

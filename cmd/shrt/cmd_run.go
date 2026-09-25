@@ -119,6 +119,9 @@ func runRun(ctx context.Context, args []string) error {
 			lead = reuse.line() + "; " + reuse.rerun("run", rest[0])
 		}
 	}
+	if lead != "" && rec.KeptRed == runner.KeptRedNotAsPinned {
+		rec.KeptRedNote = keptRedNotJudged(rec.KeptRedNote)
+	}
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
 	if line := neverRanLine(c, rec); line != "" && !*dry {
 		fmt.Println("  " + line)
@@ -378,6 +381,9 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 	if rec.KeptRed == runner.KeptRedNotAsPinned {
 		verdict = "FAILED, NOT AS PINNED (kept red)"
 	}
+	if rec.KeptRed == runner.KeptRedGone {
+		verdict = "PINNED DEFECT GONE (kept red, every step passed; exit 1 until kept_red is removed)"
+	}
 	fmt.Fprintf(&b, "%s: %s in %dms", rec.Chain, verdict, rec.DurationMS)
 	if rec.KeptRedNew != "" {
 		fmt.Fprintf(&b, "\n  %s", newFailureLine(rec, stepsShown))
@@ -490,4 +496,13 @@ func refuseShadowingChainFile(e *env, ref string, c *chain.Chain) error {
 			ref, c.Name, rel(e.cfg.Root, own), c.Name, c.Name, c.Name)
 	}
 	return nil
+}
+
+func keptRedNotJudged(note string) string {
+	pins, _, found := strings.Cut(note, ", but ")
+	if !found {
+		pins = "kept_red"
+	}
+	return "not judged: " + pins + ", and the run collided with data an earlier run or another client left (above), " +
+		"so the steps that failed or were not sent say nothing about the pinned defect; re-run with a fresh value"
 }

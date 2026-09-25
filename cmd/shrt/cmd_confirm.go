@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/mail"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -28,6 +30,7 @@ func init() {
 const confirmUsage = "usage: shrt confirm <chain> -note \"what you checked\" [-run <id>] [-supersede]   propose, and print the summary to show the user\n" +
 	"       shrt confirm <chain> -approve -by <user email>                                only after the user said yes\n" +
 	"       shrt confirm <chain> -reject\n" +
+	"       shrt confirm <new> -rename-from <old> -by <user email>                        carry a safe spot across a pure chain rename\n" +
 	"       shrt confirm -pending                                                         list proposals awaiting a decision"
 
 func runConfirm(ctx context.Context, args []string) error {
@@ -39,8 +42,9 @@ func runConfirm(ctx context.Context, args []string) error {
 	approve := fs.Bool("approve", false, "approve the pending proposal and write the safe spot; run it only after the user has said yes")
 	reject := fs.Bool("reject", false, "discard the pending proposal")
 	pending := fs.Bool("pending", false, "list proposals awaiting a decision")
+	renameFrom := fs.String("rename-from", "", "carry the safe spot of `<old>` chain, renamed to this one, with its approval: only when the chain is identical apart from its name; needs -by")
 	setUsage(fs, confirmUsage, "\nexit codes:\n  0  proposal written, approved, rejected or listed\n"+
-		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, or nothing pending\n")
+		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, nothing pending, or a -rename-from that is not a pure rename\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -58,6 +62,12 @@ func runConfirm(ctx context.Context, args []string) error {
 	name := e.chainName(rest[0])
 	if err := e.knownChain(name); err != nil {
 		return err
+	}
+	if *renameFrom != "" {
+		if *approve || *reject || *supersede || *note != "" {
+			return errors.New("-rename-from takes only -by: it carries an approved safe spot across a rename and proposes nothing")
+		}
+		return renameSafeSpot(e, name, *renameFrom, *by)
 	}
 	switch {
 	case *approve && *reject:
@@ -83,9 +93,9 @@ func runConfirm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	comparedTo, unstable := unstableFields(e, rec)
+	comparedTo, unstable, carried := unstableFields(e, rec)
 	p, err := e.store.Propose(rec, store.ProposalInput{By: *by, Checked: *note, Supersede: *supersede, Now: time.Now(),
-		ComparedTo: comparedTo, Unstable: unstable, Replaced: differsFromSafeSpot(e, rec)})
+		ComparedTo: comparedTo, Unstable: unstable, Carried: carried, Replaced: differsFromSafeSpot(e, rec)})
 	if errors.Is(err, store.ErrNoEvidence) {
 		return fmt.Errorf("%w: pass -note with what you inspected in the responses and why they are correct, not only that the run is green", err)
 	}
@@ -174,10 +184,14 @@ func listProposals(e *env) error {
 	return nil
 }
 
-func unstableFields(e *env, rec *runner.Record) (string, []string) {
+func unstableFields(e *env, rec *runner.Record) (string, []string, []string) {
 	ids, err := e.store.ListRuns(rec.Chain)
 	if err != nil {
-		return "", nil
+		return "", nil, nil
+	}
+	spot, err := e.store.LoadSafeSpot(rec.Chain)
+	if err != nil {
+		spot = nil
 	}
 	for i := len(ids) - 1; i >= 0; i-- {
 		if ids[i] == rec.RunID {
@@ -188,24 +202,84 @@ func unstableFields(e *env, rec *runner.Record) (string, []string) {
 			continue
 		}
 		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
-		return prev.RunID, unstableAgainst(prev, rec, currentVolatile(e, rec.Chain), c)
+		unstable, carried := unstableAgainstSpot(prev, rec, spot, currentVolatile(e, rec.Chain), c, unsentDefault(e))
+		return prev.RunID, unstable, carried
 	}
-	return "", nil
+	return "", nil, nil
 }
 
-func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain) []string {
+func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain, unsent func(procedure, path string, v any) bool) []string {
+	unstable, _ := unstableAgainstSpot(prev, rec, nil, volatile, c, unsent)
+	return unstable
+}
+
+func unstableAgainstSpot(prev, rec *runner.Record, spot *store.SafeSpot, volatile []string, c *chain.Chain,
+	unsent func(procedure, path string, v any) bool) ([]string, []string) {
 	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}
 	base, _ = diff.RenameSpotSteps(base, rec.Steps)
+	if spot != nil {
+		spot, _ = diff.RenameSpotSteps(spot, rec.Steps)
+	}
 	rep := diff.CompareMasking(base, rec, volatile)
+	rep.DropUnsentDefaults(rec, unsent)
 	if c != nil {
 		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
 		rep.SeparateInput(base, rec, volatile, requestFixtures(c))
 	}
-	out := []string{}
+	unstable, carried := []string{}, []string{}
 	for _, ch := range rep.Changes {
-		out = append(out, ch.Step+" "+ch.Path+": "+ch.Transition())
+		if structuralChange(ch) {
+			continue
+		}
+		line := ch.Step + " " + ch.Path + ": " + ch.Transition()
+		if spot != nil && heldBySpot(spot, rec, ch, unsent) {
+			carried = append(carried, line)
+			continue
+		}
+		unstable = append(unstable, line)
 	}
-	return out
+	return unstable, carried
+}
+
+func structuralChange(ch diff.Change) bool {
+	switch {
+	case ch.Path == "step" || ch.Path == "response":
+		return true
+	case ch.Kind == diff.KindNotReached || ch.Kind == diff.KindOrder || ch.Kind == diff.KindStatus:
+		return true
+	}
+	return false
+}
+
+func heldBySpot(spot *store.SafeSpot, rec *runner.Record, ch diff.Change, unsent func(procedure, path string, v any) bool) bool {
+	var was *runner.StepRecord
+	for _, st := range spot.Steps {
+		if st.ID == ch.Step {
+			was = st
+		}
+	}
+	if was == nil || len(was.Response) == 0 {
+		return false
+	}
+	var body any
+	if err := json.Unmarshal(was.Response, &body); err != nil {
+		return false
+	}
+	held, found := chain.Get(body, ch.Path)
+	prevAbsent := ch.Kind == diff.KindUnexpected
+	switch {
+	case found && prevAbsent:
+		return false
+	case found:
+		return reflect.DeepEqual(held, ch.Want)
+	case prevAbsent:
+		return true
+	}
+	if unsent == nil {
+		return false
+	}
+	st, ok := rec.Step(ch.Step)
+	return ok && unsent(st.Procedure, ch.Path, ch.Want)
 }
 
 func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
@@ -222,6 +296,7 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	spot, renamed := diff.RenameSpotSteps(spot, rec.Steps)
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
+	rep.DropUnsentDefaults(rec, unsentDefault(e))
 	if c != nil {
 		rep.SeparateInput(spot, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
 	}

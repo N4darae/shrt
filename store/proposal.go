@@ -41,6 +41,7 @@ type Proposal struct {
 	Report     string    `json:"report"`
 	ComparedTo string    `json:"compared_to,omitempty"`
 	Unstable   []string  `json:"unstable,omitempty"`
+	Carried    []string  `json:"differs_where_earlier_run_held_replaced,omitempty"`
 	Replaced   []Differ  `json:"differs_from_replaced,omitempty"`
 }
 
@@ -62,6 +63,7 @@ type ProposalInput struct {
 	Now        time.Time
 	ComparedTo string
 	Unstable   []string
+	Carried    []string
 	Replaced   []Differ
 }
 
@@ -106,6 +108,9 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	}
 	if replaces != "" {
 		p.Replaced = in.Replaced
+		p.Carried = in.Carried
+	} else {
+		p.Unstable = append(p.Unstable, in.Carried...)
 	}
 	if err := os.MkdirAll(filepath.Dir(p.Report), 0o755); err != nil {
 		return nil, err
@@ -314,12 +319,22 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 			}
 		}
 	}
+	if p.ComparedTo != "" && len(p.Carried) > 0 {
+		fmt.Fprintf(&b, "\n%d field(s) differ from the earlier passing run `%s` only where that run still held what the safe spot it replaces holds, "+
+			"so it was recorded before the change this proposal signs off on: they are that change, not values that change every run, "+
+			"and they were not checked for that. Run the chain once more and propose again to check them against a run of the new backend: %s\n",
+			len(p.Carried), p.ComparedTo, strings.Join(carriedPaths(p.Carried), ", "))
+	}
 	switch {
 	case p.ComparedTo == "":
 		fmt.Fprintf(&b, "\n**Not checked for fields that change every run:** no earlier passing run of this chain against `%s` is recorded "+
 			"(a run against another target says nothing about this one). Run it once more and propose again to see them.\n", p.Target)
 	case len(p.Unstable) == 0:
-		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no field differs beyond ids, timestamps and values echoing a fixture name, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo)
+		other := ""
+		if len(p.Carried) > 0 {
+			other = " other"
+		}
+		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no%s field differs beyond ids, timestamps and values echoing a fixture name, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo, other)
 	default:
 		fmt.Fprintf(&b, "\n**Warning: %d field(s) differ from the earlier passing run `%s`** and are not declared volatile, so every `shrt verify` will report them as drift unless the chain's `volatile:` covers them (or they are a real difference):\n\n", len(p.Unstable), p.ComparedTo)
 		for _, line := range unstableLines(p.Unstable) {
@@ -881,6 +896,15 @@ func itemsSummary(body any) string {
 	return strings.Join(parts, ", ")
 }
 
+func carriedPaths(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		path, _, _ := strings.Cut(l, ": ")
+		out = append(out, "`"+path+"`")
+	}
+	return out
+}
+
 func unstableLines(unstable []string) []string {
 	type list struct{ step, path string }
 	type entry struct{ path, delta string }
@@ -926,10 +950,10 @@ func unstableLines(unstable []string) []string {
 				if e.delta == "" {
 					known = false
 				}
-				if e.path == t.path || strings.Contains(e.delta, "absent") {
+				field, index := fieldPattern(t.path, e.path)
+				if e.path == t.path || (strings.Contains(e.delta, "absent") && field == t.path+".*") {
 					grew = true
 				}
-				field, index := fieldPattern(t.path, e.path)
 				fields[field] = true
 				items[index] = true
 			}

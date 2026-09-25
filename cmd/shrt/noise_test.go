@@ -7,7 +7,13 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-const cachedRestart = "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, and the backend refused it at authentication (a restart or a revoke)"
+const cachedRestart = runner.CachedTokenResent
+
+func TestTheCachedTokenRetryWarningIsOneShortLine(t *testing.T) {
+	if strings.Contains(runner.CachedTokenResent, "\n") || len(runner.CachedTokenResent) > 160 {
+		t.Fatalf("a restart the run already recovered from is one short line, got %d chars: %q", len(runner.CachedTokenResent), runner.CachedTokenResent)
+	}
+}
 
 func TestTheSummaryPrintsAWarningSharedByStepsOnce(t *testing.T) {
 	rec := &runner.Record{Chain: "access", Status: runner.StatusPassed, Steps: []*runner.StepRecord{

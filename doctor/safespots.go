@@ -51,9 +51,11 @@ func (o Orphan) Remedy() string {
 	} else if o.Near != "" {
 		next = o.Near
 	}
-	return fmt.Sprintf("a safe spot belongs to its chain's name, so it does not follow a rename. If the chain was renamed, run it "+
+	return fmt.Sprintf("a safe spot belongs to its chain's name, so it does not follow a rename by itself. If %s is %s renamed and "+
+		"nothing else changed, carry the approved safe spot across, which refuses on any other difference: shrt confirm %s "+
+		"-rename-from %s -by <email of the user who approved the rename>. Otherwise run it "+
 		"(shrt run %s), propose that run (shrt confirm %s -note \"...\") for a person to approve, then remove the orphan: git rm %s. "+
-		"If the chain was deleted on purpose, remove the orphan: git rm %s", next, next, o.Path, o.Path)
+		"If the chain was deleted on purpose, remove the orphan: git rm %s", next, o.Name, next, o.Name, next, next, o.Path, o.Path)
 }
 
 func OrphanSafeSpots(cfg *config.Config) []Orphan {

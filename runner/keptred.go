@@ -31,17 +31,18 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		pins[k.Step] = append(pins[k.Step], k)
 	}
 	problems, found := []string{}, []string{}
+	unsentPinned, unsentOther, unpinnedFail := []string{}, []string{}, []string{}
 	for _, step := range c.Steps {
 		want := pins[step.ID]
 		sr, ok := rec.Step(step.ID)
 		if !ok || sr.Status == StatusSkipped {
 			switch {
 			case len(want) > 0 && ok:
-				problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so its pinned failure was not seen", step.ID))
+				unsentPinned = append(unsentPinned, step.ID)
 			case len(want) > 0:
 				problems = append(problems, fmt.Sprintf("step %q was never answered, so its pinned failure was not seen", step.ID))
 			case ok:
-				problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", step.ID))
+				unsentOther = append(unsentOther, step.ID)
 			}
 			continue
 		}
@@ -54,9 +55,29 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		if len(want) == 0 && step.AllowFail && sr.Status == StatusFailed && !sr.AssertionFailed() && !sr.Drift {
 			continue
 		}
-		mismatch, fresh := stepMismatch(step.ID, sr, want)
+		mismatch, fresh, unpinned := stepMismatch(step.ID, sr, want)
 		problems = append(problems, mismatch...)
 		found = append(found, fresh...)
+		if unpinned {
+			unpinnedFail = append(unpinnedFail, step.ID)
+		}
+	}
+	if len(unpinnedFail) > 0 {
+		problems = append(problems, fmt.Sprintf("%s failed where nothing is pinned (%s)", stepList(unpinnedFail), inNewFailure))
+	}
+	switch len(unsentPinned) {
+	case 0:
+	case 1:
+		problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so its pinned failure was not seen", unsentPinned[0]))
+	default:
+		problems = append(problems, fmt.Sprintf("pinned %s were not sent (why is on their lines), so their pinned failures were not seen", stepList(unsentPinned)))
+	}
+	switch len(unsentOther) {
+	case 0:
+	case 1:
+		problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", unsentOther[0]))
+	default:
+		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capSteps(unsentOther, 5)))
 	}
 	if len(problems) == 0 {
 		return KeptRedAsPinned, "failed exactly as kept_red pins: " + pinSummary(c.KeptRed), ""
@@ -68,23 +89,24 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 	return KeptRedNotAsPinned, "kept_red pins " + pinSummary(c.KeptRed) + ", but " + strings.Join(problems, "; "), finding
 }
 
-func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []string) {
+func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []string, bool) {
 	if sr.Status == StatusError {
-		return []string{fmt.Sprintf("step %q is error (%s)", id, inNewFailure)}, []string{id + " is error: " + firstLine(sr.Error)}
+		return []string{fmt.Sprintf("step %q is error (%s)", id, inNewFailure)}, []string{id + " is error: " + firstLine(sr.Error)}, false
 	}
 	if sr.Drift || !sr.AssertionFailed() {
-		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + firstLine(sr.Error)}
+		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + firstLine(sr.Error)}, false
 	}
 	if refusal := pinnedRefusal(sr, want); refusal != "" {
 		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport, so its pinned failure was not seen (%s)", id, inNewFailure)},
-			[]string{id + " refused at transport: " + refusal}
+			[]string{id + " refused at transport: " + refusal}, false
 	}
 	if sr.Transport != nil && len(want) == 0 {
 		refusal := firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
 		return []string{fmt.Sprintf("step %q was refused at transport where nothing is pinned (%s)", id, inNewFailure)},
-			[]string{id + " refused at transport: " + refusal}
+			[]string{id + " refused at transport: " + refusal}, false
 	}
 	out, fresh := []string{}, []string{}
+	unpinned := false
 	seen := map[int]bool{}
 	for _, ex := range sr.Expect {
 		if ex.Passed {
@@ -106,7 +128,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 			}
 		}
 		if !matched {
-			out = append(out, fmt.Sprintf("step %q failed where nothing is pinned, on %s (%s)", id, ex.Path, inNewFailure))
+			unpinned = true
 			fresh = append(fresh, id+" "+chain.DescribeFailure(ex))
 		}
 	}
@@ -115,7 +137,25 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 			out = append(out, fmt.Sprintf("step %q held on pinned path %s", id, k.Path))
 		}
 	}
-	return out, fresh
+	return out, fresh, unpinned
+}
+
+func stepList(ids []string) string {
+	quoted := make([]string, 0, len(ids))
+	for _, id := range ids {
+		quoted = append(quoted, fmt.Sprintf("%q", id))
+	}
+	if len(ids) == 1 {
+		return "step " + quoted[0]
+	}
+	return "steps " + strings.Join(quoted, ", ")
+}
+
+func capSteps(ids []string, max int) string {
+	if len(ids) <= max {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
 }
 
 const unevaluatedRule = "unevaluated"

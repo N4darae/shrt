@@ -123,7 +123,8 @@ product, qty 3 and 4). A note names each such field. Give the second item its ow
 it at a second resource through an aliased producer step when the rpc wants distinct ones, and
 assert what depends on both (`order.total_minor` for the pair, `order.lines.1.qty`).
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
-sends but no chain sends with two or more items.
+sends but no chain sends with two or more items, and, as `no chain`, each unary rpc no chain calls
+at all, with the repeated message fields it takes, since those are never sent even once.
 
 Three habits that keep a chain re-runnable:
 
@@ -859,7 +860,14 @@ language, give:
    the step, or `unordered: [<path>]` if only its order changes), since a list other runs add to grows
    every run. A list with as many items as before and only some fields inside them changed is not
    that: its line names each field and its values (`orders.0.total_minor` 750 -> 1), says it may be a
-   real change, and suggests only the field (`volatile: [orders.*.total_minor]`). Pass the warning
+   real change, and suggests only the field (`volatile: [orders.*.total_minor]`), also when the
+   field is new in every item (`orders.0.note absent -> gift wrap`). A step present in one run and
+   absent in the other is a chain edit, not a field that changes every run, and is never listed.
+   Under `-supersede`, a field where the earlier run still held the value of the safe spot being
+   replaced is the change you are signing off on, recorded by a run from before it, not
+   instability: those are listed apart (`N field(s) differ from the earlier passing run ... only
+   where that run still held what the safe spot it replaces holds`) with no volatile advice; run
+   the chain once more against the new backend and propose again to check them. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
@@ -897,6 +905,21 @@ on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
 spot's `supersedes` names; a run archived twice gets a `-2` suffix).
 
+A safe spot belongs to its chain's name. Renaming a chain file (and its `name:`) leaves the safe
+spot behind, and `doctor` warns that `chain "<new>" has the same step ids and calls`. When the
+rename is all that changed, carry the approved safe spot across instead of asking for a new
+approval: `shrt confirm <new> -rename-from <old> -by <email>`, with the email of the user who
+agreed to the rename (the same rule as `-approve`). It refuses unless `<old>` has a safe spot and
+no chain file any more, `<new>` has no safe spot, nothing is pending for either, and `<new>` is
+identical to what the safe spot recorded: step ids, order and calls, expectations, references,
+literal body values and headers, auth profiles, volatile and unordered paths; when the last commit
+still holds `<old>.yaml`, the whole file must match apart from `name:` (vars defaults, redact,
+descriptions). Any other difference is refused with the first one named, and the chain is run,
+proposed and approved normally. On success it moves `<old>.json` to `<new>.json` keeping
+`confirmed_by`, `confirmed_at` and `note`, records the rename under `renamed` and re-seals the
+digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` lists them as an
+orphan `renamed to <new>`, and the command prints the `rm -rf` that removes them.
+
 ## 9. Refactor and test against a safe spot
 
 This is what the whole loop is for, and it is the section most likely to be skipped, because a
@@ -924,7 +947,12 @@ spot, and says so: a regression in a path no safe spot exercises is not seen. A 
 ends with the next step for a change you meant (`If the change is intended ... shrt confirm <name>
 -supersede -note "..."`, then a person approves it), and says so when every change is a response
 field the safe spot does not have (`all of them response field(s) the safe spot does not have:
-create_order order.currency, ...`), the shape of a field added on purpose.
+create_order order.currency, ...`), the shape of a field added on purpose. A field the descriptor
+gained that the backend does not send yet is not a change: run records hold every declared field,
+so the new field shows up at its proto3 default (`note: ""`, `0`, `false`, an empty list, a null
+message), which is exactly the bytes the safe spot's backend sent. verify leaves those out and
+names them (`N response field(s) are declared now but were not on the wire ...`); the day the
+backend sends a non-default value there, it is reported as `unexpected` like any new field.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:
@@ -1143,7 +1171,12 @@ shrt chain which -code 1218 -json
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
    `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
    contradicting one), because pinning that run's values is the cheaper reproduction of the same
-   incident. When a write the slice keeps interpolates a var into what it creates, the line ends
+   incident. That holds for a read. When the step itself is a write (`ConfirmOrder`, anything
+   `conventions.read_only_prefixes` does not name), the line is the closure form with
+   `-keep writes` and no `-run`: pinning would re-send the write on the entities the recorded run
+   created and already changed, and a confirm then answers `OrderAlreadyConfirmed` instead of
+   reproducing anything; `-keep writes` keeps each earlier write its state may depend on (a
+   restock the closure alone would drop). When a write the slice keeps interpolates a var into what it creates, the line ends
    with `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a string that a
    dropped step before the target also sent, template for template (`w-${vars.tag}` in both), is
    not counted: the kept write names what that step created under the run's value, so the slice
@@ -1317,7 +1350,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    still counts as a dropped write, so a matching verdict is INCONCLUSIVE and `next:` keeps it
    together with the producers it needs, building fresh state. A prerequisite the run did not
    perform, or refused, is kept and sent as in closure mode, and so is a read, which changes
-   nothing. `-keep <id>` keeps it anyway. A var the kept steps read that the
+   nothing. `-keep <id>` keeps it anyway. The same holds for the target itself: a kept write
+   whose body reads a pinned value (`ConfirmOrder` on the pinned `id_order`) acts on what the
+   source run created and already changed, so re-sending it changes live data and answers for a
+   second write (`OrderAlreadyConfirmed`). The printed slice says so in a `WARNING`, and
+   `-verify` refuses before sending (exit 2), naming the closure command
+   (`-keep writes -run <id> -var tag=<fresh> -verify`); `-resend-writes` sends it anyway. A var the kept steps read that the
    chain does not declare (one you passed with `-var` at run time) is taken from `-var`, else in pin
    mode from the source run's `vars`, and written into the slice's `vars:`. A var the chain
    declares is written with the value the source run used, not the default, in pin mode when no

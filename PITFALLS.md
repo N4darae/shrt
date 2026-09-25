@@ -191,8 +191,11 @@ chain's own tag isolates.
 PASS means the fix that made it fail has fallen off the target — a deploy regression, not a chain
 bug.
 
-In a shrt corpus the same chain declares `kept_red`, and its run says so itself: `kept red
-(defect_gone)` and exit 1. The opposite failure is quieter and worse: a gate that only checks a
+In a shrt corpus the same chain declares `kept_red`, and its run says so itself: the headline
+reads `PINNED DEFECT GONE (kept red, every step passed; exit 1 until kept_red is removed)`, never
+`PASSED`, with `kept red (defect_gone)` and exit 1. A kept-red run that collided with data an
+earlier run left (`fixture reused` or `fixture collision`) says `kept red (not_as_pinned): not
+judged: ...` in one sentence instead of listing every failed and unsent step. The opposite failure is quieter and worse: a gate that only checks a
 kept-red chain exits 1 stays green when a regression makes the chain fail EARLIER, at a step the
 defect never touched (`create_order` total wrong, so `confirm_order` is never reached). `kept_red`
 pins the step and path, so that run says `not_as_pinned` and exits 1. Until 2026-09-24 a plain run
@@ -880,6 +883,16 @@ output when the contract says so — and a producer that is not among them is re
 stderr rather than left as a silent empty string (`contract show` since 2026-09-24; before that
 its CHAIN STEP left the empty string without a word). The summary becomes the step description and the
 contract's `exports:` are written out.
+
+2026-09-25: an rpc named twice (`chain new -name css CreateProduct CreateProduct AddStock ...
+CreateOrder`) used to give both steps the same `sku: sku-${vars.tag}`, wire every reference to the
+last one, read `${vars.tag}` without declaring it, and export whole messages nothing read. Now a
+reference goes to a producer before the step, the least-read one first; the entries of a repeated
+field go to distinct producers in order (`lines.0` to `create_product`, `lines.1` to
+`create_product_2`); a repeat's value built from a var gets the step's suffix after the var
+(`sku-${vars.tag}-2`); `vars:` declares an interpolated var as `contract plan` does; an export no
+step reads is left out. When one producer is read by a write the other is not (`add_stock` stocks
+only the first product), a note says so and names the step to add if both need it.
 
 Measured on the backend this kit was first written for, `chain new` over CreateBook + CreateAsset + CreateDeal: 14 lint errors before, 10
 after, and the 10 are fields whose producers genuinely are not in the list — each named in a note.

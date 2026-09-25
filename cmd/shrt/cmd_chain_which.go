@@ -166,6 +166,9 @@ func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, strin
 	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts
+		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) {
+			o.Keep = []string{chain.SliceKeepWrites}
+		}
 		if run != "" {
 			rec, err := e.store.LoadRun(c.Name, run)
 			if err != nil {
@@ -241,6 +244,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
 		whichMarkClaim, whichMarkSeen, target)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
+	fmt.Println("A write step is reproduced in closure mode with -keep writes, which creates what it needs afresh and keeps every earlier\n" +
+		"write its state may depend on: -mode pin would re-send the write against the entities the recorded run created, which that\n" +
+		"run already changed (a confirm answers AlreadyConfirmed).")
 }
 
 func whyNewestUnreached(n *chain.WhichNewest) string {

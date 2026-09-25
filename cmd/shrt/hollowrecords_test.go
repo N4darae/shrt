@@ -13,7 +13,7 @@ func TestHollowGateSaysWhatRecordsItCounted(t *testing.T) {
 	writeFile(t, baseline, "0\n")
 	rep := &hollow.Report{Records: 19, ReplayRecords: 7, KeptRedRecords: 4, FailedRecords: 5, FailedKeptRedRecords: 3}
 	var err error
-	out := captureStdout(t, func() { err = hollowGate(rep, baseline, ".shrt/hollow-allow") })
+	out := captureStdout(t, func() { err = hollowGate(rep, baseline, ".shrt/hollow-allow", nil) })
 	if err != nil {
 		t.Fatal(err)
 	}

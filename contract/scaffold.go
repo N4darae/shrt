@@ -160,6 +160,7 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
 			carryRequiredTodo(node, prior)
+			addNewFields(node, prior, m, all)
 			return node
 		}
 	}
@@ -226,6 +227,55 @@ func requiredTodo() *yaml.Node {
 	n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
 	n.Content = append(n.Content, scalar(RequiredTodoText))
 	return n
+}
+
+func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []*catalog.Method) {
+	known := map[string]bool{}
+	for key := range prior.Fields {
+		known[headSegment(key)] = true
+	}
+	for _, key := range prior.Required {
+		if !IsRequiredLiteral(key) {
+			known[headSegment(key)] = true
+		}
+	}
+	for _, alias := range prior.Aliases {
+		if alias == nil {
+			continue
+		}
+		for key := range alias.Fields {
+			known[headSegment(key)] = true
+		}
+	}
+	hint := fieldHint
+	if isReadOnly(m.Name) {
+		hint = readOnlyHint
+	}
+	added := &yaml.Node{Kind: yaml.MappingNode}
+	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+		if known[f.Name] {
+			continue
+		}
+		put(added, f.Name, scaffoldField(f, m, all, hint))
+		scaffoldNestedIDs(added, f, f.Name, m, all, 1)
+	}
+	if len(added.Content) == 0 {
+		return
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "fields" && node.Content[i+1].Kind == yaml.MappingNode {
+			node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
+			return
+		}
+	}
+	at := len(node.Content)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "required" {
+			at = i + 2
+		}
+	}
+	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
+	node.Content = append(node.Content[:at:at], rest...)
 }
 
 func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {

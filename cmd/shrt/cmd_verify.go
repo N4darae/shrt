@@ -179,6 +179,7 @@ func runVerify(ctx context.Context, args []string) error {
 
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	report.DropUnsentDefaults(rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)

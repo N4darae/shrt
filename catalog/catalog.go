@@ -148,7 +148,12 @@ func (c *Catalog) closestRPC(ref string) string {
 		}
 		byForm[form] = append(byForm[form], m.FullName)
 	}
-	near := namecase.Closest(ref, forms, 3)
+	near := []string{}
+	for _, form := range namecase.Closest(ref, forms, 3) {
+		if len(namecase.Closest(rpcName(ref), []string{rpcName(form)}, 1)) > 0 {
+			near = append(near, form)
+		}
+	}
 	if len(near) == 0 {
 		return ""
 	}
@@ -159,6 +164,17 @@ func (c *Catalog) closestRPC(ref string) string {
 		}
 	}
 	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+}
+
+func rpcName(ref string) string {
+	if i := strings.LastIndexAny(ref, "/."); i >= 0 {
+		return ref[i+1:]
+	}
+	return ref
+}
+
+func (c *Catalog) SuggestRPC(ref string) string {
+	return c.closestRPC(strings.TrimPrefix(strings.TrimSpace(ref), "/"))
 }
 
 func matchesRef(m *Method, ref string) bool {

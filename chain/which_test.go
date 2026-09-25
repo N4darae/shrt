@@ -291,8 +291,8 @@ func TestAnObservedVerdictOutranksAnAssertionAndChangesTheCommand(t *testing.T) 
 	if ev == nil || ev.Run != "r2" || ev.Code != "1218" || ev.Path != "error.details.0.app_code" {
 		t.Fatalf("the evidence must name the newest run that actually answered 1218 and where it was read, got %+v", ev)
 	}
-	if want := "shrt chain slice long -step boom_long -mode pin -run r2"; hits[0].Command != want {
-		t.Fatalf("an observed match must reproduce through the cheaper pinned form\nwant %q\ngot  %q", want, hits[0].Command)
+	if want := "shrt chain slice long -step boom_long -keep writes"; hits[0].Command != want {
+		t.Fatalf("an observed write is reproduced in closure mode: pinning would re-send it on the recorded run's entities\nwant %q\ngot  %q", want, hits[0].Command)
 	}
 	if want := "shrt chain slice short -step boom"; hits[1].Command != want {
 		t.Fatalf("without a run record the command must stay a closure slice\nwant %q\ngot  %q", want, hits[1].Command)

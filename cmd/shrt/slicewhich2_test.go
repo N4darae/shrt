@@ -229,8 +229,8 @@ func TestCLIWhichSeesTransportRefusedStepsAndPrintsEvidenceOnItsOwnLine(t *testi
 			t.Errorf("every evidence line reads the same way: %q", l)
 		}
 	}
-	if !strings.Contains(out, "-mode pin -run ") || !strings.Contains(out, "-var tag=<fresh>") {
-		t.Fatalf("the reproduce line must ask for a fresh tag, which create interpolates into a name:\n%s", out)
+	if strings.Contains(out, "-mode pin -run ") || !strings.Contains(out, "-var tag=<fresh>") {
+		t.Fatalf("the reproduce line of a write is a closure slice and must ask for a fresh tag, which create interpolates into a name:\n%s", out)
 	}
 }
 

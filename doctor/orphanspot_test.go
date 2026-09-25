@@ -33,7 +33,7 @@ func TestASafeSpotWhoseChainIsGoneIsAWarningWithTheRemedy(t *testing.T) {
 			t.Errorf("the finding lacks %q: %s", want, f.Detail)
 		}
 	}
-	for _, want := range []string{"shrt confirm stock-batch-renamed", "git rm .shrt/safespots/stock-batch.json"} {
+	for _, want := range []string{"shrt confirm stock-batch-renamed -rename-from stock-batch -by", "shrt confirm stock-batch-renamed", "git rm .shrt/safespots/stock-batch.json"} {
 		if !strings.Contains(f.Remedy, want) {
 			t.Errorf("the remedy lacks %q: %s", want, f.Remedy)
 		}
