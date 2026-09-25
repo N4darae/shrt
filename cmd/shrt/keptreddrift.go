@@ -27,7 +27,7 @@ func pinnedReference(e *env, c *chain.Chain, rec *runner.Record) *runner.Record 
 		if err != nil || prev.DryRun || prev.ReplayOf != "" || !ranBefore(prev, rec) {
 			continue
 		}
-		if prev.KeptRed != runner.KeptRedAsPinned || prev.ChainDigest != rec.ChainDigest || !config.SameTarget(prev.Target, rec.Target) {
+		if prev.KeptRed != runner.KeptRedAsPinned || len(prev.KeptRedSlow) > 0 || prev.ChainDigest != rec.ChainDigest || !config.SameTarget(prev.Target, rec.Target) {
 			continue
 		}
 		return prev
@@ -93,4 +93,19 @@ func pinPathsOf(pins []chain.Pin) string {
 		parts = append(parts, s)
 	}
 	return strings.Join(parts, ", ")
+}
+
+func keptRedLatencyFailure(name string, flags []diff.LatencyFlag, p diff.LatencyPolicy) error {
+	slow := confirmedLatency(flags)
+	if !p.Fail || len(slow) == 0 {
+		return nil
+	}
+	steps := make([]string, len(slow))
+	for i, f := range slow {
+		steps[i] = fmt.Sprintf("%s %dms -> %dms", f.Step, f.BeforeMS, f.AfterMS)
+	}
+	return fmt.Errorf("latency regression in %s: it failed as pinned, but %d step(s) took at least +%dms and %gx the last run "+
+		"that failed as pinned, confirmed by re-measurement or the previous run (%s); latency.fail is set in .shrt/config.yaml, "+
+		"so this fails the run of a kept-red chain, which has no safe spot for verify to compare with",
+		name, len(slow), p.FloorMS, p.Ratio, strings.Join(steps, ", "))
 }

@@ -1247,6 +1247,11 @@ answer, so one slow call from a busy box is not reported; a write is never re-se
 only when the previous run of the chain was slow at the same step too. It is a warning: the exit code
 stays 0 unless `.shrt/config.yaml` sets `latency: {fail: true}`; tune `floor_ms`, `ratio` and
 `remeasure` there (`GRAMMAR.md` §4). `shrt verify <name> -latency` lists every step, before and after.
+A chain with `kept_red` has no safe spot, so `shrt run` of it (the gate's only check of it) compares
+with the newest earlier run of the same chain file and target that failed as pinned and was not slow
+itself (`LATENCY: ... run <id> (the last run that failed as pinned) ...`); with `fail: true` a
+confirmed slowdown there exits 1 although the chain failed as pinned. A run flagged slow is never
+that reference, so the slowdown is reported on every run until it goes away or the chain file changes.
 
 Then read the report. When the replay ran against another target than the
 safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may

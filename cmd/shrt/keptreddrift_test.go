@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -101,5 +102,45 @@ func TestKeptRedPinsRecordAStableGot(t *testing.T) {
 	}
 	if c.KeptRed[0].Got == nil || *c.KeptRed[0].Got != "true" {
 		t.Errorf("re-pinning an old pin with no got records the got it failed with: %+v", c.KeptRed[0])
+	}
+}
+
+func TestAKeptRedRunReportsLatencyAgainstTheLastRunThatFailedAsPinned(t *testing.T) {
+	var delay atomic.Int64
+	srv := newSlowFetchBackend(&delay)
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, filepath.Join(".shrt", "chains", "red.yaml"), `name: red
+kept_red:
+    - {step: fetch, path: name, got: widget}
+steps:
+    - id: fetch
+      call: ThingService/Fetch
+      body: {id: thing-1}
+      expect:
+          - {path: name, equals: gadget}
+`)
+	cfg, err := os.ReadFile(".shrt/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, ".shrt/config.yaml", string(cfg)+"latency:\n    floor_ms: 100\n")
+	ctx := context.Background()
+	if err := runRun(ctx, []string{"red", "-quiet"}); err != nil {
+		t.Fatalf("baseline run: %v", err)
+	}
+	delay.Store(150)
+	var rerr error
+	out := captureStdout(t, func() { rerr = runRun(ctx, []string{"red", "-quiet"}) })
+	if rerr != nil {
+		t.Fatalf("without latency.fail a slowdown is a warning: %v\n%s", rerr, out)
+	}
+	if !strings.Contains(out, "LATENCY: Fetch at step fetch") || !strings.Contains(out, "(the last run that failed as pinned)") {
+		t.Fatalf("a kept-red chain has no safe spot, so latency is measured against its last as-pinned run:\n%s", out)
+	}
+	writeFile(t, ".shrt/config.yaml", string(cfg)+"latency:\n    floor_ms: 100\n    fail: true\n")
+	out = captureStdout(t, func() { rerr = runRun(ctx, []string{"red", "-quiet"}) })
+	if rerr == nil || !strings.Contains(rerr.Error(), "latency regression in red") {
+		t.Fatalf("with latency.fail a confirmed slowdown fails the kept-red run: %v\n%s", rerr, out)
 	}
 }
