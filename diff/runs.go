@@ -444,7 +444,7 @@ func (r *RunReport) Text() string {
 		if red != "" {
 			fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so %s went on past %s's first red (%s)", with, without, with, without, red)
 			if len(only) > 0 {
-				fmt.Fprintf(&b, "; reached in %s only: %s", with, strings.Join(only, ", "))
+				fmt.Fprintf(&b, "; %d step(s) reached in %s only, listed below", len(only), with)
 			}
 			if len(r.SkippedKeepGoing) > 0 {
 				fmt.Fprintf(&b, "; skipped in %s as well, and a skipped step is not reached: %s", with, strings.Join(r.SkippedKeepGoing, ", "))
