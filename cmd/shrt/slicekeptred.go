@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -315,11 +316,6 @@ func (f *keptRedFlag) arg() string {
 }
 
 func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([]chain.Pin, error) {
-	for _, id := range named {
-		if id == res.Target {
-			return nil, fmt.Errorf("-kept-red=%s names the target step, which -kept-red pins anyway: name only the other steps that show the defect", id)
-		}
-	}
 	relaxable := relaxableIn(rec)
 	out := []chain.Pin{}
 	for _, k := range res.Kept {
@@ -375,4 +371,73 @@ func pinSubject(pins []chain.Pin) string {
 		return "they"
 	}
 	return "it"
+}
+
+func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, slice *chain.Chain, pins []chain.Pin, written string) string {
+	if written == "" {
+		return fmt.Sprintf("\nkept_red: nothing written, so nothing pinned: add -write to pin %s, as %s failed in run %s\n",
+			pinList(slice, pins), pinSubject(pins), rec.RunID)
+	}
+	line := fmt.Sprintf("\nkept_red: pinned in %s on %s, as %s failed in run %s; its run exits 0 while it fails exactly so.",
+		shownPath(written), pinList(slice, pins), pinSubject(pins), rec.RunID)
+	if c.SourcePath != "" && sameSliceFile(written, c.SourcePath) {
+		return line + "\n"
+	}
+	steps := []string{}
+	for _, p := range pins {
+		if !containsStr(steps, p.Step) {
+			steps = append(steps, p.Step)
+		}
+	}
+	drop := strings.Join(steps, ",")
+	if failed := failedSteps(rec); len(failed) == len(steps) && !slices.ContainsFunc(failed, func(f string) bool { return !containsStr(steps, f) }) {
+		drop = "failed"
+	}
+	return line + fmt.Sprintf(" Leave the pinned steps out of %s in place, so the gate runs the rest green: shrt chain slice %s -without %s -run %s -write %s\n",
+		c.Name, ref, drop, rec.RunID, sourceFileArg(c))
+}
+
+func stoppedAsInSource(replay, source *runner.Record) string {
+	for _, sr := range replay.Steps {
+		if sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+			continue
+		}
+		was, ok := source.Step(sr.ID)
+		if !ok || was.Status != runner.StatusFailed {
+			return ""
+		}
+		for _, x := range was.Expect {
+			if !x.Passed && x.Rule != "unevaluated" {
+				return sr.ID
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+func readsFailedAfter(e *env, ref string, rec *runner.Record, step string, err error) error {
+	if rec == nil {
+		return err
+	}
+	a := runAttribution(e, rec)
+	reads := []string{}
+	for _, st := range rec.Steps {
+		if st == nil || st.ID == step || st.Status != runner.StatusFailed {
+			continue
+		}
+		for _, x := range st.Expect {
+			if !x.Passed && x.Rule != "unevaluated" {
+				if a.item(gateItem{Step: st.ID, Call: st.Call, Path: x.Path}).SuspectStep == step {
+					reads = append(reads, st.ID)
+				}
+				break
+			}
+		}
+	}
+	if len(reads) == 0 {
+		return err
+	}
+	return fmt.Errorf("%w; later steps reading what it wrote failed (%s), so pin the first of them: shrt chain slice %s -step %s -kept-red=%s -verify -write",
+		err, strings.Join(reads, ", "), ref, reads[0], strings.Join(reads, ","))
 }
