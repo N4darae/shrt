@@ -307,7 +307,21 @@ references swapped (`CUST-${vars.tag}@EXAMPLE.TEST`), since a backend comparing 
 passes an exact duplicate; a `${uuid}` in that field becomes `${vars.tag}` so both steps send the
 same value, and each run then needs `-var tag=<fresh>`. When it says the value is trimmed of
 surrounding whitespace, it adds the value padded with spaces too. When the contract says nothing
-about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
+about case, a note says how to ask for the variant rather than guessing.
+
+A refused write must change nothing, and only a read proves it. For a target whose contract declares
+a shortage refusal (`InsufficientStock`, a `when:` saying more than, exceeds, not enough), the plan
+asks for 100000 of the first quantity field (`qty`, `quantity`, `count`, `amount`) it finds, in the
+step's own body or in a copy of the step it reads (`create_order_for_insufficient_stock`, the order
+`confirm_order_insufficient_stock` then confirms), expecting the refusal. It does so once with the
+shortage on the first item and once on the last (`..._last_item`): a backend that checks only the
+first line confirms the second. Around each refused step it reads every entity the step touches,
+directly or through the step it reads, with the read rpc whose contract takes that entity's id
+(`get_product_before_…`, `get_product_after_…`), and the after-read asserts each numeric and enum
+field equal to the before-read. A backend that refuses but still takes the first line's stock fails
+there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
+
+A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are

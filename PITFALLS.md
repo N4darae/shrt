@@ -1302,6 +1302,20 @@ sending the taken value with every other literal field changed (strings get `-ot
 `@` of an address; numbers become 2n+1; ids, enums, bools and references are kept), expecting the
 same refusal. When no other field can be changed, a note says the attempt is only an exact copy.
 
+## 47. A refused confirm that still took stock, green in the planned chain
+
+**Symptom.** ConfirmOrder answered `1305 InsufficientStock`, as it should, but had already taken the
+first line's stock. Every planned chain was green: none of them ever made the confirm fail, and none
+read the stock after a refusal.
+
+**Cause.** A plan scaffolded only the happy path of its target. A refusal the contract declared was
+never exercised, and "nothing changes" is a claim about state, which no verdict can check.
+
+**Fix.** 2026-09-25: for a shortage refusal, `contract plan` adds a copy of the producing step with a
+quantity of 100000 on the first item (and another on the last), the refused call on it, and a read of
+every entity it touches before and after, asserting numeric and enum fields unchanged. In the lab
+the last-item probe also found a baseline that checks only the first line and confirms anyway.
+
 ---
 
 # Decisions, so they are not relitigated
