@@ -56,7 +56,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
 	"     - the first failing step was refused as a uniqueness conflict on a value an earlier step of\n" +
 	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
-	"       within every run, a chain defect\n" +
+	"       within every run, a chain defect; unless the value is a ${steps.<id>.request...} reference\n" +
+	"       or the safe spot's run or an earlier run had that repeat accepted: then a regression\n" +
 	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
 	"     is not judged\n" +
 	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +

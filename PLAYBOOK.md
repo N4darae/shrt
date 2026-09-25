@@ -197,7 +197,11 @@ l-${vars.tag}@example.test`) is not blamed, so it is no `fixture collision` eith
 rpc, sent the identical value on the conflicting field and was accepted (two `CreateProduct` steps
 both sending `sku: sku-${vars.tag}`), `run` and `verify` say `the chain collides with itself within
 one run: ... the value step "create_product" of this same run sent there` and exit 1: every run
-collides with itself whatever `-var` is given, so it is never a fixture collision. A var that
+collides with itself whatever `-var` is given, so it is never a fixture collision. Not when the
+repeat is deliberate or proven: a value the later step reads from the earlier one's request
+(`idempotency_key: ${steps.order1.request.idempotency_key}`, an idempotent resend), or a repeat the
+safe spot's run or another recorded run sent at those two steps and had accepted, is what the
+backend used to accept, so its refusal now is `regression: N change(s)`, exit 1. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
