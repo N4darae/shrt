@@ -10,6 +10,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -31,9 +32,10 @@ type Plan struct {
 }
 
 type PlanOptions struct {
-	Auth     bool
-	Profiles []string
-	Logins   []string
+	Auth        bool
+	Profiles    []string
+	Logins      []string
+	LoginBodies map[string]map[string]any
 }
 
 type pendingChecks struct {
@@ -115,6 +117,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		id := uniqueStepID(c, base)
 		p.stepOf[node] = id
 		step := p.buildStep(id, alias, method, lib)
+		p.fillLoginBody(step, method)
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
 		if !isTarget[node] {
@@ -1019,4 +1022,32 @@ func anyContract(order []string, lib *Library) bool {
 		}
 	}
 	return false
+}
+
+func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
+	body := p.opts.LoginBodies[m.FullName]
+	if len(body) == 0 {
+		return
+	}
+	filled := []string{}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		k, ok := namecase.LookupKey(step.Body, key)
+		if !ok {
+			k = key
+		}
+		if cur, present := step.Body[k]; present && cur != "" && cur != nil {
+			continue
+		}
+		step.Body[k] = cloneBody(body[key])
+		filled = append(filled, k)
+	}
+	if len(filled) > 0 {
+		p.note("step %s: %s %s the values the config's auth: block sends for this login, so the step logs in as the chain's "+
+			"default principal does", step.ID, strings.Join(filled, ", "), pluralVerb(len(filled), "takes", "take"))
+	}
 }
