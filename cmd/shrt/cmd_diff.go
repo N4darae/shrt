@@ -68,6 +68,11 @@ func compareRuns(_ context.Context, args []string) error {
 		if err == nil {
 			b, err = findRunAnywhere(e, rest[1])
 		}
+		if err != nil {
+			if named := chainArgs(e, rest); named != nil {
+				return named
+			}
+		}
 		if err == nil && a.Chain != b.Chain {
 			err = fmt.Errorf("run %s is of chain %s and run %s is of chain %s: shrt diff compares two runs of the SAME chain",
 				a.RunID, a.Chain, b.RunID, b.Chain)
@@ -222,4 +227,33 @@ func findRunAnywhere(e *env, id string) (*runner.Record, error) {
 		return found[0], nil
 	}
 	return nil, fmt.Errorf("run id %s is recorded under %d chains; name the chain: shrt diff <chain> <run-a> <run-b>", id, len(found))
+}
+
+func chainArgs(e *env, args []string) error {
+	chains := []string{}
+	for _, a := range args {
+		if isChainName(e, a) {
+			chains = append(chains, a)
+		}
+	}
+	switch len(chains) {
+	case 0:
+		return nil
+	case len(args):
+		return fmt.Errorf("%s and %s are chain names, not run ids: shrt diff compares two runs of ONE chain, not two chains. "+
+			"Run 'shrt diff %s' for its two latest runs, or 'shrt diff %s <run-a> <run-b>'\n\n%s",
+			args[0], args[1], args[0], args[0], diffUsage)
+	}
+	return fmt.Errorf("%s is a chain name: with two arguments both are run ids. Name the chain first and then its two runs: "+
+		"'shrt diff %s <run-a> <run-b>' (ids, latest or latest~N), or 'shrt diff %s' for its two latest runs\n\n%s",
+		chains[0], chains[0], chains[0], diffUsage)
+}
+
+func isChainName(e *env, name string) bool {
+	for _, n := range chain.Names(e.chainsDir()) {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }
