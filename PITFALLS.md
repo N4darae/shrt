@@ -1632,6 +1632,14 @@ varies per run, it asserts only a lower bound (`products.2 exists: true`) and no
 lint` warns `unscoped-count` on a read asserting an exact count while no field of its request reads
 a var, a step or a generator.
 
+## 69. "Holds exactly 3 item(s)" backed only by an upper bound
+
+**Symptom.** The plan noted that `list_orders` "asserts it holds exactly 3 item(s)", but its only
+count assertion was `orders.3 exists: false`, which an empty list passes.
+
+**Fix.** 2026-09-25: wherever the plan asserts that a list ends after N items, it also asserts
+`<list>.<N-1> exists: true`, unless an assertion on that item already implies it.
+
 ---
 
 # Decisions, so they are not relitigated

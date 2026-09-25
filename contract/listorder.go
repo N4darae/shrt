@@ -299,6 +299,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 		p.note("step %s: the contract for %s states no order for %s, so no position is asserted; if it promises one, say so in "+
 			"its summary (\"sorted by <field>\", \"newest first\") and plan again", t.step.ID, listRPC, t.listPath)
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
+		assertLowerBound(t.step, t.listPath)
 		return
 	}
 	var order []int

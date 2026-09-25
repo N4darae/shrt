@@ -49,6 +49,7 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 		if !hasExistsFalse(st, t.listPath) {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}
+		assertLowerBound(st, t.listPath)
 		if n, ok := assertedLength(st, t.listPath); ok && len(said) > 0 {
 			p.note("step %s: %s must not appear in %s, which asserts it holds exactly %d item(s): a filter that lets them through fails",
 				st.ID, strings.Join(said, " and "), st.ID, n)

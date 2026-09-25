@@ -104,6 +104,20 @@ func (p *Plan) scopeUnscopedList(t *listTarget) {
 	t.unscoped = true
 }
 
+func assertLowerBound(st *chain.Step, listPath string) {
+	n, ok := assertedLength(st, listPath)
+	if !ok || n == 0 {
+		return
+	}
+	last := listPath + "." + itoa(n-1)
+	for _, e := range st.Expect {
+		if e.Path == last || strings.HasPrefix(e.Path, last+".") {
+			return
+		}
+	}
+	st.Expect = append(st.Expect, chain.Expectation{Path: last, Exists: boolPtr(true)})
+}
+
 func (p *Plan) noteUnscopedList(t *listTarget, n int) {
 	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath + "." + itoa(n-1), Exists: boolPtr(true)})
 	p.note("step %s: nothing in its request scopes %s to what this run created (no field reads a var, a step or a "+
