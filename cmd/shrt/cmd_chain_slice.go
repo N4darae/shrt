@@ -763,7 +763,6 @@ func (v *sliceVerdict) text() string {
 		fmt.Fprintf(&b, " on build %s", v.Build)
 	}
 	b.WriteString("\n")
-	b.WriteString(v.runLines())
 	fmt.Fprintf(&b, "  source: status %s, %s %q%s\n", v.Source.Status, v.EnvelopePath, v.Source.ErrorCode, refusalText(v.Source))
 	if v.Outcome == sliceDidNotRun {
 		fmt.Fprintf(&b, "  slice:  step %s was never sent, so there is no verdict to compare\n", v.Step)
