@@ -2200,6 +2200,16 @@ replaces the chain in place, went on to say the file `is now part of every sweep
 
 **Fix.** 2026-09-25: the note is left out when the file written is the source chain's own.
 
+## 104. A confirm refused when a line asked for exactly the stock on hand
+
+**Symptom.** A `ConfirmOrder` that refused `1305 InsufficientStock` when the first line asked for
+exactly the product's stock on hand passed every planned probe: the main path asks for less, and
+the shortage probes ask for one more.
+
+**Fix.** 2026-09-25: for a write whose contract declares a shortage refusal, the plan adds
+`<step>_exact_stock` on fixtures of its own, every line asking for exactly the stock the chain added,
+expecting success and a level of 0 in the reads after it.
+
 ---
 
 # Decisions, so they are not relitigated

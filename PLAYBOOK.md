@@ -350,6 +350,11 @@ directly or through the step it reads, with the read rpc whose contract takes th
 (`get_product_before_…`, `get_product_after_…`), and the after-read asserts each numeric and enum
 field equal to the before-read. A backend that refuses but still takes the first line's stock fails
 there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
+Next to the shortage probes, on fixtures of its own (`..._for_exact`), the plan asks for exactly the
+stock the chain added on every line (`create_order_for_confirm_order_exact_stock`,
+`confirm_order_exact_stock`) and expects success, the reads after it a level of 0: the shortage asks
+for one more, so together they pin the boundary, and a backend that refuses a quantity equal to the
+stock on hand (`>=` where `>` is meant) fails there.
 
 Each write probe group runs on fixtures of its own: the shortage probes, the token probes and the
 item-count probes each get copies of the steps that created and prepared the main path's fixtures,
