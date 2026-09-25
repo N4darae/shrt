@@ -33,7 +33,9 @@ const confirmUsage = "usage: shrt confirm <chain> -note \"what you checked\" [-r
 	"       shrt confirm <chain> -approve -by <user email>                                only after the user said yes\n" +
 	"       shrt confirm <chain> -reject\n" +
 	"       shrt confirm <new> -rename-from <old> -by <user email>                        carry a safe spot across a pure chain rename\n" +
-	"       shrt confirm -pending                                                         list proposals awaiting a decision"
+	"       shrt confirm -pending                                                         list proposals awaiting a decision\n" +
+	"       shrt confirm -all -note \"what you checked\"        propose every chain whose latest run passed and has no or a changed safe spot\n" +
+	"       shrt confirm -all -approve -by <user email>        only after the user said yes to every summary"
 
 func runConfirm(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("confirm", flag.ContinueOnError)
@@ -44,6 +46,8 @@ func runConfirm(ctx context.Context, args []string) error {
 	approve := fs.Bool("approve", false, "approve the pending proposal and write the safe spot; run it only after the user has said yes")
 	reject := fs.Bool("reject", false, "discard the pending proposal")
 	pending := fs.Bool("pending", false, "list proposals awaiting a decision")
+	all := fs.Bool("all", false, "with -note, propose every chain whose latest run passed and whose safe spot is missing or differs; "+
+		"with -approve, approve every pending proposal, only after the user said yes to each summary")
 	renameFrom := fs.String("rename-from", "", "carry the safe spot of `<old>` chain, renamed to this one, with its approval: only when the chain is identical apart from its name; needs -by")
 	setUsage(fs, confirmUsage, "\nexit codes:\n  0  proposal written, approved, rejected or listed\n"+
 		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, nothing pending, or a -rename-from that is not a pure rename\n")
@@ -57,6 +61,15 @@ func runConfirm(ctx context.Context, args []string) error {
 	}
 	if *pending {
 		return listProposals(e)
+	}
+	if *all {
+		switch {
+		case len(rest) > 0 || *reject || *supersede || *renameFrom != "" || *runID != "latest":
+			return errors.New("-all takes -note to propose, or -approve -by to approve, and no chain, -run, -supersede, -reject or -rename-from")
+		case *approve:
+			return approveAll(e, *by, *note)
+		}
+		return proposeAll(e, *note, *by)
 	}
 	if len(rest) != 1 {
 		return errors.New(confirmUsage)

@@ -359,6 +359,11 @@ proposals. `confirm` refuses a run record whose seal does not match (edited by h
 proposal came from. A chain with a safe spot needs `-supersede`; the old one is archived under
 `.shrt/safespots/archive/<chain>/`.
 
+For a whole suite, `shrt confirm -all -note "..."` proposes every chain whose latest run passed and
+whose safe spot is missing or differs (one line per chain, then each summary). Present every
+summary; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
+to the rest, `shrt confirm -all -approve -by <user email>` approves every pending proposal.
+
 A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -rename-from <old>
 -by <email>` carries it across; any other difference is refused.
 

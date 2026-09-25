@@ -67,6 +67,7 @@ traffic.
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`) |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints a short summary to show the user, the full report in `.shrt/safespots/pending/` |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes; `-reject`, `-pending` |
+| `shrt confirm -all -note "..."` | propose every chain whose latest run passed and has no or a changed safe spot; `-all -approve -by <email>` after the user's yes to each |
 | `shrt confirm <new> -rename-from <old> -by <email>` | carry a safe spot across a pure rename |
 | `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs; no safe spot needed, not a verdict |
