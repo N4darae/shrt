@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -63,6 +64,7 @@ func chainWhich(args []string) error {
 	}
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
+	keepRelatedWritesInPinnedRepro(e, lib, chains, hits)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
 		if len(seen) == 0 {
@@ -166,6 +168,46 @@ func observedResponse(s *runner.StepRecord) any {
 	}
 	merged[chain.TransportPrefix] = outcome[chain.TransportPrefix]
 	return merged
+}
+
+func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
+	byName := map[string]*chain.Chain{}
+	for _, c := range chains {
+		byName[c.Name] = c
+	}
+	for i := range hits {
+		h := &hits[i]
+		c := byName[h.Chain]
+		if c == nil || len(h.Matches) == 0 || h.Matches[0].Observed == nil || !strings.Contains(h.Command, " -mode pin -run ") {
+			continue
+		}
+		run := h.Matches[0].Observed.Run
+		rec, err := e.store.LoadRun(c.Name, run)
+		if err != nil {
+			continue
+		}
+		o := chain.SliceOptions{Mode: chain.SliceModePin, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), RunID: rec.RunID,
+			Value: recordValues(rec), RunVars: recordVars(rec), Refused: refusedIn(rec), Performed: performedIn(rec)}
+		res, err := chain.Slice(c, h.Best, o)
+		if err != nil {
+			continue
+		}
+		if related, _ := relatedDroppedWrites(res, rec); len(related) == 0 {
+			continue
+		}
+		o.Keep = []string{chain.SliceKeepWrites}
+		kept, err := chain.Slice(c, h.Best, o)
+		if err != nil {
+			continue
+		}
+		cmd := "shrt chain slice " + c.Name + " -step " + h.Best + " -mode pin -run " + run + " -keep " + chain.SliceKeepWrites
+		names := append([]string{}, kept.FreshVars...)
+		sort.Strings(names)
+		for _, name := range names {
+			cmd += " -var " + name + "=<fresh>"
+		}
+		h.Command = cmd
+	}
 }
 
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {

@@ -1403,7 +1403,9 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write),
+   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write,
+   and the pinned form with `-keep writes` for a read of an entity a write of the chain created,
+   which a pinned slice would drop and call INCONCLUSIVE),
    and exits 0. A step that asserts the code's alias (the `reason` seen with it) is an asserting
    match, not one of these. The backend exercises the code and no expectation pins
    it, but that is not always unguarded: each step also says when an expectation pins a sibling of
@@ -1494,7 +1496,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    `-var` still overrides, and when the verdicts then differ the verdict names each var that differs
    from the source run's. Values that differ every run are masked
    as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
-   differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
+   differs only in such tokens, is the same failure, and so is a want, got or refusal message
+   that differs only by a var's value echoed in it (`source want Customer customers-k1 got
+   cust-customers-k1@example.test, slice want Customer sl-c1 got cust-sl-c1@example.test` with
+   `tag` customers-k1 in the source run and sl-c1 in the slice). `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run

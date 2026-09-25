@@ -849,7 +849,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			res.Target, replay.Transport.Code, replay.Transport.Message))
 	}
 	v.Replay = verdictOf(replay)
-	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToIDs)
+	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	related, other := relatedDroppedWrites(res, rec)
 	switch {
 	case len(v.Differences) > 0 && a.otherTarget != "":
@@ -1060,6 +1060,38 @@ func sameUpToIDs(path string, a, b any) bool {
 		}
 	}
 	return true
+}
+
+func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any) bool {
+	mask := func(vars map[string]any, text string) string {
+		values := []string{}
+		names := map[string]string{}
+		for name, v := range vars {
+			value := fmt.Sprint(v)
+			if len(value) < 3 || value == pathmask.MaskRedacted {
+				continue
+			}
+			values = append(values, value)
+			names[value] = name
+		}
+		sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+		for _, value := range values {
+			text = strings.ReplaceAll(text, value, "${vars."+names[value]+"}")
+		}
+		return text
+	}
+	return func(path string, a, b any) bool {
+		if sameUpToIDs(path, a, b) {
+			return true
+		}
+		x, ok1 := a.(string)
+		y, ok2 := b.(string)
+		if !ok1 || !ok2 {
+			return false
+		}
+		mx, my := mask(source, x), mask(replay, y)
+		return mx != x && mx == my
+	}
 }
 
 func idToken(s string) bool {

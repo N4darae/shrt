@@ -19,6 +19,7 @@ type fakeShop struct {
 	cancelConfirmedBug bool
 	getProductFailN    int
 	priceBug           bool
+	skuEchoBug         bool
 
 	next      int
 	getCalls  int
@@ -92,6 +93,14 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		p, found := s.products[fmt.Sprint(body["id_product"])]
 		if !found {
 			return 200, map[string]any{"status": rejected("ProductNotFound")}
+		}
+		if s.skuEchoBug {
+			wrong := map[string]any{}
+			for k, v := range p {
+				wrong[k] = v
+			}
+			wrong["sku"] = fmt.Sprintf("wrong-%v", p["sku"])
+			return 200, map[string]any{"status": ok(), "product": wrong}
 		}
 		return 200, map[string]any{"status": ok(), "product": p}
 	case "/shop.catalog.v1.StockService/AddStock":
