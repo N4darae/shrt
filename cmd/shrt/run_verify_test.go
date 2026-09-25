@@ -85,6 +85,14 @@ func newFakeCLIBackend() *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/shrt.test.v1.ThingService/Create":
+			if meta, _ := body["meta"].(map[string]any); meta != nil && meta["trace_id"] != nil && meta["trace_id"] != "" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error": map[string]any{"code": "OK"},
+					"id":    meta["trace_id"],
+					"name":  body["name"],
+				})
+				return
+			}
 			nextID++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error": map[string]any{"code": "OK"},

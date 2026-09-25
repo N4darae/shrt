@@ -63,9 +63,9 @@ func (c *Chain) UnusedVarNames(supplied map[string]any) []string {
 		note(s.Headers)
 		note(s.Export)
 		for _, e := range s.Expect {
-			note(e.Equals)
-			note(e.NotEqual)
-			note(e.Contains)
+			for _, v := range e.Operands() {
+				note(v)
+			}
 		}
 	}
 	out := []string{}
@@ -101,9 +101,9 @@ func (c *Chain) DeclaredVarNames() []string {
 		note(s.Headers)
 		note(s.Export)
 		for _, e := range s.Expect {
-			note(e.Equals)
-			note(e.NotEqual)
-			note(e.Contains)
+			for _, v := range e.Operands() {
+				note(v)
+			}
 		}
 	}
 	out := make([]string, 0, len(seen))
@@ -183,7 +183,7 @@ func (s *Step) SendReferences() []string {
 }
 
 func (e Expectation) References() []string {
-	return collectRefs([]any{e.Equals, e.NotEqual, e.Contains})
+	return collectRefs(e.Operands())
 }
 
 func (s *Step) References() []string {
@@ -195,7 +195,7 @@ func (s *Step) References() []string {
 		values = append(values, v)
 	}
 	for _, e := range s.Expect {
-		values = append(values, e.Equals, e.NotEqual, e.Contains)
+		values = append(values, e.Operands()...)
 	}
 	return collectRefs(values)
 }

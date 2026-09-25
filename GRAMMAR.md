@@ -53,6 +53,12 @@ scaffold leaves it present-but-empty rather than absent.
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
 | `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `"0"`. |
+| `gt` | any |  | Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so. |
+| `gte` | any |  | As `gt`, greater than or equal. `expires_at gte: ${nowunix}` asserts a login did not hand out an already-expired token. |
+| `lt` | any |  | As `gt`, less than. |
+| `lte` | any |  | As `gt`, less than or equal. `created_at lte: ${nowunix}` asserts a record was not stamped in the future. |
+| `between` | list of any |  | Exactly two bounds, `[low, high]`, both inclusive, read as `gt` reads them: `expires_at between: ["${nowunix+3595}", "${nowunix+3605}"]`. Anything but two bounds fails it. |
+| `within` | within |  | `{of: X, by: N}`: present and at most N away from X, both read as `gt` reads them. The rule for a clock value, where `equals: ${nowunix+3600}` flakes when the backend's second is not the chain's: `expires_at within: {of: "${nowunix+3600}", by: 5}` holds for an hour-long token and fails one issued in milliseconds or for a day. |
 
 ### What each rule actually does
 
@@ -66,6 +72,11 @@ Produced by evaluating every rule against a fixture response, not by description
 | `not_equal: ""` on `id_deal` | `not_equal` | **yes** |
 | `not_equal: x` on a path that is ABSENT | `not_equal — path not present in response` | no |
 | `contains: d-` on `id_deal` | `contains` | **yes** |
+| `gt: 1789123474` on `expires_at` (an int64, stored as text) | `gt` | **yes** |
+| `between: [1789127000, 1789127100]` on `expires_at` | `between` | **yes** |
+| `within: {of: 1789127074, by: 5}` on `expires_ms`, the same instant in milliseconds | `within` | no |
+| `lte: 1789123474` on `created_at` (RFC3339, read as unix seconds) | `lte` | **yes** |
+| `gt: 0` on `id_deal` (not a number) | `gt — the value is not a number or an RFC3339 time, so it cannot be compared` | no |
 | `not_empty: true` on `id_deal` | `not_empty` | **yes** |
 | `not_empty: true` on an empty list | `not_empty` | no |
 | `not_empty: true` on the number 0 | `not_empty` | no |
@@ -80,7 +91,7 @@ Read the last six rows together. `not_empty` is false for `0` and `[]`, so it ca
 its `"0"` is zero exactly as an int32's `0` is; on any numeric field `""` in `equals` or `not_equal`
 means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one
 to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >
-`not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one
+`not_equal` > `equals` > `gt` > `gte` > `lt` > `lte` > `between` > `within` — so a second rule on one entry does not ADD a check, it REPLACES the one
 you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`
 rejects that and the rule-less entry since 2026-09-11; write one rule per entry, repeating the path.
 
@@ -145,7 +156,8 @@ Lint rejects any other name under `transport.`, and calls `exists: true` / `not_
 
 ## 2. References — `${...}`
 
-Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains`.
+Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains` and the
+bounds of `gt` / `gte` / `lt` / `lte` / `between` / `within`.
 **Not** in an expectation's `path`.
 
 A reference that is the whole value keeps its JSON type; inside a longer string it is
@@ -255,8 +267,8 @@ Produced by resolving each form against a fixture scope:
 | `connect_code` | string |  | The Connect code, e.g. `invalid_argument`. |
 | `reason` | string |  | The backend's own reason string, verbatim. Must match the `errmsg.New` site. |
 | `message` | string |  | The message text, when it is worth pinning. |
-| `field` | string |  | The request field at fault, for shape errors. |
-| `when` | string |  | The condition that raises it. This is the one an author most often leaves vague. |
+| `field` | string |  | The request field at fault, for shape errors, and the field a uniqueness refusal is about when its reason does not name it (`EmailTaken` names `email`). |
+| `when` | string |  | The condition that raises it. This is the one an author most often leaves vague. For a uniqueness refusal (a reason ending `Taken`, `Exists`, `AlreadyExists`, `Duplicate`, `InUse`, or a `when` saying unique or duplicate), `contract plan` of that rpc adds a step sending the same value again, expecting the refusal; say `ignoring case` here and it adds the value in another letter case too, and say the value is trimmed of surrounding whitespace and it adds the value padded with spaces. |
 | `unreachable` | string |  | Declared but cannot fire, and why. Keeps it out of the coverage denominator without deleting the knowledge. The commonest honest use is a code NO shrt chain can observe: every request is validated against the descriptor before it is sent, so a refusal reachable only by a body the proto cannot express — a string where a message belongs, an enum value the descriptor does not know, a catch-all handler for a decode error — is out of reach for a descriptor-driven client and always will be. Say that here rather than leaving the code undeclared, or the coverage term charges you for a branch nothing can reach. |
 | `pending_deploy` | string |  | Declared, correct, and not yet on the box. Carries the commit that will make it reachable. |
 

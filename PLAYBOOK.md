@@ -280,7 +280,33 @@ Substitute your `conventions.envelope_path` and `conventions.envelope_ok` (§3b)
 
 A step whose only expectation is `error.code == OK` asserts that the server did not crash. Say what
 the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
-should have produced, so each planned step asserts only the verdict, and a `note:` names each step
+should have produced, so each planned step asserts the verdict, plus two checks it can derive: a
+range on each timestamp-like response field (an expiry within 5s of `${nowunix+<lifetime>}` when
+the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp within
+300s of `${nowunix}`), and, for a list rpc it is asked to plan, the order of the list. For the list
+it creates THREE items whose candidate sort keys disagree: the prefix field the list filters on
+(`sku`: base, base-b, base-a), every other string or number field of the create (`name` B, A, C;
+`price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an
+order assertion can only pass on the key the backend really sorts by. Fixtures whose names sort
+like their skus pass a backend sorting by name. When the list's contract states an order
+(`sorted by sku`, `newest first` in its summary or in `exports:` for the list), the plan asserts
+each position by id; when it states none, it asserts only the count and says how to have the
+order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+`chain lint` names a step that asserts positions of a list whose items sort alike under two or more
+keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
+uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
+`Duplicate…`, or a `when:` saying unique or duplicate), the plan adds a step right after it sending
+the same value again (`${steps.<id>.request.<field>}`), expecting the verdict not to be the ok value,
+the failure's code and reason on the response's code fields (`conventions.code_fields`, e.g.
+`status.details.0.app_code` and `.reason`), and no created object. The field is the failure's
+`field:`, else the one the reason names, else the one field whose note says unique. When the
+contract says the comparison ignores case (`ignoring case`, `case-insensitive` in the failure's
+`when:` or the field's note), it adds the value with the case of every letter outside its
+references swapped (`CUST-${vars.tag}@EXAMPLE.TEST`), since a backend comparing case-sensitively
+passes an exact duplicate; a `${uuid}` in that field becomes `${vars.tag}` so both steps send the
+same value, and each run then needs `-var tag=<fresh>`. When it says the value is trimmed of
+surrounding whitespace, it adds the value padded with spaces too. When the contract says nothing
+about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are
@@ -1322,9 +1348,16 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    smaller chain. Without `-write` nothing is written and the YAML goes to stdout, and `-verify`
    still runs the slice but keeps no run record, since the record would name a chain that does not
    exist. `-keep id[,id]` forces named earlier steps back into the slice, with their own producers
-   and prerequisites; `-keep writes` does so for every earlier write step (see INCONCLUSIVE below). `-write` refuses to replace an existing chain file unless `-force`, except a
-   slice this command wrote of the same chain and step (its description starts
-   `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
+   and prerequisites; `-keep writes` does so for every earlier write step (see INCONCLUSIVE below).
+   `-write` and `-write <name>` put the file next to the source chain: in `paths.chains` for a
+   chain there, and beside it for a chain given by a path outside it (`.shrt/scratch/min.yaml`
+   slices to `.shrt/scratch/min-slice-<step>.yaml`), so an exploratory slice never lands in the
+   directory every sweep and gate runs. A value with a slash or ending in `.yaml` is written exactly
+   there. `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
+   `-verify`, before anything is sent), except a slice this command wrote of the same chain and step
+   (its description starts `Slice of <chain> reproducing step <step>:`), so the `next:` loop can
+   re-slice in place, and the source chain file itself when you name it with `-write <its path>`:
+   the minimal-chain recipe below replaces the chain with its verified slice that way.
    A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
    `-verify` keeps the verdict when the new slice is identical (same steps, vars and pinned
    values), and otherwise is refused unless `-force`, since the new slice was never verified.
@@ -1358,11 +1391,30 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
-   that reached it. It prints one of four
+   that reached it. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
+   and never lets one run stand for the whole: a backend that fails a step one call in four
+   (a flaky dependency, a counter, a race) otherwise gives `reproduced` once and `NOT REPRODUCED`
+   twice for the same command. The verdict line counts the runs (`verify reproduced 3/3`) and a
+   `runs:` line gives each slice run id and its outcome. When some runs reproduced and some did
+   not, the verdict is `intermittent: reproduced k/N` (exit 4, recorded as `INTERMITTENT by
+   'shrt chain slice -verify': ...`), with the details of a run that did not, and no `next:`
+   (keeping more steps does not fix a flake). When no run reproduced, the verdict is that of the
+   most telling run (NOT REPRODUCED over INCONCLUSIVE over DID NOT RUN). A var a kept write
+   interpolates gets `-r2`, `-r3` appended on the later runs (`-var tag=s1` sends `s1`, `s1-r2`,
+   `s1-r3`), so a repeat does not collide with the names the first run created. A `-mode pin`
+   slice sent with `-resend-writes` runs once unless `-repeat` is given, since each run re-sends
+   the write. Apart from `intermittent`, it prints one of four
    outcomes, each with its own exit code:
-   - `reproduced` (0): the verdicts match and the slice dropped no write step that wrote
-     something in the source run. With `-write`, the verdict replaces the HYPOTHESIS paragraph in
-     the written slice's `description:` (VERIFIED, both run ids, the date).
+   - `reproduced` (0): the verdicts match and no write step the slice dropped changed an entity a
+     kept step uses. Which entities a step uses is read from the source run: every id (a field named
+     `id`, `id_*`, `*_id` or `*Id`) in a kept step's request or response. The entity a write acts on
+     is the id its response returns for the object it answers with (`order.id_order` of a
+     `ConfirmOrder`, `product.id_product` of a `CreateProduct`), or, when the response returns no
+     such object (`AddStock`, `AddStockBatch`), every id its request names. A write that answered
+     exactly as an earlier call of the same rpc did (an idempotent retry) changed nothing. A dropped
+     write on another entity (a second product, an order the target never reads) is named as `info:`
+     and does not make the match inconclusive. With `-write`, the verdict replaces the HYPOTHESIS
+     paragraph in the written slice's `description:` (VERIFIED, both run ids, the date).
    - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. That
      includes the same expectation failing with a different value: source `got 2`, slice `got 0`
      is two different failures, and the difference line says both values. So is the same
@@ -1375,7 +1427,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      step before it that errored or failed its expectations. `-verify` stops at the first kept
      step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and
-     re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
+     re-run. When the step that stopped it (or the target) was refused as a uniqueness conflict,
+     the verdict carries the diagnosis `run` and `verify` give: `fixture reused` naming the run (of
+     this or another chain) that already sent the value, or `fixture collision`, or the chain
+     colliding with itself, and the fresh `-var name=<value>` to re-run the slice with. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
      `-var name=<fresh>` (a `-var` equal to the source run's value for a var a kept write interpolates
      is not fresh). Only a flag that cannot be parsed exits 1.
@@ -1383,25 +1438,31 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
      `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict
      can come from the target. Run the chain here and slice from that run (`-run latest`).
-     Otherwise: the verdicts match, but the slice dropped write steps. A match can come
-     from state the slice never built (a limit the dropped writes would have reached, say), so it
-     is not a receipt. The output ends with a `next:` line —
-     `shrt chain slice <src> -step <t> -run <source-run> -keep writes -verify -write` —
-     which keeps every dropped write and so can give a real verdict. `-keep writes` keeps every
-     write step before the target except one the source run shows refused (it wrote nothing), and
-     combines with ids (`-keep writes,<read id>`); `next:` lists the dropped writes by id instead
-     when keeping all of them would re-send one that failed in the source run. A var interpolated into a
-     name is printed as `<fresh>`: the run above already used its value, so give a new one. A
-     dropped write whose step failed or errored in the source run (a `-keep-going` run) is left
-     out of `next:` and named with its status: keeping it would stop the slice there, before the
-     target, so the command could only return DID NOT RUN. The same holds for an id you passed
-     with `-keep`: one that failed or errored in the source run is left out of `next:`, and the
-     output says it was yours. When every dropped write failed there
-     is no `next:` line, and the output says why. Only
-     the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
-     again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
-     needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
-     and a receipt. A minimal chain you write by hand (only the steps the defect needs, its own
+     Otherwise: the verdicts match, but the slice dropped write steps that act on entities the
+     kept steps use (a confirm of the order the target cancels, stock added to the product its
+     line holds), or whose entity cannot be told (a write whose request and response carry no
+     id). A match can come from state the slice never built, so it is not a receipt. The output
+     ends with a `next:` line — `shrt chain slice <src> -step <t> -run <source-run> -keep
+     <those writes> -verify -write` — naming only those writes, so the `-keep` set stays minimal:
+     a write on another entity is never suggested, however many there are. NOT REPRODUCED
+     suggests the same set first, and `-keep writes` only once no dropped write acts on a kept
+     entity. `-keep writes` keeps every write step before the target except one the source run
+     shows refused (it wrote nothing), and combines with ids (`-keep writes,<read id>`). A var
+     interpolated into a name is printed as `<fresh>`: the run above already used its value, so
+     give a new one. A kept step that the backend ANSWERED but that failed an expectation in the
+     source run (a `-keep-going` run) took effect: its write happened. The slice keeps it and drops
+     only the expectations that failed there, and says so under `relaxed:` and in its description,
+     so it reaches the target; the call must still be answered. A dropped write whose step errored
+     or was never answered in the source run is left out of `next:` and named with its status:
+     keeping it would stop the slice there, before the target, so the command could only return DID
+     NOT RUN. The same holds for an id you passed with `-keep`. When every dropped write it would
+     need is such a step there is no `next:` line, and the output says why; nor is there one when
+     the slice the command would build keeps, through the references of what it keeps (a
+     `ConfirmOrder` needs its `CreateOrder`), a step that errored or was not sent in the source run:
+     `next:` is checked against its own slice, so it never names a command that stops before the target. When a slice stops
+     before the target at a kept step that passed in the source run (a `ConfirmOrder` refused for
+     stock a dropped `AddStockBatch` added), DID NOT RUN names the dropped writes on the entities
+     the kept steps use and gives the `next:` command that keeps them. A minimal chain you write by hand (only the steps the defect needs, its own
      writes included) proves something narrower: run it, then verify the target on THAT chain with
      `shrt chain slice <minimal> -step <t> -run latest -keep writes -verify -write`. A plain
      `slice -verify` of it is not enough: closure still drops every write nothing references (an

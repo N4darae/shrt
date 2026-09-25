@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/agentkit"
@@ -281,15 +282,27 @@ func scaffoldAuth(cfg *config.Config) error {
 		profile.Calls = []string{contract.PackageRootOf(c.Method) + ".*"}
 		cfg.Auth.Profiles[name] = profile
 	}
+	roles := addRoleProfiles(cfg, best, os.Environ())
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 	fmt.Printf("write %s/%s auth: %s\n", config.DirName, config.FileName, best.Method.FullName)
-	for name, p := range cfg.Auth.Profiles {
-		fmt.Printf("      profile %-10s %s\n", name, p.Call)
+	names := make([]string, 0, len(cfg.Auth.Profiles))
+	for name := range cfg.Auth.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Printf("      profile %-10s %s\n", name, cfg.Auth.Profiles[name].Call)
+	}
+	for _, r := range roles {
+		fmt.Printf("      role profile %s\n", r)
 	}
 	fmt.Println("      shrt GUESSED this from the descriptor — check it, and check the credential")
 	fmt.Println("      variables it names before the first run")
+	if hint := roleProfileHint(cfg); hint != "" {
+		fmt.Println(hint)
+	}
 	return nil
 }
 

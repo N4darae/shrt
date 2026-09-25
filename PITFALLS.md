@@ -1239,6 +1239,56 @@ under the refused line, pins the refusal. A `not_equal`, `not_empty`, `exists` o
 such a field names no code and pins nothing, at either level (the item-level rule used to accept a
 `not_equal` there, which holds on nearly any refusal).
 
+## 43. A token expiry in milliseconds, green in every chain
+
+**Symptom.** Login started returning `expires_at` in milliseconds. Every chain stayed green,
+`verify` reported no drift, and the only chain that could have caught it asserted
+`expires_at equals: ${nowunix+3600}`, which failed now and then at a second boundary and was
+deleted as flaky.
+
+**Cause.** `verify` masks a field named `*_at`, `*_time` or `*timestamp` as volatile, because its
+value differs every run, so the one check left for a clock value is an expectation, and the only
+rules were exact: `equals` against a clock that ticks between the backend's stamp and the chain's.
+
+**Fix.** 2026-09-25: `gt`, `gte`, `lt`, `lte`, `between: [low, high]` and `within: {of: X, by: N}`
+compare numbers, an int64 stored as text and an RFC3339 time (read as unix seconds) alike, with
+`${nowunix+N}` bounds (GRAMMAR §1). `contract plan` scaffolds a range on every timestamp-like
+response field: an expiry within 5s of `${nowunix+<lifetime>}` when the contract states the lifetime
+(`valid for one hour` in the summary, or in `terminal:`/`exports:` for the field), else `gte:
+${nowunix}`, and a `created_*`/`updated_*` stamp within 300s of `${nowunix}`. `chain lint` names every
+timestamp field of a step expecting success that no expectation reads (`unasserted-timestamp`, a
+hint, never promoted by `-strict`).
+
+## 44. A list "sorted by sku" that a backend sorting by name also passes
+
+**Symptom.** ListProducts started sorting by name. A chain asserting `products.0.sku` and
+`products.1.sku`, written to prove the list "sorts by sku rather than creation order", stayed green.
+
+**Cause.** Its two fixtures were `cp-…-a` named `Anchor` at price 1 and `cp-…-b` named `Bolt` at
+1999: sku, name and price all put them in the same order, and with two items creation order agrees
+with one direction or the other. The assertion could not tell which key sorted.
+
+**Fix.** 2026-09-25: `contract plan` of a list rpc, and `chain new` with two or more creates feeding
+a list, scaffold three creates whose sort keys disagree pairwise and with creation order, and
+assert each position when the contract states the order. `chain lint` warns `indistinct-order` on a
+step asserting positions of items that two or more keys sort alike.
+
+## 45. Email uniqueness that went case-sensitive, green in the planned chain
+
+**Symptom.** CreateCustomer started comparing emails case-sensitively, so `Cust-…@Example.test`
+registered a second customer next to `cust-…@example.test`. The chain `contract plan
+CreateCustomer` wrote stayed green, though the contract's `EmailTaken` says "ignoring case".
+
+**Cause.** The plan created one customer and asserted the verdict. Nothing sent the email twice, let
+alone in another case, so a uniqueness rule that was broken, or never enforced, could not fail it.
+
+**Fix.** 2026-09-25: for a planned create whose contract declares a uniqueness refusal, `contract
+plan` adds a step sending the same value again, expecting the refusal (verdict, code, reason, no
+created object). When the failure's `when:` or the field's note says the comparison ignores case, it
+adds the value with its letters' case swapped, and when it says surrounding whitespace is trimmed,
+the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
+and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
+
 ---
 
 # Decisions, so they are not relitigated
