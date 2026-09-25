@@ -36,8 +36,9 @@ const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
 	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
 	"     a missing or not-fresh -var name=<fresh>, a pinned write without -resend-writes), so nothing was verified\n" +
-	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s), or the source run was\n" +
-	"     recorded against another target than the config's (under -mode pin nothing is sent then)\n"
+	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s) acting on an entity a kept\n" +
+	"     step uses, or the source run was recorded against another target than the config's (under\n" +
+	"     -mode pin nothing is sent then)\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
@@ -135,6 +136,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		opts.RunVarsAsDefaults = *verify
 		opts.Refused = refusedIn(rec)
 		opts.Performed = performedIn(rec)
+		opts.Relax = relaxIn(rec)
 	}
 
 	res, err := chain.Slice(c, *step, opts)
@@ -381,7 +383,17 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %s %s (declared for %s)\n", u.Edge, u.RPC, u.Step)
 		}
 	}
-	if res.UnderIncluded {
+	if len(res.Relaxed) > 0 {
+		fmt.Printf("\nrelaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took effect;\n"+
+			"the slice drops them so it reaches the target (each call must still be answered):\n", res.Run)
+		for _, r := range res.Relaxed {
+			fmt.Printf("  %s\n", r.String())
+		}
+	}
+	if res.UnderIncluded && verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites) {
+		fmt.Printf("\n%d dropped write step(s) change no entity a kept step uses, and the verdict matched without them: %s\n",
+			len(res.DroppedWrites), strings.Join(droppedNames(res), ", "))
+	} else if res.UnderIncluded {
 		scale := ""
 		if len(res.Kept)*2 < res.Reach {
 			scale = ", under half of them"
@@ -585,6 +597,7 @@ type sliceVerdict struct {
 	Differences  []string      `json:"differences,omitempty"`
 	Next         string        `json:"next,omitempty"`
 	NotKeepable  []string      `json:"not_keepable,omitempty"`
+	OtherDropped []string      `json:"dropped_writes_other_entities,omitempty"`
 	OtherTarget  string        `json:"source_target_differs,omitempty"`
 	Recorded     string        `json:"verdict_written_to,omitempty"`
 }
@@ -754,7 +767,7 @@ func (v *sliceVerdict) err() error {
 		if v.OtherTarget != "" {
 			return exitWith(3, "step %s: INCONCLUSIVE, %s", v.Step, v.OtherTarget)
 		}
-		return exitWith(3, "step %s: INCONCLUSIVE, the verdict matched but the slice dropped write step(s)", v.Step)
+		return exitWith(3, "step %s: INCONCLUSIVE, the verdict matched but the slice dropped write step(s) acting on entities the kept steps use", v.Step)
 	}
 	return nil
 }
@@ -791,8 +804,17 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	}
 	replay, ok := replayRec.Step(res.Target)
 	if !ok {
-		return didNotRun(fmt.Sprintf("the slice run stopped before step %q (%s): %s",
-			res.Target, replayRec.Status, replayRec.Failure))
+		v.Outcome = sliceDidNotRun
+		v.Reason = fmt.Sprintf("the slice run stopped before step %q (%s): %s", res.Target, replayRec.Status, replayRec.Failure)
+		if at := stoppedWhereSourcePassed(replayRec, rec); at != "" {
+			if related, other := relatedDroppedWrites(res, rec); len(related) > 0 {
+				v.Reason += fmt.Sprintf("\nStep %s passed in source run %s and fails here, so it likely reads state a dropped write built:\n"+
+					"%s act on entities the kept steps use.", at, rec.RunID, strings.Join(related, ", "))
+				v.OtherDropped = other
+				v.suggestKeep(res, rec, a, related)
+			}
+		}
+		return v, v.err()
 	}
 	answered := replay.HTTPStatus != 0 || len(replay.Response) > 0
 	if replay.Status == runner.StatusSkipped || (replay.Status == runner.StatusError && !answered) {
@@ -804,6 +826,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	}
 	v.Replay = verdictOf(replay)
 	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToIDs)
+	related, other := relatedDroppedWrites(res, rec)
 	switch {
 	case len(v.Differences) > 0 && a.otherTarget != "":
 		v.Outcome = sliceInconclusive
@@ -813,7 +836,17 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			"and verify the slice against that run: -run latest"
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
-		if res.UnderIncluded {
+		switch {
+		case len(related) > 0:
+			v.Reason = fmt.Sprintf("the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
+				"The difference can come from state those writes would have built. Keep them and verify again\n"+
+				"against the same source run.", len(related), strings.Join(related, ", "))
+			if note := otherEntitiesNote(other); note != "" {
+				v.Reason += "\nNot suggested: " + note + "."
+			}
+			v.OtherDropped = other
+			v.suggestKeep(res, rec, a, related)
+		case res.UnderIncluded:
 			names := droppedNames(res)
 			v.Reason = fmt.Sprintf("the slice dropped %d write step(s): %s.\n"+
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
@@ -825,20 +858,26 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.Reason = strings.TrimPrefix(v.Reason+"\nthe slice ran with other vars than the source run ("+differ+
 				"), so a value it sent or asserted can differ for that reason alone: drop the -var to use the source run's", "\n")
 		}
-	case res.UnderIncluded:
+	case len(related) > 0:
 		v.Outcome = sliceInconclusive
-		names := droppedNames(res)
-		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped %d write step(s): %s.\n"+
-			"Those writes can have side effects no reference in the chain declares (stock they add, a record\n"+
-			"a later step finds by name), and the target may depend on them, so a match is not evidence that\n"+
-			"the slice reproduces the failure. Keep the writes with -keep writes and verify again against the\n"+
-			"same source run; drop ids from -keep to test which of them the target needs.", len(names), strings.Join(names, ", "))
-		v.suggestKeep(res, rec, a, names)
+		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
+			"Those writes can have side effects on those entities that no reference in the chain declares (stock\n"+
+			"they add, a status they set), so a match is not evidence that the slice reproduces the failure. Keep\n"+
+			"them and verify again against the same source run.", len(related), strings.Join(related, ", "))
+		if note := otherEntitiesNote(other); note != "" {
+			v.Reason += "\nNot suggested: " + note + "."
+		}
+		v.OtherDropped = other
+		v.suggestKeep(res, rec, a, related)
 	default:
 		v.Outcome = sliceReproduced
 		v.Reproduced = true
+		v.OtherDropped = other
+		if note := otherEntitiesNote(other); note != "" {
+			v.Reason = "info: " + note + ", and the verdict matched without them"
+		}
 		if a.otherTarget != "" {
-			v.Reason = a.otherTarget + ": the slice gave step " + res.Target + " the verdict it had there"
+			v.Reason = strings.TrimPrefix(v.Reason+"\n"+a.otherTarget+": the slice gave step "+res.Target+" the verdict it had there", "\n")
 		}
 	}
 	return v, v.err()
@@ -884,7 +923,7 @@ func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a
 			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
 		return
 	}
-	v.Next = keepWritesCommand(res, rec.RunID, a, usable, len(blocked) == 0 && keepsEveryWriteCleanly(res, rec, a))
+	v.Next = keepWritesCommand(res, rec.RunID, a, usable, len(blocked) == 0 && len(usable) == len(res.DroppedWrites) && keepsEveryWriteCleanly(res, rec, a))
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
@@ -969,6 +1008,7 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 	if a.reslice == nil {
 		return false
 	}
+	relaxable := relaxableIn(rec)
 	next := a.reslice(append(append([]string{}, a.keep...), chain.SliceKeepWrites))
 	if next == nil || len(next.DroppedWrites) > 0 {
 		return false
@@ -977,7 +1017,7 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 		if k.ID == res.Target {
 			continue
 		}
-		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) {
+		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID) {
 			return false
 		}
 	}
@@ -1309,9 +1349,10 @@ func recordVerdictIn(path string, record func(string) string) error {
 
 func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 	usable, blocked := []string{}, []string{}
+	relaxable := relaxableIn(rec)
 	for _, id := range ids {
 		sr, ok := rec.Step(id)
-		if ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) {
+		if ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(id) {
 			blocked = append(blocked, id+" ("+sr.Status+")")
 			continue
 		}

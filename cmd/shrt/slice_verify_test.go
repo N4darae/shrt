@@ -28,6 +28,8 @@ steps:
           name: filler
           kind: KIND_A
           idempotency_key: ${uuid}
+          meta:
+              trace_id: ${create.id}
       expect:
           - path: error.code
             equals: OK

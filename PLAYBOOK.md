@@ -1307,9 +1307,16 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
    that reached it. It prints one of four
    outcomes, each with its own exit code:
-   - `reproduced` (0): the verdicts match and the slice dropped no write step that wrote
-     something in the source run. With `-write`, the verdict replaces the HYPOTHESIS paragraph in
-     the written slice's `description:` (VERIFIED, both run ids, the date).
+   - `reproduced` (0): the verdicts match and no write step the slice dropped changed an entity a
+     kept step uses. Which entities a step uses is read from the source run: every id (a field named
+     `id`, `id_*`, `*_id` or `*Id`) in a kept step's request or response. The entity a write acts on
+     is the id its response returns for the object it answers with (`order.id_order` of a
+     `ConfirmOrder`, `product.id_product` of a `CreateProduct`), or, when the response returns no
+     such object (`AddStock`, `AddStockBatch`), every id its request names. A write that answered
+     exactly as an earlier call of the same rpc did (an idempotent retry) changed nothing. A dropped
+     write on another entity (a second product, an order the target never reads) is named as `info:`
+     and does not make the match inconclusive. With `-write`, the verdict replaces the HYPOTHESIS
+     paragraph in the written slice's `description:` (VERIFIED, both run ids, the date).
    - `NOT REPRODUCED` (1): the target ran and its verdict differs from the source run's. That
      includes the same expectation failing with a different value: source `got 2`, slice `got 0`
      is two different failures, and the difference line says both values. So is the same
@@ -1330,25 +1337,28 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
      `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict
      can come from the target. Run the chain here and slice from that run (`-run latest`).
-     Otherwise: the verdicts match, but the slice dropped write steps. A match can come
-     from state the slice never built (a limit the dropped writes would have reached, say), so it
-     is not a receipt. The output ends with a `next:` line —
-     `shrt chain slice <src> -step <t> -run <source-run> -keep writes -verify -write` —
-     which keeps every dropped write and so can give a real verdict. `-keep writes` keeps every
-     write step before the target except one the source run shows refused (it wrote nothing), and
-     combines with ids (`-keep writes,<read id>`); `next:` lists the dropped writes by id instead
-     when keeping all of them would re-send one that failed in the source run. A var interpolated into a
-     name is printed as `<fresh>`: the run above already used its value, so give a new one. A
-     dropped write whose step failed or errored in the source run (a `-keep-going` run) is left
-     out of `next:` and named with its status: keeping it would stop the slice there, before the
-     target, so the command could only return DID NOT RUN. The same holds for an id you passed
-     with `-keep`: one that failed or errored in the source run is left out of `next:`, and the
-     output says it was yours. When every dropped write failed there
-     is no `next:` line, and the output says why. Only
-     the command that keeps every counted write can return `reproduced`; dropping ids from `-keep`
-     again can only return INCONCLUSIVE or NOT REPRODUCED, which tells you whether the target
-     needs that write but is not a receipt. So a slice with dropped writes cannot be both minimal
-     and a receipt. A minimal chain you write by hand (only the steps the defect needs, its own
+     Otherwise: the verdicts match, but the slice dropped write steps that act on entities the
+     kept steps use (a confirm of the order the target cancels, stock added to the product its
+     line holds), or whose entity cannot be told (a write whose request and response carry no
+     id). A match can come from state the slice never built, so it is not a receipt. The output
+     ends with a `next:` line — `shrt chain slice <src> -step <t> -run <source-run> -keep
+     <those writes> -verify -write` — naming only those writes, so the `-keep` set stays minimal:
+     a write on another entity is never suggested, however many there are. NOT REPRODUCED
+     suggests the same set first, and `-keep writes` only once no dropped write acts on a kept
+     entity. `-keep writes` keeps every write step before the target except one the source run
+     shows refused (it wrote nothing), and combines with ids (`-keep writes,<read id>`). A var
+     interpolated into a name is printed as `<fresh>`: the run above already used its value, so
+     give a new one. A kept step that the backend ANSWERED but that failed an expectation in the
+     source run (a `-keep-going` run) took effect: its write happened. The slice keeps it and drops
+     only the expectations that failed there, and says so under `relaxed:` and in its description,
+     so it reaches the target; the call must still be answered. A dropped write whose step errored
+     or was never answered in the source run is left out of `next:` and named with its status:
+     keeping it would stop the slice there, before the target, so the command could only return DID
+     NOT RUN. The same holds for an id you passed with `-keep`. When every dropped write it would
+     need is such a step there is no `next:` line, and the output says why. When a slice stops
+     before the target at a kept step that passed in the source run (a `ConfirmOrder` refused for
+     stock a dropped `AddStockBatch` added), DID NOT RUN names the dropped writes on the entities
+     the kept steps use and gives the `next:` command that keeps them. A minimal chain you write by hand (only the steps the defect needs, its own
      writes included) proves something narrower: run it, then verify the target on THAT chain with
      `shrt chain slice <minimal> -step <t> -run latest -keep writes -verify -write`. A plain
      `slice -verify` of it is not enough: closure still drops every write nothing references (an

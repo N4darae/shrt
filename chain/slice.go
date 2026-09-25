@@ -79,6 +79,7 @@ type SliceOptions struct {
 	RunVarsAsDefaults bool
 	Performed         func(stepID string) bool
 	IsLogin           func(*Step) bool
+	Relax             func(stepID string) []ExpectResult
 }
 
 type Keep struct {
@@ -122,6 +123,14 @@ const (
 	VarFromRun  = "run"
 )
 
+type Relaxed struct {
+	Step string `json:"step"`
+	Path string `json:"path"`
+	Rule string `json:"rule"`
+	Want any    `json:"want,omitempty"`
+	Got  any    `json:"got,omitempty"`
+}
+
 type FilledVar struct {
 	Var      string `json:"var"`
 	Value    any    `json:"value"`
@@ -148,6 +157,7 @@ type SliceResult struct {
 	MissingVars   []string    `json:"missing_vars,omitempty"`
 	FreshVars     []string    `json:"fresh_vars,omitempty"`
 	DroppedPins   []Pin       `json:"dropped_kept_red,omitempty"`
+	Relaxed       []Relaxed   `json:"relaxed,omitempty"`
 	Verified      string      `json:"verified,omitempty"`
 	NotReproduced string      `json:"not_reproduced,omitempty"`
 	Inconclusive  string      `json:"inconclusive,omitempty"`
@@ -366,7 +376,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	kept := map[string]bool{}
 	for _, i := range order {
-		out.Steps = append(out.Steps, rewriteStep(c.Steps[i], pins))
+		st := rewriteStep(c.Steps[i], pins)
+		if st.ID != target && opts.Relax != nil {
+			res.Relaxed = append(res.Relaxed, relaxStep(st, opts.Relax(st.ID))...)
+		}
+		out.Steps = append(out.Steps, st)
 		kept[c.Steps[i].ID] = true
 	}
 	for _, k := range c.KeptRed {
@@ -624,6 +638,10 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if len(res.Pins) > 0 {
 		fmt.Fprintf(&b, "%d value(s) that earlier steps produced are pinned into vars, so their producers are gone.\n", len(res.Pins))
+	}
+	if len(res.Relaxed) > 0 {
+		fmt.Fprintf(&b, "Relaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took\n"+
+			"effect; the slice drops them so it reaches the target, and each call must still be answered: %s.\n", res.Run, RelaxedList(res.Relaxed))
 	}
 	for _, f := range res.FilledVars {
 		switch {

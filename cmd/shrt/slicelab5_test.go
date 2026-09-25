@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -182,7 +183,7 @@ steps:
 	}
 }
 
-func TestCLISliceVerifyLeavesAWriteThatFailedInTheSourceRunOutOfNext(t *testing.T) {
+func TestCLISliceVerifyKeepsAWriteThatAnsweredButFailedAnExpectation(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -204,8 +205,12 @@ steps:
           name: filler
           kind: KIND_A
           idempotency_key: ${uuid}
+          meta:
+              trace_id: ${create.id}
       expect:
-          - path: id
+          - path: error.code
+            equals: OK
+          - path: name
             equals: never
     - id: fetch
       call: ThingService/Fetch
@@ -221,16 +226,22 @@ steps:
 		err = chainSlice(context.Background(), []string{"cli-failwrite-flow", "-step", "fetch", "-run", "latest", "-verify"})
 	})
 	if !strings.Contains(out, "INCONCLUSIVE") {
-		t.Fatalf("the slice dropped the write fill, so a match is inconclusive:\n%s", out)
-	}
-	if strings.Contains(out, "  next: ") {
-		t.Errorf("keeping fill, which failed in the source run, can only stop the slice before fetch:\n%s", out)
-	}
-	if !strings.Contains(out, "fill (failed)") {
-		t.Errorf("the output must say why fill is left out:\n%s", out)
+		t.Fatalf("the slice dropped fill, a write on the thing fetch reads, so a match is inconclusive:\n%s", out)
 	}
 	if got := exitCodeOf(err); got != 3 {
 		t.Errorf("inconclusive exits %d, want 3", got)
+	}
+	next := regexp.MustCompile(`next: shrt chain slice (.*)`).FindStringSubmatch(out)
+	if next == nil {
+		t.Fatalf("fill was answered and only an expectation failed, so its write took effect and next: must keep it:\n%s", out)
+	}
+	cmd := strings.Fields(next[1])
+	again := captureStdout(t, func() { err = chainSlice(context.Background(), cmd) })
+	if !strings.Contains(again, "verify reproduced") {
+		t.Fatalf("with fill kept and its failed expectation relaxed the slice reaches fetch (err %v):\n%s", err, again)
+	}
+	if !strings.Contains(again, "relaxed:") || !strings.Contains(again, "fill name equals") {
+		t.Errorf("the slice must say it dropped fill's failed expectation:\n%s", again)
 	}
 }
 
