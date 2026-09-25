@@ -22,6 +22,9 @@ func TestAKeptRedNoteOnAPinnedStepThatPassedReadsWithOneBut(t *testing.T) {
 	if !strings.Contains(rec.KeptRedNote, `step "first" passed although it is pinned failing on qty_on_hand`) {
 		t.Fatalf("the note names the pinned step that passed: %s", rec.KeptRedNote)
 	}
+	if !strings.Contains(rec.KeptRedNote, "another regression on the same record; compare with shrt diff") {
+		t.Fatalf("a pinned step that passes may be a fix or another regression, and the note says how to tell: %s", rec.KeptRedNote)
+	}
 	if strings.Count(rec.KeptRedNote, ", but ") != 1 {
 		t.Fatalf("the note says but once: %s", rec.KeptRedNote)
 	}
