@@ -2093,6 +2093,19 @@ gets `<step>_qty_large_1250` and `<step>_qty_large_12345`, and a batch applying 
 before plus all of it. The boundary probes run on fixtures of their own
 (`create_product_for_boundary`), so a capped addition fails only them.
 
+## 97. `does not contain an at sign`: no malformed-email probe
+
+**Symptom.** A contract failure `when: email does not contain an at sign` got no
+`create_customer_email_no_at`; the note asked to "say it in those words", and the tester had to
+guess `a missing @`.
+
+**Cause.** The recogniser for a missing `@` matched the character only. A clause it could not read
+inside a `when:` that yielded some other probe was dropped without a word.
+
+**Fix.** 2026-09-25: `an at sign`, `at-sign`, `at symbol` and `at character` read as `@`. A clause of
+an invalid_argument `when:` that names no field or no value the plan can build is named in a note
+with its failure and the exact wording the plan reads.
+
 ---
 
 # Decisions, so they are not relitigated

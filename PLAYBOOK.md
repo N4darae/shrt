@@ -367,9 +367,10 @@ line), expecting exactly that code. A state no write reaches gets a note instead
 
 A failure with `connect_code: invalid_argument` is turned into malformed requests from its `when:`:
 each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
-only whitespace, zero, negative, no `@`) becomes a probe expecting `transport.code equals
-invalid_argument` (`create_order_lines_empty`, `create_order_qty_zero` on the last line,
-`create_customer_email_no_at`). A copy with the other references pointed at ids nothing created
+only whitespace, zero, negative, no `@`, which may be written `an at sign` or `at symbol`) becomes a
+probe expecting `transport.code equals invalid_argument` (`create_order_lines_empty`,
+`create_order_qty_zero` on the last line, `create_customer_email_no_at`). A clause it cannot read
+(`email is not a well-formed address`) is named in a note with the failure and the words it reads. A copy with the other references pointed at ids nothing created
 (`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
 before any lookup. When nothing declares a required field or a format, the plan says so and plans
 none: it does not guess what the handler validates.
