@@ -70,7 +70,7 @@ func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	vars := varFlags{}
 	fs.Var(vars, "var", "override a chain var, repeatable: -var key=value")
-	useRun := fs.String("run", "", "diff a recorded run id instead of replaying")
+	useRun := fs.String("run", "", "diff a recorded run id instead of replaying; 'latest' is the newest run record of the chain, a verify replay included, and verify names the run it picked")
 	asJSON := fs.Bool("json", false, "emit the diff report as JSON")
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
@@ -123,6 +123,13 @@ func runVerify(ctx context.Context, args []string) error {
 	var c *chain.Chain
 	if *useRun != "" {
 		*useRun = store.RunID(*useRun)
+		asked := *useRun
+		rec, err = e.store.LoadRun(name, *useRun)
+		if err == nil && rec.RunID != asked {
+			*useRun = rec.RunID
+			fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
+				asked, rec.RunID, name)
+		}
 		if *useRun == spot.RunID {
 			fmt.Fprintf(os.Stderr,
 				"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+
@@ -130,7 +137,6 @@ func runVerify(ctx context.Context, args []string) error {
 					"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
 					"replay live.\n", *useRun)
 		}
-		rec, err = e.store.LoadRun(name, *useRun)
 		if resolved, resolveErr := chain.Resolve(e.chainsDir(), name); resolveErr == nil {
 			c = resolved
 		}

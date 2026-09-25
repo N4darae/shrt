@@ -911,7 +911,9 @@ Three things that decide whether this works for a given chain:
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
   credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
   copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
-  without spending another live run.
+  without spending another live run. `-run latest` takes the newest run record of the chain, an
+  earlier `verify` replay included, and prints `verify: -run latest is run <id>` on stderr so you
+  know which one it diffed; when that is the safe spot's own run it says so, as for the id.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with
