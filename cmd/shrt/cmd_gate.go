@@ -36,6 +36,7 @@ const gateExitCodes = "\nexit codes:\n" +
 
 type gateSidecar struct {
 	KeptRed      string              `json:"kept_red,omitempty"`
+	PinsHeld     bool                `json:"pins_held,omitempty"`
 	EarlyProfile string              `json:"early_profile,omitempty"`
 	EarlyAge     time.Duration       `json:"early_age,omitempty"`
 	EarlyStated  time.Duration       `json:"early_stated,omitempty"`
@@ -61,6 +62,7 @@ type gateItem struct {
 	Firm        bool   `json:"firm,omitempty"`
 	Class       string `json:"class,omitempty"`
 	Length      string `json:"length,omitempty"`
+	Kind        string `json:"kind,omitempty"`
 }
 
 type gateOutcome struct {
@@ -118,7 +120,7 @@ func writeGateSidecar(side gateSidecar) {
 
 func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 	side := earlySidecar(e, rec)
-	side.KeptRed = rec.KeptRed
+	side.KeptRed, side.PinsHeld = rec.KeptRed, runner.PinsHeld(c, rec)
 	pinned := map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
@@ -186,11 +188,17 @@ func firstSent(rec *runner.Record, items []gateItem) map[string]string {
 	if len(items) == 0 {
 		return nil
 	}
-	out := map[string]string{}
-	for _, step := range []string{items[0].Step, items[0].SuspectStep} {
-		if st, ok := rec.Step(step); ok && st != nil {
-			if sent := sentText(st); sent != "" {
-				out[step] = sent
+	out, roots := map[string]string{}, map[string]bool{}
+	for _, it := range items {
+		if roots[rootOf(it)] || len(roots) == 5 {
+			continue
+		}
+		roots[rootOf(it)] = true
+		for _, step := range []string{it.Step, it.SuspectStep} {
+			if st, ok := rec.Step(step); ok && st != nil {
+				if sent := sentText(st); sent != "" {
+					out[step] = sent
+				}
 			}
 		}
 	}
@@ -370,6 +378,14 @@ func (a attribution) item(it gateItem) gateItem {
 	if b.write >= 0 {
 		it.Suspect, it.SuspectStep, it.KnockOn = a.rec.Steps[b.write].Call, a.rec.Steps[b.write].ID, b.knock
 	}
+	if st, ok := a.rec.Step(it.Step); ok && st != nil {
+		switch {
+		case a.flipped(st) != "":
+			it.Kind = "refused"
+		case path != "" && a.resized != nil && a.resized(it.Step, path) != "":
+			it.Kind = "membership"
+		}
+	}
 	return it
 }
 
@@ -499,6 +515,8 @@ type gateChain struct {
 	firstAt   string
 	failed    bool
 	noVerdict bool
+	pinsHeld  bool
+	reported  bool
 }
 
 func runGate(ctx context.Context, args []string) error {
@@ -560,6 +578,7 @@ func runGate(ctx context.Context, args []string) error {
 		}
 	}
 	settleGate(chains)
+	headlineGate(chains)
 	shown := map[string]bool{}
 	for _, g := range chains {
 		fmt.Println(g.line(width))
@@ -785,7 +804,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			}
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedNotAsPinned {
-			g.class = "not as pinned"
+			g.class, g.pinsHeld = "not as pinned", out.side.PinsHeld
 		}
 		if what == "verify" {
 			g.adoptBlame(out.side)
@@ -861,7 +880,7 @@ func (g *gateChain) firstItem() (gateItem, bool) {
 
 func (g *gateChain) suspectLine() string {
 	it, ok := g.firstItem()
-	if !ok {
+	if !ok || g.reported {
 		return ""
 	}
 	step, lead := it.Step, it.Step
@@ -1121,6 +1140,85 @@ func printGateGroups(chains []*gateChain) {
 				}
 			}
 			fmt.Printf("    +%d step(s) in %d chain(s) %s\n", steps, in, c)
+		}
+	}
+}
+
+func rootOf(it gateItem) string {
+	if it.Suspect != "" && it.Own == "" {
+		return shortRPC(it.Suspect)
+	}
+	return shortRPC(it.Call)
+}
+
+func leafOf(path string) string {
+	segs := chain.SplitPath(path)
+	for i := len(segs) - 1; i >= 0; i-- {
+		if _, err := strconv.Atoi(segs[i]); err != nil {
+			return segs[i]
+		}
+	}
+	return path
+}
+
+func headlineGate(chains []*gateChain) {
+	label := map[string]string{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if r := rootOf(it); label[r] == "" && it.Suspect == "" {
+				label[r] = methodName(r) + " " + leafOf(it.Path)
+			}
+		}
+	}
+	name := func(r string) string {
+		if label[r] != "" {
+			return label[r]
+		}
+		return methodName(r)
+	}
+	reported := map[string]bool{}
+	for _, g := range chains {
+		if !g.failed || len(g.items) == 0 {
+			continue
+		}
+		var head *gateItem
+		steps, from := map[string]bool{}, []string{}
+		for i, it := range g.items {
+			r := rootOf(it)
+			switch {
+			case reported[r]:
+				steps[it.Step] = true
+				if !containsName(from, name(r)) {
+					from = append(from, name(r))
+				}
+			case head == nil:
+				head = &g.items[i]
+			}
+		}
+		for i, it := range g.items {
+			if head != nil && head.Kind == "refused" && it.Step == head.Step && it.Path == chain.EnvelopePath() {
+				head = &g.items[i]
+			}
+		}
+		if len(from) == 0 {
+			if it, ok := g.firstItem(); ok {
+				reported[rootOf(it)] = true
+			}
+			continue
+		}
+		ref := fmt.Sprintf("%d step(s) from %s, reported above", len(steps), strings.Join(from, ", "))
+		switch {
+		case head == nil && g.pinsHeld:
+			g.class, g.first, g.reported = "kept red, drifted", "pinned defect unchanged; setup drift from "+strings.Join(from, ", ")+" (reported above)", true
+		case head == nil:
+			g.first, g.reported = ref, true
+		default:
+			g.first = fmt.Sprintf("%s (%s) %s (+%s)", head.Step, shortRPC(head.Call), head.headline(), ref)
+			g.firstAt = head.Step + " " + head.Path
+			if head.Class != "" && g.class != "not as pinned" {
+				g.class = head.Class
+			}
+			reported[rootOf(*head)] = true
 		}
 	}
 }

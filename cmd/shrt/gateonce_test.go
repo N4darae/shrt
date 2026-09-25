@@ -61,7 +61,7 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 	for _, want := range []string{
 		"FAIL       cli-thing-flow  intermittent: fetch (ThingService/Fetch) (failed) internal: pool exhausted\n",
 		"not a deterministic regression at that step; ...\n",
-		"FAIL       cli-unique      intermittent: fetch",
+		"FAIL       cli-unique      intermittent: 1 step(s) from Fetch (failed), reported above\n",
 		"  FINDING: intermittent failure at ThingService/Fetch, as above\n",
 	} {
 		if !strings.Contains(out, want) {
