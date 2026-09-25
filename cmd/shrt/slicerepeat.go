@@ -62,7 +62,7 @@ func runSliceVerifyRepeated(ctx context.Context, e *env, res *chain.SliceResult,
 			}
 			break
 		}
-		if n > 1 && !a.quiet {
+		if n > 1 && !a.quiet && (a.verbose || v.Outcome != sliceReproduced) {
 			fmt.Println(v.repeatLine(i, n))
 		}
 		verdicts = append(verdicts, v)

@@ -234,7 +234,7 @@ steps:
 	if next == nil {
 		t.Fatalf("fill was answered and only an expectation failed, so its write took effect and next: must keep it:\n%s", out)
 	}
-	cmd := strings.Fields(next[1])
+	cmd := append(strings.Fields(next[1]), "-v")
 	again := captureStdout(t, func() { err = chainSlice(context.Background(), cmd) })
 	if !strings.Contains(again, "verify reproduced") {
 		t.Fatalf("with fill kept and its failed expectation relaxed the slice reaches fetch (err %v):\n%s", err, again)

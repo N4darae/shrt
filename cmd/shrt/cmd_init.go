@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -27,6 +28,35 @@ func init() {
 }
 
 func runInit(ctx context.Context, args []string) error {
+	started := false
+	out, err := quietly(func() error { return initRepo(ctx, args, &started) })
+	if unset := unexportedLoginVars(); started && len(unset) > 0 {
+		fmt.Printf("credentials not exported (%s): export them first, then shrt init observes the envelope; continuing without\n",
+			strings.Join(unset, ", "))
+	}
+	fmt.Print(out)
+	return err
+}
+
+func unexportedLoginVars() []string {
+	root, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	cfg, err := config.Load(root)
+	if err != nil || cfg.Auth == nil {
+		return nil
+	}
+	unset := []string{}
+	for _, name := range chain.AuthBodyEnvNames(cfg.Auth.Body) {
+		if _, set := os.LookupEnv(name); !set {
+			unset = append(unset, name)
+		}
+	}
+	return unset
+}
+
+func initRepo(ctx context.Context, args []string, started *bool) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	baseURL := fs.String("base-url", "http://127.0.0.1:8080", "backend the chains run against")
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
@@ -44,6 +74,7 @@ func runInit(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	*started = true
 	baseURLGiven := false
 	fs.Visit(func(f *flag.Flag) {
 		if f.Name == "base-url" {
@@ -406,6 +437,13 @@ func exampleEnvelope(cfg *config.Config) (path, ok string) {
 
 const exampleOKPlaceholder = "REPLACE_ME_SUCCESS_VALUE"
 
+var examplePlaceholderExpect = regexp.MustCompile(`      - path: \S+\n        equals: ` + exampleOKPlaceholder + `\n`)
+
+func untouchedExample(existing, template []byte) bool {
+	return strings.Contains(string(existing), exampleOKPlaceholder) &&
+		examplePlaceholderExpect.ReplaceAllLiteralString(string(existing), exampleEnvelopeExpect) == string(template)
+}
+
 func renderExampleChain(template []byte, path, ok string) []byte {
 	if ok == "" {
 		ok = exampleOKPlaceholder
@@ -416,14 +454,21 @@ func renderExampleChain(template []byte, path, ok string) []byte {
 
 func writeExampleChain(root string, cfg *config.Config, force bool) error {
 	example := cfg.Abs(filepath.Join(cfg.Paths.Chains, "example.yaml.template"))
-	if _, err := os.Stat(example); err == nil && !force {
-		return nil
-	}
 	raw, err := agentkit.Read("templates/chain.example.yaml")
 	if err != nil {
 		return err
 	}
 	path, ok := exampleEnvelope(cfg)
+	if existing, err := os.ReadFile(example); err == nil && !force {
+		if ok == "" || !untouchedExample(existing, raw) {
+			return nil
+		}
+		if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+		return nil
+	}
 	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
 		return err
 	}

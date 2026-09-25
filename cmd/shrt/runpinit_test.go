@@ -16,7 +16,7 @@ func TestRunOfAFailingChainEndsWithThePinCommand(t *testing.T) {
 		t.Fatalf("the chain fails")
 	}
 	lines := strings.Split(strings.TrimSpace(out), "\n")
-	if last := lines[len(lines)-1]; last != "pin it: shrt chain slice cli-two-defects -step fetch -kept-red=fetch,fetch_again -verify -write" {
+	if last := lines[len(lines)-1]; last != "pin it: shrt chain pin cli-two-defects" {
 		t.Fatalf("the last line is the pin command, got %q\n%s", last, out)
 	}
 	if _, err := twoDefectSlice(t, "-step", "fetch", "-kept-red=fetch,fetch_again", "-write", ".shrt/chains/cli-two-defects.yaml"); err != nil {

@@ -55,12 +55,12 @@ steps:
 `)
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-login-flow", "-step", "fetch"})
+		err = chainSlice(context.Background(), []string{"cli-login-flow", "-step", "fetch", "-v"})
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	dropped := out[strings.Index(out, "Dropped write steps"):]
+	dropped := out[strings.Index(out, "dropped write steps:"):]
 	if strings.Contains(dropped, " login ") || strings.Contains(out, "1  login") {
 		t.Fatalf("the configured login builds no backend state and must not be a dropped write:\n%s", out)
 	}

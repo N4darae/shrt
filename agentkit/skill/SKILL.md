@@ -26,7 +26,7 @@ docs and kit but never your config.
 ## Building a regression suite
 
 Follow `.shrt/docs/README.md` "Quickstart" in order: export the login credentials, `shrt init`,
-fill the contracts, `shrt contract plan -all -write`, run, pin real defects with `chain slice`,
+fill the contracts, `shrt contract plan -all -write`, run, pin real defects with `chain pin`,
 `shrt confirm -all`, then `shrt gate` per release. Do not hand-write the chains: the planner's
 probes find what hand-written chains miss.
 

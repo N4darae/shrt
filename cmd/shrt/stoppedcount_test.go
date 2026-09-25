@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/runner"
 )
 
 const threeStepFlow = `apiVersion: shrt/v1
@@ -54,5 +57,17 @@ func TestAQuietRunThatStopsCountsTheStepsItNeverRan(t *testing.T) {
 	})
 	if strings.Contains(out, "were not run") {
 		t.Fatalf("-keep-going ran every step, so nothing is left unrun:\n%s", out)
+	}
+}
+
+func TestTheStepsAStoppedRunNeverRanAreCappedAtThreeNames(t *testing.T) {
+	c := &chain.Chain{}
+	for _, id := range []string{"a", "b", "c", "d", "e", "f", "g"} {
+		c.Steps = append(c.Steps, &chain.Step{ID: id})
+	}
+	rec := &runner.Record{Status: runner.StatusFailed, Steps: []*runner.StepRecord{{ID: "a"}}}
+	got := neverRanLine(c, rec)
+	if !strings.HasPrefix(got, "6 later step(s) were not run (b, c, d and 3 more): ") {
+		t.Fatalf("want three names and the count, got %q", got)
 	}
 }

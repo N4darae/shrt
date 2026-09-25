@@ -92,7 +92,7 @@ func leakySlice(t *testing.T, takeExpects string, args ...string) (string, error
 	_ = runRun(context.Background(), []string{"cli-leaky", "-quiet", "-keep-going"})
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), append([]string{"cli-leaky", "-step", "fetch", "-run", "latest", "-verify"}, args...))
+		err = chainSlice(context.Background(), append([]string{"cli-leaky", "-step", "fetch", "-run", "latest", "-verify", "-v"}, args...))
 	})
 	return out, err
 }

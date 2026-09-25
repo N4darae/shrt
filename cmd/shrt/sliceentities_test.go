@@ -11,7 +11,7 @@ func sliceShop(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), append([]string{".shrt/scratch/probe-orders.yaml", "-step", "cancel_confirmed", "-run", "latest", "-verify"}, args...))
+		err = chainSlice(context.Background(), append([]string{".shrt/scratch/probe-orders.yaml", "-step", "cancel_confirmed", "-run", "latest", "-verify", "-v"}, args...))
 	})
 	return out, err
 }

@@ -27,7 +27,7 @@ shrt contract init -all                        # one overlay per domain under .s
 shrt contract lint && shrt contract status -gaps
 shrt contract plan -all -write                 # one chain per rpc; fix every fill:/gap: line, re-plan -force
 shrt run <chain>                               # every chain; a red one on a correct backend is
-#   a real defect: pin it with chain slice -kept-red, and slice -without failed for the rest
+#   a real defect: shrt chain pin <chain> keeps it red in a slice, the rest green
 shrt confirm -all -note "..."                  # show the user the table; approve only on their yes
 shrt gate                                      # later, against every new release
 ```
@@ -85,6 +85,7 @@ traffic.
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify -run <id>` proves it |
+| `shrt chain pin <c>` | pin a red chain: its failing steps kept red in a verified slice, the chain rewritten without them |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`) |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints a short summary to show the user, the full report in `.shrt/safespots/pending/` |
