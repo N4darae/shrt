@@ -101,9 +101,10 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.noteHiddenStaleEchoes(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
+	renameWants(remaining, renamer(append(pairs, r.renames...)))
 	var explained map[string]bool
 	if causal && from >= 0 {
-		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads)
+		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads, readValueChanged(spot, rec, renamer(append(pairs, r.renames...))))
 	}
 	kept := []Change{}
 	for _, c := range remaining {
@@ -125,7 +126,7 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.Changes = kept
 }
 
-func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read) map[string]bool {
+func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read, valueChanged func(step, path string) bool) map[string]bool {
 	responseChanged := map[string]bool{}
 	for _, c := range changes {
 		if c.Kind != KindStatus && c.Kind != KindNotReached {
@@ -143,7 +144,7 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 			switch {
 			case rd.Request && pathsOverlap(inputAt[rd.Step], rd.Path):
 				why = true
-			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step]:
+			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step] && (valueChanged == nil || valueChanged(rd.Step, rd.Path)):
 				why = true
 			}
 		}
@@ -164,6 +165,89 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 		}
 	}
 	return explained
+}
+
+func readValueChanged(spot *store.SafeSpot, rec *runner.Record, rn *strings.Replacer) func(step, path string) bool {
+	return func(step, path string) bool {
+		was := spotStep(spot, step)
+		now, okNow := rec.Step(step)
+		if was == nil || !okNow {
+			return true
+		}
+		a, errA := decode(was.Response)
+		b, errB := decode(now.Response)
+		if errA != nil || errB != nil {
+			return true
+		}
+		x, inA := chain.Get(a, path)
+		y, inB := chain.Get(b, path)
+		if inA != inB {
+			return true
+		}
+		if !inA {
+			return false
+		}
+		return !sameRenamed(x, y, rn)
+	}
+}
+
+func spotStep(spot *store.SafeSpot, id string) *runner.StepRecord {
+	for _, st := range spot.Steps {
+		if st != nil && st.ID == id {
+			return st
+		}
+	}
+	return nil
+}
+
+func sameRenamed(want, got any, rn *strings.Replacer) bool {
+	switch w := want.(type) {
+	case map[string]any:
+		g, ok := got.(map[string]any)
+		if !ok || len(w) != len(g) {
+			return false
+		}
+		for k, v := range w {
+			if x, ok := g[k]; !ok || !sameRenamed(v, x, rn) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		g, ok := got.([]any)
+		if !ok || len(w) != len(g) {
+			return false
+		}
+		for i := range w {
+			if !sameRenamed(w[i], g[i], rn) {
+				return false
+			}
+		}
+		return true
+	case string:
+		g, ok := got.(string)
+		if !ok {
+			return false
+		}
+		return w == g || rn != nil && rn.Replace(w) == g
+	}
+	return jsonKind(want) == jsonKind(got) && sameScalar(want, got)
+}
+
+func renameWants(changes []Change, rn *strings.Replacer) {
+	if rn == nil {
+		return
+	}
+	for i, c := range changes {
+		w, okW := c.Want.(string)
+		g, okG := c.Got.(string)
+		if c.Kind != KindChanged || c.Detail != "" || !okW || !okG || renameable(c.Path, w, g) {
+			continue
+		}
+		if renamed := rn.Replace(w); renamed != w && renamed != g {
+			changes[i].Want = renamed
+		}
+	}
 }
 
 func pathsOverlap(changed []string, read string) bool {

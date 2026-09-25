@@ -175,7 +175,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		unique = nil
 	}
 	if len(unique) > 0 {
-		return uniqueCollision(e, rec, first, index, why, conflicting, unique)
+		return uniqueCollision(e, rec, first, index, why, fields, conflicting, unique)
 	}
 	if len(fed) == 0 {
 		return nil
@@ -227,7 +227,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return f
 	}
 	if prev := previousRunSending(e, rec, first.ID); prev != nil {
-		if st, ok := prev.Step(first.ID); ok && st.Call == first.Call && uniquenessConflict.MatchString(stepRefusalText(st)) {
+		if st, ok := prev.Step(first.ID); ok && st.Call == first.Call && refusedSameWay(why, fields, conflicting, st) {
 			f.before = freshValuesOf(e, rec, prev, first.ID, names, conflicting)
 			if f.before != nil {
 				f.repeat = prev.RunID
@@ -237,7 +237,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	return f
 }
 
-func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, fields []fixtureField, unique []string) *fixtureReuse {
+func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, all, fields []fixtureField, unique []string) *fixtureReuse {
 	f := &fixtureReuse{step: first.ID, index: index, why: why, unique: unique}
 	for _, field := range fields {
 		for _, n := range field.vars {
@@ -251,7 +251,7 @@ func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index
 		return f
 	}
 	st, ok := prev.Step(first.ID)
-	if !ok || st.Call != first.Call || !uniquenessConflict.MatchString(stepRefusalText(st)) {
+	if !ok || st.Call != first.Call || !refusedSameWay(why, all, fields, st) {
 		return f
 	}
 	var req any
@@ -308,6 +308,52 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 		}
 	}
 	return out
+}
+
+func refusedSameWay(why string, all, conflicting []fixtureField, prev *runner.StepRecord) bool {
+	was := stepRefusalText(prev)
+	var req any
+	if !uniquenessConflict.MatchString(was) || json.Unmarshal(prev.Request, &req) != nil {
+		return false
+	}
+	then := make([]fixtureField, 0, len(all))
+	for _, f := range all {
+		f.sent = ""
+		if v, ok := chain.Get(req, f.path); ok {
+			f.sent = fmt.Sprint(v)
+		}
+		then = append(then, f)
+	}
+	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(conflictingFields(then, was)) == fieldPaths(conflicting)
+}
+
+func fieldPaths(fields []fixtureField) string {
+	paths := make([]string, 0, len(fields))
+	for _, f := range fields {
+		paths = append(paths, f.path)
+	}
+	sort.Strings(paths)
+	return strings.Join(paths, ",")
+}
+
+func refusalCodes(why string, fields []fixtureField) string {
+	codes := []string{}
+	for _, part := range strings.Split(why, ": ") {
+		if part = strings.TrimSpace(part); part == "" || strings.ContainsAny(part, " \t\n") || quotesSent(part, fields) {
+			continue
+		}
+		codes = append(codes, part)
+	}
+	return strings.Join(codes, " ")
+}
+
+func quotesSent(text string, fields []fixtureField) bool {
+	for _, f := range fields {
+		if f.sent != "" && strings.Contains(text, f.sent) {
+			return true
+		}
+	}
+	return false
 }
 
 type fixtureField struct {

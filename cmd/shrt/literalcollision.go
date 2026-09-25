@@ -17,9 +17,23 @@ type literalCollision struct {
 	field string
 	value string
 	hint  string
+
+	unnamed bool
+	others  []string
 }
 
 func (l *literalCollision) line() string {
+	if l.unnamed {
+		also := ""
+		if len(l.others) > 0 {
+			also = " (or another literal it sends: " + strings.Join(l.others, ", ") + ")"
+		}
+		return fmt.Sprintf("the chain collides with itself: step %q was refused as a uniqueness conflict (%s) that names no field, "+
+			"and every field it builds from a reference is built from ${uuid} or a clock value, unique to its run, so what collides "+
+			"is a literal: %s is the literal %s%s, and every run after the first collides with the record the first one created. "+
+			"This is a defect in the chain, not a fixture or backend problem, and a fresh -var does not help: build it from a var, "+
+			"e.g. %s: %s", l.step, l.why, l.field, l.value, also, l.field, l.hint)
+	}
 	return fmt.Sprintf("the chain collides with itself: step %q was refused as a uniqueness conflict (%s), and %s is the literal %s, "+
 		"so every run after the first collides with the record the first one created. This is a defect in the chain, not a fixture "+
 		"or backend problem, and a fresh -var does not help: build it from a var, e.g. %s: %s", l.step, l.why, l.field, l.value, l.field, l.hint)
@@ -50,7 +64,7 @@ func detectLiteralCollision(c *chain.Chain, rec *runner.Record) *literalCollisio
 	}
 	folded := foldName(why)
 	var byValue, byName []string
-	varBuilt := false
+	varBuilt, onlyGenerated := false, true
 	sent := map[string]string{}
 	visitLeaves(req, "", func(path string) {
 		v, ok := requestTemplate(c, first.ID, path)
@@ -63,6 +77,9 @@ func detectLiteralCollision(c *chain.Chain, rec *runner.Record) *literalCollisio
 		}
 		text, isText := v.(string)
 		if isText && requestRef.MatchString(text) {
+			if !builtOnlyFromGenerators(text) {
+				onlyGenerated = false
+			}
 			if value != "" && strings.Contains(why, value) {
 				varBuilt = true
 			}
@@ -88,13 +105,36 @@ func detectLiteralCollision(c *chain.Chain, rec *runner.Record) *literalCollisio
 	if len(pick) == 0 {
 		pick = byName
 	}
+	unnamed := false
+	if len(pick) == 0 && onlyGenerated {
+		for path := range sent {
+			pick = append(pick, path)
+		}
+		unnamed = true
+	}
 	if len(pick) == 0 {
 		return nil
 	}
 	sort.Strings(pick)
 	field := pick[0]
-	return &literalCollision{step: first.ID, index: index, why: why, field: field, value: sent[field],
+	l := &literalCollision{step: first.ID, index: index, why: why, field: field, value: sent[field],
 		hint: leafName(field) + "-${vars." + suggestedVar(c) + "}"}
+	if unnamed {
+		for _, path := range pick[1:] {
+			l.others = append(l.others, path+"="+sent[path])
+		}
+	}
+	l.unnamed = unnamed
+	return l
+}
+
+func builtOnlyFromGenerators(text string) bool {
+	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+		if k := chain.ParseRef(m[1]).Kind; k != chain.RefUUID && k != chain.RefClock {
+			return false
+		}
+	}
+	return true
 }
 
 func leafName(path string) string {

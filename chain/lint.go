@@ -83,6 +83,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintExpectRules(s)...)
 		issues = append(issues, lintAssertsSomething(s)...)
 		issues = append(issues, lintInertAllowFail(s)...)
+		issues = append(issues, lintLiteralIdempotency(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
 		noteExports(s, exports)
@@ -1154,6 +1155,8 @@ const (
 	KindInertAllowFail = "inert-allow-fail"
 	KindArithmetic     = "interpolated-arithmetic"
 	KindEnvelopeOnly   = "envelope-only"
+
+	KindLiteralIdempotency = "literal-idempotency-key"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
@@ -1174,4 +1177,57 @@ func Promote(issues []Issue, promote func(Issue) bool) []Issue {
 		out = append(out, i)
 	}
 	return out
+}
+
+func IdempotencyKeyName(name string) bool {
+	folded := strings.NewReplacer("_", "", "-", "", ".", "", " ", "").Replace(strings.ToLower(name))
+	return strings.Contains(folded, "idempotency") || strings.Contains(folded, "idempotent") || strings.Contains(folded, "dedup")
+}
+
+func lintLiteralIdempotency(s *Step) []Issue {
+	issues := []Issue{}
+	warn := func(field, value string) {
+		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindLiteralIdempotency, Message: fmt.Sprintf(
+			"%s is the literal %q: every run after the first sends the same idempotency key, so the backend answers it "+
+				"with the first run's result (the same order, the same id) instead of performing the call, and verify "+
+				"compares that replay, not the call. Build it from ${uuid}, fresh per run", field, value)})
+	}
+	var visit func(v any, path, key string)
+	visit = func(v any, path, key string) {
+		switch t := v.(type) {
+		case map[string]any:
+			keys := make([]string, 0, len(t))
+			for k := range t {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, k := range keys {
+				child := k
+				if path != "" {
+					child = path + "." + k
+				}
+				visit(t[k], child, k)
+			}
+		case []any:
+			for i, x := range t {
+				visit(x, fmt.Sprintf("%s.%d", path, i), key)
+			}
+		case string:
+			if IdempotencyKeyName(key) && t != "" && !hasRef(t) {
+				warn(path, t)
+			}
+		}
+	}
+	visit(s.Body, "", "")
+	names := make([]string, 0, len(s.Headers))
+	for k := range s.Headers {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, k := range names {
+		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
+			warn("header "+k, v)
+		}
+	}
+	return issues
 }

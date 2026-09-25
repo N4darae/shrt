@@ -85,3 +85,36 @@ func TestARequestValueReadDownstreamExplainsTheReader(t *testing.T) {
 		t.Fatalf("confirm reads order's changed request value, so its change is explained: %s\n%s", got, rep.Text())
 	}
 }
+
+func TestAReaderIsExplainedOnlyWhenTheValueItReadChanged(t *testing.T) {
+	product := func(id, price string) string {
+		return `{"id_product":"` + id + `","price_minor":"` + price + `"}`
+	}
+	steps := func(a, b string, list []string, price string) []*runner.StepRecord {
+		return []*runner.StepRecord{
+			{ID: "pa", Call: "S/CreateProduct", Status: runner.StatusPassed, Response: []byte(`{"product":` + product(a, "100") + `}`)},
+			{ID: "pb", Call: "S/CreateProduct", Status: runner.StatusPassed, Response: []byte(`{"product":` + product(b, "200") + `}`)},
+			{ID: "list", Call: "S/ListProducts", Status: runner.StatusPassed, Response: []byte(`{"products":[` + strings.Join(list, ",") + `]}`)},
+			{ID: "get_first", Call: "S/GetProduct", Status: runner.StatusPassed, Response: []byte(`{"product":` + product(a, price) + `}`)},
+		}
+	}
+	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: steps("prd-aaa111", "prd-bbb222",
+		[]string{product("prd-aaa111", "100"), product("prd-bbb222", "200")}, "100")}
+	rec := &runner.Record{RunID: "run", Chain: "c", Status: runner.StatusPassed, Steps: steps("prd-ccc333", "prd-ddd444",
+		[]string{product("prd-ccc333", "100")}, "101")}
+	reads := map[string][]diff.Read{"get_first": {{Step: "list", Path: "products.0.id_product"}}}
+	rep := diff.CompareMasking(spot, rec, nil)
+	rep.RequestChanges = []diff.Change{{Step: "list", Path: "sku_prefix", Kind: diff.KindChanged, Want: "sku-", Got: "sku-a"}}
+	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: reads})
+	if got := unexplainedSteps(rep); got != "get_first:product.price_minor" {
+		t.Fatalf("get_first read products.0.id_product, the same product after renaming, so its input did not differ: %s\n%s", got, rep.Text())
+	}
+
+	rec.Steps[2].Response = []byte(`{"products":[` + product("prd-ddd444", "200") + `]}`)
+	rep = diff.CompareMasking(spot, rec, nil)
+	rep.RequestChanges = []diff.Change{{Step: "list", Path: "sku_prefix", Kind: diff.KindChanged, Want: "sku-", Got: "sku-b"}}
+	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: reads})
+	if got := unexplainedSteps(rep); got != "" {
+		t.Fatalf("the first listed product is another one now, so get_first read another value: %s\n%s", got, rep.Text())
+	}
+}

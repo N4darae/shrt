@@ -42,10 +42,16 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     - a fixture collision on a field built from ${uuid} or a clock value, after a previous run\n" +
 	"       refused at the same step the same way: such values are unique to their run (a repeat on\n" +
 	"       var values stays exit 3, since another client may use the same values)\n" +
-	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
-	"       run that sent that step was refused there the same way: a possible auth regression\n" +
+	"     - a token a login in this run had just issued, refused again after a fresh login and\n" +
+	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
+	"       re-sent too: a possible auth regression\n" +
+	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
+	"       steps were answered, in this run and the previous one: the backend fails that rpc every time\n" +
+	"     - a step sent the confirmed run's literal idempotency key and answered with the confirmed\n" +
+	"       run's id: an idempotent replay, a chain defect (built from a var: fixture reused, exit 3)\n" +
 	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
-	"       no var): the chain collides with itself on every run after the first, a chain defect\n" +
+	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
+	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
 	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
 	"     is not judged\n" +
 	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
@@ -61,7 +67,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       data created before the refusal gone after the re-login, or a step before it that got no\n" +
 	"       answer from the service\n" +
 	"     - the backend refused a token a login in this run had just issued, on its first use: the\n" +
-	"       credentials work, and it says this may be an auth regression\n" +
+	"       credentials work, and it says this may be an auth regression (a read re-sent after a\n" +
+	"       fresh login and refused again is not called a restart; a write is not re-sent, so a\n" +
+	"       repeat of a refused write stays exit 3)\n" +
 	"     - validate_output: the first failing step failed only because its response does not match\n" +
 	"       the descriptor, and nothing drifted before it: the descriptor is stale or the body carries\n" +
 	"       fields the proto does not declare\n"
@@ -170,15 +178,28 @@ func runVerify(ctx context.Context, args []string) error {
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
-	varDrift, edits := "", []string{}
+	varDrift, edits, unsupplied := "", []string{}, []string{}
 	if len(report.RequestChanges) > 0 {
 		only := map[string]any(vars)
 		if *useRun != "" {
 			only = nil
 		}
 		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
+		defaulted := func(fed map[string]bool) []string {
+			if *useRun != "" {
+				return nil
+			}
+			return varsConfirmedOtherwise(e, spot.RunID, rec, vars, fed)
+		}
+		if varDrift == "" {
+			unsupplied = defaulted(inputVars(c, report.RequestChanges))
+			if len(unsupplied) > 0 {
+				varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, nil, inputVars(c, report.RequestChanges))
+			}
+		}
 		fedByVars := func(ch diff.Change) bool {
-			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, []diff.Change{ch})) != ""
+			fed := inputVars(c, []diff.Change{ch})
+			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, fed) != "" || len(defaulted(fed)) > 0
 		}
 		for _, ch := range report.ChainEdits(fedByVars) {
 			edits = append(edits, ch.Step+" "+ch.Path)
@@ -188,6 +209,10 @@ func runVerify(ctx context.Context, args []string) error {
 		how := "set by -var; the chain file is not what differs"
 		if *useRun != "" {
 			how = "as run " + rec.RunID + " was recorded"
+		}
+		if len(unsupplied) > 0 {
+			how = "this run took the chain's own value and the confirmed run ran with another, as set by -var when it was " +
+				"confirmed (unless the var's default was edited since); the steps reading it are unchanged, so the chain file is not what differs"
 		}
 		if len(edits) > 0 {
 			how = strings.TrimSuffix(how, "; the chain file is not what differs") +
@@ -204,6 +229,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if fresh != nil && driftedBefore(rec, report, fresh.index) {
 		fresh = nil
 	}
+	var dropped *unansweredRepeat
+	if unanswered && loss == nil && fresh == nil {
+		dropped = repeatedUnanswered(e, rec, unansweredStep)
+	}
 	var reuse *fixtureReuse
 	var literal *literalCollision
 	if !report.Clean() {
@@ -214,13 +243,19 @@ func runVerify(ctx context.Context, args []string) error {
 			literal = nil
 		}
 	}
+	var idem *idempotentReplay
+	if literal == nil && reuse == nil {
+		if idem = detectIdempotentReplay(c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
+			idem = nil
+		}
+	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
 	declared := declaredDriftChanges(e, rec, report, driftStep)
 	violation := driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt) &&
 		protoViolation(ctx, e, driftWhy)
 	independent := independentOfDrift(c, rec, report, driftStep, driftAt)
 	var nonBackend error
-	headline := ""
+	headline, notVerdict := "", "this is not a verdict about the backend"
 	switch {
 	case loss.finding():
 	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
@@ -228,6 +263,7 @@ func runVerify(ctx context.Context, args []string) error {
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
 	case fresh != nil:
+	case dropped != nil:
 	case unanswered:
 		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
 		switch {
@@ -235,6 +271,13 @@ func runVerify(ctx context.Context, args []string) error {
 			headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", unansweredStep)
 		case strings.Contains(unansweredWhy, "a gateway answered for the service"):
 			headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", unansweredStep)
+		case strings.HasPrefix(unansweredWhy, "the backend refused authentication") && refusedFreshAt(rec, unansweredStep):
+			headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
+				"so the credentials work: this may be an auth regression", unansweredStep)
+			notVerdict = "re-run to confirm: a repeat at the same step is a finding"
+			if st, _ := rec.Step(unansweredStep); st.AuthRetry != runner.AuthRetryResent {
+				notVerdict = "it was not re-sent, so a restart between the login and the call explains it too"
+			}
 		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
@@ -245,6 +288,10 @@ func runVerify(ctx context.Context, args []string) error {
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
+	case idem != nil && !idem.literal && !unanswered:
+		headline = fmt.Sprintf("fixture reused: step %s sent the confirmed run's idempotency key", idem.step)
+		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, idem.line(), name, idem.fresh())
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
@@ -261,7 +308,7 @@ func runVerify(ctx context.Context, args []string) error {
 	} else {
 		fmt.Println()
 		if nonBackend != nil {
-			fmt.Printf("could not verify %s: %s; this is not a verdict about the backend (why below)\n", name, headline)
+			fmt.Printf("could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
 		}
 		if olderSpot != "" {
 			fmt.Println(olderSpot)
@@ -281,6 +328,8 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("FINDING: " + loss.line())
 		case fresh != nil:
 			fmt.Println("FINDING: " + fresh.line())
+		case dropped != nil:
+			fmt.Println("FINDING: " + dropped.line())
 		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
@@ -297,6 +346,9 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			if literal != nil {
 				fmt.Println("CHAIN DEFECT: " + literal.line())
+			}
+			if idem != nil && idem.literal {
+				fmt.Println("CHAIN DEFECT: " + idem.line())
 			}
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
@@ -334,6 +386,9 @@ func runVerify(ctx context.Context, args []string) error {
 	if fresh != nil {
 		return fmt.Errorf("%s: %s", name, fresh.line())
 	}
+	if dropped != nil {
+		return fmt.Errorf("%s: %s", name, dropped.line())
+	}
 	if reuse.finding() && nonBackend == nil && !driftedBefore(rec, report, reuse.index) {
 		return fmt.Errorf("%s: %s", name, reuse.line())
 	}
@@ -342,6 +397,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if literal != nil {
 		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
+	}
+	if idem != nil && idem.literal {
+		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
 	}
 	if violation {
 		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))
@@ -359,6 +417,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
+		if len(unsupplied) > 0 {
+			fix = "Verify with " + strings.Join(unsupplied, " ") + " to compare like with like"
+		}
 		if *useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
 		}
@@ -477,6 +538,30 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 		}
 	}
 	return strings.Join(out, "; ")
+}
+
+func varsConfirmedOtherwise(e *env, spotRun string, rec *runner.Record, supplied map[string]any, fed map[string]bool) []string {
+	prev, err := e.store.LoadRun(rec.Chain, spotRun)
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(fed))
+	for k := range fed {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := []string{}
+	for _, k := range names {
+		if _, set := supplied[k]; set {
+			continue
+		}
+		had, inBefore := prev.Vars[k]
+		now, inNow := rec.Vars[k]
+		if inBefore && inNow && fmt.Sprint(had) != fmt.Sprint(now) && fmt.Sprint(had) != pathmask.MaskRedacted {
+			out = append(out, fmt.Sprintf("-var %s=%v", k, had))
+		}
+	}
+	return out
 }
 
 func principalChanges(report *diff.Report) string {
@@ -619,11 +704,12 @@ func chainReads(c *chain.Chain) map[string][]diff.Read {
 	if c == nil {
 		return nil
 	}
-	steps, exports := map[string]bool{}, map[string]string{}
+	steps, exports, exported := map[string]bool{}, map[string]string{}, map[string]string{}
 	for _, s := range c.Steps {
 		steps[s.ID] = true
-		for name := range s.Export {
+		for name, path := range s.Export {
 			exports[name] = s.ID
+			exported[name] = strings.TrimPrefix(path, "response.")
 		}
 	}
 	out := map[string][]diff.Read{}
@@ -638,7 +724,7 @@ func chainReads(c *chain.Chain) map[string][]diff.Read {
 			for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
 				ref := chain.ParseRef(m[1])
 				if name, ok := ref.ExportName(); ok && exports[name] != "" && !(ref.Kind == chain.RefBare && steps[ref.Head]) {
-					reads = append(reads, diff.Read{Step: exports[name]})
+					reads = append(reads, diff.Read{Step: exports[name], Path: exported[name]})
 					continue
 				}
 				id, ok := ref.StepID()
@@ -914,6 +1000,11 @@ func timedOutStep(rec *runner.Record) string {
 	return ""
 }
 
+func refusedFreshAt(rec *runner.Record, step string) bool {
+	st, ok := rec.Step(step)
+	return ok && runner.RefusedFreshToken(st)
+}
+
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	after, answered := false, 0
 	for _, st := range rec.Steps {
@@ -928,6 +1019,14 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 			"not judged, since the unanswered call may explain it", answered)
 	}
 	for _, st := range rec.Steps {
+		if st.ID == step && runner.RefusedFreshToken(st) && st.AuthRetry != runner.AuthRetryResent {
+			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
+				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
+				"not a problem with the credentials. Nothing before it drifted, and %s. It was not re-sent (not a read), so a "+
+				"restart between the login and this call explains it as well, and a repeat is not reported as a finding: only a "+
+				"call re-sent after a fresh login and refused again is. The step record says what was tried (auth_retry, error); "+
+				"re-run verify", name, step, why, past)
+		}
 		if st.ID == step && runner.RefusedFreshToken(st) {
 			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
 				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
@@ -944,6 +1043,10 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = timeoutRemedy + ", and run verify again"
+	}
+	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" {
+		remedy += "; the backend answered later steps, so if the next run fails this rpc the same way while answering others, " +
+			"verify reports it as a finding"
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)

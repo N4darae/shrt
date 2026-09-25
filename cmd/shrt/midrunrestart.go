@@ -56,6 +56,9 @@ func detectSessionLoss(rec *runner.Record) *sessionLoss {
 		if profile == "" || profile == runner.NoAuthProfile {
 			continue
 		}
+		if st.AuthRetry != "" && runner.RefusedFreshToken(st) {
+			return nil
+		}
 		if st.AuthRetry != "" && accepted[profile] {
 			return &sessionLoss{step: st, index: i, passed: rec.Passed() && resentAccepted(st)}
 		}
@@ -355,7 +358,11 @@ func repeatedFreshRefusal(e *env, rec *runner.Record) *freshRefusal {
 	if prev == nil {
 		return nil
 	}
-	if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) && refusalKind(st) == refusalKind(f.step) {
+	if f.step.AuthRetry != runner.AuthRetryResent {
+		return nil
+	}
+	if st, ok := prev.Step(f.step.ID); ok && st.Call == f.step.Call && runner.RefusedFreshToken(st) && st.AuthRetry == runner.AuthRetryResent &&
+		refusalKind(st) == refusalKind(f.step) {
 		f.repeat = prev.RunID
 		return f
 	}

@@ -133,6 +133,14 @@ Three habits that keep a chain re-runnable:
 | a value two steps must share | one chain var, referenced twice — never two literals that a later edit can desynchronise |
 | a name or code that must be fresh per run | `${vars.tag}` interpolated, and pass `-var tag=...` at run time |
 
+`shrt chain lint` warns `literal-idempotency-key` on a body field or header whose name says
+idempotency (`idempotency_key`, `Idempotency-Key`, `dedup_id`) holding a literal. A backend that
+honours the key answers a repeat with the first run's result, so `verify` does not call what follows a
+regression: when the step sent the key the confirmed run sent and answered with the confirmed run's
+id (`order.id_order`), it prints `CHAIN DEFECT: ... an idempotent replay` and exits 1 for a literal,
+or `fixture reused: ... the confirmed run's idempotency key` with a fresh `-var` hint and exits 3 for
+a key built from a var (`${vars.ik}` left at the confirmed value).
+
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
 refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
@@ -158,14 +166,20 @@ values in a row collided: that points at the backend unless another client uses 
 (two pipelines deriving the tag from one commit SHA do), which shrt cannot tell from a var, so it
 stays `fixture collision`, exit 3, and says so. Only when the conflicting field is built from
 `${uuid}` or a clock value (`name: widget ${vars.tag} ${uuid}`), a value unique to its run, does a
-repeat print `FINDING: ...` naming both values and exit 1, a finding about the backend. `shrt run` prints that line and hint too when its first
+repeat print `FINDING: ...` naming both values and exit 1, a finding about the backend. The same
+way means the same refusal codes over the same field: a previous run refused `SkuTaken` on `sku`
+is no repeat of a refusal `NameTaken` on `name`, which stays the first of its kind, exit 3. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
 `email`); when it names none, every fixture field of the step counts. When the field the refusal
 quotes or names is a literal (`sku: fixed-sku-1`, built from no var), no `-var` can help: the chain
 collides with itself, since every run after the first sends the same value. `verify` and `run` then
 say `the chain collides with itself: ... sku is the literal fixed-sku-1 ... build it from a var, e.g.
-sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. A var that
+sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. The same
+holds when the refusal quotes and names no field (`duplicate record`) while every field of the
+step built from a reference is built from `${uuid}` or a clock value: those are unique to their
+run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
+`${uuid}` one, and a repeat is not a `FINDING`. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -419,10 +433,14 @@ fresh. A step still refused authentication is `error`, not `failed`: no verdict 
 When the refused token came from a login in THIS run and was refused on its first use (re-sent
 after a fresh login and refused again, or a write refused with a token just issued), the
 credentials work, so the step's error and `verify` both say it `may be an auth regression` in the
-backend with that evidence, instead of pointing at the credentials. It still exits 3; re-run. When the
-previous run that sent the step was refused there the same way, each time with the token its own
-login had just issued, `run` and `verify` print `auth refused at <rpc> ... a finding about the
-backend` and exit 1. A cached token refused and re-sent after a fresh login that is refused too
+backend with that evidence, instead of pointing at the credentials, and `verify` leads with that,
+never with a restart, even when the first token had been accepted earlier in the run: a restart
+explains a refused old token, not a refused fresh one. It still exits 3; re-run. When the
+previous run that sent the step was refused there the same way, each time on a call re-sent with
+the token its own login had just issued, `run` and `verify` print `auth refused at <rpc> ... a
+finding about the backend` and exit 1. A write refused with a token just issued was never re-sent,
+so a restart between the login and the call explains it as well (two restarts timed that way in
+two runs look the same), and a repeat of that stays exit 3. A cached token refused and re-sent after a fresh login that is refused too
 does not blame the cache: its warning says a stale cached token does not explain the refusal. A token the backend accepted on earlier calls of this run and then
 refused points the other way: it likely restarted mid-run and lost its sessions, so the step's
 error and `verify`'s `WARNING` say so and it exits 3, whether the token came from a login in this
@@ -442,6 +460,14 @@ conflict with a value created before the refusal accepted instead), or a step be
 that got no answer from the service (a gateway answer, a dropped connection). Then it stays a
 restart, exit 3. A run that passed with a read re-sent after a refused token and accepted says only that
 (`a read was re-sent after a refused token at step <n> <id>`), with no restart or re-run advice.
+
+A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
+is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same
+run were answered, and the previous run that sent that step got no answer there the same way while
+answering later steps too, the backend is up and fails that one rpc every time: `verify` prints
+`FINDING: ... the backend fails this rpc every time while answering others`, naming the rpc, and
+exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
+answered.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -878,9 +904,11 @@ difference is input, and it explains a response change only causally: at its own
 later step when its step is a write (not matched by `read_only_prefixes`) whose own response
 changed, since the write demonstrably did something different and the server state after it may
 differ; otherwise only at a later step that reads (through a reference or an export, transitively)
-a field of an earlier step whose response actually changed with an explanation of its own, or
-reads a request value of a step that changed. A step whose response did not change passes no
-explanation on: a header the backend ignores at `create_customer` explains nothing at
+a field of an earlier step whose value actually changed with an explanation of its own, or
+reads a request value of a step that changed. It is the field read that counts, not the step: a
+list that shrank from 2 items to 1 explains nothing at a step reading `${list.products.0.id_product}`
+when that id is the same product after renaming, so a change there is a `regression`. A step whose
+response did not change passes no explanation on: a header the backend ignores at `create_customer` explains nothing at
 `create_order`, which reads the unchanged customer id, while a changed `qty` at `create_order`
 changes its total, so it explains every later step, the stock reads of the product included. With a request difference the verdict is `drift with different input`, not
 `regression`, when every response change is explained this way; any other change is a
@@ -888,7 +916,9 @@ changes its total, so it explains every later step, the stock reads of the produ
 read, `-var total=6250`) is not input at all. Restore the input, or, when the edit is intended,
 bring the expectations in line, run it green, and propose that run with `shrt confirm <name>
 -supersede`. When the difference comes from vars rather than the chain file (a `-var` on this
-verify, or a `-run` recorded with other vars), verify names the vars that feed the differing
+verify, a `-run` recorded with other vars, or a confirmed run given a `-var` this verify leaves
+at the chain's own value: `ik=key-one, confirmed with k-b1`, fixed by `Verify with -var
+ik=k-b1`), verify names the vars that feed the differing
 request values, `qty=2, confirmed with 3`, instead of blaming the chain's input; when the chain
 file changed too (a step's `auth:`, the step list, an expectation), it names that edit as well,
 and never says the chain file is not what differs. An expectation added, removed or edited since
@@ -896,12 +926,17 @@ approval is a `chain differs ... <step> expect (...)` line: it explains a status
 step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
 it `volatile`. A list whose order the rpc does not promise is declared `unordered: [products]` on
-the step (or the chain): verify compares it as a multiset, pairing items by content. Without the
+the step (or the chain): verify compares it as a multiset, pairing items by content; a changed
+item is named at the safe spot's index and, when it sits elsewhere in this run, at that index too
+(`this item is at products.1.price_minor in this run`). Without the
 declaration, the same items in another order are reported as `same items in another order`, and
 when that is every change verify fails with `order changed`, not `regression`, also when an
 expectation reading the list by position (`results.0.status.code`) failed because of it: that
 step's status change counts as the reorder, the failed expectations are named on the line and in
-the verdict, and the per-item changes (ids included) under the reordered list are not listed. The
+the verdict, and the per-item changes (ids included) under the reordered list are counted but not
+listed (the line says how many; `-json` lists them). A changed value at a later step reading the
+list by position shows as `want` the safe spot's value with this run's fixture names swapped in
+(`product.sku want=sku-ln2-a got=sku-ln2-b`), so it reads as what this run should have got. The
 `first failing step` line names the first expectation that failed, with `-quiet` too.
 
 Three things that decide whether this works for a given chain:

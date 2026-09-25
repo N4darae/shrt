@@ -475,10 +475,14 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string) {
 		evidence = "the backend refused a token that a login in this run had just issued"
 	}
 	if evidence != "" {
+		confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
+		if fresh == transport.FreshTokenMinted {
+			confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
+				"re-sent after a fresh login and refused again is reported as a finding; re-run"
+		}
 		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
 			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
-			"because the rpc itself never answered; re-run to confirm: refused again at the same step, each time with a freshly "+
-			"issued token, run and verify report it as a finding")
+			"because the rpc itself never answered; "+confirm)
 		return
 	}
 	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
