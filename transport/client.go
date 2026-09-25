@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,14 +21,18 @@ const (
 	ProtocolVersionHeader = "Connect-Protocol-Version"
 	ProtocolVersion       = "1"
 	ContentTypeJSON       = "application/json"
+	ContentTypeStreamJSON = "application/connect+json"
 	maxBodyBytes          = 32 << 20
 )
+
+var StreamWait = 5 * time.Second
 
 type Call struct {
 	Procedure string
 	Body      []byte
 	Header    http.Header
 	Meta      map[string]any
+	Stream    int
 }
 
 type Result struct {
@@ -145,6 +150,13 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	if len(body) == 0 {
 		body = []byte("{}")
 	}
+	contentType := ContentTypeJSON
+	if call.Stream > 0 {
+		contentType, body = ContentTypeStreamJSON, frame(0, body)
+	}
+	parent := ctx
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -152,7 +164,7 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	if c.hostOver != "" {
 		req.Host = c.hostOver
 	}
-	req.Header.Set("Content-Type", ContentTypeJSON)
+	req.Header.Set("Content-Type", contentType)
 	req.Header.Set(ProtocolVersionHeader, ProtocolVersion)
 	for k, v := range c.headers {
 		req.Header.Set(k, v)
@@ -198,6 +210,16 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	}
 	defer resp.Body.Close()
 
+	if call.Stream > 0 && resp.StatusCode == http.StatusOK {
+		timer := time.AfterFunc(StreamWait, stop)
+		defer timer.Stop()
+		res, err := readStream(resp.Body, call.Stream)
+		if err != nil && (ctx.Err() == nil || parent.Err() != nil) {
+			return nil, fmt.Errorf("read %s: %w", url, err)
+		}
+		res.Header, res.Latency = resp.Header.Clone(), time.Since(start)
+		return res, nil
+	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
 		if ConnectionClosed(err) {
@@ -265,4 +287,82 @@ func normalizeProcedure(p string) string {
 		return "/" + p
 	}
 	return p
+}
+
+func frame(flags byte, payload []byte) []byte {
+	out := make([]byte, 5, 5+len(payload))
+	out[0] = flags
+	binary.BigEndian.PutUint32(out[1:], uint32(len(payload)))
+	return append(out, payload...)
+}
+
+func readStream(r io.Reader, want int) (*Result, error) {
+	messages := []json.RawMessage{}
+	res := &Result{Status: http.StatusOK}
+	done := func() *Result {
+		if res.Error == nil {
+			res.Body, _ = json.Marshal(map[string]any{"messages": messages})
+		}
+		return res
+	}
+	for len(messages) < want {
+		head := make([]byte, 5)
+		if _, err := io.ReadFull(r, head); err != nil {
+			if errors.Is(err, io.EOF) {
+				return done(), nil
+			}
+			return done(), err
+		}
+		size := binary.BigEndian.Uint32(head[1:])
+		if size > maxBodyBytes {
+			return done(), fmt.Errorf("a stream frame of %d bytes is over the %d-byte limit", size, maxBodyBytes)
+		}
+		payload := make([]byte, size)
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return done(), err
+		}
+		if head[0]&0x01 != 0 {
+			return done(), errors.New("the stream sent a compressed frame, and shrt asks for none")
+		}
+		if head[0]&0x02 == 0 {
+			messages = append(messages, json.RawMessage(payload))
+			continue
+		}
+		var end struct {
+			Error *Error `json:"error"`
+		}
+		if err := json.Unmarshal(payload, &end); err == nil && end.Error != nil && end.Error.Code != "" {
+			res.Error, res.Status = end.Error, connectStatus(end.Error.Code)
+			res.Body, _ = json.Marshal(end.Error)
+		}
+		return done(), nil
+	}
+	return done(), nil
+}
+
+func connectStatus(code string) int {
+	switch code {
+	case "canceled":
+		return 499
+	case "invalid_argument", "failed_precondition", "out_of_range":
+		return http.StatusBadRequest
+	case "deadline_exceeded":
+		return http.StatusGatewayTimeout
+	case "not_found":
+		return http.StatusNotFound
+	case "already_exists", "aborted":
+		return http.StatusConflict
+	case "permission_denied":
+		return http.StatusForbidden
+	case "resource_exhausted":
+		return http.StatusTooManyRequests
+	case "unimplemented":
+		return http.StatusNotImplemented
+	case "unavailable":
+		return http.StatusServiceUnavailable
+	case "unauthenticated":
+		return http.StatusUnauthorized
+	default:
+		return http.StatusInternalServerError
+	}
 }
