@@ -18,7 +18,7 @@ const NewFailurePrefix = "NEW FAILURE outside the pinned defect: "
 
 const inNewFailure = "named on the NEW FAILURE line"
 
-func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
+func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, string, string) {
 	if len(c.KeptRed) == 0 || rec.Status == StatusError {
 		return "", "", ""
 	}
@@ -55,7 +55,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		if len(want) == 0 && step.AllowFail && sr.Status == StatusFailed && !sr.AssertionFailed() && !sr.Drift {
 			continue
 		}
-		mismatch, fresh, unpinned := stepMismatch(step.ID, sr, want)
+		mismatch, fresh, unpinned := stepMismatch(step.ID, sr, resolvedPins(want, scope))
 		problems = append(problems, mismatch...)
 		found = append(found, fresh...)
 		if unpinned {
@@ -90,6 +90,21 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but " + problems[0], finding
 	}
 	return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but:\n" + strings.Join(problems, "\n"), finding
+}
+
+func resolvedPins(pins []chain.Pin, scope *chain.Scope) []chain.Pin {
+	out := make([]chain.Pin, 0, len(pins))
+	for _, k := range pins {
+		if k.Got != nil && scope != nil && strings.Contains(*k.Got, "${") {
+			text := *k.Got + " (does not resolve)"
+			if v, err := scope.ResolveValue(*k.Got); err == nil {
+				text = gotText(v)
+			}
+			k.Got = &text
+		}
+		out = append(out, k)
+	}
+	return out
 }
 
 func PinCount(n int) string {

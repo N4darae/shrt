@@ -1102,7 +1102,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	rec.Failure = redactor.ScrubText(rec.Failure)
 	rec.Warning = redactor.ScrubText(rec.Warning)
 	if !opts.DryRun {
-		rec.KeptRed, rec.KeptRedNote, rec.KeptRedNew = keptRedVerdict(c, rec)
+		rec.KeptRed, rec.KeptRedNote, rec.KeptRedNew = keptRedVerdict(c, rec, scope)
 		rec.KeptRedNote = redactor.ScrubText(rec.KeptRedNote)
 		rec.KeptRedNew = redactor.ScrubText(rec.KeptRedNew)
 	}

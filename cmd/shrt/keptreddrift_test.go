@@ -77,14 +77,18 @@ steps:
 }
 
 func TestKeptRedPinsRecordAStableGot(t *testing.T) {
-	c := &chain.Chain{Name: "red", KeptRed: []chain.Pin{{Step: "list", Path: "orders.1"}}}
-	rec := &runner.Record{RunID: "r1", Vars: map[string]any{"tag": "t42"}, Steps: []*runner.StepRecord{{ID: "list", Status: runner.StatusFailed, Expect: []chain.ExpectResult{
-		{Path: "orders.1", Rule: "exists", Want: false, Got: true},
-		{Path: "orders.0.status", Rule: "equals", Want: "PENDING", Got: "CANCELLED"},
-		{Path: "orders.0.id_order", Rule: "equals", Want: "ord-0123456789ab", Got: "ord-ba9876543210"},
-		{Path: "orders.0.name", Rule: "equals", Want: "Widget", Got: "Widget t42"},
-		{Path: "orders.0.total_minor", Rule: "equals", Want: 1250.0, Got: 500.0},
-	}}}}
+	c := &chain.Chain{Name: "red", KeptRed: []chain.Pin{{Step: "list", Path: "orders.1"}}, Steps: []*chain.Step{{ID: "create"}, {ID: "list"}}}
+	rec := &runner.Record{RunID: "r1", Vars: map[string]any{"tag": "t42"}, Steps: []*runner.StepRecord{
+		{ID: "create", Status: runner.StatusPassed, Response: []byte(`{"order":{"id_order":"ord-ba9876543210"}}`)},
+		{ID: "list", Status: runner.StatusFailed, Expect: []chain.ExpectResult{
+			{Path: "orders.1", Rule: "exists", Want: false, Got: true},
+			{Path: "orders.0.status", Rule: "equals", Want: "PENDING", Got: "CANCELLED"},
+			{Path: "orders.0.id_order", Rule: "equals", Want: "ord-0123456789ab", Got: "ord-ba9876543210"},
+			{Path: "orders.0.name", Rule: "equals", Want: "Widget", Got: "Widget t42"},
+			{Path: "orders.0.total_minor", Rule: "equals", Want: 1250.0, Got: 500.0},
+			{Path: "orders.0.created_at", Rule: "equals", Want: "2026-01-01T00:00:00Z", Got: "2026-01-02T00:00:00Z"},
+			{Path: "status.details.0.reason", Rule: "equals", Want: "Cancelled"},
+		}}}}
 	pins, err := failurePins(c, rec, "list")
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +101,8 @@ func TestKeptRedPinsRecordAStableGot(t *testing.T) {
 			got[p.Path] = "<none>"
 		}
 	}
-	want := map[string]string{"orders.0.status": "CANCELLED", "orders.0.id_order": "<none>", "orders.0.name": "<none>", "orders.0.total_minor": "500"}
+	want := map[string]string{"orders.0.status": "CANCELLED", "orders.0.id_order": "${create.order.id_order}", "orders.0.name": "Widget ${vars.tag}",
+		"orders.0.total_minor": "500", "orders.0.created_at": "<none>", "status.details.0.reason": ""}
 	for path, w := range want {
 		if got[path] != w {
 			t.Errorf("%s: pinned got=%s, want %s (all: %v)", path, got[path], w, got)
