@@ -151,6 +151,11 @@ func runVerify(ctx context.Context, args []string) error {
 	} else {
 		c, err = chain.Resolve(e.chainsDir(), name)
 		if err != nil {
+			for _, o := range doctor.OrphanSafeSpots(e.cfg) {
+				if o.Name == name {
+					return fmt.Errorf("%w\n%s; there is no chain to replay.\n%s", err, o.Line(), o.Remedy())
+				}
+			}
 			return err
 		}
 		rec, err = executeChain(ctx, e, c, runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, *quiet || *asJSON)
@@ -167,7 +172,9 @@ func runVerify(ctx context.Context, args []string) error {
 		return err
 	}
 
+	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)
 		report.NoteRedactedRequests(spot, rec)
@@ -285,9 +292,9 @@ func runVerify(ctx context.Context, args []string) error {
 	case violation:
 	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
-		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
+		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s)%s; %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
+			"this is not a verdict about the backend", name, driftStep, driftWhy, unsentWritesNote(rec, driftAt), driftRemedy(ctx, e, driftWhy))
 	case idem != nil && !idem.literal && !unanswered:
 		headline = fmt.Sprintf("fixture reused: step %s sent the confirmed run's idempotency key", idem.step)
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
@@ -473,7 +480,7 @@ func runVerify(ctx context.Context, args []string) error {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		return fmt.Errorf("regression: %d change(s) vs safe spot", report.Counted())
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s.\n%s", report.Counted(), regressionShape(report), intendedChangeNext(name))
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -957,6 +964,7 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 	reads := chainReads(c)
 	tainted := map[string]bool{step: true}
 	after := map[string]bool{}
+	unsentWrite := false
 	for i, st := range rec.Steps {
 		if st == nil || i <= at {
 			continue
@@ -966,8 +974,11 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 				tainted[st.ID] = true
 			}
 		}
-		if st.Drift || st.Status == runner.StatusSkipped {
+		if st.Drift || st.Status == runner.StatusSkipped || unsentWrite {
 			tainted[st.ID] = true
+		}
+		if st.Status == runner.StatusSkipped && !chain.IsReadOnlyCall(st.Call) {
+			unsentWrite = true
 		}
 		after[st.ID] = true
 	}
@@ -978,6 +989,48 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 		}
 	}
 	return out
+}
+
+func unsentWritesAfter(rec *runner.Record, at int) []string {
+	out := []string{}
+	for i, st := range rec.Steps {
+		if st != nil && i > at && st.Status == runner.StatusSkipped && !chain.IsReadOnlyCall(st.Call) {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
+func unsentWritesNote(rec *runner.Record, at int) string {
+	writes := unsentWritesAfter(rec, at)
+	if len(writes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the write(s) %s after it were not sent, so a later step's difference may be their missing side effect "+
+		"and is not independent evidence", capList(writes, 4))
+}
+
+func regressionShape(report *diff.Report) string {
+	added := []string{}
+	for _, c := range report.Changes {
+		if c.Kind == diff.KindNotReached {
+			continue
+		}
+		if c.Kind != diff.KindUnexpected {
+			return ""
+		}
+		added = append(added, c.Step+" "+c.Path)
+	}
+	if len(added) == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", all of them response field(s) the safe spot does not have: %s", capList(added, 4))
+}
+
+func intendedChangeNext(name string) string {
+	return fmt.Sprintf("If the change is intended (a field added or a value changed on purpose), run the chain until it passes, "+
+		"propose that run in place of the safe spot (shrt confirm %s -supersede -note \"...\"), and a person approves it; "+
+		"if it is not, it is a regression to fix in the backend", name)
 }
 
 func describeChanges(changes []diff.Change) string {

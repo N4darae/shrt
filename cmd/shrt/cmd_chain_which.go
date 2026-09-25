@@ -10,6 +10,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
+	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -67,7 +68,7 @@ func chainWhich(args []string) error {
 		if *asJSON {
 			return emitJSON(map[string]any{"chains": hits, "observed_unasserted": seen})
 		}
-		printObservedUnasserted(e.chainsDir(), q, seen)
+		printObservedUnasserted(e.chainsDir(), q, seen, whichCoverOf(e, chains, seen))
 		return nil
 	}
 	if *asJSON {
@@ -281,17 +282,102 @@ func whichCodeCell(m chain.WhichStep, q chain.WhichQuery) string {
 	return "-"
 }
 
-func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichUnasserted) {
+type whichCover struct {
+	siblings  []string
+	baselined string
+}
+
+func whichCoverOf(e *env, chains []*chain.Chain, seen []chain.WhichUnasserted) []whichCover {
+	out := make([]whichCover, len(seen))
+	for i, s := range seen {
+		parent := ""
+		if j := strings.LastIndex(s.Path, "."); j > 0 {
+			parent = s.Path[:j+1]
+		}
+		for _, c := range chains {
+			if c.Name != s.Chain {
+				continue
+			}
+			for _, st := range c.Steps {
+				if st == nil || st.ID != s.Step {
+					continue
+				}
+				for _, x := range st.Expect {
+					if x.Equals != nil && x.Path != s.Path && strings.HasPrefix(x.Path, parent) && !strings.Contains(x.Path[len(parent):], ".") &&
+						chain.IsCodePath(x.Path) {
+						out[i].siblings = append(out[i].siblings, fmt.Sprintf("%s equals %v", x.Path, x.Equals))
+					}
+				}
+			}
+		}
+		out[i].baselined = baselinedAt(e, s)
+	}
+	return out
+}
+
+func baselinedAt(e *env, s chain.WhichUnasserted) string {
+	spot, err := e.store.LoadSafeSpot(s.Chain)
+	if err != nil || !spot.DigestMatches() || e.otherTarget(spot.Target) {
+		return ""
+	}
+	for _, st := range spot.Steps {
+		if st.ID != s.Step || len(st.Response) == 0 {
+			continue
+		}
+		var body any
+		if json.Unmarshal(st.Response, &body) != nil {
+			return ""
+		}
+		v, ok := chain.Get(body, s.Path)
+		if !ok || !strings.EqualFold(fmt.Sprint(v), s.Code) {
+			return ""
+		}
+		masks := pathmask.NewMasker(append(append(append([]string{}, spot.Volatile...), st.Volatile...), currentVolatile(e, s.Chain)...))
+		if masks.Masks(s.Path) {
+			return ""
+		}
+		return rel(e.cfg.Root, e.store.SafeSpotPath(s.Chain))
+	}
+	return ""
+}
+
+func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichUnasserted, cover []whichCover) {
 	fmt.Printf("no chain in %s %s, but local run records observed it on %d step(s) that do not assert it:\n\n", dir, describeWhichQuery(q), len(seen))
-	for _, s := range seen {
+	baselined, bare := 0, 0
+	for i, s := range seen {
 		status := s.Status
 		if status != runner.StatusPassed {
 			status = strings.ToUpper(status)
 		}
-		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n    reproduce: %s\n",
-			s.Chain, s.Index, s.Step, shortCall(s.Call), s.Run, s.Code, s.Path, status, s.Command)
+		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n",
+			s.Chain, s.Index, s.Step, shortCall(s.Call), s.Run, s.Code, s.Path, status)
+		if list := cover[i].siblings; len(list) > 0 {
+			fmt.Printf("    pins the same detail: %s, so a different refusal there fails shrt run\n", strings.Join(list, "; "))
+		}
+		if spot := cover[i].baselined; spot != "" {
+			baselined++
+			fmt.Printf("    baselined: safe spot %s holds %s at %s, so shrt verify reports a change to it\n", spot, s.Code, s.Path)
+		} else if len(cover[i].siblings) == 0 {
+			bare++
+		}
+		fmt.Printf("    reproduce: %s\n", s.Command)
 	}
-	fmt.Printf("\nThe backend answered %s there, but no expectation pins it, so a change to that answer goes unnoticed.\n"+
-		"Assert it where it is the point of the step (path: the path above, equals: %s), and chain which lists the step.\n"+
-		"Run records are machine-local.\n", q.Code, q.Code)
+	switch {
+	case bare == 0 && baselined == len(seen):
+		fmt.Printf("\nNo expectation pins %s itself, but each step above is baselined by its safe spot, so shrt verify catches a change to it;\n"+
+			"shrt run alone does not. chain which lists only steps that assert the code: to be listed, and to fail shrt run as well,\n"+
+			"assert it where it is the point of the step (path: the path above, equals: %s).\n", q.Code, q.Code)
+	case bare == 0:
+		fmt.Printf("\nNo expectation pins %s itself; a change is caught only as each line above says (by a sibling expectation on the same\n"+
+			"detail, or by shrt verify against a safe spot). To pin it, assert it where it is the point of the step (path: the path above,\n"+
+			"equals: %s), and chain which lists the step.\n", q.Code, q.Code)
+	case bare < len(seen):
+		fmt.Printf("\nNo expectation pins %s itself. Where a line above says baselined or pins the same detail, a change is caught as it says;\n"+
+			"at the %d other step(s) a change to that answer goes unnoticed. Assert it where it is the point of the step\n"+
+			"(path: the path above, equals: %s), and chain which lists the step.\n", q.Code, bare, q.Code)
+	default:
+		fmt.Printf("\nThe backend answered %s there, but no expectation pins it and no safe spot baselines it, so a change to that answer goes unnoticed.\n"+
+			"Assert it where it is the point of the step (path: the path above, equals: %s), and chain which lists the step.\n", q.Code, q.Code)
+	}
+	fmt.Println("Run records are machine-local.")
 }

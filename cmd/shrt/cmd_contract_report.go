@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -318,6 +319,40 @@ func clip(values []string, max int) []string {
 	return append(append([]string{}, values[:max]...), "…")
 }
 
+func qualityGapsNow(report contract.QualityReport, withUncovered bool) string {
+	rows := []contract.QualityRPC{}
+	for _, r := range report.RPCs {
+		if r.Score > 0 && (withUncovered || !r.NoContract) {
+			rows = append(rows, r)
+		}
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Score > rows[j].Score })
+	parts := []string{}
+	for i, r := range rows {
+		if i == 6 {
+			parts = append(parts, fmt.Sprintf("and %d more rpc(s)", len(rows)-i))
+			break
+		}
+		gap := strings.Join(qualityGap(r, report.Phase), "; ")
+		if r.NoContract {
+			gap = "no overlay covers it"
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d): %s", rpcTail(r.RPC), r.Score, gap))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func undocumentedHint(report contract.QualityReport) string {
+	for _, r := range report.RPCs {
+		if len(r.UndocumentedFields) > 0 {
+			return " An undocumented field is usually one the descriptor gained since the baseline (a new proto field), " +
+				"not a contract that got vaguer: document it under the rpc's fields: in its overlay (a note, or where its value comes from), " +
+				"and the score comes back down."
+		}
+	}
+	return ""
+}
+
 func qualityGate(report contract.QualityReport, baselinePath string) error {
 	total := report.TotalScore
 	want, verdict, err := store.Ratchet(baselinePath, total)
@@ -335,14 +370,14 @@ func qualityGate(report contract.QualityReport, baselinePath string) error {
 	case verdict == store.RatchetWorse && len(uncovered) > 0:
 		rest := ""
 		if charged < total {
-			rest = fmt.Sprintf(" The other %d: run 'shrt contract quality' to see what got vaguer.", total-charged)
+			rest = fmt.Sprintf(" The other %d: %s.", total-charged, qualityGapsNow(report, false))
 		}
 		return fmt.Errorf("contract quality: score %d is worse than the baseline %d, and %d of it is charged to %d rpc(s) no overlay covers: %s.\n"+
 			"An overlay or an entry was deleted, or the descriptor gained rpcs: restore it, or write one with 'shrt contract init <domain>'.%s",
 			total, want, charged, len(uncovered), strings.Join(clip(uncovered, 8), ", "), rest)
 	case verdict == store.RatchetWorse:
-		return fmt.Errorf("contract quality: score %d is worse than the baseline %d. "+
-			"Run 'shrt contract quality' to see what got vaguer", total, want)
+		return fmt.Errorf("contract quality: score %d is worse than the baseline %d. The gaps now (the baseline holds a total, "+
+			"not which gaps it counted): %s.%s\nRun 'shrt contract quality' for the full table", total, want, qualityGapsNow(report, true), undocumentedHint(report))
 	case verdict == store.RatchetBetter:
 		return fmt.Errorf("contract quality: score %d beats the baseline %d — "+
 			"lower %s to %d to keep the ratchet tight", total, want, baselinePath, total)

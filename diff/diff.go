@@ -61,12 +61,13 @@ type Report struct {
 	ScrubbedPaths  []string `json:"scrubbed_paths,omitempty"`
 	FullyMasked    []string `json:"fully_masked,omitempty"`
 
-	UnapprovedVolatile []string `json:"unapproved_volatile,omitempty"`
-	UnapprovedMasked   []string `json:"unapproved_masked,omitempty"`
-	UnapprovedRedact   []string `json:"unapproved_redact,omitempty"`
-	UnapprovedRedacted []string `json:"unapproved_redacted,omitempty"`
-	PrincipalUnchecked []string `json:"principal_unchecked,omitempty"`
-	Reordered          []string `json:"reordered_lists,omitempty"`
+	UnapprovedVolatile []string     `json:"unapproved_volatile,omitempty"`
+	UnapprovedMasked   []string     `json:"unapproved_masked,omitempty"`
+	UnapprovedRedact   []string     `json:"unapproved_redact,omitempty"`
+	UnapprovedRedacted []string     `json:"unapproved_redacted,omitempty"`
+	PrincipalUnchecked []string     `json:"principal_unchecked,omitempty"`
+	Reordered          []string     `json:"reordered_lists,omitempty"`
+	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
 
 	inputSeparated    bool
 	compared          []comparedStep
@@ -946,6 +947,26 @@ func pathOr(p string) string {
 	return p
 }
 
+func (c Change) StepOrder() bool {
+	return c.Kind == KindOrder && c.Path == "steps" && (c.Step == "-" || c.Step == "")
+}
+
+func (c Change) Moves() string {
+	was := strings.Split(fmt.Sprint(c.Want), ", ")
+	now := strings.Split(fmt.Sprint(c.Got), ", ")
+	at := map[string]int{}
+	for i, id := range was {
+		at[id] = i + 1
+	}
+	out := []string{}
+	for i, id := range now {
+		if j, ok := at[id]; ok && j != i+1 {
+			out = append(out, fmt.Sprintf("%s step %d -> %d", id, j, i+1))
+		}
+	}
+	return strings.Join(out, ", ")
+}
+
 func (c Change) describe() string {
 	out := c.describeValues()
 	if c.ReplayPath != "" {
@@ -1053,6 +1074,9 @@ func (r *Report) Text() string {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder
+	if line := RenamedLine(r.RenamedSteps, "the safe spot", "this run"); line != "" {
+		b.WriteString(line + "\n")
+	}
 	if len(r.FullyMasked) > 0 {
 		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
 			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
@@ -1102,6 +1126,10 @@ func (r *Report) Text() string {
 		}
 		if c.Path == ExpectValuePath {
 			fmt.Fprintf(&b, "expectation differs from the confirmed run at %s: %v -> %v (%s)\n", c.Step, c.Want, c.Got, c.Detail)
+			continue
+		}
+		if c.StepOrder() {
+			fmt.Fprintf(&b, "chain differs from the confirmed run in its step order: %s (was %v; now %v)\n", c.Moves(), c.Want, c.Got)
 			continue
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
@@ -1188,6 +1216,10 @@ func (r *Report) Text() string {
 			if expectOnly {
 				after = " (explained by the failed changed expectation)"
 			}
+		}
+		if c.StepOrder() {
+			fmt.Fprintf(&b, "  [step order] moved: %s (was %v; now %v)%s\n", c.Moves(), c.Want, c.Got, after)
+			continue
 		}
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}

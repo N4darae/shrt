@@ -210,6 +210,8 @@ because no response declares it); `code_fields` are the detail fields
 `chain which -code` searches; and with `validate_output: true` a response the descriptor rejects
 FAILS its step. `verify` then leaves that step and the later steps reading from it unjudged (exit 3),
 but still judges a later step that reads nothing from it: a changed value there is a `regression`.
+Once a write after it was not sent (skipped because it read the drifted step), every later step is
+unjudged too: its difference may be the missing write's side effect, so verify exits 3 and names that write.
 
 **`item_envelope_path` is the one to check first on any backend with batch rpcs.** A batch call can
 answer `OK` at the top level while refusing every line it was given; unset, a step asserting only the
@@ -648,7 +650,10 @@ because a check that cannot run must fail, and you write the equivalent for your
 
 The score itself can be gated as a **ratchet** with `shrt contract quality -gate -baseline <file>`:
 it fails if the score rises, and also if it falls without the baseline being lowered, so improving
-a contract means lowering the number in the file. `shrt chain hollow -gate -baseline <file>` does
+a contract means lowering the number in the file. A failing gate lists the gaps it counts now, per
+rpc (`CreateOrder (2): 1 undocumented field(s): note`), since the file holds only a total; a new
+undocumented field is most often one the descriptor gained (a proto field added to a request), so
+document it in the rpc's `fields:` and the score comes back. `shrt chain hollow -gate -baseline <file>` does
 the same for hollow reads. A baseline file that does not exist fails the gate with the command
 that creates it with today's count (`echo <n> > <file>`; or write 0, run the gate once, and write
 the number it reports). That is what stops an N-of-N score from meaning less each time the
@@ -789,7 +794,9 @@ This writes `.shrt/safespots/pending/<name>.json` and a full report beside it, `
 prints a summary table: one row per step with an excerpt of what was sent, what it asserted and
 what the backend answered (for a batch, with the per-item verdicts `conventions.item_envelope_path`
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
-uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them; the answered
+uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them, abbreviated;
+a literal input is shown in full whatever its length (`email=cust-order-confirm@example.test`), so a
+fixture built from a long tag reads the same as one from a short tag; the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300
@@ -820,9 +827,12 @@ language, give:
    that differed and is not masked the way `verify` masks it: every `verify` would report those
    as drift. An id, a timestamp, and a value that only echoes a fixture name (a response `sku`,
    `name` or `email` that follows the run's `sku-${vars.tag}`) are masked by `verify` and are not
-   listed, so do not declare them volatile. The fields of one list are one line, the list's
-   path with a count and the fix (`volatile: [<path>]` on the step, or `unordered: [<path>]` if
-   only its order changes), since a list other runs add to grows every run. Pass the warning
+   listed, so do not declare them volatile. Each field is listed with both values. The fields of a list
+   that grew or shrank are one line, the list's path with a count and the fix (`volatile: [<path>]` on
+   the step, or `unordered: [<path>]` if only its order changes), since a list other runs add to grows
+   every run. A list with as many items as before and only some fields inside them changed is not
+   that: its line names each field and its values (`orders.0.total_minor` 750 -> 1), says it may be a
+   real change, and suggests only the field (`volatile: [orders.*.total_minor]`). Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
@@ -883,7 +893,11 @@ safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`
 then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
 of a failing test somewhere downstream. A clean report covers only the steps of that chain's safe
-spot, and says so: a regression in a path no safe spot exercises is not seen.
+spot, and says so: a regression in a path no safe spot exercises is not seen. A `regression` verdict
+ends with the next step for a change you meant (`If the change is intended ... shrt confirm <name>
+-supersede -note "..."`, then a person approves it), and says so when every change is a response
+field the safe spot does not have (`all of them response field(s) the safe spot does not have:
+create_order order.currency, ...`), the shape of a field added on purpose.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:
@@ -966,7 +980,10 @@ Three things that decide whether this works for a given chain:
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   The chain's step list and expectations are compared too: a step removed, added, moved or
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
-  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A call respelled to
+  rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A step renamed in
+  place (same call, same position, and the only step of that call gone and added) is not a removal and an addition:
+  `verify`, `diff` and the `-supersede` review say `renamed step(s): step 8 list_orders -> list_customer_orders` and
+  compare its response with the old step's, so a changed value there (`orders.0.total_minor want=750 got=1`) is judged. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
   `procedure` decides. Expectations are paired by path, then by rule, not by position, so one
   added in the middle is one `absent -> <path> <rule> <value>` line; each path reports its own
@@ -1109,8 +1126,12 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command, and exits 0. The backend exercises the code; no chain pins it, so a
-   change to that answer goes unnoticed until you assert it there.
+   `reproduce:` slice command, and exits 0. The backend exercises the code and no expectation pins
+   it, but that is not always unguarded: each step also says when an expectation pins a sibling of
+   the same detail (`results.1.status.details.0.reason equals ProductNotFound`, which fails `shrt run`
+   on a different refusal) and when the chain's safe spot holds the code at that path (`baselined:`),
+   so `shrt verify` reports a change to it. Only a step with neither is one where a change goes
+   unnoticed; assert the code there to have `shrt run` fail on it and `chain which` list it.
 
 ## 11. A step failed: get the minimal reproduction
 

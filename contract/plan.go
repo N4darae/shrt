@@ -630,8 +630,9 @@ func (p *Plan) YAML() ([]byte, error) {
 		return nil, err
 	}
 	steps := &yaml.Node{Kind: yaml.SequenceNode}
+	read := readRoots(p.Chain)
 	for _, step := range p.Chain.Steps {
-		node, err := p.stepNode(step)
+		node, err := p.stepNode(step, read)
 		if err != nil {
 			return nil, err
 		}
@@ -641,10 +642,11 @@ func (p *Plan) YAML() ([]byte, error) {
 	return yaml.Marshal(doc)
 }
 
-func (p *Plan) stepNode(step *chain.Step) (*yaml.Node, error) {
+func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, error) {
 	body := step.Body
 	shallow := *step
 	shallow.Body = nil
+	shallow.Export = readExports(step.Export, read)
 	node := &yaml.Node{}
 	if err := node.Encode(&shallow); err != nil {
 		return nil, err

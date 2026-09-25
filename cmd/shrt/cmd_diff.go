@@ -91,6 +91,9 @@ func compareRuns(_ context.Context, args []string) error {
 		fx = requestFixtures(c)
 	}
 	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
+	if len(rest) == 3 {
+		rep.SelectorA, rep.SelectorB = rest[1], rest[2]
+	}
 	if *asJSON {
 		if picked != "" {
 			fmt.Fprintln(os.Stderr, "diff: "+picked)

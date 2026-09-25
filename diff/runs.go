@@ -58,6 +58,11 @@ type RunReport struct {
 	Changes          []Change     `json:"changes,omitempty"`
 	Masked           int          `json:"masked"`
 	FullyMasked      []string     `json:"fully_masked,omitempty"`
+	RenamedSteps     []StepRename `json:"renamed_steps,omitempty"`
+	SelectorA        string       `json:"selector_a,omitempty"`
+	SelectorB        string       `json:"selector_b,omitempty"`
+	StartedA         time.Time    `json:"-"`
+	StartedB         time.Time    `json:"-"`
 
 	compared     []comparedStep
 	idPairs      []idPair
@@ -92,7 +97,7 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
 	rep := &RunReport{
 		Note: RunComparisonNote, Chain: a.Chain,
-		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status,
+		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
 	}
 	if !config.SameTarget(a.Target, b.Target) {
@@ -109,6 +114,12 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		for i := range rep.VarChanges {
 			rep.VarChanges[i].Fixture = fx.Var(rep.VarChanges[i].Name)
 		}
+	}
+	if renames := StepRenames(a.Steps, b.Steps); len(renames) > 0 {
+		rep.RenamedSteps = renames
+		cp := *a
+		cp.Steps = RenameSteps(a.Steps, renames)
+		a = &cp
 	}
 	byID := map[string]*runner.StepRecord{}
 	allB := map[string]*runner.StepRecord{}
@@ -423,8 +434,12 @@ func isTimestamp(s string) bool {
 
 func (r *RunReport) Text() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "diff of %s: run A %s (%s) vs run B %s (%s)\n", r.Chain, r.RunA, r.StatusA, r.RunB, r.StatusB)
+	fmt.Fprintf(&b, "diff of %s: %s vs %s%s\n", r.Chain, runLabel("A", r.SelectorA, r.RunA, r.StatusA),
+		runLabel("B", r.SelectorB, r.RunB, r.StatusB), r.recordedOrder())
 	fmt.Fprintf(&b, "%s\n", r.Note)
+	if line := RenamedLine(r.RenamedSteps, "run A", "run B"); line != "" {
+		fmt.Fprintf(&b, "\n%s\n", line)
+	}
 	if len(r.FullyMasked) > 0 {
 		fmt.Fprintf(&b, "\nWARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
 			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
@@ -542,6 +557,25 @@ func (r *RunReport) Text() string {
 		b.WriteString("\nno differences between the two runs\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func runLabel(side, selector, id, status string) string {
+	if selector != "" && selector != id {
+		return fmt.Sprintf("run %s = %s (%s, %s)", side, selector, id, status)
+	}
+	return fmt.Sprintf("run %s %s (%s)", side, id, status)
+}
+
+func (r *RunReport) recordedOrder() string {
+	switch {
+	case r.StartedA.IsZero() || r.StartedB.IsZero():
+		return ""
+	case r.StartedA.After(r.StartedB):
+		return "; A was recorded after B, so b= is the older value"
+	case r.StartedB.After(r.StartedA):
+		return "; A was recorded before B, so b= is the newer value"
+	}
+	return ""
 }
 
 func (s StepStatus) errors() string {

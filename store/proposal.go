@@ -297,7 +297,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		if also := alsoBaselined(rec, st); also != "" {
 			answered += "; also baselined: " + also
 		}
-		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), cell(sentSummary(st)), assertedSummary(st), answered)
+		fmt.Fprintf(&b, "| %d | %s | %s | %s | %s |", st.Index, cell(st.ID), flat(sentSummary(st)), assertedSummary(st), answered)
 		if p.Replaces != "" {
 			fmt.Fprintf(&b, " %s |", cell(replacedSummary(p.Replaced, st.ID)))
 		}
@@ -498,6 +498,18 @@ func shortValue(v any) string {
 	return clipMiddle(flat(fmt.Sprint(v)), summaryValue)
 }
 
+func fullValue(v any) string {
+	if s, isString := v.(string); isString && (s == "" || strings.TrimSpace(s) != s) {
+		return strconv.Quote(s)
+	}
+	if _, isString := v.(string); !isString {
+		if b, err := json.Marshal(v); err == nil {
+			return flat(string(b))
+		}
+	}
+	return flat(fmt.Sprint(v))
+}
+
 func clipMiddle(s string, n int) string {
 	r := []rune(s)
 	if len(r) <= n {
@@ -615,11 +627,10 @@ func sentSummary(st *runner.StepRecord) string {
 				walk(joinKey(prefix, fmt.Sprint(i)), e)
 			}
 		default:
-			leaf := prefix + "=" + shortValue(t)
 			if referenceLike(prefix, t) {
-				refs = append(refs, leaf)
+				refs = append(refs, prefix+"="+shortValue(t))
 			} else {
-				leaves = append(leaves, leaf)
+				leaves = append(leaves, prefix+"="+fullValue(t))
 			}
 		}
 	}
@@ -896,41 +907,99 @@ func itemsSummary(body any) string {
 
 func unstableLines(unstable []string) []string {
 	type list struct{ step, path string }
+	type entry struct{ path, delta string }
 	lists := map[list]bool{}
 	for _, u := range unstable {
 		step, path, _ := strings.Cut(u, " ")
+		path, _, _ = strings.Cut(path, ": ")
 		if root, indexed := listRoot(path); indexed {
 			lists[list{step, root}] = true
 		}
 	}
 	order := []any{}
-	counts := map[list]int{}
+	entries := map[list][]entry{}
 	for _, u := range unstable {
-		step, path, _ := strings.Cut(u, " ")
+		step, rest, _ := strings.Cut(u, " ")
+		path, delta, _ := strings.Cut(rest, ": ")
 		root, _ := listRoot(path)
 		key := list{step, root}
 		if !lists[key] {
 			order = append(order, u)
 			continue
 		}
-		if _, seen := counts[key]; !seen {
+		if _, seen := entries[key]; !seen {
 			order = append(order, key)
 		}
-		counts[key]++
+		entries[key] = append(entries[key], entry{path, delta})
 	}
 	out := make([]string, 0, len(order))
 	for _, o := range order {
 		switch t := o.(type) {
 		case string:
-			out = append(out, "`"+t+"`")
+			step, rest, _ := strings.Cut(t, " ")
+			path, delta, _ := strings.Cut(rest, ": ")
+			line := "`" + step + " " + path + "`"
+			if delta != "" {
+				line += " " + delta
+			}
+			out = append(out, line)
 		case list:
-			out = append(out, fmt.Sprintf("`%s %s`: %d field(s) of this list differ, so its items change from run to run "+
+			es := entries[t]
+			grew, known, fields, items := false, true, map[string]bool{}, map[string]bool{}
+			for _, e := range es {
+				if e.delta == "" {
+					known = false
+				}
+				if e.path == t.path || strings.Contains(e.delta, "absent") {
+					grew = true
+				}
+				field, index := fieldPattern(t.path, e.path)
+				fields[field] = true
+				items[index] = true
+			}
+			if known && !grew {
+				shown, patterns := []string{}, []string{}
+				for _, e := range es {
+					shown = append(shown, fmt.Sprintf("`%s` %s", e.path, e.delta))
+				}
+				for p := range fields {
+					patterns = append(patterns, p)
+				}
+				sort.Strings(patterns)
+				if len(shown) > 4 {
+					shown = append(shown[:4], fmt.Sprintf("and %d more", len(shown)-4))
+				}
+				line := fmt.Sprintf("`%s %s`: the list has as many items as in the earlier run, and only %d field(s) inside them differ: %s. "+
+					"That may be a real change; if the field varies from run to run, declare `volatile: [%s]` on step `%s`",
+					t.step, t.path, len(es), strings.Join(shown, ", "), strings.Join(patterns, ", "), t.step)
+				if len(items) > 1 {
+					line += fmt.Sprintf(" (or `unordered: [%s]` if only the items' order changes)", t.path)
+				}
+				out = append(out, line)
+				continue
+			}
+			grown := ""
+			for _, e := range es {
+				if e.path == t.path && e.delta != "" {
+					grown = " (" + e.delta + ")"
+				}
+			}
+			out = append(out, fmt.Sprintf("`%s %s`: %d field(s) of this list differ%s, so its items change from run to run "+
 				"(a list other runs add to grows every run). If that is expected, declare `volatile: [%s]` on step `%s` "+
 				"(or `unordered: [%s]` if only its order changes), or narrow the request to this run's records",
-				t.step, t.path, counts[t], t.path, t.step, t.path))
+				t.step, t.path, len(es), grown, t.path, t.step, t.path))
 		}
 	}
 	return out
+}
+
+func fieldPattern(root, path string) (string, string) {
+	rest := strings.TrimPrefix(strings.TrimPrefix(path, root), ".")
+	index, field, _ := strings.Cut(rest, ".")
+	if field == "" {
+		return root + ".*", index
+	}
+	return root + ".*." + field, index
 }
 
 func listRoot(path string) (string, bool) {
