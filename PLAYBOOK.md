@@ -145,7 +145,9 @@ values in a row collided: that points at the backend unless another client uses 
 (two pipelines deriving the tag from one commit SHA do), which shrt cannot tell from a var, so it
 stays `fixture collision`, exit 3, and says so. Only when the conflicting field is built from
 `${uuid}` or a clock value (`name: widget ${vars.tag} ${uuid}`), a value unique to its run, does a
-repeat print `FINDING: ...` naming both values and exit 1, a finding about the backend. `shrt run` prints that line and hint too when its first
+repeat print `FINDING: ...` naming both values and exit 1, a finding about the backend. The same
+way means the same refusal codes over the same field: a previous run refused `SkuTaken` on `sku`
+is no repeat of a refusal `NameTaken` on `name`, which stays the first of its kind, exit 3. `shrt run` prints that line and hint too when its first
 failing step is refused that way. The var named is the one the conflicting field is built from:
 the field whose sent value the refusal quotes, or else whose name it spells (`EmailTaken` names
 `email`); when it names none, every fixture field of the step counts. When the field the refusal
