@@ -272,11 +272,15 @@ func (p *Plan) noteSecondItems(id string, grown []string) {
 	if len(grown) == 0 {
 		return
 	}
-	p.note("step %s: %s %s repeated, so the plan sends two items, the second with its numbers raised by one "+
+	noun := p.noun
+	if noun == "" {
+		noun = "the plan"
+	}
+	p.note("step %s: %s %s repeated, so %s sends two items, the second with its numbers raised by one "+
 		"and its free-text strings prefixed with 2- (ids, keys, enums, zeros and ${...} references are copied "+
 		"as they are, except a reference to a step that creates a resource, which reads a second such step instead). "+
 		"One item leaves per-item logic untested: a total summed over the items, a check on the second "+
 		"one. Give the second item its own values, and assert what depends on both; 'shrt contract status -gaps' "+
 		"names repeated fields no chain sends with two, or whose items all point at the same resource",
-		id, strings.Join(grown, ", "), pluralVerb(len(grown), "is", "are"))
+		id, strings.Join(grown, ", "), pluralVerb(len(grown), "is", "are"), noun)
 }

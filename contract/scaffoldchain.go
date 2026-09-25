@@ -9,8 +9,8 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-func scaffoldPlan(name string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
-	p := &Plan{stepOf: map[string]string{}, cat: cat, reserved: map[string]bool{}}
+func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
+	p := &Plan{stepOf: map[string]string{}, cat: cat, reserved: map[string]bool{}, noun: noun}
 	for _, id := range ids {
 		p.reserved[id] = true
 	}
@@ -186,7 +186,7 @@ func shortRPC(full string) string {
 }
 
 func ScaffoldChain(name, description string, refs, ids []string, lib *Library, cat *catalog.Catalog) ([]byte, []string, error) {
-	p, err := scaffoldPlan(name, refs, ids, lib, cat)
+	p, err := scaffoldPlan(name, "the chain", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
 	}

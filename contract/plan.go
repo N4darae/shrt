@@ -25,6 +25,7 @@ type Plan struct {
 	pending  []pendingChecks
 	grown    []string
 	reserved map[string]bool
+	noun     string
 }
 
 type pendingChecks struct {
@@ -267,7 +268,7 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 }
 
 func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*yaml.Node, []string, error) {
-	p, err := scaffoldPlan("", refs, ids, lib, cat)
+	p, err := scaffoldPlan("", "the step", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
 	}
