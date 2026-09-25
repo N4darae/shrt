@@ -1578,11 +1578,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    `-write` and `-write <name>` put the file next to the source chain: in `paths.chains` for a
    chain there, and beside it for a chain given by a path outside it (`.shrt/scratch/min.yaml`
    slices to `.shrt/scratch/min-slice-<step>.yaml`), so an exploratory slice never lands in the
-   directory every sweep and gate runs. A value with a slash or ending in `.yaml` is written exactly
-   there. `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
+   directory every sweep and gate runs. A bare file name, `-write <name>.yaml`, goes in that same
+   directory as `-write <name>` does; a value with a slash is a path, written exactly there, relative
+   to the current directory (`./<name>.yaml` for the current directory itself). `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
    `-verify`, before anything is sent), except a slice this command wrote of the same chain and step
    (its description starts `Slice of <chain> reproducing step <step>:`), so the `next:` loop can
-   re-slice in place, and the source chain file itself when you name it with `-write <its path>`:
+   re-slice in place, and the source chain file itself when you name it with `-write <its path>` or `-write <its file name>.yaml`:
    the minimal-chain recipe below replaces the chain with its verified slice that way.
    A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
    `-verify` keeps the verdict when the new slice is identical (same steps, vars and pinned

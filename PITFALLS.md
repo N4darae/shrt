@@ -1609,6 +1609,19 @@ fresh token past its real lifetime too, and the run prints `FINDING: token refus
 backend that keeps its sessions the same chain passes. Pick a wait longer than the lifetime you
 suspect and shorter than the one the login states.
 
+## 66. `slice -write orders-listorders.yaml` wrote to the repo root
+
+**Symptom.** `shrt chain slice orders-listorders -without failed -write orders-listorders.yaml`
+wrote `./orders-listorders.yaml` at the repo root, while PLAYBOOK says `-write <chain>.yaml`
+replaces the chain itself; the chain in `.shrt/chains` was untouched.
+
+**Cause.** Any `-write` value ending in `.yaml` was read as a path relative to the current
+directory, like one with a slash.
+
+**Fix.** 2026-09-25: a bare file name ending in `.yaml` is written beside the source chain, where
+`-write <name>` writes, and `-write <chain>.yaml` there replaces the chain. Only a value with a
+slash is a path; `./<name>.yaml` still writes into the current directory.
+
 ---
 
 # Decisions, so they are not relitigated

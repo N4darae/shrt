@@ -277,9 +277,11 @@ only for exit 1, cannot tell those apart: do not keep one.
 The loop runs every file directly in `.shrt/chains` (the glob does not descend), and that is where
 `shrt chain slice -write <name>` writes, so a slice written by name joins the gate at once
 (`slice -write` says so). Keep a slice you want gated there, with `kept_red` if it is red on
-purpose. Write an exploratory one outside it by giving `-write` a path, a value with a slash or
-ending in `.yaml`, which is written exactly there, relative to the current directory, and never
-over a file that is not the same slice: `shrt chain slice <chain> -step <id> -write
+purpose; a bare file name, `-write <name>.yaml`, lands there too, beside the source chain, and
+`-write <chain>.yaml` replaces the chain itself. Write an exploratory one outside it by giving
+`-write` a path, a value with a slash, which is written exactly there, relative to the current
+directory (`./<name>.yaml` for the current directory itself), and never over a file that is not the
+same slice: `shrt chain slice <chain> -step <id> -write
 .shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`, and `shrt init` adds it to `.gitignore`
 (`shrt doctor` suggests it where it is missing); run it by path:
 `shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
