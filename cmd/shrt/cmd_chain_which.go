@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -262,6 +263,15 @@ func whichSeenCell(o *chain.WhichEvidence) string {
 		got = "nothing at " + o.Asserted
 	case o.Code == "":
 		got = "no code"
+	}
+	paths := []string{}
+	for _, f := range o.Failures {
+		if !slices.Contains(paths, f.Path) {
+			paths = append(paths, f.Path)
+		}
+	}
+	if len(paths) > 0 {
+		return fmt.Sprintf("run %s got %s, step %s on %s", o.Run, got, status, strings.Join(paths, ", "))
 	}
 	return fmt.Sprintf("run %s got %s, step %s", o.Run, got, status)
 }
