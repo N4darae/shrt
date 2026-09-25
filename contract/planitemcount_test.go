@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,47 @@ func TestPlanPreparesTheThirdItemsResourceBeforeTheTargetReadsIt(t *testing.T) {
 	}
 	if stepIndex(p.Chain, "create_product_3") > stepIndex(p.Chain, "add_stock_3") {
 		t.Fatalf("the third product exists before it is stocked: %s", strings.Join(ids, ", "))
+	}
+}
+
+func TestPlanSendsABatchTwelveItemsEachNamingItsOwnResource(t *testing.T) {
+	p, text, notes := shopDemoPlan(t, "AddStockBatch")
+	many := planStep(t, p, "add_stock_batch_12_lines")
+	lines := many.Body["lines"].([]any)
+	if len(lines) != 12 {
+		t.Fatalf("the many-items probe sends 12 lines, so caps at 5 and 10 both show, got %d:\n%s", len(lines), text)
+	}
+	seen := map[string]bool{}
+	for i := range lines {
+		id := bodyAt(t, many, "lines."+strconv.Itoa(i)+".id_product")
+		if seen[id] {
+			t.Fatalf("each line names a product of its own, %s repeats:\n%s", id, text)
+		}
+		seen[id] = true
+	}
+	wantExpect(t, many, "results.11.status.code", "SUCCESS")
+	wantExists(t, many, "results.12", false)
+	for _, e := range many.Expect {
+		if strings.HasPrefix(e.Path, "results.5.") {
+			t.Fatalf("only the first and the last line are asserted one by one, got %s:\n%s", e.Path, text)
+		}
+	}
+	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_12_lines"), "product.qty_on_hand", "${add_stock_batch_12_lines.results.0.qty_on_hand}")
+	wantExpect(t, planStep(t, p, "get_product_12_after_add_stock_batch_12_lines"), "product.qty_on_hand", "${add_stock_batch_12_lines.results.11.qty_on_hand}")
+	planStep(t, p, "create_product_12")
+	if !strings.Contains(notes, "add_stock_batch_12_lines sends 12") {
+		t.Fatalf("a note says why twelve: %s", notes)
+	}
+	if _, ok := p.Chain.Step("create_order_12_lines"); ok {
+		t.Fatalf("one many-items probe per repeated field of the target")
+	}
+}
+
+func TestPlanKeepsAStateChangingTargetOnAnOrderAtOneAndThreeItems(t *testing.T) {
+	p, text, _ := shopDemoPlan(t, "CancelOrder")
+	for _, id := range []string{"create_order_12_lines", "cancel_order_12_lines", "create_product_4"} {
+		if _, ok := p.Chain.Step(id); ok {
+			t.Fatalf("twelve items are sent only where the target's own request repeats them, got %s:\n%s", id, text)
+		}
 	}
 }

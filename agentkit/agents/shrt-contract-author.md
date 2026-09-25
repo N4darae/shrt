@@ -41,7 +41,7 @@ shrt catalog describe <rpc>       # schema only
    Never delete a `fields:` entry or an `exports:` line to silence it; move an unconsumed export to
    `terminal:`.
 5. `shrt contract lint -domain <yours>`.
-6. `shrt contract plan <rpc>` for EVERY read rpc. A one-step `order:` has no producer; an order
+6. `shrt contract plan -all`: check the order of EVERY read rpc. A one-step `order:` has no producer; an order
    that creates the entities but never the row being read is the same bug. Ask: could this chain
    have produced a row for the read to find?
 

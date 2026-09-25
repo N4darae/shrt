@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -126,10 +127,86 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		ids = append(ids, t.ID)
 	}
 	p.Chain.Steps = append(p.Chain.Steps, added...)
+	many := ""
+	if fx == st {
+		many = fmt.Sprintf("; %s sends %d, each item with its own resource where the item names one, and asserts the last "+
+			"item was applied too, so a cap on the number of items shows", p.manyItems(lib, st, il, third, thirds), lotsOfItems)
+	}
 	p.note("step %s: %s sends %s with 2 items, so %s repeat %s with one item and with three, expecting what %s expects: "+
 		"a backend whose logic changes with the number of items (a loop bound, a limit, a check on the first or last only) "+
-		"passes on 2 and fails on one or three. The third item reads its own resource where the second does",
-		st.ID, fx.ID, il.field.Name, strings.Join(ids, " and "), st.ID, st.ID)
+		"passes on 2 and fails on one or three. The third item reads its own resource where the second does%s",
+		st.ID, fx.ID, il.field.Name, strings.Join(ids, " and "), st.ID, st.ID, many)
+}
+
+const lotsOfItems = 12
+
+func (p *Plan) manyItems(lib *Library, st *chain.Step, il itemList, third any, thirds map[string]string) string {
+	list := st.Body[il.key].([]any)
+	items := []any{cloneBody(list[0]), cloneBody(list[1]), cloneBody(third)}
+	prev := third
+	for n := len(items) + 1; n <= lotsOfItems; n++ {
+		next := cloneBody(prev)
+		if item, ok := next.(map[string]any); ok {
+			distinctItem(item, il.field.Fields)
+		}
+		for _, sec := range p.seconds {
+			if sec.reader != st.ID || !readsValue(list[1], sec.clone) {
+				continue
+			}
+			id, steps := p.itemProducer(sec, n)
+			p.Chain.Steps = append(p.Chain.Steps, steps...)
+			next = rewriteRefs(next, map[string]string{thirds[sec.src]: id})
+			thirds[sec.src] = id
+		}
+		items = append(items, next)
+		prev = next
+	}
+	v := copyStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, lotsOfItems, il.field.Name)))
+	v.Export = nil
+	v.Body[il.key] = items
+	p.freshen(lib, v)
+	renameStepRefs(v, st.ID, v.ID)
+	v.Description = fmt.Sprintf("as %s, but %s holds %s, so a cap on the number of items applied or reported shows.", st.ID, il.field.Name, itemCount(lotsOfItems))
+	p.assertEcho(v)
+	p.Chain.Steps = append(p.Chain.Steps, v)
+	m, err := p.cat.Lookup(st.Call)
+	if err != nil {
+		return v.ID
+	}
+	listPath, verdict, _ := strings.Cut(chain.ItemEnvelope(), "[].")
+	out := catalog.DescribeMessage(m.Output()).Fields
+	if listPath == "" || verdict == "" || !chain.ItemEnvelopeDeclared(out) {
+		return v.ID
+	}
+	v.Expect = append(v.Expect,
+		chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", listPath, lotsOfItems-1, verdict), Equals: chain.EnvelopeOK()},
+		chain.Expectation{Path: fmt.Sprintf("%s.%d", listPath, lotsOfItems), Exists: boolPtr(false)})
+	if p.middles == nil {
+		p.middles = map[*chain.Step]string{}
+	}
+	p.middles[v] = listPath
+	results, _ := catalog.FieldAt(out, chain.SplitPath(listPath))
+	middle := map[int]bool{}
+	for i := 1; i < lotsOfItems-1; i++ {
+		middle[i] = true
+	}
+	p.Chain.Steps = append(p.Chain.Steps, p.reportedMatchesStored(lib, v, il.key, results, listPath, middle)...)
+	return v.ID
+}
+
+func (p *Plan) trimMiddleItems() {
+	for st, listPath := range p.middles {
+		kept := st.Expect[:0]
+		for _, ex := range st.Expect {
+			rest, ok := strings.CutPrefix(ex.Path, listPath+".")
+			head, _, nested := strings.Cut(rest, ".")
+			if n, err := strconv.Atoi(head); ok && nested && err == nil && n > 0 && n < lotsOfItems-1 {
+				continue
+			}
+			kept = append(kept, ex)
+		}
+		st.Expect = kept
+	}
 }
 
 func itemCount(n int) string {
@@ -145,23 +222,39 @@ func readsValue(v any, id string) bool {
 	return false
 }
 
+func (p *Plan) reserveStepID(base string) string {
+	id := p.freeStepID(base)
+	if p.reserved == nil {
+		p.reserved = map[string]bool{}
+	}
+	p.reserved[id] = true
+	return id
+}
+
 func (p *Plan) thirdProducer(sec producerSecond) (string, []*chain.Step) {
+	return p.itemProducer(sec, 3)
+}
+
+func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 	orig := p.stepByID(sec.src)
-	id := p.freeStepID(sec.src)
+	id := p.reserveStepID(sec.src)
 	clone := copyStep(orig, id)
 	suffix := strings.TrimPrefix(id, sec.src+"_")
 	if m, err := p.cat.Lookup(orig.Call); err == nil {
-		distinctProducerAt(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix, 2)
+		distinctProducerAt(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix, n-1)
 	}
 	renameStepRefs(clone, sec.src, id)
 	clone.Description = fmt.Sprintf("a third %s with its own values, for the third item.", shortRPC(orig.Call))
+	if n != 3 {
+		clone.Description = fmt.Sprintf("another %s with its own values, for item %d.", shortRPC(orig.Call), n)
+	}
 	made := []*chain.Step{clone}
 	for _, prep := range p.preps[sec.clone] {
 		src := p.stepByID(prep)
 		if src == nil {
 			continue
 		}
-		cid := p.freeStepID(prep)
+		cid := p.reserveStepID(prep)
 		c := copyStep(src, cid)
 		to := map[string]string{sec.src: id}
 		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)

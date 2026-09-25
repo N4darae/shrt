@@ -10,10 +10,11 @@ import (
 )
 
 type cachedToken struct {
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	IssuedAt  time.Time `json:"issued_at,omitzero"`
-	SentAt    time.Time `json:"sent_at,omitzero"`
+	Token     string      `json:"token"`
+	ExpiresAt time.Time   `json:"expires_at"`
+	IssuedAt  time.Time   `json:"issued_at,omitzero"`
+	SentAt    time.Time   `json:"sent_at,omitzero"`
+	Relogins  []time.Time `json:"relogins,omitempty"`
 }
 
 func (s *LoginTokenSource) UseCache(path, profile string) {
@@ -45,27 +46,27 @@ func (s *LoginTokenSource) cacheKey() string {
 	return s.cacheProfile + "#" + hex.EncodeToString(sum.Sum(nil))[:16]
 }
 
-func (s *LoginTokenSource) readCache() (string, time.Time, time.Time, time.Time, bool) {
+func (s *LoginTokenSource) readCache() (cachedToken, bool) {
 	if s.cachePath == "" {
-		return "", time.Time{}, time.Time{}, time.Time{}, false
+		return cachedToken{}, false
 	}
 	key := s.cacheKey()
 	if key == "" {
-		return "", time.Time{}, time.Time{}, time.Time{}, false
+		return cachedToken{}, false
 	}
 	raw, err := os.ReadFile(s.cachePath)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, time.Time{}, false
+		return cachedToken{}, false
 	}
 	entries := map[string]cachedToken{}
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return "", time.Time{}, time.Time{}, time.Time{}, false
+		return cachedToken{}, false
 	}
 	e, ok := entries[key]
 	if !ok || e.Token == "" || e.ExpiresAt.IsZero() {
-		return "", time.Time{}, time.Time{}, time.Time{}, false
+		return cachedToken{}, false
 	}
-	return e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt, true
+	return e, true
 }
 
 func (s *LoginTokenSource) dropCache() {
@@ -99,8 +100,8 @@ func (s *LoginTokenSource) dropCache() {
 	_ = os.Rename(tmp, s.cachePath)
 }
 
-func (s *LoginTokenSource) writeCache(token string, expiresAt, issuedAt, sentAt time.Time) {
-	if s.cachePath == "" || token == "" {
+func (s *LoginTokenSource) writeCache(entry cachedToken) {
+	if s.cachePath == "" || entry.Token == "" {
 		return
 	}
 	key := s.cacheKey()
@@ -117,7 +118,7 @@ func (s *LoginTokenSource) writeCache(token string, expiresAt, issuedAt, sentAt 
 			delete(entries, k)
 		}
 	}
-	entries[key] = cachedToken{Token: token, ExpiresAt: expiresAt, IssuedAt: issuedAt, SentAt: sentAt}
+	entries[key] = entry
 	body, err := json.Marshal(entries)
 	if err != nil {
 		return

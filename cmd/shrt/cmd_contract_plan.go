@@ -20,13 +20,16 @@ func contractPlan(args []string) error {
 	force := fs.Bool("force", false, "overwrite an existing chain file")
 	showNotes := fs.Bool("notes", false, "print every note in full, and every step id")
 	verbose := fs.Bool("v", false, "print every step id")
-	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes] [-v]",
+	all := fs.Bool("all", false, "plan one chain per rpc with a contract, one line each and its gaps")
+	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes] [-v]\n"+
+		"       shrt contract plan -all [-write [-force]]",
 		"\nwithout -write it prints the order, the step count per probe group, and a gap: line for each thing it could\n"+
-			"not plan or assert; -write writes the chain to the chains directory.\n"+
+			"not plan or assert; -write writes the chain to the chains directory. -all does that for each rpc with a\n"+
+			"contract, as plan <rpc> would, skipping streaming ones; -write keeps an existing file unless -force.\n"+
 			"\nexit codes:\n"+
 			"  0  the plan was printed, or with -write written; also when a required field still has no\n"+
 			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
-			"  1  nothing was planned or written\n"+
+			"  1  nothing was planned or written; with -all, an rpc could not be planned\n"+
 			"     - no rpc named, an rpc the catalog does not have, or an alias its contract does not declare\n"+
 			"     - a client- or bidi-streaming target, or a contract graph that pulls in a streaming rpc as setup\n"+
 			"     - a dependency cycle in the contracts (needs/from/same_as/before)\n"+
@@ -37,8 +40,11 @@ func contractPlan(args []string) error {
 	if err != nil {
 		return err
 	}
-	if len(rest) == 0 {
-		return fmt.Errorf("usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write]")
+	if *all && (len(rest) > 0 || *name != "") {
+		return fmt.Errorf("-all plans every rpc with a contract: name no rpc and no -name")
+	}
+	if len(rest) == 0 && !*all {
+		return fmt.Errorf("usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write], or -all")
 	}
 	e, err := loadEnv(true)
 	if err != nil {
@@ -47,6 +53,9 @@ func contractPlan(args []string) error {
 	lib, err := e.library()
 	if err != nil {
 		return err
+	}
+	if *all {
+		return planAll(e, lib, *write, *force)
 	}
 	chainName := *name
 	if chainName == "" {
@@ -104,6 +113,87 @@ func contractPlan(args []string) error {
 	}
 	fmt.Printf("next: shrt chain lint %s\n", chainName)
 	return nil
+}
+
+func planAll(e *env, lib *contract.Library, write, force bool) error {
+	planned, kept, failed := 0, 0, []string{}
+	for _, rpc := range lib.RPCs() {
+		m, err := e.cat.Lookup(rpc)
+		if err != nil {
+			fmt.Printf("%s: %v\n", rpcTail(rpc), err)
+			failed = append(failed, rpcTail(rpc))
+			continue
+		}
+		if m.Streaming() {
+			fmt.Printf("%s: streaming, not planned\n", m.Name)
+			continue
+		}
+		name, err := planChainName([]string{rpc}, lib, e)
+		if err == nil {
+			var plan *contract.Plan
+			if plan, err = contract.BuildPlanWith([]string{rpc}, lib, e.cat, name, planOptions(e)); err == nil {
+				var existed bool
+				existed, err = planAllOne(e, plan, name, write, force)
+				if existed {
+					kept++
+				}
+			}
+		}
+		if err != nil {
+			fmt.Printf("%s: %v\n", m.Name, err)
+			failed = append(failed, m.Name)
+			continue
+		}
+		planned++
+	}
+	if kept > 0 {
+		fmt.Printf("%d existing chain file(s) kept: -force overwrites them\n", kept)
+	}
+	if planned > 0 {
+		fmt.Println("every note, and each gap in full: shrt contract plan <rpc> -notes")
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d rpc(s) not planned: %s", len(failed), strings.Join(failed, ", "))
+	}
+	if planned == 0 {
+		return fmt.Errorf("no rpc with a contract to plan")
+	}
+	return nil
+}
+
+func planAllOne(e *env, plan *contract.Plan, name string, write, force bool) (bool, error) {
+	groups := []string{}
+	for _, g := range plan.StepGroups() {
+		groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
+	}
+	line := fmt.Sprintf("%s: %s, %d steps (%s)", name, strings.Join(shortNames(plan.Order), " -> "), len(plan.Chain.Steps), strings.Join(groups, ", "))
+	existed := false
+	if write {
+		path := filepath.Join(e.chainsDir(), name+".yaml")
+		if _, err := os.Stat(path); err == nil && !force {
+			line, existed = line+", kept the existing file", true
+		} else {
+			raw, err := plan.YAML()
+			if err != nil {
+				return false, err
+			}
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				return false, err
+			}
+			if err := os.WriteFile(path, raw, 0o644); err != nil {
+				return false, err
+			}
+			line += ", written"
+		}
+	}
+	fmt.Println(line)
+	for _, n := range plan.FillNotes() {
+		fmt.Printf("  fill: %s\n", n)
+	}
+	for _, n := range plan.GapNotes() {
+		fmt.Printf("  gap: %s\n", clipText(n, planGapWidth))
+	}
+	return existed, nil
 }
 
 func printPlanNotes(plan *contract.Plan, again string, all bool) {

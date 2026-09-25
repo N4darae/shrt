@@ -55,7 +55,7 @@ traffic.
 | `shrt contract init <domain>` | scaffold a contract overlay (`-all` for every domain); keeps what you wrote |
 | `shrt contract show <rpc>...` | schema, paste-ready step, exportable paths and the curated contract |
 | `shrt contract lint` | validate overlays against the descriptor |
-| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain from the contracts, with its probes (`-write`) |
+| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain from the contracts, with its probes (`-write`); `-all` plans one per rpc |
 | `shrt contract status [-gaps]` | coverage per domain; `-gaps` lists what no chain exercises |
 | `shrt contract quality [-domain d]` | score contracts for what is missing; `-gate -baseline <file>` ratchets it |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from the descriptor and contracts |
