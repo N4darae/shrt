@@ -362,6 +362,16 @@ list, and adds one list per reachable state (`list_orders_pending`, `list_orders
 only the fixtures in that state come back: by id when the contract states creation order or one
 matches, their status always, and the count. A note names states no write reaches.
 
+A batch is tested with a refused item in the middle. With `conventions.item_envelope_path` set
+(`results[].status.code`) and a contract saying failures are reported per item (`reported on that
+line only`, `applied independently`), a batch target gets `<step>_partial`: the first item, a copy of
+the last item with a numeric field one below the minimum a failure's `when:` states (`qty` 0), and
+the last item again. It asserts the batch verdict, `results.0` and `results.2` ok, `results.1` not ok
+with the failure's code and reason, and no fourth result; then one read per resource the applied
+items touch asserts that the stored value is the one its last item reported
+(`product.qty_on_hand equals ${add_stock_batch_partial.results.2.qty_on_hand}`). A batch that stops at
+the refused item, applies it, or reports stale values for later items fails.
+
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by

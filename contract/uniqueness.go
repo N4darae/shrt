@@ -253,6 +253,33 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 		out = append(out, chain.Expectation{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()})
 		root = chain.EnvelopeField()
 	}
+	selected := []*catalog.Field{}
+	for _, fd := range fields {
+		if root == "" || fd.Name == root {
+			selected = append(selected, fd)
+		}
+	}
+	codes, pinned := codeExpectations(selected, "", f)
+	out = append(out, codes...)
+	if !pinned && f.ConnectCode != "" && f.Code == 0 {
+		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
+		pinned = true
+	}
+	carriers := []string{}
+	for _, fd := range fields {
+		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
+			carriers = append(carriers, fd.Name)
+		}
+	}
+	if len(carriers) == 1 {
+		absent := false
+		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
+	}
+	return out, pinned
+}
+
+func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chain.Expectation, bool) {
+	out := []chain.Expectation{}
 	codes := map[string]bool{}
 	for _, name := range chain.CodeFields() {
 		codes[name] = true
@@ -288,24 +315,6 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 			pinned = true
 		}
 	}
-	for _, fd := range fields {
-		if root == "" || fd.Name == root {
-			walk("", []*catalog.Field{fd}, 0)
-		}
-	}
-	if !pinned && f.ConnectCode != "" && f.Code == 0 {
-		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
-		pinned = true
-	}
-	carriers := []string{}
-	for _, fd := range fields {
-		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
-			carriers = append(carriers, fd.Name)
-		}
-	}
-	if len(carriers) == 1 {
-		absent := false
-		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
-	}
+	walk(prefix, fields, 0)
 	return out, pinned
 }

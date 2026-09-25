@@ -1356,6 +1356,17 @@ adds a filtered list per state, adds out-of-scope items (another parent's, a pre
 another case) that the list, asserting its count, must not show. In the lab this found a baseline
 that ignores the filter.
 
+## 51. A batch that reported stale stock for later lines, green in the planned chain
+
+**Symptom.** AddStockBatch applied every line but reported, for lines after the first, a stock level
+from before the batch. The planned chain sent two lines, asserted the batch verdict, and passed.
+
+**Cause.** Nothing compared what a line reported with what was stored, and no line was refused, so
+per-line independence was never exercised either.
+
+**Fix.** 2026-09-25: a batch target whose contract reports failures per item gets `<step>_partial`
+with a refused middle item and a read per resource asserting stored equals reported.
+
 ---
 
 # Decisions, so they are not relitigated
