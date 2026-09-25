@@ -19,13 +19,15 @@ type flakyStep struct {
 	sameRun  []string
 	moved    string
 	answered string
+	repeated string
 }
 
 func (f flakyStep) sufficient() bool { return len(f.sameRun) > 0 || f.moved != "" }
 
 type intermittentFailure struct {
-	steps []flakyStep
-	weak  []flakyStep
+	steps  []flakyStep
+	weak   []flakyStep
+	hidden []string
 }
 
 func serverError(st *runner.StepRecord) string {
@@ -120,6 +122,9 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 			last, loaded = latestRunBefore(e, rec), true
 		}
 		if last != nil {
+			if was, ok := last.Step(st.ID); ok && serverError(was) == why {
+				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+			}
 			if was, ok := last.Step(st.ID); ok && answeredAsExpected(was) {
 				for _, o := range last.Steps {
 					if o.ID != st.ID && serverError(o) == why {
@@ -144,6 +149,15 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	}
 	if len(out.steps) == 0 && len(out.weak) == 0 {
 		return nil
+	}
+	failed := map[string]bool{}
+	for _, f := range append(append([]flakyStep{}, out.steps...), out.weak...) {
+		failed[f.step.ID] = true
+	}
+	for _, st := range rec.Steps {
+		if src := heldBackBy(st); failed[st.ID] || failed[src] {
+			out.hidden = append(out.hidden, st.ID)
+		}
 	}
 	return out
 }
@@ -184,20 +198,30 @@ func (i *intermittentFailure) calls() string {
 	for _, f := range i.steps {
 		if !seen[f.step.Call] {
 			seen[f.step.Call] = true
-			out = append(out, f.step.Call)
+			out = append(out, shortRPC(f.step.Call))
 		}
 	}
 	return strings.Join(out, ", ")
 }
 
 func (i *intermittentFailure) line() string {
-	each := []string{}
+	each, repeated := []string{}, true
 	for _, f := range i.steps {
 		each = append(each, fmt.Sprintf("step %d %s got %s, but %s", f.step.Index, f.step.ID, errorText(f.step), f.evidence()))
+		repeated = repeated && f.repeated != ""
 	}
-	return fmt.Sprintf("intermittent failure at %s: %s. The backend fails this rpc on some calls and answers it on "+
-		"others: a defect in the backend (flaky under load, an exhausted pool, a race), not a deterministic regression "+
-		"at that step; a re-run may pass and does not clear it", i.calls(), strings.Join(each, "; "))
+	hidden := ""
+	if len(i.hidden) > 0 {
+		hidden = "; the errors hid the checks of " + capList(i.hidden, 6)
+	}
+	if repeated {
+		return fmt.Sprintf("repeated failure at %s: %s, so the backend fails this rpc at the same calls every run, not by chance: "+
+			"a defect in the backend, and a re-run fails the same way%s; %s",
+			i.calls(), i.steps[0].repeated, hidden, strings.Join(each, "; "))
+	}
+	return fmt.Sprintf("intermittent failure at %s: the backend fails this rpc on some calls and answers it on others, "+
+		"a defect in the backend (flaky under load, an exhausted pool, a race), not a deterministic regression at that step; "+
+		"a re-run may pass and does not clear it%s; %s", i.calls(), hidden, strings.Join(each, "; "))
 }
 
 func (i *intermittentFailure) notes() []string {
