@@ -177,7 +177,7 @@ func TestRunDashHDocumentsTheExitCodes(t *testing.T) {
 	buf := make([]byte, 1<<16)
 	n, _ := io.ReadFull(r, buf)
 	out := string(buf[:n])
-	if !strings.Contains(out, "exit codes:") || !strings.Contains(out, "  3  error") {
+	if !strings.Contains(out, "exit codes:") || !strings.Contains(out, "  3  no verdict") {
 		t.Fatalf("run -h must document its exit codes, got:\n%s", out)
 	}
 }

@@ -32,75 +32,21 @@ func init() {
 
 const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
-	"  1  a verdict: the backend or the chain changed or is wrong\n" +
-	"     - drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
-	"     - a LATENCY slowdown, confirmed by re-sending the read or by the previous run, when the\n" +
-	"       config sets latency: {fail: true}; without it a slowdown is a warning line and exit 0\n" +
-	"     - validate_output drift that is a wrong-typed value or an undeclared enum value, and the\n" +
-	"       descriptor matches a rebuild: the proto is current, so the backend changed at that step\n" +
-	"     - the backend refused, at the same step, a token it had accepted earlier in both this run\n" +
-	"       and the previous run that sent that step: not a restart, a refusal specific to that rpc,\n" +
-	"       unless either run shows a restart (see 3)\n" +
-	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +
-	"       re-login's own token refused early too in this run, or a token accepted and then refused\n" +
-	"       early in this run and in the previous run, with no restart shown in either (a single\n" +
-	"       early refusal is a WARNING line: exit 3 when it left a step unanswered, else 0)\n" +
-	"     - a fixture collision on a field built from ${uuid} or a clock value, after a previous run\n" +
-	"       refused at the same step the same way: such values are unique to their run (a repeat on\n" +
-	"       var values stays exit 3, since another client may use the same values)\n" +
-	"     - a token a login in this run had just issued, refused again after a fresh login and\n" +
-	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
-	"       re-sent too: a possible auth regression\n" +
-	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
-	"       steps were answered, in this run and the previous run that sent it: the backend fails that\n" +
-	"       step's request every time, even when its rpc answered other steps\n" +
-	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
-	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
-	"       defect (built from a var: fixture reused, exit 3)\n" +
-	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
-	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
-	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
-	"     - the first failing step was refused as a uniqueness conflict on a value an earlier step of\n" +
-	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
-	"       within every run, a chain defect; unless the value is a ${steps.<id>.request...} reference\n" +
-	"       or the safe spot's run or an earlier run had that repeat accepted: then a regression\n" +
-	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +
-	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
-	"       that the previous run answered while failing at another step with the same error\n" +
-	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
-	"     is not judged\n" +
-	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
-	"       dropped, sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
-	"       502/503/504 from a gateway, login or auth refused\n" +
-	"     - fixture reused: the first failing step was refused as a uniqueness conflict on a field\n" +
-	"       built from a var whose value a recorded run of this chain already used; re-run with a\n" +
-	"       fresh -var\n" +
-	"     - fixture collision: the same, on a value no recorded run used, so something else created\n" +
-	"       the record; re-run with a fresh -var\n" +
-	"     - the backend refused a token it had accepted earlier in the run: it likely restarted\n" +
-	"       mid-run; re-run. A restart shows as a call accepted when re-sent after a fresh login,\n" +
-	"       data created before the refusal gone after the re-login, or a step before it that got no\n" +
-	"       answer from the service\n" +
-	"     - the backend refused a token a login in this run had just issued, on its first use: the\n" +
-	"       credentials work, and it says this may be an auth regression (a read re-sent after a\n" +
-	"       fresh login and refused again is not called a restart; a write is not re-sent, so a\n" +
-	"       repeat of a refused write stays exit 3)\n" +
-	"     - validate_output: the first failing step failed only because its response does not match\n" +
-	"       the descriptor, and nothing drifted before it: the descriptor is stale or the body carries\n" +
-	"       fields the proto does not declare\n"
+	"  1  drift, a failed replay, no safe spot, a FINDING, REGRESSION or CHAIN DEFECT, a confirmed slowdown\n" +
+	"  3  could not verify: a step unanswered, a restart, auth refused, a fixture reused, a stale descriptor\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	vars := varFlags{}
-	fs.Var(vars, "var", "override a chain var, repeatable: -var key=value")
-	useRun := fs.String("run", "", "diff a recorded run id instead of replaying; 'latest' is the newest run record of the chain, a verify replay included, and verify names the run it picked")
-	asJSON := fs.Bool("json", false, "emit the diff report as JSON")
-	quiet := fs.Bool("quiet", false, "suppress per-step progress; a clean replay prints its verdict line only")
+	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
+	useRun := fs.String("run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
+	asJSON := fs.Bool("json", false, "print the diff report as JSON")
+	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "also list each change at a step not judged because its response does not match the descriptor (folded into one line by default)")
-	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run, with the steps flagged as slow")
-	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
+	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch")
+	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
+	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {

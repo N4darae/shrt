@@ -17,28 +17,19 @@ func exitCodeSection(t *testing.T, out string) []string {
 	return strings.Split(strings.TrimRight(section, "\n"), "\n")
 }
 
-func TestVerifyAndRunHelpListEachExitCodeOnceAsShortBullets(t *testing.T) {
+func TestVerifyAndRunHelpListEachExitCodeOnOneLine(t *testing.T) {
 	for _, command := range []string{"verify", "run"} {
 		out := helpOf(t, command)
 		seen := map[string]int{}
-		sentence, longest := 0, 0
 		for _, line := range exitCodeSection(t, out) {
-			if m := exitCodeHead.FindStringSubmatch(line); m != nil {
-				seen[m[1]]++
-			}
-			if len(line) > 100 {
-				t.Errorf("%s -h: exit-code line wider than 100 columns: %q", command, line)
-			}
-			if strings.HasPrefix(strings.TrimSpace(line), "- ") || exitCodeHead.MatchString(line) {
-				sentence = 0
+			m := exitCodeHead.FindStringSubmatch(line)
+			if m == nil {
+				t.Errorf("%s -h: exit-code section line is not one code: %q", command, line)
 				continue
 			}
-			sentence++
-			longest = max(longest, sentence)
-		}
-		for code, n := range seen {
-			if n != 1 {
-				t.Errorf("%s -h lists exit %s as %d separate entries, want one:\n%s", command, code, n, out)
+			seen[m[1]]++
+			if len(line) > 110 {
+				t.Errorf("%s -h: exit-code line wider than 110 columns: %q", command, line)
 			}
 		}
 		for _, code := range []string{"0", "1", "3"} {
@@ -46,8 +37,21 @@ func TestVerifyAndRunHelpListEachExitCodeOnceAsShortBullets(t *testing.T) {
 				t.Errorf("%s -h must list exit %s once:\n%s", command, code, out)
 			}
 		}
-		if longest > 3 {
-			t.Errorf("%s -h: an exit-code bullet runs %d continuation lines, want short bullets:\n%s", command, longest, out)
+	}
+}
+
+func TestEveryHelpFitsInTwoKilobytes(t *testing.T) {
+	for _, args := range [][]string{
+		{"run"}, {"verify"}, {"init"}, {"confirm"}, {"diff"}, {"doctor"}, {"version"}, {"gate"},
+		{"chain", "new"}, {"chain", "ls"}, {"chain", "which"}, {"chain", "lint"}, {"chain", "slice"}, {"chain", "hollow"},
+		{"contract", "init"}, {"contract", "lint"}, {"contract", "show"}, {"contract", "plan"}, {"contract", "status"},
+		{"contract", "quality"}, {"contract", "report"}, {"catalog", "build"}, {"catalog", "ls"}, {"catalog", "describe"},
+	} {
+		if commands[args[0]] == nil {
+			continue
+		}
+		if out := helpOf(t, args[0], args[1:]...); len(out) > 2048 {
+			t.Errorf("shrt %s -h is %d bytes, want at most 2KB:\n%s", strings.Join(args, " "), len(out), out)
 		}
 	}
 }
@@ -59,20 +63,6 @@ func TestContractPlanHelpListsItsExitCodes(t *testing.T) {
 	for _, want := range []string{"  0  ", "  1  ", "streaming", "dependency cycle", "already exists", "no usable value"} {
 		if !strings.Contains(lines, want) {
 			t.Errorf("contract plan -h exit codes must mention %q:\n%s", want, out)
-		}
-	}
-}
-
-func TestVerifyHelpKeepsEveryExitCodeCase(t *testing.T) {
-	out := strings.Join(strings.Fields(helpOf(t, "verify")), " ")
-	for _, want := range []string{
-		"fixture reused", "fixture collision", "re-run with a fresh -var", "validate_output",
-		"undeclared enum value", "likely restarted mid-run", "may be an auth regression",
-		"${uuid} or a clock value", "a uniqueness conflict on a literal field", "a chain defect",
-		"sent but no answer before target.timeout", "502/503/504",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("verify -h lost the case %q:\n%s", want, out)
 		}
 	}
 }

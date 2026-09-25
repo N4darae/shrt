@@ -25,7 +25,7 @@ func TestHelpTextsCarryUsageAndTheDocumentedExitCodes(t *testing.T) {
 		{"chain", []string{"lint"}, []string{"usage: shrt chain lint [<chain>...]"}},
 		{"catalog", []string{"build"}, []string{"usage: shrt catalog build"}},
 		{"chain", []string{"hollow"}, []string{"usage: shrt chain hollow", "exit codes", "no run records"}},
-		{"run", nil, []string{"unknown auth profile"}},
+		{"run", nil, []string{"usage: shrt run <chain>", "exit codes", "no verdict"}},
 		{"init", nil, []string{"example.yaml.template"}},
 		{"contract", []string{"quality"}, []string{"lower is better"}},
 	}
