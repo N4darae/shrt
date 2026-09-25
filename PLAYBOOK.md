@@ -1027,7 +1027,19 @@ shrt run <name>                                  # a fresh receipt on today's bi
 shrt verify <name> -run <run-id>                 # does it still match the safe spot?
 ```
 
-After you touch it, the same two lines. When the replay ran against another target than the
+After you touch it, the same two lines.
+
+A refactor can also make a call slower without changing a byte of its answer. `verify` (and
+`shrt run` of a chain with a safe spot) compares each step's latency with the safe spot's run and
+prints `LATENCY: ListProducts at step list_products took 701ms, the safe spot's run 1ms (+700ms,
+701.0x); re-sent 2 more time(s), every answer slow: ...` when a step is at least 250ms slower and 3x
+as slow. A slow read is re-sent with the same request before it is judged, and judged on its fastest
+answer, so one slow call from a busy box is not reported; a write is never re-sent, and is confirmed
+only when the previous run of the chain was slow at the same step too. It is a warning: the exit code
+stays 0 unless `.shrt/config.yaml` sets `latency: {fail: true}`; tune `floor_ms`, `ratio` and
+`remeasure` there (`GRAMMAR.md` §4). `shrt verify <name> -latency` lists every step, before and after.
+
+Then read the report. When the replay ran against another target than the
 safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may
 then come from the target, not the code. A drift report names the step, the path, the change kind
 (listed in `GRAMMAR.md` §7), `want` and `got`, so a regression arrives as *which rpc changed* instead
