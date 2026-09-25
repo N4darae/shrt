@@ -232,7 +232,8 @@ The loop runs every file directly in `.shrt/chains` (the glob does not descend),
 purpose. Write an exploratory one outside it by giving `-write` a path, a value with a slash or
 ending in `.yaml`, which is written exactly there, relative to the current directory, and never
 over a file that is not the same slice: `shrt chain slice <chain> -step <id> -write
-.shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`; run it by path:
+.shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`, and `shrt init` adds it to `.gitignore`
+(`shrt doctor` suggests it where it is missing); run it by path:
 `shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
 nothing, a file given by path whose `name:` is that of a chain in `paths.chains` unless it IS that
 chain's file: rename it (`name: <name>-scratch`), or its runs would be proposed and counted as that chain's.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/agentkit"
@@ -219,12 +220,12 @@ func initGitignore(cfg *config.Config) []string {
 		dir = config.DirName + "/safespots"
 	}
 	pending := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/pending/"
-	for _, line := range out {
-		if line == pending {
-			return out
+	for _, extra := range []string{pending, config.ScratchDir} {
+		if !slices.Contains(out, extra) {
+			out = append(out, extra)
 		}
 	}
-	return append(out, pending)
+	return out
 }
 
 func ensureGitignore(root string, want []string) (bool, error) {
