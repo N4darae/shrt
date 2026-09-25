@@ -1060,8 +1060,12 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command, and exits 0. The backend exercises the code; no chain pins it, so a
-   change to that answer goes unnoticed until you assert it there.
+   `reproduce:` slice command, and exits 0. The backend exercises the code and no expectation pins
+   it, but that is not always unguarded: each step also says when an expectation pins a sibling of
+   the same detail (`results.1.status.details.0.reason equals ProductNotFound`, which fails `shrt run`
+   on a different refusal) and when the chain's safe spot holds the code at that path (`baselined:`),
+   so `shrt verify` reports a change to it. Only a step with neither is one where a change goes
+   unnoticed; assert the code there to have `shrt run` fail on it and `chain which` list it.
 
 ## 11. A step failed: get the minimal reproduction
 
