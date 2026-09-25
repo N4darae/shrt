@@ -1102,7 +1102,19 @@ func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdi
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
-	return fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s\n", name, why, steps, report.SafeSpotID, changeAt(rec, *first)), body
+	bad := map[string]bool{}
+	for _, c := range report.Changes {
+		if c.Kind != diff.KindNotReached {
+			bad[c.Step] = true
+		}
+	}
+	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
+	if req := requestLine(rec, first.Step, bad); req != "" && why == "regression" {
+		line += "\n  " + req
+	} else if i, knock := suspectWrite(rec, first.Step, bad); i >= 0 && !knock {
+		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[i].ID, shortRPC(rec.Steps[i].Call))
+	}
+	return line + "\n", body
 }
 
 func firstChange(report *diff.Report) (*diff.Change, int) {

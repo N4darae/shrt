@@ -480,6 +480,9 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
+	if line := firstFailureRequest(rec); line != "" && !dry {
+		fmt.Fprintf(&b, "\n  %s", line)
+	}
 	if rec.KeptRedNote != "" {
 		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)
 	}
@@ -503,6 +506,25 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 	}
 	return b.String()
+}
+
+func firstFailureRequest(rec *runner.Record) string {
+	if rec.KeptRed != "" || rec.Status != runner.StatusFailed {
+		return ""
+	}
+	bad, first := map[string]bool{}, ""
+	for _, st := range rec.Steps {
+		if st != nil && st.Status != runner.StatusPassed && st.Status != runner.StatusSkipped {
+			bad[st.ID] = true
+			if first == "" {
+				first = st.ID
+			}
+		}
+	}
+	if first == "" {
+		return ""
+	}
+	return requestLine(rec, first, bad)
 }
 
 func quietlyGreen(rec *runner.Record) bool {
