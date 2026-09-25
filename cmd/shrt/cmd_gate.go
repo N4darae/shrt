@@ -583,6 +583,9 @@ func errorLine(stderr, prefix string) string {
 
 func gateHollow(ctx context.Context, baseline string) string {
 	if _, err := os.Stat(baseline); errors.Is(err, os.ErrNotExist) {
+		if os.Getenv("CI") != "" {
+			return "hollow ratchet: " + baseline + " is missing; run shrt gate once outside CI, which writes it, and commit it"
+		}
 		out := gateExec(ctx, []string{"chain", "hollow", "-json"})
 		var rep struct {
 			Reported *int `json:"reported"`

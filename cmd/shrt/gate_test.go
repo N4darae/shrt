@@ -178,12 +178,23 @@ func TestTheGateKeepsKeptRedAndChecksTheHollowRatchet(t *testing.T) {
 }
 
 func TestTheGateWritesAMissingHollowBaseline(t *testing.T) {
+	t.Setenv("CI", "")
 	gateWorkspace(t, map[string][]gateOutcome{"chain hollow": {{stdout: `{"reported": 2}`}}})
 	var err error
 	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
 	raw, _ := os.ReadFile(".shrt/hollow-baseline")
 	if err != nil || string(raw) != "2\n" || !strings.Contains(out, "hollow ratchet: .shrt/hollow-baseline did not exist; wrote today's count, 2, to it") {
 		t.Fatalf("a missing baseline is written with today's count on the first gate: %v %q\n%s", err, raw, out)
+	}
+}
+
+func TestTheGateInCIFailsOnAMissingHollowBaselineInsteadOfWritingIt(t *testing.T) {
+	t.Setenv("CI", "true")
+	gateWorkspace(t, map[string][]gateOutcome{"chain hollow": {{stdout: `{"reported": 2}`}}})
+	var err error
+	out := captureStdout(t, func() { err = runGate(context.Background(), nil) })
+	if _, statErr := os.Stat(".shrt/hollow-baseline"); exitCodeOf(err) != 1 || statErr == nil || !strings.Contains(out, ".shrt/hollow-baseline is missing") {
+		t.Fatalf("a CI gate never sets its own ratchet: %v\n%s", err, out)
 	}
 }
 
