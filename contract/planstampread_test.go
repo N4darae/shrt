@@ -42,6 +42,9 @@ func TestPlanAssertsAReadStampEqualsTheOneItsCreatorReceived(t *testing.T) {
 	}
 	text := string(raw)
 	get := text[strings.Index(text, "- id: get_item"):]
+	if next := strings.Index(get[1:], "- id: "); next >= 0 {
+		get = get[:next+1]
+	}
 	if !strings.Contains(get, "- path: item.created_at\n          equals: ${create_item.item.created_at}") {
 		t.Fatalf("a read returns the stored stamp, so the plan asserts it equals create_item's:\n%s", text)
 	}

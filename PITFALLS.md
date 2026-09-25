@@ -1667,6 +1667,21 @@ created.
 `<step>_unknown_<field>`, sending the real id with `-unknown` appended (so a format check still
 passes) and expecting that failure.
 
+## 72. A GetCustomer that lowercases the email, green in the planned chain
+
+**Symptom.** GetCustomer began returning the email lowercased. `contract plan CreateCustomer` and
+`contract plan GetCustomer` stayed green: the read asserted only the id, and every planned email
+was lowercase already.
+
+**Fix.** 2026-09-25: every read of a record the chain created or updated asserts each field the
+write sent equals what it sent (the last write before the read that sent that field), and a planned
+create is read back right after it when no read follows it yet. A field the contract says the backend
+normalises (a uniqueness refusal with `unique: {case: ignore}` or `trim: true`, or a note such as
+"stored lowercased") is compared with the write's own response echo instead of its request, so a
+backend that normalises consistently passes and one whose read disagrees with its write does not.
+For a create target, and for the create behind a read target, the plan also adds
+`<step>_mixed_case`, sending the text fields with their letters' case swapped, and reads it back.
+
 ---
 
 # Decisions, so they are not relitigated
