@@ -981,7 +981,8 @@ Three things that decide whether this works for a given chain:
   The chain's step list and expectations are compared too: a step removed, added, moved or
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`. A step renamed in
-  place (same call, same position, and the only step of that call gone and added) is not a removal and an addition:
+  place (same call, same position, and that call's steps still at the same positions, so two steps of one call
+  renamed together, or their ids swapped with the bodies left in place, pair by position) is not a removal and an addition:
   `verify`, `diff` and the `-supersede` review say `renamed step(s): step 8 list_orders -> list_customer_orders` and
   compare its response with the old step's, so a changed value there (`orders.0.total_minor want=750 got=1`) is judged. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
