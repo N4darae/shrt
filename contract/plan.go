@@ -136,6 +136,8 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.satisfyNeeds(lib)
 	p.echoNumbers()
+	p.assertOutcomes(lib)
+	p.assertTimestamps(lib)
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()

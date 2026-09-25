@@ -49,7 +49,11 @@ required side is counted, because `chain lint` errors on each until the var has 
 - **`plan` emits ten kinds of `# note:` and only one of them is test data you owe** — the
   `is required and has no usable value — fill it` kind. One more is an assertion you owe:
   `asserts only the verdict ... declares what its response carries (...)` names the facts to assert,
-  and `chain lint -strict` fails the step until you do (§4). Read the others rather than skimming past:
+  and `chain lint -strict` fails the step until you do (§4). `plan` already asserts a floor on every
+  step it can (an id read back, the state the contract names, the created id, each batch item, and
+  on a read the creation stamp equal to the one its creator returned), and says which in one note, so
+  a fresh plan passes `chain lint -strict`; that note lists what it did, not what you owe, but the
+  floor is not the test: add the values your data should produce. Read the others rather than skimming past:
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
   `caller must hold role`, and above all `required is an unfilled TODO, so this plan cannot say what
   the server rejects without — treat the body as unverified`. That last one means the plan is
