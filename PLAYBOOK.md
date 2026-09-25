@@ -906,7 +906,9 @@ approval is a `chain differs ... <step> expect (...)` line: it explains a status
 step and the later steps the run then did not reach, not a response change. A response that
 depends on a fixture name other than by echoing it (a list sorted by name) is reported; declare
 it `volatile`. A list whose order the rpc does not promise is declared `unordered: [products]` on
-the step (or the chain): verify compares it as a multiset, pairing items by content. Without the
+the step (or the chain): verify compares it as a multiset, pairing items by content; a changed
+item is named at the safe spot's index and, when it sits elsewhere in this run, at that index too
+(`this item is at products.1.price_minor in this run`). Without the
 declaration, the same items in another order are reported as `same items in another order`, and
 when that is every change verify fails with `order changed`, not `regression`, also when an
 expectation reading the list by position (`results.0.status.code`) failed because of it: that

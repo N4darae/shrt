@@ -40,7 +40,7 @@ func unorderedSet(lists ...[]string) map[string]bool {
 	return out
 }
 
-func reorderUnordered(want, got any, path string, declared map[string]bool, r *strings.Replacer) any {
+func reorderUnordered(want, got any, path string, declared map[string]bool, r *strings.Replacer, moves map[string][]int) any {
 	switch w := want.(type) {
 	case map[string]any:
 		g, ok := got.(map[string]any)
@@ -50,7 +50,7 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 		out := make(map[string]any, len(g))
 		for k, gv := range g {
 			if wv, ok := w[k]; ok {
-				out[k] = reorderUnordered(wv, gv, pathmask.Join(path, k), declared, r)
+				out[k] = reorderUnordered(wv, gv, pathmask.Join(path, k), declared, r, moves)
 			} else {
 				out[k] = gv
 			}
@@ -62,12 +62,16 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 			return got
 		}
 		if declared[namecase.Fold(listPath(path))] {
-			g = permuted(g, pairItems(w, g, r))
+			var from []int
+			g, from = permuted(g, pairItems(w, g, r))
+			if moves != nil {
+				moves[path] = from
+			}
 		}
 		out := make([]any, len(g))
 		for i := range g {
 			if i < len(w) {
-				out[i] = reorderUnordered(w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)), declared, r)
+				out[i] = reorderUnordered(w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)), declared, r, moves)
 			} else {
 				out[i] = g[i]
 			}
@@ -152,21 +156,50 @@ func pairItems(want, got []any, r *strings.Replacer) []int {
 	return order
 }
 
-func permuted(got []any, order []int) []any {
+func permuted(got []any, order []int) ([]any, []int) {
 	out := make([]any, 0, len(got))
+	from := make([]int, 0, len(got))
 	used := make([]bool, len(got))
 	for _, j := range order {
 		if j >= 0 {
 			out = append(out, got[j])
+			from = append(from, j)
 			used[j] = true
 		}
 	}
 	for j, g := range got {
 		if !used[j] {
 			out = append(out, g)
+			from = append(from, j)
 		}
 	}
-	return out
+	return out, from
+}
+
+func replayPath(path string, moves map[string][]int) string {
+	if len(moves) == 0 {
+		return ""
+	}
+	segs := chain.SplitPath(path)
+	aligned, replay, moved := "", "", false
+	for _, seg := range segs {
+		if from, ok := moves[aligned]; ok {
+			if i, err := strconv.Atoi(seg); err == nil && i >= 0 && i < len(from) {
+				if from[i] != i {
+					moved = true
+				}
+				aligned = pathmask.Join(aligned, seg)
+				replay = pathmask.Join(replay, pathmask.IndexKey(from[i]))
+				continue
+			}
+		}
+		aligned = pathmask.Join(aligned, seg)
+		replay = pathmask.Join(replay, seg)
+	}
+	if !moved {
+		return ""
+	}
+	return replay
 }
 
 func likeness(want, got any, r *strings.Replacer) int {

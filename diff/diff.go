@@ -35,7 +35,8 @@ type Change struct {
 	Got    any    `json:"got,omitempty"`
 	Detail string `json:"detail,omitempty"`
 
-	WithInput bool `json:"with_different_input,omitempty"`
+	WithInput  bool   `json:"with_different_input,omitempty"`
+	ReplayPath string `json:"replay_path,omitempty"`
 }
 
 type Report struct {
@@ -274,13 +275,14 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		a, errA := decode(want.Response)
 		b, errB := decode(got.Response)
 		var stepChanges []Change
+		moves := map[string][]int{}
 		if errA != nil || errB != nil {
 			stepChanges = compareStep(want, got)
 		} else {
 			known := renamer(idRenames(idPairs))
 			declared := unorderedSet(want.Unordered, got.Unordered, assumed[want.ID])
 			if len(declared) > 0 {
-				b = reorderUnordered(a, b, "", declared, known)
+				b = reorderUnordered(a, b, "", declared, known, moves)
 			}
 			if assumed == nil {
 				reorderCandidates(a, b, "", declared, known, func(p string) {
@@ -289,6 +291,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			walk(a, b, "", func(c Change) {
 				c.Step = want.ID
+				c.ReplayPath = replayPath(c.Path, moves)
 				stepChanges = append(stepChanges, c)
 			})
 		}
@@ -945,6 +948,9 @@ func pathOr(p string) string {
 
 func (c Change) describe() string {
 	out := c.describeValues()
+	if c.ReplayPath != "" {
+		out += " (this item is at " + c.ReplayPath + " in this run: an unordered list is paired by content, and the path names the safe spot's index)"
+	}
 	if c.Detail != "" {
 		out += " (" + c.Detail + ")"
 	}

@@ -461,7 +461,9 @@ one-to-one); the rest of the text must match exactly. `shrt diff` and `confirm`'
 whose order the rpc does not promise (a listing sorted by nothing) is declared `unordered: [products]`, on
 the step or the chain: verify then compares it as a multiset, pairing each item of the replay with the
 safe spot item it most resembles (equal values, and ids already renamed by earlier steps) rather
-than by position, so ids inside it are renamed by content and a changed item is still drift. A path
+than by position, so ids inside it are renamed by content and a changed item is still drift, reported
+at the safe spot's index with where it sits in this run (`products.0.price_minor ... (this item is at
+products.1.price_minor in this run ...)`, `replay_path` in `-json`) when the two differ. A path
 names the list without indices (`orders.lines` for every order's lines). Without the declaration, a
 list that holds the safe spot's items in another order is still drift, but verify says so (`same
 items in another order`), names the declaration, and fails with `order changed` instead of
