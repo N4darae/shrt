@@ -76,20 +76,33 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 		path  string
 		own   string
 		write string
+		why   string
 	}{
-		{"the read answers a field its write returned otherwise", []*runner.StepRecord{
+		{"one read answers a field its write returned otherwise and no other read settles it", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
-		}, "get", "product.sku", "GetProduct answers product.sku differently from what CreateProduct returned for the same record", ""},
+		}, "get", "product.sku", "", "create",
+			`CreateProduct answered product.sku SKU-A, GetProduct reads sku-a: the write stored something else or the read changes it`},
+		{"two read rpcs agree against what the write answered", []*runner.StepRecord{
+			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
+			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
+			step("list", list, `{"products":[{"id_product":"p0","sku":"SKU-0"},{"id_product":"p1","sku":"sku-a"}]}`),
+		}, "get", "product.sku", "", "create",
+			`CreateProduct answered product.sku SKU-A, but GetProduct, ListProducts read sku-a: it did not store what it answered`},
+		{"another read agrees with the write, so the disagreeing read is the suspect", []*runner.StepRecord{
+			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
+			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
+			step("list", list, `{"products":[{"id_product":"p1","sku":"SKU-A"}]}`),
+		}, "get", "product.sku", "GetProduct answers product.sku differently from what CreateProduct returned for the same record", "", ""},
 		{"the write's own answer is not known to be unchanged", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
-		}, "get", "product.sku", "", "create"},
+		}, "get", "product.sku", "", "create", ""},
 		{"the write carries no such field, so a wrong value after it stays on the write", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"5"}}`)),
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"6"}}`, "create"), "product.price_minor", "5", "6"),
-		}, "get", "product.price_minor", "", "add"},
+		}, "get", "product.price_minor", "", "add", ""},
 		{"a server error is the read's own", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -103,12 +116,12 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 				st.Expect = []chain.ExpectResult{{Path: "product.sku", Rule: "unevaluated", Detail: `not evaluated: ${get.product.sku} reads step "get", which did not pass`}}
 				return st
 			}(),
-		}, "get_again", "product.sku", "GetProduct fails on its own (internal: pool exhausted)", ""},
+		}, "get_again", "product.sku", "GetProduct fails on its own (internal: pool exhausted)", "", ""},
 		{"the same items in another order are the read's", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			step("create_2", create, `{"product":{"id_product":"p2"}}`),
 			failing(step("list", list, `{"products":[{"id_product":"p2"},{"id_product":"p1"}]}`, "create", "create_2"), "products.0.id_product", "p1", "p2"),
-		}, "list", "products.0.id_product", "ListProducts answers the same items in another order", ""},
+		}, "list", "products.0.id_product", "ListProducts answers the same items in another order", "", ""},
 	} {
 		rec := &runner.Record{Steps: c.steps}
 		b := runAttribution(e, rec).of(c.read, c.path)
@@ -116,9 +129,21 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 		if b.write >= 0 {
 			write = rec.Steps[b.write].ID
 		}
-		if b.own != c.own || write != c.write {
-			t.Errorf("%s: got own %q write %q, want own %q write %q", c.name, b.own, write, c.own, c.write)
+		if b.own != c.own || write != c.write || b.why != c.why {
+			t.Errorf("%s: got own %q write %q why %q, want own %q write %q why %q", c.name, b.own, write, b.why, c.own, c.write, c.why)
 		}
+	}
+}
+
+func TestTheGateFilesAWriteTheReadsAgreeAgainstUnderTheWriteWithTheReason(t *testing.T) {
+	why := `Confirm answered thing.state DONE, but Get, List read OPEN: it did not store what it answered`
+	item := func(chainName, write string) *gateChain {
+		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "DONE", Got: "OPEN",
+			Suspect: "x.v1.S/" + write, SuspectStep: "w", Why: why, Firm: true}}}
+	}
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{item("one", "Confirm"), item("two", "Fill")}) })
+	if !strings.Contains(out, "S/Confirm: suspect the write: "+why+"; e.g. one w") || strings.Contains(out, "suspect the read") {
+		t.Errorf("reads agreeing against the write keep the write the suspect, with the reason:\n%s", out)
 	}
 }
 

@@ -57,6 +57,8 @@ type gateItem struct {
 	KnockOn     bool   `json:"knock_on,omitempty"`
 	Own         string `json:"own,omitempty"`
 	Cascade     string `json:"cascade,omitempty"`
+	Why         string `json:"why,omitempty"`
+	Firm        bool   `json:"firm,omitempty"`
 	Class       string `json:"class,omitempty"`
 }
 
@@ -307,7 +309,7 @@ func (a attribution) item(it gateItem) gateItem {
 		path = ""
 	}
 	b := a.of(it.Step, path)
-	it.Own, it.Cascade = b.own, b.cascade
+	it.Own, it.Cascade, it.Why, it.Firm = b.own, b.cascade, b.why, b.firm
 	if b.write >= 0 {
 		it.Suspect, it.SuspectStep, it.KnockOn = a.rec.Steps[b.write].Call, a.rec.Steps[b.write].ID, b.knock
 	}
@@ -846,6 +848,7 @@ type gateGroup struct {
 	rpc, suspect  string
 	write         bool
 	own           []string
+	why           []string
 	knockOn       bool
 	steps, chains map[string]bool
 	paths         []string
@@ -876,9 +879,9 @@ func settleGate(chains []*gateChain) {
 	for _, g := range chains {
 		for i, it := range g.items {
 			path := gateIndex.ReplaceAllString(it.Path, "[]$1")
-			if writes := readAfter[methodName(it.Call)+" "+path]; len(writes) > 1 && it.Suspect != "" && !it.KnockOn && it.Own == "" && it.Cascade == "" {
+			if writes := readAfter[methodName(it.Call)+" "+path]; len(writes) > 1 && it.Suspect != "" && !it.KnockOn && it.Own == "" && it.Cascade == "" && !it.Firm {
 				g.items[i].Own = fmt.Sprintf("%s changes %s after %d different writes (%s)", methodName(it.Call), path, len(writes), capList(writes, 3))
-				g.items[i].Suspect, g.items[i].SuspectStep = "", ""
+				g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why = "", "", ""
 			}
 		}
 	}
@@ -932,6 +935,9 @@ func printGateGroups(chains []*gateChain) {
 				gr.write = true
 				gr.reads[step] = true
 				gr.chains[g.name] = true
+				if it.Why != "" {
+					gr.addPath(&gr.why, it.Why)
+				}
 				read := methodName(it.Call)
 				gr.addPath(&gr.readRPCs, read)
 				paths := gr.readPaths[read]
@@ -975,10 +981,7 @@ func printGateGroups(chains []*gateChain) {
 			tail := ""
 			switch {
 			case len(gr.own) > 0:
-				tail = "; suspect the read: " + gr.own[0]
-				if len(gr.own) > 1 {
-					tail += fmt.Sprintf(" (+%d other reason(s))", len(gr.own)-1)
-				}
+				tail = "; suspect the read: " + gr.own[0] + otherReasons(len(gr.own)-1)
 			case gr.write:
 			case gr.knockOn:
 				tail = "; a knock-on of " + gr.suspect
@@ -986,6 +989,8 @@ func printGateGroups(chains []*gateChain) {
 				tail = "; no suspect write"
 			}
 			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.rpc, len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
+		case len(gr.why) > 0:
+			fmt.Printf("  %s: suspect the write: %s%s; e.g. %s\n", gr.rpc, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:
@@ -1010,6 +1015,13 @@ func printGateGroups(chains []*gateChain) {
 			fmt.Printf("    +%d step(s) in %d chain(s) %s\n", steps, in, c)
 		}
 	}
+}
+
+func otherReasons(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (+%d other reason(s))", n)
 }
 
 func methodName(call string) string {

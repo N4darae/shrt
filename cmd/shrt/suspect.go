@@ -114,6 +114,8 @@ type blame struct {
 	knock   bool
 	own     string
 	cascade string
+	why     string
+	firm    bool
 }
 
 type attribution struct {
@@ -173,8 +175,8 @@ func (a attribution) of(step, path string) blame {
 	b.write, b.knock = suspectWrite(a.rec, step, a.bad)
 	if b.write >= 0 && !b.knock {
 		w := a.rec.Steps[b.write]
-		if why := a.echoed(w, st, path); why != "" {
-			return blame{write: -1, own: why}
+		if t, ok := a.echoed(b.write, st, path); ok {
+			return t
 		}
 		var changed []string
 		if a.changed != nil {
@@ -332,31 +334,32 @@ func heldBackBy(st *runner.StepRecord) (string, string) {
 	return src, path
 }
 
-func (a attribution) echoed(w, r *runner.StepRecord, path string) string {
+func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, bool) {
+	w := a.rec.Steps[wi]
 	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" {
-		return ""
+		return blame{}, false
 	}
 	rm, err := a.e.cat.Lookup(r.Call)
 	if err != nil {
-		return ""
+		return blame{}, false
 	}
 	wm, err := a.e.cat.Lookup(w.Call)
 	if err != nil {
-		return ""
+		return blame{}, false
 	}
 	want, ok := carrierOf(rm.Output(), path)
 	if !ok {
-		return ""
+		return blame{}, false
 	}
 	var rb, wb any
 	if json.Unmarshal(r.Response, &rb) != nil || json.Unmarshal(w.Response, &wb) != nil {
-		return ""
+		return blame{}, false
 	}
 	rv, ok := chain.Get(rb, path)
 	if !ok {
-		return ""
+		return blame{}, false
 	}
-	found := false
+	wp, wv, found := "", "", false
 	eachLeaf(wb, "", func(p string, v any) {
 		if found {
 			return
@@ -364,13 +367,48 @@ func (a attribution) echoed(w, r *runner.StepRecord, path string) string {
 		if c, ok := carrierOf(wm.Output(), p); !ok || c != want {
 			return
 		}
-		found = sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv)
+		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
+			wp, wv, found = p, compactValue(v), true
+		}
 	})
 	if !found {
-		return ""
+		return blame{}, false
 	}
-	return fmt.Sprintf("%s answers %s differently from what %s returned for the same record",
-		methodName(r.Call), gateIndex.ReplaceAllString(path, "[]$1"), methodName(w.Call))
+	shown := gateIndex.ReplaceAllString(path, "[]$1")
+	agree, confirm := []string{methodName(r.Call)}, false
+	for _, o := range a.rec.Steps[wi+1:] {
+		if o == nil || o == r || isWrite(o) {
+			continue
+		}
+		om, err := a.e.cat.Lookup(o.Call)
+		var ob any
+		if err != nil || json.Unmarshal(o.Response, &ob) != nil {
+			continue
+		}
+		eachLeaf(ob, "", func(p string, v any) {
+			if c, ok := carrierOf(om.Output(), p); !ok || c != want || !sameEntity(wb, wp, ob, p) {
+				return
+			}
+			switch compactValue(v) {
+			case wv:
+				confirm = true
+			case compactValue(rv):
+				if !containsName(agree, methodName(o.Call)) {
+					agree = append(agree, methodName(o.Call))
+				}
+			}
+		})
+	}
+	switch {
+	case confirm:
+		return blame{write: -1, own: fmt.Sprintf("%s answers %s differently from what %s returned for the same record",
+			methodName(r.Call), shown, methodName(w.Call))}, true
+	case len(agree) > 1:
+		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
+			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
+	}
+	return blame{write: wi, why: fmt.Sprintf("%s answered %s %s, %s reads %s: the write stored something else or the read changes it",
+		methodName(w.Call), shown, capText(wv, 60), agree[0], capText(compactValue(rv), 60))}, true
 }
 
 func carrierOf(md protoreflect.MessageDescriptor, path string) (string, bool) {
