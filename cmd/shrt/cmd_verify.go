@@ -232,9 +232,9 @@ func runVerify(ctx context.Context, args []string) error {
 	case violation:
 	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
-		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
+		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s)%s; %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
+			"this is not a verdict about the backend", name, driftStep, driftWhy, unsentWritesNote(rec, driftAt), driftRemedy(ctx, e, driftWhy))
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
@@ -861,6 +861,7 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 	reads := chainReads(c)
 	tainted := map[string]bool{step: true}
 	after := map[string]bool{}
+	unsentWrite := false
 	for i, st := range rec.Steps {
 		if st == nil || i <= at {
 			continue
@@ -870,8 +871,11 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 				tainted[st.ID] = true
 			}
 		}
-		if st.Drift || st.Status == runner.StatusSkipped {
+		if st.Drift || st.Status == runner.StatusSkipped || unsentWrite {
 			tainted[st.ID] = true
+		}
+		if st.Status == runner.StatusSkipped && !chain.IsReadOnlyCall(st.Call) {
+			unsentWrite = true
 		}
 		after[st.ID] = true
 	}
@@ -882,6 +886,25 @@ func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report,
 		}
 	}
 	return out
+}
+
+func unsentWritesAfter(rec *runner.Record, at int) []string {
+	out := []string{}
+	for i, st := range rec.Steps {
+		if st != nil && i > at && st.Status == runner.StatusSkipped && !chain.IsReadOnlyCall(st.Call) {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
+func unsentWritesNote(rec *runner.Record, at int) string {
+	writes := unsentWritesAfter(rec, at)
+	if len(writes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; the write(s) %s after it were not sent, so a later step's difference may be their missing side effect "+
+		"and is not independent evidence", capList(writes, 4))
 }
 
 func describeChanges(changes []diff.Change) string {

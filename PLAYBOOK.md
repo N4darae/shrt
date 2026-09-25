@@ -183,6 +183,8 @@ because no response declares it); `code_fields` are the detail fields
 `chain which -code` searches; and with `validate_output: true` a response the descriptor rejects
 FAILS its step. `verify` then leaves that step and the later steps reading from it unjudged (exit 3),
 but still judges a later step that reads nothing from it: a changed value there is a `regression`.
+Once a write after it was not sent (skipped because it read the drifted step), every later step is
+unjudged too: its difference may be the missing write's side effect, so verify exits 3 and names that write.
 
 **`item_envelope_path` is the one to check first on any backend with batch rpcs.** A batch call can
 answer `OK` at the top level while refusing every line it was given; unset, a step asserting only the
