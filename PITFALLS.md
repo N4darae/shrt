@@ -1590,6 +1590,19 @@ any slice. `-kept-red` pinned only `-step`, and there was no way to name more st
 `-kept-red=<id,...>` (or the flag repeated) keeps and pins more steps. The printed kept_red line
 counts only the pins the slice carried from the source chain; the new pins have their own line.
 
+## 66. `chain which -code 1102` listed the steps asserting 1301
+
+**Symptom.** GetCustomer refuses an unknown customer with 1102 and CreateOrder with 1301, both
+`reason: CustomerNotFound`. `chain which -code 1102` listed the CreateOrder steps too, and could
+pick one of them as the step to reproduce.
+
+**Cause.** The reason seen with 1102 was taken as an alias of the code, and a step matched when it
+asserted any alias, even a step that also asserted another app_code.
+
+**Fix.** 2026-09-25: a numeric `-code` matches on the code; a reason alias matches only a step that
+asserts no numeric code, and such a match says `matched by reason ... only`. The run-record fallback
+skips a reason whose sibling code field holds another code.
+
 ---
 
 # Decisions, so they are not relitigated

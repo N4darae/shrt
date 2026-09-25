@@ -1460,8 +1460,13 @@ shrt chain which -code 1218 -json
    selectors together intersect. An `app_code` and a `reason` (any two `code_fields`) that a local
    run record carried side by side in one object, or that a contract's `failures:` entry declares
    together (`code: 1603`, `reason: PermissionDenied`), name the same refusal, so `-code 1603`
-   also finds a step asserting only `reason: PermissionDenied`, and the other way round; the header
-   line lists the aliases it searched (`asserts 1603 or PermissionDenied (seen with it ...)`).
+   also finds a step asserting only `reason: PermissionDenied`, and the other way round. A numeric
+   `-code` matches on the code: a reason stands in for it only on a step that asserts no numeric
+   code at all, and that match says `matched by reason ... only`. Two codes that share a reason
+   (`1102` and `1301`, both `CustomerNotFound`) stay apart, so `-code 1102` never lists a step
+   asserting `1301`; `-code CustomerNotFound` asks for the reason and finds both. The header line
+   lists what it searched (`asserts 1102, or only the reason CustomerNotFound (seen with it) on a
+   step that asserts no code ...`).
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,
