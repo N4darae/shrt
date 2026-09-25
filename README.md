@@ -33,7 +33,8 @@ descriptor after any proto change and the binary after any change to shrt itself
 
 `shrt init` guesses the `auth:` block from the descriptor and says so; check the login it picked
 (`GRAMMAR.md` §4). A second role on the same login gets a profile when `<ROLE>_USER` and
-`<ROLE>_PASSWORD` are exported at init and the repo's README names the role. Export the env vars
+`<ROLE>_PASSWORD` are exported at init and the repo's README names the role; export them and
+re-run `shrt init` to add one later. Export the env vars
 `auth.body` reads before a run (read their names from `.shrt/config.yaml`); without them
 `shrt run` refuses before sending anything.
 
@@ -64,7 +65,7 @@ traffic.
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify -run <id>` proves it |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`) |
-| `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints the summary to show the user |
+| `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints a short summary to show the user, the full report in `.shrt/safespots/pending/` |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes; `-reject`, `-pending` |
 | `shrt confirm <new> -rename-from <old> -by <email>` | carry a safe spot across a pure rename |
 | `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline |

@@ -143,7 +143,8 @@ with the profile's credentials, or let shrt log in by itself.
 ## 23. The second run of a chain is refused as a duplicate
 
 **Cause.** A unique field is a literal, or built from a var left at the value an earlier run used.
-**Fix.** Build unique values from `${vars.tag}` and pass a fresh `-var tag=...` per run.
+**Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared: each run then gets a
+fresh one. A chain that declares `tag:` under `vars:` needs a fresh `-var tag=...` per run.
 `fixture reused` / `fixture collision` (exit 3) name the run and var; `the chain collides with
 itself` (exit 1) names the literal field to rebuild from a var. An idempotency key must be
 `${uuid}` (lint: `literal-idempotency-key`).
@@ -182,7 +183,7 @@ chain's own tag isolates.
 ## 29. A planned chain lints, runs green and means nothing
 
 **Cause.** `plan` wires what the contracts say; it cannot judge business sense. **Fix.** Read the
-`# order:` line as a claim about the flow. A missing step means a missing `needs:`/`from:` in the
+`order:` line as a claim about the flow. A missing step means a missing `needs:`/`from:` in the
 contract: fix the contract and re-plan, rather than adding the step by hand.
 
 ## 30. The plan leaves a numeric zero that lint accepts

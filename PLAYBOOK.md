@@ -14,24 +14,24 @@ shrt contract plan InvoiceService/PayInvoice          # preview
 shrt contract plan InvoiceService/PayInvoice -write   # write .shrt/chains/<name>.yaml
 ```
 
-`plan` walks `needs`, `before`, `from` and `same_as`, sorts them and writes a chain with every
-`${...}` wired. It prints a header first, as `# ` comment lines on stdout (with `-write`, as
-`  order:` and `  note:` lines on the terminal and none in the file):
+`plan` walks `needs`, `before`, `from` and `same_as`, sorts them and wires every `${...}`. The
+preview prints a short summary, never the chain; `-write` writes the chain and prints the same
+summary:
 
 ```
-# order: CreateAccount -> CreateInvoice -> PayInvoice
-# note: step create_account: name is required and has no usable value — fill it
-# note: step pay_invoice: caller must hold role BILLING or ADMIN
-# 1 required field(s) carry no test data yet — chain lint ERRORs on each until filled.
+order: CreateAccount -> CreateInvoice -> PayInvoice
+12 steps: create_account, create_invoice, pay_invoice, ...
+fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
+3 more note(s) on why each probe is there and what could not be planned: shrt contract plan PayInvoice -notes
+next: shrt contract plan PayInvoice -write
 ```
 
-- **The `# order:` line is the claim to check.** `plan` wires what the contracts say; it cannot
+- **The `order:` line is the claim to check.** `plan` wires what the contracts say; it cannot
   tell whether the flow makes business sense.
-- **Read every note.** `fill it` is test data you owe. `asserts only the verdict ... declares what
-  its response carries (...)` is an assertion you owe (§4). `required is an unfilled TODO` means
-  the plan is guessing. Others say an rpc has no contract, a producer is missing from the plan, or
-  a role is needed.
-- **In a repo whose hook rejects comment lines, use `-write`**; pasting stdout adds `#` lines.
+- **Every `fill:` line is test data you owe.** Add the `value:` to the contract, then re-plan with
+  `-write -force`; a chain lint ERRORs on each unfilled field.
+- **`-notes` prints every note**: an assertion you owe (§4), a guessed `required`, an rpc with no
+  contract, a missing producer, a needed role.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
 - **A step the plan left out means the contract is missing an edge.** Fix the contract and
@@ -76,10 +76,9 @@ Habits that keep a chain re-runnable:
 |---|---|
 | an idempotency key | `${uuid}`, never a literal |
 | a value two steps share | one reference to the first step's request (`${steps.a.request.x}`) or one var |
-| a unique name per run | `inv-${vars.tag}-a`, run with `-var tag=<fresh>` |
+| a unique name per run | `inv-${vars.tag}-a`; an undeclared `tag` is fresh on every run |
 
-`plan` declares an interpolated var under `vars:` with the chain's name as its value, so the first
-run needs no `-var`; later runs do. When a run is refused as a duplicate, `run` and `verify` say
+`plan` leaves `tag` undeclared, so every run gets a fresh one and none needs `-var`. When a run is refused as a duplicate, `run` and `verify` say
 which (PITFALLS §23): `fixture reused` or `fixture collision` (exit 3, re-run with a fresh `-var`),
 or `the chain collides with itself` (exit 1: build the literal field from a var).
 
@@ -406,10 +405,10 @@ step returns something else than in the last run that failed as pinned, or the d
 
 ```bash
 shrt run billing -keep-going
-shrt chain slice billing -step <failed step> -kept-red -verify -run latest -var tag=<fresh> \
+shrt chain slice billing -step <failed step> -kept-red -verify -run latest \
     -write billing-defect-red
 shrt chain slice billing -without failed -run latest -write .shrt/chains/billing.yaml
-shrt run billing -var tag=<fresh>                     # green: propose and approve it
+shrt run billing                     # green: propose and approve it
 ```
 
 `-kept-red=<id,...>` pins further steps the same defect fails. `-without failed` drops every step
@@ -455,7 +454,7 @@ shrt chain which -rpc PayInvoice -code 1204 -json
 shrt chain slice billing -step pay_invoice_twice
 shrt chain slice billing -step pay_invoice_twice -write probe
 shrt chain lint probe
-shrt chain slice billing -step pay_invoice_twice -write probe -verify -run latest -var tag=<fresh>
+shrt chain slice billing -step pay_invoice_twice -write probe -verify -run latest
 ```
 
 1. **Read the reason on every kept step**: `target`, `produces ${x} used by <step>`,
