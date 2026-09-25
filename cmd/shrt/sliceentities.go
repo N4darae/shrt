@@ -230,6 +230,14 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 		}
 	}
 	related := map[string]bool{}
+	for _, d := range res.DroppedWrites {
+		if createsListedChild(rec, d.ID, res) {
+			related[d.ID] = true
+			for id := range entityFactsOf(rec, d.ID).mentions {
+				used[id] = true
+			}
+		}
+	}
 	for changed := true; changed; {
 		changed = false
 		for _, d := range res.DroppedWrites {
@@ -302,4 +310,97 @@ func otherEntitiesNote(other []string) string {
 	}
 	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses (the ids they act on appear in no kept step's "+
 		"request or response in the source run, or they answered exactly as an earlier call of the same rpc did)", strings.Join(other, ", "))
+}
+
+func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResult) bool {
+	sr, ok := rec.Step(writeID)
+	if !ok {
+		return false
+	}
+	request, response := decodedRecordStep(sr)
+	parents := map[string]bool{}
+	collectIDs(request, parents)
+	prim := primaryEntities(response)
+	if len(parents) == 0 || len(prim) == 0 {
+		return false
+	}
+	for _, k := range res.Kept {
+		ks, ok := rec.Step(k.ID)
+		if !ok {
+			continue
+		}
+		keptRequest, keptResponse := decodedRecordStep(ks)
+		filters := map[string]bool{}
+		collectIDs(keptRequest, filters)
+		shared := false
+		for id := range parents {
+			if filters[id] {
+				shared = true
+				break
+			}
+		}
+		if !shared {
+			continue
+		}
+		for _, p := range prim {
+			if listsItemsKeyed(keptResponse, p.key) || assertsListItemKey(res.Chain, k.ID, p.key) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func assertsListItemKey(c *chain.Chain, stepID, key string) bool {
+	if c == nil {
+		return false
+	}
+	s, ok := c.Step(stepID)
+	if !ok {
+		return false
+	}
+	for _, e := range s.Expect {
+		segs := chain.SplitPath(e.Path)
+		for i := 1; i < len(segs); i++ {
+			if segs[i] == key && isIndex(segs[i-1]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isIndex(seg string) bool {
+	if seg == "" {
+		return false
+	}
+	for _, r := range seg {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func listsItemsKeyed(v any, key string) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, item := range t {
+			if listsItemsKeyed(item, key) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range t {
+			if obj, ok := item.(map[string]any); ok {
+				if _, has := obj[key]; has {
+					return true
+				}
+			}
+			if listsItemsKeyed(item, key) {
+				return true
+			}
+		}
+	}
+	return false
 }

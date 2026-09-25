@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -63,6 +64,7 @@ func chainWhich(args []string) error {
 	}
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
+	keepRelatedWritesInPinnedRepro(e, lib, chains, hits)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
 		if len(seen) == 0 {
@@ -168,6 +170,53 @@ func observedResponse(s *runner.StepRecord) any {
 	return merged
 }
 
+func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
+	byName := map[string]*chain.Chain{}
+	for _, c := range chains {
+		byName[c.Name] = c
+	}
+	for i := range hits {
+		h := &hits[i]
+		c := byName[h.Chain]
+		var best *chain.WhichStep
+		for j := range h.Matches {
+			if h.Matches[j].Step == h.Best {
+				best = &h.Matches[j]
+				break
+			}
+		}
+		if c == nil || best == nil || best.Observed == nil || !strings.Contains(h.Command, " -mode pin -run ") {
+			continue
+		}
+		run := best.Observed.Run
+		rec, err := e.store.LoadRun(c.Name, run)
+		if err != nil {
+			continue
+		}
+		o := chain.SliceOptions{Mode: chain.SliceModePin, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), RunID: rec.RunID,
+			Value: recordValues(rec), RunVars: recordVars(rec), Refused: refusedIn(rec), Performed: performedIn(rec)}
+		res, err := chain.Slice(c, h.Best, o)
+		if err != nil {
+			continue
+		}
+		if related, _ := relatedDroppedWrites(res, rec); len(related) == 0 {
+			continue
+		}
+		o.Keep = []string{chain.SliceKeepWrites}
+		kept, err := chain.Slice(c, h.Best, o)
+		if err != nil {
+			continue
+		}
+		cmd := "shrt chain slice " + c.Name + " -step " + h.Best + " -mode pin -run " + run + " -keep " + chain.SliceKeepWrites
+		names := append([]string{}, kept.FreshVars...)
+		sort.Strings(names)
+		for _, name := range names {
+			cmd += " -var " + name + "=<fresh>"
+		}
+		h.Command = cmd
+	}
+}
+
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
 	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
 	login := isLoginStep(e)
@@ -247,7 +296,8 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
 		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
 		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
-		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last.\n"+
+		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last,\n"+
+		"though its reproduce: line slices a step that FAILED when the chain has one.\n"+
 		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
 		whichMarkClaim, whichMarkSeen, target)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")

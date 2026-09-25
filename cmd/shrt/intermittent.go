@@ -162,6 +162,20 @@ func (f flakyStep) evidence() string {
 	return strings.Join(parts, "; ")
 }
 
+func (i *intermittentFailure) otherFailures(rec *runner.Record) []string {
+	flaky := map[string]bool{}
+	for _, f := range i.steps {
+		flaky[f.step.ID] = true
+	}
+	out := []string{}
+	for _, st := range rec.Steps {
+		if (st.Status == runner.StatusFailed || st.Status == runner.StatusError) && !flaky[st.ID] {
+			out = append(out, st.ID)
+		}
+	}
+	return out
+}
+
 func (i *intermittentFailure) finding() bool { return i != nil && len(i.steps) > 0 }
 
 func (i *intermittentFailure) calls() string {
@@ -208,15 +222,22 @@ func (i *intermittentFailure) explainsAll(report *diff.Report) bool {
 	for _, f := range i.steps {
 		flaky[f.step.ID] = true
 	}
+	expectOnly := len(report.RequestChanges) > 0 && report.OnlyExpectationsEdited()
+	if len(report.RequestChanges) > 0 && !expectOnly {
+		return false
+	}
 	n := 0
 	for _, c := range report.Changes {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
 		if !flaky[c.Step] {
+			if expectOnly && c.WithInput {
+				continue
+			}
 			return false
 		}
 		n++
 	}
-	return n > 0 && len(report.RequestChanges) == 0
+	return n > 0
 }

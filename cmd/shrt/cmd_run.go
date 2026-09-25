@@ -159,6 +159,9 @@ func runRun(ctx context.Context, args []string) error {
 		}
 		if flaky.finding() {
 			fmt.Println("  FINDING: " + flaky.line())
+			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
+				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.line())
+			}
 			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
 		}
 	}

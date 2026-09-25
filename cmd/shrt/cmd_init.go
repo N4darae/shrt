@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/agentkit"
@@ -53,6 +54,16 @@ func runInit(ctx context.Context, args []string) error {
 		return err
 	}
 
+	portFile := ""
+	if !baseURLGiven {
+		if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil {
+			if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
+				*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+				portFile = *baseURL
+			}
+		}
+	}
+
 	cfg := config.Default()
 	cfg.Root = root
 	cfg.Target.BaseURL = *baseURL
@@ -76,6 +87,9 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("write %s\n", rel(root, cfgPath))
+		if portFile != "" {
+			fmt.Printf("      target.base_url: %s, from the port in .port at the repo root (pass -base-url to choose another)\n", portFile)
+		}
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
@@ -155,6 +169,17 @@ func runInit(ctx context.Context, args []string) error {
 		if err := scaffoldAuth(loaded); err != nil {
 			return err
 		}
+	} else if !wroteConfig {
+		roles, err := addMissingRoleProfiles(loaded, cfgPath)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			fmt.Printf("write %s auth.profiles, keeping the rest of it as it was:\n", rel(root, cfgPath))
+			for _, r := range roles {
+				fmt.Printf("      role profile %s\n", r)
+			}
+		}
 	}
 	if wroteConfig {
 		guidePath, _ := exampleEnvelope(loaded)
@@ -180,7 +205,7 @@ func runInit(ctx context.Context, args []string) error {
 
 	fmt.Println("\nnext:")
 	fmt.Printf("  read %s/README.md\n", agentkit.DocsDir)
-	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
+	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven || portFile != "")
 	if loaded.Auth == nil {
 		fmt.Printf("  declare auth: in %s/%s — nothing in this descriptor looked like a login rpc, so\n",
 			config.DirName, config.FileName)

@@ -1268,6 +1268,14 @@ and the lifetime template only for an expiry; `plan` scaffolds the same `equals`
 expecting a refusal (`not_equal` the ok verdict included) or asserting the message absent (`product
 exists: false`) gets no hint.
 
+A range with a clock bound resolves to another number every run, and `verify` at first compared
+the resolved bounds against the safe spot's: `chain differs from the confirmed run at login_admin
+expect (expires_at within 1790314828 ± 10 -> expires_at within 1790314900 ± 10)` on an untouched
+chain, and on a real regression "the expectation change explains none of them". Since 2026-09-25 an
+expectation is compared by what the chain declares: a `${...}` operand (`${nowunix+N}`, `${now}`,
+`${uuid}`) matches whatever it resolved to, and only its literal operands (`by: 10`, a literal
+bound) and its rule are compared.
+
 ## 44. A list "sorted by sku" that a backend sorting by name also passes
 
 **Symptom.** ListProducts started sorting by name. A chain asserting `products.0.sku` and
@@ -1280,7 +1288,10 @@ with one direction or the other. The assertion could not tell which key sorted.
 **Fix.** 2026-09-25: `contract plan` of a list rpc, and `chain new` with two or more creates feeding
 a list, scaffold three creates whose sort keys disagree pairwise and with creation order, and
 assert each position when the contract states the order. `chain lint` warns `indistinct-order` on a
-step asserting positions of items that two or more keys sort alike.
+step asserting positions of items that two or more keys sort alike. It first warned on
+CreateOrder's `order.lines` and AddStockBatch's `results` too, whose order is the request's own
+list, not a sort key; since 2026-09-25 a list whose asserted items mirror a list in the same step's
+request, item for item, is not warned on.
 
 ## 45. Email uniqueness that went case-sensitive, green in the planned chain
 

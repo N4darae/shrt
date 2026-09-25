@@ -262,6 +262,20 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			if valueEdge(p.Edge) && idx.fieldNeedsNoProducer(s, i, p.Field) {
 				continue
 			}
+			if !valueEdge(p.Edge) && p.Alias == "" {
+				if calls := idx.callsSharingProducers(p, i, referenced, opts); len(calls) > 0 {
+					for _, j := range calls {
+						if leftToRun(mode, p, c.Steps[j], opts) {
+							if _, done := satisfied[j]; !done {
+								satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
+							}
+							continue
+						}
+						add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
+					}
+					continue
+				}
+			}
 			j, found := idx.lastCallOf(p, i, referenced, opts)
 			if found && p.Alias != "" && !carriesAlias(c.Steps[j].ID, p.Alias) {
 				if other, bound := boundAlias[j]; bound && other != p.Alias {
@@ -798,6 +812,22 @@ func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, op
 		}
 	}
 	return best, rank > 0
+}
+
+func (x *stepIndex) callsSharingProducers(p Prereq, before int, referenced map[int]bool, opts SliceOptions) []int {
+	out := []int{}
+	for i := 0; i < before; i++ {
+		if x.rpcOf(i, opts) != p.RPC || producesNothing(x.c.Steps[i], opts) {
+			continue
+		}
+		for _, ref := range stepRefs(x.c.Steps[i]) {
+			if j, kind := x.producerOf(ref, i); kind == refStep && referenced[j] {
+				out = append(out, i)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {

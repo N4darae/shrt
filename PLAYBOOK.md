@@ -627,7 +627,9 @@ body; `unavailable` is a gateway or a restart, above), is checked for flakiness 
 a regression. When the backend answered the same request at another step of this run, or the
 previous run of the chain failed at a different step with the same error and answered this one,
 `verify` and `run` print `FINDING: intermittent failure at <rpc>` with that evidence, and `verify`
-fails with it instead of `regression: ...` when every change is at such a step. It still exits 1:
+fails with it instead of `regression: ...` when every change is at such a step, also when an
+expectation was edited since the safe spot (an expectation edit never explains a transport error, so
+the step's status is never marked `explained by the failed changed expectation`). It still exits 1:
 the backend does fail that rpc, only not on every call. When the only evidence is that the previous
 run that sent the step answered it, the verdict stays `regression` with a `note: ... this looks
 intermittent` line, because a backend change deployed between the two runs reads the same; re-run,
@@ -1235,7 +1237,8 @@ Three things that decide whether this works for a given chain:
   `drift, principal not checked` (exit 1), not `regression`. Turn it on with
   `shrt confirm <chain> -supersede -note "..."` and a person's approval.
   The chain's step list and expectations are compared too: a step removed, added, moved or
-  re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
+  re-pointed, an expectation edited (compared as the chain declares it, so `within: {of: "${nowunix+3600}", by: 10}`
+  resolving to another second is no edit), or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`; a move is
   never a response change, so beside an expectation edit it still makes the verdict a chain change. A removed, added or
   re-called step explains only the steps it can affect: itself, every step after it when it is a write, and every step
@@ -1312,7 +1315,9 @@ both values look alike: an id that became empty, null, `0`, `undefined` or anoth
 shown. A value derived
 from a run tag (a response sku, name or email that echoes the `sku-${vars.tag}` the run sent) is
 masked the way `verify` masks it and counted (`N response value(s) differ only by echoing the fixture
-name`), so it needs no `volatile`; a value that differs in anything else is shown. An id inside a longer string
+name`), so it needs no `volatile`, also when the field that sent it is id-shaped (`id_customer:
+cus-missing-${vars.tag}`, echoed in a refusal message `no customer cus-missing-…`); a value that differs
+in anything else is shown. An id inside a longer string
 (an error message naming the product) is compared after the same renaming: the message is equal when
 the only difference is an id the two runs renamed one-to-one, and any other change of its text is shown,
 so it needs no `volatile`. The report says how many values it hid, and names
@@ -1366,7 +1371,9 @@ shrt chain which -code 1218 -json
    other way round: a step whose newest reaching run FAILED there ranks first (one that still got
    the asserted envelope code before one that did not), then observed steps that passed, then
    steps no run reached, and the first `reproduce:` line slices the red step instead of a green
-   one. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
+   one. Under `-code` the `reproduce:` line slices a step whose newest reaching run FAILED there
+   too, when the chain has one, though the listing still ranks it last: the failure is what there
+   is to reproduce. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads
@@ -1400,7 +1407,9 @@ shrt chain which -code 1218 -json
    One exception under `-code`: when no chain asserts the code but a local run record carried it
    at a code path (`status.details.0.app_code: 1305` on a step that asserts only the envelope and
    the `reason`), the command lists those steps instead, each with the run, the path, and a
-   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write),
+   `reproduce:` slice command built as in 3 (the pinned form for a read, `-keep writes` for a write,
+   and the pinned form with `-keep writes` for a read of an entity a write of the chain created,
+   which a pinned slice would drop and call INCONCLUSIVE),
    and exits 0. A step that asserts the code's alias (the `reason` seen with it) is an asserting
    match, not one of these. The backend exercises the code and no expectation pins
    it, but that is not always unguarded: each step also says when an expectation pins a sibling of
@@ -1428,8 +1437,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    comes from `needs` / `before` / `from` / `same_as` in `.shrt/contracts/`, which is the only
    reason a step with no textual link to the target survives at all. For an aliased edge
    (`<rpc>@<alias>`) the slice keeps the step whose id carries `_<alias>` (the id `contract plan`
-   gives it), preferring among those the one the body references; for an unaliased edge it keeps
-   the referenced step, else the nearest. An edge declared under one alias of a contract binds only
+   gives it), preferring among those the one the body references; for an unaliased `needs` or
+   `before` edge it keeps every call of that rpc that acts on an entity the step references (a
+   `CreateOrder` whose lines name two products keeps the `AddStock` of each, not only the later
+   one), else the referenced step, else the nearest. An edge declared under one alias of a contract binds only
    a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
    literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
    refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
@@ -1491,7 +1502,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    `-var` still overrides, and when the verdicts then differ the verdict names each var that differs
    from the source run's. Values that differ every run are masked
    as `verify` masks them: an id- or timestamp-shaped got on both sides, or a message that
-   differs only in such tokens, is the same failure. `-verify` is what needs `-run`;
+   differs only in such tokens, is the same failure, and so is a want, got or refusal message
+   that differs only by a var's value echoed in it (`source want Customer customers-k1 got
+   cust-customers-k1@example.test, slice want Customer sl-c1 got cust-sl-c1@example.test` with
+   `tag` customers-k1 in the source run and sl-c1 in the slice). `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
@@ -1544,8 +1558,20 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      can come from the target. Run the chain here and slice from that run (`-run latest`).
      Otherwise: the verdicts match, but the slice dropped write steps that act on entities the
      kept steps use (a confirm of the order the target cancels, stock added to the product its
-     line holds), or whose entity cannot be told (a write whose request and response carry no
-     id). A match can come from state the slice never built, so it is not a receipt. The output
+     line holds, an order created for the customer a `ListOrders` target lists: a write whose
+     request carries an id the kept step's request carries and whose created entity is the kind
+     of item the kept step's response lists or asserts), or whose entity cannot be told (a write
+     whose request and response carry no id). A match can come from state the slice never built,
+     so it is not a receipt. Nor is a match on a failing expectation that compares with what a
+     dropped write created in the source run (`orders.1.id_order equals` the id a dropped
+     `CreateOrder` returned, under `-mode pin`): the slice never creates that item, so a correct
+     backend fails it the same way, and the verdict is INCONCLUSIVE naming the write, whatever
+     else was kept. A dropped write on a kept entity does NOT block the receipt when the contracts
+     say no later kept step reads what it changed: the fields it set (`qty_on_hand` for an
+     `AddStockBatch`) are in no request or response message of those steps, each has a contract,
+     and none `needs`/`before` the write's service or names it (or the field) in a failure. The
+     verdict then says so on an `info:` line. With no contract for a reader the write stays
+     suggested. The output
      ends with a `next:` line — `shrt chain slice <src> -step <t> -run <source-run> -keep
      <those writes> -verify -write` — naming only those writes, so the `-keep` set stays minimal:
      a write on another entity is never suggested, however many there are. NOT REPRODUCED

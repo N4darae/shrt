@@ -849,9 +849,31 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			res.Target, replay.Transport.Code, replay.Transport.Message))
 	}
 	v.Replay = verdictOf(replay)
-	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToIDs)
+	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	related, other := relatedDroppedWrites(res, rec)
+	related, reads := classifyFieldReads(e, res, rec, related)
+	uncreated := uncreatedExpected(res, source)
+	defer func() {
+		for _, r := range reads {
+			v.Reason = strings.TrimPrefix(v.Reason+"\ninfo: "+r.note(), "\n")
+		}
+	}()
 	switch {
+	case len(v.Differences) == 0 && len(uncreated) > 0:
+		v.Outcome = sliceInconclusive
+		v.Reason = fmt.Sprintf("the verdict matched, but a failing expectation of step %s compares with what dropped write step(s) %s\n"+
+			"created in source run %s, and the slice never sends them: what they created is absent from this slice whatever the\n"+
+			"backend does, so a correct backend fails it the same way and the match is no receipt. Keep them and verify again.",
+			res.Target, strings.Join(uncreated, ", "), rec.RunID)
+		keep := append([]string{}, uncreated...)
+		for _, r := range related {
+			if !slices.Contains(keep, r) {
+				keep = append(keep, r)
+			}
+		}
+		other = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(keep, id) })
+		v.OtherDropped = other
+		v.suggestKeep(res, rec, a, keep)
 	case len(v.Differences) > 0 && a.otherTarget != "":
 		v.Outcome = sliceInconclusive
 		v.OtherTarget = a.otherTarget
@@ -908,6 +930,30 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		}
 	}
 	return v, v.err()
+}
+
+func uncreatedExpected(res *chain.SliceResult, source *runner.StepRecord) []string {
+	step, ok := res.Chain.Step(res.Target)
+	if !ok || source == nil {
+		return nil
+	}
+	dropped := map[string]bool{}
+	for _, d := range res.DroppedWrites {
+		dropped[d.ID] = true
+	}
+	out := []string{}
+	for i, r := range source.Expect {
+		if r.Passed || i >= len(step.Expect) {
+			continue
+		}
+		text := fmt.Sprint(step.Expect[i].Operands()...)
+		for _, p := range res.Pins {
+			if dropped[p.Producer] && strings.Contains(text, "${vars."+p.Var+"}") && !slices.Contains(out, p.Producer) {
+				out = append(out, p.Producer)
+			}
+		}
+	}
+	return out
 }
 
 func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) string {
@@ -1060,6 +1106,38 @@ func sameUpToIDs(path string, a, b any) bool {
 		}
 	}
 	return true
+}
+
+func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any) bool {
+	mask := func(vars map[string]any, text string) string {
+		values := []string{}
+		names := map[string]string{}
+		for name, v := range vars {
+			value := fmt.Sprint(v)
+			if len(value) < 3 || value == pathmask.MaskRedacted {
+				continue
+			}
+			values = append(values, value)
+			names[value] = name
+		}
+		sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
+		for _, value := range values {
+			text = strings.ReplaceAll(text, value, "${vars."+names[value]+"}")
+		}
+		return text
+	}
+	return func(path string, a, b any) bool {
+		if sameUpToIDs(path, a, b) {
+			return true
+		}
+		x, ok1 := a.(string)
+		y, ok2 := b.(string)
+		if !ok1 || !ok2 {
+			return false
+		}
+		mx, my := mask(source, x), mask(replay, y)
+		return mx != x && mx == my
+	}
 }
 
 func idToken(s string) bool {

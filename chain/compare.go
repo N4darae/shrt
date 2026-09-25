@@ -103,6 +103,14 @@ func numberText(n float64) string {
 	return strconv.FormatFloat(n, 'f', -1, 64)
 }
 
+func OperandText(v any) (string, bool) {
+	n, ok := numberOf(v)
+	if !ok {
+		return "", false
+	}
+	return numberText(n), true
+}
+
 func (e Expectation) evaluateComparison(got any, found bool) (ExpectResult, bool) {
 	type bound struct {
 		rule string
