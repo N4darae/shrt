@@ -178,6 +178,37 @@ func (p *Plan) assertStates(lib *Library) {
 	}
 }
 
+func (p *Plan) assertStreamEcho() {
+	for _, st := range p.Chain.Steps {
+		if !p.streams(st) || st.AllowFail || isRefusalStep(st) {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		car := singleCarrier(m)
+		if car == nil {
+			continue
+		}
+		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+			key, ok := namecase.LookupKey(st.Body, f.Name)
+			if !ok || f.Repeated || !IsEntityIDField(f.Name) {
+				continue
+			}
+			text, _ := st.Body[key].(string)
+			src, isRef := refSource(text)
+			if !isRef || src == "vars" || src == "env" || p.stepByID(src) == nil {
+				continue
+			}
+			path := catalog.StreamMessages + ".0." + car.Name + "." + f.Name
+			if sub := fieldByName(car.Fields, f.Name); sub != nil && sub.Kind == f.Kind && !sub.Repeated && !hasExpectOn(st, path) {
+				st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: text})
+			}
+		}
+	}
+}
+
 func (p *Plan) assertTimestamps(lib *Library) {
 	for _, st := range p.Chain.Steps {
 		if isRefusalStep(st) || st.AllowFail {

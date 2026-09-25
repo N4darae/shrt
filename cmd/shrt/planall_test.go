@@ -29,7 +29,7 @@ rpcs:
 	if err != nil {
 		t.Fatalf("plan -all: %v\n%s", err, out)
 	}
-	for _, want := range []string{"catalog-createproduct: ", "catalog-getproduct: ", "WatchOrder: streaming, not planned"} {
+	for _, want := range []string{"catalog-createproduct: ", "catalog-getproduct: ", "orders-watchorder: "} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("one line per rpc with a contract, want %q:\n%s", want, out)
 		}
@@ -38,13 +38,13 @@ rpcs:
 		t.Fatalf("without -write nothing is written, found %d file(s)", len(entries))
 	}
 	out = captureStdout(t, func() { err = contractPlan([]string{"-all", "-write"}) })
-	if err != nil || strings.Count(out, ", written") != 2 {
+	if err != nil || strings.Count(out, ", written") != 3 {
 		t.Fatalf("plan -all -write writes each chain: %v\n%s", err, out)
 	}
 	path := filepath.Join(dir, ".shrt", "chains", "catalog-getproduct.yaml")
 	writeFile(t, path, "edited")
 	out = captureStdout(t, func() { err = contractPlan([]string{"-all", "-write"}) })
-	if raw, _ := os.ReadFile(path); err != nil || string(raw) != "edited" || !strings.Contains(out, "2 existing chain file(s) kept") {
+	if raw, _ := os.ReadFile(path); err != nil || string(raw) != "edited" || !strings.Contains(out, "3 existing chain file(s) kept") {
 		t.Fatalf("an existing chain is kept without -force: %v\n%s", err, out)
 	}
 	captureStdout(t, func() { err = contractPlan([]string{"-all", "-write", "-force"}) })

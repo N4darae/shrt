@@ -63,3 +63,15 @@ func TestPlanSendsALargeValueForANumberInsideARepeatedItem(t *testing.T) {
 		t.Fatal("only the target gets the probe")
 	}
 }
+
+func TestPlanAssertsTheStreamsFirstMessageCarriesTheRequestedRecord(t *testing.T) {
+	p, text, _ := shopDemoPlan(t, "WatchOrder")
+	st := planStep(t, p, "watch_order")
+	wantExpect(t, st, "messages.0.status.code", "SUCCESS")
+	wantExpect(t, st, "messages.0.order.id_order", "${create_order.order.id_order}")
+	for _, e := range st.Expect {
+		if e.Path == "order.id_order" {
+			t.Fatalf("a streaming step's paths start at messages.N:\n%s", text)
+		}
+	}
+}

@@ -25,7 +25,7 @@ func contractPlan(args []string) error {
 		"       shrt contract plan -all [-write [-force]]",
 		"\nwithout -write it prints the order, the step count per probe group, and a gap: line for each thing it could\n"+
 			"not plan or assert; -write writes the chain to the chains directory. -all does that for each rpc with a\n"+
-			"contract, as plan <rpc> would, skipping streaming ones; -write keeps an existing file unless -force.\n"+
+			"contract, as plan <rpc> would, skipping client- and bidi-streaming ones; -write keeps an existing file unless -force.\n"+
 			"\nexit codes:\n"+
 			"  0  the plan was printed, or with -write written; also when a required field still has no\n"+
 			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
@@ -124,8 +124,8 @@ func planAll(e *env, lib *contract.Library, write, force bool) error {
 			failed = append(failed, rpcTail(rpc))
 			continue
 		}
-		if m.Streaming() {
-			fmt.Printf("%s: streaming, not planned\n", m.Name)
+		if m.StreamRefusal() != "" {
+			fmt.Printf("%s: %s, not planned\n", m.Name, m.StreamKind())
 			continue
 		}
 		name, err := planChainName([]string{rpc}, lib, e)
