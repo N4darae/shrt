@@ -2490,6 +2490,32 @@ plan sent a line naming an unknown product although the contract declares `Produ
 per-line not-found failure, `<step>_unknown_id_product_line`; what only a refused line names is read
 before and after and must be unchanged, and what an applied line names must be what it reported.
 
+## 129. A login answered across a second boundary stated its lifetime one second short
+
+**Symptom.** A token whose login said it lives 3600s was reported `although the login said it
+expires in 3599s`, some of the time, and a runner test asserting 3600s failed now and then.
+
+**Cause.** The stated lifetime was `expires_at` minus the second in which shrt received the login's
+answer. The backend reads its own clock earlier, while handling the request, and `expires_at` is in
+whole seconds, so a login sent in one second and answered in the next read one second short.
+
+**Fix.** 2026-09-25: shrt records when it sent the login (`sent_at`, kept in the token cache too) as
+well as when the answer arrived. The server's clock read falls between the two, so the stated
+lifetime is the roundest whole-second figure (a whole hour, minute, ten seconds, else a second) that
+`expires_at` minus either instant allows; a token recorded without `sent_at` (a cache written by an
+older shrt, or a token seeded from a response) is read as before. The early-refusal thresholds are
+unchanged.
+
+## 130. The slice `failed:` line printed object operands in Go map format
+
+**Symptom.** `chain slice -verify` printed an expectation on a whole message as
+`failed: order.lines.0 equals want=map[id_product:p-1 qty:2] source got=map[...]`, which is neither
+JSON nor what `verify` prints for the same values, and cannot be pasted back into a chain.
+
+**Fix.** 2026-09-25: an object or list operand on the slice's `failed:`, `failed in the slice only:`
+and blocked-expectation lines prints as compact JSON (`want={"id_product":"p-1","qty":2}`), as
+`verify` does; scalars print as before.
+
 ---
 
 # Decisions, so they are not relitigated

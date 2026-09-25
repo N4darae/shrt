@@ -47,6 +47,7 @@ type LoginTokenSource struct {
 	token        string
 	expiresAt    time.Time
 	issuedAt     time.Time
+	sentAt       time.Time
 	fromCache    bool
 	accepted     bool
 	logins       int
@@ -67,13 +68,13 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 	if s.token != "" && !s.stale() {
 		return s.token, nil
 	}
-	if token, expiresAt, issuedAt, ok := s.readCache(); ok {
-		s.token, s.expiresAt, s.issuedAt = token, expiresAt, issuedAt
+	if token, expiresAt, issuedAt, sentAt, ok := s.readCache(); ok {
+		s.token, s.expiresAt, s.issuedAt, s.sentAt = token, expiresAt, issuedAt, sentAt
 		if !s.stale() {
 			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
-		s.token, s.expiresAt, s.issuedAt = "", time.Time{}, time.Time{}
+		s.token, s.expiresAt, s.issuedAt, s.sentAt = "", time.Time{}, time.Time{}, time.Time{}
 	}
 	return s.login(ctx)
 }
@@ -87,6 +88,7 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	s.token = token
 	s.expiresAt = expiresAt
 	s.issuedAt = time.Now()
+	s.sentAt = time.Time{}
 	s.fromCache, s.accepted = false, false
 }
 
@@ -120,7 +122,7 @@ func (s *LoginTokenSource) Refusal(token string, at time.Time) (TokenRefusal, bo
 		return TokenRefusal{}, false
 	}
 	return TokenRefusal{
-		Token: fingerprint(token), IssuedAt: s.issuedAt, ExpiresAt: s.expiresAt, RefusedAt: at,
+		Token: fingerprint(token), SentAt: s.sentAt, IssuedAt: s.issuedAt, ExpiresAt: s.expiresAt, RefusedAt: at,
 		Cached: s.fromCache, FirstUse: !s.accepted,
 	}, true
 }
@@ -137,6 +139,7 @@ func (s *LoginTokenSource) Invalidate() {
 	s.token = ""
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Time{}
+	s.sentAt = time.Time{}
 	s.fromCache, s.accepted = false, false
 	s.dropCache()
 }
@@ -180,7 +183,9 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("auth body: %w", err)
 	}
 	var res *Result
+	var sentAt time.Time
 	for attempt := 1; ; attempt++ {
+		sentAt = time.Now()
 		res, err = s.invoke(ctx, &Call{Procedure: s.spec.Procedure, Body: body})
 		if err != nil {
 			return "", fmt.Errorf("auth login: %w", err)
@@ -214,6 +219,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	s.token = token
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Now()
+	s.sentAt = sentAt
 	s.fromCache, s.accepted = false, false
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
@@ -221,7 +227,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 		}
 	}
 	s.logins++
-	s.writeCache(s.token, s.expiresAt, s.issuedAt)
+	s.writeCache(s.token, s.expiresAt, s.issuedAt, s.sentAt)
 	return token, nil
 }
 

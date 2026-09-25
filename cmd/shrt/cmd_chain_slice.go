@@ -850,6 +850,15 @@ func quoted(v any) string {
 	if v == nil {
 		return "(absent)"
 	}
+	switch v.(type) {
+	case map[string]any, []any:
+		var b strings.Builder
+		enc := json.NewEncoder(&b)
+		enc.SetEscapeHTML(false)
+		if err := enc.Encode(v); err == nil {
+			return strings.TrimRight(b.String(), "\n")
+		}
+	}
 	return fmt.Sprint(v)
 }
 
