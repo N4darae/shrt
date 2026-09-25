@@ -68,7 +68,10 @@ func failedSteps(rec *runner.Record) []string {
 
 func sliceWithout(chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool) error {
 	writePath := ""
-	if isSlicePath(name) {
+	bare := bareSliceFile(name)
+	if bare {
+		name = strings.TrimSuffix(name, ".yaml")
+	} else if isSlicePath(name) {
 		var err error
 		if writePath, name, err = slicePathAndName(name); err != nil {
 			return err
@@ -81,6 +84,9 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	c, err := chain.Resolve(e.chainsDir(), chainArg)
 	if err != nil {
 		return err
+	}
+	if bare {
+		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
 	}
 	ids := []string{}
 	fromRun := ""

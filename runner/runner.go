@@ -1229,6 +1229,15 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, err)
 	}
+	if wait, err := step.WaitFor(); err != nil {
+		return fail(sr, err)
+	} else if wait > 0 && !opts.DryRun {
+		waited, err := r.wait(ctx, wait)
+		sr.WaitedMS = waited.Milliseconds()
+		if err != nil {
+			return fail(sr, fmt.Errorf("wait %s: %w", step.Wait, err))
+		}
+	}
 	sr.Procedure = method.Procedure()
 	if method.Streaming() {
 		return fail(sr, errors.New(method.StreamRefusal()))
@@ -2132,6 +2141,18 @@ func fail(sr *StepRecord, err error) *StepRecord {
 	sr.Status = StatusError
 	sr.Error = err.Error()
 	return sr
+}
+
+func (r *Runner) wait(ctx context.Context, d time.Duration) (time.Duration, error) {
+	start := time.Now()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return time.Since(start), nil
+	case <-ctx.Done():
+		return time.Since(start), ctx.Err()
+	}
 }
 
 func (r *Runner) clock() time.Time {

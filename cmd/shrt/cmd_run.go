@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
@@ -357,7 +358,11 @@ func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
 	if len(idWidth) > 0 && idWidth[0] > w {
 		w = idWidth[0]
 	}
-	return fmt.Sprintf("%-5s %2d %-*s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, w, sr.ID, sr.Call, sr.LatencyMS)
+	line := fmt.Sprintf("%-5s %2d %-*s %-52s %4dms", statusMark(sr.Status, dry), sr.Index, w, sr.ID, sr.Call, sr.LatencyMS)
+	if sr.WaitedMS > 0 {
+		line += fmt.Sprintf("  (sent after waiting %s)", (time.Duration(sr.WaitedMS) * time.Millisecond).Round(time.Millisecond))
+	}
+	return line
 }
 
 func longestStepID(c *chain.Chain) int {

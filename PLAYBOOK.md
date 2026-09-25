@@ -684,6 +684,10 @@ chain also had a token refused early after it was accepted in that run; either r
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
 between runs explains it: the CI gate counts these lines (README).
+To settle a single `WARNING: token refused` in one run instead of two, write a short chain whose
+reads carry `wait:` longer than the lifetime the warning suggests (two held reads: the first
+token's refusal and the re-login's), which prints the `FINDING` against a backend that ends
+sessions early and passes against one that does not (PITFALLS 67).
 
 A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
 is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same
@@ -1574,11 +1578,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    `-write` and `-write <name>` put the file next to the source chain: in `paths.chains` for a
    chain there, and beside it for a chain given by a path outside it (`.shrt/scratch/min.yaml`
    slices to `.shrt/scratch/min-slice-<step>.yaml`), so an exploratory slice never lands in the
-   directory every sweep and gate runs. A value with a slash or ending in `.yaml` is written exactly
-   there. `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
+   directory every sweep and gate runs. A bare file name, `-write <name>.yaml`, goes in that same
+   directory as `-write <name>` does; a value with a slash is a path, written exactly there, relative
+   to the current directory (`./<name>.yaml` for the current directory itself). `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
    `-verify`, before anything is sent), except a slice this command wrote of the same chain and step
    (its description starts `Slice of <chain> reproducing step <step>:`), so the `next:` loop can
-   re-slice in place, and the source chain file itself when you name it with `-write <its path>`:
+   re-slice in place, and the source chain file itself when you name it with `-write <its path>` or `-write <its file name>.yaml`:
    the minimal-chain recipe below replaces the chain with its verified slice that way.
    A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
    `-verify` keeps the verdict when the new slice is identical (same steps, vars and pinned

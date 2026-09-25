@@ -6,20 +6,41 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 )
 
 func TestAFreshlyPlannedChainPassesStrictLintWithNoUnassertedTimestamp(t *testing.T) {
 	cat, lib := shopDemo(t)
-	for _, targets := range [][]string{
+	plansPassStrictLint(t, cat, lib, [][]string{
 		{"ListOrders", "AddStock", "ConfirmOrder", "CancelOrder"},
 		{"CreateProduct", "ListProducts"},
 		{"GetProduct"},
 		{"AddStock"},
 		{"CreateCustomer"},
 		{"FetchOrder"},
-	} {
+	})
+}
+
+func TestAPlannedAddStockAssertsAStockLevelItsContractDeclaresAsTerminal(t *testing.T) {
+	cat, _ := shopDemo(t)
+	lib := shopDemoEdited(t, func(name, body string) string {
+		if name != "catalog.yaml" {
+			return body
+		}
+		return strings.Replace(body, "        exports:\n            qty_on_hand: stock on hand after the addition\n",
+			"        terminal:\n            qty_on_hand: stock on hand after the addition\n", 1)
+	})
+	if c, ok := lib.Get("shop.catalog.v1.StockService/AddStock"); !ok || c.Terminal["qty_on_hand"] == "" {
+		t.Fatal("fixture: AddStock must declare qty_on_hand under terminal")
+	}
+	plansPassStrictLint(t, cat, lib, [][]string{{"AddStock"}, {"ListOrders", "AddStock", "ConfirmOrder"}})
+}
+
+func plansPassStrictLint(t *testing.T, cat *catalog.Catalog, lib *contract.Library, plans [][]string) {
+	t.Helper()
+	for _, targets := range plans {
 		p, err := contract.BuildPlanFor(targets, lib, cat, "strict")
 		if err != nil {
 			t.Fatal(err)

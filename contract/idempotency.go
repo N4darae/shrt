@@ -162,7 +162,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		initial = stateIn([]string{c.Exports[carrier], c.Summary}, values, short)
 	}
 	t := &listTarget{step: st, itemMsg: carrierMsg, itemID: idField, carrier: carrier}
-	transitions := p.transitionsFor(lib, t, st, values, short, initial)
+	transitions, _ := p.transitionsFor(lib, t, st, values, short, initial)
 	if len(transitions) == 0 {
 		return
 	}

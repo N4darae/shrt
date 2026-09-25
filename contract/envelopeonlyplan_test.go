@@ -53,6 +53,21 @@ func TestAPlannedStepAssertingOnlyTheVerdictFailsStrictLint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	planned := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib, Strict: true}))
+	if len(planned) > 0 {
+		t.Fatalf("the plan asserts what AddStock declares under terminal, so strict lint passes it: %+v", planned)
+	}
+	for _, s := range plan.Chain.Steps {
+		if s.ID == "add_stock" {
+			kept := []chain.Expectation{}
+			for _, e := range s.Expect {
+				if e.Path == "status.code" {
+					kept = append(kept, e)
+				}
+			}
+			s.Expect = kept
+		}
+	}
 	loose := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib}))
 	strict := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib, Strict: true}))
 	if _, flagged := loose["create_product"]; flagged {
@@ -68,15 +83,6 @@ func TestAPlannedStepAssertingOnlyTheVerdictFailsStrictLint(t *testing.T) {
 	}
 	if !strings.Contains(strict["add_stock"].Message, "qty_on_hand") {
 		t.Fatalf("the issue must name the declared fact to assert: %s", strict["add_stock"].Message)
-	}
-	found := false
-	for _, n := range plan.Notes {
-		if strings.Contains(n, "add_stock") && strings.Contains(n, "qty_on_hand") && strings.Contains(n, "-strict") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatalf("the plan must say which steps assert only the verdict: %v", plan.Notes)
 	}
 
 	for _, s := range plan.Chain.Steps {

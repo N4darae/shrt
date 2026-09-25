@@ -67,7 +67,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
 	write := &optionalString{}
-	fs.Var(write, "write", "write the slice to <name>.yaml next to the source chain (.shrt/chains for a chain there, the same directory for a chain given by a path outside it); `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a value with a slash or ending in .yaml is a path, written exactly there, relative to the current directory, and may name the source chain itself to replace it")
+	fs.Var(write, "write", "write the slice to <name>.yaml next to the source chain (.shrt/chains for a chain there, the same directory for a chain given by a path outside it); `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a bare file name ending in .yaml (-write <chain>.yaml) is written in that same directory, and may name the source chain itself to replace it; a value with a slash is a path, written exactly there, relative to the current directory (./x.yaml for the current directory), and may name the source chain too")
 	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times and report how many reproduced the verdict: reproduced N/N, or intermittent: reproduced k/N (exit 4); a var a kept write interpolates gets -r2, -r3 appended on later runs")
 	keptRed := fs.Bool("kept-red", false, "pin the slice kept_red on every expectation of -step that failed in the run (-run, default latest): the slice then passes a gate while the defect is there and fails it once the defect is gone or anything else breaks; refused when the step failed no expectation there")
 	without := &stepList{}
@@ -103,7 +103,10 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		*runID = "latest"
 	}
 	writePath, writeArg := "", name
-	if isSlicePath(name) {
+	bare := bareSliceFile(name)
+	if bare {
+		name = strings.TrimSuffix(name, ".yaml")
+	} else if isSlicePath(name) {
 		writePath, name, err = slicePathAndName(name)
 		if err != nil {
 			return err
@@ -118,6 +121,9 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		return err
 	}
 	ref := sliceChainRef(rest[0], c)
+	if bare {
+		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
+	}
 
 	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: *keep, Vars: vars, IsLogin: isLoginStep(e)}
 	lib, err := e.library()
@@ -554,6 +560,10 @@ func shownPath(path string) string {
 
 func isSlicePath(value string) bool {
 	return strings.ContainsAny(value, "/\\") || strings.HasSuffix(value, ".yaml")
+}
+
+func bareSliceFile(value string) bool {
+	return strings.HasSuffix(value, ".yaml") && !strings.ContainsAny(value, "/\\") && !strings.HasPrefix(value, ".")
 }
 
 func slicePathAndName(value string) (string, string, error) {

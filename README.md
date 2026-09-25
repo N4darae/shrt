@@ -150,6 +150,11 @@ error), and 0 for `-h`.
 
 ### CI gate
 
+`shrt init` writes the script below to `.shrt/ci-gate.sh`, byte for byte (with a `#!/usr/bin/env
+bash` line on top), so CI runs `bash .shrt/ci-gate.sh` instead of a copy cut out of this page;
+commit it. Re-running `init` keeps an edited copy; `shrt init -force` rewrites it from the binary's
+own README after an upgrade.
+
 In this order, with every env var the `auth:` bodies read exported first (a missing one makes
 `doctor -strict` warn and `run` refuse). The static checks stop the gate at the first failure; the
 runs, replays and the hollow ratchet each have their exit checked, so one red chain does not hide
@@ -235,6 +240,10 @@ profile in one gate fail it: the second token was issued during this gate, so a 
 not explain both (a restart during the gate, on top of a deploy before it, would; re-run the gate
 to tell). A run that sees the re-login's own token refused early too, or the same early refusal as
 the chain's previous run, exits 1 with `FINDING: token refused ...` by itself.
+To prove it in one short run instead, hold a token past the lifetime you suspect with a step's
+`wait:` (GRAMMAR §1, at most 10m, never counted as latency): two held reads after the login, each
+waiting longer than that lifetime, reach the `FINDING` (PITFALLS 67). `contract plan` does not write
+such a chain; keep it out of the per-commit gate, since its waits are its runtime.
 
 A slowdown fails the gate only through `verify`, and only with `latency: {fail: true}` in the
 config, which `shrt init` writes into every config it creates. Without it a step 700 times slower
@@ -273,9 +282,11 @@ only for exit 1, cannot tell those apart: do not keep one.
 The loop runs every file directly in `.shrt/chains` (the glob does not descend), and that is where
 `shrt chain slice -write <name>` writes, so a slice written by name joins the gate at once
 (`slice -write` says so). Keep a slice you want gated there, with `kept_red` if it is red on
-purpose. Write an exploratory one outside it by giving `-write` a path, a value with a slash or
-ending in `.yaml`, which is written exactly there, relative to the current directory, and never
-over a file that is not the same slice: `shrt chain slice <chain> -step <id> -write
+purpose; a bare file name, `-write <name>.yaml`, lands there too, beside the source chain, and
+`-write <chain>.yaml` replaces the chain itself. Write an exploratory one outside it by giving
+`-write` a path, a value with a slash, which is written exactly there, relative to the current
+directory (`./<name>.yaml` for the current directory itself), and never over a file that is not the
+same slice: `shrt chain slice <chain> -step <id> -write
 .shrt/scratch/<name>.yaml`. No sweep reads `.shrt/scratch/`, and `shrt init` adds it to `.gitignore`
 (`shrt doctor` suggests it where it is missing); run it by path:
 `shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending

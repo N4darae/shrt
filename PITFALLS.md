@@ -1602,6 +1602,92 @@ the clock resolves to another number in every run.
 chain, and the value it got as its distance from the bound each run resolved, equal within 2s; a
 stamp an hour ahead in both runs fails the same way, one ahead in one and behind in the other does not.
 
+## 67. A session that ends early, provable only with a 14,001-step chain
+
+**Symptom.** A backend that ends sessions 20s after Login although Login says `expires_at` is an
+hour ahead showed only `WARNING: token refused 20s after issue ...` for any chain that runs in under
+20s. The tester reached the `FINDING` only by writing a 14,001-step read chain that kept one token
+alive past 20s, and past 40s for the re-login's token.
+
+**Cause.** Nothing in a chain could let time pass: every step is sent as soon as the previous one
+is answered.
+
+**Fix.** 2026-09-25: a step's `wait:` (GRAMMAR §1, at most 10m) holds it that long before it is
+sent, outside its latency. Two held reads after any authenticated step reach the finding in one
+short run:
+
+```yaml
+    - id: read_after_25s
+      call: shop.catalog.v1.ProductService/GetProduct
+      wait: 25s
+      body: {id_product: ${create_product.product.id_product}}
+      expect: [{path: status.code, equals: SUCCESS}]
+    - id: read_after_50s
+      call: shop.catalog.v1.ProductService/GetProduct
+      wait: 25s
+      body: {id_product: ${create_product.product.id_product}}
+      expect: [{path: status.code, equals: SUCCESS}]
+```
+
+The first held read's token is refused early and re-sent after a fresh login; the second holds that
+fresh token past its real lifetime too, and the run prints `FINDING: token refused 25s after issue
+... and the fresh token the re-login issued was refused 25s after issue ...`, exit 1. Against a
+backend that keeps its sessions the same chain passes. Pick a wait longer than the lifetime you
+suspect and shorter than the one the login states.
+
+## 68. `slice -write orders-listorders.yaml` wrote to the repo root
+
+**Symptom.** `shrt chain slice orders-listorders -without failed -write orders-listorders.yaml`
+wrote `./orders-listorders.yaml` at the repo root, while PLAYBOOK says `-write <chain>.yaml`
+replaces the chain itself; the chain in `.shrt/chains` was untouched.
+
+**Cause.** Any `-write` value ending in `.yaml` was read as a path relative to the current
+directory, like one with a slash.
+
+**Fix.** 2026-09-25: a bare file name ending in `.yaml` is written beside the source chain, where
+`-write <name>` writes, and `-write <chain>.yaml` there replaces the chain. Only a value with a
+slash is a path; `./<name>.yaml` still writes into the current directory.
+
+## 69. A planned `add_stock` that failed `chain lint -strict` under a note saying it passes
+
+**Symptom.** `contract plan AddStock` noted that a freshly planned chain passes `chain lint -strict`,
+and `chain lint -strict` then failed `add_stock` and `add_stock_qty_min`: `asserts only the
+verdict ... AddStock declares what its response carries (qty_on_hand)`.
+
+**Cause.** The plan asserted a stock level at least the quantity added only for a field the
+contract lists under `exports:`; this contract declared `qty_on_hand` under `terminal:`, which lint
+counts as declared too.
+
+**Fix.** 2026-09-25: the plan asserts `qty_on_hand gte: ${steps.<step>.request.qty}` for such a
+field declared under `exports:`, `terminal:` or `soft_signals:`, as lint reads them. The note claims
+a strict pass only when no planned step is still left asserting only the verdict of an rpc whose
+contract declares response fields.
+
+## 70. Two notes on `contract plan ListOrders` that contradicted each other
+
+**Symptom.** One note said `ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStock
+... plan ListOrders together with AddStock`; the next said `No producer in the contracts reaches
+ORDER_STATUS_CONFIRMED`.
+
+**Cause.** The status-filter note counted a state as unreached by any producer whenever no planned
+step put a fixture in it, including a state whose producer was only held back for a missing
+dependency.
+
+**Fix.** 2026-09-25: such a state is named apart: `The filter on ORDER_STATUS_CONFIRMED is not
+probed either: ConfirmOrder reaches it but needs AddStock, which this plan does not call`. "No
+producer in the contracts reaches" is kept for a state no contract write reaches.
+
+## 71. A CI gate cut short when copied out of the README
+
+**Symptom.** A tester extracted the gate from the ` ```bash ` block in `.shrt/docs/README.md` and lost
+its last line, the one that exits 3 when a chain could not be verified.
+
+**Cause.** The gate existed only as a code block in a page.
+
+**Fix.** 2026-09-25: `shrt init` writes the same block, from the README embedded in the binary, to
+`.shrt/ci-gate.sh` (executable, meant to be committed); a re-run keeps an edited copy and
+`init -force` rewrites it. CI runs `bash .shrt/ci-gate.sh`.
+
 ---
 
 # Decisions, so they are not relitigated
@@ -1621,3 +1707,10 @@ with two working alternatives beats a clever resolver with a new silent-failure 
 nothing to notice — 46 duplicated rows across three files at the time of the sweep. They now point
 at the generated table. Prose, rationale and worked examples stay where they were; only the key
 enumerations moved.
+
+**`contract plan` does not emit a session-length probe for the login rpc** (2026-09-25). A login
+whose response declares an expiry could get a planned chain that holds a token with `wait:`. It was
+rejected: the wait that proves anything has to outlast the lifetime you suspect, which the contract
+does not know, and a planned wait of even 25s lands in every gate that runs every planned chain. A
+session probe is a deliberate, slow chain an agent writes when a `WARNING: token refused` line
+points at one (PITFALLS 67 has the two-step pattern), and keeps out of the per-commit gate.
