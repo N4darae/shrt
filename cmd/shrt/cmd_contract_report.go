@@ -104,11 +104,11 @@ func contractStatus(args []string) error {
 			r.ProbeGaps = append(r.ProbeGaps, probeGaps[m.FullName]...)
 			r.EmptyGaps = append(r.EmptyGaps, emptyGaps[m.FullName]...)
 			r.LoginGaps = append(r.LoginGaps, loginGaps[m.FullName]...)
-			if !m.Streaming() && !called[m.FullName] {
+			if m.StreamRefusal() == "" && !called[m.FullName] {
 				r.NoChain = append(r.NoChain, noChainLine(m))
 			}
 			c, ok := lib.Get(m.FullName)
-			if !ok && m.Streaming() {
+			if !ok && m.StreamRefusal() != "" {
 				r.Streaming = append(r.Streaming, m.FullName)
 				continue
 			}
@@ -121,7 +121,7 @@ func contractStatus(args []string) error {
 				r.Verified++
 			}
 			switch {
-			case m.Streaming():
+			case m.StreamRefusal() != "":
 				r.Streaming = append(r.Streaming, m.FullName)
 			case reached[m.FullName]:
 				r.Reached++
@@ -163,8 +163,8 @@ func contractStatus(args []string) error {
 		"as a dependency of one. An rpc below it plans as a single step: nothing it needs is declared,\n" +
 		"and nothing declares it as a producer. That is correct for a login or a read taking no id from\n" +
 		"elsewhere, and a missing 'needs:' or 'from:' for a write that cannot run on its own. '-gaps'\n" +
-		"lists them as 'no path to'; only you can say which kind each one is. A streaming rpc is never\n" +
-		"REACHED: shrt is unary-only, so no plan can call it.\n" +
+		"lists them as 'no path to'; only you can say which kind each one is. A client- or bidi-streaming\n" +
+		"rpc is never REACHED: shrt cannot call it.\n" +
 		"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
 		phaseScope(*phase) + ":\n" +
 		scoringTerms(*phase) +
@@ -197,7 +197,7 @@ func contractStatus(args []string) error {
 		unchained += len(r.NoChain)
 	}
 	if unchained > 0 {
-		fmt.Printf("\n%d unary rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
+		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
 	}
 	roleGaps, tokenGaps, parityGaps := 0, 0, 0
 	for _, r := range rows {
@@ -301,11 +301,11 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 	}
 	for _, r := range rows {
 		for _, st := range r.Streaming {
-			gap("streaming", "streaming    %s: shrt cannot call it; not covered by any chain\n", st)
+			gap("streaming", "streaming    %s: client- or bidi-streaming, shrt cannot call it; not covered by any chain\n", st)
 		}
 	}
 	if len(found) == 0 {
-		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
+		fmt.Println("no gaps: every rpc has a contract, every callable one appears in some multi-step plan and is called by " +
 			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, every list filter whose contract says empty lists all is sent empty somewhere, every failure a login's contract declares is expected somewhere, " +
 			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
@@ -371,8 +371,10 @@ const statusGapLegend = "\nno contract  the rpc has no entry in .shrt/contracts/
 	"             <step>_as_<profile> asserting what the default profile's call answered or left.\n" +
 	"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
 	"             checking the token passes. A plan scaffolds one pair for each target rpc.\n" +
-	"streaming    shrt calls unary rpcs only, so no chain covers a streaming rpc and a defect in it (a\n" +
-	"             missing auth check, say) passes every gate. Cover it with a test of your own.\n"
+	"streaming    shrt cannot call a client- or bidi-streaming rpc, so no chain covers it and a defect in it\n" +
+	"             (a missing auth check, say) passes every gate. Cover it with a test of your own. A\n" +
+	"             server-streaming rpc is called like a unary one and listed under 'no chain' and 'no token'\n" +
+	"             until a chain calls it; its token probe matters most, as a unary-only auth interceptor skips it.\n"
 
 func loginRPCs(e *env) map[string]bool {
 	out := map[string]bool{}

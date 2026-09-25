@@ -199,7 +199,11 @@ func (c *Contract) Text() string {
 		fmt.Fprintf(&b, "DOC        %s\n", c.Doc)
 	}
 	if c.Streaming != "" {
-		fmt.Fprintf(&b, "STREAMING  %s — OUT OF SCOPE: shrt is unary-only, so 'shrt chain new' refuses this rpc and 'shrt chain lint' errors on a step that calls it\n", c.Streaming)
+		how := "OUT OF SCOPE: 'shrt chain lint' errors on a step that calls it"
+		if c.Streaming == catalog.StreamKindServer {
+			how = "a step records its first message as messages.0"
+		}
+		fmt.Fprintf(&b, "STREAMING  %s — %s\n", c.Streaming, how)
 	}
 	fmt.Fprintf(&b, "\nREQUEST %s", c.Request.Text())
 	fmt.Fprintf(&b, "\nRESPONSE %s", c.Response.Text())

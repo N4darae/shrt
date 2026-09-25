@@ -56,7 +56,7 @@ func TimestampFields(m *catalog.Method) []string {
 		return nil
 	}
 	out := []string{}
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
+	for _, f := range m.Response().Fields {
 		if isTimestampField(f) {
 			out = append(out, f.Name)
 			continue

@@ -89,7 +89,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		group := []*chain.Step{}
 		said := []string{}
-		if c, ok := lib.Get(st.Call); ok && len(c.RequiresRole) > 0 && !c.DeclaresNoRole() && !IsTodo(strings.Join(c.RequiresRole, " ")) {
+		if c, ok := lib.Get(st.Call); ok && !m.ServerStreaming && len(c.RequiresRole) > 0 && !c.DeclaresNoRole() && !IsTodo(strings.Join(c.RequiresRole, " ")) {
 			f, found := denialFailure(lib, st.Call)
 			for _, prof := range p.opts.Profiles {
 				if prof == st.Auth || prof == invalidProfile || prof == "default" || holdsRole(prof, c.RequiresRole) {
@@ -135,7 +135,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 		if len(group) == 0 {
 			continue
 		}
-		if chain.IsReadOnlyCall(st.Call) {
+		if chain.IsReadOnlyCall(st.Call) || m.ServerStreaming {
 			p.Chain.Steps = append(p.Chain.Steps, group...)
 			p.note("step %s: %s", st.ID, strings.Join(said, "; "))
 			continue
@@ -149,7 +149,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 func (p *Plan) probeCopy(lib *Library, st *chain.Step, suffix string) *chain.Step {
 	probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
 	probe.Export = nil
-	if !chain.IsReadOnlyCall(st.Call) {
+	if !chain.IsReadOnlyCall(st.Call) && !p.streams(st) {
 		p.freshen(lib, probe)
 	}
 	return probe

@@ -21,7 +21,7 @@ func lintDeprecated(s *Step, m *catalog.Method) []Issue {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindDeprecated, Message: fmt.Sprintf(
 			"body field %q is deprecated in %s (option deprecated = true): the backend may stop reading it", path, m.Input().FullName())})
 	}
-	out := catalog.DescribeMessage(m.Output()).Fields
+	out := m.Response().Fields
 	seen := map[string]bool{}
 	for _, e := range s.Expect {
 		if IsTransportPath(e.Path) || seen[e.Path] {

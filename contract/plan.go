@@ -76,8 +76,8 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		if err != nil {
 			return nil, err
 		}
-		if m.Streaming() {
-			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, m.StreamRefusal())
+		if refusal := m.StreamRefusal(); refusal != "" {
+			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, refusal)
 		}
 		if seen[node] {
 			repeats[node]++
@@ -93,9 +93,17 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	}
 	for _, node := range order {
 		rpc, _ := SplitNode(node)
-		if dep, err := cat.Lookup(rpc); err == nil && dep.Streaming() {
+		dep, err := cat.Lookup(rpc)
+		if err != nil {
+			continue
+		}
+		why := dep.StreamRefusal()
+		if why == "" && dep.ServerStreaming && !seen[node] {
+			why = "a plan calls a server-streaming rpc only as its target"
+		}
+		if why != "" {
 			return nil, fmt.Errorf("refusing to plan %s: its contract graph pulls in %s, and %s — drop that "+
-				"edge (needs/from/same_as/before) from the contract", strings.Join(nodes, ", "), dep.FullName, dep.StreamRefusal())
+				"edge (needs/from/same_as/before) from the contract", strings.Join(nodes, ", "), dep.FullName, why)
 		}
 	}
 
@@ -147,7 +155,8 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 	p.captureRegion(targetSteps)
-	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] }
+	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] && !p.streams(st) }
+	denied := func(st *chain.Step) bool { return targetSteps[st.ID] }
 	for _, pass := range []struct {
 		label, tag string
 		probe      func(*Library, func(*chain.Step) bool)
@@ -173,12 +182,16 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		{"malformed", "shape", p.probeShapes},
 		{"login", "", p.probeLogin},
 	} {
+		only := targeted
+		if pass.label == "token/role" {
+			only = denied
+		}
 		p.grouped(pass.label, func() {
 			if pass.tag == "" {
-				pass.probe(lib, targeted)
+				pass.probe(lib, only)
 				return
 			}
-			p.isolating(lib, pass.tag, func() { pass.probe(lib, targeted) })
+			p.isolating(lib, pass.tag, func() { pass.probe(lib, only) })
 		})
 	}
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
@@ -1180,4 +1193,9 @@ func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
 		p.note("step %s: %s %s the values the config's auth: block sends for this login, so the step logs in as the chain's "+
 			"default principal does", step.ID, strings.Join(filled, ", "), pluralVerb(len(filled), "takes", "take"))
 	}
+}
+
+func (p *Plan) streams(st *chain.Step) bool {
+	m, err := p.cat.Lookup(st.Call)
+	return err == nil && m.ServerStreaming
 }

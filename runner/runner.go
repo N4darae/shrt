@@ -1124,7 +1124,7 @@ func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
 			continue
 		}
 		method, err := r.Catalog.Lookup(step.Call)
-		if err != nil || method.Streaming() {
+		if err != nil || method.StreamRefusal() != "" {
 			continue
 		}
 		resolved, err := scope.ResolveValue(orEmpty(step.Body))
@@ -1135,7 +1135,7 @@ func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
 				}
 			}
 		}
-		sample := catalog.Scaffold(method.Output())
+		sample := method.ResponseSample()
 		scope.RecordSynthetic(step.ID, resolved, sample)
 		for name, path := range step.Export {
 			if v, ok := chain.Get(sample, path); ok {
@@ -1242,10 +1242,10 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 	sr.Procedure = method.Procedure()
-	if method.Streaming() {
-		return fail(sr, errors.New(method.StreamRefusal()))
+	if refusal := method.StreamRefusal(); refusal != "" {
+		return fail(sr, errors.New(refusal))
 	}
-	outputFields := catalog.DescribeMessage(method.Output()).Fields
+	outputFields := method.Response().Fields
 	requestRedactor := redactor.WithNumeric(numericPaths(catalog.DescribeMessage(method.Input()).Fields))
 	redactor = redactor.WithNumeric(numericPaths(outputFields))
 
@@ -1275,7 +1275,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	if opts.DryRun {
 		sr.Status = StatusSkipped
-		sample := catalog.Scaffold(method.Output())
+		sample := method.ResponseSample()
 		scope.RecordSynthetic(step.ID, resolved, sample)
 		for name, path := range step.Export {
 			if v, ok := chain.Get(sample, path); ok {
@@ -1293,6 +1293,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 
 	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders}
+	if method.ServerStreaming {
+		call.Stream = 1
+	}
 	if step.SkipAuth || step.Auth != "" {
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
@@ -1327,7 +1330,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	sr.HTTPStatus = res.Status
 	sr.LatencyMS = res.Latency.Milliseconds()
-	if res.Error == nil {
+	if res.Error == nil && !method.ServerStreaming {
 		sr.LatencyResent = r.remeasure(ctx, step, method.Procedure(), body, resolvedHeaders, opts, sr.LatencyMS)
 	}
 	if r.BuildHeader != "" && res.Header != nil {
@@ -1370,66 +1373,76 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
-	if key, repeated := repeatedKey(res.Body, method.Output()); repeated {
-		var last any
-		if err := json.Unmarshal(res.Body, &last); err == nil {
-			sr.Response = mustJSON(redactor.Apply(last), res.Body)
-		}
-		sr.Status = StatusFailed
-		sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but the body repeats a key, so this assertion never ran")
-		sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
-			"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
-			"were not evaluated. A backend that writes a key twice is the defect to report", key)
-		return sr
-	}
-	canonical, populated, unknown, cerr := r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), res.Body)
-	if cerr != nil && unknownHoldsAVerdict(unknown) {
-		unknown = nil
-	}
+	var canonical, populated []byte
+	var unknown []string
 	staleOutput := false
-	switch {
-	case cerr == nil:
-	case r.ValidateOutput:
-		sr.Response = jsonBodyOrString(res.Body)
-		if len(unknown) > 0 {
-			var decoded any
-			if err := json.Unmarshal(canonical, &decoded); err == nil {
-				sr.Response = mustJSON(redactor.Apply(decoded), canonical)
-			}
+	if method.ServerStreaming {
+		canonical, populated, staleOutput = r.canonicalStream(method, res.Body)
+		if staleOutput {
+			sr.Warning = joinLines(sr.Warning, "a streamed message kept as sent, it does not match "+string(method.Output().FullName())+" (the descriptor may be stale)")
 		}
-		sr.Status = StatusFailed
-		sr.Drift = true
-		sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but conventions.validate_output "+
-			"is on and the body does not match the response message, so this assertion never ran")
-		sr.Error = "conventions.validate_output is on and this response does not match " +
-			string(method.Output().FullName()) + ": " + cerr.Error() +
-			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
-			". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
-			"the body they would read could not be decoded. If 'shrt doctor' says the descriptor does not match a " +
-			"rebuild, rebuild it ('shrt catalog build') and re-run; if it matches, the backend sends what the proto " +
-			"does not declare."
-		return sr
-	case len(unknown) > 0:
-		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
-		if values := catalog.UndeclaredValues(method.Output(), res.Body); values != nil {
-			if raw, err := json.Marshal(redactor.Apply(values)); err == nil {
-				sr.Undeclared = raw
+	} else {
+		if key, repeated := repeatedKey(res.Body, method.Output()); repeated {
+			var last any
+			if err := json.Unmarshal(res.Body, &last); err == nil {
+				sr.Response = mustJSON(redactor.Apply(last), res.Body)
 			}
+			sr.Status = StatusFailed
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but the body repeats a key, so this assertion never ran")
+			sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
+				"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
+				"were not evaluated. A backend that writes a key twice is the defect to report", key)
+			return sr
 		}
-		if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
-			named := make([]string, 0, len(enums))
-			for _, e := range enums {
-				named = append(named, fmt.Sprintf("%s = %s (%s)", e.Path, e.Value, e.Enum))
+		var cerr error
+		canonical, populated, unknown, cerr = r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), res.Body)
+		if cerr != nil && unknownHoldsAVerdict(unknown) {
+			unknown = nil
+		}
+		switch {
+		case cerr == nil:
+		case r.ValidateOutput:
+			sr.Response = jsonBodyOrString(res.Body)
+			if len(unknown) > 0 {
+				var decoded any
+				if err := json.Unmarshal(canonical, &decoded); err == nil {
+					sr.Response = mustJSON(redactor.Apply(decoded), canonical)
+				}
 			}
-			sr.Warning = joinLines(sr.Warning, "response carries enum value(s) the descriptor does not declare, kept as sent "+
-				"rather than decoded as another value: "+strings.Join(named, ", ")+". Rebuild the descriptor ('shrt catalog build') to read them")
+			sr.Status = StatusFailed
+			sr.Drift = true
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but conventions.validate_output "+
+				"is on and the body does not match the response message, so this assertion never ran")
+			sr.Error = "conventions.validate_output is on and this response does not match " +
+				string(method.Output().FullName()) + ": " + cerr.Error() +
+				"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
+				". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
+				"the body they would read could not be decoded. If 'shrt doctor' says the descriptor does not match a " +
+				"rebuild, rebuild it ('shrt catalog build') and re-run; if it matches, the backend sends what the proto " +
+				"does not declare."
+			return sr
+		case len(unknown) > 0:
+			sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
+			if values := catalog.UndeclaredValues(method.Output(), res.Body); values != nil {
+				if raw, err := json.Marshal(redactor.Apply(values)); err == nil {
+					sr.Undeclared = raw
+				}
+			}
+			if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
+				named := make([]string, 0, len(enums))
+				for _, e := range enums {
+					named = append(named, fmt.Sprintf("%s = %s (%s)", e.Path, e.Value, e.Enum))
+				}
+				sr.Warning = joinLines(sr.Warning, "response carries enum value(s) the descriptor does not declare, kept as sent "+
+					"rather than decoded as another value: "+strings.Join(named, ", ")+". Rebuild the descriptor ('shrt catalog build') to read them")
+			}
+		default:
+			canonical = res.Body
+			populated = res.Body
+			staleOutput = true
+			sr.Warning = joinLines(sr.Warning, "response kept as sent, it does not match "+string(method.Output().FullName())+
+				" (the descriptor may be stale): "+cerr.Error())
 		}
-	default:
-		canonical = res.Body
-		populated = res.Body
-		staleOutput = true
-		sr.Warning = joinLines(sr.Warning, "response kept as sent, it does not match "+string(method.Output().FullName())+
-			" (the descriptor may be stale): "+cerr.Error())
 	}
 
 	var decoded any
@@ -1482,7 +1495,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Status = StatusFailed
 	}
 
-	if chain.ItemEnvelope() != "" && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
+	if chain.ItemEnvelope() != "" && !method.ServerStreaming && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
 		refusals, itemErr := chain.ItemRefusals(decoded)
 		switch {
 		case itemErr == nil:
@@ -1972,7 +1985,7 @@ func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redact
 		masker := redactor
 		if r.Catalog != nil {
 			if m, err := r.Catalog.Lookup(s.Call); err == nil {
-				masker = redactor.WithNumeric(numericPaths(catalog.DescribeMessage(m.Output()).Fields))
+				masker = redactor.WithNumeric(numericPaths(m.Response().Fields))
 			}
 		}
 		for name, path := range s.Export {
@@ -2011,8 +2024,8 @@ func (r *Runner) checkCalls(c *chain.Chain) error {
 			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
 				step.ID, i+1, step.Call, err)
 		}
-		if method.Streaming() {
-			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, method.StreamRefusal())
+		if refusal := method.StreamRefusal(); refusal != "" {
+			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, refusal)
 		}
 	}
 	return nil
@@ -2353,4 +2366,24 @@ func unevaluatedBecause(expect []chain.Expectation, redactor *pathmask.Masker, w
 		})
 	}
 	return out
+}
+
+func (r *Runner) canonicalStream(method *catalog.Method, body []byte) (canonical, populated []byte, stale bool) {
+	var sent struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &sent); err != nil {
+		return body, body, true
+	}
+	full, present := []json.RawMessage{}, []json.RawMessage{}
+	for _, raw := range sent.Messages {
+		c, p, _, err := r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), raw)
+		if err != nil {
+			c, p, stale = raw, raw, true
+		}
+		full, present = append(full, c), append(present, p)
+	}
+	canonical, _ = json.Marshal(map[string]any{catalog.StreamMessages: full})
+	populated, _ = json.Marshal(map[string]any{catalog.StreamMessages: present})
+	return canonical, populated, stale
 }

@@ -28,7 +28,7 @@ func contractPlan(args []string) error {
 			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
 			"  1  nothing was planned or written\n"+
 			"     - no rpc named, an rpc the catalog does not have, or an alias its contract does not declare\n"+
-			"     - a streaming target, or a contract graph that pulls in a streaming rpc\n"+
+			"     - a client- or bidi-streaming target, or a contract graph that pulls in a streaming rpc as setup\n"+
 			"     - a dependency cycle in the contracts (needs/from/same_as/before)\n"+
 			"     - with -write, the chain file already exists and -force was not given\n"+
 			"     - bad flags, or a setup that cannot load (no .shrt/config.yaml, a missing descriptor, a\n"+
