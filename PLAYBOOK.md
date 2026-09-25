@@ -1348,7 +1348,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      step before it that errored or failed its expectations. `-verify` stops at the first kept
      step that does not pass, and has no `-keep-going`, so a defect sitting behind another red step
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and
-     re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
+     re-run. When the step that stopped it (or the target) was refused as a uniqueness conflict,
+     the verdict carries the diagnosis `run` and `verify` give: `fixture reused` naming the run (of
+     this or another chain) that already sent the value, or `fixture collision`, or the chain
+     colliding with itself, and the fresh `-var name=<value>` to re-run the slice with. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
      `-var name=<fresh>` (a `-var` equal to the source run's value for a var a kept write interpolates
      is not fresh). Only a flag that cannot be parsed exits 1.

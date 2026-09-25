@@ -279,6 +279,23 @@ func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 	return ""
 }
 
+func sliceCollisionNote(e *env, res *chain.SliceResult, replay *runner.Record) string {
+	if literal := detectLiteralCollision(e, res.Chain, replay); literal != nil {
+		return literal.line() + "."
+	}
+	reuse := detectFixtureReuse(e, res.Chain, replay)
+	if reuse == nil {
+		return ""
+	}
+	if reuse.finding() {
+		return "FINDING: " + reuse.line() + "."
+	}
+	if len(reuse.vars) == 0 {
+		return reuse.line() + ". A plain re-run of the slice generates a fresh value."
+	}
+	return reuse.line() + ".\nRe-run the slice with a fresh value: " + reuse.fresh()
+}
+
 func otherEntitiesNote(other []string) string {
 	if len(other) == 0 {
 		return ""

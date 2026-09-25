@@ -826,6 +826,10 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	if !ok {
 		v.Outcome = sliceDidNotRun
 		v.Reason = fmt.Sprintf("the slice run stopped before step %q (%s): %s", res.Target, replayRec.Status, replayRec.Failure)
+		if note := sliceCollisionNote(e, res, replayRec); note != "" {
+			v.Reason += "\n" + note
+			return v, v.err()
+		}
 		if at := stoppedWhereSourcePassed(replayRec, rec); at != "" {
 			if related, other := relatedDroppedWrites(res, rec); len(related) > 0 {
 				v.Reason += fmt.Sprintf("\nStep %s passed in source run %s and fails here, so it likely reads state a dropped write built:\n"+
@@ -856,7 +860,10 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			"and verify the slice against that run: -run latest"
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
+		note := sliceCollisionNote(e, res, replayRec)
 		switch {
+		case note != "":
+			v.Reason = note
 		case len(related) > 0:
 			v.Reason = fmt.Sprintf("the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
