@@ -112,6 +112,19 @@ A field `note:` does not silence it: a note describes the field, not your test d
 deliberate with `value: "0"`; `from:`, `same_as:` or listing the field in `required:` also silence
 it. `required: [lines]` does not silence `lines.qty`. Nothing downstream repeats either note.
 
+**A repeated message field gets two items, and you should keep two.** One order line exercises
+the per-line code once and leaves everything that combines lines untested: a total summed over
+them, a check that only fires on the second, a batch that stops after the first. A regression
+there passes a chain that sends one line, and so passes the gate. So `plan` scaffolds every
+repeated message field in a request with two items: the second is a copy of the first with its
+numbers raised by one and its free-text strings prefixed with `2-`, while ids, keys, enums, zeros
+and `${...}` references are copied unchanged (both lines of a planned `CreateOrder` point at the same
+product, qty 3 and 4). A note names each such field. Give the second item its own test data, point
+it at a second resource through an aliased producer step when the rpc wants distinct ones, and
+assert what depends on both (`order.total_minor` for the pair, `order.lines.1.qty`).
+`shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
+sends but no chain sends with two or more items.
+
 Three habits that keep a chain re-runnable:
 
 | need | write |
@@ -266,7 +279,12 @@ names every one:
 shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there are no records at all
 ```
 
-It counts the runs of the chains under `paths.chains` only. Runs of a chain no file there declares are
+It counts the runs of the chains under `paths.chains` only, and every kind of run record of them:
+`shrt run` records, `verify` replays (a gate that runs and verifies a chain leaves two records per
+gate run), runs of chains kept red and runs that failed, since a read step that passed is hollow
+whatever its run's verdict. The record count in its output splits them that way, `19 run
+record(s) (12 shrt run, 7 verify replay(s); 4 of chains kept red, 5 that did not pass; ...)`, so a
+count that grows by two per gate run is expected. Runs of a chain no file there declares are
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
 when the chain is gone. A run recorded before shrt kept `chain_source` cannot say it was run by path,
@@ -327,7 +345,9 @@ and `not_equal: SUCCESS`.
   response or exports is recorded `skipped` instead of being sent, and the run stays failed with
   every red step listed. One exception: when the failed step was answered and only its
   expectations failed, a step that reads a response field none of those failed expectations
-  covers (the id, when the total was wrong) is still sent.
+  covers (the id, when the total was wrong) is still sent. A run without `-keep-going` that
+  failed names the steps it never sent on a line of its own, `N later step(s) were not run (...)`,
+  so a `-quiet` run in a gate does not read as a single red step.
 - Assert on `error.details.0.app_code` **and** `reason` — but **only for a named business failure**.
   `error.code` alone is a Connect code that a dozen unrelated refusals share.
 - **A shape error has no `app_code` and no `reason` to assert on.** A refusal raised by request
@@ -898,7 +918,9 @@ Three things that decide whether this works for a given chain:
 - **`shrt verify -run <id>` re-diffs a RECORDED run and sends nothing.** It needs no backend and no
   credential, so the after-check costs one run, not two. A record whose `chain` is another chain,
   copied into `runs/<chain>/`, is refused, here and wherever a run is loaded by id. It is also how you investigate a drift
-  without spending another live run.
+  without spending another live run. `-run latest` takes the newest run record of the chain, an
+  earlier `verify` replay included, and prints `verify: -run latest is run <id>` on stderr so you
+  know which one it diffed; when that is the safe spot's own run it says so, as for the id.
 - **A chain that creates things is re-run with a fresh `-var tag`, so every tag-derived value
   legitimately differs.** The principal a step runs as is input too: a step whose `auth_profile`
   differs from the safe spot's, such as `auth: clerk` added after approval, fails `verify` with

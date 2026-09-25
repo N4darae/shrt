@@ -120,6 +120,9 @@ func runRun(ctx context.Context, args []string) error {
 		}
 	}
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
+	if line := neverRanLine(c, rec); line != "" && !*dry {
+		fmt.Println("  " + line)
+	}
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
@@ -138,35 +141,43 @@ func runRun(ctx context.Context, args []string) error {
 }
 
 const runExitCodes = "\nexit codes:\n" +
-	"  0  passed (a -dry-run: every request resolved and validated); for a chain with kept_red, failed\n" +
-	"     exactly as kept_red pins, every pin evaluated (the run goes past every failure, pinned or\n" +
-	"     not, as -keep-going does) and no step left unsent\n" +
-	"  1  failed: a step was answered and an expectation did not hold (for a chain with kept_red: it\n" +
-	"     failed anywhere else or differently, or passed, so the pinned defect is gone); also a refusal before anything\n" +
-	"     was sent (bad flags, an unknown chain, a -var the chain never reads, a missing var,\n" +
-	"     an unset env var read by a step or by the login body of an auth profile a step runs under,\n" +
-	"     a reference to a step or export that does not exist or runs later, or to a response field\n" +
-	"     the producing step's message does not declare or a request path its request does not\n" +
-	"     declare, a reference whose declared type cannot fill the numeric field it is sent in (a\n" +
-	"     bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint\n" +
-	"     warning), a whole message into a string, bytes, bool, enum or numeric field (name:\n" +
-	"     ${p.product}; a Timestamp, Duration, FieldMask or wrapper renders as one value and passes),\n" +
-	"     a whole list or map into a single-valued field or a single value into a list or\n" +
-	"     map, an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a\n" +
-	"     config or descriptor that does not load, a conventions path no response declares, a step\n" +
-	"     body the proto rejects, checked for every step up front as -dry-run does)\n" +
-	"  3  error: a step could not complete (unresolved reference, a body only invalid with the values\n" +
-	"     a real response gave, target unreachable, the connection closed before a response because\n" +
-	"     the backend stopped or crashed, a gateway answered for the service with a Connect unavailable\n" +
-	"     or a bare HTTP 502/503/504, login failed), so the run is not a verdict about the backend;\n" +
-	"     a token the backend accepted earlier in the run and then refused reads as a likely restart\n" +
-	"     mid-run, and exits 1 as a finding when the previous run that sent that step was refused\n" +
-	"     there the same way, unless either run shows a restart (a call accepted when re-sent after a\n" +
-	"     fresh login, data created before it gone after the re-login, or a step before it with no\n" +
-	"     answer from the service); a token a login in this run had just issued and the backend refused on\n" +
-	"     its first use is reported as a\n" +
-	"     possible auth regression, and exits 1 as a finding when the previous run that sent that\n" +
-	"     step was refused there the same way, with its own freshly issued token\n"
+	"  0  passed\n" +
+	"     - a -dry-run: every request resolved and validated\n" +
+	"     - a chain with kept_red: failed exactly as kept_red pins, every pin evaluated (the run goes\n" +
+	"       past every failure, pinned or not, as -keep-going does) and no step left unsent\n" +
+	"  1  failed\n" +
+	"     - a step was answered and an expectation did not hold\n" +
+	"     - a chain with kept_red failed anywhere else or differently, or passed, so the pinned\n" +
+	"       defect is gone\n" +
+	"     - a token the backend accepted earlier in the run and then refused, when the previous run\n" +
+	"       that sent that step was refused there the same way and neither run shows a restart (see 3)\n" +
+	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
+	"       run that sent that step was refused there the same way, with its own freshly issued token\n" +
+	"     - a refusal before anything was sent, checked for every step up front as -dry-run does:\n" +
+	"       - bad flags, an unknown chain, a -var the chain never reads, a missing var\n" +
+	"       - an unset env var read by a step or by the login body of an auth profile a step runs under\n" +
+	"       - a reference to a step or export that does not exist or runs later, or to a response field\n" +
+	"         the producing step's message does not declare or a request path its request does not\n" +
+	"         declare\n" +
+	"       - a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum,\n" +
+	"         bytes or timestamp into an int64; a string may hold digits and is only a lint warning)\n" +
+	"       - a whole message into a string, bytes, bool, enum or numeric field (name: ${p.product}; a\n" +
+	"         Timestamp, Duration, FieldMask or wrapper renders as one value and passes)\n" +
+	"       - a whole list or map into a single-valued field or a single value into a list or map\n" +
+	"       - an unknown auth profile, an rpc the catalog does not have, a streaming rpc\n" +
+	"       - a config or descriptor that does not load, a conventions path no response declares, a\n" +
+	"         step body the proto rejects\n" +
+	"  3  error: a step could not complete, so the run is not a verdict about the backend\n" +
+	"     - an unresolved reference, or a body only invalid with the values a real response gave\n" +
+	"     - target unreachable, or the connection closed before a response because the backend\n" +
+	"       stopped or crashed\n" +
+	"     - a gateway answered for the service with a Connect unavailable or a bare HTTP 502/503/504\n" +
+	"     - login failed\n" +
+	"     - a token the backend accepted earlier in the run and then refused: a likely restart mid-run.\n" +
+	"       A restart shows as a call accepted when re-sent after a fresh login, data created before it\n" +
+	"       gone after the re-login, or a step before it with no answer from the service\n" +
+	"     - a token a login in this run had just issued and the backend refused on its first use:\n" +
+	"       reported as a possible auth regression\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {
@@ -329,6 +340,30 @@ func statusMark(s string, dry bool) string {
 
 func summary(rec *runner.Record, dry bool) string {
 	return runSummary(rec, dry, false, "")
+}
+
+func neverRanLine(c *chain.Chain, rec *runner.Record) string {
+	if c == nil || rec.KeepGoing || rec.KeptRed != "" || rec.Status != runner.StatusFailed {
+		return ""
+	}
+	ran := map[string]bool{}
+	for _, sr := range rec.Steps {
+		if sr != nil {
+			ran[sr.ID] = true
+		}
+	}
+	left := []string{}
+	for _, s := range c.Steps {
+		if s != nil && !ran[s.ID] {
+			left = append(left, s.ID)
+		}
+	}
+	if len(left) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d later step(s) were not run (%s): a run stops at its first failure, so whether they "+
+		"pass is unknown and this failure may not be the only one; run with -keep-going to see them",
+		len(left), capList(left, 10))
 }
 
 func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {

@@ -15,7 +15,17 @@ func contractPlan(args []string) error {
 	name := fs.String("name", "", "chain name, defaults to one derived from the rpc")
 	write := fs.Bool("write", false, "write the composed chain into the chains directory")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
-	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]]", "")
+	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]]",
+		"\nexit codes:\n"+
+			"  0  the plan was printed, or with -write written; also when a required field still has no\n"+
+			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
+			"  1  nothing was planned or written\n"+
+			"     - no rpc named, an rpc the catalog does not have, or an alias its contract does not declare\n"+
+			"     - a streaming target, or a contract graph that pulls in a streaming rpc\n"+
+			"     - a dependency cycle in the contracts (needs/from/same_as/before)\n"+
+			"     - with -write, the chain file already exists and -force was not given\n"+
+			"     - bad flags, or a setup that cannot load (no .shrt/config.yaml, a missing descriptor, a\n"+
+			"       contract overlay that does not parse)\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err

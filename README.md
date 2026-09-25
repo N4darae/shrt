@@ -102,19 +102,19 @@ kit's.
 | `shrt contract init <domain>` | scaffold the curated contract; re-running keeps what you wrote, and leaves an overlay alone (`unchanged`) when its content would not change, whatever its YAML layout |
 | `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter <word>` for every rpc whose name contains the word |
 | `shrt contract lint` | validate contracts against the descriptor |
-| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
-| `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
+| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired; a repeated message field in a request is scaffolded with two items with different values, so per-item logic is exercised |
+| `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), each repeated message field of a request that chains send but never with two or more items ('one item'), then streaming rpcs |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing; an rpc in the catalog with no contract in any overlay is charged too, so deleting an overlay makes `-gate` fail |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
-| `shrt chain lint [<c>]` | static validation against the catalog, one status per chain: `ok`, `warn` (warnings only; exit 0 unless `-strict` promotes one) or `FAIL` (an error), its issues listed under it; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, an `allow_fail` that does nothing, an export a later step silently overwrites, arithmetic such as `${a.qty}+${b.qty}` in an `equals` on a numeric field, which is compared as text and never computed, and a step expecting success that asserts only the verdict although its rpc's contract declares response facts, which is what every step `contract plan` writes starts as), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs (including the env vars the login body of each auth profile the chain's steps run under reads), are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, an export reading a field the response does not have (the run fails that step), and a reference to a field an earlier step's response does not have, or to a `request.` path its request message does not declare, and a whole-value reference whose declared type cannot fill the numeric field it is sent in, such as a timestamp (the run refuses the chain), are errors with or without `-strict` |
+| `shrt chain lint [<c>]` | static validation against the catalog, one status per chain: `ok`, `warn` (warnings only; exit 0 unless `-strict` promotes one) or `FAIL` (an error), its issues listed under it; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, `unfailable-assertion`; a step asserting nothing, `asserts-nothing`; an `allow_fail` that does nothing, `inert-allow-fail`; an export a later step silently overwrites, `export-overwritten`; arithmetic such as `${a.qty}+${b.qty}` in an `equals` on a numeric field, which is compared as text and never computed, `interpolated-arithmetic`; and a step expecting success that asserts only the verdict although its rpc's contract declares response facts, which is what every step `contract plan` writes starts as, `envelope-only`), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs (including the env vars the login body of each auth profile the chain's steps run under reads), are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, an export reading a field the response does not have (the run fails that step), and a reference to a field an earlier step's response does not have, or to a `request.` path its request message does not declare, and a whole-value reference whose declared type cannot fill the numeric field it is sent in, such as a timestamp (the run refuses the chain), are errors with or without `-strict` |
 | `shrt chain ls` | one line per chain, marking which have a safe spot; `-long` for full descriptions |
 | `shrt chain which [-rpc <rpc>] [-code <n>]` | which chains exercise an rpc or assert a failure code, marking each step `OBSERVED` when a local run record reached it, citing the newest such run and what it got even when that contradicts the assertion, and printing the `chain slice` command that reproduces the best match. Under `-code`, when no chain asserts the code but a local run record carried it, it lists those steps with a reproduce command instead of failing |
 | `shrt chain slice <c> -step <id>` | the minimal ordered sub-chain that reproduces one step; `-write [name]` it (`-force` to replace another chain), `-mode pin -run <id>` to pin values from a run instead of rebuilding their producers, `-keep <id,…>` to force earlier steps back in (`-keep writes` for every earlier write step the source run did not show refused, combinable with ids), `-var k=v` to supply a var the chain does not declare, `-verify -run <id>` to prove the slice still fails the same way (`-build <id>` stamps that run, and the recorded verdict names the build), comparing also the refusal's message, reason and app_code, a transport refusal, and the value a failing expectation got (ids and timestamps masked as `verify` masks them) (the slice's run record is kept only with `-write`). `-run latest` with `-mode pin` or `-verify` uses the newest run that reached the step; when the slice keeps every step, `-write` records the verdict in that chain instead of writing a copy |
-| `shrt chain hollow` | read steps that passed while the response carried nothing |
+| `shrt chain hollow` | read steps that passed while the response carried nothing, counted over every run record of the chains under `paths.chains` (`shrt run` records and `verify` replays, runs of chains kept red and failed runs alike), and the output splits the record count that way |
 | `shrt run <c>` | execute in order and record |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints the summary table to show the user and writes a full report. It writes no safe spot |
 | `shrt confirm <c> -approve -by <user email>` | write the safe spot, only after the user said yes to that proposal in the conversation; `-reject` discards it, `-pending` lists proposals |
-| `shrt verify <c>` | replay and diff against the safe spot, masking volatile paths and id- or timestamp-shaped values, and counting both. A replay against another target than the safe spot's is said first (`targets differ: ...`). A volatile pattern the safe spot did not approve (added to the config or chain after approval) fails it, naming what the pattern hid (a value that only echoes a fixture name or a renamed id is not listed, since verify masks it anyway; a stale echo, a value still holding the confirmed run's fixture name although this run sent another, is listed, since without the pattern it is a change); `-masked` lists every masked value, volatile and id- or timestamp-shaped alike, with its path and both values. It replays as `-keep-going` does, so every step a failure does not block is compared; a step held back behind a failure is reported `not_reached`, not as a change of length, and the report names the first failing step. A `not_reached` step is listed but is not a change: it is left out of the change count and the verdict, live and under `-run` alike (a run recorded without `-keep-going` stops at its first failure, and the steps after it are `not_reached`), and the header says how many were left out |
+| `shrt verify <c>` | replay and diff against the safe spot (`-run <id>` re-diffs a recorded run instead; `-run latest` takes the newest run record of the chain, a verify replay included, and names the run it picked), masking volatile paths and id- or timestamp-shaped values, and counting both. A replay against another target than the safe spot's is said first (`targets differ: ...`). A volatile pattern the safe spot did not approve (added to the config or chain after approval) fails it, naming what the pattern hid (a value that only echoes a fixture name or a renamed id is not listed, since verify masks it anyway; a stale echo, a value still holding the confirmed run's fixture name although this run sent another, is listed, since without the pattern it is a change); `-masked` lists every masked value, volatile and id- or timestamp-shaped alike, with its path and both values. It replays as `-keep-going` does, so every step a failure does not block is compared; a step held back behind a failure is reported `not_reached`, not as a change of length, and the report names the first failing step. A `not_reached` step is listed but is not a change: it is left out of the change count and the verdict, live and under `-run` alike (a run recorded without `-keep-going` stops at its first failure, and the steps after it are `not_reached`), and the header says how many were left out |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs of one chain step by step — status changes, where the first failure moved, steps no longer reached, response fields — with declared volatile paths, ids and timestamps masked. Needs no safe spot, and is a comparison between two runs, not a verdict. `shrt diff <c>` compares the two latest runs that are not `shrt verify` replays (a replay records `replay_of`), and says which two it picked, so a gate's own run is not compared with that gate's replay against the same backend; `latest` and `latest~N` count replays too |
 
 ### Exit codes
@@ -137,6 +137,7 @@ error), and 0 for `-h`.
 | `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
 | `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
 | `contract lint` | no contract error (warnings allowed) | a contract error, an overlay that does not parse, or no overlay to check | — | — |
+| `contract plan` | the plan was printed, or with `-write` written, including one whose required fields still have no usable value (a note names each) | nothing planned or written: no rpc named, an unknown rpc or alias, a streaming rpc in the graph, a dependency cycle, or with `-write` an existing chain file and no `-force` | — | — |
 | `contract quality -gate` | the score equals the baseline | the score is worse than the baseline, better without the baseline being lowered, or the baseline file is missing | — | — |
 
 ### CI gate
@@ -160,7 +161,7 @@ fail=0
 unverified=0
 shopt -s nullglob
 check() {
-  local what="$1" c="$2" file="$3" prefix="$4" try rc
+  local what="$1" c="$2" file="$3" prefix="$4" try rc args
   for try in 1 2; do
     args=(-quiet)
     if grep -qs 'vars\.tag' "$file"; then args+=(-var "tag=$tag-$prefix$c-$try"); fi
@@ -199,6 +200,13 @@ regression is never reported as merely unverified). Treat 3 in CI as "no verdict
 once the backend is up, or retry it automatically; do not mark the change red, and do not count it
 as green either.
 
+A `run` in the gate stops at its chain's first failure, so under `-quiet` a red chain shows that
+one failing step, and the steps after it were never sent: they may pass or fail. The run says so
+on a line of its own, `N later step(s) were not run (...)`, naming them. Treat the first failure as
+a lower bound on the blast radius, and re-run the chain with `-keep-going` to see which of the later
+steps fail too. A `verify` in the gate replays as `-keep-going` does and lists every step that did
+not pass, and so does a chain with `kept_red`.
+
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
 a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`, or a header value `X-Tag: t-${vars.tag}`): verify
@@ -228,6 +236,13 @@ over a file that is not the same slice: `shrt chain slice <chain> -step <id> -wr
 `shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
 nothing, a file given by path whose `name:` is that of a chain in `paths.chains` unless it IS that
 chain's file: rename it (`name: <name>-scratch`), or its runs would be proposed and counted as that chain's.
+
+The gate proves only what the chains send. A repeated request field that every chain sends with
+one item (one order line) leaves per-item logic untested: a total computed wrong only for two or
+more lines passes every chain above. `shrt contract status -gaps` lists each such field as
+`one item`; cover it with a step that sends two items with different values and asserts what
+depends on both, before trusting a green gate on that rpc. `shrt contract plan` scaffolds two
+items for that reason.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a
 missing file fails the gate. Create them once, before the first gate run: write `0` into each

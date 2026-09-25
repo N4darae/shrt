@@ -1,11 +1,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/store"
 )
@@ -22,12 +25,14 @@ type statusRow struct {
 	Uncovered []string `json:"uncovered,omitempty"`
 	Orphans   []string `json:"orphans,omitempty"`
 	Streaming []string `json:"streaming,omitempty"`
+
+	SingleItem []contract.SingleItemRepeat `json:"single_item,omitempty"`
 }
 
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry) and 'no path to' (a contract, but in no multi-step plan), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan) and 'one item' (a repeated message field every chain sends with at most one item), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -56,12 +61,21 @@ func contractStatus(args []string) error {
 	quality := contract.MeasurePhase(lib, e.cat, "", *phase)
 	gaps, scores := quality.GapsByDomain(), quality.ScoreByDomain()
 	reached := reachableRPCs(lib, e.cat)
+	chains, _, err := chain.LoadDirPartial(e.chainsDir())
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	single := map[string][]contract.SingleItemRepeat{}
+	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
+		single[r.RPC] = append(single[r.RPC], r)
+	}
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
 	for _, d := range contract.DomainNames(e.cat.Methods()) {
 		r := statusRow{Domain: d, Total: len(byDomain[d]), Todos: todos[d], Gaps: gaps[d], Score: scores[d]}
 		for _, m := range byDomain[d] {
+			r.SingleItem = append(r.SingleItem, single[m.FullName]...)
 			c, ok := lib.Get(m.FullName)
 			if !ok && m.Streaming() {
 				r.Streaming = append(r.Streaming, m.FullName)
@@ -123,6 +137,10 @@ func contractStatus(args []string) error {
 		phaseScope(*phase) + ":\n" +
 		scoringTerms(*phase) +
 		"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
+	if n := len(contract.SingleItemRepeats(chains, e.cat)); n > 0 {
+		fmt.Printf("\n%d repeated request field(s) are sent with at most one item by every chain that sends them, "+
+			"so per-item logic goes untested: shrt contract status -gaps lists them as 'one item'\n", n)
+	}
 	return nil
 }
 
@@ -139,18 +157,34 @@ func printStatusGaps(rows []statusRow) {
 		}
 	}
 	for _, r := range rows {
+		for _, one := range r.SingleItem {
+			items := "1 item"
+			if one.Most != 1 {
+				items = fmt.Sprintf("%d items", one.Most)
+			}
+			fmt.Printf("one item     %s %s: at most %s in every chain that sends it (%s)\n",
+				one.RPC, one.Field, items, strings.Join(clip(one.Chains, 4), ", "))
+			n++
+		}
+	}
+	for _, r := range rows {
 		for _, st := range r.Streaming {
 			fmt.Printf("streaming    %s  (out of scope: shrt is unary-only; not a gap, never REACHED)\n", st)
 		}
 	}
 	if n == 0 {
-		fmt.Println("no gaps: every rpc has a contract, and every unary one appears in some multi-step plan")
+		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan, and " +
+			"every repeated message field a chain sends is sent with two or more items somewhere")
 		return
 	}
 	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
 		"no path to   it has a contract, but appears in no multi-step plan: nothing it needs is declared and\n" +
 		"             nothing declares it as a producer. Right for a login or a read taking no id from elsewhere;\n" +
-		"             a missing 'needs:' or 'from:' for a write that cannot run on its own.\n")
+		"             a missing 'needs:' or 'from:' for a write that cannot run on its own.\n" +
+		"one item     a repeated message field in a request, and no chain sends it with two or more items, so\n" +
+		"             per-item logic (a total summed over lines, a check on the second item) is never\n" +
+		"             exercised and a regression there passes every gate. Add a step, or a chain, that sends\n" +
+		"             two items with different values and asserts what depends on both.\n")
 }
 
 func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) map[string]bool {
