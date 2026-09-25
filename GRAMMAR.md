@@ -250,7 +250,7 @@ Produced by resolving each form against a fixture scope:
 | `same_as` | string |  | `<rpc>[@alias]->request_path`. Must equal what an earlier call SENT. Mutually exclusive with `from`. `plan` keeps a producer value that is a single stable reference on both sites, points the consumer at `${steps.<producer>.request.<path>}` when the producer's value is a template (`sku-${vars.tag}`, `${uuid}`), and otherwise rewrites both sites onto one generated var. |
 | `oneof` | string |  | Mutual-exclusion group; at most one member may carry a value. The member that carries one is also the member `contract show` and `chain new` scaffold, in place of the proto group's first field. |
 | `checked_by` | string |  | How the server validates the id, which decides whether a bad one is a named domain failure or an unnamed 500. |
-| `note` | string |  | Units, formats, constraints. Prose only: it never changes `plan` output, and it does not mark a scaffold zero as deliberate; `value: "0"` does. |
+| `note` | string |  | Units, formats, constraints. Mostly prose, and it does not mark a scaffold zero as deliberate; `value: "0"` does. `plan` reads two things from it: a note saying `unique` names the field a uniqueness refusal is about, and a stated minimum (`must be greater than zero`, `at least 5`) on a numeric field of a target has the plan probe that minimum (accepted) and one below it (refused), when no failure's `when:` states it first. |
 
 ### `aliases.<name>`
 

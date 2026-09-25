@@ -1329,6 +1329,19 @@ whose name is not a required role, expecting the declared denial, plus one missi
 invalid-token probe per plan, between reads proving the write changed nothing. `contract status
 -gaps` lists `no role probe` and `no token` for rpcs no chain probes that way.
 
+## 49. Prices over 1000 stored short, and qty 0 accepted, green in the planned chains
+
+**Symptom.** CreateProduct stored `price - price/1000` for prices of 1000 and up, and AddStock
+answered SUCCESS for qty 0 instead of `1203 InvalidQty`. The planned chains stayed green.
+
+**Cause.** Planned fixtures used the contract's 250 and a second product at 251, nothing asserted
+the stored price, and no step sent a value at or below the stated minimum.
+
+**Fix.** 2026-09-25: the second producer's price is 1000 above the first, list fixtures spread to
+12345, every write asserts the numbers it sent come back, and a target gets `_large`, `_min` and
+`_below_min` probes where the contract states a minimum. Quantities grow by one, inside repeated
+items too, so three list fixtures are no longer the same order three times.
+
 ---
 
 # Decisions, so they are not relitigated

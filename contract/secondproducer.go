@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -266,6 +267,10 @@ func distinctProducer(body map[string]any, fields []*catalog.Field, suffix strin
 				body[key] = t[:loc[1]] + "-" + suffix + t[loc[1]:]
 				continue
 			}
+		}
+		if n, ok := numericValue(body[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
+			body[key] = strconv.FormatInt(spreadValue(n, 1, false), 10)
+			continue
 		}
 		body[key] = nextValue(body[key], f.Kind)
 	}

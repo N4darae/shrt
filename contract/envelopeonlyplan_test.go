@@ -55,7 +55,10 @@ func TestAPlannedStepAssertingOnlyTheVerdictFailsStrictLint(t *testing.T) {
 	}
 	loose := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib}))
 	strict := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib, Strict: true}))
-	for _, id := range []string{"create_product", "add_stock"} {
+	if _, flagged := loose["create_product"]; flagged {
+		t.Fatalf("create_product now asserts the price it sent is the price stored, so it is not envelope-only: %+v", loose)
+	}
+	for _, id := range []string{"add_stock"} {
 		if _, ok := loose[id]; !ok || loose[id].IsError() {
 			t.Fatalf("step %s asserts only status.code and its contract declares facts: want a warning, got %+v", id, loose)
 		}

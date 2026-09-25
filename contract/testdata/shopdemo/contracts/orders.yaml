@@ -105,6 +105,7 @@ rpcs:
         summary: List a customer's orders oldest first, restricted to one status when status is set.
         requires_role: [NONE]
         required: [id_customer]
+        needs: [shop.orders.v1.OrderService/CreateOrder]
         fields:
             id_customer:
                 from: shop.customers.v1.CustomerService/CreateCustomer->customer.id_customer

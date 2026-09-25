@@ -181,7 +181,7 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 		original := first.Body[key]
 		varied := true
 		for k, prod := range t.producers {
-			v, ok := orderedValue(original, f.Kind, perm[k])
+			v, ok := orderedValue(original, f.Name, f.Kind, perm[k])
 			if !ok {
 				varied = false
 				break
@@ -197,6 +197,7 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 		ranks[name] = perm
 		next++
 	}
+	varyItemNumbers(t.producers, fields)
 	p.noteOrder(t, ranks, lib)
 }
 
@@ -209,7 +210,7 @@ func fieldByName(fields []*catalog.Field, name string) *catalog.Field {
 	return nil
 }
 
-func orderedValue(v any, kind string, rank int) (any, bool) {
+func orderedValue(v any, name, kind string, rank int) (any, bool) {
 	marker := string(rune('a' + rank))
 	if chain.IsNumericKind(kind) {
 		base := int64(0)
@@ -227,10 +228,7 @@ func orderedValue(v any, kind string, rank int) (any, bool) {
 		default:
 			return v, false
 		}
-		if base <= 0 {
-			base = 1
-		}
-		return strconv.FormatInt(base*int64(rank+1), 10), true
+		return strconv.FormatInt(spreadValue(base, rank, isQuantityName(name)), 10), true
 	}
 	text, ok := v.(string)
 	if !ok || text == "" || wholeReference(text) {

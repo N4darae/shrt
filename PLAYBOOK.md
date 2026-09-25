@@ -333,6 +333,19 @@ pair per plan, not per rpc). For a write, all of these sit between reads of what
 `shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
 probe`) and the chained rpcs no chain calls without a token (`no token`).
 
+Numbers in planned fixtures differ by magnitude, because a bug in arithmetic shows at a size the
+first fixture never reaches (a price stored as `price - price/1000` is right for 250 and wrong for
+1250). A second producer takes the first value plus 1000 (`create_product_2`, price 1250), three list
+fixtures take 250, 1250 and 12345, and a quantity (`qty`, `quantity`, `count`, `amount`) grows by one
+per fixture instead, inside repeated items too (`lines.0.qty` 2, 3, 4), so it stays within the stock the
+plan adds. Every planned write asserts that each numeric field it sent comes back in its response's
+object unchanged (`product.price_minor equals ${steps.create_product.request.price_minor}`). A target
+also gets `<step>_<field>_large` (12345; never for a quantity, which runs into stock rules) and, when
+a failure's `when:` or the field's note states a minimum (`qty is zero or negative`, `must be greater
+than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
+`<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
+refused write changed nothing.
+
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
