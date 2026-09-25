@@ -52,7 +52,7 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil {
 		return nil
 	}
-	stated := perItemFailure.MatchString(c.Summary)
+	stated := c.Effects.perItem() || perItemFailure.MatchString(c.Summary)
 	for _, f := range lib.AllFailures(rpc) {
 		stated = stated || perItemFailure.MatchString(f.When)
 	}

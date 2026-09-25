@@ -63,7 +63,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]))
+				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value]))
 			}
 		}
 	}
@@ -148,8 +148,12 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 		what += fmt.Sprintf(", and %s assert what it holds is back to the reads taken before %s, as the contract says for %s",
 			strings.Join(held, ", "), moved.ID, withArticle(short[tr.value]+" "+e.carrier))
 	} else if len(entities) > 1 {
-		what += fmt.Sprintf("; the contract says nothing about what %s on %s gives back, so the other reads assert only that they answer",
-			shortRPC(st.Call), withArticle(short[tr.value]+" "+e.carrier))
+		number := "<number>"
+		if r := p.effectRules(lib); len(r.byEntity) > 0 {
+			number = r.byEntity[sortedRuleKeys(r.byEntity)[0]].moved
+		}
+		what += fmt.Sprintf("; %s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
+			shortRPC(st.Call), short[tr.value], number, short[tr.value])
 	}
 	p.note("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
 }

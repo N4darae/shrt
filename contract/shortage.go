@@ -95,7 +95,7 @@ func (p *Plan) suppliedFor(lib *Library, refs []string) (int64, bool) {
 			continue
 		}
 		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		if !ok || !increaseWord.MatchString(c.Summary) {
+		if !ok || !increaseWord.MatchString(c.Summary) && !c.Effects.increases() {
 			continue
 		}
 		walk(map[string]any(st.Body))

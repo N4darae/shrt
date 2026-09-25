@@ -37,6 +37,7 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 	}
 	issues = append(issues, lintCycles(lib, cat)...)
 	issues = append(issues, lintAliasAgreement(lib, cat)...)
+	issues = append(issues, EffectProblems(lib, cat)...)
 	sort.SliceStable(issues, func(i, j int) bool {
 		if issues[i].RPC != issues[j].RPC {
 			return issues[i].RPC < issues[j].RPC

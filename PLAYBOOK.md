@@ -22,7 +22,7 @@ summary:
 order: CreateAccount -> CreateInvoice -> PayInvoice
 12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
 fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-gap: step pay_invoice: the contract says nothing about what PayInvoice on a paid invoice gives back, so ...
+gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if ...
 3 more note(s) on why each probe is there, and each gap in full: shrt contract plan PayInvoice -notes
 next: shrt contract plan PayInvoice -write
 ```
@@ -156,8 +156,10 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
 - with auth configured: each target without a token and with `auth: invalid`; a role-gated rpc
   as each profile not holding the role; an rpc every role may call, repeated as each profile and
   compared;
+- the exact number a write moves on a record it names, on the write and on the read after it, and
+  a total over lines, with one line past 2^32, when `effects:` states them (§7);
 - numbers of different magnitudes, a large value, minimum and maximum boundaries a note or `when:`
-  states, a total that passes 2^32 when the contract states one, long and multi-byte text;
+  states, long and multi-byte text;
 - a batch with a refused item first, in the middle and last; an idempotency key replayed with the
   same and with another body.
 
@@ -306,9 +308,17 @@ has no term. Fill in this order; each step pays for the next:
 4. **`failures`**, one per way the rpc refuses, `when:` written as a condition. `code` is optional
    for a shape error. `reason:` is the backend's string verbatim for a coded failure, and a label
    you invent for a shape or auth failure.
-5. **`exports`, `terminal`, `soft_signals`**: what the response is for. `terminal` records a dead
+5. **`effects`**, for a write that moves a number a record holds. `summary` is prose for people;
+   `plan` asserts levels and totals from this key, and a `gap:` prints the one to add:
+   `{balance: {increase: amount}}` (`decrease`; `lines.amount` moves once per line),
+   `{balance: {decrease: lines.amount, of: id_invoice}}` (per line of the record `id_invoice` names),
+   `{balance: {restore: POSTED}}` (gives back what that took, from a POSTED record),
+   `{balance: none}` (leaves it alone), `{balance: zero}` (a create starts it at 0),
+   `{total_minor: {sum: lines.qty, times: unit_price}}`, `{lines: per_item}` (each line applied or
+   refused alone).
+6. **`exports`, `terminal`, `soft_signals`**: what the response is for. `terminal` records a dead
    end instead of deleting it.
-6. **`source`**: the files you read, without line ranges.
+7. **`source`**: the files you read, without line ranges.
 
 `before:` always attaches the plain rpc; to order aliases, list them in the dependent rpc's
 `needs:`. Leave `status: draft`: only a human sets `verified`. A codes-vs-contract cross-check needs

@@ -35,6 +35,8 @@ type Plan struct {
 	parities []parityCopy
 	lib      *Library
 	groupOf  map[*chain.Step]string
+	rules    *effectRules
+	rulesOf  *Library
 }
 
 type PlanOptions struct {

@@ -76,7 +76,8 @@ var notes = map[string]string{
 	"Overlay.failures":    "Failures every rpc in the domain inherits (authn, authz), stated once. With `scope: all` every rpc of every domain inherits it.",
 	"Overlay.rpcs":        "Keyed by the fully qualified `package.Service/Rpc`.",
 
-	"RPCContract.summary":       "What it does and when you would call it.",
+	"RPCContract.summary":       "Prose for people: what it does and when you would call it. What a write does to numbers goes in `effects`.",
+	"RPCContract.effects":       "What this rpc does to numbers, as data `plan` asserts, keyed by the number's field name: `{balance: {increase: amount}}`. Or a word: `none` (leaves it alone), `zero` (a create starts it at 0), `per_item` (keyed by a repeated request field: each item is applied or refused alone). A stated key wins over the prose.",
 	"RPCContract.note":          "Free text about the rpc. It spares no quality term; use `no_producer` for a read with no producer.",
 	"RPCContract.auth":          "Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step.",
 	"RPCContract.requires_role": "Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial.",
@@ -101,6 +102,13 @@ var notes = map[string]string{
 	"FieldContract.oneof":      "Mutual-exclusion group; at most one member carries a value, and that member is the one scaffolded.",
 	"FieldContract.checked_by": "How the server validates the id, which decides whether a bad one is a named failure or an unnamed 500.",
 	"FieldContract.note":       "Units, formats, constraints. `plan` reads `unique`, normalisation (`stored lowercased`, `trimmed`) and a stated minimum or maximum from it.",
+
+	"Effect.increase": "The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key.",
+	"Effect.decrease": "As `increase`, shrinking.",
+	"Effect.of":       "An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`.",
+	"Effect.restore":  "The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`.",
+	"Effect.sum":      "`<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32.",
+	"Effect.times":    "The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`.",
 
 	"AliasContract.note":   "What makes this instance different.",
 	"AliasContract.fields": "Field overrides for this instance only.",
@@ -333,6 +341,8 @@ func render() ([]byte, error) {
 	writeTable(&b, "FieldContract", reflect.TypeOf(contract.FieldContract{}))
 	b.WriteString("\n### `aliases.<name>`\n\n")
 	writeTable(&b, "AliasContract", reflect.TypeOf(contract.AliasContract{}))
+	b.WriteString("\n### `effects.<field>`\n\n")
+	writeTable(&b, "Effect", reflect.TypeOf(contract.Effect{}))
 	b.WriteString("\n### `failures[]`\n\n")
 	writeTable(&b, "Failure", reflect.TypeOf(contract.Failure{}))
 	b.WriteString("\n### `failures[].unique`\n\n")
