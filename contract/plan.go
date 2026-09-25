@@ -868,7 +868,7 @@ func (p *Plan) declareInterpolatedVars(missing []string) {
 	}
 	declared := []string{}
 	for _, name := range missing {
-		if !interpolated[name] || whole[name] {
+		if !interpolated[name] || whole[name] || name == chain.RunTagVar {
 			continue
 		}
 		if p.Chain.Vars == nil {

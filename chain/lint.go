@@ -910,28 +910,35 @@ func isIndex(s string) bool {
 func ExternalInputs(c *Chain) (vars []string, env []string) {
 	wantVar := map[string]bool{}
 	wantEnv := map[string]bool{}
+	for _, r := range chainRefs(c) {
+		name, _, _ := strings.Cut(r.Rest, ".")
+		if name == "" {
+			continue
+		}
+		switch r.Kind {
+		case RefVars:
+			if _, declared := c.Vars[name]; !declared && name != RunTagVar {
+				wantVar[name] = true
+			}
+		case RefEnv:
+			wantEnv[r.Rest] = true
+		}
+	}
+	return sortedKeys(wantVar), sortedKeys(wantEnv)
+}
+
+func chainRefs(c *Chain) []Ref {
+	out := []Ref{}
 	for _, s := range c.Steps {
 		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
 		for _, e := range s.Expect {
 			refs = append(refs, collectRefs(e.Operands())...)
 		}
 		for _, ref := range refs {
-			r := ParseRef(ref)
-			name, _, _ := strings.Cut(r.Rest, ".")
-			if name == "" {
-				continue
-			}
-			switch r.Kind {
-			case RefVars:
-				if _, declared := c.Vars[name]; !declared {
-					wantVar[name] = true
-				}
-			case RefEnv:
-				wantEnv[r.Rest] = true
-			}
+			out = append(out, ParseRef(ref))
 		}
 	}
-	return sortedKeys(wantVar), sortedKeys(wantEnv)
+	return out
 }
 
 func sortedKeys(m map[string]bool) []string {

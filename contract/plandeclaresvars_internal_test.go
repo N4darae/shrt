@@ -16,7 +16,7 @@ rpcs:
         required: [name]
         fields:
             name:
-                value: w-${vars.tag}
+                value: w-${vars.batch}-${vars.tag}
             idempotency_key:
                 value: ${vars.key}
         status: draft
@@ -27,9 +27,12 @@ func TestPlanDeclaresAnInterpolatedVarItReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildPlan: %v", err)
 	}
-	if got := p.Chain.Vars["tag"]; got != "demo-create" {
+	if got := p.Chain.Vars["batch"]; got != "demo-create" {
 		t.Fatalf("plan must declare the interpolated var it reads so lint does not warn on every planned "+
-			"chain; want tag: demo-create, got vars %v", p.Chain.Vars)
+			"chain; want batch: demo-create, got vars %v", p.Chain.Vars)
+	}
+	if _, declared := p.Chain.Vars["tag"]; declared {
+		t.Fatalf("an undeclared ${vars.tag} is fresh on every run, so the plan must not pin it to a default: %v", p.Chain.Vars)
 	}
 	if _, declared := p.Chain.Vars["key"]; declared {
 		t.Fatalf("a var that is a field's whole value has no safe default and must stay undeclared, so run "+
@@ -40,8 +43,8 @@ func TestPlanDeclaresAnInterpolatedVarItReads(t *testing.T) {
 		t.Fatalf("only key should still need a -var, got %v", missing)
 	}
 	for _, n := range p.Notes {
-		if strings.Contains(n, "${vars.tag}") && !strings.Contains(n, "-var tag=") {
-			t.Errorf("the note about the declared tag must still say a re-run needs a fresh -var tag: %q", n)
+		if strings.Contains(n, "${vars.batch}") && !strings.Contains(n, "-var batch=") {
+			t.Errorf("the note about the declared var must still say a re-run needs a fresh -var batch: %q", n)
 		}
 	}
 }

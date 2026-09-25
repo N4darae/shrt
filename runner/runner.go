@@ -930,6 +930,9 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		Redacted:    append(append([]string{}, c.Redact...), opts.Redact...),
 		Steps:       make([]*StepRecord, 0, len(c.Steps)),
 	}
+	if _, given := opts.Vars[chain.RunTagVar]; !given && c.FreshRunTag() {
+		rec.Vars[chain.RunTagVar] = chain.NewRunTag()
+	}
 	if err := checkVarsSupplied(c, opts.Vars); err != nil {
 		return nil, err
 	}

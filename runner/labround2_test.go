@@ -10,26 +10,51 @@ import (
 )
 
 func tagChain(t *testing.T) *chain.Chain {
+	return varChain(t, "tag")
+}
+
+func varChain(t *testing.T, name string) *chain.Chain {
 	return normalized(t, &chain.Chain{Name: "tagged", Steps: []*chain.Step{
 		{ID: "login", Call: "AuthService/Login", SkipAuth: true,
 			Body: map[string]any{"username": "staff", "password": "secret"}, Expect: okExpect()},
 		{ID: "create", Call: "ThingService/Create",
-			Body: map[string]any{"name": "w-${vars.tag}", "kind": "KIND_A"}, Expect: okExpect()},
+			Body: map[string]any{"name": "w-${vars." + name + "}", "kind": "KIND_A"}, Expect: okExpect()},
 	}})
+}
+
+func TestARunReadingAnUndeclaredTagGetsAFreshOneEachRun(t *testing.T) {
+	srv := newFakeServer()
+	defer srv.Close()
+	seen := map[string]bool{}
+	for i := 0; i < 2; i++ {
+		rec, err := newRunner(t, srv).Run(context.Background(), tagChain(t), runner.Options{})
+		if err != nil || !rec.Passed() {
+			t.Fatalf("run %d: err=%v rec=%+v", i, err, rec)
+		}
+		tag, _ := rec.Vars["tag"].(string)
+		if tag == "" || seen[tag] {
+			t.Fatalf("run %d: an undeclared ${vars.tag} gets a fresh value recorded in the run, got %v", i, rec.Vars)
+		}
+		seen[tag] = true
+	}
+	rec, err := newRunner(t, srv).Run(context.Background(), tagChain(t), runner.Options{Vars: map[string]any{"tag": "given"}})
+	if err != nil || rec.Vars["tag"] != "given" {
+		t.Fatalf("-var tag wins over the fresh one: err=%v vars=%v", err, rec.Vars)
+	}
 }
 
 func TestARunReadingAnUnsuppliedVarSendsNothing(t *testing.T) {
 	for _, dry := range []bool{false, true} {
 		srv := newFakeServer()
-		_, err := newRunner(t, srv).Run(context.Background(), tagChain(t), runner.Options{DryRun: dry})
+		_, err := newRunner(t, srv).Run(context.Background(), varChain(t, "batch"), runner.Options{DryRun: dry})
 		srv.mu.Lock()
 		sent := len(srv.calls)
 		srv.mu.Unlock()
 		srv.Close()
 		if err == nil {
-			t.Fatalf("dry=%v: a chain reading ${vars.tag} ran without -var tag", dry)
+			t.Fatalf("dry=%v: a chain reading ${vars.batch} ran without -var batch", dry)
 		}
-		if !strings.Contains(err.Error(), "${vars.tag}") || !strings.Contains(err.Error(), "-var tag=...") {
+		if !strings.Contains(err.Error(), "${vars.batch}") || !strings.Contains(err.Error(), "-var batch=...") {
 			t.Errorf("dry=%v: error must name the var and the flag that supplies it: %v", dry, err)
 		}
 		if sent != 0 {

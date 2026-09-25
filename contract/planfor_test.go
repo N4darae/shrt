@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -230,10 +231,13 @@ func TestPlanDeclaresAndNotesAVarItsValuesInterpolate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Chain.Vars["tag"] != "tagged" {
-		t.Fatalf("a var the contract's values interpolate must be declared, got vars %v", plan.Chain.Vars)
+	if _, declared := plan.Chain.Vars["tag"]; declared {
+		t.Fatalf("an undeclared ${vars.tag} is fresh on every run, so the plan must not declare it: %v", plan.Chain.Vars)
 	}
-	if !anyNote(plan.Notes, "${vars.tag}") || !anyNote(plan.Notes, "-var tag=<fresh>") {
-		t.Fatalf("a planned chain whose re-run needs a fresh -var tag must say so: %v", plan.Notes)
+	if missing, _ := chain.ExternalInputs(plan.Chain); len(missing) > 0 {
+		t.Fatalf("a planned chain reading ${vars.tag} needs no -var, got %v", missing)
+	}
+	if anyNote(plan.Notes, "-var tag=") {
+		t.Fatalf("a planned chain re-runs without -var tag, so no note may ask for one: %v", plan.Notes)
 	}
 }

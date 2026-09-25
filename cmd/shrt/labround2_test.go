@@ -57,7 +57,7 @@ steps:
     - id: create_customer
       call: ThingService/Create
       body:
-          name: c-${vars.tag}
+          name: c-${vars.batch}
           kind: KIND_A
       expect:
           - path: error.code
@@ -70,16 +70,16 @@ func TestCLIRunRefusesAnUnsuppliedVarBeforeSendingAnything(t *testing.T) {
 	for _, args := range [][]string{{"tagged", "-quiet"}, {"tagged", "-quiet", "-dry-run"}} {
 		calls := chdirToVarWorkspace(t)
 		err := runRun(context.Background(), args)
-		if err == nil || !strings.Contains(err.Error(), "-var tag=...") || !strings.Contains(err.Error(), "${vars.tag}") {
-			t.Fatalf("%v: want a refusal naming ${vars.tag} and -var tag=..., got %v", args, err)
+		if err == nil || !strings.Contains(err.Error(), "-var batch=...") || !strings.Contains(err.Error(), "${vars.batch}") {
+			t.Fatalf("%v: want a refusal naming ${vars.batch} and -var batch=..., got %v", args, err)
 		}
 		if *calls != 0 {
 			t.Fatalf("%v: %d request(s) sent before the run refused", args, *calls)
 		}
 	}
 	calls := chdirToVarWorkspace(t)
-	if err := runRun(context.Background(), []string{"tagged", "-quiet", "-var", "tag=x"}); err != nil {
-		t.Fatalf("with -var tag=x: %v", err)
+	if err := runRun(context.Background(), []string{"tagged", "-quiet", "-var", "batch=x"}); err != nil {
+		t.Fatalf("with -var batch=x: %v", err)
 	}
 	if *calls != 2 {
 		t.Fatalf("with the var supplied both steps should be sent, got %d", *calls)
@@ -91,8 +91,8 @@ func TestCLIVerifyRefusesAnUnsuppliedVarBeforeSendingAnything(t *testing.T) {
 	writeFile(t, ".shrt/safespots/tagged.json", `{"chain":"tagged","run_id":"r","target":"t","confirmed_by":"test","confirmed_at":"2026-01-01T00:00:00Z","digest":"d","steps":[]}`)
 	resealSafeSpot(t, ".shrt/safespots/tagged.json")
 	err := runVerify(context.Background(), []string{"tagged", "-quiet"})
-	if err == nil || !strings.Contains(err.Error(), "-var tag=...") {
-		t.Fatalf("want a refusal naming -var tag=..., got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "-var batch=...") {
+		t.Fatalf("want a refusal naming -var batch=..., got %v", err)
 	}
 	if *calls != 0 {
 		t.Fatalf("%d request(s) sent before verify refused", *calls)

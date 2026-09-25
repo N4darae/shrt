@@ -1,16 +1,38 @@
 package chain
 
 import (
+	"crypto/rand"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/N4darae/shrt/catalog"
 )
 
-const gateTagVar = "tag"
+const RunTagVar = "tag"
+
+func (c *Chain) FreshRunTag() bool {
+	if _, declared := c.Vars[RunTagVar]; declared {
+		return false
+	}
+	for _, r := range chainRefs(c) {
+		if name, _, _ := strings.Cut(r.Rest, "."); r.Kind == RefVars && name == RunTagVar {
+			return true
+		}
+	}
+	return false
+}
+
+func NewRunTag() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("t%x", time.Now().UnixNano())
+	}
+	return fmt.Sprintf("t%x", b)
+}
 
 func lintWholeTag(c *Chain, s *Step, m *catalog.Method) []Issue {
-	if _, declared := c.Vars[gateTagVar]; !declared || s == nil || m == nil {
+	if _, declared := c.Vars[RunTagVar]; (!declared && !c.FreshRunTag()) || s == nil || m == nil {
 		return nil
 	}
 	issues := []Issue{}
@@ -23,7 +45,7 @@ func lintWholeTag(c *Chain, s *Step, m *catalog.Method) []Issue {
 			return
 		}
 		r := ParseRef(refs[0])
-		if r.Kind != RefVars || r.Rest != gateTagVar {
+		if r.Kind != RefVars || r.Rest != RunTagVar {
 			return
 		}
 		leaf := path

@@ -518,12 +518,26 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag})
 			continue
 		}
-		if v, ok := opts.RunVars[name]; ok && mode == SliceModePin {
+		if v, ok := opts.RunVars[name]; ok && mode == SliceModePin && !(name == RunTagVar && fresh[name]) {
 			vars[name] = v
 			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun})
 			continue
 		}
+		if name == RunTagVar {
+			continue
+		}
 		res.MissingVars = append(res.MissingVars, name)
+	}
+	if _, declared := c.Vars[RunTagVar]; !declared && fresh[RunTagVar] {
+		if _, given := opts.Vars[RunTagVar]; !given {
+			kept := []string{}
+			for _, name := range res.FreshVars {
+				if name != RunTagVar {
+					kept = append(kept, name)
+				}
+			}
+			res.FreshVars = kept
+		}
 	}
 	if len(vars) > 0 {
 		out.Vars = vars
