@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,7 +25,7 @@ type gateEarly struct {
 	age, stated time.Duration
 }
 
-const sessionHoldCap = 90 * time.Second
+const sessionHoldCap = 30 * time.Second
 
 func sessionReads(e *env, rec *runner.Record) map[string]gateRead {
 	if e == nil || e.cat == nil || rec == nil || rec.DryRun {
@@ -60,6 +61,19 @@ func checkSessions(ctx context.Context, e *env, profiles []string, at map[string
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	out := map[string]sessionCheck{}
+	held, longest := []string{}, time.Duration(0)
+	for _, p := range profiles {
+		if _, ok := reads[p]; ok && at[p].age > 0 && at[p].stated > 0 && e.cat != nil {
+			held, longest = append(held, p), max(longest, sessionHold(at[p]))
+		}
+	}
+	switch len(held) {
+	case 0:
+	case 1:
+		fmt.Printf("checking session lifetime of auth profile %s: holding a fresh token %s (-no-session-check skips this)\n", held[0], ageText(longest))
+	default:
+		fmt.Printf("checking session lifetime of auth profiles %s: holding fresh tokens up to %s (-no-session-check skips this)\n", strings.Join(held, ", "), ageText(longest))
+	}
 	for _, p := range profiles {
 		wg.Add(1)
 		go func() {
@@ -80,16 +94,19 @@ func checkSession(ctx context.Context, e *env, profile string, at gateEarly, rea
 	if !ok || at.age <= 0 || at.stated <= 0 || e.cat == nil {
 		return "", false, false
 	}
-	hold := min(at.age, sessionHoldCap) + time.Second
+	hold := sessionHold(at)
 	half := hold / 2
-	fmt.Printf("checking session lifetime of auth profile %s: holding a fresh token %s\n", profile, ageText(hold))
 	first, ok := heldProbes(ctx, e, profile, read, hold)
 	if !ok {
 		return "", false, false
 	}
 	if first[0] {
-		return fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was accepted",
-			profile, ageText(hold)), false, true
+		line := fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was accepted", profile, ageText(hold))
+		if hold <= at.age {
+			line = fmt.Sprintf("session check: the early refusal of auth profile %s was a restart, or sessions last %s to %s: a fresh token held %s was accepted",
+				profile, ageText(hold), ageText(at.age), ageText(hold))
+		}
+		return line, false, true
 	}
 	second, ok := heldProbes(ctx, e, profile, read, half, hold)
 	switch {
@@ -104,6 +121,10 @@ func checkSession(ctx context.Context, e *env, profile string, at gateEarly, rea
 	}
 	return fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was refused once, "+
 		"then fresh ones held %s and %s were accepted", profile, ageText(hold), ageText(half), ageText(hold)), false, true
+}
+
+func sessionHold(at gateEarly) time.Duration {
+	return min(at.age+time.Second, sessionHoldCap)
 }
 
 func heldProbes(ctx context.Context, e *env, profile string, read gateRead, ages ...time.Duration) ([]bool, bool) {

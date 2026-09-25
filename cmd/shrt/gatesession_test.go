@@ -41,7 +41,7 @@ func TestTheGateHoldsAFreshTokenAndReportsSessionsThatEndEarly(t *testing.T) {
 		!strings.Contains(out, "s although the login said 3600s") {
 		t.Fatalf("a fresh token refused after the long hold and another at half of it is a finding, exit 1, got %d:\n%s", code, out)
 	}
-	if strings.Contains(out, "refused early once") || strings.Count(out, "checking session lifetime") != 1 {
+	if strings.Contains(out, "refused early once") || strings.Count(out, "checking session lifetime") != 1 || !strings.Contains(out, "(-no-session-check skips this)\n") {
 		t.Fatalf("the check settles the note and says once that it waits:\n%s", out)
 	}
 }
@@ -128,5 +128,15 @@ func TestTheGateEndsWithOneCoverageLineWhenNoContractPlansTheSuite(t *testing.T)
 	if code != 0 || strings.Count(out, "coverage: ") != 1 ||
 		!strings.Contains(out, "rpc(s) with a contract have no chain calling them, so none of their planned probes run: shrt contract plan -all -write\n") {
 		t.Fatalf("contracts for rpcs no chain calls: one coverage line, exit unchanged, got %d:\n%s", code, out)
+	}
+}
+
+func TestTheSessionHoldIsCappedAtThirtySecondsAndItsHalfAtFifteen(t *testing.T) {
+	hold := sessionHold(gateEarly{age: 79 * time.Second, stated: time.Hour})
+	if hold != 30*time.Second || hold/2 != 15*time.Second {
+		t.Fatalf("a routine restart must not cost a gate more than 30s and 15s of holding, got %s", hold)
+	}
+	if got := sessionHold(gateEarly{age: 2 * time.Second}); got != 3*time.Second {
+		t.Fatalf("a young refusal is held a second past its age, got %s", got)
 	}
 }
