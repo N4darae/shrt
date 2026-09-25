@@ -311,7 +311,14 @@ func (a attribution) item(it gateItem) gateItem {
 }
 
 func (it gateItem) verdict() string {
-	return it.Path + " " + chain.WantGot(it.Rule, it.Want, it.Got)
+	return it.Path + " " + it.wantGot()
+}
+
+func (it gateItem) wantGot() string {
+	if strings.HasPrefix(it.Path, "(") {
+		return it.Got
+	}
+	return chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
 func pinnedStep(c *chain.Chain, step string) bool {
@@ -746,17 +753,31 @@ func (g *gateChain) printChanges() {
 		path := gateIndex.ReplaceAllString(it.Path, "[]$1")
 		if steps[path] == nil {
 			paths = append(paths, path)
-			example[path] = chain.WantGot(it.Rule, it.Want, it.Got)
+			example[path] = it.wantGot()
 		}
 		if !containsName(steps[path], it.Step) {
 			steps[path] = append(steps[path], it.Step)
 		}
 	}
+	var sets []string
+	together := map[string][]string{}
 	for _, p := range paths {
-		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", p, len(steps[p]), capList(steps[p], 3), example[p])
+		key := strings.Join(steps[p], " ")
+		if together[key] == nil {
+			sets = append(sets, key)
+		}
+		together[key] = append(together[key], p)
+	}
+	for _, key := range sets {
+		ps := together[key]
+		eg := example[ps[0]]
+		if len(ps) > 1 {
+			eg = ps[0] + " " + eg
+		}
+		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", capList(ps, 4), len(steps[ps[0]]), capList(steps[ps[0]], 3), eg)
 	}
 	for _, c := range because {
-		fmt.Printf("    %d step(s) unevaluated because %s\n", cascades[c], c)
+		fmt.Printf("    %d step(s) %s\n", cascades[c], c)
 	}
 }
 
@@ -841,7 +862,7 @@ func printGateGroups(chains []*gateChain) {
 		for _, it := range g.items {
 			path := gateIndex.ReplaceAllString(it.Path, "[]$1")
 			step := g.name + " " + it.Step
-			example := fmt.Sprintf("%s %s %s %s", g.name, it.Step, path, chain.WantGot(it.Rule, it.Want, it.Got))
+			example := fmt.Sprintf("%s %s %s %s", g.name, it.Step, path, it.wantGot())
 			own := func(gr *gateGroup) {
 				gr.steps[step] = true
 				gr.chains[g.name] = true
@@ -948,7 +969,7 @@ func printGateGroups(chains []*gateChain) {
 					steps++
 				}
 			}
-			fmt.Printf("    +%d step(s) in %d chain(s) unevaluated because %s\n", steps, in, c)
+			fmt.Printf("    +%d step(s) in %d chain(s) %s\n", steps, in, c)
 		}
 	}
 }

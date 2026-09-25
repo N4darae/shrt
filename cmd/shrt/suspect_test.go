@@ -196,7 +196,7 @@ func TestAStepUnevaluatedBehindAFailedWriteIsFiledUnderThatWrite(t *testing.T) {
 		shopStep("get_after_add", shopGet, `{"product":{"id_product":"p1"}}`, "create").heldBy("create", "product.sku"),
 	)
 	write, own, cascade := blameOf(t, rec, "get_after_add", "status")
-	if write != "create" || own != "" || cascade != "CreateProduct lost product.sku" {
+	if write != "create" || own != "" || cascade != "unevaluated because CreateProduct lost product.sku" {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }
@@ -262,8 +262,8 @@ func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testin
 		gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Own: "List answers the same items in another order"},
 		gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Own: "Find fails on its own (internal)"},
 		gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2"},
-		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "Make lost n"},
-		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "Make lost n"},
+		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "unevaluated because Make lost n"},
+		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "unevaluated because Make lost n"},
 	)
 	out := captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}) })
 	if n := strings.Count(out, "  S/List:"); n != 1 || !strings.Contains(out, "(+1 other reason(s))") {
@@ -300,16 +300,67 @@ func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "list", Path: "things.3.n", Want: "1", Got: "2"},
-		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "Make lost thing.n"},
+		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "unevaluated because Make lost thing.n"},
+		{Step: "put", Path: "(error)", Got: "unavailable: busy"},
+		{Step: "put", Path: "code", Want: "<none>", Got: "unavailable"},
+		{Step: "put_2", Path: "(error)", Got: "unavailable: busy"},
+		{Step: "put_2", Path: "code", Want: "<none>", Got: "unavailable"},
 	}}
 	out := captureStdout(t, g.printChanges)
 	for _, want := range []string{
 		"    thing.n at 2 step(s) (make, get); e.g. want=1 got=2\n",
 		"    things[].n at 1 step(s) (list); e.g. want=1 got=2\n",
 		"    1 step(s) unevaluated because Make lost thing.n\n",
+		"    (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
+	}
+}
+
+func TestChangesAfterAWriteThatFailedAtTheTransportAreFiledUnderIt(t *testing.T) {
+	add := shopStep("add", "shop.catalog.v1.StockService/AddStock", `{"code":"unavailable"}`, "create")
+	add.Status, add.HTTPStatus, add.Transport = runner.StatusError, 503, &runner.TransportError{Code: "unavailable", Message: "busy"}
+	order := `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"3"}]}}`
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`),
+		shopStep("create_2", shopCreate, `{"product":{"id_product":"p2"}}`),
+		add,
+		shopStep("create_order", shopOrder, order, "create", "create_2").failing("order.lines.0.qty", "2", "3"),
+		shopStep("confirm_order", shopConfirm, order, "create_order").failing("status.code", "SUCCESS", "REJECTED"),
+		shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`, "create").failing("product.qty_on_hand", "5", "0"),
+		shopStep("get_2", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"0"}}`, "create_2").failing("product.qty_on_hand", "5", "0"),
+	)
+	for _, c := range []struct{ step, path, write string }{
+		{"get", "product.qty_on_hand", "add"},
+		{"confirm_order", "status.code", "add"},
+		{"get_2", "product.qty_on_hand", "add"},
+	} {
+		if write, own, cascade := blameOf(t, rec, c.step, c.path); write != c.write || own != "" || cascade != "after AddStock failed on the same record" {
+			t.Errorf("%s: got write %q own %q cascade %q", c.step, write, own, cascade)
+		}
+	}
+	if write, _, cascade := blameOf(t, rec, "create_order", "order.lines.0.qty"); write == "add" || cascade != "" {
+		t.Errorf("a field the failed write does not answer is not its: got write %q cascade %q", write, cascade)
+	}
+	other := shopRecord(recStep{rec.Steps[0]}, recStep{rec.Steps[1]}, add, recStep{rec.Steps[6]})
+	if write, _, cascade := blameOf(t, other, "get_2", "product.qty_on_hand"); write == "add" || cascade != "" {
+		t.Errorf("another record is not the failed write's: got write %q cascade %q", write, cascade)
+	}
+	after := func(step string) gateItem {
+		return gateItem{Step: step, Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0",
+			Suspect: "shop.catalog.v1.StockService/AddStock", SuspectStep: "add", Cascade: "after AddStock failed on the same record"}
+	}
+	chains := []*gateChain{
+		{name: "one", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopCancel, SuspectStep: "cancel"}}},
+		{name: "two", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopConfirm, SuspectStep: "confirm"}}},
+	}
+	out := captureStdout(t, func() { printGateGroups(chains) })
+	if !strings.Contains(out, "    +2 step(s) in 2 chain(s) after AddStock failed on the same record\n") {
+		t.Errorf("the steps after the failed write fold into one line under it:\n%s", out)
+	}
+	if !strings.Contains(out, "suspect the read: GetProduct changes product.qty_on_hand after 2 different writes (CancelOrder, ConfirmOrder)") {
+		t.Errorf("the steps after the failed write do not count as writes the read changes after:\n%s", out)
 	}
 }

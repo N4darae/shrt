@@ -467,6 +467,41 @@ func NotAnsweredByService(sr *StepRecord) bool {
 	return sr != nil && sr.Status == StatusError && sr.Transport != nil && unavailableAnswer(sr.HTTPStatus, sr.Transport.Code)
 }
 
+func serviceRefused(sr *StepRecord) bool {
+	return NotAnsweredByService(sr) && sr.Transport.Code == "unavailable"
+}
+
+func settleServiceRefusals(steps []*StepRecord) {
+	answered := func(st *StepRecord) bool {
+		return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !NotAnsweredByService(st)
+	}
+	var settled []*StepRecord
+	for i, sr := range steps {
+		if !serviceRefused(sr) {
+			continue
+		}
+		same, later := "", false
+		for j, o := range steps {
+			if j != i && answered(o) {
+				if same == "" && o.Call == sr.Call {
+					same = o.ID
+				}
+				later = later || j > i
+			}
+		}
+		if same == "" || !later {
+			continue
+		}
+		why, _, _ := strings.Cut(sr.Error, "\n")
+		sr.Error = why + "\n       " + fmt.Sprintf("HTTP %d from the service itself: it answered this rpc at step %q and the steps "+
+			"after this one, so this is not a restart or a gateway", sr.HTTPStatus, same)
+		settled = append(settled, sr)
+	}
+	for _, sr := range settled {
+		sr.Status, sr.Expect = StatusFailed, sr.refused
+	}
+}
+
 func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.TokenRefusal) {
 	if sr.Status != StatusFailed {
 		return
@@ -981,17 +1016,15 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
 	exporter := exportSources{}
-	failures := []string{}
-	failedCount := 0
-	said := map[string]int{}
-	repeats := map[int][]string{}
+	var failed []int
+	behindOn := map[int]string{}
 	var dead *StepRecord
 	unreached := 0
 	pastPins := len(c.KeptRed) > 0 && !opts.DryRun
 	keepGoing := opts.KeepGoing || pastPins
 	for i, step := range c.Steps {
 		var sr *StepRecord
-		behind, behindOn := false, ""
+		behind := false
 		if dead != nil {
 			sr = r.skippedUnreachable(i, step, dead)
 			rec.Steps = append(rec.Steps, sr)
@@ -1005,7 +1038,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if keepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
-				behind, behindOn = true, producer.ID
+				behind, behindOn[i] = true, producer.ID
 			}
 		}
 		if sr == nil {
@@ -1031,35 +1064,44 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if step.AllowFail && sr.Status == StatusFailed && !sr.AssertionFailed() && !sr.Drift {
 			continue
 		}
-		failure := failureOf(step, sr)
-		if !keepGoing {
+		if !keepGoing && !serviceRefused(sr) {
 			rec.Status = sr.Status
-			rec.Failure = failure
+			rec.Failure = failureOf(step, sr)
 			break
 		}
+		keepGoing = true
+		broken[step.ID] = sr
+		rec.FailedSteps = append(rec.FailedSteps, step.ID)
+		failed = append(failed, i)
+		if sr.unreachable != "" {
+			dead = sr
+		}
+	}
+	settleServiceRefusals(rec.Steps)
+	failures := []string{}
+	said := map[string]int{}
+	repeats := map[int][]string{}
+	for _, i := range failed {
+		sr := rec.Steps[i]
 		if rec.Status == StatusPassed {
 			rec.Status = sr.Status
-			if behind {
+			if behindOn[i] != "" {
 				rec.Status = StatusFailed
 			}
 		}
-		broken[step.ID] = sr
-		rec.FailedSteps = append(rec.FailedSteps, step.ID)
+		failure := failureOf(c.Steps[i], sr)
 		key := strings.TrimPrefix(failure, fmt.Sprintf("step %q: ", sr.ID))
-		if behind {
-			key = "behind " + behindOn
+		if behindOn[i] != "" {
+			key = "behind " + behindOn[i]
 		}
-		failedCount++
 		if at, ok := said[key]; ok {
 			repeats[at] = append(repeats[at], sr.ID)
 		} else {
 			said[key] = len(failures)
 			failures = append(failures, failure)
 		}
-		if sr.unreachable != "" {
-			dead = sr
-		}
 	}
+	failedCount := len(failed)
 	for i, sr := range rec.Steps {
 		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
 			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
@@ -1073,7 +1115,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
 	}
 	switch {
-	case pastPins && len(failures) == 1 && failedCount == 1 && unreached == 0:
+	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && failedCount == 1 && unreached == 0:
 		rec.Failure = failures[0]
 	case pastPins && len(failures) > 0:
 		rec.Failure = fmt.Sprintf("kept_red: ran every step, as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
@@ -1356,7 +1398,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			return sr
 		}
 		if unavailableAnswer(res.Status, res.Error.Code) {
-			sr.Status = StatusError
+			sr.Status, sr.refused = StatusError, sr.Expect
 			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was "+notAnsweredByService+", so this assertion never ran")
 			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the call was %s: a gateway or load balancer "+
 				"answered for it (the normal answer while the service restarts or is not ready), so this is not a verdict "+
