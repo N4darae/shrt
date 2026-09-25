@@ -1604,6 +1604,19 @@ checks `qty == 0` instead of `qty <= 0` refuses 0 and lets every negative value 
 adds `<step>_<field>_negative` at -1 next to `_below_min`, expecting the same refusal, between reads
 proving the stock did not move.
 
+## 67. A shortage probe that tested a quantity cap instead of the shortage
+
+**Symptom.** A CreateOrder that began refusing `qty > 99` as `invalid_argument` made the planned
+`create_order_for_insufficient_stock` fail with "qty too large", so the two `ConfirmOrder` shortage
+probes were never sent and the run said nothing about stock.
+
+**Cause.** The plan asked for 100000 units, far above any fixture but also above any cap a backend
+puts on the quantity field.
+
+**Fix.** 2026-09-25: the shortage asks for one more than the stock the chain's own writes added to
+that item (a write whose contract summary says add or increase, such as `add_stock` with `qty: 10`
+giving 11). 100000 is used only when no write in the chain adds to the item, and a note says so.
+
 ---
 
 # Decisions, so they are not relitigated

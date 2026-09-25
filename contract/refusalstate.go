@@ -131,7 +131,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 			"and read the state it would have changed before and after it", st.ID, f.Label())
 		return
 	}
-	ids := []string{}
+	ids, unknown := []string{}, []string{}
 	for i, path := range paths {
 		suffix := name
 		if i > 0 {
@@ -142,19 +142,28 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		refused.Expect = append([]chain.Expectation{}, expect...)
 		where := ""
 		if source == nil {
-			setBodyPath(refused.Body, path, overdrawValue)
+			qty, derived := p.shortageQuantity(lib, refused.Body, path)
+			if !derived {
+				unknown = append(unknown, refused.ID)
+			}
+			setBodyPath(refused.Body, path, qty)
 			p.freshen(lib, refused)
-			where = fmt.Sprintf("%s set to %s", path, overdrawValue)
+			where = fmt.Sprintf("%s set to %s", path, qty)
 		} else {
+			qty, derived := p.shortageQuantity(lib, source.Body, path)
 			short := copyStep(source, p.freeStepID(source.ID+"_for_"+suffix))
 			short.Export = nil
-			short.Description = fmt.Sprintf("as %s, but %s asks for %s, more than any fixture holds, for %s.", source.ID, path, overdrawValue, refused.ID)
-			setBodyPath(short.Body, path, overdrawValue)
+			short.Description = fmt.Sprintf("as %s, but %s asks for %s, one more than the stock this chain added, for %s.", source.ID, path, qty, refused.ID)
+			if !derived {
+				unknown = append(unknown, short.ID)
+				short.Description = fmt.Sprintf("as %s, but %s asks for %s, more than any fixture holds, for %s.", source.ID, path, qty, refused.ID)
+			}
+			setBodyPath(short.Body, path, qty)
 			p.freshen(lib, short)
 			renameStepRefs(short, source.ID, short.ID)
 			renameStepRefs(refused, source.ID, short.ID)
 			p.Chain.Steps = append(p.Chain.Steps, short)
-			where = fmt.Sprintf("%s (%s asks for %s)", short.ID, path, overdrawValue)
+			where = fmt.Sprintf("%s (%s asks for %s)", short.ID, path, qty)
 		}
 		refused.Description = fmt.Sprintf("refused with %s (%s), and nothing it would have changed moves.", f.Label(), strings.TrimSpace(f.When))
 		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{refused}, refused.ID)...)
@@ -164,6 +173,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		"backend that refuses but still applies part of the write fails. The shortage sits on the first item and, in "+
 		"a second probe, on the last, since a backend checking only the first item confirms the second",
 		st.ID, strings.Join(ids, " and "), f.Label())
+	p.noteShortageQuantity(st, unknown)
 }
 
 func (p *Plan) freshen(lib *Library, st *chain.Step) {
