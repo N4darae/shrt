@@ -2300,6 +2300,15 @@ compared item by item when its length is asserted, or by the fixtures it include
 reads answer only text is repeated as that profile and read back. `-gaps` lists an rpc every role
 may call that no chain calls as a profile as `no profile probe`.
 
+## 113. `contract init` left out `lines.qty`
+
+**Symptom.** `shrt contract init -all` scaffolded `lines` and `lines.id_product` for `CreateOrder`
+and `AddStockBatch`, but not `lines.qty`: only id fields inside a repeated message were scaffolded,
+so the quantity every line needs had no entry to write its value and rule into.
+
+**Fix.** 2026-09-25: every scalar field of a repeated message's items is scaffolded, and re-running
+`init` on a curated entry adds an item field it does not document yet.
+
 ---
 
 # Decisions, so they are not relitigated

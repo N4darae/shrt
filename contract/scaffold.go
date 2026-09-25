@@ -254,10 +254,17 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	added := &yaml.Node{Kind: yaml.MappingNode}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		if known[f.Name] {
+			nested := &yaml.Node{Kind: yaml.MappingNode}
+			scaffoldNested(nested, f, f.Name, m, all, 1, false, hint)
+			for i := 0; i+1 < len(nested.Content); i += 2 {
+				if _, have := prior.Fields[nested.Content[i].Value]; !have && !priorAliasField(prior, nested.Content[i].Value) {
+					added.Content = append(added.Content, nested.Content[i], nested.Content[i+1])
+				}
+			}
 			continue
 		}
 		put(added, f.Name, scaffoldField(f, m, all, hint))
-		scaffoldNestedIDs(added, f, f.Name, m, all, 1)
+		scaffoldNested(added, f, f.Name, m, all, 1, false, hint)
 	}
 	if len(added.Content) == 0 {
 		return
@@ -278,6 +285,18 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	node.Content = append(node.Content[:at:at], rest...)
 }
 
+func priorAliasField(prior *RPCContract, key string) bool {
+	for _, alias := range prior.Aliases {
+		if alias == nil {
+			continue
+		}
+		if _, ok := alias.Fields[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
 	if !prior.IsUnfilled("required") || len(prior.Required) > 0 {
 		return
@@ -294,26 +313,34 @@ func scaffoldFields(m *catalog.Method, all []*catalog.Method, hint func(*catalog
 	fields := &yaml.Node{Kind: yaml.MappingNode}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		put(fields, f.Name, scaffoldField(f, m, all, hint))
-		scaffoldNestedIDs(fields, f, f.Name, m, all, 1)
+		scaffoldNested(fields, f, f.Name, m, all, 1, false, hint)
 	}
 	return fields
 }
 
 const nestedIDDepth = 3
 
-func scaffoldNestedIDs(fields *yaml.Node, parent *catalog.Field, path string, m *catalog.Method, all []*catalog.Method, depth int) {
+func scaffoldNested(fields *yaml.Node, parent *catalog.Field, path string, m *catalog.Method, all []*catalog.Method, depth int, inItem bool, hint func(*catalog.Field) string) {
 	if depth > nestedIDDepth || parent.MapKey != "" || (parent.Kind != "message" && parent.Kind != "group") {
 		return
 	}
+	inItem = inItem || parent.Repeated
 	for _, f := range parent.Fields {
 		child := path + "." + f.Name
-		if IsEntityIDField(f.Name) && f.Kind != "message" && f.Kind != "group" && !f.Repeated {
+		leaf := f.Kind != "message" && f.Kind != "group"
+		if IsEntityIDField(f.Name) && leaf && !f.Repeated {
 			if len(ProducersOf(f.Name, all, m.FullName)) > 0 {
 				put(fields, child, scaffoldField(f, m, all, fieldHint))
+			} else if inItem {
+				put(fields, child, scaffoldField(f, m, all, hint))
 			}
 			continue
 		}
-		scaffoldNestedIDs(fields, f, child, m, all, depth+1)
+		if inItem && (leaf || f.MapKey != "" || f.JSONForm != "") {
+			put(fields, child, scaffoldField(f, m, all, hint))
+			continue
+		}
+		scaffoldNested(fields, f, child, m, all, depth+1, inItem, hint)
 	}
 }
 
