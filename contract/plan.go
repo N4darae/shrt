@@ -307,6 +307,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if !ok {
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
+		p.noteSecondItems(id, secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields))
 		return step
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
@@ -358,6 +359,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
+	p.noteSecondItems(id, secondItems(step.Body, schema.Fields))
 	if len(step.Expect) == 0 {
 		p.note("step %s: %s has no scalar or repeated response field, so nothing could be scaffolded to "+
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+

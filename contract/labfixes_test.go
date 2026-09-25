@@ -485,7 +485,7 @@ rpcs:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !anyNote(plan.Notes, "step create_order: lines.qty still carries the scaffold's numeric zero") {
+	if !anyNote(plan.Notes, "step create_order: lines.0.qty, lines.1.qty still carry the scaffold's numeric zero") {
 		t.Fatalf("required: [lines] is satisfied by the wired id, so the zero qty must still be noted: %v", plan.Notes)
 	}
 }

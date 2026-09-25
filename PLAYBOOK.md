@@ -112,6 +112,19 @@ A field `note:` does not silence it: a note describes the field, not your test d
 deliberate with `value: "0"`; `from:`, `same_as:` or listing the field in `required:` also silence
 it. `required: [lines]` does not silence `lines.qty`. Nothing downstream repeats either note.
 
+**A repeated message field gets two items, and you should keep two.** One order line exercises
+the per-line code once and leaves everything that combines lines untested: a total summed over
+them, a check that only fires on the second, a batch that stops after the first. A regression
+there passes a chain that sends one line, and so passes the gate. So `plan` scaffolds every
+repeated message field in a request with two items: the second is a copy of the first with its
+numbers raised by one and its free-text strings prefixed with `2-`, while ids, keys, enums, zeros
+and `${...}` references are copied unchanged (both lines of a planned `CreateOrder` point at the same
+product, qty 3 and 4). A note names each such field. Give the second item its own test data, point
+it at a second resource through an aliased producer step when the rpc wants distinct ones, and
+assert what depends on both (`order.total_minor` for the pair, `order.lines.1.qty`).
+`shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
+sends but no chain sends with two or more items.
+
 Three habits that keep a chain re-runnable:
 
 | need | write |

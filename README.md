@@ -102,8 +102,8 @@ kit's.
 | `shrt contract init <domain>` | scaffold the curated contract; re-running keeps what you wrote, and leaves an overlay alone (`unchanged`) when its content would not change, whatever its YAML layout |
 | `shrt contract show <rpc>...` | generated schema — example body, paste-ready step YAML, exportable paths — plus the curated semantics. `-json` for tooling, `-filter <word>` for every rpc whose name contains the word |
 | `shrt contract lint` | validate contracts against the descriptor |
-| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired |
-| `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), then streaming rpcs |
+| `shrt contract plan <rpc>[@alias]...` | compose one ordered chain reaching every target from the dependency graph, references pre-wired; a repeated message field in a request is scaffolded with two items with different values, so per-item logic is exercised |
+| `shrt contract status [-gaps]` | contract-entry coverage per domain (how many rpcs have a curated contract, not how much the chains exercise); `-gaps` lists each rpc with no contract ('no contract') or in no multi-step plan ('no path to'), each repeated message field of a request that chains send but never with two or more items ('one item'), then streaming rpcs |
 | `shrt contract quality [-domain d]` | score each contract against the curation terms, and name what is missing; an rpc in the catalog with no contract in any overlay is charged too, so deleting an overlay makes `-gate` fail |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from real proto fields |
 | `shrt chain lint [<c>]` | static validation against the catalog, one status per chain: `ok`, `warn` (warnings only; exit 0 unless `-strict` promotes one) or `FAIL` (an error), its issues listed under it; `-strict` turns the assertion-quality warnings into errors (an assertion that cannot fail that is reported as a warning, a step asserting nothing, an `allow_fail` that does nothing, an export a later step silently overwrites, arithmetic such as `${a.qty}+${b.qty}` in an `equals` on a numeric field, which is compared as text and never computed, and a step expecting success that asserts only the verdict although its rpc's contract declares response facts, which is what every step `contract plan` writes starts as), which is the form a CI gate should run. Other warnings, such as the `-var`s and environment a run needs (including the env vars the login body of each auth profile the chain's steps run under reads), are not promoted. An expect path that can never match, `exists: false` on a path the message has no field for, an export reading a field the response does not have (the run fails that step), and a reference to a field an earlier step's response does not have, or to a `request.` path its request message does not declare, and a whole-value reference whose declared type cannot fill the numeric field it is sent in, such as a timestamp (the run refuses the chain), are errors with or without `-strict` |
@@ -228,6 +228,13 @@ over a file that is not the same slice: `shrt chain slice <chain> -step <id> -wr
 `shrt run .shrt/scratch/<name>.yaml`. Its runs are stored under its `name:`, so `run` refuses, sending
 nothing, a file given by path whose `name:` is that of a chain in `paths.chains` unless it IS that
 chain's file: rename it (`name: <name>-scratch`), or its runs would be proposed and counted as that chain's.
+
+The gate proves only what the chains send. A repeated request field that every chain sends with
+one item (one order line) leaves per-item logic untested: a total computed wrong only for two or
+more lines passes every chain above. `shrt contract status -gaps` lists each such field as
+`one item`; cover it with a step that sends two items with different values and asserts what
+depends on both, before trusting a green gate on that rpc. `shrt contract plan` scaffolds two
+items for that reason.
 
 Both baseline files are committed, and each holds one number, the score its gate must equal; a
 missing file fails the gate. Create them once, before the first gate run: write `0` into each
