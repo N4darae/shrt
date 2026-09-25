@@ -331,12 +331,12 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
-			case c.Path != "response" && maskedAt(stepMask, c) && !vanishedUnderMask(stepMask, c):
+			case c.Path != "response" && maskedValue(stepMask, c) && !vanishedUnderMask(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
 				c.Mask = maskOf(stepMask, c)
 				rep.VolatileValues = append(rep.VolatileValues, c)
-				if !maskedAt(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
+				if !maskedValue(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
 			case shaped && !valueVanished(c):
@@ -937,6 +937,13 @@ func unapproved(approved []string, rec *runner.Record, extra []string) []string 
 		add(st.Volatile)
 	}
 	return out
+}
+
+func maskedValue(m *pathmask.Masker, c Change) bool {
+	if maskedAt(m, c) {
+		return true
+	}
+	return (c.Kind == KindMissing || c.Kind == KindUnexpected) && !valueVanished(c) && m.Masks(c.Path)
 }
 
 func maskedAt(m *pathmask.Masker, c Change) bool {

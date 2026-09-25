@@ -1969,6 +1969,67 @@ line only, or an `invalid_argument` one, is not a not-found refusal. It sends th
 is not a reference, expects exactly the declared failure, and a write is put between reads
 proving nothing moved. The probe runs on the unknown-id group's own fixtures (#85).
 
+## 90. A confirm that took an extra unit per line, and a total priced wrong, green in every plan
+
+**Symptom.** A backend whose `ConfirmOrder` took one extra unit of stock for every line after the
+first, and one whose `CreateOrder` priced the last line as quantity 1, passed every planned chain.
+The reads after `confirm_order` asserted the name, price and sku of each product, never its
+`qty_on_hand`; `create_order` asserted no `total_minor`; `add_stock` asserted only a level at least
+the quantity added.
+
+**Cause.** The chain grammar compares one value with one value and does no arithmetic, and the plan
+never worked the expected numbers out itself.
+
+**Fix.** 2026-09-25: the plan computes the numbers from the literal values it sends and asserts
+them as literals, but only where a contract states the effect in its summary or exports: an
+increase by a request field (`Increase a product's stock on hand by qty`: the level after is the
+level before plus `qty`, asserted on `add_stock`'s `qty_on_hand`), a batch field whose note says
+`one AddStock per line` (each `results.N.qty_on_hand`), a reservation for every line (`Reserve
+stock for every line`: the reads right after the confirm assert the level minus each line's
+quantity, a product on two lines counted twice), a give-back for a state (#88's sentence, used
+only when the order was reserved), a producer that starts at zero (`with zero stock`), and a total
+named with `sum` next to a price (`total_minor is the priced sum`: the sum of `qty` × the product's
+`price_minor`, asserted on the create, on a replay of its idempotency key and on every read of the
+order). A write the contracts say nothing about (`does not touch stock` counts as saying) makes the
+level unknown from there on and a note names the rpc and the sentence to add. A level is asserted
+only while it rests on writes that check themselves (a create at zero, `AddStock` answering the new
+level): after a reservation or a give-back the product is no longer tracked, so a defect in one
+write fails the reads of that write alone and the level after a cancel is left to the composed
+probe's before-and-after reads. When no read follows a reservation, the plan adds one per product
+(`get_product_after_confirm_order`). A target whose contract states a reservation per line also
+gets `<step>_same_<noun>_twice` on fixtures of its own: an order naming one product on both lines,
+confirmed, then read.
+
+## 91. `confirm_order_3` failing on a CancelOrder defect
+
+**Symptom.** In `contract plan CreateOrder ConfirmOrder CancelOrder FetchOrder ListOrders` on a
+backend whose cancel does not restock, `confirm_order_3`, the write that puts a status-filter
+fixture in CONFIRMED, was refused `InsufficientStock`: a CancelOrder defect failing a ConfirmOrder
+step, and every filtered list after it.
+
+**Cause.** The list's fixtures ordered the main path's products, which the main-path confirm had
+drained and the broken cancel had not refilled.
+
+**Fix.** 2026-09-25: a list fixture that a status-filter write moves orders resources of its own
+(`create_product_for_filter`, `add_stock_for_filter`, ...), created and prepared as the main
+path's were; the list's scope (the customer) stays shared, and fixtures no write moves keep the
+main path's resources. The CancelOrder defect still fails its own steps (the composed probe's
+`get_product_after_cancel_order_after_confirmed`).
+
+## 92. A volatile `null` that went absent: `missing` in verify, masked in `shrt diff`
+
+**Symptom.** A field under `**.created_at` recorded as `null` in the safe spot and absent in the
+replay failed `verify` as `missing product.created_at want=<nil>`, while `shrt diff` between the
+same two runs masked it.
+
+**Cause.** `verify` never masked a missing or added key at the pattern's own level, only under a
+parent it masked; `shrt diff` masked it unless a value was lost or gained (#65).
+
+**Fix.** 2026-09-25: `verify` follows the rule both share: a volatile pattern tolerates a changed
+value but not a lost one, and `null` (or `""`, `0`, an empty list) to absent loses nothing, so it is
+masked and listed under `-masked` with the pattern that hid it. A value that became absent, or a
+value where the safe spot had no key, is still reported.
+
 ---
 
 # Decisions, so they are not relitigated

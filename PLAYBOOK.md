@@ -520,7 +520,9 @@ number equals, so the step fails every time; `chain lint` warns on it against a 
 == get + margin*, *after == before + added* — is stated by pinning each side: choose the inputs
 (`vars:` or literal body values), work the expected result out, and assert it as a value
 (`equals: 5` on the after-read, `equals: ${vars.expected_total}`), or assert each term against the
-step that produced it.
+step that produced it. `contract plan` does this for you where a contract states the effect: it works
+the level after `AddStock`, `AddStockBatch` and `ConfirmOrder` and the order total out from the
+literal values it sends and writes them as `equals:` literals (PITFALLS 90).
 
 A `${...}` in `path` is a lint error: a path names a location in this step's own response, so there
 is nothing for it to resolve to.
