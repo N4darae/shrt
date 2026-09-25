@@ -182,8 +182,15 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		}
 		sortMatches(matches, q.Code == "")
 		hit.Matches = matches
-		hit.Best = matches[0].Step
-		hit.Command = reproCommand(c, matches[0], opts)
+		best := matches[0]
+		for _, m := range matches {
+			if m.Observed != nil && m.Observed.Status != statusPassed {
+				best = m
+				break
+			}
+		}
+		hit.Best = best.Step
+		hit.Command = reproCommand(c, best, opts)
 		out = append(out, hit)
 	}
 	sortWhich(out, q.Code == "")

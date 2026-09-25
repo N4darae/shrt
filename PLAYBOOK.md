@@ -1371,7 +1371,9 @@ shrt chain which -code 1218 -json
    other way round: a step whose newest reaching run FAILED there ranks first (one that still got
    the asserted envelope code before one that did not), then observed steps that passed, then
    steps no run reached, and the first `reproduce:` line slices the red step instead of a green
-   one. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
+   one. Under `-code` the `reproduce:` line slices a step whose newest reaching run FAILED there
+   too, when the chain has one, though the listing still ranks it last: the failure is what there
+   is to reproduce. Only runs recorded against the config's target are cited. Run records are gitignored and machine-local, so a
    clone with none reports `no local runs` and still ranks by the assertions. A step the backend
    refused at the transport layer was reached, and its `got` is read from `transport.code`. An
    `OBSERVED` line reads `asserts <code>` for the claim; the next line, indented, always reads

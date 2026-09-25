@@ -178,10 +178,17 @@ func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*cha
 	for i := range hits {
 		h := &hits[i]
 		c := byName[h.Chain]
-		if c == nil || len(h.Matches) == 0 || h.Matches[0].Observed == nil || !strings.Contains(h.Command, " -mode pin -run ") {
+		var best *chain.WhichStep
+		for j := range h.Matches {
+			if h.Matches[j].Step == h.Best {
+				best = &h.Matches[j]
+				break
+			}
+		}
+		if c == nil || best == nil || best.Observed == nil || !strings.Contains(h.Command, " -mode pin -run ") {
 			continue
 		}
-		run := h.Matches[0].Observed.Run
+		run := best.Observed.Run
 		rec, err := e.store.LoadRun(c.Name, run)
 		if err != nil {
 			continue
@@ -289,7 +296,8 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
 		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
 		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
-		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last.\n"+
+		"during an incident that is the one to slice. Under -code, one whose newest reaching run contradicts the assertion ranks last,\n"+
+		"though its reproduce: line slices a step that FAILED when the chain has one.\n"+
 		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
 		whichMarkClaim, whichMarkSeen, target)
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
