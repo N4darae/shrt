@@ -79,6 +79,29 @@ type Report struct {
 	reorderCandidates []stepPath
 	reordered         []stepPath
 	reorderExpect     map[string][]string
+	folded            map[string]bool
+	foldWhy           string
+}
+
+func (r *Report) FoldSteps(steps []string, why string) {
+	if len(steps) == 0 {
+		return
+	}
+	r.folded = map[string]bool{}
+	for _, s := range steps {
+		r.folded[s] = true
+	}
+	r.foldWhy = why
+}
+
+func (r *Report) foldedCount(step string) int {
+	n := 0
+	for _, c := range r.Changes {
+		if c.Step == step && c.Kind != KindNotReached {
+			n++
+		}
+	}
+	return n
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
@@ -1254,6 +1277,7 @@ func (r *Report) Text() string {
 	}
 	b.WriteString(r.reorderedText())
 	skips := runner.NewSkipCondenser()
+	foldSaid := map[string]bool{}
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
 		if c.Kind == KindNotReached {
@@ -1262,6 +1286,13 @@ func (r *Report) Text() string {
 		step := c.Step
 		if step == "" {
 			step = "-"
+		}
+		if r.folded[c.Step] && c.Kind != KindNotReached {
+			if !foldSaid[c.Step] {
+				foldSaid[c.Step] = true
+				fmt.Fprintf(&b, "  [%s] %-10s %d change(s) not listed: %s\n", step, "not_judged", r.foldedCount(c.Step), r.foldWhy)
+			}
+			continue
 		}
 		if run := sameNotReached(r.Changes[i:]); run > 1 {
 			last := r.Changes[i+run-1]

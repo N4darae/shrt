@@ -89,6 +89,7 @@ func runVerify(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "suppress per-step progress")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
+	verbose := fs.Bool("v", false, "also list each change at a step not judged because its response does not match the descriptor (folded into one line by default)")
 	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
@@ -351,6 +352,11 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("WARNING: " + loss.line())
 		}
 		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
+			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
+				report.FoldSteps(unjudgedSteps(rec, independent, driftAt), fmt.Sprintf("its response, or one it reads, does not "+
+					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
+					"or add -v to list them", driftWhy))
+			}
 			fmt.Println(report.Text())
 			if list := report.MaskedList(); *listMasked && list != "" {
 				fmt.Println(list)
@@ -970,6 +976,20 @@ func declaredDriftChanges(e *env, rec *runner.Record, report *diff.Report, step 
 	for _, c := range report.Changes {
 		if c.Step == step && c.Kind != diff.KindStatus && c.Kind != diff.KindNotReached {
 			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func unjudgedSteps(rec *runner.Record, independent []diff.Change, at int) []string {
+	judged := map[string]bool{}
+	for _, c := range independent {
+		judged[c.Step] = true
+	}
+	out := []string{}
+	for i, st := range rec.Steps {
+		if st != nil && i >= at && !judged[st.ID] {
+			out = append(out, st.ID)
 		}
 	}
 	return out

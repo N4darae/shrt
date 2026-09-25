@@ -816,6 +816,15 @@ or an undeclared enum value, verify exits 1, `regression: ... the response at st
 proto cannot hold (invalid value for int64 field qtyOnHand: "seven"), and the descriptor matches a
 rebuild ... so it is not stale`, naming the step, field and value.
 
+2026-09-25: when a later step that reads nothing from the drifted one changed, verify gave its
+verdict on that step, but first listed every change at the drifted step and at the steps reading it:
+the body kept as sent, so `unexpected order.amountMinor` / `missing order.amount_minor`,
+`idCustomer` / `id_customer`, `missing status.details want=[]`, a dozen lines, and then said those
+steps are not judged. Each step not judged is now one line, `[create_order] not_judged 12 change(s)
+not listed: its response, or one it reads, does not match the descriptor (...); rebuild the
+descriptor (shrt catalog build) and re-run, or add -v to list them`. `verify -v` and `-json` still
+carry every change.
+
 ## 30. A path copied out of `contract show` that can never match
 
 **Symptom.** You paste `status.details.error_code` from EXPORTABLE PATHS into an `expect:`. Lint says
