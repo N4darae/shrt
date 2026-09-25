@@ -147,10 +147,14 @@ func stepDiffers(st *runner.StepRecord, s *chain.Step, c *chain.Chain, isDefault
 		return "unordered " + why
 	}
 	profile := s.Auth
-	if profile == "" && !s.SkipAuth {
+	switch {
+	case s.SkipAuth:
+		profile = runner.NoAuthProfile
+	case profile == "":
 		profile = "default"
 	}
-	if st.AuthProfile != "" && st.AuthProfile != profile {
+	loginCall := st.AuthProfile == runner.NoAuthProfile && s.Auth == "" && !s.SkipAuth
+	if st.AuthProfile != "" && st.AuthProfile != profile && !loginCall {
 		return fmt.Sprintf("auth profile %s -> %s", st.AuthProfile, orNone(profile))
 	}
 	for k, v := range s.Headers {
