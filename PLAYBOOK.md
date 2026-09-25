@@ -927,7 +927,9 @@ descriptions). Any other difference is refused with the first one named, and the
 proposed and approved normally. On success it moves `<old>.json` to `<new>.json` keeping
 `confirmed_by`, `confirmed_at` and `note`, records the rename under `renamed` and re-seals the
 digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` lists them as an
-orphan `renamed to <new>`, and the command prints the `rm -rf` that removes them.
+orphan `renamed to <new>`, explained as a rename rather than a deleted chain (excluded from the
+counts and the gate; the renamed chain's own runs count), and the command prints the `rm -rf` that
+removes them.
 
 ## 9. Refactor and test against a safe spot
 
