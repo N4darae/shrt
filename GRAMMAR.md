@@ -221,7 +221,7 @@ Produced by resolving each form against a fixture scope:
 |---|---|---|---|
 | `increase` | string |  | The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key. |
 | `decrease` | string |  | As `increase`, shrinking. |
-| `of` | string |  | An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. |
+| `of` | string |  | An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. Only with `increase` or `decrease`; `restore` takes none. |
 | `restore` | string |  | The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. |
 | `sum` | string |  | `<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32. |
 | `times` | string |  | The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`. |
