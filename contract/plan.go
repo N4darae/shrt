@@ -20,9 +20,11 @@ type Plan struct {
 	Chain   *chain.Chain `json:"-" yaml:"-"`
 	Notes   []string     `json:"notes,omitempty" yaml:"notes,omitempty"`
 
-	stepOf  map[string]string
-	cat     *catalog.Catalog
-	pending []pendingChecks
+	stepOf   map[string]string
+	cat      *catalog.Catalog
+	pending  []pendingChecks
+	grown    []string
+	reserved map[string]bool
 }
 
 type pendingChecks struct {
@@ -91,7 +93,9 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		}
 		id := uniqueStepID(c, base)
 		p.stepOf[node] = id
-		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
+		step := p.buildStep(id, alias, method, lib)
+		p.splitSharedProducers(step, p.grown)
+		c.Steps = append(c.Steps, step)
 	}
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
@@ -304,7 +308,8 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if !ok {
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
-		p.noteSecondItems(id, secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields))
+		p.grown = secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields)
+		p.noteSecondItems(id, p.grown)
 		return step
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
@@ -356,7 +361,8 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
-	p.noteSecondItems(id, secondItems(step.Body, schema.Fields))
+	p.grown = secondItems(step.Body, schema.Fields)
+	p.noteSecondItems(id, p.grown)
 	if len(step.Expect) == 0 {
 		p.note("step %s: %s has no scalar or repeated response field, so nothing could be scaffolded to "+
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+

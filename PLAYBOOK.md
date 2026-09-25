@@ -118,12 +118,20 @@ them, a check that only fires on the second, a batch that stops after the first.
 there passes a chain that sends one line, and so passes the gate. So `plan` scaffolds every
 repeated message field in a request with two items: the second is a copy of the first with its
 numbers raised by one and its free-text strings prefixed with `2-`, while ids, keys, enums, zeros
-and `${...}` references are copied unchanged (both lines of a planned `CreateOrder` point at the same
-product, qty 3 and 4). A note names each such field. Give the second item its own test data, point
-it at a second resource through an aliased producer step when the rpc wants distinct ones, and
-assert what depends on both (`order.total_minor` for the pair, `order.lines.1.qty`).
+and `${...}` references are copied unchanged, except a reference to a step of the chain that
+creates something: the second item reads a second copy of that step instead (`create_product_2`,
+its var-built values suffixed `-2` and its numbers raised by one, so a different sku and price),
+and each write step that prepares the first (`add_stock`) gets a copy for the second
+(`add_stock_2`). Both lines of a planned `CreateOrder` then point at two products with two prices,
+so a backend that prices every line at the first line's product changes the total, and a safe spot
+catches it even before you assert it. A note names each such field and each added step. Give the
+second item its own test data where it matters, and assert what depends on both
+(`order.total_minor` for the pair, `order.lines.1.qty`). `chain new` does the same when the rpc list
+names one producer; list the producer twice and each item reads its own.
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
-sends but no chain sends with two or more items, and, as `no chain`, each unary rpc no chain calls
+sends but no chain sends with two or more items; as `same resource`, one that chains send with two
+or more items only when all of them point at the same resource (the same `${step...}` reference or
+literal id); and, as `no chain`, each unary rpc no chain calls
 at all, with the repeated message fields it takes, since those are never sent even once.
 
 Three habits that keep a chain re-runnable:

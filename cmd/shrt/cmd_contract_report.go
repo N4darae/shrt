@@ -34,7 +34,7 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item) and 'no chain' (an rpc no chain calls, with the repeated fields it takes), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two) and 'no chain' (an rpc no chain calls, with the repeated fields it takes), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -143,9 +143,21 @@ func contractStatus(args []string) error {
 		phaseScope(*phase) + ":\n" +
 		scoringTerms(*phase) +
 		"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
-	if n := len(contract.SingleItemRepeats(chains, e.cat)); n > 0 {
+	one, same := 0, 0
+	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
+		if r.SameResource {
+			same++
+		} else {
+			one++
+		}
+	}
+	if one > 0 {
 		fmt.Printf("\n%d repeated request field(s) are sent with at most one item by every chain that sends them, "+
-			"so per-item logic goes untested: shrt contract status -gaps lists them as 'one item'\n", n)
+			"so per-item logic goes untested: shrt contract status -gaps lists them as 'one item'\n", one)
+	}
+	if same > 0 {
+		fmt.Printf("\n%d repeated request field(s) are sent with two or more items only when every item points at the same "+
+			"resource, so per-item logic that reads each item's own resource goes untested: shrt contract status -gaps lists them as 'same resource'\n", same)
 	}
 	unchained := 0
 	for _, r := range rows {
@@ -171,6 +183,12 @@ func printStatusGaps(rows []statusRow) {
 	}
 	for _, r := range rows {
 		for _, one := range r.SingleItem {
+			if one.SameResource {
+				fmt.Printf("same resource %s %s: every chain that sends two or more items points them all at %s (%s)\n",
+					one.RPC, one.Field, one.Resource, strings.Join(clip(one.Chains, 4), ", "))
+				n++
+				continue
+			}
 			items := "1 item"
 			if one.Most != 1 {
 				items = fmt.Sprintf("%d items", one.Most)
@@ -193,7 +211,7 @@ func printStatusGaps(rows []statusRow) {
 	}
 	if n == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
-			"some chain, and every repeated message field a chain sends is sent with two or more items somewhere")
+			"some chain, and every repeated message field a chain sends is sent with two or more items, pointing at different resources, somewhere")
 		return
 	}
 	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
@@ -204,6 +222,12 @@ func printStatusGaps(rows []statusRow) {
 		"             per-item logic (a total summed over lines, a check on the second item) is never\n" +
 		"             exercised and a regression there passes every gate. Add a step, or a chain, that sends\n" +
 		"             two items with different values and asserts what depends on both.\n" +
+		"same resource a repeated message field that chains send with two or more items, but every item\n" +
+		"             of every such step points at the same resource (the same ${step...} reference or\n" +
+		"             literal id), so logic that uses each item's own resource (a price per line) is never\n" +
+		"             exercised: a backend that applies the first item's product to every line passes. Point\n" +
+		"             the second item at a second producer step with different values (shrt contract plan\n" +
+		"             scaffolds one).\n" +
 		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
 		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n")
