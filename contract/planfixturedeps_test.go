@@ -89,3 +89,21 @@ func TestTheReadBackOfAnOrderAssertsEachLineAsSentAndTheTotal(t *testing.T) {
 		t.Fatalf("the read-back asserts the total:\n%s", text)
 	}
 }
+
+func TestATotalAndABatchArePlannedWithOneResourceOnTwoLines(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{}, "CreateOrder")
+	order := planStep(t, p, "create_order_same_product_twice")
+	if bodyAt(t, order, "lines.0.id_product") != bodyAt(t, order, "lines.1.id_product") || bodyAt(t, order, "lines.0.qty") == bodyAt(t, order, "lines.1.qty") {
+		t.Fatalf("both lines name one product with different quantities:\n%s", text)
+	}
+	wantExpect(t, order, "order.total_minor", int64(1250))
+
+	p, text, _ = shopDemoPlanWith(t, contract.PlanOptions{}, "AddStockBatch")
+	batch := planStep(t, p, "add_stock_batch_same_product_twice")
+	if bodyAt(t, batch, "lines.0.id_product") != bodyAt(t, batch, "lines.1.id_product") {
+		t.Fatalf("both lines name one product:\n%s", text)
+	}
+	wantExpect(t, batch, "results.0.qty_on_hand", int64(3))
+	wantExpect(t, batch, "results.1.qty_on_hand", int64(7))
+	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_same_product_twice"), "product.qty_on_hand", int64(7))
+}

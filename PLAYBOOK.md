@@ -147,7 +147,8 @@ where the second reads its own (`create_product_3`, price 12345, prepared by `ad
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
 sends but no chain sends with two or more items; as `same resource`, one that chains send with two
 or more items only when all of them point at the same resource (the same `${step...}` reference or
-literal id); and, as `no chain`, each unary rpc no chain calls
+literal id); as `no repeat`, one whose items always point at different resources and never at one
+resource twice (a product on two lines, stock taken once per product); and, as `no chain`, each unary rpc no chain calls
 at all, with the repeated message fields it takes, since those are never sent even once.
 
 Three habits that keep a chain re-runnable:

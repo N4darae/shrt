@@ -105,3 +105,28 @@ func TestSingleItemRepeatsNamesItemsThatAllPointAtOneResource(t *testing.T) {
 		t.Fatalf("two lines naming the same literal id point at one resource: %+v", got)
 	}
 }
+
+func TestSingleItemRepeatsNamesAFieldThatNeverCarriesOneResourceTwice(t *testing.T) {
+	cat := catalogtest.Shop()
+	line := func(src, qty string) map[string]any {
+		return map[string]any{"id_product": "${" + src + ".product.id_product}", "qty": qty}
+	}
+	distinct := &chain.Chain{Name: "distinct", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "a"}},
+		{ID: "create_product_2", Call: shopCreateProduct, Body: map[string]any{"sku": "b"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product_2", "3")}}},
+		{ID: "create_order_refused", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "0"), line("create_product", "0")}},
+			Expect: []chain.Expectation{{Path: "transport.code", Equals: "invalid_argument"}}},
+	}}
+	got := contract.SingleItemRepeats([]*chain.Chain{distinct}, cat)
+	if len(got) != 1 || got[0].Field != "lines" || !got[0].NoRepeat || got[0].SameResource {
+		t.Fatalf("got %+v, want CreateOrder lines named as never carrying one product twice (a refused step does not count)", got)
+	}
+	twice := &chain.Chain{Name: "twice", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "c"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product", "3")}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{distinct, twice}, cat); len(got) != 0 {
+		t.Fatalf("one chain sends distinct products and another one product twice, so nothing is missing: %+v", got)
+	}
+}

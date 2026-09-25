@@ -2062,6 +2062,22 @@ field the write sent, at its position (`order.lines.0.id_product`, `order.lines.
 `${steps.create_order.request.lines.N...}`), and that there is no item more (`order.lines.2 exists:
 false`).
 
+## 95. One product on two lines, never tested outside ConfirmOrder
+
+**Symptom.** A ConfirmOrder that took stock once per distinct product (a product on two lines
+reserved once) was found only by a hand-written chain in round 25. Plans put every order line on a
+different product, and `contract status -gaps` reported only the opposite case, `same resource`.
+
+**Cause.** Only a reserving target got a probe with one resource on two lines
+(`confirm_order_same_product_twice`); a total (CreateOrder) or a batch (AddStockBatch) never did, and
+`-gaps` had no kind for a repeated field that never carries one resource twice.
+
+**Fix.** 2026-09-25: a total or batch target gets `<step>_same_<noun>_twice` on fixtures of its
+own, both lines naming one product with different quantities: `create_order_same_product_twice`
+asserts the total of both lines, `add_stock_batch_same_product_twice` asserts `results.1` on top
+of `results.0` and a read after it. `-gaps` lists `no repeat` for a repeated field whose items carry
+a resource when no successful step sends one resource on two applied items.
+
 ---
 
 # Decisions, so they are not relitigated

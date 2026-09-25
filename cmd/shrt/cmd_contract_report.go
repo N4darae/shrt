@@ -35,7 +35,7 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no repeat' (a repeated message field whose items always point at different resources, never one resource on two items), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -151,11 +151,14 @@ func contractStatus(args []string) error {
 		phaseScope(*phase) + ":\n" +
 		scoringTerms(*phase) +
 		"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
-	one, same := 0, 0
+	one, same, repeat := 0, 0, 0
 	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
-		if r.SameResource {
+		switch {
+		case r.NoRepeat:
+			repeat++
+		case r.SameResource:
 			same++
-		} else {
+		default:
 			one++
 		}
 	}
@@ -166,6 +169,10 @@ func contractStatus(args []string) error {
 	if same > 0 {
 		fmt.Printf("\n%d repeated request field(s) are sent with two or more items only when every item points at the same "+
 			"resource, so per-item logic that reads each item's own resource goes untested: shrt contract status -gaps lists them as 'same resource'\n", same)
+	}
+	if repeat > 0 {
+		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two items, so logic that merges, "+
+			"deduplicates or counts once per resource goes untested: shrt contract status -gaps lists them as 'no repeat'\n", repeat)
 	}
 	unchained := 0
 	for _, r := range rows {
@@ -207,6 +214,12 @@ func printStatusGaps(rows []statusRow) {
 	}
 	for _, r := range rows {
 		for _, one := range r.SingleItem {
+			if one.NoRepeat {
+				fmt.Printf("no repeat    %s %s: every chain that sends two or more items points each at a different resource (%s)\n",
+					one.RPC, one.Field, strings.Join(clip(one.Chains, 4), ", "))
+				n++
+				continue
+			}
 			if one.SameResource {
 				fmt.Printf("same resource %s %s: every chain that sends two or more items points them all at %s (%s)\n",
 					one.RPC, one.Field, one.Resource, strings.Join(clip(one.Chains, 4), ", "))
@@ -245,7 +258,7 @@ func printStatusGaps(rows []statusRow) {
 	}
 	if n == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
-			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources, somewhere, " +
+			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, " +
 			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
 	}
@@ -264,6 +277,11 @@ func printStatusGaps(rows []statusRow) {
 		"             exercised: a backend that applies the first item's product to every line passes. Point\n" +
 		"             the second item at a second producer step with different values (shrt contract plan\n" +
 		"             scaffolds one).\n" +
+		"no repeat    a repeated message field whose items carry a resource, but no chain ever sends one\n" +
+		"             resource on two items, so a backend that merges, deduplicates or counts once per\n" +
+		"             resource (stock taken once for a product on two lines) passes. Send the same resource\n" +
+		"             on two items with different quantities and assert what depends on both (shrt contract\n" +
+		"             plan scaffolds <step>_same_<noun>_twice).\n" +
 		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
 		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +

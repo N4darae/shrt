@@ -937,6 +937,7 @@ func sortedRuleKeys[T any](m map[string]T) []string {
 
 func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) bool) {
 	r := p.effectRules(lib)
+	p.probeSameLineTwice(lib, r, isTarget)
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		v := r.reserve[canonicalCall(p.cat, st.Call)]
 		if v == nil || !isTarget(st) || effectOutcome(st) != outcomeSuccess {
@@ -1003,6 +1004,82 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		p.note("step %s: %s names %s on both of its %s (%d and %d), so %s must take %d of it: a backend that reserves per product "+
 			"rather than per line, counts one line only, or takes an extra unit per line fails the read after it", st.ID, fixture.ID, entity.ID, v.list, a, b, id, a+b)
 		return
+	}
+}
+
+func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*chain.Step) bool) {
+	done := map[string]bool{}
+	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
+		rpc := canonicalCall(p.cat, st.Call)
+		if done[rpc] || !isTarget(st) || effectOutcome(st) != outcomeSuccess {
+			continue
+		}
+		list, itemID, itemQty, kind := "", "", "", ""
+		var stock *stockRule
+		if t := r.total[rpc]; t != nil {
+			list, itemID, itemQty, kind = t.list, t.itemID, t.itemQty, "total"
+		} else if b := r.batch[rpc]; b != nil {
+			list, itemID, itemQty, kind, stock = b.list, b.stock.idField, b.stock.qtyField, "batch", b.stock
+		} else {
+			continue
+		}
+		key, ok := namecase.LookupKey(st.Body, list)
+		if !ok {
+			continue
+		}
+		items, _ := st.Body[key].([]any)
+		if len(items) == 0 {
+			continue
+		}
+		first, ok := items[0].(map[string]any)
+		if !ok {
+			continue
+		}
+		entity := p.stepByID(stepRefIn(first[itemID]))
+		q, lit := numericValue(first[itemQty])
+		if entity == nil || !lit || q < 1 {
+			continue
+		}
+		done[rpc] = true
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		noun := strings.TrimPrefix(itemID, "id_")
+		id := p.freeStepID(st.ID + "_same_" + noun + "_twice")
+		probe := copyStep(st, id)
+		probe.Export = nil
+		p.freshen(lib, probe)
+		renameStepRefs(probe, st.ID, probe.ID)
+		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)
+		a, b := q, q+1
+		one[itemQty], other[itemQty] = strconv.FormatInt(a, 10), strconv.FormatInt(b, 10)
+		probe.Body[key] = []any{one, other}
+		probe.Expect = SuccessExpectation(m)
+		p.assertEcho(probe)
+		steps := []*chain.Step{probe}
+		if kind == "total" {
+			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): the total counts both lines at its price.", st.ID, entity.ID, list, a, b)
+			p.note("step %s: %s names %s on both of its %s (%d and %d), so its total is both lines priced: a backend that "+
+				"merges or drops a line for a %s it already saw fails", st.ID, id, entity.ID, list, a, b, noun)
+		} else {
+			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
+			if e, ok := p.readerFor(lib, entity, stock.idPath); ok {
+				body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
+				setBodyPath(body, e.field, "${"+entity.ID+"."+e.idPath+"}")
+				steps = append(steps, &chain.Step{
+					ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + id),
+					Description: fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b),
+					Call:        e.reader.FullName,
+					Auth:        e.contract.Auth,
+					Body:        body,
+					Expect:      SuccessExpectation(e.reader),
+				})
+			}
+			p.note("step %s: %s names %s on both of its %s (%d and %d), so the second line's %s and the read after it "+
+				"count both: a backend that applies one line per %s fails", st.ID, id, entity.ID, list, a, b, stock.moved, noun)
+		}
+		p.Chain.Steps = append(p.Chain.Steps, steps...)
 	}
 }
 
