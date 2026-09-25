@@ -683,6 +683,7 @@ type sliceVerdict struct {
 	OtherTarget    string            `json:"source_target_differs,omitempty"`
 	BlockedBy      []string          `json:"unevaluated_behind,omitempty"`
 	Recorded       string            `json:"verdict_written_to,omitempty"`
+	OutsideState   []string          `json:"outside_state,omitempty"`
 }
 
 type stepList []string
@@ -940,6 +941,12 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	related, other := relatedDroppedWrites(res, rec)
 	related, reads := classifyFieldReads(e, res, rec, related)
 	uncreated := uncreatedExpected(res, source)
+	if outside := outsideState(replayRec, replay); len(outside) > 0 {
+		v.OutsideState = outside
+		defer func() {
+			v.Reason = strings.TrimPrefix(v.Reason+"\n"+outsideStateCaveat(res.Target, outside), "\n")
+		}()
+	}
 	defer func() {
 		for _, r := range reads {
 			v.Reason = strings.TrimPrefix(v.Reason+"\ninfo: "+r.note(), "\n")
