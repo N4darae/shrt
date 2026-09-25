@@ -97,9 +97,9 @@ func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) 
 		return
 	}
 	masker := pathmask.NewMasker(r.UnapprovedRedact)
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
+		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
 		}
 		a, errA := decode(want.Request)
@@ -355,6 +355,28 @@ func uniqueIDs(steps []*runner.StepRecord) bool {
 	return true
 }
 
+func sameIDSteps(was, now []*runner.StepRecord) [][2]*runner.StepRecord {
+	out := [][2]*runner.StepRecord{}
+	if !uniqueIDs(was) || !uniqueIDs(now) {
+		for i := range min(len(was), len(now)) {
+			if was[i].ID == now[i].ID {
+				out = append(out, [2]*runner.StepRecord{was[i], now[i]})
+			}
+		}
+		return out
+	}
+	at := map[string]*runner.StepRecord{}
+	for _, st := range now {
+		at[st.ID] = st
+	}
+	for _, st := range was {
+		if got, ok := at[st.ID]; ok {
+			out = append(out, [2]*runner.StepRecord{st, got})
+		}
+	}
+	return out
+}
+
 func alignSteps(spot, rec []*runner.StepRecord, stoppedEarly bool) ([]stepPair, []Change, []*runner.StepRecord) {
 	pairs, structural, tail := []stepPair{}, []Change{}, []*runner.StepRecord{}
 	if !uniqueIDs(spot) || !uniqueIDs(rec) {
@@ -485,9 +507,20 @@ func ChainChangesIn(spot *store.SafeSpot, c *chain.Chain, rec *runner.Record) []
 				Detail: "the chain has a step the confirmed run did not"})
 		}
 	}
-	if len(out) == 0 && strings.Join(wasOrder, ",") != strings.Join(nowOrder, ",") {
+	wasKept, nowKept := []string{}, []string{}
+	for _, id := range wasOrder {
+		if now[id] != nil {
+			wasKept = append(wasKept, id)
+		}
+	}
+	for _, id := range nowOrder {
+		if was[id] {
+			nowKept = append(nowKept, id)
+		}
+	}
+	if strings.Join(wasKept, ",") != strings.Join(nowKept, ",") {
 		out = append(out, Change{Step: "-", Path: "steps", Kind: KindOrder,
-			Want: strings.Join(wasOrder, ", "), Got: strings.Join(nowOrder, ", ")})
+			Want: strings.Join(wasKept, ", "), Got: strings.Join(nowKept, ", ")})
 	}
 	return out
 }
@@ -613,11 +646,8 @@ func expectText(path, rule string, want any) string {
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
 	out := []Change{}
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID {
-			continue
-		}
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
 		if want.AuthProfile != "" && got.AuthProfile != "" && want.AuthProfile != got.AuthProfile {
 			out = append(out, Change{Step: want.ID, Path: AuthProfilePath, Kind: KindChanged, Want: want.AuthProfile, Got: got.AuthProfile})
 		} else if want.AuthPrincipal != "" && got.AuthPrincipal != "" && want.AuthPrincipal != got.AuthPrincipal {
@@ -674,21 +704,30 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 		case had && has && (w == g || chain.FoldedRefs(w) == chain.FoldedRefs(g)):
 		case had && has && (w == pathmask.MaskRedacted && runner.HeaderDigested(g) || g == pathmask.MaskRedacted && runner.HeaderDigested(w)):
 		case had && has:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g, Detail: headerRefDetail(w, g)})
 		case had:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindMissing, Want: w})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindMissing, Want: w, Detail: headerRefDetail(w)})
 		default:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindUnexpected, Got: g})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindUnexpected, Got: g, Detail: headerRefDetail(g)})
 		}
 	}
 	return out
 }
 
+func headerRefDetail(texts ...string) string {
+	for _, t := range texts {
+		if runner.ReadsAnotherStep(t) {
+			return HeaderRefDetail
+		}
+	}
+	return ""
+}
+
 func uncheckedPrincipals(spot *store.SafeSpot, rec *runner.Record) []string {
 	out := []string{}
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || want.AuthPrincipal != "" || got.AuthPrincipal == "" {
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
+		if want.AuthPrincipal != "" || got.AuthPrincipal == "" {
 			continue
 		}
 		if want.AuthProfile == "" || want.AuthProfile == got.AuthProfile {
@@ -1145,7 +1184,7 @@ func (r *Report) Text() string {
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
-			cause = "the chain changed since it was confirmed; a step, expectation or body reference edit is a chain change, not an input change, " +
+			cause = "the chain changed since it was confirmed; a step, expectation or body or header reference edit is a chain change, not an input change, " +
 				"and an expectation edit explains a status change at its own step only, and only when the edited expectation failed"
 		}
 		if r.InputCause != "" {

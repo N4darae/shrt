@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/runner"
@@ -22,31 +23,34 @@ func StepRenames(was, now []*runner.StepRecord) []StepRename {
 	if !uniqueIDs(was) || !uniqueIDs(now) {
 		return nil
 	}
-	inWas, inNow := map[string]bool{}, map[string]bool{}
+	wasAt, nowAt := map[string][]int{}, map[string][]int{}
+	for i, st := range was {
+		wasAt[callKey(st)] = append(wasAt[callKey(st)], i)
+	}
+	for i, st := range now {
+		nowAt[callKey(st)] = append(nowAt[callKey(st)], i)
+	}
+	wasCall, nowCall := map[string]string{}, map[string]string{}
 	for _, st := range was {
-		inWas[st.ID] = true
+		wasCall[st.ID] = callKey(st)
 	}
 	for _, st := range now {
-		inNow[st.ID] = true
-	}
-	missing, added := map[string]int{}, map[string]int{}
-	for _, st := range was {
-		if !inNow[st.ID] {
-			missing[callKey(st)]++
-		}
-	}
-	for _, st := range now {
-		if !inWas[st.ID] {
-			added[callKey(st)]++
-		}
+		nowCall[st.ID] = callKey(st)
 	}
 	out := []StepRename{}
 	for i := range min(len(was), len(now)) {
 		w, n := was[i], now[i]
-		if w.ID == n.ID || inNow[w.ID] || inWas[n.ID] || !SameCall(w, n) {
+		if w.ID == n.ID || !SameCall(w, n) {
 			continue
 		}
-		if missing[callKey(w)] != 1 || added[callKey(n)] != 1 {
+		k := callKey(w)
+		if !samePositions(wasAt[k], nowAt[k]) {
+			continue
+		}
+		if c, ok := nowCall[w.ID]; ok && c != k {
+			continue
+		}
+		if c, ok := wasCall[n.ID]; ok && c != k {
 			continue
 		}
 		out = append(out, StepRename{Was: w.ID, Now: n.ID, Index: i})
@@ -55,6 +59,18 @@ func StepRenames(was, now []*runner.StepRecord) []StepRename {
 		return nil
 	}
 	return out
+}
+
+func samePositions(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func callKey(st *runner.StepRecord) string {
@@ -78,16 +94,24 @@ func RenameSteps(steps []*runner.StepRecord, renames []StepRename) []*runner.Ste
 		if len(st.BodyRefs) > 0 {
 			cp.BodyRefs = map[string]string{}
 			for k, v := range st.BodyRefs {
-				for was, now := range to {
-					v = strings.ReplaceAll(v, "${"+was+".", "${"+now+".")
-					v = strings.ReplaceAll(v, "${steps."+was+".", "${steps."+now+".")
-				}
-				cp.BodyRefs[k] = v
+				cp.BodyRefs[k] = renameRefs(v, to)
 			}
 		}
 		out[i] = &cp
 	}
 	return out
+}
+
+var stepRefPattern = regexp.MustCompile(`\$\{(steps\.)?([^.}]+)\.`)
+
+func renameRefs(v string, to map[string]string) string {
+	return stepRefPattern.ReplaceAllStringFunc(v, func(m string) string {
+		sub := stepRefPattern.FindStringSubmatch(m)
+		if now, ok := to[sub[2]]; ok {
+			return "${" + sub[1] + now + "."
+		}
+		return m
+	})
 }
 
 func RenameSpotSteps(spot *store.SafeSpot, now []*runner.StepRecord) (*store.SafeSpot, []StepRename) {

@@ -851,16 +851,17 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 			continue
 		}
 		var f *catalog.Field
+		spelled := ""
 		for _, candidate := range fields {
-			if candidate.Name == seg {
-				f = candidate
+			if candidate.Name == seg || candidate.JSONName == seg {
+				f, spelled = candidate, seg
 				break
 			}
 		}
 		if f == nil {
 			for _, candidate := range fields {
 				if namecase.Equal(candidate.Name, seg) {
-					f = candidate
+					f, spelled = candidate, candidate.Name
 					break
 				}
 			}
@@ -868,7 +869,7 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 		if f == nil {
 			return "", false
 		}
-		out = append(out, f.Name)
+		out = append(out, spelled)
 		if f.Truncated || f.MapKey != "" {
 			out = append(out, segs[i+1:]...)
 			break
@@ -1157,6 +1158,7 @@ const (
 	KindEnvelopeOnly   = "envelope-only"
 
 	KindLiteralIdempotency = "literal-idempotency-key"
+	KindNameMismatch       = "name-differs-from-file"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {

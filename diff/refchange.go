@@ -18,8 +18,11 @@ const (
 	RefDetail      = "the step's body reads another step or field than the confirmed run did"
 )
 
+const HeaderRefDetail = "the step's header reads another step or field than the confirmed run did"
+
 func refChange(c Change) bool {
-	return c.Detail == RefDetail && strings.HasPrefix(c.Path, BodyPathPrefix)
+	return c.Detail == RefDetail && strings.HasPrefix(c.Path, BodyPathPrefix) ||
+		c.Detail == HeaderRefDetail && strings.HasPrefix(c.Path, HeadersPathPrefix)
 }
 
 func refChanges(before []*runner.StepRecord, was *runner.StepRecord, now *chain.Step) []Change {

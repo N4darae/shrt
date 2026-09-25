@@ -84,6 +84,9 @@ func (e *env) knownChain(name string) error {
 			return nil
 		}
 	}
+	if _, err := chain.Resolve(e.chainsDir(), name); err == nil {
+		return nil
+	}
 	if _, err := os.Stat(filepath.Join(e.cfg.Abs(e.cfg.Paths.Runs), name)); err == nil {
 		return nil
 	}

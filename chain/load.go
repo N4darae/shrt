@@ -74,7 +74,43 @@ func Resolve(dir, ref string) (*Chain, error) {
 			return LoadFile(p)
 		}
 	}
+	for _, n := range Names(dir) {
+		for _, ext := range []string{".yaml", ".yml"} {
+			p := filepath.Join(dir, n+ext)
+			if c, err := LoadFile(p); err == nil && c.Name == ref {
+				return c, nil
+			}
+		}
+	}
 	return nil, fmt.Errorf("chain %q not found in %s%s", ref, dir, DidYouMean(ref, Names(dir)))
+}
+
+func FileStem(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+}
+
+type NameMismatchError struct {
+	Path, Name, Stem string
+}
+
+func (e *NameMismatchError) Error() string {
+	return fmt.Sprintf("%s declares name: %s, so its runs and safe spot are %s's, and shrt verify %s and shrt verify %s verify the same chain against that safe spot; "+
+		"a reader looking for %s finds no file of that name, and one looking at %s.yaml expects chain %s", e.Path, e.Name, e.Name, e.Stem, e.Name, e.Name, e.Stem, e.Stem)
+}
+
+func (e *NameMismatchError) Remedy() string {
+	return fmt.Sprintf("rename the file to %s.yaml, or set name: %s (or drop name:)", e.Name, e.Stem)
+}
+
+func NameMismatch(c *Chain) error {
+	if c == nil || c.SourcePath == "" {
+		return nil
+	}
+	stem := FileStem(c.SourcePath)
+	if c.Name == stem {
+		return nil
+	}
+	return &NameMismatchError{Path: c.SourcePath, Name: c.Name, Stem: stem}
 }
 
 func Names(dir string) []string {

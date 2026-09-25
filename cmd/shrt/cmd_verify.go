@@ -96,7 +96,7 @@ func runVerify(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := rest[0]
+	name := e.chainName(rest[0])
 	if err := e.knownChain(name); err != nil {
 		return err
 	}

@@ -32,6 +32,7 @@ type Field struct {
 	Doc          string   `json:"doc,omitempty" yaml:"doc,omitempty"`
 	Fields       []*Field `json:"fields,omitempty" yaml:"fields,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty" yaml:"truncated,omitempty"`
+	JSONName     string   `json:"-" yaml:"-"`
 }
 
 func DescribeMessage(md protoreflect.MessageDescriptor) *Schema {
@@ -54,6 +55,7 @@ func describeFields(md protoreflect.MessageDescriptor, depth int, seen map[strin
 func describeField(fd protoreflect.FieldDescriptor, depth int, seen map[string]bool) *Field {
 	f := &Field{
 		Name:     string(fd.Name()),
+		JSONName: fd.JSONName(),
 		Number:   int32(fd.Number()),
 		Kind:     fd.Kind().String(),
 		Repeated: fd.IsList(),

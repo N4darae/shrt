@@ -55,7 +55,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	if len(rest) != 1 {
 		return errors.New(confirmUsage)
 	}
-	name := rest[0]
+	name := e.chainName(rest[0])
 	if err := e.knownChain(name); err != nil {
 		return err
 	}
