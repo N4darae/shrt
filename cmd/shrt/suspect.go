@@ -105,9 +105,10 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 }
 
 type blame struct {
-	write int
-	knock bool
-	own   string
+	write   int
+	knock   bool
+	own     string
+	cascade string
 }
 
 type attribution struct {
@@ -116,21 +117,44 @@ type attribution struct {
 	bad       map[string]bool
 	unchanged func(step, path string) bool
 	reordered func(step, path string) bool
+	changed   func(step string) []string
+	resized   func(step, path string) string
 }
 
 func (a attribution) of(step, path string) blame {
 	b := blame{write: -1}
 	st, ok := a.rec.Step(step)
-	if !ok || st == nil || isWrite(st) {
+	if !ok || st == nil {
 		return b
 	}
-	if why := serverError(st); why != "" {
+	if why := serverError(st); why != "" && !isWrite(st) {
 		b.own = fmt.Sprintf("%s fails on its own (%s)", methodName(st.Call), why)
 		return b
 	}
-	if src := heldBackBy(st); src != "" && src != step {
-		if up := a.of(src, ""); up.own != "" {
+	if src, ref := heldBackBy(st); src != "" && src != step {
+		up := a.of(src, ref)
+		if up.own != "" {
 			b.own = up.own
+			return b
+		}
+		b.write, b.cascade = up.write, a.lost(src, ref)
+		if b.write < 0 {
+			b.write = a.index(src)
+		}
+		return b
+	}
+	if e, p := a.earlier(step, path); e >= 0 {
+		if isWrite(a.rec.Steps[e]) {
+			return blame{write: e}
+		}
+		return a.of(a.rec.Steps[e].ID, p)
+	}
+	if isWrite(st) {
+		return b
+	}
+	if a.resized != nil && path != "" && !a.writeChangedBefore(step) {
+		if list := a.resized(step, path); list != "" {
+			b.own = fmt.Sprintf("%s answers another set of %s, and the writes before it answered as before", methodName(st.Call), list)
 			return b
 		}
 	}
@@ -147,21 +171,100 @@ func (a attribution) of(step, path string) blame {
 	return b
 }
 
-func heldBackBy(st *runner.StepRecord) string {
-	src := ""
+func (a attribution) index(step string) int {
+	for i, st := range a.rec.Steps {
+		if st != nil && st.ID == step {
+			return i
+		}
+	}
+	return -1
+}
+
+func (a attribution) writeChangedBefore(step string) bool {
+	for _, st := range a.rec.Steps {
+		if st == nil || st.ID == step {
+			return false
+		}
+		if isWrite(st) && a.bad[st.ID] {
+			return true
+		}
+	}
+	return false
+}
+
+func (a attribution) lost(src, path string) string {
+	st, ok := a.rec.Step(src)
+	if !ok || st == nil {
+		return ""
+	}
+	if path == "" {
+		return methodName(st.Call) + " failed"
+	}
+	var body any
+	if json.Unmarshal(st.Response, &body) == nil {
+		if v, ok := chain.Get(body, path); ok && v != nil {
+			return methodName(st.Call) + " changed " + path
+		}
+	}
+	return methodName(st.Call) + " lost " + path
+}
+
+func (a attribution) earlier(step, path string) (int, string) {
+	at := a.index(step)
+	if a.e == nil || a.e.cat == nil || a.changed == nil || path == "" || at < 0 {
+		return -1, ""
+	}
+	st := a.rec.Steps[at]
+	m, err := a.e.cat.Lookup(st.Call)
+	if err != nil {
+		return -1, ""
+	}
+	want, ok := carrierOf(m.Output(), path)
+	if !ok {
+		return -1, ""
+	}
+	var body any
+	_ = json.Unmarshal(st.Response, &body)
+	for i := 0; i < at; i++ {
+		w := a.rec.Steps[i]
+		if w == nil {
+			continue
+		}
+		wm, err := a.e.cat.Lookup(w.Call)
+		if err != nil {
+			continue
+		}
+		var wb any
+		_ = json.Unmarshal(w.Response, &wb)
+		for _, p := range a.changed(w.ID) {
+			if c, ok := carrierOf(wm.Output(), p); ok && c == want && sameEntity(body, path, wb, p) {
+				return i, p
+			}
+		}
+	}
+	return -1, ""
+}
+
+func heldBackBy(st *runner.StepRecord) (string, string) {
+	src, path := "", ""
 	for _, ex := range st.Expect {
 		if ex.Passed {
 			continue
 		}
 		_, rest, ok := strings.Cut(ex.Detail, `reads step "`)
 		if ex.Rule != "unevaluated" || !ok {
-			return ""
+			return "", ""
 		}
 		if name, _, _ := strings.Cut(rest, `"`); src == "" {
 			src = name
+			_, ref, _ := strings.Cut(ex.Detail, "${")
+			ref, _, _ = strings.Cut(ref, "}")
+			if r := chain.ParseRef(ref); r.Kind == chain.RefStep && r.Head == src {
+				path = strings.TrimPrefix(r.Rest, "response.")
+			}
 		}
 	}
-	return src
+	return src, path
 }
 
 func (a attribution) echoed(w, r *runner.StepRecord, path string) string {
@@ -306,12 +409,20 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 		st = rec.Steps[b.write]
 		lead = fmt.Sprintf("suspect write %s (%s)", st.ID, shortRPC(st.Call))
 	}
-	if st.AuthProfile != "" && st.AuthProfile != "default" {
-		lead += " as " + st.AuthProfile
+	if sent := sentText(st); sent != "" {
+		return lead + sent
 	}
+	return ""
+}
+
+func sentText(st *runner.StepRecord) string {
 	var buf bytes.Buffer
 	if len(st.Request) == 0 || json.Compact(&buf, st.Request) != nil {
 		return ""
 	}
-	return lead + " sent " + capText(buf.String(), 300)
+	as := ""
+	if st.AuthProfile != "" && st.AuthProfile != "default" {
+		as = " as " + st.AuthProfile
+	}
+	return as + " sent " + capText(buf.String(), 300)
 }

@@ -135,3 +135,161 @@ func TestAReadChangingAfterTwoDifferentWritesIsSuspectedItself(t *testing.T) {
 		t.Errorf("one write before every change stays the suspect:\n%s", out)
 	}
 }
+
+type recStep struct {
+	*runner.StepRecord
+}
+
+func shopStep(id, call, response string, refs ...string) recStep {
+	st := &runner.StepRecord{ID: id, Call: call, Status: runner.StatusPassed, Response: json.RawMessage(response), BodyRefs: map[string]string{}}
+	for i, r := range refs {
+		st.BodyRefs[string(rune('a'+i))] = "${" + r + ".x}"
+	}
+	return recStep{st}
+}
+
+func (s recStep) failing(path string, want, got any) recStep {
+	s.Status = runner.StatusFailed
+	s.Expect = append(s.Expect, chain.ExpectResult{Path: path, Rule: "equals", Want: want, Got: got})
+	return s
+}
+
+func (s recStep) heldBy(src, path string) recStep {
+	s.Status = runner.StatusFailed
+	s.Expect = append(s.Expect, chain.ExpectResult{Path: path, Rule: "unevaluated",
+		Detail: `not evaluated: ${` + src + `.` + path + `} reads step "` + src + `", which did not pass`})
+	return s
+}
+
+func shopRecord(steps ...recStep) *runner.Record {
+	rec := &runner.Record{}
+	for _, s := range steps {
+		rec.Steps = append(rec.Steps, s.StepRecord)
+	}
+	return rec
+}
+
+const (
+	shopCreate  = "shop.catalog.v1.ProductService/CreateProduct"
+	shopGet     = "shop.catalog.v1.ProductService/GetProduct"
+	shopList    = "shop.catalog.v1.ProductService/ListProducts"
+	shopOrder   = "shop.orders.v1.OrderService/CreateOrder"
+	shopConfirm = "shop.orders.v1.OrderService/ConfirmOrder"
+	shopCancel  = "shop.orders.v1.OrderService/CancelOrder"
+	shopFetch   = "shop.orders.v1.OrderService/FetchOrder"
+)
+
+func blameOf(t *testing.T, rec *runner.Record, step, path string) (string, string, string) {
+	t.Helper()
+	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of(step, path)
+	write := ""
+	if b.write >= 0 {
+		write = rec.Steps[b.write].ID
+	}
+	return write, b.own, b.cascade
+}
+
+func TestAStepUnevaluatedBehindAFailedWriteIsFiledUnderThatWrite(t *testing.T) {
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`).failing("product.sku", "A", nil),
+		shopStep("add", "shop.catalog.v1.StockService/AddStock", `{"qty_on_hand":"1"}`, "create"),
+		shopStep("get_after_add", shopGet, `{"product":{"id_product":"p1"}}`, "create").heldBy("create", "product.sku"),
+	)
+	write, own, cascade := blameOf(t, rec, "get_after_add", "status")
+	if write != "create" || own != "" || cascade != "CreateProduct lost product.sku" {
+		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
+	}
+}
+
+func TestAChangeTheWriteItselfAnsweredIsTheWritesNotTheLaterSteps(t *testing.T) {
+	order := `{"order":{"id_order":"o1","total_minor":"7"}}`
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, order).failing("order.total_minor", "9", "7"),
+		shopStep("confirm_order", shopConfirm, order, "create_order").failing("order.total_minor", "9", "7"),
+		shopStep("fetch_after_confirm", shopFetch, order, "create_order").failing("order.total_minor", "9", "7"),
+		shopStep("cancel_order", shopCancel, order, "create_order").failing("order.total_minor", "9", "7"),
+		shopStep("fetch_order_after_cancel_order", shopFetch, order, "create_order").failing("order.total_minor", "9", "7"),
+	)
+	for _, step := range []string{"confirm_order", "fetch_after_confirm", "cancel_order", "fetch_order_after_cancel_order"} {
+		if write, own, _ := blameOf(t, rec, step, "order.total_minor"); write != "create_order" || own != "" {
+			t.Errorf("%s: got write %q own %q, want create_order", step, write, own)
+		}
+	}
+}
+
+func TestAWrongLevelAfterAPassingWriteThatDoesNotCarryItStaysOnThatWrite(t *testing.T) {
+	product := `{"product":{"id_product":"p1","price_minor":"6"}}`
+	order := `{"order":{"id_order":"o1"}}`
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","price_minor":"5"}}`),
+		shopStep("create_order", shopOrder, order, "create_product"),
+		shopStep("confirm_order", shopConfirm, order, "create_order"),
+		shopStep("get_product_after_confirm_order", shopGet, product, "create_product").failing("product.price_minor", "5", "6"),
+		shopStep("cancel_order", shopCancel, order, "create_order"),
+		shopStep("get_product_after_cancel_order", shopGet, product, "create_product").failing("product.price_minor", "5", "6"),
+	)
+	for _, step := range []string{"get_product_after_confirm_order", "get_product_after_cancel_order"} {
+		if write, own, _ := blameOf(t, rec, step, "product.price_minor"); write != "confirm_order" || own != "" {
+			t.Errorf("%s: got write %q own %q, want confirm_order", step, write, own)
+		}
+	}
+}
+
+func TestAListAnsweringOtherItemsAfterUnchangedWritesIsTheReadsOwn(t *testing.T) {
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`),
+		shopStep("create_2", shopCreate, `{"product":{"id_product":"p2"}}`),
+		shopStep("list", shopList, `{"products":[{"id_product":"p9"},{"id_product":"p1"},{"id_product":"p2"}]}`, "create", "create_2").
+			failing("products.0.id_product", "p1", "p9"),
+	)
+	rec.Steps[2].Expect = append(rec.Steps[2].Expect, chain.ExpectResult{Path: "products.2", Rule: "exists", Want: false, Got: true})
+	_, own, _ := blameOf(t, rec, "list", "products.0.id_product")
+	if own != "ListProducts answers another set of products, and the writes before it answered as before" {
+		t.Errorf("got own %q", own)
+	}
+	rec.Steps[1].Status = runner.StatusFailed
+	if _, own, _ := blameOf(t, rec, "list", "products.0.id_product"); strings.Contains(own, "another set") {
+		t.Errorf("a write that failed before the list keeps the read from being blamed for its set, got own %q", own)
+	}
+}
+
+func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testing.T) {
+	var items []gateItem
+	for _, p := range []string{"list.0.a", "list.0.b", "list.0.c", "list.0.d", "list"} {
+		items = append(items, gateItem{Step: "list", Call: "x.v1.S/List", Path: p, Want: "1", Got: "2", Own: "List answers another set of list"})
+	}
+	items = append(items,
+		gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Own: "List answers the same items in another order"},
+		gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Own: "Find fails on its own (internal)"},
+		gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2"},
+		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "Make lost n"},
+		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "Make lost n"},
+	)
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}) })
+	if n := strings.Count(out, "  S/List:"); n != 1 || !strings.Contains(out, "(+1 other reason(s))") {
+		t.Errorf("one line for List with its paths merged, got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "  S/Find:") || strings.Contains(out, "more\n") {
+		t.Errorf("a distinct suspect rpc is never cut:\n%s", out)
+	}
+	if !strings.Contains(out, "    +2 step(s) in 1 chain(s) unevaluated because Make lost n\n") || strings.Contains(out, "S/Get:") {
+		t.Errorf("unevaluated steps fold into one line under the producing write:\n%s", out)
+	}
+}
+
+func TestTheGateSuspectLineAgreesWithTheSummary(t *testing.T) {
+	g := func(name, write string) *gateChain {
+		return &gateChain{name: name, failed: true, firstAt: "get thing.state", sent: map[string]string{"get": " sent {}", "w": " sent {\"w\":1}"},
+			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w"}}}
+	}
+	chains := []*gateChain{g("one", "Move"), g("two", "Fill")}
+	settleGate(chains)
+	if line := chains[0].suspectLine(); line != "suspect read get (S/Get) sent {}" {
+		t.Errorf("the per-chain line follows the settled attribution, got %q", line)
+	}
+	chains = []*gateChain{g("one", "Move"), g("two", "Move")}
+	settleGate(chains)
+	if line := chains[0].suspectLine(); line != "suspect write w (S/Move) sent {\"w\":1}" {
+		t.Errorf("got %q", line)
+	}
+}
