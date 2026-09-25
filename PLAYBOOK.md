@@ -360,8 +360,8 @@ proposal came from. A chain with a safe spot needs `-supersede`; the old one is 
 `.shrt/safespots/archive/<chain>/`.
 
 For a whole suite, `shrt confirm -all -note "..."` proposes every chain whose latest run passed and
-whose safe spot is missing or differs (one line per chain, then each summary). Present every
-summary; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
+whose safe spot is missing or differs, as one table row per chain (the full summary of each is in
+`.shrt/safespots/pending/<chain>.md`). Present the table; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
 to the rest, `shrt confirm -all -approve -by <user email>` approves every pending proposal.
 
 A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -rename-from <old>
