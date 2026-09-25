@@ -83,7 +83,8 @@ func TestAPrefixExclusionAnchoredOnTheFirstProducerKeepsReadingIt(t *testing.T) 
 			c.Fields["sku_prefix"] = &contract.FieldContract{SameAs: "shop.catalog.v1.ProductService/CreateProduct->sku", Note: "filter by prefix"}
 		}
 	}, "ListProducts")
-	if got := bodyAt(t, planStep(t, p, "create_product_prefix_inside"), "sku"); got != "x-${steps.create_product.request.sku}" {
-		t.Fatalf("the inside fixture reads the first product's sku, not its own, got %s:\n%s", got, text)
+	prefix := bodyAt(t, planStep(t, p, "list_products"), "sku_prefix")
+	if got := bodyAt(t, planStep(t, p, "create_product_prefix_inside"), "sku"); got != "x-"+prefix || strings.Contains(got, "create_product_prefix_inside") {
+		t.Fatalf("the inside fixture carries the list's prefix after x-, not a read of its own sku, got %s:\n%s", got, text)
 	}
 }

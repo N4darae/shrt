@@ -407,9 +407,8 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 	}
 	if len(entities) == 0 {
 		if readers := p.textOnlyReaders(lib, refused[0], ""); len(readers) > 0 {
-			p.note("step %s: %s takes the id of what it touches but answers no number or state to compare before and "+
-				"after, so nothing proves the refusal changed nothing: assert the fields it would have written after it",
-				refused[0].ID, strings.Join(readers, ", "))
+			p.note("step %s: %s reads what it touches but answers only text, so no read before and after the refusal "+
+				"is added; the expected failure is its check", refused[0].ID, strings.Join(readers, ", "))
 			return refused
 		}
 		p.note("step %s: no read rpc in the contracts takes the id of anything it touches, so nothing proves the "+

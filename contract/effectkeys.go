@@ -595,8 +595,8 @@ func effectsTodo(m *catalog.Method, all []*catalog.Method) string {
 			moved = kept[0]
 		}
 	}
-	return fmt.Sprintf("%s: {%s: {increase: %s}}, {%s: none} or another effect in GRAMMAR; delete if this write moves no number",
-		TodoMarker, moved, path, moved)
+	return fmt.Sprintf("%s: what this write does to %s: none | {increase: %s} | {decrease: %s} | ...; see GRAMMAR effects",
+		TodoMarker, moved, path, path)
 }
 
 func answeredNumbers(m *catalog.Method) []string {

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -35,6 +36,8 @@ type Plan struct {
 	parities []parityCopy
 	lib      *Library
 	groupOf  map[*chain.Step]string
+	noteOf   map[string]string
+	current  string
 	rules    *effectRules
 	rulesOf  *Library
 	middles  map[*chain.Step]string
@@ -424,7 +427,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 		return step
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
-		step.Description = firstSentence(c.Summary)
+		step.Description = FirstSentence(c.Summary)
 	}
 	if a := c.Aliases[alias]; alias != "" && a != nil && strings.TrimSpace(a.Note) != "" && !IsTodo(a.Note) {
 		note := strings.Join(strings.Fields(a.Note), " ")
@@ -527,7 +530,10 @@ func (p *Plan) grouped(label string, probe func()) {
 	for _, st := range p.Chain.Steps {
 		before[st] = true
 	}
+	outer := p.current
+	p.current = label
 	probe()
+	p.current = outer
 	for _, st := range p.Chain.Steps {
 		if !before[st] && p.groupOf[st] == "" {
 			p.groupOf[st] = label
@@ -606,6 +612,57 @@ func (p *Plan) note(format string, args ...any) {
 		return
 	}
 	p.Notes = append(p.Notes, text)
+	if p.current != "" {
+		if p.noteOf == nil {
+			p.noteOf = map[string]string{}
+		}
+		p.noteOf[text] = p.current
+	}
+}
+
+type NoteGroup struct {
+	Label string
+	Steps int
+	Notes []string
+}
+
+func (p *Plan) NoteGroups() []NoteGroup {
+	out := []NoteGroup{}
+	at := map[string]int{}
+	for _, g := range p.StepGroups() {
+		at[g.Label] = len(out)
+		out = append(out, NoteGroup{Label: g.Label, Steps: g.Steps})
+	}
+	byID := map[string]string{}
+	for _, st := range p.Chain.Steps {
+		byID[st.ID] = p.groupOf[st]
+	}
+	fills := p.FillNotes()
+	for _, note := range p.Notes {
+		if _, gap := GapOf(note); gap || containsString(fills, note) {
+			continue
+		}
+		label := p.noteOf[note]
+		if label == "" {
+			for _, word := range strings.FieldsFunc(note, func(r rune) bool { return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+				if g, ok := byID[word]; ok && g != "" {
+					label = g
+					break
+				}
+			}
+		}
+		if label == "" {
+			label = "other"
+		}
+		i, ok := at[label]
+		if !ok {
+			i = len(out)
+			at[label] = i
+			out = append(out, NoteGroup{Label: label})
+		}
+		out[i].Notes = append(out[i].Notes, note)
+	}
+	return out
 }
 
 func setBodyPath(body map[string]any, path string, value any) bool {
@@ -906,7 +963,7 @@ func exportName(stepID, path string) string {
 	return stepID + "_" + strings.ReplaceAll(path, ".", "_")
 }
 
-func firstSentence(s string) string {
+func FirstSentence(s string) string {
 	flat := strings.Join(strings.Fields(s), " ")
 	if i := strings.Index(flat, ". "); i >= 0 {
 		return flat[:i+1]

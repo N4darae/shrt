@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -18,8 +19,8 @@ func contractPlan(args []string) error {
 	name := fs.String("name", "", "chain name, defaults to one derived from the rpc")
 	write := fs.Bool("write", false, "write the composed chain into the chains directory")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
-	showNotes := fs.Bool("notes", false, "print every note in full, and every step id")
-	verbose := fs.Bool("v", false, "print every step id")
+	showNotes := fs.Bool("notes", false, "print each gap, then one line per probe group saying why it is there")
+	verbose := fs.Bool("v", false, "print every step id; with -notes, every note in full")
 	all := fs.Bool("all", false, "plan one chain per rpc with a contract, one line each and its gaps")
 	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes] [-v]\n"+
 		"       shrt contract plan -all [-write [-force]]",
@@ -84,14 +85,14 @@ func contractPlan(args []string) error {
 			groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
 		}
 		fmt.Printf("%d steps: %s\n", len(plan.Chain.Steps), strings.Join(groups, ", "))
-		if *verbose || *showNotes {
+		if *verbose {
 			ids := make([]string, 0, len(plan.Chain.Steps))
 			for _, st := range plan.Chain.Steps {
 				ids = append(ids, st.ID)
 			}
 			fmt.Printf("step ids: %s\n", strings.Join(ids, ", "))
 		}
-		printPlanNotes(plan, again, *showNotes)
+		printPlanNotes(plan, again, *showNotes, *verbose)
 		fmt.Printf("next: %s -write\n", again)
 		return nil
 	}
@@ -106,7 +107,7 @@ func contractPlan(args []string) error {
 		return err
 	}
 	fmt.Printf("wrote %s: %d steps, order %s\n", rel(e.cfg.Root, path), len(plan.Chain.Steps), order)
-	printPlanNotes(plan, again, *showNotes)
+	printPlanNotes(plan, again, *showNotes, *verbose)
 	if plan.UnfilledCount() > 0 {
 		fmt.Printf("next: fill the test data, then shrt chain lint %s\n", chainName)
 		return nil
@@ -200,8 +201,9 @@ func printFillAndGaps(plan *contract.Plan, indent string) {
 	}
 }
 
-func printPlanNotes(plan *contract.Plan, again string, all bool) {
-	if all {
+func printPlanNotes(plan *contract.Plan, again string, notes, full bool) {
+	switch {
+	case notes && full:
 		for _, n := range plan.Notes {
 			label := "note"
 			if _, gap := contract.GapOf(n); gap {
@@ -209,7 +211,31 @@ func printPlanNotes(plan *contract.Plan, again string, all bool) {
 			}
 			fmt.Printf("%s: %s\n", label, n)
 		}
-	} else {
+	case notes:
+		for _, n := range plan.GapNotes() {
+			fmt.Printf("gap: %s\n", n)
+		}
+		for _, n := range plan.FillNotes() {
+			fmt.Printf("fill: %s\n", n)
+		}
+		for _, g := range plan.NoteGroups() {
+			if len(g.Notes) == 0 {
+				continue
+			}
+			line := g.Label
+			switch {
+			case g.Steps == 1:
+				line += " (1 step)"
+			case g.Steps > 1:
+				line += fmt.Sprintf(" (%d steps)", g.Steps)
+			}
+			if len(g.Notes) > 1 {
+				line += fmt.Sprintf(", %d notes", len(g.Notes))
+			}
+			line += ": " + contract.FirstSentence(stepPrefix.ReplaceAllString(g.Notes[0], ""))
+			fmt.Printf("%s\n", clipText(line, planGapWidth))
+		}
+	default:
 		printFillAndGaps(plan, "")
 	}
 	gaps := plan.GapNotes()
@@ -217,16 +243,21 @@ func printPlanNotes(plan *contract.Plan, again string, all bool) {
 		fmt.Printf("%d required field(s) carry no test data, and chain lint errors on each until filled; "+
 			"after a value: in the contract, re-plan with %s -write -force\n", n, again)
 	}
-	if n := len(plan.Notes) - len(plan.FillNotes()) - len(gaps); n > 0 && !all {
+	switch n := len(plan.Notes) - len(plan.FillNotes()) - len(gaps); {
+	case n > 0 && !notes:
 		more := ""
 		if len(gaps) > 0 {
 			more = ", and each gap in full"
 		}
 		fmt.Printf("%d more note(s) on why each probe is there%s: %s -notes\n", n, more, again)
+	case n > 0 && !full:
+		fmt.Printf("every note in full, and every step id: %s -notes -v\n", again)
 	}
 }
 
 const planGapWidth = 160
+
+var stepPrefix = regexp.MustCompile(`^steps? [a-z0-9_]+: `)
 
 func clipText(text string, width int) string {
 	if len(text) <= width {
