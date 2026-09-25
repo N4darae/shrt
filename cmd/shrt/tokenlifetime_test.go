@@ -276,11 +276,10 @@ func TestAReloginTokenRefusedLongAfterTheEarlierRefusalStaysANote(t *testing.T) 
 	if life := examineTokenLifetime(nil, refusal(38*time.Second, issued)); life.finding() || life.label() != "note: " {
 		t.Fatalf("one re-login token refused is still a note, got %q", life.line())
 	}
-	if life := examineTokenLifetime(nil, refusal(10*time.Minute, earlier, issued)); life.finding() || life.label() != "note: " ||
-		strings.Contains(life.line(), "re-login") {
-		t.Fatalf("minutes later a restart since explains it: the plain note, got %q", life.line())
+	if life := examineTokenLifetime(nil, refusal(10*time.Minute, earlier.Add(-10*time.Minute), issued)); !life.finding() {
+		t.Fatalf("refusals minutes apart, each well inside the hour the login stated, still chain: got %q", life.line())
 	}
-	if life := examineTokenLifetime(nil, refusal(38*time.Second, earlier.Add(-10*time.Minute), issued)); life.finding() {
-		t.Fatalf("an earlier refusal minutes before the last one does not chain: got %q", life.line())
+	if life := examineTokenLifetime(nil, refusal(38*time.Second, earlier.Add(-2*time.Hour), issued)); life.finding() {
+		t.Fatalf("an earlier refusal longer ago than the stated lifetime does not chain: got %q", life.line())
 	}
 }

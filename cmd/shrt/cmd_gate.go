@@ -505,9 +505,9 @@ func runGate(ctx context.Context, args []string) error {
 	switch len(once) {
 	case 0:
 	case 1:
-		fmt.Printf("note: a token of auth profile %s was refused early once; a deploy before this gate explains one\n", once[0])
+		fmt.Printf("note: a token of auth profile %s was refused early once: a restart since it was cached, or sessions that end early; repeated on the re-login tokens of later runs it becomes a FINDING\n", once[0])
 	default:
-		fmt.Printf("note: a token of each of auth profiles %s was refused early once; a deploy before this gate explains that\n", strings.Join(once, ", "))
+		fmt.Printf("note: a token of each of auth profiles %s was refused early once: a restart since they were cached, or sessions that end early; repeated on the re-login tokens of later runs it becomes a FINDING\n", strings.Join(once, ", "))
 	}
 	printGateGroups(chains)
 	for _, f := range findings {
