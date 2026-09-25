@@ -114,7 +114,7 @@ func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectRe
 		}
 		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
 	default:
-		if r, ok := e.evaluateComparison(got, found); ok {
+		if r, ok := e.evaluateComparison(got, found, presence); ok {
 			return r
 		}
 		if why := e.vacuousWhy(); why != "" {

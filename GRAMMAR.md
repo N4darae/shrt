@@ -53,7 +53,7 @@ scaffold leaves it present-but-empty rather than absent.
 | `contains` | string |  | Substring of the value's text. May carry `${...}`. |
 | `exists` | bool |  | Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1. |
 | `not_empty` | bool |  | Present and not `""`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `"0"`. |
-| `gt` | any |  | Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so. |
+| `gt` | any |  | Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so; a path the server did not send fails it with `path not present in response`, and a null it sent is named as null. |
 | `gte` | any |  | As `gt`, greater than or equal. `expires_at gte: ${nowunix}` asserts a login did not hand out an already-expired token. |
 | `lt` | any |  | As `gt`, less than. |
 | `lte` | any |  | As `gt`, less than or equal. `created_at lte: ${nowunix}` asserts a record was not stamped in the future. |
