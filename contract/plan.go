@@ -198,6 +198,8 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
 	p.echoNumbers()
 	p.assertOutcomes(lib)
+	p.assertStates(lib)
+	p.grouped("read-back", func() { p.readBackVariants(lib) })
 	p.grouped("read-back", func() { p.assertEffects(lib) })
 	p.noteReadBack(lib)
 	p.assertTimestamps(lib)

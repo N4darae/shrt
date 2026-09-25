@@ -101,14 +101,8 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 				out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: text})
 			}
 		}
-		for _, sub := range car.Fields {
-			if read || len(sub.EnumValues) < 2 || sub.Repeated {
-				continue
-			}
-			values := sub.EnumValues[1:]
-			if v := stateIn([]string{c.Exports[car.Name], c.Summary}, values, enumShort(sub.EnumValues)); v != "" {
-				out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: v})
-			}
+		if !read {
+			out = append(out, stateExpectations(car, c)...)
 		}
 		if len(out) == 0 && !read {
 			for _, sub := range car.Fields {
@@ -147,6 +141,41 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 		}
 	}
 	return out
+}
+
+func stateExpectations(car *catalog.Field, c *RPCContract) []chain.Expectation {
+	out := []chain.Expectation{}
+	for _, sub := range car.Fields {
+		if len(sub.EnumValues) < 2 || sub.Repeated {
+			continue
+		}
+		if v := stateIn([]string{c.Exports[car.Name], c.Summary}, sub.EnumValues[1:], enumShort(sub.EnumValues)); v != "" {
+			out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: v})
+		}
+	}
+	return out
+}
+
+func (p *Plan) assertStates(lib *Library) {
+	for _, st := range p.Chain.Steps {
+		if st.AllowFail || isRefusalStep(st) || effectOutcome(st) != outcomeSuccess || chain.IsReadOnlyCall(st.Call) || p.streams(st) {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		c, ok := lib.Get(m.FullName)
+		car := singleCarrier(m)
+		if !ok || car == nil || len(DeclaredFacts(c)) == 0 {
+			continue
+		}
+		for _, e := range stateExpectations(car, c) {
+			if !hasExpectOn(st, e.Path) {
+				st.Expect = append(st.Expect, e)
+			}
+		}
+	}
 }
 
 func (p *Plan) assertTimestamps(lib *Library) {
