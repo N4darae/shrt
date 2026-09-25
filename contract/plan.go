@@ -81,6 +81,10 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		Name:        name,
 		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
+	if !anyContract(order, lib) {
+		c.Description = fmt.Sprintf("reach %s; no contract covers %s yet, so this is a bare scaffold with no "+
+			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
+	}
 	p.Chain = c
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
@@ -953,4 +957,14 @@ func stripIndexes(path string) string {
 		}
 	}
 	return strings.Join(kept, ".")
+}
+
+func anyContract(order []string, lib *Library) bool {
+	for _, node := range order {
+		rpc, _ := SplitNode(node)
+		if _, ok := lib.Get(rpc); ok {
+			return true
+		}
+	}
+	return false
 }
