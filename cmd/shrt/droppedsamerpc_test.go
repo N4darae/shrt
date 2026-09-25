@@ -34,7 +34,7 @@ steps:
             equals: OK
 `
 
-func TestADroppedCallWhoseRPCAnsweredLaterInTheSameRunIsNotAFinding(t *testing.T) {
+func TestADroppedCallWhoseRPCAnsweredLaterInTheSameRunIsAFindingAboutThatStepOnceRepeated(t *testing.T) {
 	var drop atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := map[string]any{}
@@ -67,12 +67,20 @@ func TestADroppedCallWhoseRPCAnsweredLaterInTheSameRunIsNotAFinding(t *testing.T
 	drop.Store(true)
 	var err error
 	var coded *exitError
-	for i := range 2 {
-		out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-drop-twice", "-quiet"}) })
-		if !errors.As(err, &coded) || coded.code != 3 || strings.Contains(out+err.Error(), "FINDING") ||
-			strings.Contains(err.Error(), "fails this rpc every time") {
-			t.Fatalf("verify %d: ThingService/Fetch answered step fetch2 in the same run, so the rpc does not fail every time; "+
-				"the drop stays could-not-verify, exit 3: %v\n%s", i+1, err, out)
-		}
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-drop-twice", "-quiet"}) })
+	if !errors.As(err, &coded) || coded.code != 3 || strings.Contains(out+err.Error(), "FINDING") {
+		t.Fatalf("verify 1: the previous run had fetch answered, so one drop is could-not-verify, exit 3: %v\n%s", err, out)
+	}
+	if !strings.Contains(err.Error(), "looks intermittent") {
+		t.Fatalf("verify 1: the previous run had this step answered, so it looks intermittent: %v", err)
+	}
+	out = captureStdout(t, func() { err = runVerify(ctx, []string{"cli-drop-twice", "-quiet"}) })
+	if err == nil || errors.As(err, &coded) || !strings.Contains(out, "FINDING: ") {
+		t.Fatalf("verify 2: step fetch dropped in this run and the previous one while later steps were answered in both is a "+
+			"finding about that step, exit 1, although ThingService/Fetch answered fetch2: %v\n%s", err, out)
+	}
+	if strings.Contains(err.Error(), "fails this rpc every time") || !strings.Contains(err.Error(), "step 1 fetch") ||
+		!strings.Contains(err.Error(), "thing-9") {
+		t.Fatalf("verify 2: the finding is worded by step and request, not the rpc every time: %v", err)
 	}
 }

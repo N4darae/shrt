@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"syscall"
 )
 
@@ -40,12 +41,22 @@ func ConnectionClosed(err error) bool {
 		errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNABORTED))
 }
 
+const closedCrashGuess = ": it most likely stopped or crashed while this request was in flight, so whether the call took effect is unknown"
+
+const closedNotAVerdict = " This is not a verdict about the rpc: check the backend is up and run again"
+
+func StillUp(message string) string {
+	message = strings.Replace(message, closedCrashGuess, ": whether the call took effect is unknown", 1)
+	if !strings.Contains(message, closedNotAVerdict) {
+		return message
+	}
+	return strings.TrimSuffix(strings.Replace(message, closedNotAVerdict, "", 1), ".")
+}
+
 func closedError(err error, sent bool) error {
 	if !sent {
 		return fmt.Errorf("the backend closed the connection before the request was written (%w), so it was not sent "+
 			"and took no effect. This is not a verdict about the rpc: check the backend is up and run again", err)
 	}
-	return fmt.Errorf("%s before a response arrived (%w): it most likely stopped or "+
-		"crashed while this request was in flight, so whether the call took effect is unknown. This is not a verdict "+
-		"about the rpc: check the backend is up and run again", ClosedAfterSending, err)
+	return fmt.Errorf("%s before a response arrived (%w)"+closedCrashGuess+"."+closedNotAVerdict, ClosedAfterSending, err)
 }

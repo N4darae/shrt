@@ -46,8 +46,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
 	"       re-sent too: a possible auth regression\n" +
 	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
-	"       steps were answered, in this run and the previous one, and that rpc answered no other step\n" +
-	"       of either: the backend fails that rpc every time\n" +
+	"       steps were answered, in this run and the previous run that sent it: the backend fails that\n" +
+	"       step's request every time, even when its rpc answered other steps\n" +
 	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
 	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
 	"       defect (built from a var: fixture reused, exit 3)\n" +
@@ -295,7 +295,7 @@ func runVerify(ctx context.Context, args []string) error {
 		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
 			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
 		}
-		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
+		nonBackend = couldNotVerifyAfter(name, unansweredStep, unansweredWhy, rec, previousRunAttempting(e, rec, unansweredStep))
 	case violation:
 	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
@@ -1069,6 +1069,10 @@ func refusedFreshAt(rec *runner.Record, step string) bool {
 }
 
 func couldNotVerify(name, step, why string, rec *runner.Record) error {
+	return couldNotVerifyAfter(name, step, why, rec, nil)
+}
+
+func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error {
 	after, answered := false, 0
 	for _, st := range rec.Steps {
 		if after && answeredByService(st) {
@@ -1107,12 +1111,18 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = timeoutRemedy + ", and run verify again"
 	}
-	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" && answeredElsewhere(rec, st) {
-		remedy += fmt.Sprintf("; %s answered another call in this run, so this step failed, not the rpc: it looks intermittent, "+
-			"and a repeat is not reported as a finding", st.Call)
-	} else if answered > 0 && unansweredKind(st) != "" {
-		remedy += "; the backend answered later steps, so if the next run fails this rpc the same way while answering others, " +
-			"verify reports it as a finding"
+	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" {
+		why = transport.StillUp(why)
+		if strings.Contains(remedy, "stopped or crashed") {
+			remedy = "the backend answered later steps of this run, so it did not stop; run verify again"
+		}
+		if was, ok := answeredIn(prev, st); ok {
+			remedy += fmt.Sprintf("; run %s, the previous run that sent step %q, had it answered (%s), so this step looks "+
+				"intermittent, and one failure is not reported as a finding", prev.RunID, st.ID, was)
+		} else {
+			remedy += fmt.Sprintf("; if the next run fails step %q the same way while answering later steps, verify reports "+
+				"it as a finding about that step", st.ID)
+		}
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
