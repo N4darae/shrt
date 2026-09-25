@@ -89,6 +89,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintInertAllowFail(s)...)
 		issues = append(issues, lintLiteralIdempotency(s)...)
 		issues = append(issues, lintUnterminatedPrefix(s)...)
+		issues = append(issues, lintUnevaluableOnRefusal(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m
 		noteExports(s, exports)
@@ -1174,9 +1175,10 @@ const (
 	KindArithmetic     = "interpolated-arithmetic"
 	KindEnvelopeOnly   = "envelope-only"
 
-	KindLiteralIdempotency = "literal-idempotency-key"
-	KindUnterminatedPrefix = "unterminated-prefix"
-	KindNameMismatch       = "name-differs-from-file"
+	KindLiteralIdempotency   = "literal-idempotency-key"
+	KindUnterminatedPrefix   = "unterminated-prefix"
+	KindUnevaluableOnRefusal = "unevaluable-on-refusal"
+	KindNameMismatch         = "name-differs-from-file"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {
@@ -1253,6 +1255,45 @@ func lintLiteralIdempotency(s *Step) []Issue {
 }
 
 var endsInVarRef = regexp.MustCompile(`\$\{\s*vars\.([^}]+?)\s*\}$`)
+
+func lintUnevaluableOnRefusal(s *Step) []Issue {
+	refusal := ""
+	for _, e := range s.Expect {
+		if ExpectsTransportRefusal(e) {
+			want := e.Equals
+			if want == nil {
+				want = "not " + stringify(e.NotEqual)
+			}
+			refusal = fmt.Sprintf("%s %v", e.Path, want)
+			break
+		}
+	}
+	if refusal == "" {
+		return nil
+	}
+	why := ""
+	switch {
+	case s.SkipAuth:
+		why = " (it sends no token, skip_auth: true)"
+	case strings.TrimSpace(s.Auth) == InvalidTokenAuth:
+		why = " (it sends a token the backend never issued, auth: invalid)"
+	}
+	issues := []Issue{}
+	for _, e := range s.Expect {
+		if IsTransportPath(e.Path) {
+			continue
+		}
+		path := e.Path
+		if path == "" {
+			path = "the whole response"
+		}
+		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindUnevaluableOnRefusal, Message: fmt.Sprintf(
+			"expects to be refused at the transport%s, %s, so no response body exists and the expectation on %s is never "+
+				"evaluated: the step fails every time it is refused as expected. Assert the refusal only (transport.code, "+
+				"transport.http_status, transport.message), or move this expectation to a step that is answered", why, refusal, path)})
+	}
+	return issues
+}
 
 func lintUnterminatedPrefix(s *Step) []Issue {
 	positional := false

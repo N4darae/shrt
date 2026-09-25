@@ -1481,6 +1481,19 @@ its field. A literal is spared only when two runs in a row accepted it with no r
 the separator every fixture carries after it (`sku-${vars.tag}-` for skus `sku-${vars.tag}-a`), and
 says so in a note.
 
+## 58. A `product.created_at` check on a probe that sends no token
+
+**Symptom.** `chain lint -strict` said `ok` for `skip_auth: true` and `auth: invalid` steps that
+asserted `transport.code equals unauthenticated` and also `product.created_at equals ...`; every run
+failed both steps, `unevaluated`.
+
+**Cause.** A call refused at the transport has no response body, so an expectation on a response
+field never runs and counts as failed. Nothing checked that before a run.
+
+**Fix.** 2026-09-25: `chain lint` reports `unevaluable-on-refusal`, an error, for every expectation
+on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
+`transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
+
 ---
 
 # Decisions, so they are not relitigated
