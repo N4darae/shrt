@@ -63,7 +63,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]))
+				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value]))
 			}
 		}
 	}

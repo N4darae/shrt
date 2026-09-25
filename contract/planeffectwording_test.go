@@ -16,14 +16,14 @@ func TestTheNoteForAnUnstatedBatchIncreaseNamesTheWordingForAnIncrease(t *testin
 	notes := strings.Join(p.Notes, "\n")
 	var line string
 	for _, n := range p.Notes {
-		if strings.HasPrefix(n, "AddStockBatch touches what the plan tracks") {
+		if strings.HasPrefix(n, "AddStockBatch says nothing of qty_on_hand") {
 			line = n
 		}
 	}
 	if line == "" {
 		t.Fatalf("the batch is no longer recognised, so the plan says what to state:\n%s\n%s", notes, text)
 	}
-	if !strings.Contains(line, `a note on lines saying "one AddStock per line"`) || strings.Contains(line, "Reserve") {
+	if !strings.Contains(line, `add effects: {qty_on_hand: {increase: lines.qty}}`) || strings.Contains(line, "decrease") {
 		t.Fatalf("an increase is stated as one AddStock per line, not as a reservation:\n%s", line)
 	}
 }

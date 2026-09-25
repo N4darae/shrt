@@ -64,6 +64,7 @@ type RPCContract struct {
 	Before       []string                  `yaml:"before,omitempty" json:"before,omitempty"`
 	Fields       map[string]*FieldContract `yaml:"fields,omitempty" json:"fields,omitempty"`
 	Aliases      map[string]*AliasContract `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+	Effects      Effects                   `yaml:"effects,omitempty" json:"effects,omitempty"`
 	Exports      map[string]string         `yaml:"exports,omitempty" json:"exports,omitempty"`
 	Terminal     map[string]string         `yaml:"terminal,omitempty" json:"terminal,omitempty"`
 	SoftSignals  map[string]string         `yaml:"soft_signals,omitempty" json:"soft_signals,omitempty"`
@@ -455,7 +456,23 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 		}
 		overlays = append(overlays, o)
 	}
-	return NewLibrary(overlays), broken, nil
+	lib := NewLibrary(overlays)
+	kept := []*Overlay{}
+	for _, o := range overlays {
+		problems := []string{}
+		for _, issue := range EffectProblems(&Library{Overlays: []*Overlay{o}, byRPC: lib.byRPC}, cat) {
+			problems = append(problems, fmt.Sprintf("%s %s: %s", shortRPC(issue.RPC), issue.Field, issue.Message))
+		}
+		if len(problems) > 0 {
+			broken = append(broken, fmt.Errorf("%s: %s", o.SourcePath, strings.Join(problems, "; ")))
+			continue
+		}
+		kept = append(kept, o)
+	}
+	if len(kept) == len(overlays) {
+		return lib, broken, nil
+	}
+	return NewLibrary(kept), broken, nil
 }
 
 type definedAt struct {

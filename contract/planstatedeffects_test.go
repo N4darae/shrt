@@ -36,7 +36,7 @@ func TestAWriteWhoseContractSaysItDoesNotTouchStockIsFollowedByReadsOfTheLevels(
 	}
 	add := planStep(t, p, "add_stock")
 	wantExpect(t, planStep(t, p, "get_product_after_create_order"), "product.qty_on_hand", bodyAt(t, add, "qty"))
-	if !strings.Contains(notes, `leaves the stock alone ("does not touch stock")`) {
+	if !strings.Contains(notes, `leaves what the plan tracks alone ("does not touch stock")`) {
 		t.Fatalf("the plan says why it reads the stock after create_order:\n%s", notes)
 	}
 }

@@ -177,7 +177,7 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `summary` | string |  | What it does and when you would call it. |
+| `summary` | string |  | Prose for people: what it does and when you would call it. What a write does to numbers goes in `effects`. |
 | `note` | string |  | Free text about the rpc. It spares no quality term; use `no_producer` for a read with no producer. |
 | `auth` | string |  | Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step. |
 | `requires_role` | list of string |  | Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial. |
@@ -187,6 +187,7 @@ Produced by resolving each form against a fixture scope:
 | `before` | list of string |  | The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc. |
 | `fields` | map string → fieldcontract |  | Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry. |
 | `aliases` | map string → aliascontract |  | Per-instance overrides, so two aliased steps of one rpc differ. |
+| `effects` | map string → effect |  | What this rpc does to numbers, as data `plan` asserts, keyed by the number's field name: `{balance: {increase: amount}}`. Or a word: `none` (leaves it alone), `zero` (a create starts it at 0), `per_item` (keyed by a repeated request field: each item is applied or refused alone). A stated key wins over the prose. |
 | `exports` | map string → string |  | Response paths worth exporting, and why. |
 | `terminal` | map string → string |  | Response fields that deliberately have no consumer. |
 | `soft_signals` | map string → string |  | Response fields carrying advisory information rather than success or failure. |
@@ -213,6 +214,17 @@ Produced by resolving each form against a fixture scope:
 |---|---|---|---|
 | `note` | string |  | What makes this instance different. |
 | `fields` | map string → fieldcontract |  | Field overrides for this instance only. |
+
+### `effects.<field>`
+
+| key | type | req | meaning |
+|---|---|---|---|
+| `increase` | string |  | The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key. |
+| `decrease` | string |  | As `increase`, shrinking. |
+| `of` | string |  | An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. |
+| `restore` | string |  | The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. |
+| `sum` | string |  | `<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32. |
+| `times` | string |  | The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`. |
 
 ### `failures[]`
 
