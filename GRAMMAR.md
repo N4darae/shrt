@@ -542,7 +542,11 @@ it failed, and a drift it explains fails with `drift with different input` namin
 or body or header reference edit (a header template that reads another step or field) is a CHAIN change, not an input change: the
 summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
 confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
-(exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.
+(exit 1), not `drift with different input`. A removed, added or re-called step explains only itself, the
+steps after it when it is a write, and the steps reading it: a drift at any other step is a `regression`
+(`... at steps the chain change since it was confirmed cannot affect`). A step renamed beside an inserted or
+deleted step still pairs with its old self: steps are paired by id first, then by call in relative order
+between them. When vars and the chain file both differ, verify names both.
 A fixture name (a string that interpolates a var inside other text, `sku-${vars.tag}`) and a request
 value under a `volatile` path are listed on one line and are NOT different input, so a fresh `-var tag`
 compares like with like. A var names fixtures only when the chain reads it inside other text in at least

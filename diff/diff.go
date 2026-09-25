@@ -1224,6 +1224,10 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are not explained by the expectation change, which explains only its own step's "+
 			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
 			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+	case mixed && r.OnlyChainChanged():
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps the chain change cannot affect (not a changed, added or removed step, "+
+			"after no added or removed write, and reading none of those steps), so it does not explain them and they are evidence of a "+
+			"backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps whose input did not differ, that read no value the different input "+
 			"changed and follow no write whose answer changed with it, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
@@ -1260,6 +1264,9 @@ func (r *Report) Text() string {
 		after := ""
 		if mixed && c.WithInput {
 			after = " (after different input)"
+			if r.OnlyChainChanged() {
+				after = " (explained by the chain change)"
+			}
 			if expectOnly {
 				after = " (explained by the failed changed expectation)"
 			}

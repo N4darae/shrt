@@ -1038,9 +1038,14 @@ Three things that decide whether this works for a given chain:
   The chain's step list and expectations are compared too: a step removed, added, moved or
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`; a move is
-  never a response change, so beside an expectation edit it still makes the verdict a chain change. A step renamed in
+  never a response change, so beside an expectation edit it still makes the verdict a chain change. A removed, added or
+  re-called step explains only the steps it can affect: itself, every step after it when it is a write, and every step
+  reading it. A change at any other step (a read left in place when an unrelated trailing read was deleted) is still a
+  `regression`, and verify says the chain change `cannot affect` it. A step renamed in
   place (same call, same position, and that call's steps still at the same positions, so two steps of one call
-  renamed together, or their ids swapped with the bodies left in place, pair by position) is not a removal and an addition:
+  renamed together, or their ids swapped with the bodies left in place, pair by position) is not a removal and an addition;
+  nor is one renamed beside an inserted or deleted step: the steps whose ids did not change are paired first, and
+  between them a renamed step pairs with the old step of the same call in the same relative order:
   `verify`, `diff` and the `-supersede` review say `renamed step(s): step 8 list_orders -> list_customer_orders` and
   compare its response with the old step's, so a changed value there (`orders.0.total_minor want=750 got=1`) is judged. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
