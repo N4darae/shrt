@@ -2264,6 +2264,17 @@ kept listing `no token` for the other two, and testers planned every rpc separat
 **Fix.** 2026-09-25: every target rpc of a plan gets its own pair (an rpc named twice, through an
 alias, gets one).
 
+## 110. "no account has this username" planned no unknown-user login
+
+**Symptom.** A login whose `BadCredentials` said `when: the password is wrong, or no account has this
+username` got `login_bad_password` but no `login_unknown_user`, and nothing said why: only a `when:`
+with `unknown`, `no such` or `does not exist` was read as one.
+
+**Fix.** 2026-09-25: the recogniser also reads `no account/user ... has/with/named`, `no user
+exists`, `unregistered`, `non-existent`, `doesn't exist`, and a reason such as `UserNotFound` on
+another failure of the login; when no failure reads as one, a note quotes the `when:` it could not
+read and says how to phrase it.
+
 ---
 
 # Decisions, so they are not relitigated
