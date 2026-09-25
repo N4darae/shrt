@@ -160,6 +160,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		if !keptRed.on {
 			opts.Relax = relaxIn(rec)
 		}
+		opts.StateIrrelevant = stateIrrelevantIn(e, lib, c, rec)
 	}
 
 	res, err := chain.Slice(c, *step, opts)

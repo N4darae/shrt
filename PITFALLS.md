@@ -1618,6 +1618,25 @@ refusal, or any step expecting `unauthenticated`/`permission_denied` (401/403) a
 an auth probe: `chain which` marks it `auth probe` (`kind: auth_probe` in JSON) and reproduces it
 with a plain closure slice.
 
+## 68. A slice that dropped the cancel whose missing restock it was meant to show
+
+**Symptom.** `chain slice -step get_product_2_after_cancel` of a chain that confirmed and cancelled
+an order kept only the product, its AddStock and the read. Without the confirm and the cancel the
+stock was never taken, the read passed, and `-verify` said NOT REPRODUCED; slicing a CreateOrder
+that failed on stock was INCONCLUSIVE because of the AddStock before it. The author had to find the
+writes with `-keep` by hand.
+
+**Cause.** The closure followed references from the kept steps back to their producers only. A
+cancel or a confirm is not referenced by the read: it changes the state the read sees, which is a
+dependency no reference records.
+
+**Fix.** 2026-09-25: the closure also keeps every earlier write that acts, directly or through what
+it references (not a `steps.X.request` value), on an entity the target or a kept read sends, and
+names the entity and the reader in its reason. Under `-mode pin` it keeps none of them for an entity
+pinned from the run, whose state that run left. With a run record, a write whose recorded answer
+changes only fields the reader's messages and contract never mention is left out, as `-verify` would
+judge it.
+
 ---
 
 # Decisions, so they are not relitigated

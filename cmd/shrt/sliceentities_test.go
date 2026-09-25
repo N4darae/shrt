@@ -32,8 +32,11 @@ func TestSliceKeepSuggestsOnlyWritesOnTheEntitiesTheKeptStepsUse(t *testing.T) {
 	_ = runRun(context.Background(), []string{".shrt/scratch/probe-orders.yaml", "-quiet", "-var", "tag=src"})
 
 	out, err := sliceShop(t, "-var", "tag=s1")
-	if exitCodeOf(err) != 1 {
-		t.Fatalf("without the confirm the cancel succeeds, so the slice is not reproduced (exit %d):\n%s", exitCodeOf(err), out)
+	if !strings.Contains(out, "confirm_single       OrderService/ConfirmOrder       changes the state of what create_order_single created, which cancel_confirmed reads") {
+		t.Fatalf("the confirm acts on the order the target cancels, so the closure keeps it:\n%s", out)
+	}
+	if exitCodeOf(err) != 2 {
+		t.Fatalf("without the stock the kept confirm is refused and the slice stops before the target (exit %d):\n%s", exitCodeOf(err), out)
 	}
 	next := nextCommand(out)
 	keep := ""
@@ -42,9 +45,9 @@ func TestSliceKeepSuggestsOnlyWritesOnTheEntitiesTheKeptStepsUse(t *testing.T) {
 			keep = next[i+1]
 		}
 	}
-	if keep != "add_stock,confirm_single" {
-		t.Fatalf("the confirm acts on the order the target cancels and the stock add on the product its line holds; "+
-			"no other dropped write touches those, so next must keep exactly those two, got -keep %q:\n%s", keep, out)
+	if keep != "add_stock" {
+		t.Fatalf("the stock add acts on the product the kept confirm's line holds; no other dropped write touches it, "+
+			"so next must keep exactly it, got -keep %q:\n%s", keep, out)
 	}
 
 	next = append(next[:len(next):len(next)], "-var", "tag=s2")

@@ -13,8 +13,8 @@ func TestAWriteOnAnOrderActsOnTheProductsItsLinesName(t *testing.T) {
 	c := &chain.Chain{Name: "stock", Steps: []*chain.Step{
 		{ID: "create_product", Call: "ProductService/CreateProduct", Body: map[string]any{"sku": "a"}},
 		{ID: "create_order", Call: "OrderService/CreateOrder", Body: map[string]any{"lines": []any{map[string]any{"id_product": "${create_product.product.id_product}"}}}},
-		{ID: "confirm_order", Call: "OrderService/ConfirmOrder", Body: map[string]any{"id_order": "${create_order.order.id_order}"}},
-		{ID: "cancel_order", Call: "OrderService/CancelOrder", Body: map[string]any{"id_order": "${create_order.order.id_order}"}},
+		{ID: "confirm_order", Call: "OrderService/ConfirmOrder", Body: map[string]any{"id_order": "ord-1"}},
+		{ID: "cancel_order", Call: "OrderService/CancelOrder", Body: map[string]any{"id_order": "ord-1"}},
 		{ID: "get_product", Call: "ProductService/GetProduct", Body: map[string]any{"id_product": "${create_product.product.id_product}"}},
 	}}
 	step := func(id, call, req, resp string) *runner.StepRecord {

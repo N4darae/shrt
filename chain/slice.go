@@ -83,6 +83,7 @@ type SliceOptions struct {
 	Performed         func(stepID string) bool
 	IsLogin           func(*Step) bool
 	Relax             func(stepID string) []ExpectResult
+	StateIrrelevant   func(writerID, readerID string) bool
 }
 
 type Keep struct {
@@ -311,6 +312,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		}
 		added := false
 		for _, w := range idx.sideEffectWrites(at, keeps, mode, opts) {
+			add(w.index, KeepSideEffect, w.reason)
+			added = true
+		}
+		for _, w := range idx.stateWrites(at, keeps, mode, opts) {
 			add(w.index, KeepSideEffect, w.reason)
 			added = true
 		}
@@ -681,7 +686,8 @@ func sliceDescription(res *SliceResult) string {
 	}
 	b.WriteString(".\n\n")
 	b.WriteString("Computed by 'shrt chain slice': the target step, every earlier step whose output a kept\n")
-	b.WriteString("step references, and every ordering prerequisite the contracts declare for a kept rpc.\n")
+	b.WriteString("step references, every ordering prerequisite the contracts declare for a kept rpc, and every\n")
+	b.WriteString("earlier write on an entity the target or a kept read sends (a cancel of an order on the product it reads).\n")
 	asked := []string{}
 	for _, k := range res.Kept {
 		if k.Kind == KeepAsked {
@@ -945,6 +951,101 @@ func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, mode string, o
 			}
 			out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("changes the state %s sets on %s, which %s needs (%s needs %s)",
 				st.rpc, shared, st.neededBy, rpc, st.rpc)})
+			break
+		}
+	}
+	return out
+}
+
+func (x *stepIndex) entitiesSent(i int) []int {
+	out := []int{}
+	for _, ref := range x.c.Steps[i].SendReferences() {
+		if r := ParseRef(ref); r.Kind == RefStep {
+			if section, _, _ := strings.Cut(r.Rest, "."); section == "request" {
+				continue
+			}
+		}
+		if j, kind := x.producerOf(ref, i); kind == refStep {
+			out = append(out, j)
+		}
+	}
+	return out
+}
+
+func (x *stepIndex) readEntities(i int, seen map[int]bool) map[int]bool {
+	out := map[int]bool{}
+	if seen[i] {
+		return out
+	}
+	seen[i] = true
+	for _, j := range x.entitiesSent(i) {
+		out[j] = true
+		if IsReadOnlyCall(x.c.Steps[j].Call) {
+			for k := range x.readEntities(j, seen) {
+				out[k] = true
+			}
+		}
+	}
+	return out
+}
+
+func (x *stepIndex) actsOn(i int, seen map[int]bool) map[int]bool {
+	out := map[int]bool{}
+	if seen[i] {
+		return out
+	}
+	seen[i] = true
+	for _, j := range x.entitiesSent(i) {
+		out[j] = true
+		for k := range x.actsOn(j, seen) {
+			out[k] = true
+		}
+	}
+	return out
+}
+
+func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, mode string, opts SliceOptions) []sideEffectWrite {
+	readers := []int{}
+	for i, k := range keeps {
+		if i == at || k.Kind == KeepAsked || IsReadOnlyCall(x.c.Steps[i].Call) {
+			readers = append(readers, i)
+		}
+	}
+	sort.Ints(readers)
+	out := []sideEffectWrite{}
+	for w := 0; w < at; w++ {
+		if _, kept := keeps[w]; kept {
+			continue
+		}
+		s := x.c.Steps[w]
+		if !isWriteCall(s.Call) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+			continue
+		}
+		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
+			continue
+		}
+		reach := x.actsOn(w, map[int]bool{})
+		for _, r := range readers {
+			if w >= r {
+				continue
+			}
+			if opts.StateIrrelevant != nil && opts.StateIrrelevant(s.ID, x.c.Steps[r].ID) {
+				continue
+			}
+			shared := ""
+			for e := range x.readEntities(r, map[int]bool{}) {
+				if _, fresh := keeps[e]; !fresh {
+					continue
+				}
+				if reach[e] && (shared == "" || x.c.Steps[e].ID < shared) {
+					shared = x.c.Steps[e].ID
+				}
+			}
+			if shared == "" {
+				continue
+			}
+			out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("changes the state of what %s created, which %s reads",
+				shared, x.c.Steps[r].ID)})
 			break
 		}
 	}
