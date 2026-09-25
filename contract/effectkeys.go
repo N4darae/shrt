@@ -175,6 +175,11 @@ func quoteEffect(field string, e *Effect) string {
 
 func suggest(name string, candidates []string) string {
 	near := namecase.Closest(name, candidates, 1)
+	for _, c := range candidates {
+		if len(near) == 0 && (strings.HasPrefix(c, name+"_") || strings.HasSuffix(c, "_"+name)) {
+			near = []string{c}
+		}
+	}
 	if len(near) == 0 {
 		return ""
 	}
@@ -319,7 +324,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			s.form = EffectPerItem
 		case e.Is == EffectZero:
 			if numericAt(m, k) == "" {
-				fail("zero names a number this rpc answers with%s", suggest(k, numericNames(catalog.DescribeMessage(m.Output()).Fields)))
+				fail("zero: %q is not a number this rpc answers with%s", k, suggest(k, answeredNumbers(m)))
 				continue
 			}
 			s.form = EffectZero
@@ -338,7 +343,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			}
 		case e.Sum != "":
 			if numericAt(m, k) == "" {
-				fail("sum names a number this rpc answers with%s", suggest(k, numericNames(catalog.DescribeMessage(m.Output()).Fields)))
+				fail("sum: %q is not a number this rpc answers with%s", k, suggest(k, answeredNumbers(m)))
 				continue
 			}
 			list, qty, problem := linePath(in, e.Sum)
@@ -352,7 +357,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			}
 			id, entity, idPath := lineEntity(c, in, list, priced, cat)
 			if id == "" {
-				fail("times: %q is not a number the rpc a field of %s is wired from: takes in its request%s", e.Times, list, suggest(e.Times, lineNumbers(c, in, list, cat)))
+				fail("times: %q is not a number in the request of %s%s", e.Times, lineSources(c, in, list, cat), suggest(e.Times, lineNumbers(c, in, list, cat)))
 				continue
 			}
 			s.form, s.list, s.qty, s.idField, s.entity, s.idPath, s.price = "total", list, qty, id, entity, idPath, e.Times
@@ -453,6 +458,21 @@ func lineNumbers(c *RPCContract, in []*catalog.Field, list string, cat *catalog.
 		}
 	}
 	return out
+}
+
+func lineSources(c *RPCContract, in []*catalog.Field, list string, cat *catalog.Catalog) string {
+	names := []string{}
+	if lf := fieldByName(in, list); lf != nil {
+		for _, sub := range lf.Fields {
+			if ref, ok := writeRef(c, list+"."+sub.Name, cat); ok {
+				names = append(names, fmt.Sprintf("%s (which %s.%s is wired from:)", shortRPC(ref.RPC), list, sub.Name))
+			}
+		}
+	}
+	if len(names) == 0 {
+		return "a record any field of " + list + " is wired from:"
+	}
+	return strings.Join(names, " or ")
 }
 
 func catalogNumbers(cat *catalog.Catalog) []string {

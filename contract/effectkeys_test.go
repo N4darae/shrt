@@ -169,6 +169,7 @@ func TestAnInvalidEffectIsRefusedAtLoad(t *testing.T) {
 		{"{qty_on_hand: {increase: qtty}}", `"qtty" is not a number of the request (did you mean "qty"?)`},
 		{"{qty_on_hnd: {increase: qty}}", "no request field is wired with from: to a record that answers qty_on_hnd"},
 		{"{qty_on_hand: nothing}", `"nothing" is not an effect`},
+		{"{qty_on_hnd: {sum: lines.qty, times: price}}", `sum: "qty_on_hnd" is not a number this rpc answers with (did you mean "qty_on_hand"?)`},
 		{"{qty_on_hand: {increase: qty, restore: DONE}}", "exactly one of increase, decrease, restore or sum"},
 		{"{qty_on_hand: {decrease: lines.qty, of: id_prodct}}", `of: "id_prodct" is not a request field wired with from: to another write (did you mean "id_product"?)`},
 	} {
