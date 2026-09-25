@@ -176,7 +176,7 @@ func TestContractStatusGapsHelpNamesBothKindsOfGap(t *testing.T) {
 	defer shopStatusWorkspace(t)()
 	var err error
 	out := captureStderr(t, func() { err = contractStatus([]string{"-h"}) })
-	if !strings.Contains(out, "'no contract'") || !strings.Contains(out, "'no path to'") {
+	if !strings.Contains(out, "no contract") || !strings.Contains(out, "no path to") {
 		t.Fatalf("-gaps help must describe what -gaps prints (%v):\n%s", err, out)
 	}
 }

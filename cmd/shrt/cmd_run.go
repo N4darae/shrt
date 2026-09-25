@@ -57,18 +57,14 @@ func typedVar(s string) any {
 func runRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	vars := varFlags{}
-	fs.Var(vars, "var", "override a chain var, repeatable: -var key=value")
+	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
 	save := fs.Bool("save", true, "persist the run record")
-	dry := fs.Bool("dry-run", false, "resolve and validate every request without sending it")
-	asJSON := fs.Bool("json", false, "emit the run record as JSON")
-	quiet := fs.Bool("quiet", false, "suppress per-step progress; a green chain prints its verdict line only")
+	dry := fs.Bool("dry-run", false, "resolve and validate every request, send nothing")
+	asJSON := fs.Bool("json", false, "print the run record as JSON")
+	quiet := fs.Bool("quiet", false, "no per-step progress; a green chain prints its verdict line only")
 	build := fs.String("build", "", buildFlagUsage)
-	keepGoing := fs.Bool("keep-going", false, "run past a step that did not pass; a step reading a failed step's response or exports is recorded skipped, not sent, unless it reads a field no failed expectation covers; once the target is unreachable (connection refused, dial or DNS failure) nothing more is sent; the run stays failed")
-	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "usage: shrt run <chain> [flags]")
-		fs.PrintDefaults()
-		fmt.Fprint(fs.Output(), runExitCodes)
-	}
+	keepGoing := fs.Bool("keep-going", false, "run past a failed step; a step reading a failed step is recorded skipped")
+	setUsage(fs, "usage: shrt run <chain> [flags]", runExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -113,6 +109,7 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	defer func() { writeGateSidecar(runSidecar(e, c, rec)) }()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
 		judgePinnedDrift(e, c, rec, pinnedRef)
@@ -215,52 +212,9 @@ func runRun(ctx context.Context, args []string) error {
 }
 
 const runExitCodes = "\nexit codes:\n" +
-	"  0  passed\n" +
-	"     - a -dry-run: every request resolved and validated\n" +
-	"     - a chain with kept_red: failed exactly as kept_red pins, every pin evaluated (the run goes\n" +
-	"       past every failure, pinned or not, as -keep-going does) and no step left unsent\n" +
-	"  1  failed\n" +
-	"     - a step was answered and an expectation did not hold\n" +
-	"     - a chain with kept_red failed anywhere else or differently, or passed, so the pinned\n" +
-	"       defect is gone, or a pinned step returned something else than in the last run of the\n" +
-	"       same chain file that failed as pinned\n" +
-	"     - a token the backend accepted earlier in the run and then refused, when the previous run\n" +
-	"       that sent that step was refused there the same way and neither run shows a restart (see 3)\n" +
-	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +
-	"       re-login's own token refused early too in this run, or a token accepted and then refused\n" +
-	"       early in this run and in the previous run, with no restart shown in either (a single\n" +
-	"       early refusal is a WARNING line: exit 3 when it left a step unanswered, else 0)\n" +
-	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
-	"       run that sent that step was refused there the same way, with its own freshly issued token\n" +
-	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +
-	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
-	"       that the previous run answered while failing at another step with the same error\n" +
-	"     - a refusal before anything was sent, checked for every step up front as -dry-run does:\n" +
-	"       - bad flags, an unknown chain, a missing var, a -var the chain never reads whose name is\n" +
-	"         close to one it reads (a likely typo; any other unread -var is a warning and ignored)\n" +
-	"       - an unset env var read by a step or by the login body of an auth profile a step runs under\n" +
-	"       - a reference to a step or export that does not exist or runs later, or to a response field\n" +
-	"         the producing step's message does not declare or a request path its request does not\n" +
-	"         declare\n" +
-	"       - a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum,\n" +
-	"         bytes or timestamp into an int64; a string may hold digits and is only a lint warning)\n" +
-	"       - a whole message into a string, bytes, bool, enum or numeric field (name: ${p.product}; a\n" +
-	"         Timestamp, Duration, FieldMask or wrapper renders as one value and passes)\n" +
-	"       - a whole list or map into a single-valued field or a single value into a list or map\n" +
-	"       - an unknown auth profile, an rpc the catalog does not have, a streaming rpc\n" +
-	"       - a config or descriptor that does not load, a conventions path no response declares, a\n" +
-	"         step body the proto rejects\n" +
-	"  3  error: a step could not complete, so the run is not a verdict about the backend\n" +
-	"     - an unresolved reference, or a body only invalid with the values a real response gave\n" +
-	"     - target unreachable, or the connection closed before a response because the backend\n" +
-	"       stopped or crashed\n" +
-	"     - a gateway answered for the service with a Connect unavailable or a bare HTTP 502/503/504\n" +
-	"     - login failed\n" +
-	"     - a token the backend accepted earlier in the run and then refused: a likely restart mid-run.\n" +
-	"       A restart shows as a call accepted when re-sent after a fresh login, data created before it\n" +
-	"       gone after the re-login, or a step before it with no answer from the service\n" +
-	"     - a token a login in this run had just issued and the backend refused on its first use:\n" +
-	"       reported as a possible auth regression\n"
+	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request\n" +
+	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
+	"  3  no verdict: unreachable, a gateway answered, a restart mid-run, login or auth refused; re-run\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {
@@ -354,13 +308,11 @@ func checkUnusedVars(c *chain.Chain, vars map[string]any, supplied map[string]an
 	for _, name := range ignored {
 		delete(supplied, name)
 	}
-	readsLine := "it reads no vars at all"
-	if len(reads) > 0 {
-		readsLine = "vars it reads: " + strings.Join(reads, ", ")
+	if len(reads) == 0 {
+		return nil
 	}
-	fmt.Fprintf(os.Stderr, "warning: -var %s: chain %q never reads %s, so %s no effect on this run (%s); "+
-		"a name close to one it reads is still refused as a likely typo\n",
-		strings.Join(ignored, ", "), c.Name, pluralWord(len(ignored), "it", "them"), pluralWord(len(ignored), "it has", "they have"), readsLine)
+	fmt.Fprintf(os.Stderr, "warning: -var %s: chain %q never reads %s (it reads %s)\n",
+		strings.Join(ignored, ", "), c.Name, pluralWord(len(ignored), "it", "them"), strings.Join(reads, ", "))
 	return nil
 }
 
@@ -376,7 +328,7 @@ func unusedVarError(unused []string, chainName string, reads []string) error {
 		strings.Join(unused, ", "), chainName, strings.Join(closestReads(unused, reads), ", "), readsLine)
 }
 
-const buildFlagUsage = "stamp this build identity (a version, commit or image tag) into the run record; overrides target.build_header"
+const buildFlagUsage = "stamp this build `id` into the run record (overrides target.build_header)"
 
 func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Options, quiet bool) (*runner.Record, error) {
 	r, _, err := runner.NewFromConfig(ctx, e.cfg, e.cat)
@@ -412,10 +364,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 			if sr.Error != "" {
 				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
 			}
-			for _, line := range strings.Split(sr.Warning, "\n") {
-				if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
-					continue
-				}
+			for _, line := range shownWarnings(sr) {
 				if at, seen := warned[line]; seen {
 					fmt.Printf("       the same warning as at step %s above\n", at)
 					continue
@@ -585,10 +534,7 @@ func warningLines(rec *runner.Record) []string {
 		if sr == nil {
 			continue
 		}
-		for _, line := range strings.Split(sr.Warning, "\n") {
-			if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
-				continue
-			}
+		for _, line := range shownWarnings(sr) {
 			if _, seen := stepsOf[line]; !seen {
 				warnings = append(warnings, line)
 			}
@@ -602,6 +548,24 @@ func warningLines(rec *runner.Record) []string {
 	}
 	if line := runner.UndeclaredFieldsLine(rec); line != "" {
 		out = append(out, "warning: "+line)
+	}
+	return out
+}
+
+func shownWarnings(sr *runner.StepRecord) []string {
+	cachedFirstUse := sr.AuthRetry == runner.AuthRetryResent && len(sr.TokenRefused) > 0
+	for _, r := range sr.TokenRefused {
+		cachedFirstUse = cachedFirstUse && r.Cached && r.FirstUse
+	}
+	out := []string{}
+	for _, line := range strings.Split(sr.Warning, "\n") {
+		if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
+			continue
+		}
+		if cachedFirstUse && (line == runner.CachedTokenResent || strings.HasPrefix(line, "the token was refused")) {
+			continue
+		}
+		out = append(out, line)
 	}
 	return out
 }

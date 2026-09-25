@@ -36,7 +36,7 @@ func TestCLISliceRefusalExitCodesAreStatedForBothModes(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(sliceExitCodes, "plain slice") || !strings.Contains(sliceExitCodes, "the same refusal exits 2 under -verify") {
+	if !strings.Contains(sliceExitCodes, "plain slice") || !strings.Contains(sliceExitCodes, "  2  DID NOT RUN") {
 		t.Errorf("chain slice -h must state the plain-slice exit codes and how they differ under -verify:\n%s", sliceExitCodes)
 	}
 	raw, err := coredistillation.Docs.ReadFile("README.md")

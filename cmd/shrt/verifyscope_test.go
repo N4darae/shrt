@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestCLIVerifyCleanSaysWhatNoDriftCovers(t *testing.T) {
+func TestCLIVerifyCleanPrintsItsVerdictFirstAndNoFooter(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -26,8 +26,7 @@ func TestCLIVerifyCleanSaysWhatNoDriftCovers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "no drift") ||
-		!strings.Contains(out, "covers the 2 step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n") {
-		t.Fatalf("a clean verify must say its no drift covers only this chain's steps:\n%s", out)
+	if !strings.HasPrefix(out, "cli-thing-flow: no drift vs safe spot ") || strings.Contains(out, "covers the") || strings.Contains(out, "ok ") {
+		t.Fatalf("a clean verify leads with its verdict, with no per-step progress and no footer:\n%s", out)
 	}
 }

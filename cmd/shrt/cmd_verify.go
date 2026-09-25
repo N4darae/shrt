@@ -32,75 +32,21 @@ func init() {
 
 const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
-	"  1  a verdict: the backend or the chain changed or is wrong\n" +
-	"     - drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
-	"     - a LATENCY slowdown, confirmed by re-sending the read or by the previous run, when the\n" +
-	"       config sets latency: {fail: true}; without it a slowdown is a warning line and exit 0\n" +
-	"     - validate_output drift that is a wrong-typed value or an undeclared enum value, and the\n" +
-	"       descriptor matches a rebuild: the proto is current, so the backend changed at that step\n" +
-	"     - the backend refused, at the same step, a token it had accepted earlier in both this run\n" +
-	"       and the previous run that sent that step: not a restart, a refusal specific to that rpc,\n" +
-	"       unless either run shows a restart (see 3)\n" +
-	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +
-	"       re-login's own token refused early too in this run, or a token accepted and then refused\n" +
-	"       early in this run and in the previous run, with no restart shown in either (a single\n" +
-	"       early refusal is a WARNING line: exit 3 when it left a step unanswered, else 0)\n" +
-	"     - a fixture collision on a field built from ${uuid} or a clock value, after a previous run\n" +
-	"       refused at the same step the same way: such values are unique to their run (a repeat on\n" +
-	"       var values stays exit 3, since another client may use the same values)\n" +
-	"     - a token a login in this run had just issued, refused again after a fresh login and\n" +
-	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
-	"       re-sent too: a possible auth regression\n" +
-	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
-	"       steps were answered, in this run and the previous run that sent it: the backend fails that\n" +
-	"       step's request every time, even when its rpc answered other steps\n" +
-	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
-	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
-	"       defect (built from a var: fixture reused, exit 3)\n" +
-	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
-	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
-	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
-	"     - the first failing step was refused as a uniqueness conflict on a value an earlier step of\n" +
-	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
-	"       within every run, a chain defect; unless the value is a ${steps.<id>.request...} reference\n" +
-	"       or the safe spot's run or an earlier run had that repeat accepted: then a regression\n" +
-	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +
-	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
-	"       that the previous run answered while failing at another step with the same error\n" +
-	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
-	"     is not judged\n" +
-	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
-	"       dropped, sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
-	"       502/503/504 from a gateway, login or auth refused\n" +
-	"     - fixture reused: the first failing step was refused as a uniqueness conflict on a field\n" +
-	"       built from a var whose value a recorded run of this chain already used; re-run with a\n" +
-	"       fresh -var\n" +
-	"     - fixture collision: the same, on a value no recorded run used, so something else created\n" +
-	"       the record; re-run with a fresh -var\n" +
-	"     - the backend refused a token it had accepted earlier in the run: it likely restarted\n" +
-	"       mid-run; re-run. A restart shows as a call accepted when re-sent after a fresh login,\n" +
-	"       data created before the refusal gone after the re-login, or a step before it that got no\n" +
-	"       answer from the service\n" +
-	"     - the backend refused a token a login in this run had just issued, on its first use: the\n" +
-	"       credentials work, and it says this may be an auth regression (a read re-sent after a\n" +
-	"       fresh login and refused again is not called a restart; a write is not re-sent, so a\n" +
-	"       repeat of a refused write stays exit 3)\n" +
-	"     - validate_output: the first failing step failed only because its response does not match\n" +
-	"       the descriptor, and nothing drifted before it: the descriptor is stale or the body carries\n" +
-	"       fields the proto does not declare\n"
+	"  1  drift, a failed replay, no safe spot, a FINDING, REGRESSION or CHAIN DEFECT, a confirmed slowdown\n" +
+	"  3  could not verify: a step unanswered, a restart, auth refused, a fixture reused, a stale descriptor\n"
 
-func runVerify(ctx context.Context, args []string) error {
+func runVerify(ctx context.Context, args []string) (err error) {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	vars := varFlags{}
-	fs.Var(vars, "var", "override a chain var, repeatable: -var key=value")
-	useRun := fs.String("run", "", "diff a recorded run id instead of replaying; 'latest' is the newest run record of the chain, a verify replay included, and verify names the run it picked")
-	asJSON := fs.Bool("json", false, "emit the diff report as JSON")
-	quiet := fs.Bool("quiet", false, "suppress per-step progress; a clean replay prints its verdict line only")
+	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
+	useRun := fs.String("run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
+	asJSON := fs.Bool("json", false, "print the diff report as JSON")
+	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "also list each change at a step not judged because its response does not match the descriptor (folded into one line by default)")
-	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run, with the steps flagged as slow")
-	listMasked := fs.Bool("masked", false, "list every response value kept out of the comparison: under a volatile pattern, or id- or timestamp-shaped on both sides, with both values")
+	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch")
+	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
+	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -181,7 +127,7 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			return err
 		}
-		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), *quiet || *asJSON)
+		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), true)
 		if err == nil {
 			rec.ReplayOf = spot.RunID
 		}
@@ -198,6 +144,7 @@ func runVerify(ctx context.Context, args []string) error {
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	defer func() { writeGateSidecar(verifySidecar(e, rec, report)) }()
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
@@ -351,43 +298,45 @@ func runVerify(ctx context.Context, args []string) error {
 			return err
 		}
 	} else {
-		if !*quiet {
-			fmt.Println()
-		}
+		body := &strings.Builder{}
+		defer func() {
+			verdict, rest := verifyVerdict(name, rec, report, nonBackend != nil, err, body.String())
+			fmt.Print(verdict + rest)
+		}()
 		if nonBackend != nil {
-			fmt.Printf("could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
+			fmt.Fprintf(body, "could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
 		}
 		if olderSpot != "" && !*quiet {
-			fmt.Println(olderSpot)
+			fmt.Fprintln(body, olderSpot)
 		}
 		if (spot.Build != "" || rec.Build != "") && !*quiet {
-			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
+			fmt.Fprintf(body, "safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		switch {
 		case nonBackend != nil:
 			if list := affectedSteps(rec, report); list != "" {
-				fmt.Println("  affected step(s), not judged: " + list)
+				fmt.Fprintln(body, "  affected step(s), not judged: "+list)
 			}
 			if life != nil {
-				fmt.Println(life.label() + life.line())
+				fmt.Fprintln(body, life.label()+life.line())
 			} else if loss != nil {
-				fmt.Println("WARNING: " + loss.line())
+				fmt.Fprintln(body, "WARNING: "+loss.line())
 			}
 		case life.finding():
-			fmt.Println("FINDING: " + life.line())
+			fmt.Fprintln(body, "FINDING: "+life.line())
 		case loss.finding():
-			fmt.Println("FINDING: " + loss.line())
+			fmt.Fprintln(body, "FINDING: "+loss.line())
 		case fresh != nil:
-			fmt.Println("FINDING: " + fresh.line())
+			fmt.Fprintln(body, "FINDING: "+fresh.line())
 		case dropped != nil:
-			fmt.Println("FINDING: " + dropped.line())
+			fmt.Fprintln(body, "FINDING: "+dropped.line())
 		case flaky.finding():
-			fmt.Println("FINDING: " + flaky.line())
+			fmt.Fprintln(body, "FINDING: "+flaky.line())
 		case loss != nil:
-			fmt.Println("WARNING: " + loss.line())
+			fmt.Fprintln(body, "WARNING: "+loss.line())
 		}
 		if life != nil && !life.finding() && nonBackend == nil {
-			fmt.Println("WARNING: " + life.line())
+			fmt.Fprintln(body, life.label()+life.line())
 		}
 		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
@@ -396,65 +345,62 @@ func runVerify(ctx context.Context, args []string) error {
 					"or add -v to list them", driftWhy))
 			}
 			if *quiet {
-				fmt.Println(report.QuietText())
+				fmt.Fprintln(body, report.QuietText())
 			} else {
-				fmt.Println(report.Text())
+				fmt.Fprintln(body, report.Text())
 			}
 			if list := report.MaskedList(); *listMasked && list != "" {
-				fmt.Println(list)
+				fmt.Fprintln(body, list)
 			}
 			if *showLatency {
-				fmt.Println(diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
+				fmt.Fprintln(body, diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
 			}
 			for _, f := range latency {
-				fmt.Println(f.Line())
+				fmt.Fprintln(body, f.Line())
 			}
 			switch {
 			case reuse.finding():
-				fmt.Println("FINDING: " + reuse.line())
+				fmt.Fprintln(body, "FINDING: "+reuse.line())
 			case reuse != nil:
-				fmt.Println(reuse.line() + "; " + reuse.rerun("verify", name))
+				fmt.Fprintln(body, reuse.line()+"; "+reuse.rerun("verify", name))
 			}
 			if literal != nil {
-				fmt.Println("CHAIN DEFECT: " + literal.line())
+				fmt.Fprintln(body, "CHAIN DEFECT: "+literal.line())
 			}
 			if idem != nil && idem.literal {
-				fmt.Println("CHAIN DEFECT: " + idem.line())
+				fmt.Fprintln(body, "CHAIN DEFECT: "+idem.line())
 			}
 			if lateIdem != nil {
-				fmt.Println(lateIdem.note())
+				fmt.Fprintln(body, lateIdem.note())
 			}
 			for _, line := range flaky.notes() {
-				fmt.Println("note: " + line)
+				fmt.Fprintln(body, "note: "+line)
 			}
 			if violation {
-				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
+				fmt.Fprintln(body, "REGRESSION: "+violationLine(e, name, driftStep, driftWhy))
 			}
 			if !violation && len(declared) == 0 && len(independent) > 0 {
-				fmt.Printf("note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
+				fmt.Fprintf(body, "note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
 					"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(independent),
 					describeChanges(independent), driftRemedy(ctx, e, driftWhy))
 			}
 			if len(declared) > 0 {
-				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
+				fmt.Fprintf(body, "note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
 					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
 					driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
 			}
 			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
-				fmt.Printf("chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
+				fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
 					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
 					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
-			}
-			if report.Clean() && !report.Widened() && !report.PrincipalChanged() && !*quiet {
-				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
 		if *quiet {
 			for _, line := range warningLines(rec) {
-				fmt.Println(line)
+				fmt.Fprintln(body, line)
 			}
 		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
-			fmt.Println("warning: " + line)
+			fmt.Fprintln(body, "warning: "+line)
 		}
 	}
 	if life.finding() {
@@ -561,7 +507,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		return fmt.Errorf("regression: %d change(s) vs safe spot%s.\n%s", report.Counted(), regressionShape(report), intendedChangeNext(name))
+		first, steps := firstChange(report)
+		at := ""
+		if first != nil {
+			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
+		}
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s; %s", report.Counted(), at, regressionShape(report), intendedChangeNext(name))
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -1123,9 +1074,72 @@ func regressionShape(report *diff.Report) string {
 }
 
 func intendedChangeNext(name string) string {
-	return fmt.Sprintf("If the change is intended (a field added or renamed, or a value changed on purpose), run the chain until it passes, "+
-		"propose that run in place of the safe spot (shrt confirm %s -supersede -note \"...\"), and a person approves it; "+
-		"if it is not, it is a regression to fix in the backend", name)
+	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
+}
+
+func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
+	if noVerdict {
+		return "", body
+	}
+	if err == nil {
+		line := fmt.Sprintf("%s: no drift vs safe spot %s", name, report.SafeSpotID)
+		lines := strings.SplitAfter(body, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, line) {
+				return strings.TrimRight(l, "\n") + "\n", strings.Join(append(lines[:i:i], lines[i+1:]...), "")
+			}
+		}
+		return line + "\n", body
+	}
+	why, _, _ := strings.Cut(err.Error(), "\n")
+	if kind, _, ok := strings.Cut(why, ":"); ok && len(kind) < 40 && !strings.Contains(kind, name) {
+		why = kind
+	}
+	first, steps := firstChange(report)
+	if first == nil {
+		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
+	}
+	return fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s\n", name, why, steps, report.SafeSpotID, changeAt(rec, *first)), body
+}
+
+func firstChange(report *diff.Report) (*diff.Change, int) {
+	var first *diff.Change
+	steps := map[string]bool{}
+	for i, c := range report.Changes {
+		if c.Kind == diff.KindNotReached {
+			continue
+		}
+		steps[c.Step] = true
+		if first == nil || first.Kind == diff.KindStatus && c.Kind != diff.KindStatus && c.Step == first.Step {
+			first = &report.Changes[i]
+		}
+	}
+	return first, len(steps)
+}
+
+func changeAt(rec *runner.Record, c diff.Change) string {
+	rpc := ""
+	if st, ok := rec.Step(c.Step); ok && st != nil {
+		rpc = " (" + shortRPC(st.Call) + ")"
+	}
+	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, capText(compactValue(c.Want), 60), capText(compactValue(c.Got), 60))
+}
+
+func compactValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "<none>"
+	case string:
+		return t
+	}
+	return exportJSON(v)
+}
+
+func capText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-3] + "..."
 }
 
 func describeChanges(changes []diff.Change) string {

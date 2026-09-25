@@ -353,7 +353,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `auth_profile` | string | The profile whose token the step carried: `default`, a profile name, `invalid`, or `none`. |
 | `auth_principal` | string | Digest of the account the profile logged in as, no secret in it; `verify` compares it. |
 | `auth_retry` | string | `resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent. |
-| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. An early refusal prints `WARNING: token refused ...`. |
+| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal is a `FINDING`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass). |
 | `http_status` | int | Transport status. 200 with a non-OK envelope code is an in-band refusal. |
 | `latency_ms` | int | Wall time of the call. |
@@ -479,6 +479,7 @@ usage: shrt <command> [flags]
   contract   author and use the curated RPC contracts agents write chains from
   diff       compare two recorded runs of a chain step by step, with no safe spot
   doctor     check this repo's .shrt/ installation: docs, descriptor, ignores, tokens, auth
+  gate       run every chain and verify every safe spot, grouping what failed
   init       set up .shrt/ and the Claude agent kit in the current repo
   run        replay a chain against the target and record the result
   verify     replay a chain and diff it against its safe spot

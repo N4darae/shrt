@@ -24,26 +24,18 @@ import (
 
 type sliceProgress struct{ verify, sent bool }
 
-const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-kept-red[=<id,...>]] [-var k=v] [-write [<name>] [-force]] [-verify [-repeat N] [-build <id>] [-resend-writes]] [-json]\n" +
-	"       shrt chain slice <chain> -without <step-id,...|failed> [-run <id>] [-write [<name>] [-force]] [-json]"
+const sliceUsage = "usage: shrt chain slice <chain> -step <id> [flags]\n" +
+	"       shrt chain slice <chain> -without <id,...|failed> [-run <id>] [-write [<name>]]"
 
-const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
+const sliceExitCodes = "\nexit codes (plain slice):\n" +
 	"  0  the slice was printed or written\n" +
-	"  1  a refusal: an unknown chain or step, -mode pin without -run, an unknown run, a slice file\n" +
-	"     -write would overwrite, a -kept-red step that failed no expectation in the run;\n" +
-	"     the same refusal exits 2 under -verify, where 1 means NOT REPRODUCED\n" +
-	"\nexit codes with -verify:\n" +
+	"  1  refused: unknown chain, step or run, -mode pin without -run, a file -write would overwrite\n" +
+	"exit codes (-verify):\n" +
 	"  0  reproduced\n" +
-	"  1  NOT REPRODUCED; a flag that cannot be parsed exits 1 in either mode\n" +
-	"  2  DID NOT RUN: the target step was never answered, or -verify refused before\n" +
-	"     anything was sent (an unknown chain or step, no -run, a run that does not reach the step,\n" +
-	"     a missing or not-fresh -var name=<fresh>, a pinned write without -resend-writes), so nothing was verified\n" +
-	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s) acting on an entity a kept\n" +
-	"     step uses, or the source run was recorded against another target than the config's (under\n" +
-	"     -mode pin nothing is sent then), or the step's failing expectations were not evaluated in the\n" +
-	"     source run, behind an earlier step that failed, and the slice evaluated them\n" +
-	"  4  intermittent: of the -repeat runs (default 3) some reproduced the verdict and some did not, so\n" +
-	"     the backend answers the target differently to the same input; the output says reproduced k/N\n"
+	"  1  NOT REPRODUCED, or a flag that cannot be parsed\n" +
+	"  2  DID NOT RUN: the step was never answered, or -verify refused before sending\n" +
+	"  3  INCONCLUSIVE: the slice dropped a write a kept step needs, or another target\n" +
+	"  4  intermittent: reproduced k/N of the -repeat runs\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
@@ -57,25 +49,25 @@ func chainSlice(ctx context.Context, args []string) error {
 
 func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	fs := flag.NewFlagSet("chain slice", flag.ContinueOnError)
-	step := fs.String("step", "", "step id the slice must reproduce")
-	mode := fs.String("mode", chain.SliceModeClosure, "closure (rebuild every producer) or pin (pin values from a run record)")
-	runID := fs.String("run", "", "run record id or 'latest', required by -mode pin and -verify")
-	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record; the verdict is the last thing printed, and the slice YAML is printed only without -verify (add -write to keep it)")
-	resend := fs.Bool("resend-writes", false, "with -verify under -mode pin, send a kept write step that acts on an entity the source run created (a confirm of its order) anyway; without it -verify refuses, since the send changes that entity")
-	asJSON := fs.Bool("json", false, "emit JSON")
-	build := fs.String("build", "", "with -verify, "+buildFlagUsage+"; the verdict names the build the slice run held on")
-	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step, or a VERIFIED slice this one differs from")
+	step := fs.String("step", "", "step `id` the slice must reproduce")
+	mode := fs.String("mode", chain.SliceModeClosure, "closure (rebuild producers) or pin (values from the run)")
+	runID := fs.String("run", "", "run record `id` or latest, required by -mode pin and -verify")
+	verify := fs.Bool("verify", false, "run the slice and compare the step's verdict with the run record")
+	resend := fs.Bool("resend-writes", false, "with -verify -mode pin, send a kept write on an entity the source run created")
+	asJSON := fs.Bool("json", false, "print JSON")
+	build := fs.String("build", "", "with -verify, stamp this build `id` into the run record")
+	force := fs.Bool("force", false, "with -write, overwrite a file that is not this slice")
 	vars := varFlags{}
-	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
+	fs.Var(vars, "var", "set a var as `key=value`, repeatable")
 	write := &optionalString{}
-	fs.Var(write, "write", "write the slice to <name>.yaml next to the source chain (.shrt/chains for a chain there, the same directory for a chain given by a path outside it); `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a bare file name ending in .yaml (-write <chain>.yaml) is written in that same directory, and may name the source chain itself to replace it; a value with a slash is a path, written exactly there, relative to the current directory (./x.yaml for the current directory), and may name the source chain too")
-	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times and report how many reproduced the verdict: reproduced N/N, or intermittent: reproduced k/N (exit 4); a var a kept write interpolates gets -r2, -r3 appended on later runs")
+	fs.Var(write, "write", "write .shrt/chains/`[name]`.yaml (default <chain>-slice-<step>), or a path with a slash")
+	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times")
 	keptRed := &keptRedFlag{}
-	fs.Var(keptRed, "kept-red", "pin the slice kept_red on every expectation of -step that failed in the run (-run, default latest), and on those of every kept step that failed there, instead of relaxing them: the slice then passes a gate while the defect is there and fails it once the defect is gone or anything else breaks; refused when the step failed no expectation there. -kept-red=`id[,id]` (or repeated) also keeps and pins these steps, earlier or later than -step, for a defect that shows on more than one step (a plain -keep of a later step is refused, since it cannot change the target's verdict)")
+	fs.Var(keptRed, "kept-red", "pin kept_red on the step's failed expectations; =`id[,id]` also pins those steps")
 	without := &stepList{}
-	fs.Var(without, "without", "instead of a slice, write the chain with these steps left out, and every step that reads one of them (a reference or an export), so the rest can run green and be confirmed; the word failed names every step that failed in the run (-run, default latest): -without `id[,id]|failed`")
+	fs.Var(without, "without", "leave out these steps and those reading them: `id[,id]|failed`")
 	keep := &stepList{}
-	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
+	fs.Var(keep, "keep", "also keep these earlier `id[,id]` steps; writes keeps every earlier write")
 	setUsage(fs, sliceUsage, sliceExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {

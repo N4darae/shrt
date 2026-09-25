@@ -37,8 +37,14 @@ func TestAnUnreadVarIsAWarningAndATypoOfARealOneIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a loop passing -var tag to every chain must not stop at a chain that reads none: %v", err)
 	}
-	if !strings.Contains(stderr, `warning: -var tag: chain "cli-plain" never reads it`) {
-		t.Fatalf("the unread var is named in a warning, got %q", stderr)
+	if stderr != "" {
+		t.Fatalf("a chain that reads no vars at all takes any -var silently, got %q", stderr)
+	}
+	stderr = captureStderr(t, func() {
+		captureStdout(t, func() { err = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "zzz=loop1"}) })
+	})
+	if err != nil || !strings.Contains(stderr, `warning: -var zzz: chain "cli-unique" never reads it (it reads tag)`) {
+		t.Fatalf("an unread var of a chain that reads others is named in a warning: %v %q", err, stderr)
 	}
 	captureStdout(t, func() { err = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tga=loop1"}) })
 	if err == nil || !strings.Contains(err.Error(), "looks mistyped") || !strings.Contains(err.Error(), "(tag)") {
