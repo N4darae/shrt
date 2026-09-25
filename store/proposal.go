@@ -300,22 +300,7 @@ func ProposalReport(p *Proposal, rec *runner.Record) string {
 
 func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	var b strings.Builder
-	passed := 0
-	for _, st := range rec.Steps {
-		if st.Status == runner.StatusPassed {
-			passed++
-		}
-	}
-	fmt.Fprintf(&b, "**Safe spot proposal: `%s`**, run `%s`, %d/%d steps passed, target `%s`", p.Chain, p.RunID, passed, len(rec.Steps), p.Target)
-	if p.Build != "" {
-		fmt.Fprintf(&b, ", build `%s`", p.Build)
-	}
-	if rec.ChainSource != "" {
-		fmt.Fprintf(&b, ", chain file `%s`", filepath.Base(rec.ChainSource))
-	}
-	if where := p.ProposedOn(); where != "" {
-		fmt.Fprintf(&b, ", proposed on %s", where)
-	}
+	b.WriteString(proposalHeader(p, rec))
 	if p.Replaces == "" {
 		b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")
 	} else {
@@ -332,13 +317,152 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		}
 		b.WriteString("\n")
 	}
+	b.WriteString(proposalFindings(p, rec, 0))
+	return b.String()
+}
+
+const briefList = 8
+
+func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
+	var b strings.Builder
+	b.WriteString(proposalHeader(p, rec) + "\n\n")
+	if description = strings.TrimSpace(description); description != "" {
+		fmt.Fprintf(&b, "What it does: %s\n\n", flat(description))
+	}
+	fmt.Fprintf(&b, "What the proposer checked: %s\n\n", flat(p.Checked))
+	calls, answers, fields := counter{}, counter{}, counter{}
+	asserted, bare, verdictOnly, warned := 0, []string{}, []string{}, []string{}
+	envelope := chain.EnvelopePath()
+	for _, st := range rec.Steps {
+		calls.add(shortCall(st.Call))
+		answers.add(answerKind(st, envelope))
+		asserted += len(st.Expect)
+		if len(st.Expect) == 0 {
+			bare = append(bare, "`"+st.ID+"`")
+		}
+		beyond := false
+		for _, e := range st.Expect {
+			if e.Path != envelope && !chain.IsTransportPath(e.Path) {
+				beyond = true
+				fields.add(indexPattern.ReplaceAllString(e.Path, ".N"))
+			}
+		}
+		if len(st.Expect) > 0 && !beyond && answerKind(st, envelope) == chain.EnvelopeOK() {
+			verdictOnly = append(verdictOnly, "`"+st.ID+"`")
+		}
+		if st.Warning != "" {
+			warned = append(warned, fmt.Sprintf("`%s` %s", st.ID, clip(flat(st.Warning), summaryCell)))
+		}
+	}
+	fmt.Fprintf(&b, "- %d steps calling %s\n", len(rec.Steps), calls.top(briefList))
+	fmt.Fprintf(&b, "- answered, as each step expected: %s\n", answers.top(briefList))
+	fmt.Fprintf(&b, "- %d assertions, all held; the fields asserted most: %s\n", asserted, fields.top(briefList))
+	if len(bare) > 0 {
+		fmt.Fprintf(&b, "- **%d step(s) assert nothing**, so only the baseline checks them: %s\n", len(bare), clipList(bare, briefList))
+	}
+	if len(verdictOnly) > 0 {
+		fmt.Fprintf(&b, "- %d successful step(s) assert only the verdict: %s\n", len(verdictOnly), clipList(verdictOnly, briefList))
+	}
+	if len(warned) > 0 {
+		fmt.Fprintf(&b, "- **%d step(s) carry a warning**: %s\n", len(warned), clipList(warned, 3))
+	}
+	b.WriteString(proposalFindings(p, rec, briefList))
+	return b.String()
+}
+
+var indexPattern = regexp.MustCompile(`\.[0-9]+`)
+
+type counter struct {
+	order []string
+	n     map[string]int
+}
+
+func (c *counter) add(key string) {
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	if c.n[key] == 0 {
+		c.order = append(c.order, key)
+	}
+	c.n[key]++
+}
+
+func (c *counter) top(max int) string {
+	keys := append([]string{}, c.order...)
+	sort.SliceStable(keys, func(i, j int) bool { return c.n[keys[i]] > c.n[keys[j]] })
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s ×%d", k, c.n[k]))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return clipList(parts, max)
+}
+
+func clipList(items []string, max int) string {
+	if max > 0 && len(items) > max {
+		return strings.Join(items[:max], ", ") + fmt.Sprintf(" and %d more", len(items)-max)
+	}
+	return strings.Join(items, ", ")
+}
+
+func shortCall(call string) string {
+	if i := strings.LastIndex(call, "/"); i >= 0 {
+		return call[i+1:]
+	}
+	return call
+}
+
+func answerKind(st *runner.StepRecord, envelope string) string {
+	if st.Transport != nil {
+		return st.Transport.Code
+	}
+	var body any
+	if json.Unmarshal(st.Response, &body) != nil {
+		return st.Status
+	}
+	out, ok := verdictText(body, envelope, "details.0.app_code", "details.0.reason")
+	if !ok {
+		return "nothing at " + envelope
+	}
+	return out
+}
+
+func proposalHeader(p *Proposal, rec *runner.Record) string {
+	var b strings.Builder
+	passed := 0
+	for _, st := range rec.Steps {
+		if st.Status == runner.StatusPassed {
+			passed++
+		}
+	}
+	fmt.Fprintf(&b, "**Safe spot proposal: `%s`**, run `%s`, %d/%d steps passed, target `%s`", p.Chain, p.RunID, passed, len(rec.Steps), p.Target)
+	if p.Build != "" {
+		fmt.Fprintf(&b, ", build `%s`", p.Build)
+	}
+	if rec.ChainSource != "" {
+		fmt.Fprintf(&b, ", chain file `%s`", filepath.Base(rec.ChainSource))
+	}
+	if where := p.ProposedOn(); where != "" {
+		fmt.Fprintf(&b, ", proposed on %s", where)
+	}
+	return b.String()
+}
+
+func proposalFindings(p *Proposal, rec *runner.Record, max int) string {
+	var b strings.Builder
 	if p.Replaces != "" {
 		fmt.Fprintf(&b, "\nApproving replaces the safe spot from run `%s`, which is archived.\n", p.Replaces)
 		if len(p.Replaced) == 0 {
 			b.WriteString("It sent the same requests and got the same responses, beyond ids, timestamps and values that only echo a fixture name (`sku-${vars.tag}`), which verify masks too.\n")
 		} else {
 			fmt.Fprintf(&b, "**%d difference(s) from the safe spot it replaces**, what approving signs off on:\n\n", len(p.Replaced))
-			for _, d := range p.Replaced {
+			for i, d := range p.Replaced {
+				if max > 0 && i == max {
+					fmt.Fprintf(&b, "- and %d more in the full report\n", len(p.Replaced)-max)
+					break
+				}
 				fmt.Fprintf(&b, "- `%s` %s\n", d.Step, flat(d.String()))
 			}
 		}
@@ -347,7 +471,7 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\n%d field(s) differ from the earlier passing run `%s` only where that run still held what the safe spot it replaces holds, "+
 			"so it was recorded before the change this proposal signs off on: they are that change, not values that change every run, "+
 			"and they were not checked for that. Run the chain once more and propose again to check them against a run of the new backend: %s\n",
-			len(p.Carried), p.ComparedTo, strings.Join(carriedPaths(p.Carried), ", "))
+			len(p.Carried), p.ComparedTo, clipList(carriedPaths(p.Carried), max))
 	}
 	switch {
 	case p.ComparedTo == "":
@@ -361,30 +485,34 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no%s field differs beyond ids, timestamps and values echoing a fixture name, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo, other)
 	default:
 		fmt.Fprintf(&b, "\n**Warning: %d field(s) differ from the earlier passing run `%s`** and are not declared volatile, so every `shrt verify` will report them as drift unless the chain's `volatile:` covers them (or they are a real difference):\n\n", len(p.Unstable), p.ComparedTo)
-		for _, line := range unstableLines(p.Unstable) {
+		for i, line := range unstableLines(p.Unstable) {
+			if max > 0 && i == max {
+				fmt.Fprintf(&b, "- and more in the full report\n")
+				break
+			}
 			fmt.Fprintf(&b, "- %s\n", line)
 		}
 	}
 	redacted, scrubbed := redactedSummary(rec)
 	if len(redacted) > 0 {
 		fmt.Fprintf(&b, "\n**Redacted, never compared by `shrt verify`:** %s. A `redact` path blanks the value in every run record, "+
-			"so the safe spot holds no value there and verify cannot see it change; assert it in the chain if it matters.\n", strings.Join(redacted, ", "))
+			"so the safe spot holds no value there and verify cannot see it change; assert it in the chain if it matters.\n", clipList(redacted, max))
 	}
 	if len(scrubbed) > 0 {
 		fmt.Fprintf(&b, "\n**Scrubbed by value, never compared by `shrt verify`:** %s. No `redact` path covers them: each held a secret "+
-			"the run knew (a credential or token it sent), so the value was blanked; stop echoing the secret there if the field matters.\n", strings.Join(scrubbed, ", "))
+			"the run knew (a credential or token it sent), so the value was blanked; stop echoing the secret there if the field matters.\n", clipList(scrubbed, max))
 	}
 	patterns := volatileSummary(rec)
 	if len(patterns) == 0 {
-		b.WriteString("\nApproving makes every response field above, not only the asserted ones, the baseline `shrt verify` compares against.\n")
+		b.WriteString("\nApproving makes every response field of the run, not only the asserted ones, the baseline `shrt verify` compares against.\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "\n**Volatile, never compared by `shrt verify`:** %s\n", strings.Join(patterns, ", "))
+	fmt.Fprintf(&b, "\n**Volatile, never compared by `shrt verify`:** %s\n", clipList(patterns, max))
 	if masked := fullyMasked(rec); len(masked) > 0 {
 		fmt.Fprintf(&b, "\n**Warning: every response field of step(s) %s is volatile**, so `shrt verify` compares nothing of those responses "+
 			"and approving sets no baseline for them. Narrow the `volatile` patterns unless that is intended.\n", strings.Join(masked, ", "))
 	}
-	b.WriteString("\nApproving makes every response field above that no volatile pattern covers, not only the asserted ones, the baseline `shrt verify` compares against.\n")
+	b.WriteString("\nApproving makes every response field of the run that no volatile pattern covers, not only the asserted ones, the baseline `shrt verify` compares against.\n")
 	return b.String()
 }
 

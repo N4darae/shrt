@@ -218,7 +218,7 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 		}
 	})
 	if !strings.Contains(out, "NOT a safe spot yet") || !strings.Contains(out, "-approve -by <their email>") ||
-		!strings.Contains(out, "| # | step | sent | asserted, all held | backend answered |") {
+		!strings.Contains(out, "2 steps calling") || strings.Contains(out, "| # | step |") {
 		t.Fatalf("the proposal must say it is not a safe spot and how a person decides:\n%s", out)
 	}
 	if _, err := os.Stat(spot); err == nil {
@@ -228,7 +228,8 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the proposal must write a report for the person: %v", err)
 	}
-	for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve"} {
+	for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve",
+		"| # | step | sent | asserted, all held | backend answered |"} {
 		if !strings.Contains(string(report), want) {
 			t.Fatalf("report lacks %q:\n%s", want, report)
 		}
