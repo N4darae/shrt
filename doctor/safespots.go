@@ -184,7 +184,16 @@ func checkSafeSpots(_ context.Context, cfg *config.Config, _ Options, r *Report)
 				continue
 			}
 			var mm *chain.NameMismatchError
-			if errors.As(chain.NameMismatch(c), &mm) {
+			if errors.As(chain.NameMismatch(c), &mm) && (len(mm.Clash) > 0 || mm.NameFile != "") {
+				mismatched++
+				relMM := mm.Relative(func(p string) string {
+					if r, err := filepath.Rel(cfg.Root, p); err == nil {
+						return filepath.ToSlash(r)
+					}
+					return p
+				})
+				r.add(CheckSafeSpots, LevelWarn, "chain file "+relMM.Error(), mm.Remedy())
+			} else if mm != nil {
 				mismatched++
 				r.add(CheckSafeSpots, LevelWarn, fmt.Sprintf("chain file %s declares name: %s: its runs and safe spot are %s's, and shrt verify %s "+
 					"and shrt verify %s both verify it against that safe spot, but the file name does not say so",

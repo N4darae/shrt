@@ -101,7 +101,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := e.chainName(rest[0])
+	name, err := e.chainName(rest[0])
+	if err != nil {
+		return err
+	}
 	if err := e.knownChain(name); err != nil {
 		return err
 	}
@@ -150,11 +153,11 @@ func runVerify(ctx context.Context, args []string) error {
 					"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
 					"replay live.\n", *useRun)
 		}
-		if resolved, resolveErr := chain.Resolve(e.chainsDir(), name); resolveErr == nil {
+		if resolved, resolveErr := e.resolveChainNamed(rest[0], name); resolveErr == nil {
 			c = resolved
 		}
 	} else {
-		c, err = chain.Resolve(e.chainsDir(), name)
+		c, err = e.resolveChainNamed(rest[0], name)
 		if err != nil {
 			for _, o := range doctor.OrphanSafeSpots(e.cfg) {
 				if o.Name == name {

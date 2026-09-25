@@ -7,6 +7,8 @@ import (
 	"flag"
 	"fmt"
 	"net/mail"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -59,7 +61,13 @@ func runConfirm(ctx context.Context, args []string) error {
 	if len(rest) != 1 {
 		return errors.New(confirmUsage)
 	}
-	name := e.chainName(rest[0])
+	name, err := e.chainName(rest[0])
+	if err != nil && !*reject {
+		return err
+	}
+	if err != nil {
+		name = rest[0]
+	}
 	if err := e.knownChain(name); err != nil {
 		return err
 	}
@@ -107,11 +115,45 @@ func runConfirm(ctx context.Context, args []string) error {
 	if p.Replaces != "" {
 		fmt.Printf("  replaces the safe spot from run %s once approved\n", p.Replaces)
 	}
+	if rec.ChainSource != "" {
+		fmt.Printf("  chain file:  %s (what run %s ran)\n", rel(e.cfg.Root, rec.ChainSource), rec.RunID)
+	}
+	if why := ranOtherChainFile(e, rec); why != "" {
+		fmt.Printf("  WARNING: %s\n", why)
+	}
 	fmt.Printf("\nshow the user this summary in the conversation, with what you checked, and ask them to approve or reject:\n\n")
 	fmt.Print(store.ProposalSummary(p, rec))
 	fmt.Printf("\nonly after the user says yes:  shrt confirm %s -approve -by <their email>\n"+
 		"if they say no:                shrt confirm %s -reject\n", p.Chain, p.Chain)
 	return nil
+}
+
+func ranOtherChainFile(e *env, rec *runner.Record) string {
+	c, err := chain.Resolve(e.chainsDir(), rec.Chain)
+	if err != nil || c.SourcePath == "" {
+		return ""
+	}
+	now := rel(e.cfg.Root, c.SourcePath)
+	if rec.ChainSource != "" && !sameFilePath(rec.ChainSource, c.SourcePath) {
+		return fmt.Sprintf("run %s ran %s, but chain %s is %s now: approving makes a run of another file %s's ground truth",
+			rec.RunID, rel(e.cfg.Root, rec.ChainSource), rec.Chain, now, rec.Chain)
+	}
+	if rec.ChainDigest != "" && rec.ChainDigest != c.Digest() {
+		return fmt.Sprintf("%s changed since run %s ran it (chain digest %s, now %s): the run is not of the chain as it is now",
+			now, rec.RunID, rec.ChainDigest, c.Digest())
+	}
+	return ""
+}
+
+func sameFilePath(a, b string) bool {
+	x, err1 := filepath.Abs(a)
+	y, err2 := filepath.Abs(b)
+	if err1 == nil && err2 == nil && x == y {
+		return true
+	}
+	ia, err1 := os.Stat(a)
+	ib, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(ia, ib)
 }
 
 func keptRedNeverConfirmed(e *env, name string) error {

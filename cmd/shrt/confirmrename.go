@@ -27,7 +27,7 @@ func renameSafeSpot(e *env, to, from, by string) error {
 	if from == to {
 		return fmt.Errorf("-rename-from %s names the chain itself; nothing to rename", from)
 	}
-	c, err := chain.Resolve(e.chainsDir(), to)
+	c, err := e.resolveChain(to)
 	if err != nil {
 		return err
 	}
