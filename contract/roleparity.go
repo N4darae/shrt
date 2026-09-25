@@ -204,7 +204,9 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	baseRead := func(e entityRead, producer string) *chain.Step {
 		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
 		setBodyPath(body, e.field, "${"+producer+"."+e.idPath+"}")
-		return &chain.Step{Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+		r := &chain.Step{Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+		p.assertEcho(r)
+		return r
 	}
 	readID := func(e entityRead, tail string) string {
 		base := defaultID(e.reader.Name)
@@ -248,6 +250,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			}
 			p.freshen(lib, c)
 			c.Description = fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof)
+			p.assertEcho(c)
 			added = append(added, c)
 		}
 		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
@@ -260,6 +263,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		p.freshen(lib, w)
 		renameStepRefs(w, st.ID, w.ID)
 		w.Description = fmt.Sprintf("%s as profile %s, on fixtures of its own prepared as %s's were: the same effect.", st.ID, prof, st.ID)
+		p.assertEcho(w)
 		added = append(added, w)
 		for _, e := range comparable {
 			producer := rename[e.producer.ID]

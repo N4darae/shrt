@@ -22,6 +22,9 @@ func TestPlanRunsAStateChangingTargetOnOneAndThreeItemFixtures(t *testing.T) {
 		t.Fatalf("the third item reads a third product, got %s:\n%s", got, text)
 	}
 	planStep(t, p, "create_product_3")
+	wantExists(t, three, "order.lines.2", true)
+	wantExists(t, three, "order.lines.3", false)
+	wantExpect(t, planStep(t, p, "cancel_order_3_lines"), "order.id_order", "${create_order_3_lines.order.id_order}")
 	for id, fixture := range map[string]string{"cancel_order_1_lines": "create_order_1_lines", "cancel_order_3_lines": "create_order_3_lines"} {
 		st := planStep(t, p, id)
 		if got := bodyAt(t, st, "id_order"); got != "${"+fixture+".order.id_order}" {

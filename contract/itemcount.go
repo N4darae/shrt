@@ -109,7 +109,8 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		v.Body[il.key] = c.items
 		p.freshen(lib, v)
 		renameStepRefs(v, fx.ID, v.ID)
-		v.Description = fmt.Sprintf("as %s, but with %d %s item(s) instead of 2.", fx.ID, c.n, il.field.Name)
+		v.Description = fmt.Sprintf("as %s, but %s holds %s instead of 2.", fx.ID, il.field.Name, itemCount(c.n))
+		p.assertEcho(v)
 		added = append(added, v)
 		if fx == st {
 			ids = append(ids, v.ID)
@@ -119,7 +120,8 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		t.Export = nil
 		p.freshen(lib, t)
 		renameStepRefs(t, fx.ID, v.ID)
-		t.Description = fmt.Sprintf("%s on %s, whose %s has %d item(s): the same outcome as on %s's 2.", st.ID, v.ID, il.field.Name, c.n, fx.ID)
+		t.Description = fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID)
+		p.assertEcho(t)
 		added = append(added, t)
 		ids = append(ids, t.ID)
 	}
@@ -128,6 +130,10 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		"a backend whose logic changes with the number of items (a loop bound, a limit, a check on the first or last only) "+
 		"passes on 2 and fails on one or three. The third item reads its own resource where the second does",
 		st.ID, fx.ID, il.field.Name, strings.Join(ids, " and "), st.ID, st.ID)
+}
+
+func itemCount(n int) string {
+	return fmt.Sprintf("%d %s", n, pluralVerb(n, "item", "items"))
 }
 
 func readsValue(v any, id string) bool {
@@ -167,4 +173,41 @@ func (p *Plan) thirdProducer(sec producerSecond) (string, []*chain.Step) {
 		made = append(made, c)
 	}
 	return id, made
+}
+
+func (p *Plan) assertEcho(st *chain.Step) {
+	if !AssertsOnlyVerdict(st) {
+		return
+	}
+	m, err := p.cat.Lookup(st.Call)
+	if err != nil {
+		return
+	}
+	in := catalog.DescribeMessage(m.Input()).Fields
+	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
+		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
+			continue
+		}
+		for _, sf := range fd.Fields {
+			key, ok := namecase.LookupKey(st.Body, sf.Name)
+			if !ok {
+				continue
+			}
+			path := fd.Name + "." + sf.Name
+			switch v := st.Body[key].(type) {
+			case string:
+				if IsEntityIDField(sf.Name) && !sf.Repeated && wholeReference(v) {
+					st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: v})
+				}
+			case []any:
+				for _, f := range in {
+					if f.Name == sf.Name && f.Repeated && sf.Repeated && sf.Kind == "message" && len(v) > 0 {
+						st.Expect = append(st.Expect,
+							chain.Expectation{Path: fmt.Sprintf("%s.%d", path, len(v)-1), Exists: boolPtr(true)},
+							chain.Expectation{Path: fmt.Sprintf("%s.%d", path, len(v)), Exists: boolPtr(false)})
+					}
+				}
+			}
+		}
+	}
 }

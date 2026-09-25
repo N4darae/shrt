@@ -178,6 +178,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		p.freshen(lib, fixture)
 		renameStepRefs(fixture, st.ID, fixture.ID)
 		fixture.Description = fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label)
+		p.assertEcho(fixture)
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
 
 		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})

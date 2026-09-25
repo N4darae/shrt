@@ -33,7 +33,9 @@ func TestPlanRunsAnOpenWriteAsTheLowerProfileOnItsOwnFixtureAndComparesSideEffec
 	if got := bodyAt(t, w, "id_order"); got != "${create_order_for_clerk.order.id_order}" {
 		t.Fatalf("the clerk confirms its own order, got %s:\n%s", got, text)
 	}
+	wantExpect(t, w, "order.id_order", "${create_order_for_clerk.order.id_order}")
 	order := planStep(t, p, "create_order_for_clerk")
+	wantExists(t, order, "order.lines.1", true)
 	if got := bodyAt(t, order, "lines.0.id_product"); got != "${create_product_for_clerk.product.id_product}" {
 		t.Fatalf("the clerk's order reads the clerk's product, got %s:\n%s", got, text)
 	}
