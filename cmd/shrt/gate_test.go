@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"github.com/N4darae/shrt/diff"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/N4darae/shrt/diff"
 )
 
 type fakeGate struct {
