@@ -46,3 +46,18 @@ func TestCLIVerifyRefusesAVolatileMaskWiderThanTheApprovedOne(t *testing.T) {
 		t.Fatalf("verify must name the pattern and count what it hid:\n%s", out)
 	}
 }
+
+func TestVerifyCountsTheValuesItMaskedOnlyUnderV(t *testing.T) {
+	approvedThingFlow(t)
+	for _, verbose := range []bool{false, true} {
+		args := []string{"cli-thing-flow"}
+		if verbose {
+			args = append(args, "-v")
+		}
+		var err error
+		out := captureStdout(t, func() { err = runVerify(context.Background(), args) })
+		if err != nil || strings.Contains(out, "were not counted") != verbose {
+			t.Errorf("-v %v: the masked count is printed only under -v: %v\n%s", verbose, err, out)
+		}
+	}
+}

@@ -71,6 +71,7 @@ type Report struct {
 	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
 	UnsentDefaults     []string     `json:"unsent_defaults,omitempty"`
 	UndeclaredSame     []string     `json:"undeclared_same,omitempty"`
+	HideMasked         bool         `json:"-"`
 	UndeclaredUnknown  []string     `json:"undeclared_uncompared,omitempty"`
 
 	inputSeparated    bool
@@ -1235,7 +1236,7 @@ func (r *Report) Text() string {
 		parts = append(parts, fmt.Sprintf("%d value(s) echoing a fixture name", len(r.FixtureEchoed)))
 	}
 	masked := ""
-	if len(parts) > 0 {
+	if len(parts) > 0 && (!r.HideMasked || len(r.UnapprovedVolatile) > 0 || len(r.FullyMasked) > 0) {
 		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
 	}
 	var b strings.Builder

@@ -145,6 +145,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	defer func() { writeGateSidecar(verifySidecar(e, rec, report)) }()
+	report.HideMasked = !*verbose
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
