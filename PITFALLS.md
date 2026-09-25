@@ -1401,6 +1401,23 @@ another body, and two creates without a key that must yield two ids.
 
 ---
 
+## 53. A confirm planned before any stock, red on a correct backend
+
+**Symptom.** `contract plan ListOrders AddStock ConfirmOrder CancelOrder` wrote `confirm_order_3`
+(the status-filter probe's transition) at step 11 and `add_stock` at step 189, for the first
+product only: the planned chain failed `InsufficientStock` on a backend that was right.
+
+**Cause.** `needs:` only ordered the rpc graph. The probes that add steps later (a transition for a
+filtered list, a shortage probe) placed their writes wherever the probe sat, and the one `AddStock`
+the graph produced reached the first product, not every product on the order's lines.
+
+**Fix.** 2026-09-25: after the probes, every write step whose contract `needs:` a write gets one,
+for each entity it touches through its references (the order, then each line's product), before it
+runs; a missing one is added right after the entity is created (`add_stock_for_create_product_2`),
+with a note.
+
+---
+
 # Decisions, so they are not relitigated
 
 **A `${...}` in `vars:` is rejected, not resolved** (2026-09-11). The tempting fix is to resolve var
