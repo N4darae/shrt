@@ -612,6 +612,18 @@ that got no answer from the service (a gateway answer, a dropped connection). Th
 restart, exit 3. A run that passed with a read re-sent after a refused token and accepted says only that
 (`a read was re-sent after a refused token at step <n> <id>`), with no restart or re-run advice.
 
+A token refused long before the expiry its login stated (more than a minute, or a tenth of the
+stated lifetime, still to go; `token_refused` in the step record keeps when it was issued, its
+stated expiry and when it was refused) is not called a restart, whatever the rules above would say:
+`run` and `verify` print `WARNING: token refused <N>s after issue although the login said it expires
+in <M>s (auth profile <p>, ...)`, and a write it refused is error, exit 3. It becomes `FINDING: token
+refused ...`, exit 1, when the fresh token the re-login issued is refused early too in the same run
+(one restart cannot end two sessions issued on either side of it), or when the previous run of the
+chain also had a token refused early after it was accepted in that run; either run showing a restart
+(a step the service did not answer, a build change, data created before the refusal gone after it)
+keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
+between runs explains it: the CI gate counts these lines (README).
+
 A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
 is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same
 run were answered, and the previous run that sent that step got no answer there the same way while

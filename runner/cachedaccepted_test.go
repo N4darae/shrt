@@ -54,7 +54,7 @@ func TestACachedTokenAcceptedThenRefusedReadsAsARestartNotCredentials(t *testing
 	if strings.Contains(st.Error, "check the credentials") {
 		t.Fatalf("the backend accepted this cached token earlier in the run, so the credentials are not the cause: %q", st.Error)
 	}
-	if !strings.Contains(st.Error, "restarted mid-run") {
-		t.Fatalf("the step must say the backend likely restarted mid-run: %q", st.Error)
+	if !strings.Contains(st.Error, "restarted") {
+		t.Fatalf("the step must name a restart as an explanation: %q", st.Error)
 	}
 }

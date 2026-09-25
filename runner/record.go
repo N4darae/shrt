@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/transport"
 )
 
 const (
@@ -104,31 +105,32 @@ func (s *StepRecord) AssertionFailed() bool {
 }
 
 type StepRecord struct {
-	Index         int                  `json:"index"`
-	ID            string               `json:"id"`
-	Call          string               `json:"call"`
-	Procedure     string               `json:"procedure"`
-	AuthProfile   string               `json:"auth_profile,omitempty"`
-	AuthPrincipal string               `json:"auth_principal,omitempty"`
-	AuthRetry     string               `json:"auth_retry,omitempty"`
-	Status        string               `json:"status"`
-	HTTPStatus    int                  `json:"http_status,omitempty"`
-	LatencyMS     int64                `json:"latency_ms"`
-	LatencyResent []int64              `json:"latency_resent_ms,omitempty"`
-	Request       json.RawMessage      `json:"request,omitempty"`
-	BodyRefs      map[string]string    `json:"body_refs,omitempty"`
-	Headers       map[string]string    `json:"headers,omitzero"`
-	Response      json.RawMessage      `json:"response,omitempty"`
-	Undeclared    json.RawMessage      `json:"undeclared,omitempty"`
-	Transport     *TransportError      `json:"transport_error,omitempty"`
-	Expect        []chain.ExpectResult `json:"expect,omitempty"`
-	Exported      map[string]any       `json:"exported,omitempty"`
-	Error         string               `json:"error,omitempty"`
-	Warning       string               `json:"warning,omitempty"`
-	Note          string               `json:"note,omitempty"`
-	Volatile      []string             `json:"volatile,omitempty"`
-	Unordered     []string             `json:"unordered,omitempty"`
-	Drift         bool                 `json:"drift,omitempty"`
+	Index         int                      `json:"index"`
+	ID            string                   `json:"id"`
+	Call          string                   `json:"call"`
+	Procedure     string                   `json:"procedure"`
+	AuthProfile   string                   `json:"auth_profile,omitempty"`
+	AuthPrincipal string                   `json:"auth_principal,omitempty"`
+	AuthRetry     string                   `json:"auth_retry,omitempty"`
+	TokenRefused  []transport.TokenRefusal `json:"token_refused,omitempty"`
+	Status        string                   `json:"status"`
+	HTTPStatus    int                      `json:"http_status,omitempty"`
+	LatencyMS     int64                    `json:"latency_ms"`
+	LatencyResent []int64                  `json:"latency_resent_ms,omitempty"`
+	Request       json.RawMessage          `json:"request,omitempty"`
+	BodyRefs      map[string]string        `json:"body_refs,omitempty"`
+	Headers       map[string]string        `json:"headers,omitzero"`
+	Response      json.RawMessage          `json:"response,omitempty"`
+	Undeclared    json.RawMessage          `json:"undeclared,omitempty"`
+	Transport     *TransportError          `json:"transport_error,omitempty"`
+	Expect        []chain.ExpectResult     `json:"expect,omitempty"`
+	Exported      map[string]any           `json:"exported,omitempty"`
+	Error         string                   `json:"error,omitempty"`
+	Warning       string                   `json:"warning,omitempty"`
+	Note          string                   `json:"note,omitempty"`
+	Volatile      []string                 `json:"volatile,omitempty"`
+	Unordered     []string                 `json:"unordered,omitempty"`
+	Drift         bool                     `json:"drift,omitempty"`
 
 	serverBuild string
 	unreachable string

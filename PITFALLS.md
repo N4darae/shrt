@@ -1399,6 +1399,31 @@ key from ever being reused.
 **Fix.** 2026-09-25: a create target with a key field gets a replay with the same body, a replay with
 another body, and two creates without a key that must yield two ids.
 
+## 53. Sessions that die after 20 seconds, green in every gate
+
+**Symptom.** Login's `expires_at` said one hour, and the backend refused its tokens about 20 seconds
+after issuing them. Every gate stayed green: the only trace was a `warning [...] cached token refused
+... logged in again and re-sent` line under one step. A chain slow enough to hit it in-run was
+reported first as `it likely restarted mid-run`, then, on the repeat, as a refusal `specific to that
+rpc`: both wrong.
+
+**Cause.** shrt re-logs in and re-sends a call refused at authentication (a read, or a call carrying
+an untried cached token), which is right for a restart and hides a short session just as well. It
+kept no record of when a token was issued, so nothing compared the refusal with the lifetime the
+login had stated.
+
+**Fix.** 2026-09-25: the step records every refused token (`token_refused`, GRAMMAR §5) with when it
+was issued, its stated expiry and when it was refused. A token refused with more than a minute, or a
+tenth of its stated lifetime, still to go prints `WARNING: token refused <N>s after issue although
+the login said it expires in <M>s (auth profile <p>, ...)` in the run and verify summary, `-quiet`
+included, and is never called a restart without evidence of one. It is `FINDING:`, exit 1, when the
+fresh token the re-login issued is refused early too in the same run, or when the previous run of
+the chain had a token refused early after it was accepted in that run; a restart shown in either run
+(a step the service did not answer, a build change, data created before the refusal gone after it)
+keeps it exit 3. A cached token refused early on its first use stays a warning, since a deploy
+between runs explains it; the CI gate in README counts those lines per auth profile and fails when
+one profile's tokens die early twice in one gate.
+
 ---
 
 # Decisions, so they are not relitigated
