@@ -10,11 +10,12 @@ import (
 )
 
 type cachedToken struct {
-	Token     string      `json:"token"`
-	ExpiresAt time.Time   `json:"expires_at"`
-	IssuedAt  time.Time   `json:"issued_at,omitzero"`
-	SentAt    time.Time   `json:"sent_at,omitzero"`
-	Relogins  []time.Time `json:"relogins,omitempty"`
+	Token       string          `json:"token"`
+	ExpiresAt   time.Time       `json:"expires_at"`
+	IssuedAt    time.Time       `json:"issued_at,omitzero"`
+	SentAt      time.Time       `json:"sent_at,omitzero"`
+	Relogins    []time.Time     `json:"relogins,omitempty"`
+	ReloginAges []time.Duration `json:"relogin_ages,omitempty"`
 }
 
 func (s *LoginTokenSource) UseCache(path, profile string) {
