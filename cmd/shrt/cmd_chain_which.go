@@ -305,6 +305,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
 			for _, f := range m.Observed.Failures {
 				fmt.Printf("    failed: %s\n", chain.DescribeFailure(f))
+				if note, ok := blockedNote(h.Chain, m.Step, m.Observed.Run, f); ok {
+					fmt.Printf("      %s\n", note)
+				}
 			}
 			if m.Newest != nil {
 				fmt.Printf("    newest run %s did not reach it: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))

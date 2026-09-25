@@ -40,7 +40,8 @@ const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"     a missing or not-fresh -var name=<fresh>, a pinned write without -resend-writes), so nothing was verified\n" +
 	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s) acting on an entity a kept\n" +
 	"     step uses, or the source run was recorded against another target than the config's (under\n" +
-	"     -mode pin nothing is sent then)\n" +
+	"     -mode pin nothing is sent then), or the step's failing expectations were not evaluated in the\n" +
+	"     source run, behind an earlier step that failed, and the slice evaluated them\n" +
 	"  4  intermittent: of the -repeat runs (default 3) some reproduced the verdict and some did not, so\n" +
 	"     the backend answers the target differently to the same input; the output says reproduced k/N\n"
 
@@ -670,6 +671,7 @@ type sliceVerdict struct {
 	ReproducedRuns int               `json:"reproduced_runs,omitempty"`
 	Runs           []sliceRunOutcome `json:"runs,omitempty"`
 	OtherTarget    string            `json:"source_target_differs,omitempty"`
+	BlockedBy      []string          `json:"unevaluated_behind,omitempty"`
 	Recorded       string            `json:"verdict_written_to,omitempty"`
 }
 
@@ -780,8 +782,14 @@ func (v *sliceVerdict) text() string {
 func failedExpectLines(source, replay chain.Verdict) []string {
 	out := []string{}
 	used := map[int]bool{}
-	for _, e := range source.Expect {
+	for i, e := range source.Expect {
 		if e.Passed {
+			continue
+		}
+		if _, held := blockedBy(e); held {
+			if len(replay.Expect) == len(source.Expect) {
+				used[i] = true
+			}
 			continue
 		}
 		got := "not evaluated"
@@ -847,6 +855,9 @@ func (v *sliceVerdict) err() error {
 		if v.OtherTarget != "" {
 			return exitWith(3, "step %s: INCONCLUSIVE, %s", v.Step, v.OtherTarget)
 		}
+		if len(v.BlockedBy) > 0 {
+			return exitWith(3, "step %s: INCONCLUSIVE, its failing expectations were not evaluated in the source run, behind %s", v.Step, strings.Join(v.BlockedBy, ", "))
+		}
 		return exitWith(3, "step %s: INCONCLUSIVE, the verdict matched but the slice dropped write step(s) acting on entities the kept steps use", v.Step)
 	}
 	return nil
@@ -910,6 +921,12 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	}
 	v.Replay = verdictOf(replay)
 	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
+	blocked := blockedReads(v.Source, v.Replay)
+	upstreamOnly := false
+	if evaluatedBlocked(blocked) {
+		v.Differences = chain.CompareVerdictsMasking(v.Source, withoutBlocked(v.Source, v.Replay, blocked), sameUpToFixtures(rec.Vars, replayRec.Vars))
+		upstreamOnly = len(v.Differences) == 0
+	}
 	related, other := relatedDroppedWrites(res, rec)
 	related, reads := classifyFieldReads(e, res, rec, related)
 	uncreated := uncreatedExpected(res, source)
@@ -918,7 +935,20 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.Reason = strings.TrimPrefix(v.Reason+"\ninfo: "+r.note(), "\n")
 		}
 	}()
+	if len(blocked) > 0 && !upstreamOnly {
+		defer func() {
+			v.Reason = strings.TrimPrefix(v.Reason+"\n"+blockedReason(rec.RunID, blocked), "\n")
+		}()
+	}
 	switch {
+	case upstreamOnly:
+		v.Outcome = sliceInconclusive
+		v.Reason = blockedReason(rec.RunID, blocked)
+		for _, b := range blocked {
+			if !slices.Contains(v.BlockedBy, b.upstream) {
+				v.BlockedBy = append(v.BlockedBy, b.upstream)
+			}
+		}
 	case len(v.Differences) == 0 && len(uncreated) > 0:
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("the verdict matched, but a failing expectation of step %s compares with what dropped write step(s) %s\n"+

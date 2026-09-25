@@ -1637,6 +1637,21 @@ pinned from the run, whose state that run left. With a run record, a write whose
 changes only fields the reader's messages and contract never mention is left out, as `-verify` would
 judge it.
 
+## 69. Reads left `unevaluated` behind a failed step, with no way to judge them
+
+**Symptom.** Under F10 `get_product_2_after_confirm_order` failed, and
+`get_product_2_after_confirm_order_as_clerk`, which compares with its value, was reported
+`unevaluated` in every run. `chain slice -verify` of it said NOT REPRODUCED and blamed dropped
+writes, suggesting `-keep writes`; `chain which` listed the failure with no hint.
+
+**Cause.** A held-back expectation has no verdict in the source run. The slice relaxed the failed
+step, evaluated the expectation, and the comparison read "unevaluated vs evaluated" as a difference.
+
+**Fix.** 2026-09-25: `-verify` sets such expectations aside when the slice evaluated them; if nothing
+else differs the verdict is INCONCLUSIVE (exit 3, `unevaluated_behind` in JSON), naming the upstream
+step and what the evaluation gave, with no `-keep` advice. `chain which` prints, under such a
+failure, the step that blocked it and the `chain slice ... -verify` that evaluates it on its own.
+
 ---
 
 # Decisions, so they are not relitigated
