@@ -116,7 +116,7 @@ func runRun(ctx context.Context, args []string) error {
 		} else if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
 			lead = "FINDING: " + reuse.line()
 		} else if reuse != nil {
-			lead = fmt.Sprintf("%s; re-run with a fresh value: shrt run %s %s", reuse.line(), rest[0], reuse.fresh())
+			lead = reuse.line() + "; " + reuse.rerun("run", rest[0])
 		}
 	}
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
