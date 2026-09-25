@@ -48,7 +48,8 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 		}
 		if sr.Status == StatusPassed {
 			if len(want) > 0 {
-				problems = append(problems, fmt.Sprintf("step %q passed although it is pinned failing on %s", step.ID, pinPaths(want)))
+				problems = append(problems, fmt.Sprintf("step %q passed although it is pinned failing on %s: what it answers changed, "+
+					"which a fix does, and so does another regression on the same record; compare with shrt diff %s", step.ID, pinPaths(want), c.Name))
 			}
 			continue
 		}
