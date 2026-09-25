@@ -14,13 +14,57 @@ type unansweredRepeat struct {
 	later  int
 	before int
 	repeat string
+	others []string
 }
 
 func (u *unansweredRepeat) line() string {
-	return fmt.Sprintf("%s at %s (step %d %s) in this run and in run %s, the previous run that sent it, while the backend "+
-		"answered %d later step(s) in this run and %d in that one: the backend fails this rpc every time while answering "+
-		"others, so it is not an outage or a restart. This is a finding about the backend at %s",
-		u.how, u.step.Call, u.step.Index, u.step.ID, u.repeat, u.later, u.before, u.step.Call)
+	if len(u.others) == 0 {
+		return fmt.Sprintf("%s at %s (step %d %s) in this run and in run %s, the previous run that sent it, while the backend "+
+			"answered %d later step(s) in this run and %d in that one: the backend fails this rpc every time while answering "+
+			"others, so it is not an outage or a restart. This is a finding about the backend at %s",
+			u.how, u.step.Call, u.step.Index, u.step.ID, u.repeat, u.later, u.before, u.step.Call)
+	}
+	return fmt.Sprintf("%s at step %d %s (%s, request %s) in this run and in run %s, the previous run that sent it, while the "+
+		"backend answered %d later step(s) in this run and %d in that one, and answered %s at %s: the backend fails this step's "+
+		"request every time while answering other calls, so it is not an outage or a restart. This is a finding about the "+
+		"backend at step %s (%s with this request)",
+		u.how, u.step.Index, u.step.ID, u.step.Call, requestSummary(u.step), u.repeat, u.later, u.before, u.step.Call,
+		strings.Join(u.others, ", "), u.step.ID, u.step.Call)
+}
+
+func requestSummary(st *runner.StepRecord) string {
+	text := strings.TrimSpace(string(st.Request))
+	if text == "" {
+		return "{}"
+	}
+	if len(text) > 160 {
+		text = text[:157] + "..."
+	}
+	return text
+}
+
+func answeredIn(rec *runner.Record, at *runner.StepRecord) (string, bool) {
+	if rec == nil || at == nil {
+		return "", false
+	}
+	st, ok := rec.Step(at.ID)
+	if !ok || st.Call != at.Call || !answeredByService(st) {
+		return "", false
+	}
+	if st.HTTPStatus != 0 {
+		return fmt.Sprintf("HTTP %d", st.HTTPStatus), true
+	}
+	return "answered", true
+}
+
+func answeredCallsElsewhere(rec *runner.Record, at *runner.StepRecord) []string {
+	out := []string{}
+	for _, st := range rec.Steps {
+		if st != nil && st != at && st.Call == at.Call && answeredByService(st) {
+			out = append(out, st.ID)
+		}
+	}
+	return out
 }
 
 func unansweredKind(st *runner.StepRecord) string {
@@ -55,7 +99,7 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 	}
 	st, later := answeredAfter(rec, step)
 	how := unansweredKind(st)
-	if how == "" || later == 0 || answeredElsewhere(rec, st) {
+	if how == "" || later == 0 {
 		return nil
 	}
 	prev := previousRunAttempting(e, rec, step)
@@ -63,10 +107,10 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 		return nil
 	}
 	was, before := answeredAfter(prev, step)
-	if was == nil || was.Call != st.Call || unansweredKind(was) != how || before == 0 || answeredElsewhere(prev, was) {
+	if was == nil || was.Call != st.Call || unansweredKind(was) != how || before == 0 {
 		return nil
 	}
-	return &unansweredRepeat{step: st, how: how, later: later, before: before, repeat: prev.RunID}
+	return &unansweredRepeat{step: st, how: how, later: later, before: before, repeat: prev.RunID, others: answeredCallsElsewhere(rec, st)}
 }
 
 func previousRunAttempting(e *env, rec *runner.Record, step string) *runner.Record {
@@ -93,13 +137,4 @@ func previousRunAttempting(e *env, rec *runner.Record, step string) *runner.Reco
 func attempted(rec *runner.Record, step string) bool {
 	st, ok := rec.Step(step)
 	return ok && st.Status != runner.StatusSkipped && (st.HTTPStatus != 0 || len(st.Response) > 0 || unansweredKind(st) != "")
-}
-
-func answeredElsewhere(rec *runner.Record, at *runner.StepRecord) bool {
-	for _, st := range rec.Steps {
-		if st != nil && st != at && st.Call == at.Call && answeredByService(st) {
-			return true
-		}
-	}
-	return false
 }

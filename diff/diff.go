@@ -69,6 +69,8 @@ type Report struct {
 	Reordered          []string     `json:"reordered_lists,omitempty"`
 	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
 	UnsentDefaults     []string     `json:"unsent_defaults,omitempty"`
+	UndeclaredSame     []string     `json:"undeclared_same,omitempty"`
+	UndeclaredUnknown  []string     `json:"undeclared_uncompared,omitempty"`
 
 	inputSeparated    bool
 	compared          []comparedStep
@@ -1181,6 +1183,15 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "%d response field(s) are declared now but were not on the wire (left at the proto3 default, the same bytes "+
 			"the safe spot's backend sent), so they are not counted as a change: %s\n", len(r.UnsentDefaults), strings.Join(r.UnsentDefaults, ", "))
 	}
+	if len(r.UndeclaredSame) > 0 {
+		fmt.Fprintf(&b, "%d response field(s) are declared now and were on the wire, undeclared, in the safe spot's run with the same value, "+
+			"so they are not counted as a change: %s\n", len(r.UndeclaredSame), strings.Join(r.UndeclaredSame, ", "))
+	}
+	if len(r.UndeclaredUnknown) > 0 {
+		fmt.Fprintf(&b, "%d response field(s) are declared now and were on the wire, undeclared, in the safe spot's run, whose build did not "+
+			"record their value, so they were not compared (propose a passing run in place of the safe spot to compare them): %s\n",
+			len(r.UndeclaredUnknown), strings.Join(r.UndeclaredUnknown, ", "))
+	}
 	if len(r.FixtureInput) > 0 {
 		names := []string{}
 		for _, c := range r.FixtureInput {
@@ -1304,21 +1315,4 @@ func sameNotReached(changes []Change) int {
 		n++
 	}
 	return n
-}
-
-func (r *Report) DropUnsentDefaults(rec *runner.Record, unsent func(procedure, path string, v any) bool) {
-	if unsent == nil || rec == nil {
-		return
-	}
-	kept := r.Changes[:0]
-	for _, c := range r.Changes {
-		if c.Kind == KindUnexpected && c.Path != "step" && c.Path != "response" {
-			if st, ok := rec.Step(c.Step); ok && unsent(st.Procedure, c.Path, c.Got) {
-				r.UnsentDefaults = append(r.UnsentDefaults, c.Step+" "+c.Path)
-				continue
-			}
-		}
-		kept = append(kept, c)
-	}
-	r.Changes = kept
 }

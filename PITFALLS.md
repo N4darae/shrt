@@ -74,6 +74,15 @@ the descriptor does not declare is not a mismatch at all: the field is discarded
 with proto names and zero values as usual. `run` and `verify` print these once per run, grouped as
 `the backend sends fields the proto does not declare: ...: <rpc> -> <fields>; ...`; update the
 proto and the descriptor only if you want those fields compared.
+Until 2026-09-25 declaring such a field afterwards hid what happened to it. verify treated every
+field declared since the safe spot as never sent, so a backend that STOPPED sending `active: true`
+passed as `declared now but were not on the wire ... the same bytes the safe spot's backend sent`
+(exit 0), and one that kept sending it failed as `regression ... unexpected product.active
+want=<nil> got=true`. The record now keeps the undeclared values under `undeclared`, and verify
+compares a newly declared field with what the safe spot's run actually received: the same value is
+no change, a field gone since is `changed ... want=true got=false`. A safe spot approved before
+has only the warning's field names: a field gone since is still a change, a value now is listed
+as `not compared` until a newer run is proposed in its place.
 
 ## 5. A cached, still-valid token that shrt refuses to use
 
@@ -1045,6 +1054,17 @@ values scrubbed out of every response (`customer.name` recorded as `author=<reda
 never compared it), while `X-Hmac`, a signature, was stored in clear. They match as whole words
 now, a name whose last word is `id`, `remaining` or `count` (`X-Api-Key-Id`) is not a credential
 (`X-Session-Id` excepted), and `hmac` is one.
+Whole words alone left joined and second-factor names in clear in the run record and the approved
+safe spot: `X-Apitoken`, `X-Apisecret`, `X-Csrftoken`, `X-Mfa-Code`, `X-Totp`, `X-2fa-Code`,
+`X-Oauth`, `X-Authz`, `X-Passw0rd`, `X-Recovery-Code`, `X-Magic-Link` and `X-Signed-Url`, while
+`X-Clientsecret` and `X-Sessiontoken` were digested because they happened to be listed; the var
+such a header read (`apitok=vvTopSecret789`) was printed in `vars` and the proposal too. Since
+2026-09-25 a word that ends with `token` or `secret`, a name containing `csrf` or `xsrf`, and the
+words `mfa`, `totp`, `2fa`, `otp`, `oauth`, `authz`, `authn`, `recovery`, `magic` and `signed` are
+credentials, `0` is read as `o` (`passw0rd`), and every var a credential header reads is a secret.
+`X-Secret-Id`, like `X-Api-Key-Id`, stays in clear: an id names a secret without being one. `pass`
+and `session` followed by `through`, `region`, `zone`, `locale`, `language`, `timezone`, `mode` or
+`type` (`X-Pass-Through`, `X-Session-Region`) are no longer digested.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.

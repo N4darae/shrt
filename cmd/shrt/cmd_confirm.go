@@ -221,7 +221,7 @@ func unstableAgainstSpot(prev, rec *runner.Record, spot *store.SafeSpot, volatil
 		spot, _ = diff.RenameSpotSteps(spot, rec.Steps)
 	}
 	rep := diff.CompareMasking(base, rec, volatile)
-	rep.DropUnsentDefaults(rec, unsent)
+	rep.DropUnsentDefaults(base, rec, unsent)
 	if c != nil {
 		rep.RequestChanges = diff.CompareRequests(base, rec, derivedRequestPath(c))
 		rep.SeparateInput(base, rec, volatile, requestFixtures(c))
@@ -296,7 +296,7 @@ func differsFromSafeSpot(e *env, rec *runner.Record) []store.Differ {
 	}
 	spot, renamed := diff.RenameSpotSteps(spot, rec.Steps)
 	rep := diff.CompareWithRequests(spot, rec, currentVolatile(e, rec.Chain), derived)
-	rep.DropUnsentDefaults(rec, unsentDefault(e))
+	rep.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	if c != nil {
 		rep.SeparateInput(spot, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
 	}

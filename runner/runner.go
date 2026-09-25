@@ -1334,6 +1334,11 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	case len(unknown) > 0:
 		sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
+		if values := catalog.UndeclaredValues(method.Output(), res.Body); values != nil {
+			if raw, err := json.Marshal(redactor.Apply(values)); err == nil {
+				sr.Undeclared = raw
+			}
+		}
 		if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
 			named := make([]string, 0, len(enums))
 			for _, e := range enums {
@@ -1478,6 +1483,9 @@ func learnSecret(redactor *pathmask.Masker, v any) {
 func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	sr.Request = redactor.ScrubJSON(sr.Request)
 	sr.Response = redactor.ScrubJSON(sr.Response)
+	if len(sr.Undeclared) > 0 {
+		sr.Undeclared = redactor.ScrubJSON(sr.Undeclared)
+	}
 	for i := range sr.Expect {
 		e := &sr.Expect[i]
 		e.Want = redactor.ScrubValue(e.Want)

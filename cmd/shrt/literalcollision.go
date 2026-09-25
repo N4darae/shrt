@@ -70,7 +70,7 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
 	}
-	if l := collisionWithinRun(c, rec, first, index, why, req); l != nil {
+	if l := collisionWithinRun(e, c, rec, first, index, why, req); l != nil {
 		return l
 	}
 	folded := foldName(why)
@@ -210,7 +210,7 @@ func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord,
 	return out
 }
 
-func collisionWithinRun(c *chain.Chain, rec *runner.Record, first *runner.StepRecord, index int, why string, req any) *literalCollision {
+func collisionWithinRun(e *env, c *chain.Chain, rec *runner.Record, first *runner.StepRecord, index int, why string, req any) *literalCollision {
 	sent := map[string]string{}
 	var quoted, named, all []string
 	folded := foldName(why)
@@ -253,7 +253,7 @@ func collisionWithinRun(c *chain.Chain, rec *runner.Record, first *runner.StepRe
 			continue
 		}
 		for _, path := range pick {
-			if same(path) {
+			if same(path) && !referencesSentRequest(c, first.ID, path) && !repeatAcceptedBefore(e, rec, first.ID, st.ID, path) {
 				hint := leafName(path) + "-${vars." + suggestedVar(c) + "}-2"
 				if v, ok := requestTemplate(c, first.ID, path); ok {
 					if text, isText := v.(string); isText && text != "" {
@@ -274,4 +274,61 @@ func allSame(paths []string, same func(string) bool) bool {
 		}
 	}
 	return len(paths) > 0
+}
+
+func referencesSentRequest(c *chain.Chain, step, path string) bool {
+	v, ok := requestTemplate(c, step, path)
+	text, isText := v.(string)
+	if !ok || !isText {
+		return false
+	}
+	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+		r := chain.ParseRef(m[1])
+		if r.Kind == chain.RefStep && (r.Rest == "request" || strings.HasPrefix(r.Rest, "request.")) {
+			return true
+		}
+	}
+	return false
+}
+
+func repeatAcceptedBefore(e *env, rec *runner.Record, step, earlier, path string) bool {
+	if e == nil || e.store == nil {
+		return false
+	}
+	accepted := func(steps []*runner.StepRecord) bool {
+		var now, then *runner.StepRecord
+		for _, st := range steps {
+			switch {
+			case st == nil:
+			case st.ID == step:
+				now = st
+			case st.ID == earlier:
+				then = st
+			}
+		}
+		if !createdStep(now) || !createdStep(then) || now.Call != then.Call {
+			return false
+		}
+		var a, b any
+		if json.Unmarshal(now.Request, &a) != nil || json.Unmarshal(then.Request, &b) != nil {
+			return false
+		}
+		x, okA := chain.Get(a, path)
+		y, okB := chain.Get(b, path)
+		return okA && okB && x != nil && fmt.Sprint(x) == fmt.Sprint(y)
+	}
+	if spot, err := e.store.LoadSafeSpot(rec.Chain); err == nil && accepted(spot.Steps) {
+		return true
+	}
+	ids, _ := e.store.ListRuns(rec.Chain)
+	for _, id := range ids {
+		if id == rec.RunID {
+			continue
+		}
+		prev, err := e.store.LoadRun(rec.Chain, id)
+		if err == nil && !prev.DryRun && accepted(prev.Steps) {
+			return true
+		}
+	}
+	return false
 }

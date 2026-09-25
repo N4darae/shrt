@@ -198,11 +198,18 @@ run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is 
 recorded runs of the chain sent it at that step and were answered without a refusal: the backend
 accepted it after the record already existed, so it is not unique and cannot be what collides. With
 no literal left to blame and a refusal that names no field, verify gives its plain verdict against
-the safe spot (`regression: N change(s)`). When an earlier step of the same run, calling the same
+the safe spot (`regression: N change(s)`). The same holds when the refusal quotes or names that
+accepted literal (`name Bob Literal already exists` for `name: Bob Literal`): the backend now refuses
+what it accepted, a regression, exit 1, and the var-built field next to it (`email:
+l-${vars.tag}@example.test`) is not blamed, so it is no `fixture collision` either. When an earlier step of the same run, calling the same
 rpc, sent the identical value on the conflicting field and was accepted (two `CreateProduct` steps
 both sending `sku: sku-${vars.tag}`), `run` and `verify` say `the chain collides with itself within
 one run: ... the value step "create_product" of this same run sent there` and exit 1: every run
-collides with itself whatever `-var` is given, so it is never a fixture collision. A var that
+collides with itself whatever `-var` is given, so it is never a fixture collision. Not when the
+repeat is deliberate or proven: a value the later step reads from the earlier one's request
+(`idempotency_key: ${steps.order1.request.idempotency_key}`, an idempotent resend), or a repeat the
+safe spot's run or another recorded run sent at those two steps and had accepted, is what the
+backend used to accept, so its refusal now is `regression: N change(s)`, exit 1. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -963,7 +970,15 @@ gained that the backend does not send yet is not a change: run records hold ever
 so the new field shows up at its proto3 default (`note: ""`, `0`, `false`, an empty list, a null
 message), which is exactly the bytes the safe spot's backend sent. verify leaves those out and
 names them (`N response field(s) are declared now but were not on the wire ...`); the day the
-backend sends a non-default value there, it is reported as `unexpected` like any new field.
+backend sends a non-default value there, it is reported as `unexpected` like any new field. That
+holds only for a field the safe spot's run did NOT have on the wire: a field the backend already
+sent before the proto declared it (the run's `response field(s) the proto does not declare`
+warning) is compared with the value that run received, which the record keeps under `undeclared`.
+The same value is not a change (`... were on the wire, undeclared, in the safe spot's run with the
+same value ...`); a field gone since, now at its default, is `changed product.active want=true
+got=false (on the wire, undeclared, in the safe spot's run; not on the wire now ...)`. A safe spot
+approved by an older build has only the warning, not the value: a field gone since is still a change,
+and a value now is listed as `not compared` until a newer run is proposed in its place.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:

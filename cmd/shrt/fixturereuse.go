@@ -160,8 +160,14 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 		fields = append(fields, f)
 	})
+	if refusalBlamesAnotherField(req, why, fields) {
+		return nil
+	}
 	fed := map[string]bool{}
 	conflicting := conflictingFields(fields, why)
+	if inRunRepeatAcceptedBefore(e, rec, index, conflicting) {
+		return nil
+	}
 	unique := []string{}
 	for _, f := range conflicting {
 		for _, n := range f.vars {
@@ -328,6 +334,81 @@ func refusedSameWay(why string, all, conflicting []fixtureField, prev *runner.St
 		then = append(then, f)
 	}
 	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(conflictingFields(then, was)) == fieldPaths(conflicting)
+}
+
+func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool {
+	fixture := map[string]bool{}
+	for _, f := range fields {
+		fixture[f.path] = true
+	}
+	others := []fixtureField{}
+	visitLeaves(req, "", func(path string) {
+		if fixture[path] {
+			return
+		}
+		sent, _ := chain.Get(req, path)
+		text, _ := sent.(string)
+		if len(text) < 3 {
+			text = ""
+		}
+		others = append(others, fixtureField{path: path, sent: text})
+	})
+	quoted := func(set []fixtureField) bool {
+		for _, f := range set {
+			if f.sent != "" && strings.Contains(why, f.sent) {
+				return true
+			}
+		}
+		return false
+	}
+	named := func(set []fixtureField, shortest int) bool {
+		folded := foldName(why)
+		for _, f := range set {
+			if name := foldName(leafName(f.path)); name != "" && len(name) >= shortest && strings.Contains(folded, name) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case quoted(fields):
+		return false
+	case quoted(others):
+		return true
+	case named(fields, 1):
+		return false
+	}
+	return named(others, 3)
+}
+
+func inRunRepeatAcceptedBefore(e *env, rec *runner.Record, index int, conflicting []fixtureField) bool {
+	if len(conflicting) == 0 || index <= 0 || index >= len(rec.Steps) {
+		return false
+	}
+	first := rec.Steps[index]
+	for _, f := range conflicting {
+		if f.sent == "" {
+			return false
+		}
+		repeated := false
+		for j := 0; j < index && !repeated; j++ {
+			st := rec.Steps[j]
+			if st == nil || st.Call != first.Call || !createdStep(st) {
+				continue
+			}
+			var before any
+			if json.Unmarshal(st.Request, &before) != nil {
+				continue
+			}
+			if got, ok := chain.Get(before, f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
+				repeated = true
+			}
+		}
+		if !repeated {
+			return false
+		}
+	}
+	return true
 }
 
 func fieldPaths(fields []fixtureField) string {
