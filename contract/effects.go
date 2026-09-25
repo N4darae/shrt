@@ -507,7 +507,8 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 			}
 			base := defaultID(en.reader.Name)
 			if pm, err := p.cat.Lookup(prod.Call); err == nil {
-				if suffix := strings.TrimPrefix(prod.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
+				suffix, _, _ := strings.Cut(strings.TrimPrefix(prod.ID, defaultID(pm.Name)), "_for_")
+				if isIndexSuffix(suffix) {
 					base += suffix
 				}
 			}

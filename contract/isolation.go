@@ -175,3 +175,75 @@ func (p *Plan) noteIsolation() {
 		"moved) fails only the steps that exercise it instead of every later probe reading the same entity",
 		strings.Join(p.isolated, ", "))
 }
+
+func (p *Plan) ownMovedResources(lib *Library, t *listTarget, moves map[*chain.Step]*transition) {
+	if p.region == nil {
+		return
+	}
+	keep := map[string]bool{}
+	for _, id := range referencedSteps(t.step.Body) {
+		keep[id] = true
+	}
+	for _, prod := range t.producers {
+		keep[prod.ID] = true
+	}
+	moved := []*chain.Step{}
+	owned := map[string]bool{}
+	for _, prod := range t.producers {
+		if moves[prod] == nil || p.region.targets[prod.ID] {
+			continue
+		}
+		moved = append(moved, prod)
+		for _, id := range referencedSteps(prod.Body) {
+			src := p.stepByID(id)
+			if keep[id] || !p.region.ids[id] || src == nil || chain.IsReadOnlyCall(src.Call) {
+				continue
+			}
+			owned[id] = true
+		}
+	}
+	if len(owned) == 0 {
+		return
+	}
+	for _, id := range p.region.order {
+		s := p.stepByID(id)
+		if owned[id] || keep[id] || s == nil || chain.IsReadOnlyCall(s.Call) || s.SkipAuth || isRefusalStep(s) {
+			continue
+		}
+		reads := referencedSteps(s.Body)
+		all := len(reads) > 0
+		for _, r := range reads {
+			all = all && owned[r]
+		}
+		if all {
+			owned[id] = true
+		}
+	}
+	rename := map[string]string{}
+	reserved := map[string]bool{}
+	for _, id := range p.region.order {
+		if owned[id] {
+			rename[id] = p.freeProbeID(id+"_for_filter", reserved)
+		}
+	}
+	copies := []*chain.Step{}
+	for _, id := range p.region.order {
+		if !owned[id] {
+			continue
+		}
+		c := copyStep(p.stepByID(id), rename[id])
+		c.Export = nil
+		retarget(c, rename)
+		p.freshen(lib, c)
+		c.Description = fmt.Sprintf("as %s, for the fixtures the status filters move, so a defect a main-path write leaves in %s cannot fail the move.", id, id)
+		p.assertEcho(c)
+		copies = append(copies, c)
+	}
+	names := []string{}
+	for _, prod := range moved {
+		retarget(prod, rename)
+		names = append(names, prod.ID)
+	}
+	p.insertBefore(moved[0].ID, copies...)
+	p.isolated = append(p.isolated, fmt.Sprintf("filter (%d, for %s)", len(copies), strings.Join(names, ", ")))
+}

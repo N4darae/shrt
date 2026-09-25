@@ -329,6 +329,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	transitions, blocked := p.transitionsFor(lib, t, first, values, short, initial)
 	moved := p.statesBefore(lib, t, values, short)
 	assigned, moves := assignStates(t.producers, moved, initial, transitions)
+	p.ownMovedResources(lib, t, moves)
 	states := map[string][]*chain.Step{}
 	order := []string{}
 	if initial != "" {

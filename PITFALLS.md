@@ -2000,6 +2000,22 @@ probe's before-and-after reads. When no read follows a reservation, the plan add
 gets `<step>_same_<noun>_twice` on fixtures of its own: an order naming one product on both lines,
 confirmed, then read.
 
+## 91. `confirm_order_3` failing on a CancelOrder defect
+
+**Symptom.** In `contract plan CreateOrder ConfirmOrder CancelOrder FetchOrder ListOrders` on a
+backend whose cancel does not restock, `confirm_order_3`, the write that puts a status-filter
+fixture in CONFIRMED, was refused `InsufficientStock`: a CancelOrder defect failing a ConfirmOrder
+step, and every filtered list after it.
+
+**Cause.** The list's fixtures ordered the main path's products, which the main-path confirm had
+drained and the broken cancel had not refilled.
+
+**Fix.** 2026-09-25: a list fixture that a status-filter write moves orders resources of its own
+(`create_product_for_filter`, `add_stock_for_filter`, ...), created and prepared as the main
+path's were; the list's scope (the customer) stays shared, and fixtures no write moves keep the
+main path's resources. The CancelOrder defect still fails its own steps (the composed probe's
+`get_product_after_cancel_order_after_confirmed`).
+
 ---
 
 # Decisions, so they are not relitigated
