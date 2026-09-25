@@ -1969,6 +1969,37 @@ line only, or an `invalid_argument` one, is not a not-found refusal. It sends th
 is not a reference, expects exactly the declared failure, and a write is put between reads
 proving nothing moved. The probe runs on the unknown-id group's own fixtures (#85).
 
+## 90. A confirm that took an extra unit per line, and a total priced wrong, green in every plan
+
+**Symptom.** A backend whose `ConfirmOrder` took one extra unit of stock for every line after the
+first, and one whose `CreateOrder` priced the last line as quantity 1, passed every planned chain.
+The reads after `confirm_order` asserted the name, price and sku of each product, never its
+`qty_on_hand`; `create_order` asserted no `total_minor`; `add_stock` asserted only a level at least
+the quantity added.
+
+**Cause.** The chain grammar compares one value with one value and does no arithmetic, and the plan
+never worked the expected numbers out itself.
+
+**Fix.** 2026-09-25: the plan computes the numbers from the literal values it sends and asserts
+them as literals, but only where a contract states the effect in its summary or exports: an
+increase by a request field (`Increase a product's stock on hand by qty`: the level after is the
+level before plus `qty`, asserted on `add_stock`'s `qty_on_hand`), a batch field whose note says
+`one AddStock per line` (each `results.N.qty_on_hand`), a reservation for every line (`Reserve
+stock for every line`: the reads right after the confirm assert the level minus each line's
+quantity, a product on two lines counted twice), a give-back for a state (#88's sentence, used
+only when the order was reserved), a producer that starts at zero (`with zero stock`), and a total
+named with `sum` next to a price (`total_minor is the priced sum`: the sum of `qty` × the product's
+`price_minor`, asserted on the create, on a replay of its idempotency key and on every read of the
+order). A write the contracts say nothing about (`does not touch stock` counts as saying) makes the
+level unknown from there on and a note names the rpc and the sentence to add. A level is asserted
+only while it rests on writes that check themselves (a create at zero, `AddStock` answering the new
+level): after a reservation or a give-back the product is no longer tracked, so a defect in one
+write fails the reads of that write alone and the level after a cancel is left to the composed
+probe's before-and-after reads. When no read follows a reservation, the plan adds one per product
+(`get_product_after_confirm_order`). A target whose contract states a reservation per line also
+gets `<step>_same_<noun>_twice` on fixtures of its own: an order naming one product on both lines,
+confirmed, then read.
+
 ---
 
 # Decisions, so they are not relitigated
