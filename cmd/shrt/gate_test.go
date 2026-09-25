@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"github.com/N4darae/shrt/diff"
 	"os"
 	"strings"
 	"testing"
@@ -259,5 +260,24 @@ func TestATruncatedWantAndGotKeepWhereTheyFirstDiffer(t *testing.T) {
 	}
 	if w, _ := capPair("short", "other", 60); w != "short" {
 		t.Errorf("short values are kept whole: %q", w)
+	}
+}
+
+func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
+	flags := []diff.LatencyFlag{
+		{Step: "list", Call: "shrt.test.v1.ThingService/List", BeforeMS: 3, AfterMS: 701, Confirmed: true},
+		{Step: "list_2", Call: "shrt.test.v1.ThingService/List", BeforeMS: 1, AfterMS: 702, Confirmed: true},
+		{Step: "create", Call: "shrt.test.v1.ThingService/Create", BeforeMS: 1, AfterMS: 400},
+	}
+	items := latencyItems(flags)
+	if len(items) != 2 || items[0].Class != "latency" || items[0].Want != "3ms" || items[0].Got != "701ms" {
+		t.Fatalf("only confirmed slow steps become gate items: %+v", items)
+	}
+	gateWorkspace(t, map[string][]gateOutcome{
+		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: latency regression\n", side: gateSidecar{Items: items}}},
+	})
+	out, code := runGateOut(t)
+	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s), paths latency; suspect the read: List is slower than in the safe spot's run") {
+		t.Fatalf("a latency regression is grouped under the slow rpc itself, got %d:\n%s", code, out)
 	}
 }

@@ -144,7 +144,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
-	defer func() { writeGateSidecar(verifySidecar(e, rec, report)) }()
+	defer func() { writeGateSidecar(verifySidecar(e, rec, report, latency)) }()
 	report.HideMasked = !*verbose
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)

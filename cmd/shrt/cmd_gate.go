@@ -134,7 +134,12 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 		}
 	}
 	if len(side.Items) > 0 {
-		side.Request = requestLine(rec, side.Items[0].Step, a.of(side.Items[0].Step, side.Items[0].Path))
+		first := side.Items[0]
+		b := a.of(first.Step, first.Path)
+		if first.Class == "latency" {
+			b = blame{write: -1, own: first.Own}
+		}
+		side.Request = requestLine(rec, first.Step, b)
 	}
 	return side
 }
@@ -221,7 +226,7 @@ func pinnedStep(c *chain.Chain, step string) bool {
 	return false
 }
 
-func verifySidecar(e *env, rec *runner.Record, report *diff.Report) gateSidecar {
+func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []diff.LatencyFlag) gateSidecar {
 	side := gateSidecar{EarlyProfile: earlyProfile(e, rec)}
 	changed := map[string]bool{}
 	for _, c := range report.Changes {
@@ -243,10 +248,27 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report) gateSidecar 
 		it.Class = report.Class(c)
 		side.Items = append(side.Items, it)
 	}
+	if latencyPolicy(e).Fail {
+		side.Items = append(side.Items, latencyItems(latency)...)
+	}
 	if len(side.Items) > 0 {
-		side.Request = requestLine(rec, side.Items[0].Step, a.of(side.Items[0].Step, side.Items[0].Path))
+		first := side.Items[0]
+		b := a.of(first.Step, first.Path)
+		if first.Class == "latency" {
+			b = blame{write: -1, own: first.Own}
+		}
+		side.Request = requestLine(rec, first.Step, b)
 	}
 	return side
+}
+
+func latencyItems(flags []diff.LatencyFlag) []gateItem {
+	var out []gateItem
+	for _, f := range confirmedLatency(flags) {
+		out = append(out, gateItem{Step: f.Step, Call: f.Call, Path: "latency", Want: fmt.Sprintf("%dms", f.BeforeMS), Got: fmt.Sprintf("%dms", f.AfterMS),
+			Class: "latency", Own: methodName(f.Call) + " is slower than in the safe spot's run, confirmed by re-measurement or the previous run"})
+	}
+	return out
 }
 
 var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
