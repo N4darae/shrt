@@ -23,6 +23,7 @@ const (
 	KindType       = "type"
 	KindOrder      = "order"
 	KindLength     = "length"
+	KindMembership = "membership"
 	KindStatus     = "status"
 	KindNotReached = "not_reached"
 )
@@ -361,6 +362,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	}
 	rep.applyRenaming(idPairs)
 	rep.renames = idRenames(idPairs)
+	rep.collapseMembership(rec)
 	var renamed []Change
 	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, rep.renames)
 	rep.Masked += len(renamed)
@@ -1123,7 +1125,7 @@ func (c Change) describeValues() string {
 		}
 		return fmt.Sprintf("want=%s got=%s, %s", show(c.Want), show(c.Got), sentOrNot(c.Detail))
 	}
-	if c.Kind == KindLength {
+	if c.Kind == KindLength || c.Kind == KindMembership {
 		return fmt.Sprintf("want=%s item(s) got=%s item(s)", show(c.Want), show(c.Got))
 	}
 	if c.Path == "step" && c.Kind == KindMissing {
