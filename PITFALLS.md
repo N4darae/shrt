@@ -1870,6 +1870,85 @@ backend that normalises consistently passes and one whose read disagrees with it
 For a create target, and for the create behind a read target, the plan also adds
 `<step>_mixed_case`, sending the text fields with their letters' case swapped, and reads it back.
 
+## 85. One defect in a planned chain failed probes of rpcs that were fine
+
+**Symptom.** On a backend whose ConfirmOrder checks stock on the first line only, the planned
+`orders-confirmorder` chain failed `confirm_order_insufficient_stock_last_item` and also
+`confirm_order_1_lines` and `confirm_order_3_lines` with 1305 InsufficientStock: the refused confirm
+that went through drained product 2 to -99997, and the item-count probes ordered from the same
+product. Six red steps for one defect, two of them pointing at probes that were not broken.
+
+**Cause.** Every probe group read the main path's fixtures (`create_product`, `create_customer`,
+`create_order`), so whatever one probe left behind was the next probe's starting state.
+
+**Fix.** 2026-09-25: the shortage, denied-token and item-count probe groups run on fixtures of their
+own, copied from the steps that created and prepared the main path's with unique fields changed
+(`create_product_for_shortage`, `add_stock_for_shortage`, `create_order_for_denied`,
+`create_product_for_items`). A group that reads the target step itself (an idempotent replay) or
+only reads keeps the shared ones. The same backend now fails four steps, all of them the last-line
+shortage probe and the reads around it.
+
+## 86. A confirm of a confirmed order answered 1304, green in the planned chain
+
+**Symptom.** A backend answered a second ConfirmOrder with 1304 OrderCancelled instead of 1303
+OrderAlreadyConfirmed. `shrt contract plan ConfirmOrder` passed on it; a tester found it only by
+writing a refusals chain by hand (confirm twice, confirm and cancel a cancelled order, unknown ids,
+an unknown product inside CreateOrder).
+
+**Cause.** The plan probed the refusals it could derive from a quantity, a role or a token, and
+ignored failures whose `when:` names a state of the entity (`the order is already CONFIRMED`) or an
+id that names nothing (`no order has this id`).
+
+**Fix.** 2026-09-25: for a failure whose `when:` (or reason) names a value of the entity's state
+enum, the plan creates a fresh entity, moves it there with the write whose contract says it moves
+entities to that state (`confirm_order_to_confirmed_for_confirm_order`, then
+`confirm_order_when_confirmed` expecting exactly 1303), and reads the entity and what it holds
+before and after to assert nothing moved. For a not-found failure (a reason with `NotFound`,
+`Unknown`, `NoSuch`, or a `when:` saying no X has this id, unknown, does not exist) matched to a
+`from:` field by `field:` or by the entity's name, it sends an id nothing created
+(`confirm_order_unknown_id_order`, `create_order_unknown_id_customer`, and
+`create_order_unknown_id_product` on the last line) and expects exactly that code. A failure
+reported on one line of a batch is left to the batch probe. A state no write in the contracts says
+it reaches gets a note instead.
+
+## 87. Malformed requests nobody sent, and validation nobody ordered
+
+**Symptom.** Blind testers wrote by hand the requests a contract already called invalid: an order
+with no lines or a qty-0 line, an email without `@`, a blank sku or name, an empty batch, an empty
+id, plus the same malformed order for an unknown customer to see whether validation ran before the
+lookup. `shrt contract plan` planned none of them.
+
+**Cause.** The plan read `connect_code: invalid_argument` failures only to name them; nothing
+turned their `when:` into a request.
+
+**Fix.** 2026-09-25: each `invalid_argument` failure's `when:` is split into clauses (`,`, `;`,
+`or`), and each clause that names a field (by its name, or an item field of a repeated one: `a line
+has qty zero`) and a value the plan can build becomes a probe: empty (`""`, or `[]` for a list),
+only whitespace, zero, negative, or the current value without its `@` (`create_order_lines_empty`,
+`create_order_qty_zero` on the last line, `create_product_sku_blank`, `create_customer_email_no_at`).
+Each expects `transport.code equals invalid_argument`, and a copy with every other reference
+pointed at an id nothing created (`..._unknown_refs`) expects the same, so a handler that looks up
+before it validates fails. A `when:` the plan cannot turn into a value, a `required:` field no such
+failure covers, and a contract that declares neither get a note; the plan does not guess.
+
+## 88. A cancel of a confirmed order that left it CONFIRMED, green in the planned chain
+
+**Symptom.** A backend whose CancelOrder changed nothing for a CONFIRMED order passed `shrt
+contract plan CancelOrder`, and so did the baseline, whose cancel never returns the stock a confirm
+reserved, though the contract says a CONFIRMED order gives its stock back.
+
+**Cause.** The plan cancelled only the PENDING order it had just created; no planned step ever
+cancelled an order another write had moved.
+
+**Fix.** 2026-09-25: for each other write whose contract says it moves the target's entity to a
+state the target does not refuse (ConfirmOrder to CONFIRMED for CancelOrder), the plan creates a
+fresh entity, reads it and what it holds (`get_product_before_confirm_order_before_…`), moves it
+(`confirm_order_before_cancel_order_after_confirmed`), runs the target on it
+(`cancel_order_after_confirmed`, expecting CANCELLED), and reads again: the entity must be in the
+target's state, and when the contract or the domain description says the target on an entity in
+that state returns, gives back, restores or releases what it holds, each number read before the
+move must be back. A state the target refuses is left to the refusal probe (#86).
+
 ---
 
 # Decisions, so they are not relitigated

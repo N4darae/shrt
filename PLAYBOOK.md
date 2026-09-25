@@ -348,6 +348,39 @@ directly or through the step it reads, with the read rpc whose contract takes th
 field equal to the before-read. A backend that refuses but still takes the first line's stock fails
 there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
 
+Each write probe group runs on fixtures of its own: the shortage probes, the token probes and the
+item-count probes each get copies of the steps that created and prepared the main path's fixtures,
+named `<fixture>_for_<group>` (`create_product_for_shortage`, `add_stock_for_shortage`,
+`create_order_for_denied`), with unique fields changed and numbers kept. A defect one probe exposes,
+such as stock drained by a refused confirm that went through, then fails that probe and its reads
+only, not every later probe that orders the same product.
+
+A failure whose `when:` names a state of the entity the target acts on (`the order is already
+CONFIRMED`, `the order is CANCELLED`) is probed in that state: the plan creates a fresh entity, moves
+it there with the write whose summary or export says it moves entities to that state
+(`confirm_order_to_confirmed_for_confirm_order`), calls the target on it expecting exactly that code
+(`confirm_order_when_confirmed`, 1303), and reads it before and after. A not-found failure (`no order
+has this id`, `a line names an unknown product`) matched to a `from:` field gets a call with an id
+nothing created (`confirm_order_unknown_id_order`, `create_order_unknown_id_product` on the last
+line), expecting exactly that code. A state no write reaches gets a note instead of a probe.
+
+A failure with `connect_code: invalid_argument` is turned into malformed requests from its `when:`:
+each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
+only whitespace, zero, negative, no `@`) becomes a probe expecting `transport.code equals
+invalid_argument` (`create_order_lines_empty`, `create_order_qty_zero` on the last line,
+`create_customer_email_no_at`). A copy with the other references pointed at ids nothing created
+(`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
+before any lookup. When nothing declares a required field or a format, the plan says so and plans
+none: it does not guess what the handler validates.
+
+A write is also run from every state another write can put its entity in, when its contract does not
+refuse that state. For CancelOrder the plan creates a fresh order, reads its products, confirms it
+(`confirm_order_before_cancel_order_after_confirmed`), cancels it (`cancel_order_after_confirmed`,
+expecting CANCELLED) and reads again: the order must be CANCELLED, and since the contract says a
+CONFIRMED order gives its stock back, each product's `qty_on_hand` must equal the read taken before
+the confirm. Without such a sentence in the summary, the export or the domain description, only the
+state is asserted.
+
 When the config declares auth, the plan also probes who may call. For a target whose contract names
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares

@@ -1,0 +1,293 @@
+package contract
+
+import (
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
+)
+
+var (
+	clauseSplit    = regexp.MustCompile(`(?i)\s*(?:,|;|\bor\b)\s*`)
+	shapeEmpty     = regexp.MustCompile(`(?i)\b(?:empty|missing|blank|absent|unset|omitted|not set|not given|required|none)\b`)
+	shapeSpace     = regexp.MustCompile(`(?i)\bwhitespace\b|\bspaces\b`)
+	shapeZero      = regexp.MustCompile(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
+	shapeNegative  = regexp.MustCompile(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
+	shapeAt        = regexp.MustCompile(`@`)
+	invalidArgCode = "invalid_argument"
+)
+
+type shapeCase struct {
+	path  string
+	field string
+	kind  string
+	value any
+}
+
+func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
+	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
+		if !isTarget(st) || p.isLogin(st.Call) {
+			continue
+		}
+		c, ok := lib.Get(st.Call)
+		if !ok {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		fields := catalog.DescribeMessage(m.Input()).Fields
+		covered := map[string]bool{}
+		declared := false
+		for _, f := range lib.AllFailures(st.Call) {
+			if f.ConnectCode != invalidArgCode || f.Code != 0 || f.Unreachable != "" {
+				continue
+			}
+			declared = true
+			if f.Field != "" {
+				covered[namecase.Fold(stripIndexes(f.Field))] = true
+			}
+			cases := shapeCases(st.Body, fields, f)
+			if len(cases) == 0 {
+				p.note("step %s: its contract declares %s (%s), but that when: names no field and value the plan can "+
+					"build (empty, blank, whitespace, zero, negative, a missing @), so no malformed request was planned for it: "+
+					"write one, or say it in those words", st.ID, f.Label(), strings.TrimSpace(f.When))
+				continue
+			}
+			p.addShapeProbes(lib, st, m, c, f, cases)
+		}
+		required := []string{}
+		for _, r := range c.Required {
+			if IsRequiredLiteral(r) {
+				continue
+			}
+			declared = true
+			if !covered[namecase.Fold(stripIndexes(r))] {
+				required = append(required, r)
+			}
+		}
+		if len(required) > 0 {
+			p.note("step %s: %s %s required, but no failure with connect_code: invalid_argument and field: naming %s "+
+				"says how a request without %s is refused, so no probe sends one: declare that failure and plan again",
+				st.ID, strings.Join(required, ", "), pluralIs(len(required)), pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
+		}
+		if !declared && !c.IsUnfilled("required") && len(c.Required) == 0 {
+			p.note("step %s: nothing in its contract declares a required field or a format (required:, or a failure with "+
+				"connect_code: invalid_argument), so no malformed request was planned: the plan does not guess what the "+
+				"handler validates", st.ID)
+		}
+	}
+}
+
+func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) []shapeCase {
+	out := []shapeCase{}
+	seen := map[string]bool{}
+	carry := f.Field
+	for _, clause := range clauseSplit.Split(f.When, -1) {
+		clause = strings.TrimSpace(clause)
+		if clause == "" {
+			continue
+		}
+		field := mentionedField(clause, fields, f.Field)
+		if field == "" {
+			field = carry
+		}
+		if field == "" {
+			continue
+		}
+		carry = field
+		path, fd, cur, ok := shapeTarget(body, fields, field)
+		if !ok {
+			continue
+		}
+		kind, value, ok := shapeValue(clause, fd, cur)
+		if !ok || seen[path+"|"+kind] {
+			continue
+		}
+		seen[path+"|"+kind] = true
+		out = append(out, shapeCase{path: path, field: field, kind: kind, value: value})
+	}
+	return out
+}
+
+func fieldWord(name string) *regexp.Regexp {
+	parts := strings.Split(name, "_")
+	for i := range parts {
+		parts[i] = regexp.QuoteMeta(parts[i])
+	}
+	return regexp.MustCompile(`(?i)\b` + strings.Join(parts, `[_ ]`) + `\b`)
+}
+
+func singularWord(name string) *regexp.Regexp {
+	return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(strings.TrimSuffix(name, "s")) + `s?\b`)
+}
+
+func mentionedField(clause string, fields []*catalog.Field, declared string) string {
+	top := ""
+	for _, fd := range fields {
+		if fd.MapKey != "" {
+			continue
+		}
+		hit := fieldWord(fd.Name).MatchString(clause) || (fd.Repeated && singularWord(fd.Name).MatchString(clause))
+		if fd.Repeated && fd.Kind == "message" && (hit || namecase.Fold(declared) == namecase.Fold(fd.Name)) {
+			for _, sub := range fd.Fields {
+				if !sub.Repeated && sub.Kind != "message" && fieldWord(sub.Name).MatchString(clause) {
+					return fd.Name + "." + sub.Name
+				}
+			}
+		}
+		if hit && top == "" {
+			top = fd.Name
+		}
+	}
+	return top
+}
+
+func shapeTarget(body map[string]any, fields []*catalog.Field, field string) (string, *catalog.Field, any, bool) {
+	segs := chain.SplitPath(stripIndexes(field))
+	fd, ok := catalog.FieldAt(fields, segs)
+	if !ok || fd == nil {
+		return "", nil, nil, false
+	}
+	path := strings.Join(segs, ".")
+	if len(segs) == 2 {
+		key, ok := namecase.LookupKey(body, segs[0])
+		list, isList := body[key].([]any)
+		if !ok || !isList || len(list) == 0 {
+			return "", nil, nil, false
+		}
+		path = fmt.Sprintf("%s.%d.%s", key, len(list)-1, segs[1])
+	} else if len(segs) != 1 {
+		return "", nil, nil, false
+	}
+	cur, _ := bodyValue(body, path)
+	return path, fd, cur, true
+}
+
+func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
+	switch {
+	case fd.Repeated:
+		if shapeEmpty.MatchString(clause) {
+			return "empty", []any{}, true
+		}
+	case fd.Kind == "string":
+		text, _ := cur.(string)
+		switch {
+		case shapeAt.MatchString(clause) && strings.Contains(text, "@"):
+			return "no_at", strings.ReplaceAll(text, "@", "."), true
+		case shapeSpace.MatchString(clause):
+			return "blank", "   ", true
+		case shapeEmpty.MatchString(clause):
+			return "empty", "", true
+		}
+	case chain.IsNumericKind(fd.Kind):
+		switch {
+		case shapeNegative.MatchString(clause):
+			return "negative", "-1", true
+		case shapeZero.MatchString(clause):
+			return "zero", "0", true
+		}
+	}
+	return "", nil, false
+}
+
+func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, cases []shapeCase) {
+	expect := refusalFor(m, f)
+	ids := []string{}
+	ordering := []string{}
+	for _, sc := range cases {
+		probe := copyStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
+		probe.Export = nil
+		if !chain.IsReadOnlyCall(st.Call) {
+			p.freshen(lib, probe)
+		}
+		setBodyPath(probe.Body, sc.path, sc.value)
+		probe.Expect = append([]chain.Expectation{}, expect...)
+		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, shapeWords(sc.kind), f.Label())
+		p.addShape(lib, st, probe)
+		ids = append(ids, probe.ID)
+		lookups := p.otherLookups(c, probe, sc.path)
+		if len(lookups) == 0 {
+			continue
+		}
+		early := copyStep(probe, p.freeStepID(probe.ID+"_unknown_refs"))
+		for _, path := range lookups {
+			setBodyPath(early.Body, path, "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"))
+		}
+		early.Description = fmt.Sprintf("as %s, and %s name nothing that exists: still answered %s, since a malformed request "+
+			"is refused before any lookup.", probe.ID, strings.Join(lookups, ", "), f.Label())
+		p.addShape(lib, st, early)
+		ordering = append(ordering, early.ID)
+	}
+	also := ""
+	if len(ordering) > 0 {
+		also = fmt.Sprintf("; %s %s the same with every reference pointed at an id nothing created and still %s %s, not a "+
+			"not-found code, since a malformed request is refused before any business rule", strings.Join(ordering, ", "),
+			pluralVerb(len(ordering), "sends", "send"), pluralVerb(len(ordering), "expects", "expect"), f.Label())
+	}
+	p.note("step %s: its contract declares %s (%s), so %s %s a malformed request and %s %s%s", st.ID, f.Label(),
+		strings.TrimSpace(f.When), strings.Join(ids, ", "), pluralVerb(len(ids), "sends", "send"), pluralVerb(len(ids), "expects", "expect"),
+		f.Label(), also)
+}
+
+func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
+	if chain.IsReadOnlyCall(st.Call) || len(referencedSteps(probe.Body)) == 0 {
+		p.Chain.Steps = append(p.Chain.Steps, probe)
+		return
+	}
+	p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{probe}, probe.ID)...)
+}
+
+func (p *Plan) otherLookups(c *RPCContract, probe *chain.Step, malformed string) []string {
+	out := []string{}
+	for _, name := range sortedFieldNames(c.Fields) {
+		fc := c.Fields[name]
+		if fc == nil || fc.From == "" {
+			continue
+		}
+		segs := chain.SplitPath(name)
+		paths := []string{name}
+		if len(segs) == 2 {
+			key, ok := namecase.LookupKey(probe.Body, segs[0])
+			list, isList := probe.Body[key].([]any)
+			if !ok || !isList {
+				continue
+			}
+			paths = paths[:0]
+			for i := range list {
+				paths = append(paths, fmt.Sprintf("%s.%d.%s", key, i, segs[1]))
+			}
+		}
+		for _, path := range paths {
+			if path == malformed || strings.HasPrefix(malformed+".", path+".") {
+				continue
+			}
+			if v, ok := bodyValue(probe.Body, path); ok {
+				if text, isText := v.(string); isText && strings.Contains(text, "${") {
+					out = append(out, path)
+				}
+			}
+		}
+	}
+	return out
+}
+
+func shapeWords(kind string) string {
+	switch kind {
+	case "empty":
+		return "empty"
+	case "blank":
+		return "only whitespace"
+	case "zero":
+		return "zero"
+	case "negative":
+		return "negative"
+	case "no_at":
+		return "without an @"
+	}
+	return kind
+}
