@@ -438,9 +438,27 @@ func sameShape(a, b any) bool {
 	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString) {
 		return true
 	}
-	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
-	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && hasDigit(x) == hasDigit(y) &&
+	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && sameRunClasses(x, y) &&
 		kindPrefix(x) == kindPrefix(y)
+}
+
+var hexRun = regexp.MustCompile(`^[0-9a-fA-F]{8,}$`)
+
+func sameRunClasses(x, y string) bool {
+	xs, ys := alnumRun.FindAllString(x, -1), alnumRun.FindAllString(y, -1)
+	if len(xs) != len(ys) {
+		return false
+	}
+	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
+	for i := range xs {
+		if len(xs[i]) == len(ys[i]) && hexRun.MatchString(xs[i]) && hexRun.MatchString(ys[i]) {
+			continue
+		}
+		if hasDigit(xs[i]) != hasDigit(ys[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 var letterPrefix = regexp.MustCompile(`^([A-Za-z]+)[^A-Za-z0-9]`)
@@ -761,4 +779,8 @@ func maskVarValues(vars map[string]any, text string) string {
 		text = strings.ReplaceAll(text, fmt.Sprint(vars[name]), "${vars."+name+"}")
 	}
 	return text
+}
+
+func (c Change) DescribeRuns() string {
+	return c.describeRuns()
 }

@@ -220,6 +220,16 @@ expectation `unevaluated` and so failed: `as_pinned`, exit 0, over a crashed rpc
 expectation evaluated against an answered response satisfies a pin now; a refusal there is
 `not_as_pinned`, "the pinned step was refused at transport".
 
+A pin on a path proves only that path still fails: `list_orders_pending` pinned on `orders.1 exists
+want=false got=true` (ListOrders ignores status) kept printing `FAILED AS PINNED` after a new defect
+removed cancelled orders from ListOrders, since a confirmed order still made `orders.1` exist. Pins
+written by `slice -kept-red` now carry the `got` they failed with when it is stable, and `run`
+compares each pinned step's whole response with the last run of the same chain file that failed as
+pinned: `NEW FAILURE outside the pinned defect: a pinned step returns something else than in run
+<id>: list_orders_pending length orders a=3 item(s) b=2 item(s)`, exit 1, and again on every run
+until the change is fixed or re-pinned (the slice command again with `-force`, or any edit of the
+chain file). Old pins without `got` still judge as before; they only skip the `got` comparison.
+
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
 stamped: set `target.build_header` if the server reports its version in a header, or pass
@@ -1505,7 +1515,9 @@ fresh token the re-login issued is refused early too in the same run, or when th
 the chain had a token refused early after it was accepted in that run; a restart shown in either run
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use stays a warning, since a deploy
-between runs explains it; the CI gate in README counts those lines per auth profile and fails when
+between runs explains it, and says so: `possibly a restart since the token was cached` (until
+2026-09-25 it said `nothing in this run shows a restart` right after a deploy had restarted the
+in-memory backend, which the run cannot see); the CI gate in README counts those lines per auth profile and fails when
 one profile's tokens die early twice in one gate.
 
 ## 60. A slice of a refused confirm that dropped the stock of the product it needed

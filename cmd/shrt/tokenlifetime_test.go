@@ -172,3 +172,26 @@ func TestVerifyReportsATokenLifetimeFindingAndNeverCallsItARestart(t *testing.T)
 		t.Fatalf("refused early again in the next replay: a finding, exit 1: %v\n%s", err, out)
 	}
 }
+
+func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
+	b := &shortSessionBackend{uses: 100}
+	shortSessionWorkspace(t, b, lifetimeWrites)
+	ctx := context.Background()
+	if err := runRun(ctx, []string{"cli-thing-flow", "-quiet"}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	b.mu.Lock()
+	b.left = map[string]int{}
+	b.mu.Unlock()
+	var err error
+	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
+	if !strings.Contains(out, "WARNING: token refused") || !strings.Contains(out, "the cached token, on its first use in this run") {
+		t.Fatalf("the cached token was refused early on its first use: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "nothing in this run shows a restart") {
+		t.Fatalf("a restart since the token was cached leaves no trace in this run, so the run must not say none happened:\n%s", out)
+	}
+	if !strings.Contains(out, "possibly a restart since the token was cached") || strings.Contains(out, "FINDING") {
+		t.Fatalf("the warning names a restart since the token was cached as a cause, and is no finding:\n%s", out)
+	}
+}

@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -24,12 +26,12 @@ func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, 
 	if sr == nil {
 		return nil, fmt.Errorf("run %s did not reach step %s: nothing to pin", rec.RunID, step)
 	}
-	have := map[string]bool{}
-	for _, k := range c.KeptRed {
-		have[k.Step+"\x00"+k.Path] = true
+	have := map[string]int{}
+	for i, k := range c.KeptRed {
+		have[k.Step+"\x00"+k.Path] = i
 	}
 	added := []chain.Pin{}
-	unevaluated := false
+	unevaluated, refreshed := false, false
 	for _, x := range sr.Expect {
 		if x.Passed {
 			continue
@@ -38,11 +40,19 @@ func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, 
 			unevaluated = true
 			continue
 		}
-		if have[step+"\x00"+x.Path] {
+		got := stableGot(x.Path, x.Got, rec)
+		if i, ok := have[step+"\x00"+x.Path]; ok {
+			if i >= 0 && c.KeptRed[i].Got == nil && got != nil {
+				c.KeptRed[i].Got = got
+				refreshed = true
+			}
 			continue
 		}
-		have[step+"\x00"+x.Path] = true
-		added = append(added, chain.Pin{Step: step, Path: x.Path})
+		have[step+"\x00"+x.Path] = -1
+		added = append(added, chain.Pin{Step: step, Path: x.Path, Got: got})
+	}
+	if len(added) == 0 && refreshed {
+		return added, nil
 	}
 	if len(added) == 0 {
 		why := "every expectation of it held"
@@ -55,6 +65,32 @@ func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, 
 		return nil, fmt.Errorf("step %s failed no expectation in run %s (%s): nothing to pin", step, rec.RunID, why)
 	}
 	return added, nil
+}
+
+func stableGot(path string, v any, rec *runner.Record) *string {
+	var text string
+	switch t := v.(type) {
+	case bool:
+		text = fmt.Sprint(t)
+	case float64:
+		text = fmt.Sprint(t)
+	case string:
+		if t == pathmask.MaskRedacted || t == pathmask.MaskVolatile {
+			return nil
+		}
+		for _, val := range rec.Vars {
+			if sv, ok := val.(string); ok && len(sv) >= 2 && strings.Contains(t, sv) {
+				return nil
+			}
+		}
+		text = t
+	default:
+		return nil
+	}
+	if diff.LooksVolatile(path, v, v) {
+		return nil
+	}
+	return &text
 }
 
 func failedSteps(rec *runner.Record) []string {

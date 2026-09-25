@@ -78,6 +78,7 @@ type LatencyFlag struct {
 	Samples   []int64 `json:"samples_ms"`
 	Confirmed bool    `json:"confirmed"`
 	How       string  `json:"how"`
+	Against   string  `json:"against,omitempty"`
 }
 
 func latencyMeasured(st *runner.StepRecord) bool {
@@ -168,8 +169,12 @@ func (f LatencyFlag) Line() string {
 	if !f.Confirmed {
 		head = "LATENCY (unconfirmed)"
 	}
-	return fmt.Sprintf("%s: %s at step %s took %dms, the safe spot's run %dms (+%dms, %.1fx); %s",
-		head, shortRPC(f.Call), f.Step, f.AfterMS, f.BeforeMS, f.AfterMS-f.BeforeMS, ratio, f.How)
+	against := f.Against
+	if against == "" {
+		against = "the safe spot's run"
+	}
+	return fmt.Sprintf("%s: %s at step %s took %dms, %s %dms (+%dms, %.1fx); %s",
+		head, shortRPC(f.Call), f.Step, f.AfterMS, against, f.BeforeMS, f.AfterMS-f.BeforeMS, ratio, f.How)
 }
 
 func LatencyTable(spot []*runner.StepRecord, rec *runner.Record, p LatencyPolicy) string {

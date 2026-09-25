@@ -97,11 +97,30 @@ func runRun(ctx context.Context, args []string) error {
 			spot = loaded
 		}
 	}
+	var pinnedRef *runner.Record
+	latencySpot := spot
+	if !*dry && len(c.KeptRed) > 0 {
+		pinnedRef = pinnedReference(e, c, &runner.Record{Chain: c.Name, ChainDigest: c.Digest(), Target: e.cfg.Target.BaseURL, StartedAt: time.Now()})
+		if spot == nil && pinnedRef != nil {
+			latencySpot = &store.SafeSpot{Chain: c.Name, RunID: pinnedRef.RunID, Steps: pinnedRef.Steps}
+		}
+	}
 	rec, err := executeChain(ctx, e, c, withLatency(runner.Options{
 		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build,
-	}, latencyPolicy(e), spot), *quiet || *asJSON)
+	}, latencyPolicy(e), latencySpot), *quiet || *asJSON)
 	if err != nil {
 		return err
+	}
+	var pinnedSlow []diff.LatencyFlag
+	if !*dry && len(c.KeptRed) > 0 {
+		judgePinnedDrift(e, c, rec, pinnedRef)
+		if spot == nil && latencySpot != nil {
+			for _, f := range latencyFlags(e, latencySpot, rec, latencyPolicy(e)) {
+				f.Against = "run " + pinnedRef.RunID + " (the last run that failed as pinned)"
+				pinnedSlow = append(pinnedSlow, f)
+				rec.KeptRedSlow = append(rec.KeptRedSlow, f.Step)
+			}
+		}
 	}
 	savedPath := ""
 	if *save && !*dry {
@@ -150,6 +169,9 @@ func runRun(ctx context.Context, args []string) error {
 			fmt.Println("  " + f.Line())
 		}
 	}
+	for _, f := range pinnedSlow {
+		fmt.Println("  " + f.Line())
+	}
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
@@ -181,7 +203,13 @@ func runRun(ctx context.Context, args []string) error {
 			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
 		}
 	}
-	return runVerdict(rec)
+	if err := runVerdict(rec); err != nil {
+		return err
+	}
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		return keptRedLatencyFailure(rec.Chain, pinnedSlow, latencyPolicy(e))
+	}
+	return nil
 }
 
 const runExitCodes = "\nexit codes:\n" +
@@ -192,7 +220,8 @@ const runExitCodes = "\nexit codes:\n" +
 	"  1  failed\n" +
 	"     - a step was answered and an expectation did not hold\n" +
 	"     - a chain with kept_red failed anywhere else or differently, or passed, so the pinned\n" +
-	"       defect is gone\n" +
+	"       defect is gone, or a pinned step returned something else than in the last run of the\n" +
+	"       same chain file that failed as pinned\n" +
 	"     - a token the backend accepted earlier in the run and then refused, when the previous run\n" +
 	"       that sent that step was refused there the same way and neither run shows a restart (see 3)\n" +
 	"     - FINDING: token refused <N>s after issue although the login said it expires in <M>s: the\n" +

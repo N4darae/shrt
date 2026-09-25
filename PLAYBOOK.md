@@ -721,7 +721,7 @@ refused ...`, exit 1, when the fresh token the re-login issued is refused early 
 chain also had a token refused early after it was accepted in that run; either run showing a restart
 (a step the service did not answer, a build change, data created before the refusal gone after it)
 keeps it exit 3. A cached token refused early on its first use is only a warning, because a deploy
-between runs explains it: the CI gate counts these lines (README).
+between runs explains it, and it says `possibly a restart since the token was cached`: the CI gate counts these lines (README).
 To settle a single `WARNING: token refused` in one run instead of two, write a short chain whose
 reads carry `wait:` longer than the lifetime the warning suggests (two held reads: the first
 token's refusal and the re-login's), which prints the `FINDING` against a backend that ends
@@ -1247,6 +1247,11 @@ answer, so one slow call from a busy box is not reported; a write is never re-se
 only when the previous run of the chain was slow at the same step too. It is a warning: the exit code
 stays 0 unless `.shrt/config.yaml` sets `latency: {fail: true}`; tune `floor_ms`, `ratio` and
 `remeasure` there (`GRAMMAR.md` §4). `shrt verify <name> -latency` lists every step, before and after.
+A chain with `kept_red` has no safe spot, so `shrt run` of it (the gate's only check of it) compares
+with the newest earlier run of the same chain file and target that failed as pinned and was not slow
+itself (`LATENCY: ... run <id> (the last run that failed as pinned) ...`); with `fail: true` a
+confirmed slowdown there exits 1 although the chain failed as pinned. A run flagged slow is never
+that reference, so the slowdown is reported on every run until it goes away or the chain file changes.
 
 Then read the report. When the replay ran against another target than the
 safe spot's, the report opens with `targets differ: safe spot <a>, this run <b>`: a difference may
@@ -1374,7 +1379,7 @@ Three things that decide whether this works for a given chain:
   UUID, an RFC 3339 time), counting how many it did not report. Both values must be id-shaped
   alike (two non-zero numbers, or two non-empty strings of the same shape, with the same letters
   before the first separator): an id that became `""`, null, `0`, `undefined` or a different JSON
-  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A timestamp is masked only when both values are the same unit (RFC 3339 text, or unix seconds, milliseconds, microseconds or nanoseconds by digit count under a time-shaped name) and within 400 days of their own run; `expires_at changed unit: seconds -> milliseconds`, or a time far outside the run, is a counted change. A value the chain builds
+  kind, or disappeared, is reported, and so is an id of another kind (`cus-...` became `prd-...`). A random hex part (8 or more hex characters) counts as the same shape as another of the same length whether or not a digit happens to appear, so `prd-60b05a32d153` becoming `prd-edababebdffe` is masked; outside hex parts a part with digits and one without are different shapes. A timestamp is masked only when both values are the same unit (RFC 3339 text, or unix seconds, milliseconds, microseconds or nanoseconds by digit count under a time-shaped name) and within 400 days of their own run; `expires_at changed unit: seconds -> milliseconds`, or a time far outside the run, is a counted change. A value the chain builds
   from `${uuid}` or a clock form, whole or inside other text (`sku: s-${uuid}`), and a response
   value that only echoes it (a message quoting it), is treated like a fixture name and masked and
   counted (GRAMMAR §7), so it needs no `volatile`. Anything else that differs every run and that
@@ -1416,11 +1421,20 @@ shrt run orders-rest -var tag=<fresh>                          # green: propose 
 ```
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
-[{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
-gone or anything else fails. A kept step that failed in the run too (the first line's read-back
+[{step, path, got}]`, `got` being the value it failed with when that is stable: a bool, a number,
+an enum or other text that is not id- or time-shaped and holds no var's value), so `shrt run` of it
+exits 0 while the defect is there and 1 once it is gone, fails with another `got`, or anything else
+fails. `run` also compares what each pinned step returned, every field and not only the pinned
+paths, with the newest earlier run of the same chain file against the same target that failed as
+pinned (masked as `shrt diff` masks), and a difference is `FAILED, NOT AS PINNED`: a new defect
+behind the pinned one (ListOrders dropping a cancelled order while the pinned `orders.1 exists`
+still fails) changes `length orders a=3 item(s) b=2 item(s)`. The comparison needs the local run
+records; a first run, or a fresh checkout, says it compared nothing and becomes the reference. To
+accept a change, re-pin: run the slice command again with `-force` (it also fills `got` into old
+pins that have none), or edit the chain file; any change to the file starts a new reference. A kept step that failed in the run too (the first line's read-back
 when the target is the second's) is pinned the same way, not relaxed. When one defect shows on
 steps the slice would not keep, name them: `-kept-red=get_product_after_cancel` (a list, or the flag
-repeated) keeps each and pins it next to `-step`; a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
+repeated) keeps each and pins it next to `-step`, a step after `-step` as well as one before it (`-kept-red=fetch_order_after_confirm_order_insufficient_stock_last_item` keeps the read-back after the target in the slice); a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
 a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
 the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
 line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a

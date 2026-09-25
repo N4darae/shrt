@@ -47,3 +47,34 @@ func TestASliceCarriesTheKeptRedPinsOfTheStepsItKeeps(t *testing.T) {
 		t.Fatalf("the slice with its pins must load: %v\n%s", err, raw)
 	}
 }
+
+func TestAKeptRedStepAfterTheTargetIsKeptInTheSlice(t *testing.T) {
+	c := &chain.Chain{Name: "kr", Steps: []*chain.Step{
+		{ID: "create", Call: "S/CreateThing", Body: map[string]any{"name": "x"},
+			Expect: []chain.Expectation{{Path: "status.code", Equals: "SUCCESS"}}},
+		{ID: "unrelated", Call: "S/GetOther", Body: map[string]any{"id": "o-1"},
+			Expect: []chain.Expectation{{Path: "status.code", Equals: "SUCCESS"}}},
+		{ID: "confirm", Call: "S/ConfirmThing", Body: map[string]any{"id": "${create.thing.id}"},
+			Expect: []chain.Expectation{{Path: "status.code", Equals: "REJECTED"}}},
+		{ID: "fetch_after_confirm", Call: "S/GetThing", Body: map[string]any{"id": "${create.thing.id}"},
+			Expect: []chain.Expectation{{Path: "thing.status", Equals: "PENDING"}}},
+	}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	res, err := chain.Slice(c, "confirm", chain.SliceOptions{Mode: chain.SliceModeClosure,
+		Keep: []string{"fetch_after_confirm"}, Pinned: []string{"fetch_after_confirm"}})
+	if err != nil {
+		t.Fatalf("a later step pinned as part of the same defect must be allowed: %v", err)
+	}
+	ids := []string{}
+	for _, s := range res.Chain.Steps {
+		ids = append(ids, s.ID)
+	}
+	if len(ids) != 3 || ids[0] != "create" || ids[1] != "confirm" || ids[2] != "fetch_after_confirm" {
+		t.Fatalf("the slice keeps the later pinned step after the target, and its producer: %v", ids)
+	}
+	if _, err := chain.Slice(c, "confirm", chain.SliceOptions{Mode: chain.SliceModeClosure, Keep: []string{"fetch_after_confirm"}}); err == nil {
+		t.Fatal("a plain -keep of a later step still cannot change the target's verdict and is refused")
+	}
+}

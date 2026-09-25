@@ -75,6 +75,7 @@ type SliceOptions struct {
 	Prereqs func(rpc string) []Prereq
 	Value   func(ref string) (any, bool)
 	Keep    []string
+	Pinned  []string
 	Vars    map[string]any
 	RunVars map[string]any
 	Refused func(stepID string) (string, bool)
@@ -222,7 +223,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		if !ok {
 			return nil, fmt.Errorf("chain %q has no step %q to keep (-keep %s keeps every earlier write step)\nvalid step ids:\n  %s", c.Name, id, SliceKeepWrites, strings.Join(idx.ids(), "\n  "))
 		}
-		if j > at {
+		if j > at && !containsID(opts.Pinned, id) {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)
 		}
 		add(j, KeepAsked, KeepAsked)
@@ -1042,6 +1043,11 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, mode string, opts S
 				}
 			}
 			if shared == "" {
+				if filter, v := listFilterShared(s, x.c.Steps[r]); filter != "" {
+					out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("sends a value built from ${vars.%s}, as %s filters by it (%s), "+
+						"so what it creates can be listed there with no reference to it", v, x.c.Steps[r].ID, filter)})
+					break
+				}
 				continue
 			}
 			out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("changes the state of what %s created, which %s reads",
@@ -1384,4 +1390,81 @@ func verdictText(v any) string {
 		return "nothing"
 	}
 	return scalarText(v)
+}
+
+var listingPrefixes = []string{"List", "Search", "Query", "Find"}
+
+func isListingCall(call string) bool {
+	name := call
+	if i := strings.LastIndex(call, "/"); i >= 0 {
+		name = call[i+1:]
+	}
+	for _, p := range listingPrefixes {
+		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
+			return true
+		}
+	}
+	return false
+}
+
+func filterVars(v any, path string, out map[string]string) {
+	switch t := v.(type) {
+	case string:
+		refs := []string{}
+		for _, m := range refPattern.FindAllStringSubmatch(t, -1) {
+			refs = append(refs, strings.TrimSpace(m[1]))
+		}
+		for _, ref := range refs {
+			if r := ParseRef(ref); r.Kind != RefVars {
+				return
+			}
+		}
+		for _, ref := range refs {
+			name, _, _ := strings.Cut(ParseRef(ref).Rest, ".")
+			if _, seen := out[name]; !seen && name != "" {
+				out[name] = path
+			}
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			next := k
+			if path != "" {
+				next = path + "." + k
+			}
+			filterVars(t[k], next, out)
+		}
+	case []any:
+		for i, item := range t {
+			filterVars(item, fmt.Sprintf("%s.%d", path, i), out)
+		}
+	}
+}
+
+func listFilterShared(writer, reader *Step) (string, string) {
+	if writer == nil || reader == nil || !isListingCall(reader.Call) || ExpectsRefusal(reader) || reader.SkipAuth {
+		return "", ""
+	}
+	filters := map[string]string{}
+	filterVars(reader.Body, "", filters)
+	if len(filters) == 0 {
+		return "", ""
+	}
+	sent := map[string]string{}
+	filterVars(writer.Body, "", sent)
+	names := make([]string, 0, len(sent))
+	for name := range sent {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if field, ok := filters[name]; ok {
+			return field, name
+		}
+	}
+	return "", ""
 }
