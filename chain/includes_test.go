@@ -49,3 +49,27 @@ func TestIncludesIsOneRuleAndResolvesItsReferences(t *testing.T) {
 		t.Fatalf("the reference inside includes is seen: %v", refs)
 	}
 }
+
+func TestASliceTakesAWriteThePrerequisiteNamesAsVia(t *testing.T) {
+	c := &chain.Chain{Name: "via", Steps: []*chain.Step{
+		{ID: "make", Call: "Svc/Make", Expect: []chain.Expectation{{Path: "id", NotEmpty: true}}},
+		{ID: "batch", Call: "Svc/StockBatch", Body: map[string]any{"lines": []any{map[string]any{"id": "${make.id}"}}}, Expect: []chain.Expectation{{Path: "ok", Equals: true}}},
+		{ID: "confirm", Call: "Svc/Confirm", Body: map[string]any{"id": "${make.id}"}, Expect: []chain.Expectation{{Path: "ok", Equals: true}}},
+	}}
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, Prereqs: func(rpc string) []chain.Prereq {
+		if rpc == "Svc/Confirm" {
+			return []chain.Prereq{{RPC: "Svc/Stock", Edge: "needs", Via: []string{"Svc/StockBatch"}}}
+		}
+		return nil
+	}}
+	res, err := chain.Slice(c, "confirm", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Unmet) != 0 {
+		t.Fatalf("the batch performs the stock effect, so nothing is unmet: %+v", res.Unmet)
+	}
+	if len(res.Chain.Steps) != 3 {
+		t.Fatalf("the batch is kept as the prerequisite, got %d steps", len(res.Chain.Steps))
+	}
+}

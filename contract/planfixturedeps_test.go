@@ -311,3 +311,16 @@ func TestLoginFailureGapsDoesNotCountTheConfigsOwnLoginAsAProbe(t *testing.T) {
 		t.Fatalf("a chain expects the failure: %+v", got)
 	}
 }
+
+func TestAPrerequisiteNamesTheBatchThatPerformsItsEffect(t *testing.T) {
+	_, lib := shopDemo(t)
+	for _, p := range contract.PrereqsFor(lib)("shop.orders.v1.OrderService/CreateOrder") {
+		if p.Edge == "needs" && p.RPC == "shop.catalog.v1.StockService/AddStock" {
+			if len(p.Via) != 1 || p.Via[0] != "shop.catalog.v1.StockService/AddStockBatch" {
+				t.Fatalf("AddStockBatch applies one AddStock per line, so it satisfies the need: %+v", p)
+			}
+			return
+		}
+	}
+	t.Fatalf("CreateOrder needs AddStock")
+}

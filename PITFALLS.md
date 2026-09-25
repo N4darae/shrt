@@ -2168,6 +2168,18 @@ login asserts the role every role-gated rpc requires, and each profile gets `log
 with its auth body, asserting the role the profile is named for. `-gaps` lists `no login probe`
 for each failure a login's contract declares that no chain step expects.
 
+## 102. `unmet prerequisites: needs AddStock` on a slice that stocks with AddStockBatch
+
+**Symptom.** A slice of a chain that stocked its product with AddStockBatch before a ConfirmOrder
+printed `unmet prerequisites ... needs shop.catalog.v1.StockService/AddStock`, and dropped the
+batch step as unneeded (`possible under-inclusion`), although the batch did exactly that.
+
+**Cause.** A `needs:` prerequisite was met only by a call of the rpc it names.
+
+**Fix.** 2026-09-25: a `needs:` prerequisite is also met by an rpc whose contract says it performs
+that rpc's effect per item (a field note `one AddStock per line`); the slice keeps that step as the
+prerequisite and reports nothing unmet.
+
 ---
 
 # Decisions, so they are not relitigated
