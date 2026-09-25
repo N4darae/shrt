@@ -161,7 +161,7 @@ fail=0
 unverified=0
 shopt -s nullglob
 check() {
-  local what="$1" c="$2" file="$3" prefix="$4" try rc
+  local what="$1" c="$2" file="$3" prefix="$4" try rc args
   for try in 1 2; do
     args=(-quiet)
     if grep -qs 'vars\.tag' "$file"; then args+=(-var "tag=$tag-$prefix$c-$try"); fi
