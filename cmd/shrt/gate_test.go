@@ -223,9 +223,41 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	}
 	name = "gadget"
 	out, code = runGateOut(t)
-	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  fetch (ThingService/Fetch) name want=widget got=gadget") ||
+	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget") ||
 		!strings.Contains(out, "  suspect write create (ThingService/Create) sent {") ||
 		!strings.Contains(out, "ThingService/Create: passed itself, but reads after it failed or changed; e.g. cli-thing-flow create\n    +1 read(s): Fetch name\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)
+	}
+}
+
+func TestTheGateFailLineSaysWhatVerifyCallsItAndEachNoteOnce(t *testing.T) {
+	item := gateItem{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "items.0.id", Want: "a", Got: "b"}
+	classed := item
+	classed.Class = "order changed"
+	latency := func(ms string) string {
+		return "LATENCY: Fetch at step fetch took " + ms + "ms, the safe spot's run 0ms; re-sent 2 more time(s)\n"
+	}
+	gateWorkspace(t, map[string][]gateOutcome{
+		"run cli-thing-flow":    {{code: 1, stdout: latency("701"), side: gateSidecar{Items: []gateItem{item}}}},
+		"verify cli-thing-flow": {{code: 1, stdout: latency("702"), side: gateSidecar{Items: []gateItem{classed}}}},
+	})
+	out, _ := runGateOut(t)
+	if !strings.Contains(out, "FAIL       cli-thing-flow  order changed: fetch (ThingService/Fetch) items.0.id want=a got=b") {
+		t.Errorf("the FAIL line carries verify's class of its first failure:\n%s", out)
+	}
+	if n := strings.Count(out, "LATENCY: Fetch at step fetch"); n != 1 {
+		t.Errorf("run and verify flag the same slow step: one line, got %d:\n%s", n, out)
+	}
+}
+
+func TestATruncatedWantAndGotKeepWhereTheyFirstDiffer(t *testing.T) {
+	want := strings.Repeat("x", 80) + "-LEFT-" + strings.Repeat("y", 20)
+	got := strings.Repeat("x", 80) + "-RIGHT-" + strings.Repeat("y", 20)
+	w, g := capPair(want, got, 60)
+	if !strings.Contains(w, "LEFT") || !strings.Contains(g, "RIGHT") || len(w) > 60 || len(g) > 60 {
+		t.Errorf("the first difference stays visible within the cap: %q %q", w, g)
+	}
+	if w, _ := capPair("short", "other", 60); w != "short" {
+		t.Errorf("short values are kept whole: %q", w)
 	}
 }
