@@ -134,6 +134,12 @@ catches it even before you assert it. A note names each such field and each adde
 second item its own test data where it matters, and assert what depends on both
 (`order.total_minor` for the pair, `order.lines.1.qty`). `chain new` does the same when the rpc list
 names one producer; list the producer twice and each item reads its own.
+The count is varied too, since a backend can break at a number of items two never reaches: a
+write target that reads a fixture sending a repeated message field with two items (a `CancelOrder`
+reading `create_order`), or sends one itself, is repeated on a copy of the fixture with one item
+and one with three (`create_order_1_lines` then `cancel_order_1_lines`, `create_order_3_lines` then
+`cancel_order_3_lines`), expecting what the target expects. The third item reads a third resource
+where the second reads its own (`create_product_3`, price 12345, prepared by `add_stock_3`).
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
 sends but no chain sends with two or more items; as `same resource`, one that chains send with two
 or more items only when all of them point at the same resource (the same `${step...}` reference or

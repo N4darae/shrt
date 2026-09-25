@@ -27,6 +27,7 @@ type Plan struct {
 	reserved map[string]bool
 	noun     string
 	seconds  []producerSecond
+	preps    map[string][]string
 	opts     PlanOptions
 }
 
@@ -134,6 +135,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeIdempotency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.echoNumbers()
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)

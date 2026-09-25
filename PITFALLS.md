@@ -1399,6 +1399,19 @@ key from ever being reused.
 **Fix.** 2026-09-25: a create target with a key field gets a replay with the same body, a replay with
 another body, and two creates without a key that must yield two ids.
 
+## 53. Cancel refused for orders of three lines, green in the planned chain
+
+**Symptom.** CancelOrder refused a PENDING order with three or more lines (`1304`). Every planned
+chain created orders of two lines and stayed green.
+
+**Cause.** The plan varied the repeated field's values but never its count: every fixture had two
+items, so logic that changes with the number of items (a loop bound, a limit) was never reached.
+
+**Fix.** 2026-09-25: a write target that reads a fixture with a two-item repeated field (or sends one
+itself) is repeated on a copy of that fixture with one item and with three (`create_order_1_lines`,
+`cancel_order_1_lines`, `create_order_3_lines`, `cancel_order_3_lines`), the third item reading a
+third resource of its own with its own preparation (`create_product_3`, `add_stock_3`).
+
 ---
 
 # Decisions, so they are not relitigated

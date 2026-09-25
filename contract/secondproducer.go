@@ -57,6 +57,7 @@ func (p *Plan) splitSharedProducers(step *chain.Step, grown []string) []producer
 				made = append(made, producerClone{id: id, call: p.stepByID(src).Call, original: src})
 				for _, c := range extra {
 					made = append(made, c)
+					p.recordPreparation(id, c.original)
 					consumers[src] = append(consumers[src], c.id)
 				}
 			}
@@ -258,6 +259,10 @@ func (p *Plan) insertAfter(id string, s *chain.Step) {
 }
 
 func distinctProducer(body map[string]any, fields []*catalog.Field, suffix string) {
+	distinctProducerAt(body, fields, suffix, 1)
+}
+
+func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
 	for _, f := range fields {
 		key, ok := namecase.LookupKey(body, f.Name)
 		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
@@ -265,7 +270,7 @@ func distinctProducer(body map[string]any, fields []*catalog.Field, suffix strin
 		}
 		if len(f.Fields) > 0 {
 			if nested, ok := body[key].(map[string]any); ok {
-				distinctProducer(nested, f.Fields, suffix)
+				distinctProducerAt(nested, f.Fields, suffix, rank)
 			}
 			continue
 		}
@@ -276,7 +281,7 @@ func distinctProducer(body map[string]any, fields []*catalog.Field, suffix strin
 			}
 		}
 		if n, ok := numericValue(body[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
-			body[key] = strconv.FormatInt(spreadValue(n, 1, false), 10)
+			body[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
 			continue
 		}
 		body[key] = nextValue(body[key], f.Kind)
@@ -342,6 +347,7 @@ func (p *Plan) prepareSecondProducers(step *chain.Step) {
 		}
 		p.distinctPreparation(c, cid, step.ID)
 		p.insertAfter(step.ID, c)
+		p.recordPreparation(sec.clone, step.ID)
 		p.note("step %s: a copy of %s reading %s instead of %s, its numbers raised by one: %s prepares what the first item of %s "+
 			"reads, and the second item reads %s, which needs the same preparation. Keep it, or the second item meets an unprepared resource",
 			cid, step.ID, sec.clone, sec.src, step.ID, sec.reader, sec.clone)
