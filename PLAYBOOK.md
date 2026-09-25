@@ -1526,9 +1526,13 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    cust-customers-k1@example.test, slice want Customer sl-c1 got cust-sl-c1@example.test` with
    `tag` customers-k1 in the source run and sl-c1 in the slice). `-verify` is what needs `-run`;
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
-   that REACHED the target (its step passed or failed) and say on stderr when that is not the
+   that REACHED the target (its step passed or failed, or was sent and answered with an error,
+   such as a token refused at authentication) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
-   that reached it. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
+   that reached it. When the source step was refused a token long before the expiry its login
+   stated and the slice's younger token is accepted, NOT REPRODUCED says the refusal depends on
+   how long the session had lived, which no slice carries, and points at the source chain instead
+   of at dropped writes. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
    and never lets one run stand for the whole: a backend that fails a step one call in four
    (a flaky dependency, a counter, a race) otherwise gives `reproduced` once and `NOT REPRODUCED`
    twice for the same command. The verdict line counts the runs (`verify reproduced 3/3`) and a

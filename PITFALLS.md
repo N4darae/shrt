@@ -1441,6 +1441,20 @@ whose contract needs it, on one of those entities is kept with `changes the stat
 <step>, which <target> needs`. For the dropped-write notes, a write whose contract needs another
 write and whose request names an existing record acts on the entities that record holds.
 
+## 55. A slice of a refused step that "no recorded run reached"
+
+**Symptom.** `chain slice .shrt/scratch/token-lifetime.yaml -step write_3 -verify -run latest`
+answered `no recorded run ... reached step "write_3" (the newest ... stopped before it: error)`,
+though write_3 had been sent and refused with a 401.
+
+**Cause.** A step counted as reached only when it passed or failed; a refused token makes it
+`error`.
+
+**Fix.** 2026-09-25: a step that was sent and answered (an HTTP status, a response or a transport
+error) is reached whatever its status. The slice verify then runs, and when the source refusal was
+a token refused long before its stated expiry, NOT REPRODUCED says the session's age is what no
+slice carries.
+
 ---
 
 # Decisions, so they are not relitigated
