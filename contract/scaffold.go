@@ -604,7 +604,7 @@ func cleanTodo(raw string) string {
 	text = strings.TrimSpace(text)
 	text = strings.TrimPrefix(text, TodoMarker)
 	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":"))
-	return firstSentence(text)
+	return FirstSentence(text)
 }
 
 func join(prefix, key string) string {

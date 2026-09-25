@@ -33,8 +33,8 @@ next: shrt contract plan PayInvoice -write
   `-write -force`; a chain lint ERRORs on each unfilled field.
 - **Every `gap:` line is something the plan could not plan or assert.** Say it in the contract and
   re-plan, or write that step by hand.
-- **`-notes` prints every note** (why each probe is there, a guessed `required`, a needed role)
-  and every step id; `-v` prints only the ids.
+- **`-notes` prints each gap in full, then one line per probe group** with its step count and
+  why it is there; `-notes -v` prints every note in full and every step id, `-v` alone the ids.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
 - **A step the plan left out means the contract is missing an edge.** Fix the contract and
