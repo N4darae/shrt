@@ -1283,8 +1283,34 @@ func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any)
 		}
 		return text
 	}
-	return func(path string, a, b any) bool {
-		if sameUpToIDs(path, a, b) {
+	var alike func(path string, a, b any) bool
+	alike = func(path string, a, b any) bool {
+		switch x := a.(type) {
+		case map[string]any:
+			y, ok := b.(map[string]any)
+			if !ok || len(x) != len(y) {
+				return false
+			}
+			for k, v := range x {
+				w, ok := y[k]
+				if !ok || !alike(pathmask.Join(path, k), v, w) {
+					return false
+				}
+			}
+			return true
+		case []any:
+			y, ok := b.([]any)
+			if !ok || len(x) != len(y) {
+				return false
+			}
+			for i := range x {
+				if !alike(path, x[i], y[i]) {
+					return false
+				}
+			}
+			return true
+		}
+		if fmt.Sprint(a) == fmt.Sprint(b) || sameUpToIDs(path, a, b) {
 			return true
 		}
 		x, ok1 := a.(string)
@@ -1295,6 +1321,7 @@ func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any)
 		mx, my := mask(source, x), mask(replay, y)
 		return mx != x && mx == my
 	}
+	return alike
 }
 
 func idToken(s string) bool {

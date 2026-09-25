@@ -2224,6 +2224,22 @@ distance from the bound its own run computed, and how they were matched: the sam
 the distances differ but both values are timestamp-shaped (as a millisecond value against a seconds
 bound is), matched as timestamps rather than by distance. `-json` carries it as `compared_by_distance`.
 
+## 106. `slice -verify` NOT REPRODUCED 0/3 on `includes:` whose only difference was the fresh id
+
+**Symptom.** `shrt chain slice catalog-listproducts -step list_products_empty_sku_prefix -verify -run
+latest`, against an empty prefix that lists nothing, printed `verify NOT REPRODUCED 0/3` and exited 1,
+though every expectation `failed ... source got=0, slice got=0`. The differences were
+`failed in both, with other values: source want {"id_product":"prd-38bc…"} ..., slice want
+{"id_product":"prd-64b2…"}`: the resolved `includes:` operand holds the id each run created, and
+the verdict comparison masked ids and fixture names only in a plain string operand, not inside an
+object or list.
+
+**Fix.** 2026-09-25: operands are compared value by value inside objects (same keys) and lists (same
+length, each item read at the expectation's path, as `one_of` and `between` candidates are), each
+leaf masked as a string operand is: an id- or timestamp-shaped value at an id-named key, or a value
+differing only by the runs' fixture names. Another key, another count or another plain value still
+differs.
+
 ---
 
 # Decisions, so they are not relitigated
