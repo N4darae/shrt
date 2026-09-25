@@ -48,7 +48,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record) (string, string, string) {
 		}
 		if sr.Status == StatusPassed {
 			if len(want) > 0 {
-				problems = append(problems, fmt.Sprintf("step %q passed, but kept_red pins it failing on %s", step.ID, pinPaths(want)))
+				problems = append(problems, fmt.Sprintf("step %q passed although it is pinned failing on %s", step.ID, pinPaths(want)))
 			}
 			continue
 		}
