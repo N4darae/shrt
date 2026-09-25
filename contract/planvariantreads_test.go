@@ -43,3 +43,23 @@ func TestPlanReadsBackACreatesVariantsButNotItsReplays(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanSendsALargeValueForANumberInsideARepeatedItem(t *testing.T) {
+	p, text, notes := shopDemoPlan(t, "CreateOrder")
+	large := planStep(t, p, "create_order_qty_large")
+	if got := bodyAt(t, large, "lines.0.qty"); got != "12345" {
+		t.Fatalf("the first line carries the large quantity, got %s:\n%s", got, text)
+	}
+	if got := bodyAt(t, large, "lines.1.qty"); got == "12345" {
+		t.Fatalf("the other lines stay normal:\n%s", text)
+	}
+	wantExpect(t, large, "status.code", "SUCCESS")
+	wantExpect(t, planStep(t, p, "fetch_order_after_create_order_qty_large"), "order.lines.0.qty", "${steps.create_order_qty_large.request.lines.0.qty}")
+	if !strings.Contains(notes, "create_order_qty_large (lines.0.qty = 12345") {
+		t.Fatalf("the boundary note names the probe:\n%s", notes)
+	}
+	c, _, _ := shopDemoPlan(t, "ConfirmOrder")
+	if _, ok := c.Chain.Step("create_order_qty_large"); ok {
+		t.Fatal("only the target gets the probe")
+	}
+}

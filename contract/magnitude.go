@@ -137,6 +137,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 		} else if probe := p.largeBatchLine(lib, rules, st, c, m); probe != "" {
 			said = append(said, probe)
+		} else {
+			said = append(said, p.largeItemFields(lib, rules, st, c, m)...)
 		}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
@@ -373,6 +375,76 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 			"reported, so a cap or overflow on the batch line shows)", probe.ID, rf.Name, field, largeValue, shortRPC(single), grew, stepIDList(reads))
 	}
 	return ""
+}
+
+func (rules *effectRules) movesStock(rpc string) bool {
+	if rules.increase[rpc] != nil || rules.batch[rpc] != nil || rules.reserve[rpc] != nil {
+		return true
+	}
+	for _, sp := range rules.specs[rpc] {
+		if sp.form == "increase" || sp.form == "reserve" || sp.form == "batch" {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) []string {
+	said := []string{}
+	rpc := canonicalCall(p.cat, st.Call)
+	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
+		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
+			continue
+		}
+		key, ok := namecase.LookupKey(st.Body, rf.Name)
+		if !ok {
+			continue
+		}
+		items, _ := st.Body[key].([]any)
+		first, ok := firstItem(items)
+		if !ok {
+			continue
+		}
+		for _, sub := range rf.Fields {
+			if sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) || len(sub.EnumValues) > 0 {
+				continue
+			}
+			k, ok := namecase.LookupKey(first, sub.Name)
+			if !ok {
+				continue
+			}
+			if _, literal := numericValue(first[k]); !literal {
+				continue
+			}
+			if isQuantityName(sub.Name) && rules.movesStock(rpc) {
+				continue
+			}
+			if _, capped := statedNumericMaximum(lib, rpc, c, rf.Name+"."+sub.Name); capped {
+				continue
+			}
+			if _, capped := statedNumericMaximum(lib, rpc, c, sub.Name); capped {
+				continue
+			}
+			probe := p.probeCopy(lib, st, sub.Name+"_large")
+			list, _ := probe.Body[key].([]any)
+			item, _ := list[0].(map[string]any)
+			item[k] = strconv.Itoa(largeValue)
+			renameStepRefs(probe, st.ID, probe.ID)
+			probe.Description = fmt.Sprintf("as %s, but %s.0.%s at %d, a magnitude the fixtures do not reach, the other items as they were: accepted, and stored as sent.",
+				st.ID, rf.Name, sub.Name, largeValue)
+			p.Chain.Steps = append(p.Chain.Steps, probe)
+			said = append(said, fmt.Sprintf("%s (%s.0.%s = %d beside normal items, a magnitude where caps and overflow show)", probe.ID, rf.Name, sub.Name, largeValue))
+		}
+	}
+	return said
+}
+
+func firstItem(items []any) (map[string]any, bool) {
+	if len(items) == 0 {
+		return nil, false
+	}
+	m, ok := items[0].(map[string]any)
+	return m, ok
 }
 
 func (p *Plan) singleItemLarge(lib *Library, rules *effectRules, batch string, rf *catalog.Field) (string, string, *stockRule) {
