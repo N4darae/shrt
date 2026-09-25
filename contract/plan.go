@@ -37,6 +37,7 @@ type Plan struct {
 	groupOf  map[*chain.Step]string
 	rules    *effectRules
 	rulesOf  *Library
+	middles  map[*chain.Step]string
 }
 
 type PlanOptions struct {
@@ -187,6 +188,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.grouped("read-back", func() { p.assertEffects(lib) })
 	p.noteReadBack(lib)
 	p.assertTimestamps(lib)
+	p.trimMiddleItems()
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
