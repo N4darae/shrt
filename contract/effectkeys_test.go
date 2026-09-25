@@ -75,7 +75,10 @@ func TestMutedContractsAssertNoNumbersWithoutEffects(t *testing.T) {
 		t.Fatalf("with the prose muted and no effects, no per-item batch is planned")
 	}
 	base := map[string]string{"ProductService/CreateProduct": "{qty_on_hand: zero}", "StockService/AddStock": "{qty_on_hand: {increase: qty}}"}
-	p, _ = mutedPlan(t, base, "CreateOrder", "CancelOrder")
+	p, notes := mutedPlan(t, base, "CreateOrder", "CancelOrder")
+	if want := "CancelOrder says nothing of what it gives back from CONFIRMED (add effects: {qty_on_hand: {restore: CONFIRMED}} if it does)"; !strings.Contains(notes, want) {
+		t.Fatalf("want %q in:\n%s", want, notes)
+	}
 	if assertsLiteral(p, "get_product_after_create_order", "product.qty_on_hand") {
 		t.Fatalf("without none, the read after create_order asserts no level")
 	}
