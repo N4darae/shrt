@@ -8,8 +8,12 @@ import (
 )
 
 func ShopDescriptor() []byte {
+	return shopDescriptor(shopCommonFile())
+}
+
+func shopDescriptor(common *descriptorpb.FileDescriptorProto) []byte {
 	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{
-		shopCommonFile(), shopCatalogFile(), shopCustomersFile(), shopOrdersFile(),
+		common, shopCatalogFile(), shopCustomersFile(), shopOrdersFile(),
 	}}
 	raw, err := proto.Marshal(fds)
 	if err != nil {
@@ -20,6 +24,18 @@ func ShopDescriptor() []byte {
 
 func Shop() *catalog.Catalog {
 	cat, err := catalog.Parse(ShopDescriptor())
+	if err != nil {
+		panic(err)
+	}
+	return cat
+}
+
+func ShopWithErrorDetails() *catalog.Catalog {
+	common := shopFile("shop.common.v1", nil, []*descriptorpb.DescriptorProto{
+		message("ErrorDetail", int64Field("app_code", 1), str("reason", 2)),
+		message("Status", str("code", 1), str("message", 2), repeated(msg("details", 3, ".shop.common.v1.ErrorDetail"))),
+	})
+	cat, err := catalog.Parse(shopDescriptor(common))
 	if err != nil {
 		panic(err)
 	}

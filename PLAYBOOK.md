@@ -293,7 +293,20 @@ like their skus pass a backend sorting by name. When the list's contract states 
 each position by id; when it states none, it asserts only the count and says how to have the
 order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
 `chain lint` names a step that asserts positions of a list whose items sort alike under two or more
-keys, creation order included (`indistinct-order`, a hint). A `note:` names each step
+keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
+uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
+`Duplicate…`, or a `when:` saying unique or duplicate), the plan adds a step right after it sending
+the same value again (`${steps.<id>.request.<field>}`), expecting the verdict not to be the ok value,
+the failure's code and reason on the response's code fields (`conventions.code_fields`, e.g.
+`status.details.0.app_code` and `.reason`), and no created object. The field is the failure's
+`field:`, else the one the reason names, else the one field whose note says unique. When the
+contract says the comparison ignores case (`ignoring case`, `case-insensitive` in the failure's
+`when:` or the field's note), it adds the value with the case of every letter outside its
+references swapped (`CUST-${vars.tag}@EXAMPLE.TEST`), since a backend comparing case-sensitively
+passes an exact duplicate; a `${uuid}` in that field becomes `${vars.tag}` so both steps send the
+same value, and each run then needs `-var tag=<fresh>`. When it says the value is trimmed of
+surrounding whitespace, it adds the value padded with spaces too. When the contract says nothing
+about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are

@@ -1182,6 +1182,22 @@ a list, scaffold three creates whose sort keys disagree pairwise and with creati
 assert each position when the contract states the order. `chain lint` warns `indistinct-order` on a
 step asserting positions of items that two or more keys sort alike.
 
+## 41. Email uniqueness that went case-sensitive, green in the planned chain
+
+**Symptom.** CreateCustomer started comparing emails case-sensitively, so `Cust-…@Example.test`
+registered a second customer next to `cust-…@example.test`. The chain `contract plan
+CreateCustomer` wrote stayed green, though the contract's `EmailTaken` says "ignoring case".
+
+**Cause.** The plan created one customer and asserted the verdict. Nothing sent the email twice, let
+alone in another case, so a uniqueness rule that was broken, or never enforced, could not fail it.
+
+**Fix.** 2026-09-25: for a planned create whose contract declares a uniqueness refusal, `contract
+plan` adds a step sending the same value again, expecting the refusal (verdict, code, reason, no
+created object). When the failure's `when:` or the field's note says the comparison ignores case, it
+adds the value with its letters' case swapped, and when it says surrounding whitespace is trimmed,
+the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
+and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
+
 ---
 
 # Decisions, so they are not relitigated
