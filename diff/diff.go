@@ -97,9 +97,9 @@ func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) 
 		return
 	}
 	masker := pathmask.NewMasker(r.UnapprovedRedact)
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || len(want.Request) == 0 || len(got.Request) == 0 {
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
+		if len(want.Request) == 0 || len(got.Request) == 0 {
 			continue
 		}
 		a, errA := decode(want.Request)
@@ -353,6 +353,28 @@ func uniqueIDs(steps []*runner.StepRecord) bool {
 		seen[st.ID] = true
 	}
 	return true
+}
+
+func sameIDSteps(was, now []*runner.StepRecord) [][2]*runner.StepRecord {
+	out := [][2]*runner.StepRecord{}
+	if !uniqueIDs(was) || !uniqueIDs(now) {
+		for i := range min(len(was), len(now)) {
+			if was[i].ID == now[i].ID {
+				out = append(out, [2]*runner.StepRecord{was[i], now[i]})
+			}
+		}
+		return out
+	}
+	at := map[string]*runner.StepRecord{}
+	for _, st := range now {
+		at[st.ID] = st
+	}
+	for _, st := range was {
+		if got, ok := at[st.ID]; ok {
+			out = append(out, [2]*runner.StepRecord{st, got})
+		}
+	}
+	return out
 }
 
 func alignSteps(spot, rec []*runner.StepRecord, stoppedEarly bool) ([]stepPair, []Change, []*runner.StepRecord) {
@@ -624,11 +646,8 @@ func expectText(path, rule string, want any) string {
 
 func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step, path string) bool) []Change {
 	out := []Change{}
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID {
-			continue
-		}
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
 		if want.AuthProfile != "" && got.AuthProfile != "" && want.AuthProfile != got.AuthProfile {
 			out = append(out, Change{Step: want.ID, Path: AuthProfilePath, Kind: KindChanged, Want: want.AuthProfile, Got: got.AuthProfile})
 		} else if want.AuthPrincipal != "" && got.AuthPrincipal != "" && want.AuthPrincipal != got.AuthPrincipal {
@@ -697,9 +716,9 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 
 func uncheckedPrincipals(spot *store.SafeSpot, rec *runner.Record) []string {
 	out := []string{}
-	for i := range min(len(spot.Steps), len(rec.Steps)) {
-		want, got := spot.Steps[i], rec.Steps[i]
-		if want.ID != got.ID || want.AuthPrincipal != "" || got.AuthPrincipal == "" {
+	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
+		want, got := p[0], p[1]
+		if want.AuthPrincipal != "" || got.AuthPrincipal == "" {
 			continue
 		}
 		if want.AuthProfile == "" || want.AuthProfile == got.AuthProfile {
