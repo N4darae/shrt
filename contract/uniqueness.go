@@ -194,6 +194,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	current, _ := bodyValue(st.Body, field)
 	value, isText := current.(string)
 	switch {
+	case !ignoresCase(f, text) && comparesCaseExactly(f, text):
 	case !ignoresCase(f, text):
 		p.note("step %s: %s is refused as %s when it is taken; the plan sends the same value again. If the backend "+
 			"ignores case when comparing it, set unique: {case: ignore} on the failure (or say \"ignoring case\" in its when:) and the plan adds "+

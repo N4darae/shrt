@@ -278,7 +278,7 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `case` | string |  | `ignore`: the value in another letter case is the same value, so the plan adds a case variant expecting the refusal. `exact`: case matters, no case variant. Anything else is a `contract lint` error. |
+| `case` | string |  | `ignore`: the value in another letter case is the same value, so the plan adds a case variant expecting the refusal. `exact` (or a `when:` saying case-sensitive): case matters, no case variant, and no note suggesting one. Anything else is a `contract lint` error. |
 | `trim` | bool |  | `true`: surrounding whitespace is trimmed before the comparison, so the plan adds the value padded with spaces, expecting the refusal. `false`: no padded variant. |
 
 ## 4. Config — `.shrt/config.yaml`

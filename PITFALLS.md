@@ -1308,6 +1308,8 @@ created object). When the failure's `when:` or the field's note says the compari
 adds the value with its letters' case swapped, and when it says surrounding whitespace is trimmed,
 the value padded with spaces. A contract that says nothing about case gets only the exact duplicate
 and a note: a case variant it guessed at would fail a backend that is right to tell `A` from `a`.
+A contract that already answers the question, `unique: {case: exact}` or a `when:` saying
+case-sensitive, gets neither the variant nor the note (the note used to be printed regardless).
 
 ## 46. A duplicate sku accepted under another name, green in the planned chain
 
