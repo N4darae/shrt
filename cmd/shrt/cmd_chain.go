@@ -167,7 +167,7 @@ func chainList(args []string) error {
 	fs := flag.NewFlagSet("chain ls", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
-	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot",
+	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot and which are kept red",
 		"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
 			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
@@ -186,6 +186,7 @@ func chainList(args []string) error {
 		Steps       int    `json:"steps"`
 		SafeSpot    bool   `json:"safe_spot"`
 		Proposed    bool   `json:"proposed,omitempty"`
+		KeptRed     bool   `json:"kept_red,omitempty"`
 		Description string `json:"description,omitempty"`
 		Path        string `json:"path"`
 		File        string `json:"file_differs,omitempty"`
@@ -195,6 +196,7 @@ func chainList(args []string) error {
 	for _, c := range chains {
 		rows = append(rows, row{
 			Name: c.Name, Steps: len(c.Steps), SafeSpot: e.store.HasSafeSpot(c.Name), Proposed: e.store.HasProposal(c.Name),
+			KeptRed:     len(c.KeptRed) > 0,
 			Description: c.Description, Path: c.SourcePath, File: mismatchedFile(e, c),
 		})
 	}
@@ -218,6 +220,11 @@ func chainList(args []string) error {
 		if r.Proposed {
 			mark = "?"
 		}
+		if r.KeptRed {
+			mark += "R"
+		} else {
+			mark += " "
+		}
 		if *long {
 			fmt.Printf("%s %s  %d step(s)  %s\n", mark, r.Name, r.Steps, r.Path)
 			for _, line := range descriptionLines(r.Description) {
@@ -235,7 +242,8 @@ func chainList(args []string) error {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
 	}
-	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval", len(rows))
+	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval, R = kept red (fails on purpose, "+
+		"its kept_red pins name what the backend still gets wrong)", len(rows))
 	if *long {
 		fmt.Print("\n")
 		return nil
@@ -247,7 +255,7 @@ func chainList(args []string) error {
 const lsLineWidth = 110
 
 func descWidth(nameW int) int {
-	w := lsLineWidth - (nameW + 15)
+	w := lsLineWidth - (nameW + 16)
 	if w < 24 {
 		return 24
 	}

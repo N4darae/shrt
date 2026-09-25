@@ -498,17 +498,24 @@ func (r *RunReport) Text() string {
 			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
 	}
-	timedOutA, timedOutB := map[string]bool{}, map[string]bool{}
+	timedOutA, timedOutB := map[string]string{}, map[string]string{}
 	for _, s := range r.WhyNotReached {
-		timedOutA[s.Step] = timedOutA[s.Step] || strings.Contains(s.ErrorA, transport.NoAnswerBeforeTimeout)
-		timedOutB[s.Step] = timedOutB[s.Step] || strings.Contains(s.ErrorB, transport.NoAnswerBeforeTimeout)
+		if how := sentWithoutAnswer(s.ErrorA); how != "" {
+			timedOutA[s.Step] = how
+		}
+		if how := sentWithoutAnswer(s.ErrorB); how != "" {
+			timedOutB[s.Step] = how
+		}
 	}
-	unreachedLines := func(ids []string, timedOut map[string]bool, reachedIn, other string) {
-		sent, unreached := []string{}, []string{}
+	unreachedLines := func(ids []string, timedOut map[string]string, reachedIn, other string) {
+		sent, dropped, unreached := []string{}, []string{}, []string{}
 		for _, id := range ids {
-			if timedOut[id] {
+			switch timedOut[id] {
+			case transport.NoAnswerBeforeTimeout:
 				sent = append(sent, id)
-			} else {
+			case transport.ClosedAfterSending:
+				dropped = append(dropped, id)
+			default:
 				unreached = append(unreached, id)
 			}
 		}
@@ -517,6 +524,9 @@ func (r *RunReport) Text() string {
 		}
 		if len(sent) > 0 {
 			fmt.Fprintf(&b, "\nanswered in %s; sent in %s, no answer before target.timeout: %s\n", reachedIn, other, strings.Join(sent, ", "))
+		}
+		if len(dropped) > 0 {
+			fmt.Fprintf(&b, "\nanswered in %s; sent in %s, no answer (the connection closed): %s\n", reachedIn, other, strings.Join(dropped, ", "))
 		}
 	}
 	unreachedLines(r.NoLongerReached, timedOutB, "A", "B")
@@ -618,4 +628,16 @@ func orNone(s string) string {
 		return "none"
 	}
 	return s
+}
+
+func sentWithoutAnswer(msg string) string {
+	switch {
+	case strings.HasPrefix(msg, "not sent"):
+		return ""
+	case strings.Contains(msg, transport.NoAnswerBeforeTimeout):
+		return transport.NoAnswerBeforeTimeout
+	case strings.Contains(msg, transport.ClosedAfterSending):
+		return transport.ClosedAfterSending
+	}
+	return ""
 }

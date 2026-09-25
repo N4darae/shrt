@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -18,7 +19,7 @@ import (
 func chainWhich(args []string) error {
 	fs := flag.NewFlagSet("chain which", flag.ContinueOnError)
 	rpc := fs.String("rpc", "", "chains with a step calling this rpc, as package.Service/Rpc, Service/Rpc or a bare Rpc")
-	code := fs.String("code", "", "chains asserting this app_code, envelope code or failure reason")
+	code := fs.String("code", "", "chains asserting this app_code, envelope code, failure reason, transport code (unauthenticated) or HTTP status (401)")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json]   which chains, or local run records, exercise an rpc or a failure code",
 		"\nexit codes:\n  0  a chain or run record matched\n  1  nothing matched, or bad flags (neither -rpc nor -code, an unknown rpc)\n")
@@ -119,10 +120,11 @@ func runObservations(e *env) func(string) []chain.Observation {
 			}
 			for _, s := range rec.Steps {
 				o := chain.Observation{
-					Run:     rec.RunID,
-					Step:    s.ID,
-					Status:  s.Status,
-					Reached: s.Status == runner.StatusPassed || s.Status == runner.StatusFailed,
+					Run:    rec.RunID,
+					Step:   s.ID,
+					Status: s.Status,
+					Reached: s.Status == runner.StatusPassed || s.Status == runner.StatusFailed ||
+						(s.Status == runner.StatusError && (s.HTTPStatus != 0 || s.Transport != nil)),
 				}
 				if s.Status == runner.StatusFailed {
 					o.Failures = s.Expect
@@ -261,6 +263,15 @@ func whichSeenCell(o *chain.WhichEvidence) string {
 		got = "nothing at " + o.Asserted
 	case o.Code == "":
 		got = "no code"
+	}
+	paths := []string{}
+	for _, f := range o.Failures {
+		if !slices.Contains(paths, f.Path) {
+			paths = append(paths, f.Path)
+		}
+	}
+	if len(paths) > 0 {
+		return fmt.Sprintf("run %s got %s, step %s on %s", o.Run, got, status, strings.Join(paths, ", "))
 	}
 	return fmt.Sprintf("run %s got %s, step %s", o.Run, got, status)
 }

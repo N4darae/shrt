@@ -125,9 +125,10 @@ func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
 }
 
 func recordsCounted(rep *hollow.Report) string {
-	return fmt.Sprintf("%d run record(s) (%d shrt run, %d verify replay(s); %d of chains kept red, %d that did not pass; "+
-		"a passed read step counts whatever its run's verdict)",
-		rep.Records, rep.Records-rep.ReplayRecords, rep.ReplayRecords, rep.KeptRedRecords, rep.FailedRecords)
+	return fmt.Sprintf("%d run record(s) (%d shrt run and %d verify replay(s); %d passed and %d did not pass; "+
+		"of chains kept red: %d passed, %d did not pass; a passed read step counts whatever its run's verdict)",
+		rep.Records, rep.Records-rep.ReplayRecords, rep.ReplayRecords, rep.Records-rep.FailedRecords, rep.FailedRecords,
+		rep.KeptRedRecords-rep.FailedKeptRedRecords, rep.FailedKeptRedRecords)
 }
 
 func reportOrphans(rep *hollow.Report) {

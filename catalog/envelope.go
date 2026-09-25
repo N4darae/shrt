@@ -9,6 +9,7 @@ type EnvelopeCandidate struct {
 	Path        string
 	Field       string
 	Count       int
+	Of          int
 	SameMessage bool
 }
 
@@ -126,6 +127,9 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 	seen := map[string]int{}
 	total := 0
 	for _, m := range cat.Methods() {
+		if m.Streaming() {
+			continue
+		}
 		total++
 		for _, f := range DescribeMessage(m.Output()).Fields {
 			if f.Repeated || f.Kind != "message" {
@@ -156,7 +160,7 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 				break
 			}
 		}
-		out = append(out, EnvelopeCandidate{Path: path, Field: field, Count: n})
+		out = append(out, EnvelopeCandidate{Path: path, Field: field, Count: n, Of: total})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/agentkit"
@@ -219,12 +220,12 @@ func initGitignore(cfg *config.Config) []string {
 		dir = config.DirName + "/safespots"
 	}
 	pending := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/pending/"
-	for _, line := range out {
-		if line == pending {
-			return out
+	for _, extra := range []string{pending, config.ScratchDir} {
+		if !slices.Contains(out, extra) {
+			out = append(out, extra)
 		}
 	}
-	return append(out, pending)
+	return out
 }
 
 func ensureGitignore(root string, want []string) (bool, error) {
@@ -337,8 +338,8 @@ func reportEnvelope(cfg *config.Config) {
 		return
 	}
 	best := found[0]
-	fmt.Printf("\n%d of your %d rpc(s) answer with a message carrying a field at %q; the default is %q.\n",
-		best.Count, len(cat.Methods()), best.Path, chain.DefaultEnvelopePath)
+	fmt.Printf("\n%d of your %d unary rpc(s) answer with a message carrying a field at %q; the default is %q.\n",
+		best.Count, best.Of, best.Path, chain.DefaultEnvelopePath)
 	fmt.Printf("shrt GUESSED that from FIELD NAMES alone and cannot tell a verdict from business data\n" +
 		"that happens to be named that way, and it cannot guess envelope_ok at all — the success value\n" +
 		"is data, not a name. Check it against one response you know was refused. If it is the verdict,\n" +

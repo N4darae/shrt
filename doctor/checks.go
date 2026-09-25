@@ -184,7 +184,18 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 			"shrt init -build=false -agents=false   # appends only the lines that are missing")
 	}
 	if len(leaked) == 0 && ignored[secret] {
-		r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored", len(want)), "")
+		scratch, err := opts.Ignored(cfg.Root, []string{config.ScratchDir})
+		if err != nil || scratch == nil {
+			scratch = ignoredByFile(cfg.Root, []string{config.ScratchDir})
+		}
+		if scratch[config.ScratchDir] {
+			r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored, and so is %s",
+				len(want), config.ScratchDir), "")
+			return
+		}
+		r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored; %s, where "+
+			"exploratory slices are written, is not ignored, so a slice kept there shows as untracked: add it to .gitignore",
+			len(want), config.ScratchDir), "shrt init -build=false -agents=false   # appends only the lines that are missing")
 	}
 }
 
@@ -507,8 +518,8 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	best := found[0]
 	r.add(CheckConventions, LevelWarn,
 		fmt.Sprintf("no conventions.envelope_path is set, so the default %q is in force — but %d of "+
-			"your %d rpc(s) answer with a message carrying a verdict at %q instead and none carries the default",
-			chain.DefaultEnvelopePath, best.Count, len(cat.Methods()), best.Path),
+			"your %d unary rpc(s) answer with a message carrying a verdict at %q instead and none carries the default",
+			chain.DefaultEnvelopePath, best.Count, best.Of, best.Path),
 		"Check it against one response you know was refused, then set it:\n"+
 			"    conventions:\n        envelope_path: "+best.Path+"\n        envelope_ok: <the value there meaning success>\n"+
 			"shrt cannot guess envelope_ok: it reads field NAMES, and the success value is data.")

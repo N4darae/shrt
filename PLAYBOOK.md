@@ -139,7 +139,13 @@ honours the key answers a repeat with the first run's result, so `verify` does n
 regression: when the step sent the key the confirmed run sent and answered with the confirmed run's
 id (`order.id_order`), it prints `CHAIN DEFECT: ... an idempotent replay` and exits 1 for a literal,
 or `fixture reused: ... the confirmed run's idempotency key` with a fresh `-var` hint and exits 3 for
-a key built from a var (`${vars.ik}` left at the confirmed value).
+a key built from a var (`${vars.ik}` left at the confirmed value). The same holds for a key any other
+recorded run sent, of this chain or another: `shrt run idem -var tag=G1` then `shrt verify idem
+-var tag=G1` names that run (`the idempotency key the recorded run ... of this chain already sent`)
+and exits 3, since the backend answered with what that run created. When a step before the replay
+already drifted, that drift stays the verdict (`regression: N change(s)`, exit 1), and a
+`note: step "order" sent idempotency_key=... an idempotent replay` line names the replay, so the
+changes at and after it are not read as more of the regression.
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
@@ -179,7 +185,15 @@ sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-ve
 holds when the refusal quotes and names no field (`duplicate record`) while every field of the
 step built from a reference is built from `${uuid}` or a clock value: those are unique to their
 run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
-`${uuid}` one, and a repeat is not a `FINDING`. A var that
+`${uuid}` one, and a repeat is not a `FINDING`. A literal is not blamed when two or more earlier
+recorded runs of the chain sent it at that step and were answered without a refusal: the backend
+accepted it after the record already existed, so it is not unique and cannot be what collides. With
+no literal left to blame and a refusal that names no field, verify gives its plain verdict against
+the safe spot (`regression: N change(s)`). When an earlier step of the same run, calling the same
+rpc, sent the identical value on the conflicting field and was accepted (two `CreateProduct` steps
+both sending `sku: sku-${vars.tag}`), `run` and `verify` say `the chain collides with itself within
+one run: ... the value step "create_product" of this same run sent there` and exit 1: every run
+collides with itself whatever `-var` is given, so it is never a fixture collision. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers
@@ -299,7 +313,8 @@ It counts the runs of the chains under `paths.chains` only, and every kind of ru
 `shrt run` records, `verify` replays (a gate that runs and verifies a chain leaves two records per
 gate run), runs of chains kept red and runs that failed, since a read step that passed is hollow
 whatever its run's verdict. The record count in its output splits them that way, `19 run
-record(s) (12 shrt run, 7 verify replay(s); 4 of chains kept red, 5 that did not pass; ...)`, so a
+record(s) (12 shrt run and 7 verify replay(s); 14 passed and 5 did not pass; of chains kept red: 1
+passed, 3 did not pass; ...)`, so a
 count that grows by two per gate run is expected. Runs of a chain no file there declares are
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
@@ -469,9 +484,17 @@ run were answered, and the previous run that sent that step got no answer there 
 answering later steps too, the backend is up and fails that one rpc every time: `verify` prints
 `FINDING: ... the backend fails this rpc every time while answering others`, naming the rpc, and
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
-answered. "The previous run that sent that step" (here, for an auth refusal and for a reused fixture)
+answered, and so does a repeat where the same rpc answered another step of either run: then that
+call failed, not the rpc, which looks intermittent.
+"The previous run that sent that step" (here, for an auth refusal and for a reused fixture)
 pairs steps the way verify pairs a renamed step, by call and position, so a step renamed since that
 run is still found under its old name.
+
+A connection the backend closed after the request was written is `sent, no answer: the backend
+closed the connection ...`, like a timeout: the call may have taken effect, `verify` counts the step
+as a status change rather than `not sent` when an earlier change is the verdict, and `shrt diff`
+lists it as `sent in B, no answer (the connection closed)`. Only a connection closed before the
+request was written says `so it was not sent and took no effect`.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
@@ -798,14 +821,16 @@ what the backend answered (for a batch, with the per-item verdicts `conventions.
 reads). The sent excerpt leads with literal inputs (`lines.0.qty=3 lines.1.qty=2`) and puts id- and
 uuid-shaped values (`id_customer`, `idempotency_key`), usually references, after them, abbreviated;
 a literal input is shown in full whatever its length (`email=cust-order-confirm@example.test`), so a
-fixture built from a long tag reads the same as one from a short tag; the answered
+fixture built from a long tag reads the same as one from a short tag; the asserted cell shows every
+expectation with its value in full (`customer.name equals Customer for order-confirm`); the answered
 cell gives the verdict, then the value the backend returned at every path the step asserts, except
 id-shaped ones (`order.total_minor=4548`), then `also baselined:` with the values the step does NOT
 assert that still become the baseline verify compares (`also baselined: order.total_minor=300
 order.lines.0.qty=1`), leaving out ids, timestamps, everything under a volatile path (a step's
 `volatile: [products]` leaves out the whole list), empty strings and values echoing a var, and
 showing a list the step declares `unordered` as one entry (`products=3 item(s) in any order`), since
-verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; read
+verify compares it as a multiset, not by index; shallow paths first, capped with `+N more`; every
+value in the answered cell is shown in full, never clipped, since it is what the approver signs; read
 those too, since approving signs them. It writes no safe spot, and `shrt verify` still has nothing to compare against. Proposing
 again for the same chain replaces the pending proposal and its report; there is only ever one.
 `shrt init` gitignores `.shrt/safespots/pending/`: a proposal is review material on the machine
@@ -1084,8 +1109,10 @@ shrt chain which -code 1218 -json
 1. **Two selectors; naming neither is an error, not a listing of everything.** `-rpc` takes the same
    shorthand `contract show` takes and resolves through the same catalog, so `Service/Rpc` and the
    fully qualified form find the same steps. `-code` matches an `equals` wherever a chain can name a
-   failure: the envelope code, an `app_code` detail, a `reason` detail, or `transport.code` (a
-   Connect refusal such as `invalid_argument` or `unauthenticated`). The searchable paths are
+   failure: the envelope code, an `app_code` detail, a `reason` detail, `transport.code` (a
+   Connect refusal such as `invalid_argument` or `unauthenticated`) or `transport.http_status`
+   (`-code 401`). A run record's step refused at authentication (status `error` with a 401) counts
+   as observed: the backend answered it. The searchable paths are
    derived from the corpus, so a chain asserting a code under a batch result — the corpus has
    `results.0.error.details.0.app_code` — is found without teaching the command a new shape. Both
    selectors together intersect.

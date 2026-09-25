@@ -19,6 +19,7 @@ const (
 	FileName   = "config.yaml"
 	TokensFile = "tokens.json"
 	DocsDir    = DirName + "/docs"
+	ScratchDir = DirName + "/scratch/"
 )
 
 type Config struct {

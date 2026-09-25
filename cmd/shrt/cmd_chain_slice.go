@@ -54,7 +54,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	step := fs.String("step", "", "step id the slice must reproduce")
 	mode := fs.String("mode", chain.SliceModeClosure, "closure (rebuild every producer) or pin (pin values from a run record)")
 	runID := fs.String("run", "", "run record id or 'latest', required by -mode pin and -verify")
-	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record")
+	verify := fs.Bool("verify", false, "run the slice and compare the target step's verdict against the run record; the verdict is the last thing printed, and the slice YAML is printed only without -verify (add -write to keep it)")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	build := fs.String("build", "", "with -verify, "+buildFlagUsage+"; the verdict names the build the slice run held on")
 	force := fs.Bool("force", false, "with -write, overwrite an existing chain file that is not this command's slice of the same step, or a VERIFIED slice this one differs from")
@@ -268,7 +268,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if written != "" {
 		fmt.Print(sweepNote(e, written, res.Chain.Name))
 	}
-	if !write.set {
+	if !write.set && !*verify {
 		raw, err := res.Chain.Marshal()
 		if err != nil {
 			return err
@@ -817,9 +817,10 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Outcome = sliceInconclusive
 		names := droppedNames(res)
 		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped %d write step(s): %s.\n"+
-			"A match can come from state the slice never built, so it is not evidence that the slice reproduces\n"+
-			"the failure. Keep the writes and verify again against the same source run; drop ids from -keep\n"+
-			"to test which of them the target needs.", len(names), strings.Join(names, ", "))
+			"Those writes can have side effects no reference in the chain declares (stock they add, a record\n"+
+			"a later step finds by name), and the target may depend on them, so a match is not evidence that\n"+
+			"the slice reproduces the failure. Keep the writes with -keep writes and verify again against the\n"+
+			"same source run; drop ids from -keep to test which of them the target needs.", len(names), strings.Join(names, ", "))
 		v.suggestKeep(res, rec, a, names)
 	default:
 		v.Outcome = sliceReproduced

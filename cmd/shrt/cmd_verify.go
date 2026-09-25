@@ -46,12 +46,17 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       re-send, when the previous run that sent that step was refused there the same way,\n" +
 	"       re-sent too: a possible auth regression\n" +
 	"     - a step got no answer (connection dropped, or no answer before target.timeout) while later\n" +
-	"       steps were answered, in this run and the previous one: the backend fails that rpc every time\n" +
-	"     - a step sent the confirmed run's literal idempotency key and answered with the confirmed\n" +
-	"       run's id: an idempotent replay, a chain defect (built from a var: fixture reused, exit 3)\n" +
+	"       steps were answered, in this run and the previous one, and that rpc answered no other step\n" +
+	"       of either: the backend fails that rpc every time\n" +
+	"     - a step sent a literal idempotency key the confirmed run, or any recorded run of this or\n" +
+	"       another chain, sent too and answered with that run's id: an idempotent replay, a chain\n" +
+	"       defect (built from a var: fixture reused, exit 3)\n" +
 	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
 	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
 	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
+	"     - the first failing step was refused as a uniqueness conflict on a value an earlier step of\n" +
+	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
+	"       within every run, a chain defect\n" +
 	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
 	"     is not judged\n" +
 	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
@@ -243,17 +248,17 @@ func runVerify(ctx context.Context, args []string) error {
 	var reuse *fixtureReuse
 	var literal *literalCollision
 	if !report.Clean() {
-		literal = detectLiteralCollision(c, rec)
+		literal = detectLiteralCollision(e, c, rec)
 		if literal == nil {
 			reuse = detectFixtureReuse(e, c, rec)
 		} else if driftedBefore(rec, report, literal.index) {
 			literal = nil
 		}
 	}
-	var idem *idempotentReplay
+	var idem, lateIdem *idempotentReplay
 	if literal == nil && reuse == nil {
-		if idem = detectIdempotentReplay(c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
-			idem = nil
+		if idem = detectIdempotentReplay(e, c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
+			idem, lateIdem = nil, idem
 		}
 	}
 	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
@@ -296,7 +301,7 @@ func runVerify(ctx context.Context, args []string) error {
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, driftStep, driftWhy, unsentWritesNote(rec, driftAt), driftRemedy(ctx, e, driftWhy))
 	case idem != nil && !idem.literal && !unanswered:
-		headline = fmt.Sprintf("fixture reused: step %s sent the confirmed run's idempotency key", idem.step)
+		headline = idem.headline()
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, idem.line(), name, idem.fresh())
 	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
@@ -356,6 +361,9 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			if idem != nil && idem.literal {
 				fmt.Println("CHAIN DEFECT: " + idem.line())
+			}
+			if lateIdem != nil {
+				fmt.Println(lateIdem.note())
 			}
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
@@ -1097,7 +1105,10 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = timeoutRemedy + ", and run verify again"
 	}
-	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" {
+	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" && answeredElsewhere(rec, st) {
+		remedy += fmt.Sprintf("; %s answered another call in this run, so this step failed, not the rpc: it looks intermittent, "+
+			"and a repeat is not reported as a finding", st.Call)
+	} else if answered > 0 && unansweredKind(st) != "" {
 		remedy += "; the backend answered later steps, so if the next run fails this rpc the same way while answering others, " +
 			"verify reports it as a finding"
 	}

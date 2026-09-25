@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	neturl "net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -162,6 +164,14 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 		}
 	}
 
+	var wrote atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(info httptrace.WroteRequestInfo) {
+			if info.Err == nil {
+				wrote.Store(true)
+			}
+		},
+	}))
 	start := time.Now()
 	hc := *c.http
 	hc.Transport = noResend{next: c.http.Transport}
@@ -172,14 +182,14 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 			err = urlErr.Err
 		}
 		if errors.Is(err, errResendRefused) {
-			return nil, fmt.Errorf("POST %s: %w", url, closedError(err))
+			return nil, fmt.Errorf("POST %s: %w", url, closedError(err, wrote.Load()))
 		}
 		if Unreachable(err) {
 			return nil, fmt.Errorf("POST %s: the target could not be reached (%w): the backend is down or not started, "+
 				"so nothing reached it and this is not a backend defect", url, err)
 		}
 		if ConnectionClosed(err) {
-			return nil, fmt.Errorf("POST %s: %w", url, closedError(err))
+			return nil, fmt.Errorf("POST %s: %w", url, closedError(err, wrote.Load()))
 		}
 		if TimedOut(err) && ctx.Err() == nil {
 			return nil, fmt.Errorf("POST %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)
@@ -191,7 +201,7 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
 		if ConnectionClosed(err) {
-			return nil, fmt.Errorf("read %s: %w", url, closedError(err))
+			return nil, fmt.Errorf("read %s: %w", url, closedError(err, true))
 		}
 		if TimedOut(err) && ctx.Err() == nil {
 			return nil, fmt.Errorf("read %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)

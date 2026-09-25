@@ -8,7 +8,7 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-func TestTheAnsweredCellDropsWholeAssertedPairsNeverCutsAPath(t *testing.T) {
+func TestTheAnsweredCellShowsEveryAssertedPairInFullNeverCutsAPath(t *testing.T) {
 	chain.SetEnvelope("status.code", "SUCCESS")
 	t.Cleanup(func() { chain.SetEnvelope("", "") })
 	st := &runner.StepRecord{ID: "add_stock_batch", Status: runner.StatusPassed,
@@ -26,11 +26,10 @@ func TestTheAnsweredCellDropsWholeAssertedPairsNeverCutsAPath(t *testing.T) {
 	if strings.Contains(cell, "…") {
 		t.Fatalf("the answered cell must not cut inside a path or value: %q", cell)
 	}
-	if len([]rune(cell)) > answeredCell+1 {
-		t.Fatalf("the answered cell is %d runes, over its %d budget: %q", len([]rune(cell)), answeredCell, cell)
-	}
-	if !strings.Contains(cell, "more") {
-		t.Fatalf("dropped pairs are counted: %q", cell)
+	for _, want := range []string{"results.0.qty_on_hand=8", "results.1.status.details.0.reason=InvalidQty", "results.1.status.details.0.app_code=1203"} {
+		if !strings.Contains(cell, want) {
+			t.Fatalf("every asserted value is what the approver approves, so %s is shown: %q", want, cell)
+		}
 	}
 	for _, part := range strings.Fields(cell) {
 		if strings.HasPrefix(part, "results.") && !strings.Contains(part, "=") {

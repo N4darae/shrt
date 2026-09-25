@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -59,7 +60,7 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 		t.Errorf("lint warns about the mismatch and passes: %v\n%s", lerr, out)
 	}
 	out = captureStdout(t, func() { lerr = runChain(ctx, []string{"ls"}) })
-	if lerr != nil || !strings.Contains(out, "* thing-new") || !strings.Contains(out, "file cli-thing-flow.yaml") {
+	if lerr != nil || !regexp.MustCompile(`\*\s+thing-new`).MatchString(out) || !strings.Contains(out, "file cli-thing-flow.yaml") {
 		t.Errorf("chain ls lists thing-new with its safe spot and notes its file: %v\n%s", lerr, out)
 	}
 }

@@ -12,20 +12,30 @@ import (
 )
 
 var secretHeaderWords = map[string]bool{
-	"auth": true, "authorization": true, "authentication": true, "token": true, "secret": true, "key": true,
-	"apikey": true, "password": true, "passwd": true, "pass": true, "cookie": true, "session": true,
-	"signature": true, "sig": true, "credential": true, "credentials": true, "otp": true, "pin": true,
-	"jwt": true, "bearer": true, "csrf": true, "xsrf": true, "pwd": true, "pw": true,
+	"auth": true, "authorization": true, "authentication": true, "token": true, "tokens": true, "secret": true,
+	"secrets": true, "key": true, "apikey": true, "password": true, "passwd": true, "pass": true, "cookie": true,
+	"session": true, "signature": true, "sig": true, "hmac": true, "credential": true, "credentials": true,
+	"otp": true, "pin": true, "jwt": true, "bearer": true, "csrf": true, "xsrf": true, "pwd": true, "pw": true,
+	"authtoken": true, "accesstoken": true, "refreshtoken": true, "idtoken": true, "sessiontoken": true,
+	"clientsecret": true, "secretkey": true, "accesskey": true, "privatekey": true,
 }
+
+var secretHeaderHints = []string{"password", "passwd", "passphrase", "passcode", "apikey", "credential", "privatekey", "cookie"}
+
+var notSecretHeaderSuffixes = map[string]bool{"id": true, "remaining": true, "count": true}
 
 func secretHeader(name string) bool {
 	lower := strings.ToLower(name)
-	for _, hint := range []string{"token", "secret", "password", "passwd", "passphrase", "passcode", "auth", "cookie", "apikey", "credential", "privatekey"} {
+	words := strings.FieldsFunc(lower, func(r rune) bool { return r == '-' || r == '_' || r == '.' })
+	if n := len(words); n > 1 && notSecretHeaderSuffixes[words[n-1]] && !(words[n-2] == "session" && words[n-1] == "id") {
+		return false
+	}
+	for _, hint := range secretHeaderHints {
 		if strings.Contains(lower, hint) {
 			return true
 		}
 	}
-	for _, word := range strings.FieldsFunc(lower, func(r rune) bool { return r == '-' || r == '_' || r == '.' }) {
+	for _, word := range words {
 		if secretHeaderWords[word] {
 			return true
 		}
