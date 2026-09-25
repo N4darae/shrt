@@ -332,15 +332,11 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	printSlice(res, written, verdict)
 	if len(pinned) > 0 && (verdict == nil || verdict.Outcome == sliceReproduced) {
-		fmt.Printf("\nkept_red: pinned on %s, as %s failed in run %s. `shrt run` of the slice exits 0 while it fails exactly so, "+
-			"and 1 once the defect is gone or anything else fails. Leave the steps that failed out of %s, in place, with:\n"+
-			"  shrt chain slice %s -without failed -run %s -write %s\n"+
-			"which replaces %s itself, so the gate runs the rest green and the defect stays red in this slice only. "+
-			"Writing the rest under another name (-write <name>) leaves %s, still red, in the gate beside it: then move %s out of %s.\n",
-			pinList(res.Chain, pinned), pinSubject(pinned), rec.RunID, c.Name, ref, rec.RunID, sourceFileArg(c), c.Name, c.Name, sourceFileArg(c), shownPath(e.chainsDir()))
+		fmt.Printf("\nkept_red: pinned on %s, as %s failed in run %s; its run exits 0 while it fails exactly so. "+
+			"Leave the failed steps out of %s in place, so the gate runs the rest green: shrt chain slice %s -without failed -run %s -write %s\n",
+			pinList(res.Chain, pinned), pinSubject(pinned), rec.RunID, c.Name, ref, rec.RunID, sourceFileArg(c))
 		if verdict == nil {
-			fmt.Printf("The slice is a hypothesis until run: if its run says the pinned defect is gone while %s still fails, the slice lost "+
-				"a dependency that is state rather than a reference; add -verify to run it before pinning, and follow its next: line\n", c.Name)
+			fmt.Println("unverified: add -verify to run the slice before pinning; a slice that lost a dependency on state shows the defect gone")
 		}
 	} else if keptRed.on && verdict != nil {
 		fmt.Printf("\nkept_red: NOT pinned, since the slice did not reproduce %s's verdict in run %s; a slice that does not show the defect "+
@@ -538,14 +534,10 @@ func sweepNote(e *env, written, name string) string {
 	shown := shownPath(written)
 	chains := shownPath(e.chainsDir())
 	if filepath.Dir(written) != filepath.Clean(e.chainsDir()) {
-		return fmt.Sprintf("note: %s is outside %s (paths.chains), so no sweep reads it: `shrt chain lint`, `chain hollow` and a gate that runs every %s/*.yaml (README) skip it. Run it by path:\n"+
-			"  shrt run %s\n", shown, chains, chains, shown)
+		return fmt.Sprintf("note: %s is outside %s, so no sweep reads it; run it by path: shrt run %s\n", shown, chains, shown)
 	}
-	scratch := filepath.ToSlash(filepath.Join(".shrt", "scratch", name+".yaml"))
-	return fmt.Sprintf("note: %s is now part of every sweep, like any chain there: `shrt chain lint` and `chain hollow` read it, "+
-		"and a gate that runs every %s/*.yaml (README) runs it. To keep an exploratory slice out, write it outside %s instead, with -write %s, or move it:\n"+
-		"  mkdir -p .shrt/scratch && mv %s .shrt/scratch/\n"+
-		"  shrt run %s still runs it by path\n", shown, chains, chains, scratch, shown, scratch)
+	return fmt.Sprintf("note: %s is in %s, so lint, hollow and the gate run it; to keep it out: mkdir -p .shrt/scratch && mv %s .shrt/scratch/\n",
+		shown, chains, shown)
 }
 
 func sourceFileArg(c *chain.Chain) string {

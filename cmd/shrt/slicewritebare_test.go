@@ -21,7 +21,7 @@ func TestSliceWriteOfABareFileNameLandsBesideTheSourceChain(t *testing.T) {
 	if err != nil || c.Name != "kept" {
 		t.Fatalf("want .shrt/chains/kept.yaml named kept: %v %v\n%s", err, c, out)
 	}
-	if !strings.Contains(out, "now part of every sweep") {
+	if !strings.Contains(out, "so lint, hollow and the gate run it") {
 		t.Fatalf("a slice written into paths.chains joins the gate, and says so:\n%s", out)
 	}
 }

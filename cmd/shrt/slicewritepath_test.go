@@ -54,7 +54,7 @@ func TestSliceWriteToAPathDirectlyInPathsChainsSaysItJoinsTheGate(t *testing.T) 
 	if _, err := os.Stat(".shrt/chains/kept.yaml"); err != nil {
 		t.Fatalf("want .shrt/chains/kept.yaml: %v", err)
 	}
-	for _, want := range []string{"now part of every sweep", "-write .shrt/scratch/kept.yaml"} {
+	for _, want := range []string{"so lint, hollow and the gate run it", "mv .shrt/chains/kept.yaml .shrt/scratch/"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}

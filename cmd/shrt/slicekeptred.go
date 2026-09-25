@@ -205,8 +205,8 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	for _, k := range res.DroppedPins {
 		fmt.Printf("  kept_red pin on %s %s dropped with its step\n", k.Step, k.Path)
 	}
-	fmt.Printf("\nA step left in may still depend on what a left-out write did to shared state rather than on a reference: run it, " +
-		"and propose it as a safe spot only once it passes. Keep the defect visible in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>\n")
+	fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
+		"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
 		if !replaced {
