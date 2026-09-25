@@ -71,7 +71,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	fs.Var(write, "write", "write the slice to <name>.yaml next to the source chain (.shrt/chains for a chain there, the same directory for a chain given by a path outside it); `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a bare file name ending in .yaml (-write <chain>.yaml) is written in that same directory, and may name the source chain itself to replace it; a value with a slash is a path, written exactly there, relative to the current directory (./x.yaml for the current directory), and may name the source chain too")
 	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times and report how many reproduced the verdict: reproduced N/N, or intermittent: reproduced k/N (exit 4); a var a kept write interpolates gets -r2, -r3 appended on later runs")
 	keptRed := &keptRedFlag{}
-	fs.Var(keptRed, "kept-red", "pin the slice kept_red on every expectation of -step that failed in the run (-run, default latest), and on those of every kept step that failed there, instead of relaxing them: the slice then passes a gate while the defect is there and fails it once the defect is gone or anything else breaks; refused when the step failed no expectation there. -kept-red=`id[,id]` (or repeated) also keeps and pins these earlier steps, for a defect that shows on more than one step")
+	fs.Var(keptRed, "kept-red", "pin the slice kept_red on every expectation of -step that failed in the run (-run, default latest), and on those of every kept step that failed there, instead of relaxing them: the slice then passes a gate while the defect is there and fails it once the defect is gone or anything else breaks; refused when the step failed no expectation there. -kept-red=`id[,id]` (or repeated) also keeps and pins these steps, earlier or later than -step, for a defect that shows on more than one step (a plain -keep of a later step is refused, since it cannot change the target's verdict)")
 	without := &stepList{}
 	fs.Var(without, "without", "instead of a slice, write the chain with these steps left out, and every step that reads one of them (a reference or an export), so the rest can run green and be confirmed; the word failed names every step that failed in the run (-run, default latest): -without `id[,id]|failed`")
 	keep := &stepList{}
@@ -130,7 +130,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
 	}
 
-	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: append(append([]string{}, *keep...), keptRed.steps...), Vars: vars, IsLogin: isLoginStep(e)}
+	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: append(append([]string{}, *keep...), keptRed.steps...), Pinned: keptRed.steps, Vars: vars, IsLogin: isLoginStep(e)}
 	lib, err := e.library()
 	if err != nil {
 		return err

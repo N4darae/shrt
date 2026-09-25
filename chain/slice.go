@@ -75,6 +75,7 @@ type SliceOptions struct {
 	Prereqs func(rpc string) []Prereq
 	Value   func(ref string) (any, bool)
 	Keep    []string
+	Pinned  []string
 	Vars    map[string]any
 	RunVars map[string]any
 	Refused func(stepID string) (string, bool)
@@ -222,7 +223,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		if !ok {
 			return nil, fmt.Errorf("chain %q has no step %q to keep (-keep %s keeps every earlier write step)\nvalid step ids:\n  %s", c.Name, id, SliceKeepWrites, strings.Join(idx.ids(), "\n  "))
 		}
-		if j > at {
+		if j > at && !containsID(opts.Pinned, id) {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)
 		}
 		add(j, KeepAsked, KeepAsked)

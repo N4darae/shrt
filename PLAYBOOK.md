@@ -1434,7 +1434,7 @@ accept a change, re-pin: run the slice command again with `-force` (it also fill
 pins that have none), or edit the chain file; any change to the file starts a new reference. A kept step that failed in the run too (the first line's read-back
 when the target is the second's) is pinned the same way, not relaxed. When one defect shows on
 steps the slice would not keep, name them: `-kept-red=get_product_after_cancel` (a list, or the flag
-repeated) keeps each and pins it next to `-step`; a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
+repeated) keeps each and pins it next to `-step`, a step after `-step` as well as one before it (`-kept-red=fetch_order_after_confirm_order_insufficient_stock_last_item` keeps the read-back after the target in the slice); a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
 a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
 the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
 line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a
