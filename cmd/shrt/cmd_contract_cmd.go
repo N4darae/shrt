@@ -136,7 +136,12 @@ func contractInit(args []string) error {
 		if *force {
 			prior = nil
 		}
-		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, methods, prior, e.cat.Methods()))
+		path := filepath.Join(e.contractsDir(), domain+".yaml")
+		node := contract.ScaffoldOverlay(domain, methods, prior, e.cat.Methods())
+		if written, err := os.ReadFile(path); err == nil && !*force {
+			contract.KeepWrittenStyle(node, written)
+		}
+		raw, err := contract.RenderOverlay(node)
 		if err != nil {
 			return err
 		}
@@ -144,7 +149,6 @@ func contractInit(args []string) error {
 			fmt.Printf("--- %s\n%s\n", domain, raw)
 			continue
 		}
-		path := filepath.Join(e.contractsDir(), domain+".yaml")
 		if current, err := os.ReadFile(path); err == nil && sameYAML(current, raw) {
 			n := strings.Count(string(current), contract.TodoMarker)
 			todos += n
