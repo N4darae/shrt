@@ -2309,6 +2309,17 @@ so the quantity every line needs had no entry to write its value and rule into.
 **Fix.** 2026-09-25: every scalar field of a repeated message's items is scaffolded, and re-running
 `init` on a curated entry adds an item field it does not document yet.
 
+## 114. A note that told a stock increase to say "Reserve stock for every line"
+
+**Symptom.** An `AddStockBatch` whose `lines` note did not say `one AddStock per line` got the note
+`... state it in the summary ("Reserve stock for every line", "does not touch stock")`: neither
+example fits a write that adds stock.
+
+**Fix.** 2026-09-25: the note is written per rpc and names the wording for its effect: a note on the
+list saying `one AddStock per line` for a batch whose text says it adds, a summary `Increase ... by
+<qty>` for a single write that adds, `Reserve stock for every line` for a write on an order with
+lines, and `does not touch stock` for the rest.
+
 ---
 
 # Decisions, so they are not relitigated
