@@ -780,3 +780,7 @@ func maskVarValues(vars map[string]any, text string) string {
 	}
 	return text
 }
+
+func (c Change) DescribeRuns() string {
+	return c.describeRuns()
+}

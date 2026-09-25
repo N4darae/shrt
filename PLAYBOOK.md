@@ -1416,8 +1416,17 @@ shrt run orders-rest -var tag=<fresh>                          # green: propose 
 ```
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
-[{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
-gone or anything else fails. A kept step that failed in the run too (the first line's read-back
+[{step, path, got}]`, `got` being the value it failed with when that is stable: a bool, a number,
+an enum or other text that is not id- or time-shaped and holds no var's value), so `shrt run` of it
+exits 0 while the defect is there and 1 once it is gone, fails with another `got`, or anything else
+fails. `run` also compares what each pinned step returned, every field and not only the pinned
+paths, with the newest earlier run of the same chain file against the same target that failed as
+pinned (masked as `shrt diff` masks), and a difference is `FAILED, NOT AS PINNED`: a new defect
+behind the pinned one (ListOrders dropping a cancelled order while the pinned `orders.1 exists`
+still fails) changes `length orders a=3 item(s) b=2 item(s)`. The comparison needs the local run
+records; a first run, or a fresh checkout, says it compared nothing and becomes the reference. To
+accept a change, re-pin: run the slice command again with `-force` (it also fills `got` into old
+pins that have none), or edit the chain file; any change to the file starts a new reference. A kept step that failed in the run too (the first line's read-back
 when the target is the second's) is pinned the same way, not relaxed. When one defect shows on
 steps the slice would not keep, name them: `-kept-red=get_product_after_cancel` (a list, or the flag
 repeated) keeps each and pins it next to `-step`; a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:

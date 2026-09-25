@@ -220,6 +220,16 @@ expectation `unevaluated` and so failed: `as_pinned`, exit 0, over a crashed rpc
 expectation evaluated against an answered response satisfies a pin now; a refusal there is
 `not_as_pinned`, "the pinned step was refused at transport".
 
+A pin on a path proves only that path still fails: `list_orders_pending` pinned on `orders.1 exists
+want=false got=true` (ListOrders ignores status) kept printing `FAILED AS PINNED` after a new defect
+removed cancelled orders from ListOrders, since a confirmed order still made `orders.1` exist. Pins
+written by `slice -kept-red` now carry the `got` they failed with when it is stable, and `run`
+compares each pinned step's whole response with the last run of the same chain file that failed as
+pinned: `NEW FAILURE outside the pinned defect: a pinned step returns something else than in run
+<id>: list_orders_pending length orders a=3 item(s) b=2 item(s)`, exit 1, and again on every run
+until the change is fixed or re-pinned (the slice command again with `-force`, or any edit of the
+chain file). Old pins without `got` still judge as before; they only skip the `got` comparison.
+
 **Fix.** Check which build the target is actually running before touching the chain. Never "fix"
 one of these chains to make the sweep green. A run record answers that question only if it was
 stamped: set `target.build_header` if the server reports its version in a header, or pass
