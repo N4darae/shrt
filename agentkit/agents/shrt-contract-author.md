@@ -37,7 +37,7 @@ shrt catalog describe <rpc>       # schema only
 3. **Harvest the failure codes** from the project's error constructor, matched to the branch that
    raises each.
 4. **Fill the overlay**: `required`, `from`/`same_as`, `needs`/`before`, `failures` with `when:`,
-   `exports`/`terminal`/`soft_signals`, `source`. Replace each `'TODO: …'` value when answered.
+   `effects`, `exports`/`terminal`/`soft_signals`, `source`. Replace each `'TODO: …'` value when answered.
    Never delete a `fields:` entry or an `exports:` line to silence it; move an unconsumed export to
    `terminal:`.
 5. `shrt contract lint -domain <yours>`.
@@ -48,7 +48,8 @@ shrt catalog describe <rpc>       # schema only
 Judgement the key tables do not carry:
 
 - A `summary` restating the proto comment is wasted; a `note` earns its place by saying what a
-  caller could not guess ("decimal string, must be > 0").
+  caller could not guess ("decimal string, must be > 0"). Both are prose for people: what a write
+  does to a number the handler stores (a balance it adds to, a total it sums) goes in `effects:`.
 - `@alias` is for two independent instances of one rpc (`CreateAccount@payer`,
   `CreateAccount@payee`); declare it under `aliases:` with what makes them differ.
 - A `from` wires the id you filter by; `needs` names the write that put the row there.

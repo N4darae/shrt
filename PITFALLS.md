@@ -184,7 +184,9 @@ chain's own tag isolates.
 
 **Cause.** `plan` wires what the contracts say; it cannot judge business sense. **Fix.** Read the
 `order:` line as a claim about the flow. A missing step means a missing `needs:`/`from:` in the
-contract: fix the contract and re-plan, rather than adding the step by hand.
+contract: fix the contract and re-plan, rather than adding the step by hand. A `gap:` saying an rpc
+`says nothing of` a number means nothing is asserted after it: paste the `effects:` it prints.
+`summary` is prose for people; wording it differently does not help.
 
 ## 30. The plan leaves a numeric zero that lint accepts
 
