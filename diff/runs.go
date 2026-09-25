@@ -286,17 +286,20 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 	r.fixturePairs = append(r.fixturePairs, generatedPairs([]*runner.StepRecord{sa}, []*runner.StepRecord{sb}, fx.Generated)...)
 	rn := renamer(r.fixturePairs)
 	walk(a, b, "", func(c Change) {
-		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
-			r.Masked++
-			return
-		}
-		if (fx.Named != nil && fx.Named(sa.ID, c.Path)) || (fx.Generated != nil && fx.Generated(sa.ID, c.Path)) {
-			r.FixtureRequests++
+		fixture := (fx.Named != nil && fx.Named(sa.ID, c.Path)) || (fx.Generated != nil && fx.Generated(sa.ID, c.Path))
+		if fixture {
 			if x, ok := c.Want.(string); ok && len(x) >= minFixtureEcho {
 				if y, ok := c.Got.(string); ok {
 					r.fixturePairs = append(r.fixturePairs, [2]string{x, y})
 				}
 			}
+		}
+		if maskedAt(masker, c) || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+			r.Masked++
+			return
+		}
+		if fixture {
+			r.FixtureRequests++
 			return
 		}
 		if w, okW := c.Want.(string); okW && rn != nil && c.Kind == KindChanged {
