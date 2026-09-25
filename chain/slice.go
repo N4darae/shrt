@@ -712,7 +712,7 @@ func sliceDescription(res *SliceResult) string {
 	b.WriteString(".\n\n")
 	b.WriteString("Computed by 'shrt chain slice': the target step, every earlier step whose output a kept\n")
 	b.WriteString("step references, every ordering prerequisite the contracts declare for a kept rpc, and every\n")
-	b.WriteString("earlier write on an entity the target or a kept read sends (a cancel of an order on the product it reads).\n")
+	b.WriteString("earlier write on an entity the target or a kept read sends, refused or not.\n")
 	asked := []string{}
 	for _, k := range res.Kept {
 		if k.Kind == KeepAsked {

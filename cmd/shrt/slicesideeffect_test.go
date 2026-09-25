@@ -46,3 +46,20 @@ func TestAWriteOnAnOrderActsOnTheProductsItsLinesName(t *testing.T) {
 		t.Fatalf("never say the confirm changes no entity a kept step uses: %s", note)
 	}
 }
+
+func TestDroppedWriteListsAreCappedAtFiveIDs(t *testing.T) {
+	ids := []string{"w1", "w2", "w3", "w4", "w5", "w6", "w7"}
+	note := otherEntitiesNote(ids)
+	if !strings.Contains(note, "w1, w2, w3, w4, w5 and 2 more") || strings.Contains(note, "w6") {
+		t.Fatalf("a long list of dropped writes names five and counts the rest: %s", note)
+	}
+	res := &chain.SliceResult{Target: "t", Total: 9, Reach: 8, UnderIncluded: true}
+	for i, id := range ids {
+		res.DroppedWrites = append(res.DroppedWrites, chain.Dropped{Index: i + 1, ID: id})
+	}
+	v := &sliceVerdict{Outcome: sliceReproduced, OtherDropped: ids, Reason: "info: " + note}
+	out := captureStdout(t, func() { printSlice(res, "", v) })
+	if strings.Count(out, "w5 and 2 more") != 1 || strings.Contains(out, "w7") || strings.Contains(out, "WARNING") {
+		t.Fatalf("a reproduced slice names the unrelated dropped writes once, capped:\n%s", out)
+	}
+}

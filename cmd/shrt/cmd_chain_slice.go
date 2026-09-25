@@ -460,10 +460,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 			fmt.Printf("  %s\n", r.String())
 		}
 	}
-	if res.UnderIncluded && verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites) {
-		fmt.Printf("\n%d dropped write step(s) change no entity a kept step uses, and the verdict matched without them: %s\n",
-			len(res.DroppedWrites), strings.Join(droppedNames(res), ", "))
-	} else if res.UnderIncluded {
+	if res.UnderIncluded && !(verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites)) {
 		scale := ""
 		if len(res.Kept)*2 < res.Reach {
 			scale = ", under half of them"
@@ -928,7 +925,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		if at := stoppedWhereSourcePassed(replayRec, rec); at != "" {
 			if related, other := relatedDroppedWrites(res, rec); len(related) > 0 {
 				v.Reason += fmt.Sprintf("\nStep %s passed in source run %s and fails here, so it likely reads state a dropped write built:\n"+
-					"%s act on entities the kept steps use.", at, rec.RunID, strings.Join(related, ", "))
+					"%s act on entities the kept steps use.", at, rec.RunID, capList(related, 5))
 				v.OtherDropped = other
 				v.suggestKeep(res, rec, a, related)
 			}
@@ -988,7 +985,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			"and the verdict of %s is no receipt.", strings.Join(broke, ", "), rec.RunID, res.Target)
 		if len(entityRelated) > 0 {
 			v.Reason += fmt.Sprintf(" Dropped write step(s) acting on entities the kept steps use: %s. Keep them and verify again.",
-				strings.Join(entityRelated, ", "))
+				capList(entityRelated, 5))
 			v.OtherDropped = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(entityRelated, id) })
 			v.suggestKeep(res, rec, a, entityRelated)
 		} else if res.UnderIncluded {
@@ -1032,7 +1029,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		case len(related) > 0:
 			v.Reason = fmt.Sprintf("the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
-				"against the same source run.", len(related), strings.Join(related, ", "))
+				"against the same source run.", len(related), capList(related, 5))
 			if note := otherEntitiesNote(other); note != "" {
 				v.Reason += "\nNot suggested: " + note + "."
 			}
@@ -1043,7 +1040,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.Reason = fmt.Sprintf("the slice dropped %d write step(s): %s.\n"+
 				"The difference can come from state those writes would have built. Keep them and verify again\n"+
 				"against the same source run; if the verdict then matches, drop ids from -keep to find the one\n"+
-				"the target needs.", len(names), strings.Join(names, ", "))
+				"the target needs.", len(names), capList(names, 5))
 			v.suggestKeep(res, rec, a, names)
 		}
 		if differ := varsDifferBetween(rec, replayRec, freshSet(res)); differ != "" {
@@ -1053,9 +1050,8 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	case len(related) > 0:
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped %d write step(s) that act on entities the kept steps use: %s.\n"+
-			"Those writes can have side effects on those entities that no reference in the chain declares (stock\n"+
-			"they add, a status they set), so a match is not evidence that the slice reproduces the failure. Keep\n"+
-			"them and verify again against the same source run.", len(related), strings.Join(related, ", "))
+			"Those writes can have side effects on those entities that no reference in the chain declares, so a\n"+
+			"match is not evidence that the slice reproduces the failure. Keep them and verify again against the same source run.", len(related), capList(related, 5))
 		if note := otherEntitiesNote(other); note != "" {
 			v.Reason += "\nNot suggested: " + note + "."
 		}
@@ -1803,7 +1799,7 @@ func closureCommand(c *chain.Chain, step string, opts chain.SliceOptions, res *c
 
 func pinnedWritesError(res *chain.SliceResult, pinned []string, closure string) error {
 	return fmt.Errorf("refusing to -verify: under -mode pin the slice re-sends write step(s) on what run %s created: %s.\n"+
-		"That run already did those writes, so sending them changes live entities a second time (the order it confirmed, say) "+
+		"That run already did those writes, so sending them changes live entities a second time "+
 		"and the verdict is that of a second write, not the one recorded.\n"+
 		"Reproduce it in closure mode, which creates what the write needs afresh: %s\n"+
 		"or pass -resend-writes to send it anyway", res.Run, strings.Join(pinned, "; "), closure)
