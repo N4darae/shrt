@@ -126,6 +126,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			continue
 		}
 		said := []string{}
+		quantities, unbounded := []string{}, []string{}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
 				continue
@@ -139,6 +140,12 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			quantity := isQuantityName(f.Name)
 			min, failure, stated := statedMinimum(lib, st.Call, c, f.Name)
+			if quantity {
+				quantities = append(quantities, f.Name)
+			}
+			if !stated {
+				unbounded = append(unbounded, f.Name)
+			}
 			if stated {
 				probe := p.probeCopy(lib, st, f.Name+"_min")
 				probe.Body[key] = strconv.FormatInt(min, 10)
@@ -171,9 +178,16 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 		}
 		if len(said) > 0 {
-			p.note("step %s: boundary and magnitude probes %s. A quantity is not probed large, since a large quantity runs into "+
-				"stock rules rather than arithmetic; declare a minimum in a failure's when: (\"qty is zero or negative\") or the "+
-				"field's note to have it probed", st.ID, strings.Join(said, "; "))
+			msg := fmt.Sprintf("step %s: boundary and magnitude probes %s.", st.ID, strings.Join(said, "; "))
+			if len(quantities) > 0 {
+				msg += fmt.Sprintf(" %s %s not probed large, since a large quantity runs into stock rules rather than arithmetic.",
+					strings.Join(quantities, ", "), pluralIs(len(quantities)))
+			}
+			if len(unbounded) > 0 {
+				msg += fmt.Sprintf(" %s %s no stated minimum; declare one in a failure's when: (\"qty is zero or negative\") or "+
+					"the field's note to have it probed at it and one below", strings.Join(unbounded, ", "), pluralVerb(len(unbounded), "has", "have"))
+			}
+			p.note("%s", strings.TrimSuffix(msg, "."))
 		}
 	}
 }

@@ -78,7 +78,7 @@ func TestCLIVerifySaysWhenASafeSpotPredatesTheApprovalDigest(t *testing.T) {
 	writeFile(t, path, string(raw))
 	var verr error
 	out := captureStdout(t, func() {
-		verr = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet", "-save=false"})
+		verr = runVerify(context.Background(), []string{"cli-thing-flow", "-save=false"})
 	})
 	if verr != nil {
 		t.Fatalf("an older safe spot must still verify, got %v:\n%s", verr, out)

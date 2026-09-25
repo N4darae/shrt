@@ -49,7 +49,11 @@ required side is counted, because `chain lint` errors on each until the var has 
 - **`plan` emits ten kinds of `# note:` and only one of them is test data you owe** — the
   `is required and has no usable value — fill it` kind. One more is an assertion you owe:
   `asserts only the verdict ... declares what its response carries (...)` names the facts to assert,
-  and `chain lint -strict` fails the step until you do (§4). Read the others rather than skimming past:
+  and `chain lint -strict` fails the step until you do (§4). `plan` already asserts a floor on every
+  step it can (an id read back, the state the contract names, the created id, each batch item, and
+  on a read the creation stamp equal to the one its creator returned), and says which in one note, so
+  a fresh plan passes `chain lint -strict`; that note lists what it did, not what you owe, but the
+  floor is not the test: add the values your data should produce. Read the others rather than skimming past:
   `has no contract, its body is a bare scaffold`, `wants X but that rpc is not in the plan`,
   `caller must hold role`, and above all `required is an unfilled TODO, so this plan cannot say what
   the server rejects without — treat the body as unverified`. That last one means the plan is
@@ -340,7 +344,10 @@ for a caller without the role (a reason such as `PermissionDenied`, or a `when:`
 the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
 target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
 invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
-pair per plan, not per rpc). For a write, all of these sit between reads of what it touches
+pair per plan, not per rpc). A refusal every rpc of every domain shares, as `unauthenticated` usually
+is, is declared once: put it in one overlay's domain-level `failures:` with `scope: all` (in
+`auth.yaml`, say) rather than copying the block into each overlay; without `scope: all` a
+domain-level failure reaches only its own overlay's rpcs. For a write, all of these sit between reads of what it touches
 (`get_product_before_add_stock_denied` / `…_after_…`), so a denied call that still wrote fails.
 `shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
 probe`) and the chained rpcs no chain calls without a token (`no token`).

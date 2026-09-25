@@ -144,5 +144,26 @@ func planOptions(e *env) contract.PlanOptions {
 		opts.Logins = append(opts.Logins, name)
 	}
 	sort.Strings(opts.Logins)
+	profiles := []*config.Auth{e.cfg.Auth}
+	for _, name := range opts.Profiles {
+		if e.cfg.Auth != nil {
+			profiles = append(profiles, e.cfg.Auth.Profiles[name])
+		}
+	}
+	for _, a := range profiles {
+		if a == nil || a.Call == "" || len(a.Body) == 0 {
+			continue
+		}
+		m, err := e.cat.Lookup(a.Call)
+		if err != nil {
+			continue
+		}
+		if opts.LoginBodies == nil {
+			opts.LoginBodies = map[string]map[string]any{}
+		}
+		if _, taken := opts.LoginBodies[m.FullName]; !taken {
+			opts.LoginBodies[m.FullName] = a.Body
+		}
+	}
 	return opts
 }

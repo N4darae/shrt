@@ -77,7 +77,7 @@ func verifyThingFlow(t *testing.T) (string, error) {
 	t.Helper()
 	var verr error
 	out := captureStdout(t, func() {
-		verr = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"})
+		verr = runVerify(context.Background(), []string{"cli-thing-flow"})
 	})
 	return out, verr
 }
