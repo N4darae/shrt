@@ -483,10 +483,50 @@ func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string
 		if r.Kind == RefStep {
 			if issue, bad := refPathIssue(s.ID, r, responses); bad {
 				issues = append(issues, issue)
+			} else if issue, folded := inexactRefIssue(s.ID, r, responses); folded {
+				issues = append(issues, issue)
+			}
+		}
+	}
+	for _, e := range s.Expect {
+		for _, ref := range e.References() {
+			if r := ParseRef(ref); r.Kind == RefStep {
+				if _, bad := responseRefProblem(r, responses); !bad {
+					if issue, folded := inexactRefIssue(s.ID, r, responses); folded {
+						issues = append(issues, issue)
+					}
+				}
 			}
 		}
 	}
 	return issues
+}
+
+func inexactRefIssue(stepID string, r Ref, responses map[string]*catalog.Method) (Issue, bool) {
+	m, ok := responses[r.Head]
+	if !ok || m == nil || r.Err != nil {
+		return Issue{}, false
+	}
+	message, prefix := m.Output(), ""
+	path := strings.TrimPrefix(r.Rest, "response.")
+	if rest, isRequest := strings.CutPrefix(r.Rest, "request."); isRequest {
+		message, prefix, path = m.Input(), "request.", rest
+	}
+	if path == "" || path == "response" || path == "request" {
+		return Issue{}, false
+	}
+	exact, inexact := inexactPath(catalog.DescribeMessage(message).Fields, path)
+	if !inexact {
+		return Issue{}, false
+	}
+	want := "${" + r.Head + "." + prefix + exact + "}"
+	if strings.HasPrefix(r.Expr, "steps.") {
+		want = "${steps." + r.Head + "." + prefix + exact + "}"
+	}
+	return Issue{Step: stepID, Severity: SeverityWarn, Kind: KindInexactPath, Message: fmt.Sprintf(
+		"${%s} reads %q, which matches a field of %s only by folding case and separators; the field is %q. It "+
+			"resolves at run time, but a reader, a grep and a diff against the proto see a name the message does not "+
+			"declare: write %s", r.Expr, path, message.FullName(), exact, want)}, true
 }
 
 func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (Issue, bool) {

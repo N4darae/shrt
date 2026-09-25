@@ -73,6 +73,7 @@ type Report struct {
 	renames           [][2]string
 	reorderCandidates []stepPath
 	reordered         []stepPath
+	reorderExpect     map[string][]string
 }
 
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
@@ -216,6 +217,8 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
 		if why := firstLineOf(first.Error); why != "" {
 			rep.FirstFailure += ": " + why
+		} else if failed := failedExpectation(first); failed != "" {
+			rep.FirstFailure += ": " + failed
 		}
 	}
 	stoppedEarly := len(rec.Steps) < len(spot.Steps) && !rec.Passed()
@@ -1057,7 +1060,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
 			len(r.UnapprovedVolatile), r.SafeSpotID, strings.Join(r.UnapprovedVolatile, ", "))
 		if len(r.UnapprovedMasked) == 0 {
-			b.WriteString("  they hid no value this time, but they would hide a change there\n")
+			b.WriteString("  they hid nothing this run, but they would hide a change there\n")
 		} else {
 			fmt.Fprintf(&b, "  they hid %d value(s) the approved mask compares:\n", len(r.UnapprovedMasked))
 			for _, p := range r.UnapprovedMasked {
@@ -1069,7 +1072,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "the replay was redacted with %d redact pattern(s) the safe spot %s did not have: %s\n",
 			len(r.UnapprovedRedact), r.SafeSpotID, strings.Join(r.UnapprovedRedact, ", "))
 		if len(r.UnapprovedRedacted) == 0 {
-			b.WriteString("  they blanked no value the safe spot holds this time, but a change there is not compared\n")
+			b.WriteString("  they hid nothing this run (they blanked no value the safe spot holds), but a change there is not compared\n")
 		} else {
 			fmt.Fprintf(&b, "  they blanked %d value(s) the safe spot holds in the clear, which were not compared (not a backend change):\n", len(r.UnapprovedRedacted))
 			for _, p := range r.UnapprovedRedacted {
@@ -1141,8 +1144,8 @@ func (r *Report) Text() string {
 			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
 			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d come before any step whose input differs, so the different input does not explain them "+
-			"and they are evidence of a backend regression; %d come at or after it\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps whose input did not differ, that read no value the different input "+
+			"changed and follow no write whose answer changed with it, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case r.OnlyChainChanged():
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	case len(r.RequestChanges) > 0:
@@ -1170,6 +1173,9 @@ func (r *Report) Text() string {
 			i += run - 1
 			continue
 		}
+		if r.underReordered(c) {
+			continue
+		}
 		after := ""
 		if mixed && c.WithInput {
 			after = " (after different input)"
@@ -1180,6 +1186,23 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func failedExpectation(st *runner.StepRecord) string {
+	failed := []string{}
+	for _, e := range st.Expect {
+		if !e.Passed {
+			failed = append(failed, chain.DescribeFailure(e))
+		}
+	}
+	if len(failed) == 0 {
+		return ""
+	}
+	out := "expectation failed: " + failed[0]
+	if len(failed) > 1 {
+		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
+	}
+	return out
 }
 
 func sameNotReached(changes []Change) int {

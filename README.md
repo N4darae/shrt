@@ -127,8 +127,8 @@ error), and 0 for `-h`.
 
 | command | 0 | 1 | 2 | 3 |
 |---|---|---|---|---|
-| `run` | passed; a `-dry-run` resolved and validated; a chain with `kept_red` failed exactly as it pins | `failed`: an expectation did not hold (for a chain with `kept_red`: it failed anywhere else or differently than pinned, or passed, so the pinned defect is gone); also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare or a request path its request does not declare, a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint warning), a whole message into a string, bytes, bool, enum or numeric field (`name: ${p.product}`, `${p.status}`, `${o.order.lines.0}`, or an export of a message; a Timestamp, Duration, FieldMask or wrapper renders as one JSON value and passes), or a whole list or map into a single-valued field or a single value into a list or map (`qty: ${o.order.lines}`), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, the connection closed before a response because the backend stopped or crashed, or a gateway answered for the service: a Connect `unavailable`, or HTTP 502/503/504 without a Connect body, the normal answer during a rolling restart), so the run is not a verdict about the backend; a step refused a token the backend had accepted earlier in the run says it likely restarted mid-run; a step refused a token a login in this run had just issued, on its first use, says instead that this may be an auth regression, since the credentials work; refused at the same step the same way in the previous run that sent it, it exits 1 as a finding. A token accepted earlier and refused at the same step as in the previous run that sent it exits 1 as a finding: a refusal specific to that rpc, not a restart, unless either run shows a restart (data created before the refusal gone after the re-login, a later step reading it refused naming its id or as not found, or a step before the refusal that got no answer from the service), which keeps it exit 3 |
-| `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | could not verify: a step never got an answer (target unreachable, the connection dropped, sent but no answer before `target.timeout`, a Connect `unavailable` or a bare HTTP 502/503/504 from a gateway, login or auth refused) and nothing drifted before it; a change at or after that step is not judged; when no step got an answer at all it prints only why, with no change count or step status (a step a gateway answered for got no answer from the service, so it counts neither there nor among the steps after the first unanswered one that were compared); every could-not-verify verdict leads with its verdict line and lists the affected steps in one line instead of the drift dump; or `fixture reused`: the first failing step was refused as a uniqueness conflict on a field built from a var value a recorded run of the chain already used in that step without being refused, so re-run with a fresh `-var`; or `fixture collision`: the same refusal when no recorded run of the chain used that value (another chain, client or shared backend created the record), with the same fresh `-var` hint, except when the previous run of the chain that sent that step was refused there the same way with a different value no recorded run had created: two fresh values in a row cannot both be fixture noise, so it exits 1 with `FINDING:` naming both values; or the backend refused a token a login in this run had just issued, on its first use (the credentials work): it says this may be an auth regression instead of blaming the credentials, and when the previous run that sent that step was refused there the same way it exits 1 with `FINDING: auth refused at <rpc>`; or the backend refused a token it had accepted earlier in the run (a `WARNING` line names the step): it likely restarted mid-run, so changes at or after that step are not judged; re-run; every could-not-verify verdict leads with its verdict line and lists the affected steps; or, with `validate_output` on, the first failing step drifted from a stale descriptor or by fields the proto does not declare (a wrong-typed value or an undeclared enum value against a descriptor that matches a rebuild is a regression instead, exit 1) |
+| `run` | passed; a `-dry-run` resolved and validated; a chain with `kept_red` failed exactly as it pins | `failed`: an expectation did not hold (for a chain with `kept_red`: it failed anywhere else or differently than pinned, or passed, so the pinned defect is gone); also a refusal before anything was sent (unknown chain, a `-var` it never reads, a missing var, an unset env var read by a step or by the login body of an auth profile a step runs under, or a reference to a step or export that does not exist or runs later, or to a response field the producing step's message does not declare or a request path its request does not declare, a reference whose declared type cannot fill the numeric field it is sent in (a bool, enum, bytes or timestamp into an int64; a string may hold digits and is only a lint warning), a whole message into a string, bytes, bool, enum or numeric field (`name: ${p.product}`, `${p.status}`, `${o.order.lines.0}`, or an export of a message; a Timestamp, Duration, FieldMask or wrapper renders as one JSON value and passes), or a whole list or map into a single-valued field or a single value into a list or map (`qty: ${o.order.lines}`), an unknown auth profile, an rpc the catalog does not have, a streaming rpc, a conventions path no response declares, a step body the proto rejects, checked for every step up front as `-dry-run` does) | — | `error`: a step could not complete (unresolved reference, a body that is only invalid with the values a real response gave, login failed, target unreachable, the connection closed before a response because the backend stopped or crashed, or a gateway answered for the service: a Connect `unavailable`, or HTTP 502/503/504 without a Connect body, the normal answer during a rolling restart), so the run is not a verdict about the backend; a step refused a token the backend had accepted earlier in the run says it likely restarted mid-run; a step refused a token a login in this run had just issued, on its first use, says instead that this may be an auth regression, since the credentials work; refused at the same step the same way in the previous run that sent it, it exits 1 as a finding. A token accepted earlier and refused at the same step as in the previous run that sent it exits 1 as a finding: a refusal specific to that rpc, not a restart, unless either run shows a restart (a call refused at authentication and accepted when re-sent after a fresh login, the refused rpc accepting a later call after it, data created before the refusal gone after the re-login: a later step reading it refused naming its id or as not found when it did not expect that, a list shorter than the same call before the refusal, a uniqueness conflict it expected accepted instead; or a step before the refusal that got no answer from the service), which keeps it exit 3; "the same way" means the same HTTP status and code, so an in-band refusal and a 401 do not repeat each other |
+| `verify` | no drift and the replay passed | drift vs the safe spot, the replay did not pass, or no safe spot | — | could not verify: a step never got an answer (target unreachable, the connection dropped, sent but no answer before `target.timeout`, a Connect `unavailable` or a bare HTTP 502/503/504 from a gateway, login or auth refused) and nothing drifted before it; a change at or after that step is not judged; when no step got an answer at all it prints only why, with no change count or step status (a step a gateway answered for got no answer from the service, so it counts neither there nor among the steps after the first unanswered one that were compared); every could-not-verify verdict leads with its verdict line and lists the affected steps in one line instead of the drift dump; or `fixture reused`: the first failing step was refused as a uniqueness conflict on a field built from a var value a recorded run of the chain already used in that step without being refused, or sent there with no answer (whether it took effect is unknown), so re-run with a fresh `-var`; (also when a recorded run of another chain of the repo sent that value in a step it answered, naming that chain and run); or `fixture collision`: the same refusal when no recorded run of any chain used that value (another client or a shared backend created the record), with the same fresh `-var` hint, and when the previous run of the chain that sent that step was refused there the same way with a different value no recorded run had created, it says a repeat with fresh values points at the backend unless another client uses the same values, still exit 3; only when the conflicting field is built from `${uuid}` or a clock value, unique to its run, does such a repeat exit 1 with `FINDING:` naming both values; or the backend refused a token a login in this run had just issued, on its first use (the credentials work): it says this may be an auth regression instead of blaming the credentials, and when the previous run that sent that step was refused there the same way it exits 1 with `FINDING: auth refused at <rpc>`; or the backend refused a token it had accepted earlier in the run (a `WARNING` line names the step): it likely restarted mid-run, so changes at or after that step are not judged; re-run; every could-not-verify verdict leads with its verdict line and lists the affected steps; or, with `validate_output` on, the first failing step drifted from a stale descriptor or by fields the proto does not declare (a wrong-typed value or an undeclared enum value against a descriptor that matches a rebuild is a regression instead, exit 1) |
 | `confirm` | proposal written, approved, rejected or listed | refused (no passing run, no `-note`, no `-by`, nothing pending) | — | — |
 | `chain slice` (no `-verify`) | the slice was printed or written | a refusal: an unknown chain or step, `-mode pin` without `-run`, an unknown run, a slice file `-write` would overwrite. The same refusal exits 2 under `-verify`, where 1 would read as `NOT REPRODUCED` | — | — |
 | `chain slice -verify` | `reproduced` | `NOT REPRODUCED` | `DID NOT RUN`; also a refusal before anything was sent (an unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh `-var name=<fresh>`), so nothing was verified | `INCONCLUSIVE`; also a source run recorded against another target |
@@ -157,32 +157,54 @@ shrt contract quality -gate -baseline .shrt/quality-baseline
 shrt chain lint -strict
 tag="ci$(date +%s)$RANDOM"
 fail=0
+unverified=0
 shopt -s nullglob
+check() {
+  local what="$1" c="$2" file="$3" prefix="$4" try rc
+  for try in 1 2; do
+    args=(-quiet)
+    if grep -qs 'vars\.tag' "$file"; then args+=(-var "tag=$tag-$prefix$c-$try"); fi
+    rc=0; shrt "$what" "$c" "${args[@]}" || rc=$?
+    if [ "$rc" -ne 3 ] || [ "$try" -eq 2 ]; then break; fi
+    echo "gate: $what $c: no verdict (exit 3); retrying once in 20s" >&2
+    sleep 20
+  done
+  case "$rc" in
+    0) ;;
+    3) echo "gate: could not verify $c: $what exited 3 twice (backend unreachable, restarting or refusing auth); not a regression" >&2
+       unverified=1 ;;
+    *) echo "gate: $what $c exited $rc" >&2; fail=1 ;;
+  esac
+}
 for f in .shrt/chains/*.yaml; do
-  c="$(basename "$f" .yaml)"
-  args=(-quiet)
-  if grep -q 'vars\.tag' "$f"; then args+=(-var "tag=$tag-$c"); fi
-  rc=0; shrt run "$c" "${args[@]}" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "gate: run $c exited $rc" >&2; fail=1; }
+  check run "$(basename "$f" .yaml)" "$f" ""
 done
 for s in .shrt/safespots/*.json; do
   c="$(basename "$s" .json)"
-  args=(-quiet)
-  if grep -qs 'vars\.tag' ".shrt/chains/$c.yaml"; then args+=(-var "tag=$tag-v-$c"); fi
-  rc=0; shrt verify "$c" "${args[@]}" || rc=$?
-  [ "$rc" -eq 0 ] || { echo "gate: verify $c exited $rc" >&2; fail=1; }
+  check verify "$c" ".shrt/chains/$c.yaml" "v-"
 done
 rc=0; shrt chain hollow -gate -baseline .shrt/hollow-baseline || rc=$?
 [ "$rc" -eq 0 ] || { echo "gate: chain hollow -gate exited $rc" >&2; fail=1; }
-exit "$fail"
+if [ "$fail" -ne 0 ]; then exit 1; fi
+if [ "$unverified" -ne 0 ]; then echo "gate: could not verify every chain; re-run the gate once the backend is up" >&2; exit 3; fi
 ```
+
+Exit 3 from `run` or `verify` is not a verdict: the backend was unreachable, a gateway answered for
+it, it restarted mid-run, or it refused authentication, and the output says which, followed by
+`re-run`. A rolling restart does that routinely, so the gate retries such a chain once, after a
+short wait and with a fresh tag (the first attempt may have created some of its fixtures), and never
+retries exit 1 or 2. Still 3 on the retry, it prints `gate: could not verify <chain>: ...`
+instead of a failure line, and the gate exits 3 when nothing else failed (1 when something did, so a
+regression is never reported as merely unverified). Treat 3 in CI as "no verdict": re-run the job
+once the backend is up, or retry it automatically; do not mark the change red, and do not count it
+as green either.
 
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
-a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`): verify
-treats a var inside other text as a fixture name and does not count a new one as a change, but a
+a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`, or a header value `X-Tag: t-${vars.tag}`): verify
+treats a var inside other text, in a body field or a header alike, as a fixture name and does not count a new one as a change, but a
 field that is `${vars.tag}` alone is input, so the fresh tag makes every CI `verify` of that chain
-fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0,
+fail with `drift with different input`; `chain lint` warns on such a field. Every run must exit 0 (3 is retried once, as above),
 and so must every `verify`. A chain kept
 red on purpose, pinning a known defect, declares WHERE and HOW it fails with `kept_red` (GRAMMAR
 §1): its run goes past every failure, pinned or not, as `-keep-going` would, with no flag, so every

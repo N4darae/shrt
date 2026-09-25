@@ -161,8 +161,9 @@ const runExitCodes = "\nexit codes:\n" +
 	"     or a bare HTTP 502/503/504, login failed), so the run is not a verdict about the backend;\n" +
 	"     a token the backend accepted earlier in the run and then refused reads as a likely restart\n" +
 	"     mid-run, and exits 1 as a finding when the previous run that sent that step was refused\n" +
-	"     there the same way, unless either run shows a restart (data created before it gone after the\n" +
-	"     re-login, or a step before it with no answer from the service); a token a login in this run had just issued and the backend refused on\n" +
+	"     there the same way, unless either run shows a restart (a call accepted when re-sent after a\n" +
+	"     fresh login, data created before it gone after the re-login, or a step before it with no\n" +
+	"     answer from the service); a token a login in this run had just issued and the backend refused on\n" +
 	"     its first use is reported as a\n" +
 	"     possible auth regression, and exits 1 as a finding when the previous run that sent that\n" +
 	"     step was refused there the same way, with its own freshly issued token\n"

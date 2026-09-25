@@ -226,12 +226,53 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 		h.RequestChanges = append([]Change{}, requests...)
 		h.separateInput(spot, rec, extra, *fx)
 	}
+	r.reorderExpect = map[string][]string{}
 	for _, c := range r.reorderCandidates {
 		if changesUnder(r.Changes, c) > 0 && changesUnder(h.Changes, c) == 0 {
 			r.Reordered = append(r.Reordered, c.step+" "+c.path)
 			r.reordered = append(r.reordered, c)
+			if st, ok := rec.Step(c.step); ok {
+				for _, e := range st.Expect {
+					if p := listPath(e.Path); !e.Passed && (p == c.path || strings.HasPrefix(p, c.path+".")) {
+						r.reorderExpect[c.step] = append(r.reorderExpect[c.step], chain.DescribeFailure(e))
+					}
+				}
+			}
 		}
 	}
+}
+
+func (r *Report) underReordered(c Change) bool {
+	for _, at := range r.reordered {
+		if changesUnder([]Change{c}, at) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Report) reorderOnlyStep(step string) bool {
+	found := false
+	for _, c := range r.Changes {
+		if c.Step != step || c.Kind == KindStatus {
+			continue
+		}
+		if !r.underReordered(c) {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
+func (r *Report) ReorderedExpectations() []string {
+	out := []string{}
+	for _, at := range r.reordered {
+		for _, e := range r.reorderExpect[at.step] {
+			out = append(out, at.step+" "+e)
+		}
+	}
+	return out
 }
 
 func changesUnder(changes []Change, at stepPath) int {
@@ -252,14 +293,11 @@ func (r *Report) OnlyReordered() bool {
 		return false
 	}
 	for _, c := range r.Changes {
-		under := false
-		for _, at := range r.reordered {
-			if changesUnder([]Change{c}, at) > 0 {
-				under = true
-				break
-			}
-		}
-		if !under {
+		switch {
+		case r.underReordered(c):
+		case c.Kind == KindStatus && r.reorderOnlyStep(c.Step):
+		case c.Kind == KindNotReached:
+		default:
 			return false
 		}
 	}
@@ -274,7 +312,11 @@ func (r *Report) reorderedText() string {
 	for _, at := range r.reordered {
 		b.WriteString("  " + at.step + " " + at.path + ": same items in another order: it holds what the safe spot holds, in another order. " +
 			"If the rpc promises no order, declare `unordered: [" + at.path + "]` on step " + at.step +
-			" (or at chain level), and verify compares that list as a multiset, pairing items by content\n")
+			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
+		if failed := r.reorderExpect[at.step]; len(failed) > 0 {
+			b.WriteString("; the expectation(s) reading it by position failed: " + strings.Join(failed, "; "))
+		}
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -292,6 +334,7 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 		}
 	}
 	out := []UnorderedAddition{}
+	compared := 0
 	for _, st := range rec.Steps {
 		if st == nil {
 			continue
@@ -309,6 +352,42 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 		if len(added) > 0 {
 			out = append(out, UnorderedAddition{Step: st.ID, Paths: added})
 		}
+		compared++
+	}
+	return chainLevelAdditions(out, compared)
+}
+
+func chainLevelAdditions(steps []UnorderedAddition, compared int) []UnorderedAddition {
+	if compared < 2 || len(steps) < compared {
+		return steps
+	}
+	common := []string{}
+	for _, p := range steps[0].Paths {
+		every := true
+		for _, a := range steps[1:] {
+			if !containsString(a.Paths, p) {
+				every = false
+				break
+			}
+		}
+		if every {
+			common = append(common, p)
+		}
+	}
+	if len(common) == 0 {
+		return steps
+	}
+	out := []UnorderedAddition{{Paths: common}}
+	for _, a := range steps {
+		rest := []string{}
+		for _, p := range a.Paths {
+			if !containsString(common, p) {
+				rest = append(rest, p)
+			}
+		}
+		if len(rest) > 0 {
+			out = append(out, UnorderedAddition{Step: a.Step, Paths: rest})
+		}
 	}
 	return out
 }
@@ -316,6 +395,10 @@ func UnorderedAdditions(spot *store.SafeSpot, rec *runner.Record) []UnorderedAdd
 func UnorderedAdded(spot *store.SafeSpot, rec *runner.Record) []string {
 	out := []string{}
 	for _, a := range UnorderedAdditions(spot, rec) {
+		if a.Step == "" {
+			out = append(out, fmt.Sprintf("`unordered: [%s]` at chain level", strings.Join(a.Paths, ", ")))
+			continue
+		}
 		out = append(out, fmt.Sprintf("`unordered: [%s]` on step %s", strings.Join(a.Paths, ", "), a.Step))
 	}
 	return out

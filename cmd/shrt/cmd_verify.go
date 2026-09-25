@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -52,10 +53,12 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     matches a rebuild: the proto is current, so the backend changed (a regression at that step)\n" +
 	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
 	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
-	"     also when a fixture collision follows a previous run refused at the same step the same way\n" +
-	"     with another fresh value: two fresh values in a row are not fixture noise;\n" +
-	"     unless either run shows a restart (data created before the refusal gone after the re-login,\n" +
-	"     or a step before it that got no answer from the service), which keeps it exit 3\n" +
+	"     also when a fixture collision on a field built from ${uuid} or a clock value follows a\n" +
+	"     previous run refused at the same step the same way: such values are unique to their run (a\n" +
+	"     repeat on var values stays exit 3, since another client may use the same values);\n" +
+	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
+	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
+	"     from the service), which keeps it exit 3\n" +
 	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
 	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
 
@@ -205,6 +208,7 @@ func runVerify(ctx context.Context, args []string) error {
 	declared := declaredDriftChanges(e, rec, report, driftStep)
 	violation := driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt) &&
 		protoViolation(ctx, e, driftWhy)
+	independent := independentOfDrift(c, rec, report, driftStep, driftAt)
 	var nonBackend error
 	headline := ""
 	switch {
@@ -226,7 +230,7 @@ func runVerify(ctx context.Context, args []string) error {
 		}
 		nonBackend = couldNotVerify(name, unansweredStep, unansweredWhy, rec)
 	case violation:
-	case driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
+	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
 		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
 		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s); %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
@@ -287,6 +291,11 @@ func runVerify(ctx context.Context, args []string) error {
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
 			}
+			if !violation && len(declared) == 0 && len(independent) > 0 {
+				fmt.Printf("note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
+					"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(independent),
+					describeChanges(independent), driftRemedy(ctx, e, driftWhy))
+			}
 			if len(declared) > 0 {
 				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
 					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
@@ -335,8 +344,8 @@ func runVerify(ctx context.Context, args []string) error {
 			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
 				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot come before any step whose input differs, so the different input does not explain them "+
-			"(%d more come at or after it)", n, len(report.Changes)-n)
+		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ, that read no value the different "+
+			"input changed and follow no write whose answer changed with it, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
@@ -376,9 +385,17 @@ func runVerify(ctx context.Context, args []string) error {
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
 	}
 	if report.OnlyReordered() {
-		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n"+
+		failed := ""
+		if list := report.ReorderedExpectations(); len(list) > 0 {
+			failed = "; the expectation(s) reading it by position failed: " + strings.Join(list, "; ")
+		}
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s.\n"+
 			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
-			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "))
+			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.Reordered, ", "), failed)
+	}
+	if len(declared) == 0 && len(independent) > 0 {
+		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
+			"descriptor (%s), so it and the steps reading it are not judged: %s", len(independent), driftStep, driftWhy, describeChanges(independent))
 	}
 	if !report.Clean() && len(declared) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot, including %s in the declared fields of the response at %s, "+
@@ -388,10 +405,14 @@ func runVerify(ctx context.Context, args []string) error {
 		return fmt.Errorf("regression: %d change(s) vs safe spot", report.Counted())
 	}
 	if len(report.UnapprovedRedact) > 0 {
-		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; the value(s) they blanked were not compared, "+
+		blanked := "the value(s) they blanked were not compared"
+		if len(report.UnapprovedRedacted) == 0 {
+			blanked = "they hid nothing this run, but a change under them would not be compared"
+		}
+		return fmt.Errorf("the replay was redacted with redact pattern(s) the safe spot's run did not have: %s; %s, "+
 			"and this is not a backend change.\nRemove them from the chain and config, or, if they are intended, run the chain and propose that run\n"+
 			"in place of the safe spot so a person approves the new redaction: shrt confirm %s -supersede -note \"...\"",
-			strings.Join(report.UnapprovedRedact, ", "), name)
+			strings.Join(report.UnapprovedRedact, ", "), blanked, name)
 	}
 	if report.Widened() {
 		return fmt.Errorf("the replay was masked with volatile pattern(s) the safe spot did not approve: %s.\n"+
@@ -566,6 +587,9 @@ func isolationVars(c *chain.Chain) map[string]bool {
 	for _, s := range c.Steps {
 		if s != nil {
 			visit(s.Body, "")
+			for name, value := range s.Headers {
+				visit(value, diff.HeadersPathPrefix+name)
+			}
 		}
 	}
 	out := map[string]bool{}
@@ -578,7 +602,49 @@ func isolationVars(c *chain.Chain) map[string]bool {
 }
 
 func requestFixtures(c *chain.Chain) diff.Fixtures {
-	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c), Var: fixtureOnlyVar(c)}
+	return diff.Fixtures{Named: fixtureRequestPath(c), Generated: generatedRequestPath(c), Var: fixtureOnlyVar(c), Reads: chainReads(c)}
+}
+
+func chainReads(c *chain.Chain) map[string][]diff.Read {
+	if c == nil {
+		return nil
+	}
+	steps, exports := map[string]bool{}, map[string]string{}
+	for _, s := range c.Steps {
+		steps[s.ID] = true
+		for name := range s.Export {
+			exports[name] = s.ID
+		}
+	}
+	out := map[string][]diff.Read{}
+	for _, s := range c.Steps {
+		raw, err := json.Marshal(s)
+		var doc any
+		if err != nil || json.Unmarshal(raw, &doc) != nil {
+			continue
+		}
+		reads := []diff.Read{}
+		visitStrings(doc, func(text string) {
+			for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+				ref := chain.ParseRef(m[1])
+				if name, ok := ref.ExportName(); ok && exports[name] != "" && !(ref.Kind == chain.RefBare && steps[ref.Head]) {
+					reads = append(reads, diff.Read{Step: exports[name]})
+					continue
+				}
+				id, ok := ref.StepID()
+				if !ok || !steps[id] {
+					continue
+				}
+				if rest, isRequest := strings.CutPrefix(ref.Rest, "request."); isRequest || ref.Rest == "request" {
+					reads = append(reads, diff.Read{Step: id, Request: true, Path: rest})
+					continue
+				}
+				reads = append(reads, diff.Read{Step: id, Path: strings.TrimPrefix(ref.Rest, "response.")})
+			}
+		})
+		out[s.ID] = reads
+	}
+	return out
 }
 
 func fixtureOnlyVar(c *chain.Chain) func(string) bool {
@@ -788,6 +854,36 @@ func declaredDriftChanges(e *env, rec *runner.Record, report *diff.Report, step 
 	return out
 }
 
+func independentOfDrift(c *chain.Chain, rec *runner.Record, report *diff.Report, step string, at int) []diff.Change {
+	if step == "" || c == nil {
+		return nil
+	}
+	reads := chainReads(c)
+	tainted := map[string]bool{step: true}
+	after := map[string]bool{}
+	for i, st := range rec.Steps {
+		if st == nil || i <= at {
+			continue
+		}
+		for _, rd := range reads[st.ID] {
+			if tainted[rd.Step] {
+				tainted[st.ID] = true
+			}
+		}
+		if st.Drift || st.Status == runner.StatusSkipped {
+			tainted[st.ID] = true
+		}
+		after[st.ID] = true
+	}
+	out := []diff.Change{}
+	for _, ch := range report.Changes {
+		if after[ch.Step] && !tainted[ch.Step] && ch.Kind != diff.KindNotReached && ch.Kind != diff.KindStatus {
+			out = append(out, ch)
+		}
+	}
+	return out
+}
+
 func describeChanges(changes []diff.Change) string {
 	out := []string{}
 	for _, c := range changes {
@@ -829,7 +925,7 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 				"(auth_retry, error); re-run verify to confirm: a repeat at the same step is reported as a finding", name, step, why, past)
 		}
 	}
-	remedy := "start or reach the target, or fix the credentials it refused, and run verify again"
+	remedy := unansweredRemedy(why)
 	for _, st := range rec.Steps {
 		if st.ID == step && runner.NotAnsweredByService(st) {
 			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
@@ -841,6 +937,23 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
+}
+
+var gatewayLogin = regexp.MustCompile(`(?i)login rejected: (http_50[234]|unavailable)\b`)
+
+func unansweredRemedy(why string) string {
+	lower := strings.ToLower(why)
+	switch {
+	case gatewayLogin.MatchString(why):
+		return "the login was answered by a gateway, not by the service (as during a rolling restart), so wait until it is up " +
+			"and run verify again"
+	case strings.Contains(lower, "refused authentication") || strings.Contains(lower, "login rejected") ||
+		strings.Contains(lower, "unauthenticated") || strings.Contains(lower, "permission_denied"):
+		return "fix the credentials it refused, and run verify again"
+	case strings.Contains(lower, "closed the connection"):
+		return "check the backend is up (it stopped or crashed with the request in flight) and run verify again"
+	}
+	return "start or reach the target, and run verify again"
 }
 
 func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bool) {

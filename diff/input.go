@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"github.com/N4darae/shrt/chain"
 	"strings"
 
 	"github.com/N4darae/shrt/pathmask"
@@ -15,6 +16,13 @@ type Fixtures struct {
 	Named     func(step, path string) bool
 	Generated func(step, path string) bool
 	Var       func(name string) bool
+	Reads     map[string][]Read
+}
+
+type Read struct {
+	Step    string
+	Request bool
+	Path    string
 }
 
 func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
@@ -59,6 +67,16 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	from := -1
 	firstEdited := -1
 	edited := map[string]bool{}
+	causal := fx.Reads != nil
+	inputAt := map[string][]string{}
+	for _, c := range material {
+		if !expectationChange(c) {
+			if _, ok := index[c.Step]; !ok || stepLevel(c) {
+				causal = false
+			}
+			inputAt[c.Step] = append(inputAt[c.Step], c.Path)
+		}
+	}
 	for _, c := range material {
 		if expectationChange(c) {
 			if !editedExpectFailed(rec, c) {
@@ -83,11 +101,18 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.noteHiddenStaleEchoes(append(pairs, r.renames...))
 	r.FixtureEchoed = append(r.FixtureEchoed, echoed...)
 	remaining = append(remaining, stale...)
+	var explained map[string]bool
+	if causal && from >= 0 {
+		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads)
+	}
 	kept := []Change{}
 	for _, c := range remaining {
 		if from >= 0 {
 			i, ok := index[c.Step]
 			c.WithInput = !ok || i >= from
+			if explained != nil && ok {
+				c.WithInput = explained[c.Step]
+			}
 		}
 		if c.Kind == KindStatus && edited[c.Step] {
 			c.WithInput = true
@@ -98,6 +123,56 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 		kept = append(kept, c)
 	}
 	r.Changes = kept
+}
+
+func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read) map[string]bool {
+	responseChanged := map[string]bool{}
+	for _, c := range changes {
+		if c.Kind != KindStatus && c.Kind != KindNotReached {
+			responseChanged[c.Step] = true
+		}
+	}
+	explained := map[string]bool{}
+	carried, stateChanged := false, false
+	for _, st := range order {
+		if _, done := explained[st.ID]; done {
+			continue
+		}
+		why := len(inputAt[st.ID]) > 0
+		for _, rd := range reads[st.ID] {
+			switch {
+			case rd.Request && pathsOverlap(inputAt[rd.Step], rd.Path):
+				why = true
+			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step]:
+				why = true
+			}
+		}
+		if stateChanged {
+			why = true
+		}
+		if why {
+			carried = true
+		}
+		explained[st.ID] = why
+		if len(inputAt[st.ID]) > 0 && responseChanged[st.ID] && !chain.IsReadOnlyCall(st.Call) {
+			stateChanged = true
+		}
+		for _, c := range changes {
+			if c.Step == st.ID && c.Kind == KindNotReached && carried {
+				explained[st.ID] = true
+			}
+		}
+	}
+	return explained
+}
+
+func pathsOverlap(changed []string, read string) bool {
+	for _, p := range changed {
+		if read == "" || p == read || strings.HasPrefix(p, read+".") || strings.HasPrefix(read, p+".") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Report) Unexplained() []Change {
@@ -219,6 +294,21 @@ func (r *Report) dropEchoedUnapproved(pairs [][2]string) {
 		}
 	}
 	r.UnapprovedMasked = kept
+	if r.approvedMask == nil {
+		return
+	}
+	values, paths := r.VolatileValues[:0], r.VolatilePaths[:0]
+	for _, c := range r.VolatileValues {
+		key := c.Step + " " + c.Path
+		if echo[key] && !maskedAt(r.approvedMask, c) {
+			r.VolatileMasked--
+			r.FixtureEchoed = append(r.FixtureEchoed, c)
+			continue
+		}
+		values = append(values, c)
+		paths = append(paths, key)
+	}
+	r.VolatileValues, r.VolatilePaths = values, paths
 }
 
 func (r *Report) noteHiddenStaleEchoes(pairs [][2]string) {
