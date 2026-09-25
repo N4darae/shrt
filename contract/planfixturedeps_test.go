@@ -72,3 +72,20 @@ func TestAStateMoveWhoseRPCNeedsAnotherWriteIsPlannedWithThatWriteAsAFixture(t *
 		}
 	}
 }
+
+func TestTheReadBackOfAnOrderAssertsEachLineAsSentAndTheTotal(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{}, "CreateOrder")
+	read := planStep(t, p, "fetch_order_after_create_order")
+	for _, i := range []string{"0", "1"} {
+		wantExpect(t, read, "order.lines."+i+".id_product", "${steps.create_order.request.lines."+i+".id_product}")
+		wantExpect(t, read, "order.lines."+i+".qty", "${steps.create_order.request.lines."+i+".qty}")
+	}
+	wantExists(t, read, "order.lines.2", false)
+	found := false
+	for _, e := range read.Expect {
+		found = found || e.Path == "order.total_minor"
+	}
+	if !found {
+		t.Fatalf("the read-back asserts the total:\n%s", text)
+	}
+}

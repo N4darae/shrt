@@ -2048,6 +2048,20 @@ longer holds the write back; the plan adds only the prerequisite steps it needs
 dependency the plan cannot satisfy that way (a `from:` to an rpc it does not call) still drops the
 state with the note.
 
+## 94. A read-back that said "every field it sent" and checked only the id
+
+**Symptom.** `fetch_order_after_create_order` was described as `the order create_order stored, read
+back: every field it sent, as sent`, but asserted `order.id_order` (and the computed total) only: a
+FetchOrder that dropped a line or returned another quantity passed.
+
+**Cause.** The read-back assertion skipped every repeated field, so an order's lines, the part of
+the request that carries its content, were never compared.
+
+**Fix.** 2026-09-25: a read-back also asserts each scalar field of each item of a repeated message
+field the write sent, at its position (`order.lines.0.id_product`, `order.lines.1.qty`, equal to
+`${steps.create_order.request.lines.N...}`), and that there is no item more (`order.lines.2 exists:
+false`).
+
 ---
 
 # Decisions, so they are not relitigated
