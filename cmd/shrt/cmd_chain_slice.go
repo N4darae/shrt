@@ -1244,7 +1244,12 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 	reused := []string{}
 	from := []string{}
 	for _, name := range res.FreshVars {
-		if _, given := supplied[name]; given {
+		if v, given := supplied[name]; given {
+			if rec == nil || rec.Vars[name] == nil || fmt.Sprint(rec.Vars[name]) == pathmask.MaskRedacted || fmt.Sprint(v) != fmt.Sprint(rec.Vars[name]) {
+				continue
+			}
+			reused = append(reused, name)
+			from = append(from, fmt.Sprintf("%s=%v (-var %s=%v is the value run %s used)", name, v, name, v, rec.RunID))
 			continue
 		}
 		reused = append(reused, name)

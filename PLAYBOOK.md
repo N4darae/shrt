@@ -1293,7 +1293,8 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and
      re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
-     `-var name=<fresh>`. Only a flag that cannot be parsed exits 1.
+     `-var name=<fresh>` (a `-var` equal to the source run's value for a var a kept write interpolates
+     is not fresh). Only a flag that cannot be parsed exits 1.
    - `INCONCLUSIVE` (3), also when the source run was recorded against another target than the
      config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
      `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict

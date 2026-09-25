@@ -23,6 +23,13 @@ func TestTheFreshnessRefusalNamesTheValueTheSourceRunUsed(t *testing.T) {
 	if strings.Contains(msg, "tag=w1") {
 		t.Fatalf("the chain default w1 is not what the source run created with: %s", msg)
 	}
+	given := freshVarsError(res, source, rec, varFlags{"tag": "sl1"})
+	if given == nil || !strings.Contains(given.Error(), "-var tag=sl1 is the value run R1 used") {
+		t.Fatalf("a -var equal to the source run's value is not fresh and must be refused before anything is sent: %v", given)
+	}
+	if err := freshVarsError(res, source, rec, varFlags{"tag": "sl2"}); err != nil {
+		t.Fatalf("a -var the source run did not use is fresh: %v", err)
+	}
 	same := &runner.Record{RunID: "R2", Vars: map[string]any{"tag": "w1"}}
 	if msg := freshVarsError(res, source, same, varFlags{}).Error(); !strings.Contains(msg, "tag=w1, the value run R2 used") {
 		t.Fatalf("a run that used the default is named as the run's value: %s", msg)
