@@ -293,7 +293,7 @@ Declare it where it belongs.
 **Cause.** A server error on a request the backend answered elsewhere in the run or in the previous
 run. **Fix.** It is a real backend defect (exit 1), just not deterministic.
 
-## 49. `WARNING: token refused <N>s after issue although the login said ...`
+## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 
 **Cause.** Sessions may end before their stated expiry, or the backend restarted. **Fix.** Write a
 short chain whose reads carry `wait:` longer than the suspected lifetime and shorter than the stated
