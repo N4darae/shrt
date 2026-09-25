@@ -1165,6 +1165,24 @@ that changed kind is a counted change with the line `expires_at changed unit: se
 milliseconds`; a time outside the window is a counted change that says so. `shrt diff` does the
 same. The 400 days keep a one-year expiry masked while 1999 or a year in the 2100s is reported.
 
+## 40. An intermittent server error reported as a deterministic regression
+
+**Symptom.** A GetProduct that answered Connect `internal: pool exhausted` on every 4th call
+server-wide failed `verify` with `regression: 5 change(s) vs safe spot` at a step that moved from run
+to run (`get_b_again`, then `get_as_clerk`, then `get_unknown`), although the same request had
+passed a step earlier in the same run.
+
+**Cause.** Only a dropped connection or a timeout was checked against other steps and the previous
+run; an answered server error was a plain status change.
+
+**Fix.** 2026-09-25: a step failed with a server error (Connect `internal`, `unknown`,
+`resource_exhausted`, `data_loss`, `aborted`, `deadline_exceeded`, another 5xx with a Connect body)
+is `FINDING: intermittent failure at <rpc>` when the backend answered the same request at another
+step of the run, or the previous run of the chain failed at another step with the same error and
+answered this one. Still exit 1, never 0: the backend fails. When the only evidence is that the
+previous run answered the step, it stays a regression with a `looks intermittent` note, since a
+deploy between the runs looks the same. `run` prints the same finding in its summary.
+
 ---
 
 # Decisions, so they are not relitigated

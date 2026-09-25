@@ -58,6 +58,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
 	"       within every run, a chain defect; unless the value is a ${steps.<id>.request...} reference\n" +
 	"       or the safe spot's run or an earlier run had that repeat accepted: then a regression\n" +
+	"     - intermittent failure at <rpc>: a server error (internal, unknown, resource_exhausted, a 5xx\n" +
+	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
+	"       that the previous run answered while failing at another step with the same error\n" +
 	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
 	"     is not judged\n" +
 	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
@@ -250,6 +253,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if unanswered && loss == nil && fresh == nil {
 		dropped = repeatedUnanswered(e, rec, unansweredStep)
 	}
+	var flaky *intermittentFailure
+	if !report.Clean() && loss == nil && fresh == nil && dropped == nil {
+		flaky = detectIntermittent(e, rec)
+	}
 	var reuse *fixtureReuse
 	var literal *literalCollision
 	if !report.Clean() {
@@ -347,6 +354,8 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("FINDING: " + fresh.line())
 		case dropped != nil:
 			fmt.Println("FINDING: " + dropped.line())
+		case flaky.finding():
+			fmt.Println("FINDING: " + flaky.line())
 		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
@@ -369,6 +378,9 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			if lateIdem != nil {
 				fmt.Println(lateIdem.note())
+			}
+			for _, line := range flaky.notes() {
+				fmt.Println("note: " + line)
 			}
 			if violation {
 				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
@@ -420,6 +432,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if idem != nil && idem.literal {
 		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
+	}
+	if flaky.explainsAll(report) && !violation {
+		return fmt.Errorf("%s: %s", name, flaky.line())
 	}
 	if violation {
 		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))

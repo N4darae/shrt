@@ -502,6 +502,20 @@ answering later steps too, the backend is up and fails that one rpc every time: 
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
 answered, and so does a repeat where the same rpc answered another step of either run: then that
 call failed, not the rpc, which looks intermittent.
+
+A step the backend did answer, with a server error (Connect `internal`, `unknown`,
+`resource_exhausted`, `data_loss`, `aborted`, `deadline_exceeded`, or another HTTP 5xx with a Connect
+body; `unavailable` is a gateway or a restart, above), is checked for flakiness before it is called
+a regression. When the backend answered the same request at another step of this run, or the
+previous run of the chain failed at a different step with the same error and answered this one,
+`verify` and `run` print `FINDING: intermittent failure at <rpc>` with that evidence, and `verify`
+fails with it instead of `regression: ...` when every change is at such a step. It still exits 1:
+the backend does fail that rpc, only not on every call. When the only evidence is that the previous
+run that sent the step answered it, the verdict stays `regression` with a `note: ... this looks
+intermittent` line, because a backend change deployed between the two runs reads the same; re-run,
+and a failure that moves or passes becomes the finding, while one at the same step again stays a
+regression. A flake that lands on the same step every run (a server-wide counter that every run
+reaches at the same call) is indistinguishable from a deterministic failure and is reported as one.
 "The previous run that sent that step" (here, for an auth refusal and for a reused fixture)
 pairs steps the way verify pairs a renamed step, by call and position, so a step renamed since that
 run is still found under its old name.
