@@ -1433,8 +1433,10 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    comes from `needs` / `before` / `from` / `same_as` in `.shrt/contracts/`, which is the only
    reason a step with no textual link to the target survives at all. For an aliased edge
    (`<rpc>@<alias>`) the slice keeps the step whose id carries `_<alias>` (the id `contract plan`
-   gives it), preferring among those the one the body references; for an unaliased edge it keeps
-   the referenced step, else the nearest. An edge declared under one alias of a contract binds only
+   gives it), preferring among those the one the body references; for an unaliased `needs` or
+   `before` edge it keeps every call of that rpc that acts on an entity the step references (a
+   `CreateOrder` whose lines name two products keeps the `AddStock` of each, not only the later
+   one), else the referenced step, else the nearest. An edge declared under one alias of a contract binds only
    a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
    literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
    refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
