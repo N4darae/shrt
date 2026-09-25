@@ -16,7 +16,7 @@ func TestInitRerunAddsAMissingRoleProfileAndKeepsTheRestOfTheConfig(t *testing.T
 	t.Setenv("CLERK_USER", "")
 	t.Setenv("CLERK_PASSWORD", "")
 	captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init: %v", err)
 		}
 	})
@@ -26,7 +26,7 @@ func TestInitRerunAddsAMissingRoleProfileAndKeepsTheRestOfTheConfig(t *testing.T
 		t.Fatal(err)
 	}
 	unset := captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init with the clerk credentials still unset: %v", err)
 		}
 	})
@@ -40,7 +40,7 @@ func TestInitRerunAddsAMissingRoleProfileAndKeepsTheRestOfTheConfig(t *testing.T
 	t.Setenv("CLERK_USER", "clerk")
 	t.Setenv("CLERK_PASSWORD", "x")
 	out := captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init again: %v", err)
 		}
 	})
@@ -59,7 +59,7 @@ func TestInitRerunAddsAMissingRoleProfileAndKeepsTheRestOfTheConfig(t *testing.T
 		t.Fatalf("init names the profile it added to the existing config:\n%s", out)
 	}
 	again := captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init a third time: %v", err)
 		}
 	})

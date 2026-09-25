@@ -31,7 +31,7 @@ func TestInitAddsAProfileForASecondCredentialSetTheReadmeNames(t *testing.T) {
 	t.Setenv("DB_USER", "postgres")
 	t.Setenv("DB_PASSWORD", "x")
 	out := captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init: %v", err)
 		}
 	})
@@ -66,7 +66,7 @@ func TestInitSaysHowToAddAProfilePerRoleWhenItCannotTell(t *testing.T) {
 	restore := chdir(t, dir)
 	defer restore()
 	out := captureStdout(t, func() {
-		if err := runInit(t.Context(), []string{"-build=false", "-agents=false"}); err != nil {
+		if err := initAllowingIncomplete(t, []string{"-build=false", "-agents=false"}); err != nil {
 			t.Fatalf("init: %v", err)
 		}
 	})

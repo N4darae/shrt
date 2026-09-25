@@ -44,3 +44,24 @@ func TestQualityGateNamesUncoveredRPCsWhenTheyRaiseTheScore(t *testing.T) {
 		t.Fatalf("the rise comes from uncovered rpcs, and the gate must say so: %v", err)
 	}
 }
+
+func TestContractStatusGapsSaysAServerStreamingRPCIsReadOnlyToItsFirstMessage(t *testing.T) {
+	chdirToRichWorkspace(t)
+	var err error
+	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "server-streaming; only its first message is read, so what it sends later (updates on change) is not checked") {
+			n++
+			if !strings.Contains(line, "WatchOrder: ") || strings.Contains(line, "UploadOrders") {
+				t.Fatalf("the line names the server-streaming rpc: %q", line)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("want one line for the one callable server-streaming rpc, got %d:\n%s", n, out)
+	}
+}

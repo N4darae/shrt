@@ -17,7 +17,7 @@ func initBaseURL(t *testing.T, port string, args ...string) (string, string) {
 	restore := chdir(t, dir)
 	defer restore()
 	out := captureStdout(t, func() {
-		if err := runInit(t.Context(), append([]string{"-build=false", "-agents=false"}, args...)); err != nil {
+		if err := initAllowingIncomplete(t, append([]string{"-build=false", "-agents=false"}, args...)); err != nil {
 			t.Fatalf("init: %v", err)
 		}
 	})

@@ -26,6 +26,7 @@ type statusRow struct {
 	Uncovered []string `json:"uncovered,omitempty"`
 	Orphans   []string `json:"orphans,omitempty"`
 	Streaming []string `json:"streaming,omitempty"`
+	FirstOnly []string `json:"first_message_only,omitempty"`
 	NoChain   []string `json:"no_chain,omitempty"`
 
 	SingleItem []contract.SingleItemRepeat `json:"single_item,omitempty"`
@@ -37,7 +38,7 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token, streaming; -v explains each kind in full")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token, first message, streaming; -v explains each kind in full")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	verbose := fs.Bool("v", false, "with -gaps, explain each kind of gap in full")
 	setUsage(fs, "usage: shrt contract status [-gaps [-v]] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
@@ -106,6 +107,9 @@ func contractStatus(args []string) error {
 			r.LoginGaps = append(r.LoginGaps, loginGaps[m.FullName]...)
 			if m.StreamRefusal() == "" && !called[m.FullName] {
 				r.NoChain = append(r.NoChain, noChainLine(m))
+			}
+			if m.ServerStreaming && m.StreamRefusal() == "" {
+				r.FirstOnly = append(r.FirstOnly, m.FullName)
 			}
 			c, ok := lib.Get(m.FullName)
 			if !ok && m.StreamRefusal() != "" {
@@ -297,6 +301,11 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 			} else {
 				gap("no token", "no token     %s: no chain calls it with skip_auth: true or auth: invalid\n", g.RPC)
 			}
+		}
+	}
+	for _, r := range rows {
+		for _, rpc := range r.FirstOnly {
+			gap("first message", "%s\n", contract.StreamingGap(rpc))
 		}
 	}
 	for _, r := range rows {
