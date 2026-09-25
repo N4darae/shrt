@@ -30,6 +30,8 @@ type Plan struct {
 	seconds  []producerSecond
 	preps    map[string][]string
 	opts     PlanOptions
+	region   *fixtureRegion
+	isolated []string
 }
 
 type PlanOptions struct {
@@ -130,17 +132,18 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	for _, node := range nodes {
 		targetSteps[p.stepOf[node]] = true
 	}
+	p.captureRegion(targetSteps)
 	p.discriminateListOrder(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeUniqueness(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeListFilters(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.isolating(lib, "shortage", func() { p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeTextLength(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeIdempotency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.isolating(lib, "denied", func() { p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.probeRoleParity(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.isolating(lib, "items", func() { p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.satisfyNeeds(lib)
 	p.echoNumbers()
 	p.assertOutcomes(lib)
@@ -148,6 +151,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
+	p.noteIsolation()
 	if err := c.Normalize(); err != nil {
 		return nil, err
 	}

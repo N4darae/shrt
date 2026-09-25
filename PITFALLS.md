@@ -1576,6 +1576,24 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. One defect in a planned chain failed probes of rpcs that were fine
+
+**Symptom.** On a backend whose ConfirmOrder checks stock on the first line only, the planned
+`orders-confirmorder` chain failed `confirm_order_insufficient_stock_last_item` and also
+`confirm_order_1_lines` and `confirm_order_3_lines` with 1305 InsufficientStock: the refused confirm
+that went through drained product 2 to -99997, and the item-count probes ordered from the same
+product. Six red steps for one defect, two of them pointing at probes that were not broken.
+
+**Cause.** Every probe group read the main path's fixtures (`create_product`, `create_customer`,
+`create_order`), so whatever one probe left behind was the next probe's starting state.
+
+**Fix.** 2026-09-25: the shortage, denied-token and item-count probe groups run on fixtures of their
+own, copied from the steps that created and prepared the main path's with unique fields changed
+(`create_product_for_shortage`, `add_stock_for_shortage`, `create_order_for_denied`,
+`create_product_for_items`). A group that reads the target step itself (an idempotent replay) or
+only reads keeps the shared ones. The same backend now fails four steps, all of them the last-line
+shortage probe and the reads around it.
+
 ---
 
 # Decisions, so they are not relitigated

@@ -16,7 +16,7 @@ func TestPlanScaffoldsTwoDistinctItemsForARepeatedMessageInput(t *testing.T) {
 	}
 	var order *chain.Step
 	for _, s := range plan.Chain.Steps {
-		if s.Call == shopCreateOrder {
+		if s.Call == shopCreateOrder && order == nil {
 			order = s
 		}
 	}

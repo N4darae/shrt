@@ -8,8 +8,8 @@ import (
 func TestPlanRunsAStateChangingTargetOnOneAndThreeItemFixtures(t *testing.T) {
 	p, text, notes := shopDemoPlan(t, "CancelOrder")
 	one := planStep(t, p, "create_order_1_lines")
-	if got := bodyAt(t, one, "lines.0.id_product"); got != "${create_product.product.id_product}" {
-		t.Fatalf("the one-item fixture keeps the first item, got %s:\n%s", got, text)
+	if got := bodyAt(t, one, "lines.0.id_product"); got != "${create_product_for_items.product.id_product}" {
+		t.Fatalf("the one-item fixture keeps the first item, read from the item probes' own product, got %s:\n%s", got, text)
 	}
 	if n := len(one.Body["lines"].([]any)); n != 1 {
 		t.Fatalf("create_order_1_lines sends one line, got %d:\n%s", n, text)

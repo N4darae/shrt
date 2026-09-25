@@ -347,6 +347,13 @@ directly or through the step it reads, with the read rpc whose contract takes th
 field equal to the before-read. A backend that refuses but still takes the first line's stock fails
 there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
 
+Each write probe group runs on fixtures of its own: the shortage probes, the token probes and the
+item-count probes each get copies of the steps that created and prepared the main path's fixtures,
+named `<fixture>_for_<group>` (`create_product_for_shortage`, `add_stock_for_shortage`,
+`create_order_for_denied`), with unique fields changed and numbers kept. A defect one probe exposes,
+such as stock drained by a refused confirm that went through, then fails that probe and its reads
+only, not every later probe that orders the same product.
+
 When the config declares auth, the plan also probes who may call. For a target whose contract names
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
