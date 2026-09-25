@@ -137,6 +137,7 @@ error), and 0 for `-h`.
 | `chain which` | a chain or run record matched | nothing matched, or bad flags | — | — |
 | `doctor` | no FAIL (warnings allowed) | a FAIL, or a warning under `-strict` | — | — |
 | `contract lint` | no contract error (warnings allowed) | a contract error, an overlay that does not parse, or no overlay to check | — | — |
+| `contract plan` | the plan was printed, or with `-write` written, including one whose required fields still have no usable value (a note names each) | nothing planned or written: no rpc named, an unknown rpc or alias, a streaming rpc in the graph, a dependency cycle, or with `-write` an existing chain file and no `-force` | — | — |
 | `contract quality -gate` | the score equals the baseline | the score is worse than the baseline, better without the baseline being lowered, or the baseline file is missing | — | — |
 
 ### CI gate

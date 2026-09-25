@@ -52,6 +52,17 @@ func TestVerifyAndRunHelpListEachExitCodeOnceAsShortBullets(t *testing.T) {
 	}
 }
 
+func TestContractPlanHelpListsItsExitCodes(t *testing.T) {
+	out := helpOf(t, "contract", "plan")
+	section := exitCodeSection(t, out)
+	lines := strings.Join(section, "\n") + "\n" + strings.Join(strings.Fields(strings.Join(section, " ")), " ")
+	for _, want := range []string{"  0  ", "  1  ", "streaming", "dependency cycle", "already exists", "no usable value"} {
+		if !strings.Contains(lines, want) {
+			t.Errorf("contract plan -h exit codes must mention %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestVerifyHelpKeepsEveryExitCodeCase(t *testing.T) {
 	out := strings.Join(strings.Fields(helpOf(t, "verify")), " ")
 	for _, want := range []string{
