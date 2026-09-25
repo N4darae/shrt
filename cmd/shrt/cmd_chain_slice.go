@@ -851,7 +851,13 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	v.Replay = verdictOf(replay)
 	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	related, other := relatedDroppedWrites(res, rec)
+	related, reads := classifyFieldReads(e, res, rec, related)
 	uncreated := uncreatedExpected(res, source)
+	defer func() {
+		for _, r := range reads {
+			v.Reason = strings.TrimPrefix(v.Reason+"\ninfo: "+r.note(), "\n")
+		}
+	}()
 	switch {
 	case len(v.Differences) == 0 && len(uncreated) > 0:
 		v.Outcome = sliceInconclusive

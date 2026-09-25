@@ -1566,7 +1566,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      dropped write created in the source run (`orders.1.id_order equals` the id a dropped
      `CreateOrder` returned, under `-mode pin`): the slice never creates that item, so a correct
      backend fails it the same way, and the verdict is INCONCLUSIVE naming the write, whatever
-     else was kept. The output
+     else was kept. A dropped write on a kept entity does NOT block the receipt when the contracts
+     say no later kept step reads what it changed: the fields it set (`qty_on_hand` for an
+     `AddStockBatch`) are in no request or response message of those steps, each has a contract,
+     and none `needs`/`before` the write's service or names it (or the field) in a failure. The
+     verdict then says so on an `info:` line. With no contract for a reader the write stays
+     suggested. The output
      ends with a `next:` line — `shrt chain slice <src> -step <t> -run <source-run> -keep
      <those writes> -verify -write` — naming only those writes, so the `-keep` set stays minimal:
      a write on another entity is never suggested, however many there are. NOT REPRODUCED
