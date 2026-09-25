@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -536,7 +537,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 	if err != nil {
 		return -1, ""
 	}
-	want, ok := carrierOf(m.Output(), path)
+	want, ok := carrierOf(m, path)
 	if !ok {
 		return -1, ""
 	}
@@ -554,7 +555,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 		var wb any
 		_ = json.Unmarshal(w.Response, &wb)
 		for _, p := range a.changed(w.ID) {
-			if c, ok := carrierOf(wm.Output(), p); ok && c == want && sameEntity(body, path, wb, p) {
+			if c, ok := carrierOf(wm, p); ok && c == want && sameEntity(body, path, wb, p) {
 				return i, p
 			}
 		}
@@ -597,7 +598,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 	if err != nil {
 		return blame{}, false
 	}
-	want, ok := carrierOf(rm.Output(), path)
+	want, ok := carrierOf(rm, path)
 	if !ok {
 		return blame{}, false
 	}
@@ -614,7 +615,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 		if found {
 			return
 		}
-		if c, ok := carrierOf(wm.Output(), p); !ok || c != want {
+		if c, ok := carrierOf(wm, p); !ok || c != want {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
@@ -636,7 +637,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			continue
 		}
 		eachLeaf(ob, "", func(p string, v any) {
-			if c, ok := carrierOf(om.Output(), p); !ok || c != want || !sameEntity(wb, wp, ob, p) {
+			if c, ok := carrierOf(om, p); !ok || c != want || !sameEntity(wb, wp, ob, p) {
 				return
 			}
 			switch compactValue(v) {
@@ -661,8 +662,14 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 		methodName(w.Call), shown, capText(wv, 60), agree[0], capText(compactValue(rv), 60))}, true
 }
 
-func carrierOf(md protoreflect.MessageDescriptor, path string) (string, bool) {
+func carrierOf(m *catalog.Method, path string) (string, bool) {
+	md := m.Output()
 	segs := chain.SplitPath(path)
+	if m.ServerStreaming && len(segs) > 1 && segs[0] == catalog.StreamMessages {
+		if _, err := strconv.Atoi(segs[1]); err == nil {
+			segs = segs[2:]
+		}
+	}
 	for len(segs) > 0 {
 		if _, err := strconv.Atoi(segs[len(segs)-1]); err != nil {
 			break

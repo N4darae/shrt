@@ -86,3 +86,15 @@ func TestAKnockOnNeedsTheValueTheEarlierWriteAnswered(t *testing.T) {
 		t.Errorf("another value is not explained by the write: %+v", b)
 	}
 }
+
+func TestAStreamedMessageCarryingTheValueAWriteAnsweredIsFiledUnderTheWrite(t *testing.T) {
+	order := `{"order":{"id_order":"o1","total_minor":"1750"}}`
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, order).failing("order.total_minor", "4250", "1750"),
+		shopStep("watch_order", "shop.orders.v1.OrderService/WatchOrder", `{"messages":[`+order+`]}`, "create_order").
+			failing("messages.0.order.total_minor", "4250", "1750"),
+	)
+	if write, own, _ := blameOf(t, rec, "watch_order", "messages.0.order.total_minor"); write != "create_order" || own != "" {
+		t.Errorf("a streamed read answering the total the write answered is a knock-on of the write, got write %q own %q", write, own)
+	}
+}
