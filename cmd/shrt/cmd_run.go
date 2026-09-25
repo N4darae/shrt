@@ -15,6 +15,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -87,8 +88,8 @@ func runRun(ctx context.Context, args []string) error {
 	}
 
 	supplied := c.CoerceVars(vars)
-	if unused := c.UnusedVarNames(vars); len(unused) > 0 {
-		return unusedVarError(unused, c.Name, c.DeclaredVarNames())
+	if err := checkUnusedVars(c, vars, supplied); err != nil {
+		return err
 	}
 
 	var spot *store.SafeSpot
@@ -234,7 +235,8 @@ const runExitCodes = "\nexit codes:\n" +
 	"       with a Connect body...) at a step whose request another step of this run had answered, or\n" +
 	"       that the previous run answered while failing at another step with the same error\n" +
 	"     - a refusal before anything was sent, checked for every step up front as -dry-run does:\n" +
-	"       - bad flags, an unknown chain, a -var the chain never reads, a missing var\n" +
+	"       - bad flags, an unknown chain, a missing var, a -var the chain never reads whose name is\n" +
+	"         close to one it reads (a likely typo; any other unread -var is a warning and ignored)\n" +
 	"       - an unset env var read by a step or by the login body of an auth profile a step runs under\n" +
 	"       - a reference to a step or export that does not exist or runs later, or to a response field\n" +
 	"         the producing step's message does not declare or a request path its request does not\n" +
@@ -319,15 +321,46 @@ func shortNewFailure(line string) string {
 	return runner.NewFailurePrefix + first
 }
 
+func checkUnusedVars(c *chain.Chain, vars map[string]any, supplied map[string]any) error {
+	unused := c.UnusedVarNames(vars)
+	if len(unused) == 0 {
+		return nil
+	}
+	reads := c.DeclaredVarNames()
+	typos, ignored := []string{}, []string{}
+	for _, name := range unused {
+		if len(namecase.Closest(name, reads, 1)) > 0 {
+			typos = append(typos, name)
+		} else {
+			ignored = append(ignored, name)
+		}
+	}
+	if len(typos) > 0 {
+		return unusedVarError(typos, c.Name, reads)
+	}
+	for _, name := range ignored {
+		delete(supplied, name)
+	}
+	readsLine := "it reads no vars at all"
+	if len(reads) > 0 {
+		readsLine = "vars it reads: " + strings.Join(reads, ", ")
+	}
+	fmt.Fprintf(os.Stderr, "warning: -var %s: chain %q never reads %s, so %s no effect on this run (%s); "+
+		"a name close to one it reads is still refused as a likely typo\n",
+		strings.Join(ignored, ", "), c.Name, pluralWord(len(ignored), "it", "them"), pluralWord(len(ignored), "it has", "they have"), readsLine)
+	return nil
+}
+
 func unusedVarError(unused []string, chainName string, reads []string) error {
 	readsLine := "this chain reads no vars at all, so any -var is rejected"
 	if len(reads) > 0 {
 		readsLine = "vars this chain reads: " + strings.Join(reads, ", ")
 	}
-	return fmt.Errorf("-var %s names a variable chain %q never reads, so it would have no effect.\n"+
+	return fmt.Errorf("-var %s names a variable chain %q never reads, so it would have no effect, and it is close "+
+		"to a var the chain does read (%s), so it looks mistyped.\n"+
 		"A chain isolates its fixtures with vars, so a mistyped one silently collapses every run onto "+
 		"the same key. Check the spelling, or drop the flag.\n%s",
-		strings.Join(unused, ", "), chainName, readsLine)
+		strings.Join(unused, ", "), chainName, strings.Join(closestReads(unused, reads), ", "), readsLine)
 }
 
 const buildFlagUsage = "stamp this build identity (a version, commit or image tag) into the run record; overrides target.build_header"
@@ -605,4 +638,32 @@ func keptRedNotJudged(note string) string {
 	}
 	return "not judged: " + pins + ", and the run collided with data an earlier run or another client left (above), " +
 		"so the steps that failed or were not sent say nothing about the pinned defect; re-run with a fresh value"
+}
+
+func closestReads(unused, reads []string) []string {
+	out := []string{}
+	for _, name := range unused {
+		for _, c := range namecase.Closest(name, reads, 1) {
+			if !containsName(out, c) {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+func pluralWord(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+func containsName(list []string, name string) bool {
+	for _, s := range list {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }

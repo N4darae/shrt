@@ -179,10 +179,11 @@ changes at and after it are not read as more of the regression.
 
 The `-var` habit is what lets one chain run twice on the same box without tripping a uniqueness
 constraint, and it is why a sweep over the corpus generates a random tag per chain. `shrt run`
-refuses a `-var` the chain never reads (a mistyped name would otherwise silently collapse every
-run onto one key), so a sweep passes `-var tag=...` only to the chains that read `${vars.tag}`:
-check with `grep -l 'vars.tag' .shrt/chains/*.yaml`, or read the refusal, which lists the vars the
-chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
+ignores a `-var` the chain never reads with a `warning:` line naming the vars it does read, so a
+sweep may pass `-var tag=...` to every chain; a name close to a var the chain reads (`tga` for
+`tag`, one or two edits apart, or the same name in another case) is refused instead, since a
+mistyped name would otherwise silently collapse every run onto one key, and the refusal lists the
+vars the chain does read. `shrt contract plan` declares a var that the contract's `value:` entries
 interpolate (`sku-${vars.tag}`) under `vars:`, with the chain's name as its value, so a planned
 chain lints without a warning and its first run needs no `-var`. The second run sends the same
 values and trips the same uniqueness constraint, so keep passing a fresh `-var tag=...`. `shrt

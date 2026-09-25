@@ -2320,6 +2320,16 @@ list saying `one AddStock per line` for a batch whose text says it adds, a summa
 <qty>` for a single write that adds, `Reserve stock for every line` for a write on an order with
 lines, and `does not touch stock` for the rest.
 
+## 115. A loop over every chain stopped at the first chain that reads no vars
+
+**Symptom.** `for c in ...; do shrt run $c -var tag=$T; done` stopped at `login`, which reads no vars:
+`-var tag names a variable chain "login" never reads ... this chain reads no vars at all, so any -var
+is rejected`. Several testers wrapped the loop in `grep -l vars.tag` by hand.
+
+**Fix.** 2026-09-25: an unread `-var` is a `warning:` line on stderr and is left out of the run; a
+name close to a var the chain reads (`namecase` distance of at most 2, or a third of the name) is
+still refused as a likely typo, naming the var it is close to.
+
 ---
 
 # Decisions, so they are not relitigated
