@@ -99,6 +99,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if err != nil {
 		return err
 	}
+	ref := sliceChainRef(rest[0], c)
 
 	opts := chain.SliceOptions{Mode: *mode, Name: name, RPCOf: rpcOf(e), Keep: *keep, Vars: vars, IsLogin: isLoginStep(e)}
 	lib, err := e.library()
@@ -118,14 +119,14 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			needStep = false
 		}
 		if needStep {
-			rec, err = loadRunReaching(e, c.Name, *runID, *step)
+			rec, err = loadRunReaching(e, c.Name, ref, *runID, *step)
 		} else {
 			rec, err = e.store.LoadRun(c.Name, *runID)
 		}
 		if err != nil {
 			return err
 		}
-		if err := foreignSourceRun(e, rec, *mode, *verify); err != nil {
+		if err := foreignSourceRun(e, rec, ref, *mode, *verify); err != nil {
 			return err
 		}
 		opts.RunID = rec.RunID
@@ -140,6 +141,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	if err != nil {
 		return err
 	}
+	res.SourceRef = ref
 	if *verify && len(res.MissingVars) > 0 {
 		return missingVarsError(res, rec)
 	}
@@ -619,14 +621,14 @@ func sourceTargetDiffers(e *env, rec *runner.Record) string {
 	return fmt.Sprintf("the source run was recorded against %s, this target is %s", rec.Target, e.targetURL())
 }
 
-func foreignSourceRun(e *env, rec *runner.Record, mode string, verify bool) error {
+func foreignSourceRun(e *env, rec *runner.Record, ref, mode string, verify bool) error {
 	where := sourceTargetDiffers(e, rec)
 	if where == "" || mode != chain.SliceModePin {
 		return nil
 	}
 	msg := fmt.Sprintf("%s: -mode pin would send the ids and values run %s was given there, which this target never issued,\n"+
 		"so its answer (a not-found) would say nothing about step behaviour. Slice with -mode closure, which rebuilds every\n"+
-		"producer on this target, or run the chain here (shrt run %s) and pin from that run: -run latest", where, rec.RunID, rec.Chain)
+		"producer on this target, or run the chain here (shrt run %s) and pin from that run: -run latest", where, rec.RunID, ref)
 	if verify {
 		return exitWith(3, "INCONCLUSIVE, nothing was sent: %s", msg)
 	}
@@ -807,7 +809,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Outcome = sliceInconclusive
 		v.OtherTarget = a.otherTarget
 		v.Reason = a.otherTarget + ": the verdict differs, and the difference can come from the target (its data, build\n" +
-			"or configuration) rather than from what the slice left out. Run the chain on this target (shrt run " + rec.Chain + ")\n" +
+			"or configuration) rather than from what the slice left out. Run the chain on this target (shrt run " + res.SourceCommandRef() + ")\n" +
 			"and verify the slice against that run: -run latest"
 	case len(v.Differences) > 0:
 		v.Outcome = sliceNotReproduced
@@ -991,7 +993,7 @@ func keepWritesCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs, 
 	} else {
 		keep = append(keep, dropped...)
 	}
-	parts := []string{"shrt chain slice", res.Source, "-step", res.Target}
+	parts := []string{"shrt chain slice", res.SourceCommandRef(), "-step", res.Target}
 	if res.Mode != chain.SliceModeClosure {
 		parts = append(parts, "-mode", res.Mode)
 	}
@@ -1199,7 +1201,7 @@ func newestRunReaching(e *env, chainName, step, skip string) (*runner.Record, er
 	return nil, nil
 }
 
-func loadRunReaching(e *env, chainName, runID, step string) (*runner.Record, error) {
+func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record, error) {
 	if runID == "latest" {
 		latest, err := e.store.LatestRun(chainName)
 		if err != nil {
@@ -1215,7 +1217,7 @@ func loadRunReaching(e *env, chainName, runID, step string) (*runner.Record, err
 		}
 		if rec == nil {
 			return nil, fmt.Errorf("no recorded run of %s reached step %q (the newest, %s, stopped before it: %s), so there is no value to pin and no verdict to compare.\n"+
-				"Run the chain until it reaches the step: shrt run %s", chainName, step, latest.RunID, why, chainName)
+				"Run the chain until it reaches the step: shrt run %s", chainName, step, latest.RunID, why, ref)
 		}
 		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest run of %s that reached step %s; the newest run, %s, did not (%s)\n",
 			rec.RunID, chainName, step, latest.RunID, why)
@@ -1235,7 +1237,7 @@ func loadRunReaching(e *env, chainName, runID, step string) (*runner.Record, err
 		return nil, err
 	}
 	if other == nil {
-		return nil, fmt.Errorf("%s, and no recorded run of %s reached it.\nRun the chain until it reaches the step: shrt run %s", msg, chainName, chainName)
+		return nil, fmt.Errorf("%s, and no recorded run of %s reached it.\nRun the chain until it reaches the step: shrt run %s", msg, chainName, ref)
 	}
 	return nil, fmt.Errorf("%s.\nRun %s did: pass -run %s (or -run latest, which picks the newest run that reached the step)", msg, other.RunID, other.RunID)
 }
@@ -1345,7 +1347,7 @@ func pinnedWrites(res *chain.SliceResult) []string {
 }
 
 func closureCommand(c *chain.Chain, step string, opts chain.SliceOptions, res *chain.SliceResult, vars varFlags) string {
-	parts := []string{"shrt chain slice", res.Source, "-step", res.Target, "-keep", chain.SliceKeepWrites}
+	parts := []string{"shrt chain slice", res.SourceCommandRef(), "-step", res.Target, "-keep", chain.SliceKeepWrites}
 	if res.Run != "" {
 		parts = append(parts, "-run", res.Run)
 	}
@@ -1381,4 +1383,11 @@ func pinnedWritesError(res *chain.SliceResult, pinned []string, closure string) 
 		"and the verdict is that of a second write, not the one recorded.\n"+
 		"Reproduce it in closure mode, which creates what the write needs afresh: %s\n"+
 		"or pass -resend-writes to send it anyway", res.Run, strings.Join(pinned, "; "), closure)
+}
+
+func sliceChainRef(arg string, c *chain.Chain) string {
+	if isSlicePath(arg) {
+		return filepath.ToSlash(arg)
+	}
+	return c.Name
 }

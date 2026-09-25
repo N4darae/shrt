@@ -152,6 +152,7 @@ type SliceResult struct {
 	NotReproduced string      `json:"not_reproduced,omitempty"`
 	Inconclusive  string      `json:"inconclusive,omitempty"`
 	Build         string      `json:"verify_build,omitempty"`
+	SourceRef     string      `json:"-"`
 	Chain         *Chain      `json:"-"`
 }
 
@@ -586,6 +587,13 @@ func listSome(names []string, max int) string {
 		return strings.Join(names, ", ")
 	}
 	return fmt.Sprintf("%s and %d more", strings.Join(names[:max], ", "), len(names)-max)
+}
+
+func (r *SliceResult) SourceCommandRef() string {
+	if r.SourceRef != "" {
+		return r.SourceRef
+	}
+	return r.Source
 }
 
 func DefaultSliceName(chainName, target string) string {
