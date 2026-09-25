@@ -87,7 +87,7 @@ steps:
 	if !strings.Contains(out, want) {
 		t.Fatalf("want %q in:\n%s", want, out)
 	}
-	if !strings.Contains(out, "same resource a repeated message field") {
+	if !strings.Contains(out, "same resource    every multi-item step") {
 		t.Fatalf("the legend must say what 'same resource' means:\n%s", out)
 	}
 	if strings.Contains(out, "no gaps") {

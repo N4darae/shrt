@@ -34,7 +34,7 @@ steps:
 	if strings.Contains(out, "no chain     shop.orders.v1.OrderService/WatchOrder") {
 		t.Fatalf("a streaming rpc is out of scope, not a gap:\n%s", out)
 	}
-	if !strings.Contains(out, "no chain     no chain under paths.chains calls the rpc") {
+	if !strings.Contains(out, "no chain         no chain calls the rpc") {
 		t.Fatalf("the legend must explain the gap:\n%s", out)
 	}
 }

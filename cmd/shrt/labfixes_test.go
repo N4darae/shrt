@@ -167,8 +167,17 @@ func TestContractStatusGapsPrintsOnlyTheGaps(t *testing.T) {
 		!strings.Contains(out, "streaming    shop.orders.v1.OrderService/WatchOrder") {
 		t.Fatalf("a streaming rpc is out of scope, not a missing edge:\n%s", out)
 	}
+	if !strings.Contains(out, "no contract      the rpc has no entry") || strings.Contains(out, "no path to") ||
+		strings.Contains(out, "one item") {
+		t.Fatalf("-gaps says in one line what each kind it found means, and nothing about kinds it did not find:\n%s", out)
+	}
+	out = captureStdout(t, func() {
+		if err := contractStatus([]string{"-gaps", "-v"}); err != nil {
+			t.Fatalf("status -gaps -v: %v", err)
+		}
+	})
 	if !strings.Contains(out, "no path to   it has a contract, but appears in no multi-step plan") {
-		t.Fatalf("-gaps must say what a 'no path to' line means, since it is not a missing contract:\n%s", out)
+		t.Fatalf("-gaps -v explains each kind in full:\n%s", out)
 	}
 }
 
