@@ -22,6 +22,19 @@ func TestAFieldChangedInASameLengthListIsNamedWithItsValues(t *testing.T) {
 	}
 }
 
+func TestAFieldNewInListItemsIsNotWholeListVolatile(t *testing.T) {
+	rec := passingRun("run-2")
+	p := &store.Proposal{Chain: rec.Chain, RunID: rec.RunID, ComparedTo: "run-1",
+		Unstable: []string{"list_orders orders.0.note: absent -> gift wrap", "list_orders orders.1.note: absent -> gift wrap"}}
+	text := store.ProposalSummary(p, rec)
+	if strings.Contains(text, "`volatile: [orders]`") || strings.Contains(text, "items change from run to run") {
+		t.Fatalf("a field new in every item of a same-length list is a field change, not a list that changes every run:\n%s", text)
+	}
+	if !strings.Contains(text, "`volatile: [orders.*.note]`") {
+		t.Fatalf("the advice should name the field pattern:\n%s", text)
+	}
+}
+
 func TestAListThatGrewKeepsTheWholeListAdvice(t *testing.T) {
 	rec := passingRun("run-2")
 	p := &store.Proposal{Chain: rec.Chain, RunID: rec.RunID, ComparedTo: "run-1",

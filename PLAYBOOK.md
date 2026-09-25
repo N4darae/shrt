@@ -832,7 +832,14 @@ language, give:
    the step, or `unordered: [<path>]` if only its order changes), since a list other runs add to grows
    every run. A list with as many items as before and only some fields inside them changed is not
    that: its line names each field and its values (`orders.0.total_minor` 750 -> 1), says it may be a
-   real change, and suggests only the field (`volatile: [orders.*.total_minor]`). Pass the warning
+   real change, and suggests only the field (`volatile: [orders.*.total_minor]`), also when the
+   field is new in every item (`orders.0.note absent -> gift wrap`). A step present in one run and
+   absent in the other is a chain edit, not a field that changes every run, and is never listed.
+   Under `-supersede`, a field where the earlier run still held the value of the safe spot being
+   replaced is the change you are signing off on, recorded by a run from before it, not
+   instability: those are listed apart (`N field(s) differ from the earlier passing run ... only
+   where that run still held what the safe spot it replaces holds`) with no volatile advice; run
+   the chain once more against the new backend and propose again to check them. Pass the warning
    on, and fix it before asking (add the paths to `volatile:`, re-run, propose again) unless the
    difference is real. With no earlier passing run the summary says the check was not made; run
    the chain once more first. A `-supersede` proposal is also compared with the safe spot it
