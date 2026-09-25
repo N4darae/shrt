@@ -57,8 +57,20 @@ func TestAnInputChangeExplainsItsOwnStepAndTheStepsReadingItsChangedResponse(t *
 	rep := diff.CompareMasking(spot, rec, nil)
 	rep.RequestChanges = []diff.Change{{Step: "order", Path: "lines.0.qty", Kind: diff.KindChanged, Want: "3", Got: "4"}}
 	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: causalReads()})
+	if got := unexplainedSteps(rep); got != "" {
+		t.Fatalf("order is a write whose answer changed with its qty, so the server state after it may differ: the stock read is explained too: %s\n%s", got, rep.Text())
+	}
+}
+
+func TestAnInputChangeAtAReadExplainsOnlyItsReaders(t *testing.T) {
+	spot, rec := causalRuns("5348", "5348", "5348", "6")
+	spot.Steps[1].Call, rec.Steps[1].Call = "S/GetCustomer", "S/GetCustomer"
+	rec.Steps[1].Response = []byte(`{"id":"c2"}`)
+	rep := diff.CompareMasking(spot, rec, nil)
+	rep.RequestChanges = []diff.Change{{Step: "customer", Path: "id", Kind: diff.KindChanged, Want: "c1", Got: "c2"}}
+	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: causalReads()})
 	if got := unexplainedSteps(rep); got != "stock:qty" {
-		t.Fatalf("the qty explains order's total and confirm reading order, not stock, which reads only product: %s\n%s", got, rep.Text())
+		t.Fatalf("a read changes no server state, so its different input explains nothing at stock, which does not read it: %s\n%s", got, rep.Text())
 	}
 }
 

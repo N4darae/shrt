@@ -329,8 +329,8 @@ func runVerify(ctx context.Context, args []string) error {
 			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
 				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ and that read no value the different "+
-			"input changed, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
+		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ, that read no value the different "+
+			"input changed and follow no write whose answer changed with it, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
 	}
 	if !report.Clean() && varDrift != "" {
 		fix := "Verify without that -var to compare like with like"

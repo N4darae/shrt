@@ -1119,8 +1119,8 @@ func (r *Report) Text() string {
 			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
 			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps whose input did not differ and that read no value the different input "+
-			"changed, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps whose input did not differ, that read no value the different input "+
+			"changed and follow no write whose answer changed with it, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case r.OnlyChainChanged():
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
 	case len(r.RequestChanges) > 0:

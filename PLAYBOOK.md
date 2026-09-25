@@ -852,13 +852,15 @@ inside other text in some field that is not an id, and never next to digits alon
 and `id_customer: cus-${vars.n}` are input. That is what a fresh `-var tag` changes, so a CI replay with a new
 tag is still compared like with like, and a response value that only echoes the new name (the
 confirmed value with the old name swapped for the new) is masked and counted. Every other request
-difference is input, and it explains a response change only causally: at its own step, and at a
-later step only when that step reads (through a reference or an export, transitively) a field of
-an earlier step whose response actually changed with an explanation of its own, or reads a request
-value of a step that changed. A step whose response did not change passes no explanation on: a
-header the backend ignores at `create_customer` explains nothing at `create_order`, which reads
-the unchanged customer id, while a changed `qty` explains `create_order`'s total and every step
-reading that order. With a request difference the verdict is `drift with different input`, not
+difference is input, and it explains a response change only causally: at its own step; at every
+later step when its step is a write (not matched by `read_only_prefixes`) whose own response
+changed, since the write demonstrably did something different and the server state after it may
+differ; otherwise only at a later step that reads (through a reference or an export, transitively)
+a field of an earlier step whose response actually changed with an explanation of its own, or
+reads a request value of a step that changed. A step whose response did not change passes no
+explanation on: a header the backend ignores at `create_customer` explains nothing at
+`create_order`, which reads the unchanged customer id, while a changed `qty` at `create_order`
+changes its total, so it explains every later step, the stock reads of the product included. With a request difference the verdict is `drift with different input`, not
 `regression`, when every response change is explained this way; any other change is a
 `regression`, including one after the differing step that reads nothing it changed. A `-var` that changes no request (a var only expectations
 read, `-var total=6250`) is not input at all. Restore the input, or, when the edit is intended,

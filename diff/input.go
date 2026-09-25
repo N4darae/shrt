@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"github.com/N4darae/shrt/chain"
 	"strings"
 
 	"github.com/N4darae/shrt/pathmask"
@@ -132,7 +133,7 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 		}
 	}
 	explained := map[string]bool{}
-	carried := false
+	carried, stateChanged := false, false
 	for _, st := range order {
 		if _, done := explained[st.ID]; done {
 			continue
@@ -146,10 +147,16 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 				why = true
 			}
 		}
+		if stateChanged {
+			why = true
+		}
 		if why {
 			carried = true
 		}
 		explained[st.ID] = why
+		if len(inputAt[st.ID]) > 0 && responseChanged[st.ID] && !chain.IsReadOnlyCall(st.Call) {
+			stateChanged = true
+		}
 		for _, c := range changes {
 			if c.Step == st.ID && c.Kind == KindNotReached && carried {
 				explained[st.ID] = true
