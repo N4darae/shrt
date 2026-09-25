@@ -704,14 +704,23 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 		case had && has && (w == g || chain.FoldedRefs(w) == chain.FoldedRefs(g)):
 		case had && has && (w == pathmask.MaskRedacted && runner.HeaderDigested(g) || g == pathmask.MaskRedacted && runner.HeaderDigested(w)):
 		case had && has:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindChanged, Want: w, Got: g, Detail: headerRefDetail(w, g)})
 		case had:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindMissing, Want: w})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindMissing, Want: w, Detail: headerRefDetail(w)})
 		default:
-			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindUnexpected, Got: g})
+			out = append(out, Change{Step: want.ID, Path: HeadersPathPrefix + k, Kind: KindUnexpected, Got: g, Detail: headerRefDetail(g)})
 		}
 	}
 	return out
+}
+
+func headerRefDetail(texts ...string) string {
+	for _, t := range texts {
+		if runner.ReadsAnotherStep(t) {
+			return HeaderRefDetail
+		}
+	}
+	return ""
 }
 
 func uncheckedPrincipals(spot *store.SafeSpot, rec *runner.Record) []string {
@@ -1175,7 +1184,7 @@ func (r *Report) Text() string {
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
 		if r.OnlyChainChanged() {
-			cause = "the chain changed since it was confirmed; a step, expectation or body reference edit is a chain change, not an input change, " +
+			cause = "the chain changed since it was confirmed; a step, expectation or body or header reference edit is a chain change, not an input change, " +
 				"and an expectation edit explains a status change at its own step only, and only when the edited expectation failed"
 		}
 		if r.InputCause != "" {

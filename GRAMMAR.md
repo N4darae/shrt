@@ -536,7 +536,7 @@ different INPUT to the check: it is printed as `expectation differs from the con
 <path> <rule> 3 -> 4 (${vars.left})`, explains its own step's status change the same way, only when
 it failed, and a drift it explains fails with `drift with different input` naming the var, not
 `regression`. A fixture name inside an expected value (`cust-${vars.tag}@...`) is not counted. A step, expectation
-or body reference edit is a CHAIN change, not an input change: the
+or body or header reference edit (a header template that reads another step or field) is a CHAIN change, not an input change: the
 summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was
 confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`
 (exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.

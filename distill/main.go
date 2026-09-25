@@ -826,7 +826,7 @@ func exerciseDiff() (string, error) {
 	b.WriteString("<path> <rule> 3 -> 4 (${vars.left})`, explains its own step's status change the same way, only when\n")
 	b.WriteString("it failed, and a drift it explains fails with `drift with different input` naming the var, not\n")
 	b.WriteString("`regression`. A fixture name inside an expected value (`cust-${vars.tag}@...`) is not counted. A step, expectation\n")
-	b.WriteString("or body reference edit is a CHAIN change, not an input change: the\n")
+	b.WriteString("or body or header reference edit (a header template that reads another step or field) is a CHAIN change, not an input change: the\n")
 	b.WriteString("summary line reads `N chain change(s) since the safe spot's run <id>: the chain changed since it was\n")
 	b.WriteString("confirmed`, and when it is the only difference a drift fails verify with `drift after a chain change`\n")
 	b.WriteString("(exit 1), not `drift with different input`. When vars and the chain file both differ, verify names both.\n")
