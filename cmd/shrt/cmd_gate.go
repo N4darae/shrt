@@ -279,13 +279,21 @@ func runGate(ctx context.Context, args []string) error {
 		profiles = append(profiles, p)
 	}
 	sort.Strings(profiles)
+	once := []string{}
 	for _, p := range profiles {
 		if early[p] > 1 {
 			findings = append(findings, fmt.Sprintf("FINDING: tokens of auth profile %s were refused early in %d runs of this gate: "+
 				"the backend ends sessions long before the expiry its login states", p, early[p]))
 		} else {
-			fmt.Printf("note: a token of auth profile %s was refused early once; a deploy before this gate explains one\n", p)
+			once = append(once, p)
 		}
+	}
+	switch len(once) {
+	case 0:
+	case 1:
+		fmt.Printf("note: a token of auth profile %s was refused early once; a deploy before this gate explains one\n", once[0])
+	default:
+		fmt.Printf("note: a token of each of auth profiles %s was refused early once; a deploy before this gate explains that\n", strings.Join(once, ", "))
 	}
 	printGateGroups(chains)
 	for _, f := range findings {

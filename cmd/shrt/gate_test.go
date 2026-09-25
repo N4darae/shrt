@@ -155,8 +155,8 @@ func TestTheGateFailsWhenOneProfilesTokensAreRefusedEarlyInTwoRuns(t *testing.T)
 		t.Fatalf("the same profile's tokens refused early twice fail the gate; got %d:\n%s", code, out)
 	}
 	gateWorkspace(t, map[string][]gateOutcome{"run cli-thing-flow": early("default"), "run cli-unique": early("clerk")})
-	if out, code = runGateOut(t); code != 0 {
-		t.Fatalf("one early refusal per profile is what a single restart explains; got %d:\n%s", code, out)
+	if out, code = runGateOut(t); code != 0 || strings.Count(out, "note: ") != 1 || !strings.Contains(out, "auth profiles clerk, default was refused early once") {
+		t.Fatalf("one early refusal per profile is what a single restart explains, said once; got %d:\n%s", code, out)
 	}
 }
 
