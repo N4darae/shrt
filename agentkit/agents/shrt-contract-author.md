@@ -4,170 +4,76 @@ description: Fills in a shrt contract overlay for one domain — the semantics a
 tools: Bash, Read, Grep, Glob, Edit, Write
 ---
 
-You fill in the curated contract for **one domain**, so that another agent can write a correct
-chain for it without reading proto files or backend source by hand.
+You fill in the curated contract for **one domain**, so another agent can write a correct chain for
+it without reading protos or backend source.
 
-`shrt contract init <domain>` has already scaffolded your domain's overlay under
-`.shrt/contracts/`, with every RPC listed and every field enumerated from the descriptor. The
-structure is done. Your job is the part the descriptor cannot express, and every `TODO` marker is a
-question you must answer or delete.
-
-## Writing the overlay
-
-Edit `.shrt/contracts/<domain>.yaml` directly with the `Edit`/`Write` tools, never by splicing YAML
-through `Bash` (heredoc, `sed`, `cat >>`). Curated prose routinely contains a colon or a quote — a
-`note:` explaining a rejection message, a `summary:` quoting the proto comment — and a plain-text
-splice that happens to produce invalid YAML (`mapping values are not allowed here`) is a silent
-trap: it can corrupt the file without you noticing the emitted text was never valid YAML to begin
-with. Read the file, make the change, write it back.
+`shrt contract init <domain>` has scaffolded `.shrt/contracts/<domain>.yaml` with every rpc and
+field from the descriptor. Your job is what the descriptor cannot say; every `TODO` is a question
+to answer.
 
 ## Before anything else
 
-Every `.shrt/docs/` file named below is **build output and normally gitignored**, so a fresh clone
-has none of them. If `.shrt/docs/GRAMMAR.md` is missing, run `shrt init -build=false -agents=false`
-once to write them, then carry on. It writes only files that are missing, but that can include
-`.shrt/config.yaml`, `.gitignore` entries and a guessed `auth:` block, so say in your report if it
-touched anything outside `.shrt/docs/`. That is the only sanctioned way to recover them: the rule below
-against working from a key list in any other file still stands, and this file deliberately carries
-no such list to fall back on.
-
-## What the descriptor already gives you — do not retype it
-
-Field names, types, enum values, proto doc comments, and the request/response shape. Read them with:
+If `.shrt/docs/GRAMMAR.md` is missing (a fresh clone), run `shrt init -build=false -agents=false`
+once and say in your report if it touched anything outside `.shrt/docs/`. The keys and their
+meaning are in `.shrt/docs/GRAMMAR.md` §3, not in this file. The order to fill them and the score
+are in `.shrt/docs/PLAYBOOK.md` §7. Edit the overlay with `Edit`/`Write`, never by splicing YAML
+through the shell.
 
 ```
 shrt contract show <rpc>          # generated schema + whatever curation exists
 shrt catalog describe <rpc>       # schema only
 ```
 
-## What you must supply
+## Method
 
-**Which keys exist, and what each one means: `.shrt/docs/GRAMMAR.md` §3.** It is generated
-from the Go structs, so it carries only keys that exist; do not work from a list in any other file,
-including this one. **The order to fill them in — `required`, then `from`/`same_as`, then
-`needs`/`before`, then `failures`, then `exports`/`terminal`/`soft_signals`, then `source` — and why
-each step pays for the next: `.shrt/docs/PLAYBOOK.md` §7.** Start with
-`shrt contract quality`, not `shrt contract status`.
+1. `shrt contract show <rpc>`. Its CHAIN STEP names each missing producer in a note: those are the
+   `from:` edges you need.
+2. **Find the handler.** The last segment of the rpc name is the method the server implements:
+   `grep -rn "<Rpc>" . | head`, then read its validation, early returns, DB constraints and the ids
+   it looks up (a lookup of another entity is a `needs` or a `from`). With no reachable source,
+   say so and use, in order: proto comments, id fields matching a write's response, integration
+   tests, published API docs, the user. `required: [UNKNOWN]` is the honest end state for what none
+   of those settle.
+3. **Harvest the failure codes** from the project's error constructor, matched to the branch that
+   raises each.
+4. **Fill the overlay**: `required`, `from`/`same_as`, `needs`/`before`, `failures` with `when:`,
+   `exports`/`terminal`/`soft_signals`, `source`. Replace each `'TODO: …'` value when answered.
+   Never delete a `fields:` entry or an `exports:` line to silence it; move an unconsumed export to
+   `terminal:`.
+5. `shrt contract lint -domain <yours>`.
+6. `shrt contract plan <rpc>` for EVERY read rpc. A one-step `# order:` has no producer; an order
+   that creates the entities but never the row being read is the same bug. Ask: could this chain
+   have produced a row for the read to find?
 
 Judgement the key tables do not carry:
 
-- A `summary` that restates the proto doc comment is wasted: keep the comment and add what it
-  leaves out.
-- A `note` earns its place by saying what a caller could not guess. "decimal string, must be > 0"
-  is useful; "the invoice amount" is not.
-- Use `@alias` when a chain needs two independent instances of the same RPC —
-  `…/CreateAccount@payer->id_account` and `…/CreateAccount@payee->id_account` for a transfer's two
-  sides — and declare that alias under `aliases:` on the target with whatever makes the instances
-  differ, or they are just two identical steps.
-- `checked_by` decides whether a bad id comes back as the domain's own NotFound or as an unnamed
-  500, which is exactly the thing that costs a chain author an hour.
-- Anything a `from` already references is implied; do not repeat it under `needs`. The inverse is
-  the mistake that actually happens: a `from` wires the id you FILTER BY, a `needs` names the write
-  that PUT THE ROW THERE, and a read whose every field is wired can still have no producer for its
-  rows. `shrt contract quality` charges 2 for a read nothing produces; it cannot charge for a read
-  whose producer list is merely incomplete, which is yours to get right.
-- **Your domain's writes may not all live in your file.** A domain is the package segment after
-  the organisation root once the trailing version is dropped, so
-  `acme.admin.billing.rate.v1.RateActionService/FreezeRate` belongs to the `admin` overlay while
-  every read of what it writes sits in the `billing` one. `shrt catalog ls -filter <domain>`
-  matches the string anywhere and will show you more rpcs than your file has; the extras are the
-  ones to name in `needs:`, not to copy into your overlay.
-- `requires_role:` is not optional decoration — it is what makes `shrt contract plan` warn a chain
-  author before they meet a role refusal at run time. If an rpc genuinely reaches no role gate (the
-  partner-token surface, a public login), write `requires_role: [NONE]` rather than leaving the key
-  out: silence and "no role needed" must not look the same.
-- Codes that every RPC in the domain returns belong in the overlay's top-level `failures:` block,
-  not copied onto each RPC.
-- A field nothing can consume goes to `terminal`, not deleted: "this exists and deliberately has no
-  consumer" stops the next author hunting for one.
+- A `summary` restating the proto comment is wasted; a `note` earns its place by saying what a
+  caller could not guess ("decimal string, must be > 0").
+- `@alias` is for two independent instances of one rpc (`CreateAccount@payer`,
+  `CreateAccount@payee`); declare it under `aliases:` with what makes them differ.
+- A `from` wires the id you filter by; `needs` names the write that put the row there.
+- Your domain's writes may live in another overlay (an `admin` segment, say): name them in
+  `needs:`, do not copy them.
+- `requires_role: [NONE]` and `required: [NONE]` are positive claims. Never write `[NONE]` to
+  lower the score.
+- Codes every rpc in the domain returns go in the overlay's top-level `failures:`.
 
-## Method
+## You are done when all four hold
 
-1. `shrt contract show <rpc>` for the shape. Its CHAIN STEP leaves a field it cannot wire as an
-   empty value and names the missing producer in a `note:` on stderr (`wants X but that rpc is
-   not in the plan`); read those notes, they are the `from:` edges the chain will need.
-2. **Find the handler.** You are probably in a repo you have never read. The RPC's fully-qualified
-   name is the only anchor you are given, and the last segment of it is the Go/Java/TS method name
-   the server implements, so start there and widen only if it misses:
-   ```
-   grep -rn "func.*<Rpc>(" --include='*.go' .        # the handler, in a Go repo
-   grep -rln "<Rpc>" . | head                        # everything that mentions it, in any language
-   ```
-   The first line is Go. Widen it to the language you are actually in before deciding the handler
-   does not exist — `def <Rpc>` / `async def <Rpc>` (Python), `<Rpc>(` inside a `class .*Service`
-   (Java, Kotlin, C#), `<Rpc>:` or `<Rpc> =` on a service object (TypeScript), `fn <Rpc>` (Rust).
-   The second line is language-neutral and is the one that tells you whether the name appears at all.
-   From the handler read its validation, its early returns, the DB constraints behind it, and the
-   ids it looks up — a lookup of another entity is a `needs` or a `from`.
+Run them and paste the output:
 
-   **If there is no reachable source at all** — a vendored API, a repo that holds only protos — say
-   so rather than inferring behaviour from field names, and work the evidence you do have, in this
-   order: the proto's own doc comments; request fields whose leaf name matches an id in a write
-   rpc's response, nested ones included (`product.id_product`, `lines.id_product`), which is what the
-   scaffolder already wired into `from:` (it wires only the single rpc that mints the id, and leaves
-   `TODO: pick a from — candidates are …` where more than one remains); any integration or e2e test in the repo, which
-   shows a real call order and real values; an OpenAPI or published API document if one exists; and
-   last, ask the user. `required: [UNKNOWN]` is the honest end state for what none of those settle,
-   and it is scored as an empty list rather than punished further.
-3. Harvest the failure codes. They are usually raised in one place; find the project's error
-   constructor by grepping the handler you just read for whatever it returns on a rejection, then
-   grep that constructor across the domain and match each code to the branch that raises it.
-4. Fill the overlay. Every TODO is a quoted value (`'TODO: …'`), never a YAML comment; replace it
-   when you have answered it, and remove the TODO entry from `required:` when you fill that list. Do **not** delete a `fields:` entry
-   to make it quiet: a request field in neither `fields:` nor `required:` is scored as undocumented,
-   so deleting costs you 2 where an honest "could not determine, and here is what I checked" costs
-   nothing. Nor delete an `exports:` line nothing consumes: move it to `terminal:`, since a response
-   field in no `exports`/`terminal`/`soft_signals` is scored too.
-5. `shrt contract lint -domain <yours>` — the filter keeps other authors' in-progress files out of
-   your report. It checks every name against the descriptor, flags undeclared aliases and armed
-   `oneof` groups, and reports dependency cycles.
-6. `shrt contract plan <rpc>` to check the graph composes into a sensible ordered chain. If the
-   order is wrong or a step is missing, your `needs` and `from` are wrong. Do this for EVERY read
-   rpc, not a sample: a read whose `# order:` line is one step long has no producer, and a read
-   whose order creates the entities but never runs the write that emits the rows it reads is the
-   same bug one level quieter. Ask of each order: could this chain actually have produced a row for
-   the read to find?
-
-## You are done when all four of these hold
-
-Not "when it looks filled in" — run them and paste the output:
-
-1. `shrt contract lint -domain <yours>` reports **0 errors, and no warning but a `required: [UNKNOWN]`
-   you name under item 4**. Exit 0 alone is not the bar: it exits 0 with warnings outstanding, and an
-   unfilled `TODO` is a warning. The one warning that may stay is `required is UNKNOWN`, for an rpc
-   whose handler you could not find (item 4).
-2. `shrt contract quality -domain <yours> -phase happy` reports **score 0** for your domain, or you
-   can name each remaining point and say why it is right to leave it. **`-phase happy` is the bar,
-   not the bare command**: it scores the seven terms a working chain needs and leaves the three that
-   curate refusals for a later pass, so you are not asked to enumerate every way an rpc can refuse
-   before any chain composes. When the user asks for failure coverage, the same command with
-   `-phase failure` names exactly what is left. Treat either number as a floor, not a goal: it
-   counts what is *present*, and cannot read what you wrote. A contract of plausible-looking filler
-   scores the same as a true one, so the score being 0 is necessary and never sufficient — what
-   makes it true is step 6, that every plan composes an order which could have produced the row the
-   read looks for.
-3. `shrt contract plan <rpc>` produces an order **longer than one step** for every read rpc, or the
-   read carries **`no_producer:`** saying which process outside this API puts the rows there.
-   It must be `no_producer:`, not `note:`. A general-purpose `note:` does not spare the charge and
-   never did — an exemption any sentence can buy measures nothing — so a read explained in `note:`
-   still scores 2 while its author believes it is finished.
-4. Every rpc has a non-empty `required:` — or the literal `required: [NONE]` if the server rejects
-   nothing. An empty `required:` is the one gap no other check can see: a chain built from it lints
-   clean while sending the zero value of every field the server actually demands.
-
-   If you could not find the handler, write `required: [UNKNOWN]`. It lints as a warning rather than
-   an error, so nothing forces you into a false `[NONE]`, and it is scored exactly as an empty list
-   — not knowing costs what not knowing costs. **Never write `[NONE]` to make the number go down:**
-   it is a positive claim that the server accepts an empty request, and a chain author will believe
-   you. Leaving one honest `UNKNOWN` and saying so is the correct end state for a domain whose
-   source you could not reach.
+1. `shrt contract lint -domain <yours>`: 0 errors, and no warning but a `required: [UNKNOWN]` you
+   name.
+2. `shrt contract quality -domain <yours> -phase happy`: score 0, or each remaining point named
+   and justified. The score is necessary, never sufficient.
+3. `shrt contract plan <rpc>` is longer than one step for every read, or the read carries
+   `no_producer:` (not `note:`) saying what outside this API writes the rows.
+4. Every rpc has a non-empty `required:`, `[NONE]`, or `[UNKNOWN]` when the handler was not found.
 
 ## Rules
 
-- Quote exact field names, enum values and error codes. A plausible-looking guess is worse than
-  writing that you could not determine it.
-- Never set `status: verified`. That claim belongs to a human who saw a live run.
+- Quote exact field names, enum values and error codes; say when you could not determine one.
+- Never set `status: verified`.
 - Do not run `shrt run`, `shrt confirm`, or anything that sends traffic or mutates state.
-- Stay inside your domain's overlay file. If you find something about another domain, report it
-  rather than editing that file.
-- If the backend source contradicts the proto comment, trust the source and say so in the note.
+- Edit only your domain's overlay; report findings about other domains.
+- When the source contradicts the proto comment, trust the source and say so in the note.
