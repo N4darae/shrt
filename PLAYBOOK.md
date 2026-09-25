@@ -388,7 +388,9 @@ object unchanged (`product.price_minor equals ${steps.create_product.request.pri
 also gets `<step>_<field>_large` (12345; never for a quantity, which runs into stock rules) and, when
 a failure's `when:` or the field's note states a minimum (`qty is zero or negative`, `must be greater
 than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
-`<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
+`<step>_<field>_below_min` one below, expected refused with that failure, and, for a signed field whose
+minimum is 1 or more, `<step>_<field>_negative` at -1, refused the same way (a check for zero alone
+lets a negative quantity through and subtracts it), each between reads proving the
 refused write changed nothing.
 
 Text is tested at lengths and in characters the fixtures never use, since a column that truncates

@@ -1592,6 +1592,18 @@ in the read's answer. A refused create has no id at all, and `GetCustomer` answe
 to read back. Where a read does take the id but answers only text and ids, the note names that read
 and says why it cannot compare before and after, or one profile with another.
 
+## 66. A negative AddStock that subtracts stock, green in the planned chain
+
+**Symptom.** AddStock began accepting `qty: -5` and subtracting it. The planned chain stayed green:
+its boundary probe sent `qty: 0`, which the backend still refused.
+
+**Cause.** The minimum probe went one below the stated minimum and no further, and a backend that
+checks `qty == 0` instead of `qty <= 0` refuses 0 and lets every negative value through.
+
+**Fix.** 2026-09-25: for a signed numeric field whose stated minimum is 1 or more, `contract plan`
+adds `<step>_<field>_negative` at -1 next to `_below_min`, expecting the same refusal, between reads
+proving the stock did not move.
+
 ---
 
 # Decisions, so they are not relitigated

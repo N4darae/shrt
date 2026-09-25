@@ -167,6 +167,9 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 					from = failure.Label()
 				}
 				said = append(said, fmt.Sprintf("%s (%s = %d, accepted) and %s (%d, refused), from %s", probe.ID, f.Name, min, below.ID, min-1, from))
+				if neg := p.negativeProbe(lib, st, m, f, key, min, failure); neg != "" {
+					said = append(said, neg)
+				}
 			}
 			if !quantity {
 				large := p.probeCopy(lib, st, f.Name+"_large")
