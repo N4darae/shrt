@@ -44,7 +44,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch")
+	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch, and each request value differing only in a fixture name")
 	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
 	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -343,6 +343,9 @@ func runVerify(ctx context.Context, args []string) (err error) {
 				report.FoldSteps(unjudgedSteps(rec, independent, driftAt), fmt.Sprintf("its response, or one it reads, does not "+
 					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 					"or add -v to list them", driftWhy))
+			}
+			if line := report.FixtureInputLine(); *verbose && line != "" {
+				fmt.Fprintln(body, line)
 			}
 			if *quiet {
 				fmt.Fprintln(body, report.QuietText())
