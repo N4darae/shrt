@@ -320,6 +320,10 @@ func allStepRefs(v any) [][2]string {
 }
 
 func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityRead, bool) {
+	return p.readerMatching(lib, prod, idPath, true)
+}
+
+func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, needScalars bool) (entityRead, bool) {
 	pm, err := p.cat.Lookup(prod.Call)
 	if err != nil {
 		return entityRead{}, false
@@ -357,7 +361,7 @@ func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityR
 						scalars = append(scalars, sf.Name)
 					}
 				}
-				if len(scalars) == 0 {
+				if len(scalars) == 0 && needScalars {
 					continue
 				}
 				return entityRead{producer: prod, idPath: idPath, reader: rm, contract: c, field: name, carrier: out.Name, scalars: scalars}, true

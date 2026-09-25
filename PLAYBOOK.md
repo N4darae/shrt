@@ -380,6 +380,22 @@ than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
 `<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
 refused write changed nothing.
 
+Text is tested at lengths and in characters the fixtures never use, since a column that truncates
+at 20 characters or mangles UTF-8 passes every short ASCII name. For a write target whose response
+carries back string fields it sends (not ids, keys or enums), the plan adds `<step>_long_text`,
+each such field grown by 65 characters (an email before its `@`, so it stays an email), and, for
+free-text fields (`name`, `title`, `description`, `note`, `comment`, `label`, ...),
+`<step>_unicode_text` with multi-byte characters (`Ünïcødé-日本語-✓`). Each asserts the response
+echoes every field exactly (`customer.name equals ${steps.create_customer_long_text.request.name}`)
+and, when a read rpc takes the created id, a read after it asserts the stored text the same way
+(`get_customer_after_create_customer_long_text`). When a field's note or a failure's `when:` states
+a maximum (`at most 40 characters`, `longer than 40 characters`), that field is left out of the long
+probe and gets `<step>_<field>_at_max` (exactly that many characters, accepted and stored; a unique
+field is built from `${uuid}` so its length is known) and `<step>_<field>_over_max` (one more,
+refused with the failure whose field or `when:` names the length, between reads proving nothing
+changed). A backend with a real limit you have not written down fails the long probe: state the
+limit in the contract and plan again, rather than deleting the probe.
+
 A list filter is tested by what it leaves out. For a list target the plan works out its scope: a
 request field holding a reference to a step that every fixture also reads is a parent (`id_customer`
 of `ListOrders`), a field named `...prefix` is a prefix. For a parent it adds another one

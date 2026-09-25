@@ -1437,6 +1437,18 @@ the same answer field for field (`get_product_as_clerk`), a write on its own ide
 fixtures with reads asserting the same effect (`confirm_order_as_clerk`,
 `get_product_after_confirm_order_as_clerk`).
 
+## 56. Customer names stored cut to 20 characters, green in the planned chain
+
+**Symptom.** CreateCustomer stored only the first 20 characters of the name. Planned chains stayed
+green; the defect showed only when a run's tag happened to make a name long and something read it.
+
+**Cause.** Plans sent the contract's short values and asserted no text they sent, so no fixture was
+long enough to be cut and nothing compared what came back.
+
+**Fix.** 2026-09-25: a write target whose response echoes text gets `<step>_long_text` and, for
+free text, `<step>_unicode_text`, asserting echo and read-back equal to the request; a stated
+maximum length is probed at it and one over it instead.
+
 ---
 
 # Decisions, so they are not relitigated
