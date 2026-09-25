@@ -189,7 +189,11 @@ run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is 
 recorded runs of the chain sent it at that step and were answered without a refusal: the backend
 accepted it after the record already existed, so it is not unique and cannot be what collides. With
 no literal left to blame and a refusal that names no field, verify gives its plain verdict against
-the safe spot (`regression: N change(s)`). A var that
+the safe spot (`regression: N change(s)`). When an earlier step of the same run, calling the same
+rpc, sent the identical value on the conflicting field and was accepted (two `CreateProduct` steps
+both sending `sku: sku-${vars.tag}`), `run` and `verify` say `the chain collides with itself within
+one run: ... the value step "create_product" of this same run sent there` and exit 1: every run
+collides with itself whatever `-var` is given, so it is never a fixture collision. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers

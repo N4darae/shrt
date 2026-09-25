@@ -20,9 +20,17 @@ type literalCollision struct {
 
 	unnamed bool
 	others  []string
+	earlier string
 }
 
 func (l *literalCollision) line() string {
+	if l.earlier != "" {
+		return fmt.Sprintf("the chain collides with itself within one run: step %q was refused as a uniqueness conflict (%s), "+
+			"and it sent %s=%s, the value step %q of this same run sent there and the backend accepted, so the second create "+
+			"is refused on every run, whatever the vars. This is a defect in the chain, not a fixture or backend problem, and a "+
+			"fresh -var does not help: make the two steps send different values, e.g. %s: %s",
+			l.step, l.why, l.field, l.value, l.earlier, l.field, l.hint)
+	}
 	if l.unnamed {
 		also := ""
 		if len(l.others) > 0 {
@@ -61,6 +69,9 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 	var req any
 	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
+	}
+	if l := collisionWithinRun(c, rec, first, index, why, req); l != nil {
+		return l
 	}
 	folded := foldName(why)
 	var byValue, byName []string
@@ -197,4 +208,70 @@ func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord,
 		}
 	}
 	return out
+}
+
+func collisionWithinRun(c *chain.Chain, rec *runner.Record, first *runner.StepRecord, index int, why string, req any) *literalCollision {
+	sent := map[string]string{}
+	var quoted, named, all []string
+	folded := foldName(why)
+	visitLeaves(req, "", func(path string) {
+		got, ok := chain.Get(req, path)
+		text, isText := got.(string)
+		if !ok || !isText || len(text) < 3 {
+			return
+		}
+		sent[path] = text
+		all = append(all, path)
+		if strings.Contains(why, text) {
+			quoted = append(quoted, path)
+		} else if name := foldName(leafName(path)); name != "" && strings.Contains(folded, name) {
+			named = append(named, path)
+		}
+	})
+	pick, every := quoted, false
+	if len(pick) == 0 {
+		pick = named
+	}
+	if len(pick) == 0 {
+		pick, every = all, true
+	}
+	sort.Strings(pick)
+	for j := 0; j < index && j < len(rec.Steps); j++ {
+		st := rec.Steps[j]
+		if st == nil || st.Call != first.Call || !createdStep(st) {
+			continue
+		}
+		var before any
+		if json.Unmarshal(st.Request, &before) != nil {
+			continue
+		}
+		same := func(path string) bool {
+			got, ok := chain.Get(before, path)
+			return ok && fmt.Sprint(got) == sent[path]
+		}
+		if every && !allSame(pick, same) {
+			continue
+		}
+		for _, path := range pick {
+			if same(path) {
+				hint := leafName(path) + "-${vars." + suggestedVar(c) + "}-2"
+				if v, ok := requestTemplate(c, first.ID, path); ok {
+					if text, isText := v.(string); isText && text != "" {
+						hint = text + "-2"
+					}
+				}
+				return &literalCollision{step: first.ID, index: index, why: why, field: path, value: sent[path], hint: hint, earlier: st.ID}
+			}
+		}
+	}
+	return nil
+}
+
+func allSame(paths []string, same func(string) bool) bool {
+	for _, path := range paths {
+		if !same(path) {
+			return false
+		}
+	}
+	return len(paths) > 0
 }

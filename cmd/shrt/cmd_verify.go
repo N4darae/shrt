@@ -54,6 +54,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
 	"       no var), or naming no field while every referenced field is built from ${uuid} or a clock\n" +
 	"       value: the chain collides with itself on every run after the first, a chain defect\n" +
+	"     - the first failing step was refused as a uniqueness conflict on a value an earlier step of\n" +
+	"       the same run, calling the same rpc, sent and had accepted: the chain collides with itself\n" +
+	"       within every run, a chain defect\n" +
 	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
 	"     is not judged\n" +
 	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
