@@ -8,6 +8,7 @@ import (
 
 type TokenRefusal struct {
 	Token     string    `json:"token"`
+	SentAt    time.Time `json:"sent_at,omitzero"`
 	IssuedAt  time.Time `json:"issued_at,omitzero"`
 	ExpiresAt time.Time `json:"expires_at,omitzero"`
 	RefusedAt time.Time `json:"refused_at"`
@@ -31,7 +32,17 @@ func (r TokenRefusal) Stated() (time.Duration, bool) {
 	if r.IssuedAt.IsZero() || r.ExpiresAt.IsZero() {
 		return 0, false
 	}
-	return r.ExpiresAt.Sub(r.IssuedAt.Truncate(time.Second)), true
+	lo := r.ExpiresAt.Sub(r.IssuedAt.Truncate(time.Second))
+	hi := lo
+	if !r.SentAt.IsZero() && r.SentAt.Before(r.IssuedAt) {
+		hi = r.ExpiresAt.Sub(r.SentAt.Truncate(time.Second))
+	}
+	for _, unit := range []time.Duration{time.Hour, time.Minute, 10 * time.Second, time.Second} {
+		if round := hi.Truncate(unit); round >= lo && round > 0 {
+			return round, true
+		}
+	}
+	return lo, true
 }
 
 func (r TokenRefusal) Left() (time.Duration, bool) {

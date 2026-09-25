@@ -13,6 +13,7 @@ type cachedToken struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	IssuedAt  time.Time `json:"issued_at,omitzero"`
+	SentAt    time.Time `json:"sent_at,omitzero"`
 }
 
 func (s *LoginTokenSource) UseCache(path, profile string) {
@@ -44,27 +45,27 @@ func (s *LoginTokenSource) cacheKey() string {
 	return s.cacheProfile + "#" + hex.EncodeToString(sum.Sum(nil))[:16]
 }
 
-func (s *LoginTokenSource) readCache() (string, time.Time, time.Time, bool) {
+func (s *LoginTokenSource) readCache() (string, time.Time, time.Time, time.Time, bool) {
 	if s.cachePath == "" {
-		return "", time.Time{}, time.Time{}, false
+		return "", time.Time{}, time.Time{}, time.Time{}, false
 	}
 	key := s.cacheKey()
 	if key == "" {
-		return "", time.Time{}, time.Time{}, false
+		return "", time.Time{}, time.Time{}, time.Time{}, false
 	}
 	raw, err := os.ReadFile(s.cachePath)
 	if err != nil {
-		return "", time.Time{}, time.Time{}, false
+		return "", time.Time{}, time.Time{}, time.Time{}, false
 	}
 	entries := map[string]cachedToken{}
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return "", time.Time{}, time.Time{}, false
+		return "", time.Time{}, time.Time{}, time.Time{}, false
 	}
 	e, ok := entries[key]
 	if !ok || e.Token == "" || e.ExpiresAt.IsZero() {
-		return "", time.Time{}, time.Time{}, false
+		return "", time.Time{}, time.Time{}, time.Time{}, false
 	}
-	return e.Token, e.ExpiresAt, e.IssuedAt, true
+	return e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt, true
 }
 
 func (s *LoginTokenSource) dropCache() {
@@ -98,7 +99,7 @@ func (s *LoginTokenSource) dropCache() {
 	_ = os.Rename(tmp, s.cachePath)
 }
 
-func (s *LoginTokenSource) writeCache(token string, expiresAt, issuedAt time.Time) {
+func (s *LoginTokenSource) writeCache(token string, expiresAt, issuedAt, sentAt time.Time) {
 	if s.cachePath == "" || token == "" {
 		return
 	}
@@ -116,7 +117,7 @@ func (s *LoginTokenSource) writeCache(token string, expiresAt, issuedAt time.Tim
 			delete(entries, k)
 		}
 	}
-	entries[key] = cachedToken{Token: token, ExpiresAt: expiresAt, IssuedAt: issuedAt}
+	entries[key] = cachedToken{Token: token, ExpiresAt: expiresAt, IssuedAt: issuedAt, SentAt: sentAt}
 	body, err := json.Marshal(entries)
 	if err != nil {
 		return
