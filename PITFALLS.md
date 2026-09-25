@@ -1030,6 +1030,11 @@ The same held for a var: `password: ${vars.pw}` with `-var pw=...` redacted the 
 the record's `vars` kept the value and `shrt confirm` printed `| vars | pw=... |` into the proposal.
 Since 2026-09-24 every `${vars.*}` value a step body reads into a redacted field is scrubbed by value
 in the whole record the same way, so the proposal shows `pw=<redacted>`.
+That rule also caught a fixture tag: `password: wrong-${vars.tag}` next to `sku: ar-${vars.tag}` made
+the tag a secret, and every sku, expectation and proposal line read `ar-<redacted>`. Since 2026-09-25
+a var inside a redacted field is a secret of its own only when it is the whole field value
+(`password: ${vars.pw}`), is used in no field outside `redact`, or has a credential-like name; otherwise
+only the whole resolved field value (`wrong-<tag>`) is scrubbed by value, and the tag stays readable.
 A credential sent in a step HEADER was only digested in `headers`: with
 `X-Api-Key: "${env.PARTNER_API_KEY}"` and a backend answering 403 `api key <value> is not allowed`,
 the key stood in clear in the response, `transport_error`, `error`, `failure` and on the terminal.
