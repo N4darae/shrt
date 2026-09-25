@@ -36,12 +36,16 @@ func underList(path, list string) bool {
 func (r *Report) collapseMembership(rec *runner.Record) {
 	lists := map[string][]string{}
 	at := map[string]int{}
+	resized := map[string][]string{}
 	for i, c := range r.Changes {
 		if c.Kind != KindLength || c.Step == "" || c.Detail != "" {
 			continue
 		}
-		if detail, _ := r.membership(rec, c.Step, c.Path); detail != "" {
+		if detail, changed := r.membership(rec, c.Step, c.Path); detail != "" {
 			r.Changes[i].Detail = detail
+			if changed {
+				resized[c.Step] = append(resized[c.Step], c.Path)
+			}
 		}
 		lists[c.Step] = append(lists[c.Step], c.Path)
 		at[c.Step+" "+c.Path] = i
@@ -57,6 +61,7 @@ func (r *Report) collapseMembership(rec *runner.Record) {
 			_, gl := r.comparedAt(c.Step, l)
 			at[c.Step+" "+l] = -1 - len(extra)
 			extra = append(extra, Change{Step: c.Step, Path: l, Kind: KindMembership, Want: len(gl), Got: len(gl), Detail: detail})
+			resized[c.Step] = append(resized[c.Step], l)
 		}
 	}
 	drop := func(c Change) string {
@@ -84,11 +89,72 @@ func (r *Report) collapseMembership(rec *runner.Record) {
 	}
 	kept := r.Changes[:0]
 	for _, c := range r.Changes {
-		if drop(c) == "" {
+		if drop(c) == "" && (c.Kind == KindLength || c.Kind == KindMembership || listOf(resized[c.Step], c.Path) == "") {
 			kept = append(kept, c)
 		}
 	}
 	r.Changes = append(kept, extra...)
+	for _, cs := range r.compared {
+		for _, l := range resized[cs.id] {
+			r.Changes = append(r.Changes, r.pairedChanges(cs, l)...)
+		}
+	}
+}
+
+func (r *Report) pairedChanges(cs comparedStep, list string) []Change {
+	wl, gl := r.comparedAt(cs.id, list)
+	key := itemKey(wl, gl)
+	if key == "" {
+		return nil
+	}
+	names := renamer(r.renames)
+	was := map[string]any{}
+	for _, it := range wl {
+		v := fmt.Sprint(it.(map[string]any)[key])
+		if names != nil {
+			v = names.Replace(v)
+		}
+		was[v] = it
+	}
+	aligned := make([]any, len(gl))
+	var out []Change
+	for i, it := range gl {
+		w, ok := was[fmt.Sprint(it.(map[string]any)[key])]
+		if !ok {
+			continue
+		}
+		aligned[i] = w
+		walk(w, it, list+"."+strconv.Itoa(i), func(c Change) {
+			c.Step = cs.id
+			if cs.mask != nil && maskedValue(cs.mask, c) || c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+				return
+			}
+			out = append(out, c)
+		})
+	}
+	setAt(cs.want, strings.Split(list, "."), aligned)
+	return out
+}
+
+func setAt(root any, segs []string, v any) {
+	for len(segs) > 1 {
+		switch t := root.(type) {
+		case map[string]any:
+			root = t[segs[0]]
+		case []any:
+			i, err := strconv.Atoi(segs[0])
+			if err != nil || i >= len(t) {
+				return
+			}
+			root = t[i]
+		default:
+			return
+		}
+		segs = segs[1:]
+	}
+	if m, ok := root.(map[string]any); ok && len(segs) == 1 {
+		m[segs[0]] = v
+	}
 }
 
 func listOf(lists []string, path string) string {
@@ -242,6 +308,19 @@ func filterMisses(request json.RawMessage, added []map[string]any) string {
 		}
 		if n > 0 {
 			out += fmt.Sprintf("; %d added have %s other than the request's %s", n, f, want)
+		}
+		field := strings.Trim(strings.Replace(f, "prefix", "", 1), "_")
+		if field == f || field == "" {
+			continue
+		}
+		n = 0
+		for _, m := range added {
+			if v, ok := m[field].(string); ok && !strings.HasPrefix(v, want) {
+				n++
+			}
+		}
+		if n > 0 {
+			out += fmt.Sprintf("; %d added have %s not starting with %s %q", n, field, f, want)
 		}
 	}
 	return out
