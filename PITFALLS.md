@@ -2312,6 +2312,17 @@ always does), and otherwise each fixture by id (`includes:`) and the exact count
 saying which values tie or depend on a reference. A list that filters on the first create's own
 value (`${steps.create_product.request.sku}`) lists only the three it varied, as before.
 
+## 113. `envelope-only` on a step asserting `status.details.0.app_code equals 1102`
+
+**Symptom.** `shrt chain lint` warned `asserts only the verdict, which says the call did not fail` on
+a step whose only expectation was `status.details.0.app_code equals 1102`, a refusal code. That step
+expects a refusal, not success; the warning is for success steps that assert nothing of what the call
+did.
+
+**Fix.** 2026-09-25: an `equals` or `contains` of a non-empty value on a `code_fields` entry under the
+envelope's parent, which names the refusal as the runner already reads it (GRAMMAR, `StepRecord.expect`),
+marks the step as expecting a refusal, so the warning, and `-strict`'s error, no longer fire on it.
+
 ---
 
 # Decisions, so they are not relitigated
