@@ -159,6 +159,7 @@ type SliceResult struct {
 	FilledVars    []FilledVar     `json:"filled_vars,omitempty"`
 	MissingVars   []string        `json:"missing_vars,omitempty"`
 	FreshVars     []string        `json:"fresh_vars,omitempty"`
+	CarriedPins   []Pin           `json:"carried_kept_red,omitempty"`
 	DroppedPins   []Pin           `json:"dropped_kept_red,omitempty"`
 	Relaxed       []Relaxed       `json:"relaxed,omitempty"`
 	Verified      string          `json:"verified,omitempty"`
@@ -426,6 +427,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	for _, k := range c.KeptRed {
 		if kept[k.Step] {
 			out.KeptRed = append(out.KeptRed, k)
+			res.CarriedPins = append(res.CarriedPins, k)
 		} else {
 			res.DroppedPins = append(res.DroppedPins, k)
 		}

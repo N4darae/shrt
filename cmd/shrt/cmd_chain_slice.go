@@ -503,10 +503,7 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict) {
 }
 
 func printSlicePins(res *chain.SliceResult) {
-	carried := 0
-	if res.Chain != nil {
-		carried = len(res.Chain.KeptRed)
-	}
+	carried := len(res.CarriedPins)
 	if carried == 0 && len(res.DroppedPins) == 0 {
 		return
 	}
