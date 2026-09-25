@@ -34,6 +34,7 @@ type Plan struct {
 	isolated []string
 	parities []parityCopy
 	lib      *Library
+	groupOf  map[*chain.Step]string
 }
 
 type PlanOptions struct {
@@ -136,31 +137,52 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	for _, node := range nodes {
 		targetSteps[p.stepOf[node]] = true
 	}
+	p.groupOf = map[*chain.Step]string{}
+	for _, st := range c.Steps {
+		p.groupOf[st] = "setup"
+		if targetSteps[st.ID] {
+			p.groupOf[st] = "target"
+		}
+	}
 	p.captureRegion(targetSteps)
-	p.discriminateListOrder(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeUniqueness(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeListFilters(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.isolating(lib, "shortage", func() { p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "exact", func() { p.probeExactStock(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "boundary", func() { p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "wide", func() { p.probeWideTotals(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.probeTextLength(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeReadBack(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.probeIdempotency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.isolating(lib, "denied", func() { p.probeDenials(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.probeRoleParity(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.isolating(lib, "items", func() { p.probeItemCounts(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "state", func() { p.probeStateRefusals(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "composed", func() { p.probeComposedTransitions(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "twice", func() { p.probeSameEntityTwice(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "unknown", func() { p.probeUnknownIDs(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.isolating(lib, "shape", func() { p.probeShapes(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.probeLogin(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
-	p.satisfyNeeds(lib)
+	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] }
+	for _, pass := range []struct {
+		label, tag string
+		probe      func(*Library, func(*chain.Step) bool)
+	}{
+		{"list order", "", p.discriminateListOrder},
+		{"unique", "", p.probeUniqueness},
+		{"filter", "", p.probeListFilters},
+		{"shortage", "shortage", p.probeInsufficiency},
+		{"exact", "exact", p.probeExactStock},
+		{"boundary", "boundary", p.probeBoundaries},
+		{"wide total", "wide", p.probeWideTotals},
+		{"text length", "", p.probeTextLength},
+		{"read-back", "", p.probeReadBack},
+		{"batch", "", p.probeBatch},
+		{"replay", "", p.probeIdempotency},
+		{"token/role", "denied", p.probeDenials},
+		{"other role", "", p.probeRoleParity},
+		{"item count", "items", p.probeItemCounts},
+		{"state", "state", p.probeStateRefusals},
+		{"composed", "composed", p.probeComposedTransitions},
+		{"twice", "twice", p.probeSameEntityTwice},
+		{"unknown id", "unknown", p.probeUnknownIDs},
+		{"malformed", "shape", p.probeShapes},
+		{"login", "", p.probeLogin},
+	} {
+		p.grouped(pass.label, func() {
+			if pass.tag == "" {
+				pass.probe(lib, targeted)
+				return
+			}
+			p.isolating(lib, pass.tag, func() { pass.probe(lib, targeted) })
+		})
+	}
+	p.grouped("setup", func() { p.satisfyNeeds(lib) })
 	p.echoNumbers()
 	p.assertOutcomes(lib)
-	p.assertEffects(lib)
+	p.grouped("read-back", func() { p.assertEffects(lib) })
 	p.noteReadBack(lib)
 	p.assertTimestamps(lib)
 	p.noteRepeatedTargets(nodes, repeats, lib)
@@ -475,6 +497,78 @@ func (p *Plan) FillNotes() []string {
 		if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
 			out = append(out, note)
 		}
+	}
+	return out
+}
+
+func (p *Plan) grouped(label string, probe func()) {
+	before := map[*chain.Step]bool{}
+	for _, st := range p.Chain.Steps {
+		before[st] = true
+	}
+	probe()
+	for _, st := range p.Chain.Steps {
+		if !before[st] && p.groupOf[st] == "" {
+			p.groupOf[st] = label
+		}
+	}
+}
+
+type StepGroup struct {
+	Label string
+	Steps int
+}
+
+func (p *Plan) StepGroups() []StepGroup {
+	out := []StepGroup{}
+	at := map[string]int{}
+	for _, st := range p.Chain.Steps {
+		label := p.groupOf[st]
+		if label == "" {
+			label = "other"
+		}
+		i, ok := at[label]
+		if !ok {
+			i = len(out)
+			at[label] = i
+			out = append(out, StepGroup{Label: label})
+		}
+		out[i].Steps++
+	}
+	return out
+}
+
+var gapMarkers = []string{
+	"says nothing", "says neither", "was planned", "by hand", "could not", "cannot be built", "cannot say",
+	"nothing proves", "no probe", "no level is asserted", "assert only that", "assert only whether",
+}
+
+func (p *Plan) GapNotes() []string {
+	out := []string{}
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
+			continue
+		}
+		at := -1
+		for _, m := range gapMarkers {
+			if i := strings.Index(note, m); i >= 0 && (at < 0 || i < at) {
+				at = i
+			}
+		}
+		if at < 0 {
+			continue
+		}
+		prefix := ""
+		body := note
+		if strings.HasPrefix(note, "step ") {
+			if i := strings.Index(note, ": "); i >= 0 && i < at {
+				prefix, body, at = note[:i+2], note[i+2:], at-i-2
+			}
+		}
+		if i := strings.LastIndex(body[:at], "; "); i >= 0 {
+			body = body[i+2:]
+		}
+		out = append(out, prefix+body)
 	}
 	return out
 }

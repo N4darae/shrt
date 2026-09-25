@@ -20,9 +20,10 @@ summary:
 
 ```
 order: CreateAccount -> CreateInvoice -> PayInvoice
-12 steps: create_account, create_invoice, pay_invoice, ...
+12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
 fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-3 more note(s) on why each probe is there and what could not be planned: shrt contract plan PayInvoice -notes
+gap: step pay_invoice: the contract says nothing about what PayInvoice on a paid invoice gives back, so ...
+3 more note(s) on why each probe is there, and each gap in full: shrt contract plan PayInvoice -notes
 next: shrt contract plan PayInvoice -write
 ```
 
@@ -30,8 +31,10 @@ next: shrt contract plan PayInvoice -write
   tell whether the flow makes business sense.
 - **Every `fill:` line is test data you owe.** Add the `value:` to the contract, then re-plan with
   `-write -force`; a chain lint ERRORs on each unfilled field.
-- **`-notes` prints every note**: an assertion you owe (§4), a guessed `required`, an rpc with no
-  contract, a missing producer, a needed role.
+- **Every `gap:` line is something the plan could not plan or assert.** Say it in the contract and
+  re-plan, or write that step by hand.
+- **`-notes` prints every note** (why each probe is there, a guessed `required`, a needed role)
+  and every step id; `-v` prints only the ids.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
 - **A step the plan left out means the contract is missing an edge.** Fix the contract and
