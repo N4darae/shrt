@@ -952,7 +952,15 @@ gained that the backend does not send yet is not a change: run records hold ever
 so the new field shows up at its proto3 default (`note: ""`, `0`, `false`, an empty list, a null
 message), which is exactly the bytes the safe spot's backend sent. verify leaves those out and
 names them (`N response field(s) are declared now but were not on the wire ...`); the day the
-backend sends a non-default value there, it is reported as `unexpected` like any new field.
+backend sends a non-default value there, it is reported as `unexpected` like any new field. That
+holds only for a field the safe spot's run did NOT have on the wire: a field the backend already
+sent before the proto declared it (the run's `response field(s) the proto does not declare`
+warning) is compared with the value that run received, which the record keeps under `undeclared`.
+The same value is not a change (`... were on the wire, undeclared, in the safe spot's run with the
+same value ...`); a field gone since, now at its default, is `changed product.active want=true
+got=false (on the wire, undeclared, in the safe spot's run; not on the wire now ...)`. A safe spot
+approved by an older build has only the warning, not the value: a field gone since is still a change,
+and a value now is listed as `not compared` until a newer run is proposed in its place.
 
 A drift can also come from the chain itself. `verify` first compares what each step SENT with what
 the safe spot's run sent, and prints each difference before the response changes:

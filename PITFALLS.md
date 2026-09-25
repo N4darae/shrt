@@ -74,6 +74,15 @@ the descriptor does not declare is not a mismatch at all: the field is discarded
 with proto names and zero values as usual. `run` and `verify` print these once per run, grouped as
 `the backend sends fields the proto does not declare: ...: <rpc> -> <fields>; ...`; update the
 proto and the descriptor only if you want those fields compared.
+Until 2026-09-25 declaring such a field afterwards hid what happened to it. verify treated every
+field declared since the safe spot as never sent, so a backend that STOPPED sending `active: true`
+passed as `declared now but were not on the wire ... the same bytes the safe spot's backend sent`
+(exit 0), and one that kept sending it failed as `regression ... unexpected product.active
+want=<nil> got=true`. The record now keeps the undeclared values under `undeclared`, and verify
+compares a newly declared field with what the safe spot's run actually received: the same value is
+no change, a field gone since is `changed ... want=true got=false`. A safe spot approved before
+has only the warning's field names: a field gone since is still a change, a value now is listed
+as `not compared` until a newer run is proposed in its place.
 
 ## 5. A cached, still-valid token that shrt refuses to use
 

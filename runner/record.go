@@ -117,6 +117,7 @@ type StepRecord struct {
 	BodyRefs      map[string]string    `json:"body_refs,omitempty"`
 	Headers       map[string]string    `json:"headers,omitzero"`
 	Response      json.RawMessage      `json:"response,omitempty"`
+	Undeclared    json.RawMessage      `json:"undeclared,omitempty"`
 	Transport     *TransportError      `json:"transport_error,omitempty"`
 	Expect        []chain.ExpectResult `json:"expect,omitempty"`
 	Exported      map[string]any       `json:"exported,omitempty"`
