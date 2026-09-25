@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"sync"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
@@ -49,40 +51,103 @@ func sessionReads(e *env, rec *runner.Record) map[string]gateRead {
 	return out
 }
 
+type sessionCheck struct {
+	line    string
+	finding bool
+}
+
+func checkSessions(ctx context.Context, e *env, profiles []string, at map[string]gateEarly, reads map[string]gateRead) map[string]sessionCheck {
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	out := map[string]sessionCheck{}
+	for _, p := range profiles {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if line, finding, ok := checkSession(ctx, e, p, at[p], reads); ok {
+				mu.Lock()
+				out[p] = sessionCheck{line: line, finding: finding}
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return out
+}
+
 func checkSession(ctx context.Context, e *env, profile string, at gateEarly, reads map[string]gateRead) (string, bool, bool) {
 	read, ok := reads[profile]
 	if !ok || at.age <= 0 || at.stated <= 0 || e.cat == nil {
 		return "", false, false
 	}
-	deps, err := runner.Build(ctx, e.cfg, e.cat, nil)
-	if err != nil || deps.Sources[profile] == nil {
-		return "", false, false
-	}
-	src := deps.Sources[profile]
 	hold := min(at.age, sessionHoldCap) + time.Second
-	fmt.Printf("checking session lifetime: holding a fresh token %ds\n", seconds(hold))
-	src.Invalidate()
-	if _, err := src.Token(ctx); err != nil {
+	half := hold / 2
+	fmt.Printf("checking session lifetime of auth profile %s: holding a fresh token %s\n", profile, ageText(hold))
+	first, ok := heldProbes(ctx, e, profile, read, hold)
+	if !ok {
 		return "", false, false
 	}
-	issued := time.Now()
-	var held time.Duration
-	for try := 1; try <= 2; try++ {
-		gateSleep(ctx, time.Until(issued.Add(hold)))
-		call := &transport.Call{Procedure: read.Procedure, Body: read.Body, Meta: map[string]any{"auth": profile}}
-		held = time.Since(issued)
-		_, err := deps.Client.Do(ctx, call)
-		if err != nil || ctx.Err() != nil {
-			return "", false, false
-		}
-		if refused, _ := call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal); len(refused) == 0 {
-			return fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %ds was accepted",
-				profile, seconds(held)), false, true
-		}
-		issued = time.Now()
+	if first[0] {
+		return fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was accepted",
+			profile, ageText(hold)), false, true
 	}
-	return fmt.Sprintf("FINDING: sessions end early: a fresh token was refused after %ds although the login said %ds",
-		seconds(held), seconds(at.stated)), true, true
+	second, ok := heldProbes(ctx, e, profile, read, half, hold)
+	switch {
+	case !ok:
+		return "", false, false
+	case !second[0]:
+		return fmt.Sprintf("FINDING: sessions of auth profile %s end early: fresh tokens were refused at %s and at %s although the login said %s",
+			profile, ageText(hold), ageText(half), ageText(at.stated)), true, true
+	case !second[1]:
+		return fmt.Sprintf("FINDING: sessions of auth profile %s end early: fresh tokens were accepted at %s, refused at %s (twice) although the login said %s",
+			profile, ageText(half), ageText(hold), ageText(at.stated)), true, true
+	}
+	return fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was refused once, "+
+		"then fresh ones held %s and %s were accepted", profile, ageText(hold), ageText(half), ageText(hold)), false, true
+}
+
+func heldProbes(ctx context.Context, e *env, profile string, read gateRead, ages ...time.Duration) ([]bool, bool) {
+	type held struct {
+		deps   *runner.Deps
+		issued time.Time
+	}
+	tokens := make([]held, 0, len(ages))
+	for range ages {
+		deps, err := runner.Build(ctx, e.cfg, e.cat, nil)
+		if err != nil || deps.Sources[profile] == nil {
+			return nil, false
+		}
+		src := deps.Sources[profile]
+		src.Invalidate()
+		if _, err := src.Token(ctx); err != nil {
+			return nil, false
+		}
+		tokens = append(tokens, held{deps: deps, issued: time.Now()})
+	}
+	out := make([]bool, 0, len(ages))
+	for i, age := range ages {
+		gateSleep(ctx, time.Until(tokens[i].issued.Add(age)))
+		call := &transport.Call{Procedure: read.Procedure, Body: read.Body, Meta: map[string]any{"auth": profile}}
+		if _, err := tokens[i].deps.Client.Do(ctx, call); err != nil || ctx.Err() != nil {
+			return nil, false
+		}
+		refused, _ := call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
+		out = append(out, len(refused) == 0)
+		if len(refused) > 0 && i < len(ages)-1 {
+			for len(out) < len(ages) {
+				out = append(out, false)
+			}
+			break
+		}
+	}
+	return out, true
+}
+
+func ageText(d time.Duration) string {
+	if d < 10*time.Second {
+		return strconv.FormatFloat(d.Round(100*time.Millisecond).Seconds(), 'f', -1, 64) + "s"
+	}
+	return fmt.Sprintf("%ds", seconds(d))
 }
 
 func seconds(d time.Duration) int {
