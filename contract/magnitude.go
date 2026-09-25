@@ -60,9 +60,15 @@ func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field) {
 					if !ok || sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) {
 						continue
 					}
-					if n, ok := numericValue(item[k]); ok && n != 0 {
-						item[k] = strconv.FormatInt(spreadValue(n, rank, isQuantityName(sub.Name)), 10)
+					n, ok := numericValue(item[k])
+					if !ok || n == 0 {
+						continue
 					}
+					if isQuantityName(sub.Name) {
+						item[k] = strconv.FormatInt(smallerQuantity(n, rank), 10)
+						continue
+					}
+					item[k] = strconv.FormatInt(spreadValue(n, rank, false), 10)
 				}
 			}
 		}
@@ -228,4 +234,11 @@ func hasExpectOn(st *chain.Step, path string) bool {
 		}
 	}
 	return false
+}
+
+func smallerQuantity(base int64, rank int) int64 {
+	if base-int64(rank) >= 1 {
+		return base - int64(rank)
+	}
+	return base + int64(rank)
 }

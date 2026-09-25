@@ -153,8 +153,8 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	said := []string{}
 	inside := copyStep(first, p.freeStepID(first.ID+"_prefix_inside"))
 	inside.Export = nil
-	inside.Body[scope.target] = "x-" + scope.prefix
 	renameStepRefs(inside, first.ID, inside.ID)
+	inside.Body[scope.target] = "x-" + scope.prefix
 	inside.Description = fmt.Sprintf("its %s contains the %s %q but does not start with it, so %s must not list it.", scope.target, scope.prefixKey, scope.prefix, t.step.ID)
 	added := []*chain.Step{inside}
 	said = append(said, fmt.Sprintf("%s (%s contains the prefix, not at the start)", inside.ID, scope.target))
@@ -180,8 +180,8 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	default:
 		cased := copyStep(first, p.freeStepID(first.ID+"_prefix_case"))
 		cased.Export = nil
-		cased.Body[scope.target] = swapped + "-case"
 		renameStepRefs(cased, first.ID, cased.ID)
+		cased.Body[scope.target] = swapped + "-case"
 		cased.Description = fmt.Sprintf("its %s starts with the %s in another letter case; the comparison is case-sensitive, so %s must not list it.", scope.target, scope.prefixKey, t.step.ID)
 		added = append(added, cased)
 		said = append(said, fmt.Sprintf("%s (the prefix in another case)", cased.ID))
@@ -416,8 +416,29 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 		if value == "" || seen[value] {
 			continue
 		}
+		if missing := p.missingDependencies(c); len(missing) > 0 {
+			p.note("step %s: %s would move a fixture to %s, but it needs %s, which this plan does not call, so no fixture is "+
+				"put in that state: plan %s together with %s to have it", t.step.ID, shortRPC(rpc), short[value],
+				strings.Join(missing, ", "), shortRPC(t.step.Call), strings.Join(missing, " "))
+			continue
+		}
 		seen[value] = true
 		out = append(out, transition{method: m, contract: c, field: field, value: value})
+	}
+	return out
+}
+
+func (p *Plan) missingDependencies(c *RPCContract) []string {
+	called := map[string]bool{}
+	for _, st := range p.Chain.Steps {
+		called[canonicalCall(p.cat, st.Call)] = true
+	}
+	out := []string{}
+	for _, dep := range c.DependenciesFor("") {
+		rpc, _ := SplitNode(dep)
+		if !called[canonicalCall(p.cat, rpc)] {
+			out = append(out, shortRPC(rpc))
+		}
 	}
 	return out
 }

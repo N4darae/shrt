@@ -9,7 +9,10 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var keyConflict = regexp.MustCompile(`(?i)idempoten|key ?reuse|key ?conflict|key ?mismatch`)
+var (
+	keyConflict     = regexp.MustCompile(`(?i)idempoten|key ?reuse|key ?conflict|key ?mismatch`)
+	keyConflictWhen = regexp.MustCompile(`(?i)\bkey\b[^.;]*\b(?:different|another|other|changed)\s+(?:body|request|payload|content)`)
+)
 
 func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
@@ -80,7 +83,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	}
 	conflict := ""
 	for _, f := range lib.AllFailures(st.Call) {
-		if keyConflict.MatchString(f.Reason) || (keyConflict.MatchString(f.When) && !isUnauthenticated(f)) {
+		if keyConflict.MatchString(f.Reason) || keyConflictWhen.MatchString(f.When) {
 			other.Expect = refusalFor(m, f)
 			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, stepList(bumped), f.Label())
 			conflict = f.Label()

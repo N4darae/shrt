@@ -12,7 +12,7 @@ import (
 
 var (
 	denialReason = regexp.MustCompile(`(?i)permission|forbidden|denied|notallowed|unauthori[sz]ed|role|privilege|notadmin`)
-	denialWhen   = regexp.MustCompile(`(?i)\brole\b|\bpermission\b|\bnot allowed\b|\bforbidden\b|\bprivilege`)
+	denialWhen   = regexp.MustCompile(`(?i)(?:caller|user|principal|token|account)[^.;]*\b(?:role|permission|privilege|admin)|does not (?:hold|have)[^.;]*\b(?:role|permission)|\bnot allowed\b|\bforbidden\b`)
 	unauthWord   = regexp.MustCompile(`(?i)unauthenticated|missing token|no token|invalid token|expired token|not logged in`)
 	profileChars = regexp.MustCompile(`[^A-Za-z0-9_]+`)
 )
@@ -28,11 +28,14 @@ func refusalFor(m *catalog.Method, f Failure) []chain.Expectation {
 }
 
 func denialFailure(lib *Library, rpc string) (Failure, bool) {
-	for _, f := range lib.AllFailures(rpc) {
-		if isUnauthenticated(f) {
-			continue
+	failures := lib.AllFailures(rpc)
+	for _, f := range failures {
+		if !isUnauthenticated(f) && (denialReason.MatchString(f.Reason) || f.ConnectCode == "permission_denied") {
+			return f, true
 		}
-		if denialReason.MatchString(f.Reason) || denialWhen.MatchString(f.When) || f.ConnectCode == "permission_denied" {
+	}
+	for _, f := range failures {
+		if !isUnauthenticated(f) && denialWhen.MatchString(f.When) {
 			return f, true
 		}
 	}

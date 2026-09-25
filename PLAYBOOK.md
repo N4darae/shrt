@@ -336,8 +336,9 @@ probe`) and the chained rpcs no chain calls without a token (`no token`).
 Numbers in planned fixtures differ by magnitude, because a bug in arithmetic shows at a size the
 first fixture never reaches (a price stored as `price - price/1000` is right for 250 and wrong for
 1250). A second producer takes the first value plus 1000 (`create_product_2`, price 1250), three list
-fixtures take 250, 1250 and 12345, and a quantity (`qty`, `quantity`, `count`, `amount`) grows by one
-per fixture instead, inside repeated items too (`lines.0.qty` 2, 3, 4), so it stays within the stock the
+fixtures take 250, 1250 and 12345, and a quantity (`qty`, `quantity`, `count`, `amount`) moves by one
+per fixture instead: up when it is a sort key, down where it can inside repeated items (`lines.0.qty`
+3, 2, 1), so it stays within the stock the
 plan adds. Every planned write asserts that each numeric field it sent comes back in its response's
 object unchanged (`product.price_minor equals ${steps.create_product.request.price_minor}`). A target
 also gets `<step>_<field>_large` (12345; never for a quantity, which runs into stock rules) and, when
@@ -360,7 +361,9 @@ CreateOrder->order.id_order`) and whose `exports:` or summary name the state the
 (`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
 list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
 only the fixtures in that state come back: by id when the contract states creation order or one
-matches, their status always, and the count. A note names states no write reaches.
+matches, their status always, and the count. A note names states no write reaches, and a write
+whose own `needs:` the plan does not call (a confirm that needs `AddStock`) is left out with a note
+saying which rpc to plan with it.
 
 A batch is tested with a refused item in the middle. With `conventions.item_envelope_path` set
 (`results[].status.code`) and a contract saying failures are reported per item (`reported on that

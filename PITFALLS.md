@@ -1339,7 +1339,7 @@ the stored price, and no step sent a value at or below the stated minimum.
 
 **Fix.** 2026-09-25: the second producer's price is 1000 above the first, list fixtures spread to
 12345, every write asserts the numbers it sent come back, and a target gets `_large`, `_min` and
-`_below_min` probes where the contract states a minimum. Quantities grow by one, inside repeated
+`_below_min` probes where the contract states a minimum. Quantities move by one, inside repeated
 items too, so three list fixtures are no longer the same order three times.
 
 ## 50. A status filter that was ignored, green in the planned chain
