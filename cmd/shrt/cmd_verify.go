@@ -35,7 +35,7 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  1  drift, a failed replay, no safe spot, a FINDING, REGRESSION or CHAIN DEFECT, a confirmed slowdown\n" +
 	"  3  could not verify: a step unanswered, a restart, auth refused, a fixture reused, a stale descriptor\n"
 
-func runVerify(ctx context.Context, args []string) error {
+func runVerify(ctx context.Context, args []string) (err error) {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
@@ -127,7 +127,7 @@ func runVerify(ctx context.Context, args []string) error {
 			}
 			return err
 		}
-		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), *quiet || *asJSON)
+		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), true)
 		if err == nil {
 			rec.ReplayOf = spot.RunID
 		}
@@ -297,43 +297,45 @@ func runVerify(ctx context.Context, args []string) error {
 			return err
 		}
 	} else {
-		if !*quiet {
-			fmt.Println()
-		}
+		body := &strings.Builder{}
+		defer func() {
+			verdict, rest := verifyVerdict(name, rec, report, nonBackend != nil, err, body.String())
+			fmt.Print(verdict + rest)
+		}()
 		if nonBackend != nil {
-			fmt.Printf("could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
+			fmt.Fprintf(body, "could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
 		}
 		if olderSpot != "" && !*quiet {
-			fmt.Println(olderSpot)
+			fmt.Fprintln(body, olderSpot)
 		}
 		if (spot.Build != "" || rec.Build != "") && !*quiet {
-			fmt.Printf("safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
+			fmt.Fprintf(body, "safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
 		}
 		switch {
 		case nonBackend != nil:
 			if list := affectedSteps(rec, report); list != "" {
-				fmt.Println("  affected step(s), not judged: " + list)
+				fmt.Fprintln(body, "  affected step(s), not judged: "+list)
 			}
 			if life != nil {
-				fmt.Println(life.label() + life.line())
+				fmt.Fprintln(body, life.label()+life.line())
 			} else if loss != nil {
-				fmt.Println("WARNING: " + loss.line())
+				fmt.Fprintln(body, "WARNING: "+loss.line())
 			}
 		case life.finding():
-			fmt.Println("FINDING: " + life.line())
+			fmt.Fprintln(body, "FINDING: "+life.line())
 		case loss.finding():
-			fmt.Println("FINDING: " + loss.line())
+			fmt.Fprintln(body, "FINDING: "+loss.line())
 		case fresh != nil:
-			fmt.Println("FINDING: " + fresh.line())
+			fmt.Fprintln(body, "FINDING: "+fresh.line())
 		case dropped != nil:
-			fmt.Println("FINDING: " + dropped.line())
+			fmt.Fprintln(body, "FINDING: "+dropped.line())
 		case flaky.finding():
-			fmt.Println("FINDING: " + flaky.line())
+			fmt.Fprintln(body, "FINDING: "+flaky.line())
 		case loss != nil:
-			fmt.Println("WARNING: " + loss.line())
+			fmt.Fprintln(body, "WARNING: "+loss.line())
 		}
 		if life != nil && !life.finding() && nonBackend == nil {
-			fmt.Println(life.label() + life.line())
+			fmt.Fprintln(body, life.label()+life.line())
 		}
 		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
@@ -342,65 +344,62 @@ func runVerify(ctx context.Context, args []string) error {
 					"or add -v to list them", driftWhy))
 			}
 			if *quiet {
-				fmt.Println(report.QuietText())
+				fmt.Fprintln(body, report.QuietText())
 			} else {
-				fmt.Println(report.Text())
+				fmt.Fprintln(body, report.Text())
 			}
 			if list := report.MaskedList(); *listMasked && list != "" {
-				fmt.Println(list)
+				fmt.Fprintln(body, list)
 			}
 			if *showLatency {
-				fmt.Println(diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
+				fmt.Fprintln(body, diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
 			}
 			for _, f := range latency {
-				fmt.Println(f.Line())
+				fmt.Fprintln(body, f.Line())
 			}
 			switch {
 			case reuse.finding():
-				fmt.Println("FINDING: " + reuse.line())
+				fmt.Fprintln(body, "FINDING: "+reuse.line())
 			case reuse != nil:
-				fmt.Println(reuse.line() + "; " + reuse.rerun("verify", name))
+				fmt.Fprintln(body, reuse.line()+"; "+reuse.rerun("verify", name))
 			}
 			if literal != nil {
-				fmt.Println("CHAIN DEFECT: " + literal.line())
+				fmt.Fprintln(body, "CHAIN DEFECT: "+literal.line())
 			}
 			if idem != nil && idem.literal {
-				fmt.Println("CHAIN DEFECT: " + idem.line())
+				fmt.Fprintln(body, "CHAIN DEFECT: "+idem.line())
 			}
 			if lateIdem != nil {
-				fmt.Println(lateIdem.note())
+				fmt.Fprintln(body, lateIdem.note())
 			}
 			for _, line := range flaky.notes() {
-				fmt.Println("note: " + line)
+				fmt.Fprintln(body, "note: "+line)
 			}
 			if violation {
-				fmt.Println("REGRESSION: " + violationLine(e, name, driftStep, driftWhy))
+				fmt.Fprintln(body, "REGRESSION: "+violationLine(e, name, driftStep, driftWhy))
 			}
 			if !violation && len(declared) == 0 && len(independent) > 0 {
-				fmt.Printf("note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
+				fmt.Fprintf(body, "note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
 					"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(independent),
 					describeChanges(independent), driftRemedy(ctx, e, driftWhy))
 			}
 			if len(declared) > 0 {
-				fmt.Printf("note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
+				fmt.Fprintf(body, "note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
 					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
 					driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
 			}
 			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
-				fmt.Printf("chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
+				fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
 					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
 					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
-			}
-			if report.Clean() && !report.Widened() && !report.PrincipalChanged() && !*quiet {
-				fmt.Printf("covers the %d step(s) of this chain only; a regression in a path no safe spot exercises is not seen\n", len(spot.Steps))
 			}
 		}
 		if *quiet {
 			for _, line := range warningLines(rec) {
-				fmt.Println(line)
+				fmt.Fprintln(body, line)
 			}
 		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
-			fmt.Println("warning: " + line)
+			fmt.Fprintln(body, "warning: "+line)
 		}
 	}
 	if life.finding() {
@@ -507,7 +506,12 @@ func runVerify(ctx context.Context, args []string) error {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		return fmt.Errorf("regression: %d change(s) vs safe spot%s.\n%s", report.Counted(), regressionShape(report), intendedChangeNext(name))
+		first, steps := firstChange(report)
+		at := ""
+		if first != nil {
+			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
+		}
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s; %s", report.Counted(), at, regressionShape(report), intendedChangeNext(name))
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -1069,9 +1073,72 @@ func regressionShape(report *diff.Report) string {
 }
 
 func intendedChangeNext(name string) string {
-	return fmt.Sprintf("If the change is intended (a field added or renamed, or a value changed on purpose), run the chain until it passes, "+
-		"propose that run in place of the safe spot (shrt confirm %s -supersede -note \"...\"), and a person approves it; "+
-		"if it is not, it is a regression to fix in the backend", name)
+	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
+}
+
+func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
+	if noVerdict {
+		return "", body
+	}
+	if err == nil {
+		line := fmt.Sprintf("%s: no drift vs safe spot %s", name, report.SafeSpotID)
+		lines := strings.SplitAfter(body, "\n")
+		for i, l := range lines {
+			if strings.HasPrefix(l, line) {
+				return strings.TrimRight(l, "\n") + "\n", strings.Join(append(lines[:i:i], lines[i+1:]...), "")
+			}
+		}
+		return line + "\n", body
+	}
+	why, _, _ := strings.Cut(err.Error(), "\n")
+	if kind, _, ok := strings.Cut(why, ":"); ok && len(kind) < 40 && !strings.Contains(kind, name) {
+		why = kind
+	}
+	first, steps := firstChange(report)
+	if first == nil {
+		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
+	}
+	return fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s\n", name, why, steps, report.SafeSpotID, changeAt(rec, *first)), body
+}
+
+func firstChange(report *diff.Report) (*diff.Change, int) {
+	var first *diff.Change
+	steps := map[string]bool{}
+	for i, c := range report.Changes {
+		if c.Kind == diff.KindNotReached {
+			continue
+		}
+		steps[c.Step] = true
+		if first == nil || first.Kind == diff.KindStatus && c.Kind != diff.KindStatus && c.Step == first.Step {
+			first = &report.Changes[i]
+		}
+	}
+	return first, len(steps)
+}
+
+func changeAt(rec *runner.Record, c diff.Change) string {
+	rpc := ""
+	if st, ok := rec.Step(c.Step); ok && st != nil {
+		rpc = " (" + shortRPC(st.Call) + ")"
+	}
+	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, capText(compactValue(c.Want), 60), capText(compactValue(c.Got), 60))
+}
+
+func compactValue(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return "<none>"
+	case string:
+		return t
+	}
+	return exportJSON(v)
+}
+
+func capText(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-3] + "..."
 }
 
 func describeChanges(changes []diff.Change) string {
