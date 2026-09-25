@@ -403,6 +403,16 @@ a reason or `when:` saying idempotency, key reuse or conflict, that refusal); an
 is in `required:`, `<step>_no_key` and `<step>_no_key_2` sending an empty key, the second asserting
 an id different from the first. Copies elsewhere in a plan (a shortage probe's order) get a fresh
 `${uuid}` key so they are never mistaken for a replay.
+A replay must answer with the object as it is now, not as it was created: a backend that caches the
+response at creation replays a CONFIRMED order as PENDING. So when the created object carries a state
+enum (`order.status`) and the contracts name writes that take its id and the state they leave it in
+(`exports: order: ... status CONFIRMED`), the plan adds, per write, a fresh object
+(`create_order_for_replay_after_confirm_order`), the write (`confirm_order_for_replay`), a read
+(`fetch_order_after_confirm_order_for_replay`) and the replay of the fresh object's key
+(`create_order_replay_after_confirm_order`), asserting the replay's id and every numeric and enum
+field the read returns (`order.status equals ${fetch_order_after_confirm_order_for_replay.order.status}`).
+A write whose `needs:` the plan does not call is left out with a note naming what to plan with it
+(`CreateOrder AddStock`, so `ConfirmOrder` can run).
 
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with

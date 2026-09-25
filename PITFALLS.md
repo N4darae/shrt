@@ -1412,6 +1412,18 @@ itself) is repeated on a copy of that fixture with one item and with three (`cre
 `cancel_order_1_lines`, `create_order_3_lines`, `cancel_order_3_lines`), the third item reading a
 third resource of its own with its own preparation (`create_product_3`, `add_stock_3`).
 
+## 54. An idempotent replay answered with the order as it was created
+
+**Symptom.** After an order was confirmed or cancelled, replaying its `idempotency_key` returned it
+with status PENDING. The planned replay probes passed.
+
+**Cause.** They replayed only right after the create, when the stored and the created order are the
+same, and asserted the id and the numbers, not the status.
+
+**Fix.** 2026-09-25: a create target with a key and a state enum also gets, per write that moves the
+state, a fresh object moved by it, a read, and a replay asserting it equals the read, status included
+(`create_order_replay_after_confirm_order`, `create_order_replay_after_cancel_order`).
+
 ---
 
 # Decisions, so they are not relitigated
