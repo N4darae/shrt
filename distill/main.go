@@ -42,7 +42,7 @@ var notes = map[string]string{
 
 	"Step.id":          "Unique; later steps reference it. Derived from the rpc name when omitted.",
 	"Step.description": "Why this step is here and what its assertions mean.",
-	"Step.call":        "`package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous.",
+	"Step.call":        "`package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. A server-streaming rpc records its first message as `messages.0` (a `WatchInvoice` step asserts `messages.0.status.code`) and stops reading, within 5s; client- and bidi-streaming rpcs are refused.",
 	"Step.body":        "The request, validated against the proto request message before anything is sent.",
 	"Step.headers":     "Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it.",
 	"Step.expect":      "Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`.",

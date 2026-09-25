@@ -24,7 +24,7 @@ A `+` in the `req` column means the key is always written out (no `omitempty`).
 |---|---|---|---|
 | `id` | string | + | Unique; later steps reference it. Derived from the rpc name when omitted. |
 | `description` | string |  | Why this step is here and what its assertions mean. |
-| `call` | string | + | `package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. |
+| `call` | string | + | `package.Service/Rpc`, `Service/Rpc`, or a bare `Rpc` when unambiguous. A server-streaming rpc records its first message as `messages.0` (a `WatchInvoice` step asserts `messages.0.status.code`) and stops reading, within 5s; client- and bidi-streaming rpcs are refused. |
 | `body` | map string → any |  | The request, validated against the proto request message before anything is sent. |
 | `headers` | map string → string |  | Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it. |
 | `expect` | list of expectation |  | Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`. |
