@@ -36,9 +36,10 @@ func TestTheGateHoldsAFreshTokenAndReportsSessionsThatEndEarly(t *testing.T) {
 	cacheASessionToken(t)
 	time.Sleep(400 * time.Millisecond)
 	out, code := runGateOut(t)
-	if code != 1 || !strings.Contains(out, "checking session lifetime: holding a fresh token 1s\n") ||
-		!strings.Contains(out, "FINDING: sessions end early: a fresh token was refused after 1s although the login said 3600s") {
-		t.Fatalf("a fresh token refused twice after being held is a finding, exit 1, got %d:\n%s", code, out)
+	if code != 1 || !strings.Contains(out, "checking session lifetime of auth profile default: holding a fresh token 1.") ||
+		!strings.Contains(out, "FINDING: sessions of auth profile default end early: fresh tokens were refused at 1.") ||
+		!strings.Contains(out, "s although the login said 3600s") {
+		t.Fatalf("a fresh token refused after the long hold and another at half of it is a finding, exit 1, got %d:\n%s", code, out)
 	}
 	if strings.Contains(out, "refused early once") || strings.Count(out, "checking session lifetime") != 1 {
 		t.Fatalf("the check settles the note and says once that it waits:\n%s", out)
@@ -58,13 +59,56 @@ func TestTheGateCallsAnEarlyRefusalARestartWhenAHeldFreshTokenIsAccepted(t *test
 	restart()
 	out, code := runGateOut(t)
 	if code != 0 || strings.Contains(out, "FINDING") ||
-		!strings.Contains(out, "session check: the early refusal of auth profile default was a restart: a fresh token held 1s was accepted") {
+		!strings.Contains(out, "session check: the early refusal of auth profile default was a restart: a fresh token held 1") {
 		t.Fatalf("a backend that restarted once is no finding, got %d:\n%s", code, out)
 	}
 	restart()
 	out, code = runGateOut(t, "-no-session-check")
 	if code != 0 || strings.Contains(out, "checking session lifetime") || !strings.Contains(out, "note: a token of auth profile default was refused early once") {
 		t.Fatalf("-no-session-check leaves the note, got %d:\n%s", code, out)
+	}
+}
+
+func TestTheGateNarrowsASessionLifetimeBetweenAnAcceptedAndARefusedAge(t *testing.T) {
+	b := &shortSessionBackend{uses: 1000, life: 800 * time.Millisecond}
+	shortSessionWorkspace(t, b, sessionReadStep)
+	realGate(t)
+	cacheASessionToken(t)
+	b.mu.Lock()
+	b.left = map[string]int{}
+	b.mu.Unlock()
+	start := time.Now()
+	out, code := runGateOut(t)
+	if code != 1 || !strings.Contains(out, "FINDING: sessions of auth profile default end early: fresh tokens were accepted at 0.") ||
+		!strings.Contains(out, "s (twice) although the login said 3600s") {
+		t.Fatalf("accepted at half the hold and refused at the hold twice is a finding naming both ages, got %d:\n%s", code, out)
+	}
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("the check adds at most two holds, took %s", took)
+	}
+}
+
+func TestTheGateCallsARefusalARestartWhenBothLaterTokensAreAccepted(t *testing.T) {
+	b := &shortSessionBackend{uses: 1000}
+	shortSessionWorkspace(t, b, sessionReadStep)
+	realGate(t)
+	cacheASessionToken(t)
+	restart := func() {
+		b.mu.Lock()
+		b.left = map[string]int{}
+		b.mu.Unlock()
+	}
+	restart()
+	slept := 0
+	gateSleep = func(ctx context.Context, d time.Duration) {
+		time.Sleep(d)
+		if slept++; slept == 1 {
+			restart()
+		}
+	}
+	out, code := runGateOut(t)
+	if code != 0 || strings.Contains(out, "FINDING") || !strings.Contains(out, "was refused once, then fresh ones held 0.") {
+		t.Fatalf("one refusal at the long hold, from a restart during it, is no finding, got %d:\n%s", code, out)
 	}
 }
 

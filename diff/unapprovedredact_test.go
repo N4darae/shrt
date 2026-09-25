@@ -54,3 +54,26 @@ func TestRequestValueRedactedOnOneSideIsNotAnInputChange(t *testing.T) {
 		t.Fatalf("a request value redacted on one side only is not different input: %+v", changes)
 	}
 }
+
+func TestAnEmptyValueTheSafeSpotHeldUnderARedactPatternIsAChangeNotANewPattern(t *testing.T) {
+	spot := orderSpot(`{"access_token":"","name":"Widget"}`)
+	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"access_token":"<redacted>","name":"Widget"}`))
+	rec.Redacted = []string{"**.access_token"}
+	rep := diff.Compare(spot, rec)
+	rep.NoteApprovedRedact([]string{"**.access_token"}, rec)
+	if rep.Widened() || strings.Contains(rep.Text(), "did not have") {
+		t.Fatalf("the pattern was there at approval; the redactor leaves an empty value in the clear:\n%s", rep.Text())
+	}
+	if rep.Clean() || !strings.Contains(rep.Text(), "access_token") {
+		t.Fatalf("an empty value that now holds a secret is a change:\n%s", rep.Text())
+	}
+}
+
+func TestASecretTheSafeSpotRedactedThatIsNowEmptyIsAChange(t *testing.T) {
+	spot := orderSpot(`{"access_token":"<redacted>","name":"Widget"}`)
+	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"access_token":"","name":"Widget"}`))
+	rec.Redacted = []string{"**.access_token"}
+	if rep := diff.Compare(spot, rec); rep.Clean() || !strings.Contains(rep.Text(), "access_token") {
+		t.Fatalf("a secret that is now empty is a change, not a redacted value:\n%s", rep.Text())
+	}
+}

@@ -143,7 +143,8 @@ failures by suspect rpc (the read itself, or the failing or changed write it obs
 Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
 of the gate, or the ratchet. Refused early once, the gate logs in afresh, holds the token as long as
 the refused one lived (at most 90s) and re-sends a read that passed: accepted, it was a restart;
-refused twice, a `FINDING` (`-no-session-check` skips this). 3 is no verdict
+refused, two more fresh tokens are held to half that age and to it again, and a second refusal is a
+`FINDING` naming the ages accepted and refused (`-no-session-check` skips this). 3 is no verdict
 (the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
 nor green. `shrt gate <chain>...` gates a subset, without the ratchet. With no overlay, or an rpc
 whose contract no chain calls, the gate ends with one `coverage:` line naming the command that plans

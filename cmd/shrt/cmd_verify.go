@@ -218,7 +218,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		dropped = repeatedUnanswered(e, rec, unansweredStep)
 	}
 	var flaky *intermittentFailure
-	if !report.Clean() && loss == nil && fresh == nil && dropped == nil {
+	if loss == nil && fresh == nil && dropped == nil {
 		flaky = detectIntermittent(e, rec)
 	}
 	var reuse *fixtureReuse
@@ -533,6 +533,9 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"Remove them from the chain and config, or, if they are intended, run the chain and propose that run\n"+
 			"in place of the safe spot so a person approves the wider mask: shrt confirm %s -supersede -note \"...\"",
 			strings.Join(report.UnapprovedVolatile, ", "), name)
+	}
+	if flaky.finding() {
+		return fmt.Errorf("%s: %s", name, flaky.line())
 	}
 	if !rec.Passed() {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)

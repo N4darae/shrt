@@ -113,6 +113,7 @@ type StepRecord struct {
 	AuthProfile   string                   `json:"auth_profile,omitempty"`
 	AuthPrincipal string                   `json:"auth_principal,omitempty"`
 	AuthRetry     string                   `json:"auth_retry,omitempty"`
+	FirstAttempt  *Attempt                 `json:"first_attempt,omitempty"`
 	TokenRefused  []transport.TokenRefusal `json:"token_refused,omitempty"`
 	Status        string                   `json:"status"`
 	HTTPStatus    int                      `json:"http_status,omitempty"`

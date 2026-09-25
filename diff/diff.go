@@ -144,6 +144,22 @@ func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) 
 	}
 }
 
+func neverRedacted(v any) bool {
+	switch t := v.(type) {
+	case nil, bool:
+		return true
+	case string:
+		return t == "" || t == "0"
+	case float64:
+		return t == 0
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
+}
+
 func (r *Report) addUnapprovedRedact(pattern string) {
 	for _, p := range r.UnapprovedRedact {
 		if p == pattern {
@@ -157,12 +173,12 @@ func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
 	if c.Kind != KindChanged && c.Kind != KindType {
 		return false
 	}
-	if w, ok := c.Want.(string); ok && w == pathmask.MaskRedacted {
+	if w, ok := c.Want.(string); ok && w == pathmask.MaskRedacted && !neverRedacted(c.Got) {
 		r.RedactedPaths = append(r.RedactedPaths, c.Step+" "+c.Path)
 		r.Redacted++
 		return true
 	}
-	if g, ok := c.Got.(string); !ok || g != pathmask.MaskRedacted {
+	if g, ok := c.Got.(string); !ok || g != pathmask.MaskRedacted || neverRedacted(c.Want) {
 		return false
 	}
 	covered := false

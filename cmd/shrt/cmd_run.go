@@ -160,11 +160,13 @@ func runRun(ctx context.Context, args []string) error {
 		if loss == nil {
 			fresh = repeatedFreshRefusal(e, rec)
 		}
-		if loss == nil && fresh == nil && !rec.Passed() {
-			flaky = detectIntermittent(e, rec)
+		if loss == nil && fresh == nil {
+			if f := detectIntermittent(e, rec); f != nil && (!rec.Passed() || f.finding()) {
+				flaky = f
+			}
 		}
 	}
-	finding := rec.KeptRed == "" && (life.finding() || loss.finding() || fresh != nil)
+	finding := rec.KeptRed == "" && (life.finding() || loss.finding() || fresh != nil || rec.Passed() && flaky != nil && flaky.finding())
 	if *quiet {
 		fmt.Println(runSummary(e, quietRecord(rec), *dry, false, lead, finding))
 		if savedPath != "" && !quietlyGreen(rec) {

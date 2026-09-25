@@ -36,7 +36,7 @@ func TestTheGateChecksSessionLifetimeOnceForTwoProfiles(t *testing.T) {
 	cacheASessionToken(t)
 	time.Sleep(400 * time.Millisecond)
 	out, code := runGateOut(t)
-	if code != 1 || strings.Count(out, "checking session lifetime") != 1 || strings.Count(out, "FINDING: sessions end early") != 1 {
+	if code != 1 || strings.Count(out, "checking session lifetime") != 1 || strings.Count(out, "end early: fresh token") != 1 {
 		t.Fatalf("one held token settles sessions that end early for every profile: one check, one FINDING, got %d:\n%s", code, out)
 	}
 	if strings.Contains(out, "refused early once") {
