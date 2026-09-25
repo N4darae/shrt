@@ -48,6 +48,8 @@ type LoginTokenSource struct {
 	expiresAt    time.Time
 	issuedAt     time.Time
 	sentAt       time.Time
+	relogins     []time.Time
+	pending      []time.Time
 	fromCache    bool
 	accepted     bool
 	logins       int
@@ -68,13 +70,13 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 	if s.token != "" && !s.stale() {
 		return s.token, nil
 	}
-	if token, expiresAt, issuedAt, sentAt, ok := s.readCache(); ok {
-		s.token, s.expiresAt, s.issuedAt, s.sentAt = token, expiresAt, issuedAt, sentAt
+	if e, ok := s.readCache(); ok {
+		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt, e.Relogins
 		if !s.stale() {
 			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
-		s.token, s.expiresAt, s.issuedAt, s.sentAt = "", time.Time{}, time.Time{}, time.Time{}
+		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins = "", time.Time{}, time.Time{}, time.Time{}, nil
 	}
 	return s.login(ctx)
 }
@@ -89,14 +91,20 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	s.expiresAt = expiresAt
 	s.issuedAt = time.Now()
 	s.sentAt = time.Time{}
+	s.relogins = nil
 	s.fromCache, s.accepted = false, false
 }
 
 func (s *LoginTokenSource) Accepted(token string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if token != "" && token == s.token {
-		s.accepted = true
+	if token == "" || token != s.token {
+		return
+	}
+	s.accepted = true
+	if s.fromCache && len(s.relogins) > 0 {
+		s.relogins = nil
+		s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt})
 	}
 }
 
@@ -123,7 +131,7 @@ func (s *LoginTokenSource) Refusal(token string, at time.Time) (TokenRefusal, bo
 	}
 	return TokenRefusal{
 		Token: fingerprint(token), SentAt: s.sentAt, IssuedAt: s.issuedAt, ExpiresAt: s.expiresAt, RefusedAt: at,
-		Cached: s.fromCache, FirstUse: !s.accepted,
+		Cached: s.fromCache, FirstUse: !s.accepted, Relogins: s.relogins,
 	}, true
 }
 
@@ -136,7 +144,12 @@ func (s *LoginTokenSource) CurrentToken() string {
 func (s *LoginTokenSource) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pending = nil
+	if now := time.Now(); s.token != "" && (TokenRefusal{IssuedAt: s.issuedAt, SentAt: s.sentAt, ExpiresAt: s.expiresAt, RefusedAt: now}).Early() {
+		s.pending = append(append([]time.Time{}, s.relogins[max(0, len(s.relogins)-1):]...), now)
+	}
 	s.token = ""
+	s.relogins = nil
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Time{}
 	s.sentAt = time.Time{}
@@ -220,6 +233,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Now()
 	s.sentAt = sentAt
+	s.relogins, s.pending = s.pending, nil
 	s.fromCache, s.accepted = false, false
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
@@ -227,7 +241,7 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 		}
 	}
 	s.logins++
-	s.writeCache(s.token, s.expiresAt, s.issuedAt, s.sentAt)
+	s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt, Relogins: s.relogins})
 	return token, nil
 }
 
