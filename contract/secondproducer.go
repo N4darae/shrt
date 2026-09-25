@@ -10,6 +10,12 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
+type producerSecond struct {
+	src    string
+	clone  string
+	reader string
+}
+
 type producerClone struct {
 	id       string
 	call     string
@@ -46,6 +52,7 @@ func (p *Plan) splitSharedProducers(step *chain.Step, grown []string) []producer
 				}
 				id, extra := p.cloneProducer(src, step)
 				clones[src] = id
+				p.seconds = append(p.seconds, producerSecond{src: src, clone: id, reader: step.ID})
 				made = append(made, producerClone{id: id, call: p.stepByID(src).Call, original: src})
 				for _, c := range extra {
 					made = append(made, c)
@@ -188,7 +195,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		for i := range c.Expect {
 			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, map[string]string{src: id}) })
 		}
-		distinguishFixtures(c, cid, s.ID)
+		p.distinctPreparation(c, cid, s.ID)
 		p.insertAfter(s.ID, c)
 		extra = append(extra, producerClone{id: cid, call: s.Call, original: s.ID})
 	}
@@ -284,4 +291,54 @@ func (p *Plan) noteSecondProducer(id, path string, shared []string, clones map[s
 		"logic that uses each item's own resource (a price per line, stock per product) is exercised, and a backend "+
 		"that applies the first item's resource to every item fails. Keep that step, or point the item at a resource of your own",
 		id, path, strings.Join(parts, "; "))
+}
+
+func (p *Plan) distinctPreparation(c *chain.Step, id, first string) {
+	distinguishFixtures(c, id, first)
+	if m, err := p.cat.Lookup(c.Call); err == nil {
+		raiseNumbers(c.Body, catalog.DescribeMessage(m.Input()).Fields)
+	}
+}
+
+func raiseNumbers(body map[string]any, fields []*catalog.Field) {
+	for _, f := range fields {
+		key, ok := namecase.LookupKey(body, f.Name)
+		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
+			continue
+		}
+		if len(f.Fields) > 0 {
+			if nested, ok := body[key].(map[string]any); ok {
+				raiseNumbers(nested, f.Fields)
+			}
+			continue
+		}
+		switch f.Kind {
+		case "string", "bytes", "bool", "message", "enum", "group":
+			continue
+		}
+		body[key] = nextValue(body[key], f.Kind)
+	}
+}
+
+func (p *Plan) prepareSecondProducers(step *chain.Step) {
+	if step == nil || chain.IsReadOnlyCall(step.Call) {
+		return
+	}
+	for _, sec := range p.seconds {
+		if step.ID == sec.reader || !readsStep(step, sec.src) || readsStep(step, sec.clone) || readsStep(step, sec.reader) {
+			continue
+		}
+		cid := p.freeStepID(step.ID)
+		c := copyStep(step, cid)
+		to := map[string]string{sec.src: sec.clone}
+		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)
+		for i := range c.Expect {
+			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, to) })
+		}
+		p.distinctPreparation(c, cid, step.ID)
+		p.insertAfter(step.ID, c)
+		p.note("step %s: a copy of %s reading %s instead of %s, its numbers raised by one: %s prepares what the first item of %s "+
+			"reads, and the second item reads %s, which needs the same preparation. Keep it, or the second item meets an unprepared resource",
+			cid, step.ID, sec.clone, sec.src, step.ID, sec.reader, sec.clone)
+	}
 }

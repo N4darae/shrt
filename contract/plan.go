@@ -26,6 +26,7 @@ type Plan struct {
 	grown    []string
 	reserved map[string]bool
 	noun     string
+	seconds  []producerSecond
 }
 
 type pendingChecks struct {
@@ -86,6 +87,10 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
 	}
 	p.Chain = c
+	isTarget := map[string]bool{}
+	for _, node := range nodes {
+		isTarget[node] = true
+	}
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
 		method, err := cat.Lookup(rpc)
@@ -101,6 +106,9 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		step := p.buildStep(id, alias, method, lib)
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
+		if !isTarget[node] {
+			p.prepareSecondProducers(step)
+		}
 	}
 	targetSteps := map[string]bool{}
 	for _, node := range nodes {

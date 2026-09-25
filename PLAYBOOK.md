@@ -122,7 +122,9 @@ and `${...}` references are copied unchanged, except a reference to a step of th
 creates something: the second item reads a second copy of that step instead (`create_product_2`,
 its var-built values suffixed `-2` and its numbers raised by one, so a different sku and price),
 and each write step that prepares the first (`add_stock`) gets a copy for the second
-(`add_stock_2`). Both lines of a planned `CreateOrder` then point at two products with two prices,
+(`add_stock_2`, its var-built values suffixed and its numbers raised by one, so `qty: "11"` next to
+`qty: "10"`), whether that step runs before the order or is pulled in after it by another target's
+`needs:` (`ConfirmOrder` needing `AddStock`); a step you named as a target is not copied. Both lines of a planned `CreateOrder` then point at two products with two prices,
 so a backend that prices every line at the first line's product changes the total, and a safe spot
 catches it even before you assert it. A note names each such field and each added step. Give the
 second item its own test data where it matters, and assert what depends on both
