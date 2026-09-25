@@ -516,6 +516,8 @@ func expectationRule(e chain.Expectation) string {
 		return "not_equal"
 	case e.Equals != nil:
 		return "equals"
+	case e.Includes != nil:
+		return "includes"
 	}
 	return ""
 }

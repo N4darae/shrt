@@ -147,7 +147,8 @@ where the second reads its own (`create_product_3`, price 12345, prepared by `ad
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
 sends but no chain sends with two or more items; as `same resource`, one that chains send with two
 or more items only when all of them point at the same resource (the same `${step...}` reference or
-literal id); and, as `no chain`, each unary rpc no chain calls
+literal id); as `no repeat`, one whose items always point at different resources and never at one
+resource twice (a product on two lines, stock taken once per product); and, as `no chain`, each unary rpc no chain calls
 at all, with the repeated message fields it takes, since those are never sent even once.
 
 Three habits that keep a chain re-runnable:
@@ -311,9 +312,11 @@ it creates THREE items whose candidate sort keys disagree: the prefix field the 
 `price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an
 order assertion can only pass on the key the backend really sorts by. Fixtures whose names sort
 like their skus pass a backend sorting by name. When the list's contract states an order
-(`sorted by sku`, `newest first` in its summary or in `exports:` for the list), the plan asserts
-each position by id; when it states none, it asserts only the count and says how to have the
-order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
+(`sorted by sku`, `newest first`, `oldest first`, `in creation order` in its summary or in
+`exports:` for the list), the plan asserts each position by id, creation order even when the
+fixtures have no field to vary; when it states none, it asserts the count and each fixture's
+membership by id (`path: orders` `includes: {id_order: ${create_order_2.order.id_order}}`), so a
+missing item is named, and says how to have the order asserted. `chain new` does the same for two or more creates feeding a list, adding a third.
 `chain lint` names a step that asserts positions of a list whose items sort alike under two or more
 keys, creation order included (`indistinct-order`, a hint). For a create whose contract declares a
 uniqueness refusal (a reason such as `EmailTaken`, `SkuTaken`, `…Exists`, `…AlreadyExists`,
@@ -366,9 +369,10 @@ line), expecting exactly that code. A state no write reaches gets a note instead
 
 A failure with `connect_code: invalid_argument` is turned into malformed requests from its `when:`:
 each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
-only whitespace, zero, negative, no `@`) becomes a probe expecting `transport.code equals
-invalid_argument` (`create_order_lines_empty`, `create_order_qty_zero` on the last line,
-`create_customer_email_no_at`). A copy with the other references pointed at ids nothing created
+only whitespace, zero, negative, no `@`, which may be written `an at sign` or `at symbol`) becomes a
+probe expecting `transport.code equals invalid_argument` (`create_order_lines_empty`,
+`create_order_qty_zero` on the last line, `create_customer_email_no_at`). A clause it cannot read
+(`email is not a well-formed address`) is named in a note with the failure and the words it reads. A copy with the other references pointed at ids nothing created
 (`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
 before any lookup. When nothing declares a required field or a format, the plan says so and plans
 none: it does not guess what the handler validates.
@@ -458,11 +462,14 @@ an enum field whose values are those of an enum field of the items (`ListOrdersR
 `Order.status`), the plan finds the writes whose contract takes an item's id (`from:
 CreateOrder->order.id_order`) and whose `exports:` or summary name the state they leave it in
 (`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
-list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
+list, lists them again unfiltered (`list_orders_after_moves`: every fixture by id, in the state it
+was left in, so a write that drops its record from the list fails there whatever the filter does),
+and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
 only the fixtures in that state come back: by id when the contract states creation order or one
-matches, their status always, and the count. A note names states no write reaches, and a write
-whose own `needs:` the plan does not call (a confirm that needs `AddStock`) is left out with a note
-saying which rpc to plan with it.
+matches, their status always, and the count. A note names states no write reaches. A write whose own `needs:` the plan does not call (a confirm
+that needs `AddStock`) is still used: the plan adds the prerequisite step for each entity it touches
+(`add_stock_for_create_product_for_filter`) without making that rpc a target; only a dependency it
+cannot satisfy that way leaves the state out, with a note saying which rpc to plan with it.
 
 A batch is tested with a refused item in the middle. With `conventions.item_envelope_path` set
 (`results[].status.code`) and a contract saying failures are reported per item (`reported on that
@@ -492,8 +499,8 @@ enum (`order.status`) and the contracts name writes that take its id and the sta
 (`fetch_order_after_confirm_order_for_replay`) and the replay of the fresh object's key
 (`create_order_replay_after_confirm_order`), asserting the replay's id and every numeric and enum
 field the read returns (`order.status equals ${fetch_order_after_confirm_order_for_replay.order.status}`).
-A write whose `needs:` the plan does not call is left out with a note naming what to plan with it
-(`CreateOrder AddStock`, so `ConfirmOrder` can run).
+A write whose `needs:` the plan does not call gets the prerequisite steps it needs as fixtures
+(`add_stock_for_create_product_2`, so `ConfirmOrder` can run), not as a target.
 
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with

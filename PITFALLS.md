@@ -2042,6 +2042,164 @@ value but not a lost one, and `null` (or `""`, `0`, an empty list) to absent los
 masked and listed under `-masked` with the pattern that hid it. A value that became absent, or a
 value where the safe spot had no key, is still reported.
 
+## 93. Confirm-state probes dropped because ConfirmOrder needs AddStock
+
+**Symptom.** With `needs: [AddStock]` on ConfirmOrder, `contract plan CancelOrder`, `CreateOrder` and
+`ListOrders` said `ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStock, which this
+plan does not call` and left out every probe on a CONFIRMED order: the cancel that must give stock
+back, the replay after a confirm, the CONFIRMED status filter. The advice, `plan CancelOrder AddStock`,
+duplicated every AddStock probe and renamed the chain `...-addstock`.
+
+**Cause.** A state-moving write was held back whenever any of its dependencies was not already a
+step of the plan, although `needs:` is exactly what the plan satisfies on its own afterwards, one
+prerequisite step per entity the write touches.
+
+**Fix.** 2026-09-25: a `needs:` rpc whose contract takes the id of an entity the plan creates no
+longer holds the write back; the plan adds only the prerequisite steps it needs
+(`add_stock_for_create_product_for_state`), not the rpc as a target, and keeps the chain name. A
+dependency the plan cannot satisfy that way (a `from:` to an rpc it does not call) still drops the
+state with the note.
+
+## 94. A read-back that said "every field it sent" and checked only the id
+
+**Symptom.** `fetch_order_after_create_order` was described as `the order create_order stored, read
+back: every field it sent, as sent`, but asserted `order.id_order` (and the computed total) only: a
+FetchOrder that dropped a line or returned another quantity passed.
+
+**Cause.** The read-back assertion skipped every repeated field, so an order's lines, the part of
+the request that carries its content, were never compared.
+
+**Fix.** 2026-09-25: a read-back also asserts each scalar field of each item of a repeated message
+field the write sent, at its position (`order.lines.0.id_product`, `order.lines.1.qty`, equal to
+`${steps.create_order.request.lines.N...}`), and that there is no item more (`order.lines.2 exists:
+false`).
+
+## 95. One product on two lines, never tested outside ConfirmOrder
+
+**Symptom.** A ConfirmOrder that took stock once per distinct product (a product on two lines
+reserved once) was found only by a hand-written chain in round 25. Plans put every order line on a
+different product, and `contract status -gaps` reported only the opposite case, `same resource`.
+
+**Cause.** Only a reserving target got a probe with one resource on two lines
+(`confirm_order_same_product_twice`); a total (CreateOrder) or a batch (AddStockBatch) never did, and
+`-gaps` had no kind for a repeated field that never carries one resource twice.
+
+**Fix.** 2026-09-25: a total or batch target gets `<step>_same_<noun>_twice` on fixtures of its
+own, both lines naming one product with different quantities: `create_order_same_product_twice`
+asserts the total of both lines, `add_stock_batch_same_product_twice` asserts `results.1` on top
+of `results.0` and a read after it. `-gaps` lists `no repeat` for a repeated field whose items carry
+a resource when no successful step sends one resource on two applied items.
+
+## 96. A cap of 1000 units per AddStock, green in every plan
+
+**Symptom.** An AddStock and AddStockBatch that added at most 1000 units per call (and answered the
+capped level) passed every planned chain in round 25.
+
+**Cause.** Magnitude probes skipped every quantity field, "since a large quantity runs into stock
+rules": every planned quantity was a single digit, far below any cap. That holds for a quantity an
+order asks for, not for one an increase adds.
+
+**Fix.** 2026-09-25: the quantity field of an increase (`Increase a product's stock on hand by qty`)
+gets `<step>_qty_large_1250` and `<step>_qty_large_12345`, and a batch applying it gets
+`<step>_qty_large` with 1250 and 12345 on its lines; each asserts the level the contract implies,
+before plus all of it. The boundary probes run on fixtures of their own
+(`create_product_for_boundary`), so a capped addition fails only them.
+
+## 97. `does not contain an at sign`: no malformed-email probe
+
+**Symptom.** A contract failure `when: email does not contain an at sign` got no
+`create_customer_email_no_at`; the note asked to "say it in those words", and the tester had to
+guess `a missing @`.
+
+**Cause.** The recogniser for a missing `@` matched the character only. A clause it could not read
+inside a `when:` that yielded some other probe was dropped without a word.
+
+**Fix.** 2026-09-25: `an at sign`, `at-sign`, `at symbol` and `at character` read as `@`. A clause of
+an invalid_argument `when:` that names no field or no value the plan can build is named in a note
+with its failure and the exact wording the plan reads.
+
+## 98. A list that lost its newest item, reported as `orders.2 exists want=true`
+
+**Symptom.** A ListOrders that omitted the newest order failed the planned `list_orders` only with
+`orders.2 exists want=true got=false`: which order was missing had to be worked out by hand.
+
+**Cause.** The contract said `oldest first` (or `in creation order`), which the order parser did
+not read, and the fixtures had no field to vary, so the plan fell back to a count. No rule could
+assert that a list holds an item wherever it sits.
+
+**Fix.** 2026-09-25: `oldest first`, `earliest first`, `in creation order`, `insertion order` and
+`chronologically` state creation order, which is asserted position by position by id
+(`orders.2.id_order equals ${create_order_3.order.id_order}`) even when nothing else can be varied.
+A new expectation rule, `includes`, holds when some item of a list matches the fields it names; a
+list with no stated order, or one the backend's other records share, asserts each fixture by id
+with it, beside the count.
+
+## 99. An empty prefix that listed nothing, and `-gaps` said "no gaps"
+
+**Symptom.** The README says ListProducts with an empty `sku_prefix` lists every product. A
+backend returning nothing for it (round 25) was found only by a hand-written chain: the planned
+chain always sent the run's prefix, and `contract status -gaps` reported no gaps.
+
+**Cause.** The plan scopes a list to what the run created, so a count and positions hold on a
+second run; nothing then sent the empty value the contract describes, and no gap kind looked at
+list filters.
+
+**Fix.** 2026-09-25: when a list's contract says an empty filter lists all (the field's note, or a
+summary clause naming the field, `an empty prefix lists all`), the plan adds
+`<step>_empty_<field>` with the filter empty, asserting each fixture the chain created is among the
+items by id (`includes:`) and at least that many items, no position or exact count. `-gaps` lists
+`no empty filter` for such a field that no successful step sends empty or leaves out.
+
+## 100. A cancelled order dropped from ListOrders, hidden behind the status-filter pins
+
+**Symptom.** A ListOrders that stopped listing an order once it was cancelled (FetchOrder still
+found it CANCELLED) passed in round 25: the only planned lists that held a cancelled order were
+the status-filtered ones, and those were pinned `kept_red` for the baseline defect that ignores
+the filter, so the new failure there looked like the pinned one.
+
+**Cause.** After moving the fixtures into different states the plan listed them only through the
+filter, so nothing status-agnostic checked that a moved record is still listed.
+
+**Fix.** 2026-09-25: after the moves the plan adds `<list>_after_moves`, the unfiltered list,
+asserting every fixture by id in the state it was left in (by position when the contract states
+creation order, else with `includes:`), and no item more. It reads no filtered step, so a pin on
+those leaves it alone.
+
+## 101. BadCredentials and the login role, probed by no plan
+
+**Symptom.** No planned chain sent a wrong password or checked the role a login returns, and
+`contract status -gaps` never mentioned Login: its failures (1001 BadCredentials) and its `role`
+went unprobed in round 25.
+
+**Cause.** `contract plan Login` planned the successful login only, and `-gaps` counted the rpc as
+called because the config's auth block logs in on every run, which says nothing about its failures.
+
+**Fix.** 2026-09-25: a login target gets `login_bad_password` and, when the failure's `when:`
+names an unknown account, `login_unknown_user`, each expecting the declared failure; the default
+login asserts the role every role-gated rpc requires, and each profile gets `login_as_<profile>`
+with its auth body, asserting the role the profile is named for. `-gaps` lists `no login probe`
+for each failure a login's contract declares that no chain step expects.
+
+## 102. `unmet prerequisites: needs AddStock` on a slice that stocks with AddStockBatch
+
+**Symptom.** A slice of a chain that stocked its product with AddStockBatch before a ConfirmOrder
+printed `unmet prerequisites ... needs shop.catalog.v1.StockService/AddStock`, and dropped the
+batch step as unneeded (`possible under-inclusion`), although the batch did exactly that.
+
+**Cause.** A `needs:` prerequisite was met only by a call of the rpc it names.
+
+**Fix.** 2026-09-25: a `needs:` prerequisite is also met by an rpc whose contract says it performs
+that rpc's effect per item (a field note `one AddStock per line`); the slice keeps that step as the
+prerequisite and reports nothing unmet.
+
+## 103. "is now part of every sweep" after rewriting the chain itself
+
+**Symptom.** `shrt chain slice <chain> -without failed -write .shrt/chains/<chain>.yaml`, which
+replaces the chain in place, went on to say the file `is now part of every sweep ... move it` to
+`.shrt/scratch/`, advice meant for a new slice file, not for the chain the sweep already ran.
+
+**Fix.** 2026-09-25: the note is left out when the file written is the source chain's own.
+
 ---
 
 # Decisions, so they are not relitigated

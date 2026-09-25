@@ -112,7 +112,10 @@ func statedMinimum(lib *Library, rpc string, c *RPCContract, name string) (int64
 	return 0, nil, false
 }
 
+var largeQuantities = []int64{1250, largeValue}
+
 func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
+	rules := p.effectRules(lib)
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
 			continue
@@ -127,6 +130,12 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		said := []string{}
 		quantities, unbounded := []string{}, []string{}
+		rpc := canonicalCall(p.cat, st.Call)
+		if b := rules.batch[rpc]; b != nil {
+			if probe := p.largeBatchQuantities(lib, st, b); probe != "" {
+				said = append(said, probe)
+			}
+		}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
 				continue
@@ -140,7 +149,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			quantity := isQuantityName(f.Name)
 			min, failure, stated := statedMinimum(lib, st.Call, c, f.Name)
-			if quantity {
+			if quantity && !(rules.increase[rpc] != nil && rules.increase[rpc].qtyField == f.Name) {
 				quantities = append(quantities, f.Name)
 			}
 			if !stated {
@@ -171,7 +180,21 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 					said = append(said, neg)
 				}
 			}
-			if !quantity {
+			if inc := rules.increase[rpc]; quantity && inc != nil && inc.qtyField == f.Name {
+				ids := []string{}
+				for _, q := range largeQuantities {
+					large := p.probeCopy(lib, st, fmt.Sprintf("%s_large_%d", f.Name, q))
+					large.Body[key] = strconv.FormatInt(q, 10)
+					renameStepRefs(large, st.ID, large.ID)
+					large.Description = fmt.Sprintf("%s at %d, far above what the fixtures add: %s is the level before plus all of it.", f.Name, q, inc.moved)
+					p.Chain.Steps = append(p.Chain.Steps, large)
+					ids = append(ids, large.ID)
+				}
+				said = append(said, fmt.Sprintf("%s (%s = %s, an addition the fixtures' small quantities never make, so a cap or "+
+					"overflow on it shows in %s, asserted as the level before plus %s)", strings.Join(ids, ", "), f.Name,
+					joinInts(largeQuantities), inc.moved, f.Name))
+				quantity = false
+			} else if !quantity {
 				large := p.probeCopy(lib, st, f.Name+"_large")
 				large.Body[key] = strconv.Itoa(largeValue)
 				renameStepRefs(large, st.ID, large.ID)
@@ -258,4 +281,42 @@ func smallerQuantity(base int64, rank int) int64 {
 		return base - int64(rank)
 	}
 	return base + int64(rank)
+}
+
+func joinInts(ns []int64) string {
+	parts := make([]string, len(ns))
+	for i, n := range ns {
+		parts[i] = strconv.FormatInt(n, 10)
+	}
+	return strings.Join(parts, " and ")
+}
+
+func (p *Plan) largeBatchQuantities(lib *Library, st *chain.Step, b *batchRule) string {
+	key, ok := namecase.LookupKey(st.Body, b.list)
+	if !ok {
+		return ""
+	}
+	items, _ := st.Body[key].([]any)
+	if len(items) == 0 {
+		return ""
+	}
+	probe := p.probeCopy(lib, st, b.stock.qtyField+"_large")
+	renameStepRefs(probe, st.ID, probe.ID)
+	lines, _ := probe.Body[key].([]any)
+	for i, raw := range lines {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return ""
+		}
+		k, ok := namecase.LookupKey(item, b.stock.qtyField)
+		if !ok {
+			return ""
+		}
+		item[k] = strconv.FormatInt(largeQuantities[i%len(largeQuantities)], 10)
+	}
+	probe.Description = fmt.Sprintf("as %s, each line's %s far above what the fixtures add (%s): each %s.N.%s is the level before plus all of it.",
+		st.ID, b.stock.qtyField, joinInts(largeQuantities), b.results, b.stock.moved)
+	p.Chain.Steps = append(p.Chain.Steps, probe)
+	return fmt.Sprintf("%s (%s.%s = %s, additions the fixtures' small quantities never make, so a cap or overflow shows in each %s.N.%s)",
+		probe.ID, b.list, b.stock.qtyField, joinInts(largeQuantities), b.results, b.stock.moved)
 }

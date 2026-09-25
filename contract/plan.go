@@ -32,6 +32,8 @@ type Plan struct {
 	opts     PlanOptions
 	region   *fixtureRegion
 	isolated []string
+	parities []parityCopy
+	lib      *Library
 }
 
 type PlanOptions struct {
@@ -39,6 +41,8 @@ type PlanOptions struct {
 	Profiles    []string
 	Logins      []string
 	LoginBodies map[string]map[string]any
+
+	ProfileBodies map[string]map[string]any
 }
 
 type pendingChecks struct {
@@ -92,7 +96,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
@@ -137,7 +141,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.probeUniqueness(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeListFilters(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.isolating(lib, "shortage", func() { p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
-	p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
+	p.isolating(lib, "boundary", func() { p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.probeTextLength(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeReadBack(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
@@ -150,6 +154,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.isolating(lib, "twice", func() { p.probeSameEntityTwice(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "unknown", func() { p.probeUnknownIDs(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "shape", func() { p.probeShapes(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
+	p.probeLogin(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.satisfyNeeds(lib)
 	p.echoNumbers()
 	p.assertOutcomes(lib)

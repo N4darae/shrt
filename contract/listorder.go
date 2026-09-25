@@ -20,6 +20,7 @@ var (
 	looseRanks   = [][]int{{0, 2, 1}, {1, 0, 2}, {2, 0, 1}, {1, 2, 0}}
 	sortedByText = regexp.MustCompile(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
 	newestFirst  = regexp.MustCompile(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
+	oldestFirst  = regexp.MustCompile(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
 	creationWord = regexp.MustCompile(`(?i)^(creation|created|created_at|insertion|inserted|oldest|time)$`)
 )
 
@@ -260,6 +261,9 @@ func stateOrder(c *RPCContract, listPath string) (string, bool, bool) {
 		if newestFirst.MatchString(text) {
 			return "creation", true, true
 		}
+		if oldestFirst.MatchString(text) {
+			return "creation", false, true
+		}
 	}
 	return "", false, false
 }
@@ -286,20 +290,25 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	listRPC := shortRPC(t.step.Call)
 	c, _ := lib.Get(canonicalCall(p.cat, t.step.Call))
 	key, desc, stated := stateOrder(c, t.listPath)
-	if len(keys) == 0 {
+	if len(keys) == 0 && !(stated && creationWord.MatchString(key)) {
 		p.note("step %s: %s lists what %s create, but their fixtures have no scalar field shrt could vary, so every candidate "+
 			"sort key but creation order agrees; give them values that sort differently before asserting an order",
 			t.step.ID, listRPC, strings.Join(ids, ", "))
+		p.assertMembers(t)
+		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
 		return
 	}
-	p.note("step %s: %s, %s give %s %d %s whose candidate sort keys disagree (%s), so an order assertion can tell which key "+
-		"the backend sorts by: fixtures that sort the same under every key pass a backend sorting by the wrong one",
-		t.step.ID, strings.Join(ids[:len(ids)-1], ", "), ids[len(ids)-1], listRPC, len(ids), t.listPath, strings.Join(orders, "; "))
+	if len(keys) > 0 {
+		p.note("step %s: %s, %s give %s %d %s whose candidate sort keys disagree (%s), so an order assertion can tell which key "+
+			"the backend sorts by: fixtures that sort the same under every key pass a backend sorting by the wrong one",
+			t.step.ID, strings.Join(ids[:len(ids)-1], ", "), ids[len(ids)-1], listRPC, len(ids), t.listPath, strings.Join(orders, "; "))
+	}
 	if !stated {
-		p.note("step %s: the contract for %s states no order for %s, so no position is asserted; if it promises one, say so in "+
-			"its summary (\"sorted by <field>\", \"newest first\") and plan again", t.step.ID, listRPC, t.listPath)
+		p.note("step %s: the contract for %s states no order for %s, so no position is asserted, only that each fixture is "+
+			"in it by id (includes:); if it promises one, say so in its summary (\"sorted by <field>\", \"newest first\", "+
+			"\"oldest first\") and plan again", t.step.ID, listRPC, t.listPath)
+		p.assertMembers(t)
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(ids)), Exists: boolPtr(false)})
-		assertLowerBound(t.step, t.listPath)
 		return
 	}
 	var order []int
@@ -334,6 +343,21 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+func (p *Plan) assertMembers(t *listTarget) {
+	for _, prod := range t.producers {
+		want := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
+		held := false
+		for _, e := range t.step.Expect {
+			if m, ok := e.Includes.(map[string]any); ok && e.Path == t.listPath && m[t.itemID] == want {
+				held = true
+			}
+		}
+		if !held {
+			t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath, Includes: map[string]any{t.itemID: want}})
+		}
+	}
+}
 
 func inverse(ranks []int) []int {
 	out := make([]int, len(ranks))

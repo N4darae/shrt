@@ -53,11 +53,24 @@ func wordBoundaryAt(name string, at int) bool {
 }
 
 type Prereq struct {
-	RPC   string `json:"rpc"`
-	Alias string `json:"alias,omitempty"`
-	Edge  string `json:"edge"`
-	For   string `json:"for,omitempty"`
-	Field string `json:"field,omitempty"`
+	RPC   string   `json:"rpc"`
+	Alias string   `json:"alias,omitempty"`
+	Edge  string   `json:"edge"`
+	For   string   `json:"for,omitempty"`
+	Field string   `json:"field,omitempty"`
+	Via   []string `json:"via,omitempty"`
+}
+
+func (p Prereq) calledBy(rpc string) bool {
+	if rpc == p.RPC {
+		return true
+	}
+	for _, v := range p.Via {
+		if v == rpc {
+			return true
+		}
+	}
+	return false
 }
 
 func (p Prereq) Node() string {
@@ -828,7 +841,7 @@ func (x *stepIndex) prereqsOf(s *Step, opts SliceOptions) []Prereq {
 func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, opts SliceOptions) (int, bool) {
 	best, rank := 0, 0
 	for i := before - 1; i >= 0; i-- {
-		if x.rpcOf(i, opts) != p.RPC || producesNothing(x.c.Steps[i], opts) {
+		if !p.calledBy(x.rpcOf(i, opts)) || producesNothing(x.c.Steps[i], opts) {
 			continue
 		}
 		r := 1
@@ -848,7 +861,7 @@ func (x *stepIndex) lastCallOf(p Prereq, before int, referenced map[int]bool, op
 func (x *stepIndex) callsSharingProducers(p Prereq, before int, referenced map[int]bool, opts SliceOptions) []int {
 	out := []int{}
 	for i := 0; i < before; i++ {
-		if x.rpcOf(i, opts) != p.RPC || producesNothing(x.c.Steps[i], opts) {
+		if !p.calledBy(x.rpcOf(i, opts)) || producesNothing(x.c.Steps[i], opts) {
 			continue
 		}
 		for _, ref := range stepRefs(x.c.Steps[i]) {

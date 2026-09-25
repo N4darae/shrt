@@ -292,11 +292,53 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		}
 		p.Chain.Steps = append(p.Chain.Steps, added...)
 		ids = append(ids, w.ID)
+		p.parities = append(p.parities, parityCopy{write: st.ID, copy: w.ID, suffix: suffix, profile: prof, rename: rename})
 	}
 	p.note("step %s: its contract lets every role call it, so %s %s it as another profile on fixtures of its own, created and "+
 		"prepared as %s's were (unique fields changed, numbers kept), and the reads that follow assert the same numbers and states "+
 		"as the reads after %s: a backend that applies the write differently for a lower role fails",
 		st.ID, strings.Join(ids, ", "), pluralVerb(len(ids), "repeats", "repeat"), st.ID, st.ID)
+}
+
+type parityCopy struct {
+	write   string
+	copy    string
+	suffix  string
+	profile string
+	rename  map[string]string
+}
+
+func (p *Plan) copyIntoParities(lib *Library, added *chain.Step, producer string) []string {
+	at := stepIndex(p.Chain.Steps, added.ID)
+	out := []string{}
+	for _, pc := range p.parities {
+		twin := pc.rename[producer]
+		if twin == "" || at < 0 || at > stepIndex(p.Chain.Steps, pc.write) {
+			continue
+		}
+		c := copyStep(added, p.freeStepID(added.ID+pc.suffix))
+		retarget(c, pc.rename)
+		renameStepRefs(c, added.ID, c.ID)
+		p.freshen(lib, c)
+		c.Description = fmt.Sprintf("as %s, for %s to act on as %s: its fixtures are prepared as %s's were.", added.ID, pc.copy, pc.profile, pc.write)
+		pos := p.latestReference(c)
+		if pos < 0 || pos >= stepIndex(p.Chain.Steps, pc.copy) {
+			continue
+		}
+		p.insertAfter(p.Chain.Steps[pos].ID, c)
+		pc.rename[added.ID] = c.ID
+		out = append(out, c.ID)
+	}
+	return out
+}
+
+func stepIndex(steps []*chain.Step, id string) int {
+	for i, s := range steps {
+		if s.ID == id {
+			return i
+		}
+	}
+	return -1
 }
 
 func (p *Plan) createdIDPath(st *chain.Step, m *catalog.Method) string {

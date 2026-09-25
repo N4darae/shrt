@@ -164,6 +164,10 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 		}
 		added := false
 		for _, sf := range carrier.Fields {
+			if sf.Repeated && sf.Kind == "message" && sf.MapKey == "" && len(sf.Fields) > 0 {
+				added = p.assertItemsReadBack(r, prod, ref, carrier.Name, sf) || added
+				continue
+			}
 			if sf.Kind == "message" || sf.Repeated || sf.MapKey != "" || IsEntityIDField(sf.Name) {
 				continue
 			}
@@ -196,6 +200,49 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 		}
 	}
 	return asserted
+}
+
+func (p *Plan) assertItemsReadBack(r, prod *chain.Step, ref, carrier string, list *catalog.Field) bool {
+	src := p.latestWriter(prod, r, ref, list.Name)
+	key, ok := namecase.LookupKey(src.Body, list.Name)
+	if !ok {
+		return false
+	}
+	items, _ := src.Body[key].([]any)
+	if len(items) == 0 {
+		return false
+	}
+	base := carrier + "." + list.Name
+	for _, e := range r.Expect {
+		if e.Path == base || strings.HasPrefix(e.Path, base+".") {
+			return false
+		}
+	}
+	added := false
+	for i, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return added
+		}
+		for _, sub := range list.Fields {
+			if sub.Kind == "message" || sub.Repeated || sub.MapKey != "" {
+				continue
+			}
+			k, ok := namecase.LookupKey(item, sub.Name)
+			if !ok || !meaningfulValue(item[k]) {
+				continue
+			}
+			r.Expect = append(r.Expect, chain.Expectation{
+				Path:   fmt.Sprintf("%s.%d.%s", base, i, sub.Name),
+				Equals: fmt.Sprintf("${steps.%s.request.%s.%d.%s}", src.ID, key, i, k),
+			})
+			added = true
+		}
+	}
+	if added {
+		r.Expect = append(r.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", base, len(items)), Exists: boolPtr(false)})
+	}
+	return added
 }
 
 func (p *Plan) readsCreated(prod *chain.Step, idPath string) bool {

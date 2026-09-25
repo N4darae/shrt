@@ -22,3 +22,17 @@ func TestSliceWriteSaysTheFileJoinsEverySweep(t *testing.T) {
 		}
 	}
 }
+
+func TestSliceWithoutWrittenOverTheChainItselfSaysNothingAboutJoiningTheSweep(t *testing.T) {
+	freshTagWorkspace(t)
+	out, err := freshTagSlice(t, "-without", "by_tag", "-write", ".shrt/chains/cli-fresh-flow.yaml")
+	if err != nil {
+		t.Fatalf("slice -without -write over the chain: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "written: .shrt/chains/cli-fresh-flow.yaml") {
+		t.Fatalf("the chain is rewritten in place:\n%s", out)
+	}
+	if strings.Contains(out, "now part of every sweep") {
+		t.Fatalf("the chain was already part of every sweep; replacing it is not news:\n%s", out)
+	}
+}

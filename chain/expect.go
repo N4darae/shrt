@@ -9,6 +9,7 @@ import (
 type Expectation struct {
 	Path     string  `yaml:"path" json:"path"`
 	Equals   any     `yaml:"equals,omitempty" json:"equals,omitempty"`
+	Includes any     `yaml:"includes,omitempty" json:"includes,omitempty"`
 	NotEqual any     `yaml:"not_equal,omitempty" json:"not_equal,omitempty"`
 	Contains string  `yaml:"contains,omitempty" json:"contains,omitempty"`
 	Exists   *bool   `yaml:"exists,omitempty" json:"exists,omitempty"`
@@ -62,6 +63,7 @@ func (e Expectation) ResolveWith(scope *Scope) (Expectation, error) {
 		set  func(any)
 	}{
 		{"equals", func() any { return e.Equals }, func(v any) { out.Equals = v }},
+		{"includes", func() any { return e.Includes }, func(v any) { out.Includes = v }},
 		{"not_equal", func() any { return e.NotEqual }, func(v any) { out.NotEqual = v }},
 		{"contains", func() any {
 			if e.Contains == "" {
@@ -113,6 +115,8 @@ func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectRe
 			return result(e.Path, "equals", e.Equals, nil, false, "path not present in response")
 		}
 		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
+	case e.Includes != nil:
+		return evaluateIncludes(e.Path, e.Includes, got, found)
 	default:
 		if r, ok := e.evaluateComparison(got, found, presence); ok {
 			return r
@@ -122,6 +126,36 @@ func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectRe
 		}
 		return result(e.Path, "invalid", nil, nil, false, "expectation has no rule")
 	}
+}
+
+func evaluateIncludes(path string, want, got any, found bool) ExpectResult {
+	if !found {
+		return result(path, "includes", want, nil, false, "path not present in response")
+	}
+	list, ok := got.([]any)
+	if !ok {
+		return result(path, "includes", want, got, false, "the value is not a list")
+	}
+	for _, item := range list {
+		if itemMatches(item, want) {
+			return result(path, "includes", want, len(list), true, "")
+		}
+	}
+	return result(path, "includes", want, len(list), false, fmt.Sprintf("none of the %d item(s) matches", len(list)))
+}
+
+func itemMatches(item, want any) bool {
+	fields, isMap := want.(map[string]any)
+	if !isMap {
+		return equal(item, want)
+	}
+	for k, v := range fields {
+		got, ok := Get(item, k)
+		if !ok || !equal(got, v) {
+			return false
+		}
+	}
+	return true
 }
 
 func result(path, rule string, want, got any, passed bool, detail string) ExpectResult {

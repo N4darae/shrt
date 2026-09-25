@@ -53,6 +53,11 @@ func (p *Plan) satisfyOneNeed(lib *Library) bool {
 				p.note("step %s: %s needs %s first, for every entity it touches; no earlier %s reached %s, so %s is added "+
 					"right after it (the step order on the command line does not decide this)", st.ID, shortRPC(st.Call),
 					shortRPC(needRPC), shortRPC(needRPC), x.ID, added.ID)
+				if twins := p.copyIntoParities(lib, added, x.ID); len(twins) > 0 {
+					p.note("step %s: %s runs before a write another profile repeats on fixtures of its own, so %s %s it there "+
+						"too, and the reads that compare the two profiles see the same stock", added.ID, shortRPC(needRPC),
+						strings.Join(twins, ", "), pluralVerb(len(twins), "repeats", "repeat"))
+				}
 				return true
 			}
 		}

@@ -17,6 +17,7 @@ type SingleItemRepeat struct {
 	Chains       []string `json:"chains"`
 	SameResource bool     `json:"same_resource,omitempty"`
 	Resource     string   `json:"resource,omitempty"`
+	NoRepeat     bool     `json:"no_repeat,omitempty"`
 }
 
 func secondItems(body map[string]any, fields []*catalog.Field) []string {
@@ -120,6 +121,8 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		most     int
 		unknown  bool
 		distinct bool
+		repeat   bool
+		sourced  bool
 		resource string
 		chains   map[string]bool
 	}
@@ -152,6 +155,16 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 				if len(list) < 2 {
 					return
 				}
+				applied := []any{}
+				for i, item := range list {
+					if !itemRefused(s, i) {
+						applied = append(applied, item)
+					}
+				}
+				repeat, _ := repeatedResource(c, applied)
+				_, sourced := repeatedResource(c, list)
+				t.repeat = t.repeat || (repeat && effectOutcome(s) == outcomeSuccess)
+				t.sourced = t.sourced || sourced
 				if shared, ok := sharedResource(c, list); ok {
 					if t.resource == "" {
 						t.resource = shared
@@ -165,7 +178,8 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 	out := []SingleItemRepeat{}
 	for _, k := range keys {
 		t := seen[k]
-		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "")) {
+		noRepeat := t.most >= 2 && t.distinct && t.sourced && !t.repeat
+		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "") && !noRepeat) {
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
@@ -175,7 +189,10 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 		sort.Strings(names)
 		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
-		if t.most >= 2 {
+		switch {
+		case noRepeat:
+			r.NoRepeat = true
+		case t.most >= 2:
 			r.SameResource, r.Resource = true, t.resource
 		}
 		out = append(out, r)
@@ -187,6 +204,28 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		return out[i].Field < out[j].Field
 	})
 	return out
+}
+
+func repeatedResource(c *chain.Chain, list []any) (bool, bool) {
+	seen := map[string]bool{}
+	sourced := true
+	repeat := false
+	for _, item := range list {
+		got := map[string]string{}
+		resourceLeaves(c, item, "", "", got)
+		if len(got) == 0 {
+			sourced = false
+			continue
+		}
+		parts := []string{}
+		for _, k := range sortedKeys(got) {
+			parts = append(parts, k+"="+got[k])
+		}
+		key := strings.Join(parts, "\x00")
+		repeat = repeat || seen[key]
+		seen[key] = true
+	}
+	return repeat, sourced
 }
 
 func sharedResource(c *chain.Chain, list []any) (string, bool) {

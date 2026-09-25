@@ -165,5 +165,15 @@ func planOptions(e *env) contract.PlanOptions {
 			opts.LoginBodies[m.FullName] = a.Body
 		}
 	}
+	for _, name := range opts.Profiles {
+		a := e.cfg.Auth.Profiles[name]
+		if a == nil || e.cfg.Auth == nil || len(a.Body) == 0 {
+			continue
+		}
+		if opts.ProfileBodies == nil {
+			opts.ProfileBodies = map[string]map[string]any{}
+		}
+		opts.ProfileBodies[name] = a.Body
+	}
 	return opts
 }

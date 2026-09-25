@@ -16,7 +16,7 @@ var (
 	shapeSpace     = regexp.MustCompile(`(?i)\bwhitespace\b|\bspaces\b`)
 	shapeZero      = regexp.MustCompile(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
 	shapeNegative  = regexp.MustCompile(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
-	shapeAt        = regexp.MustCompile(`@`)
+	shapeAt        = regexp.MustCompile(`(?i)@|\bat[- ]?(?:sign|symbol|character|char|mark)\b`)
 	invalidArgCode = "invalid_argument"
 )
 
@@ -51,14 +51,19 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 			if f.Field != "" {
 				covered[namecase.Fold(stripIndexes(f.Field))] = true
 			}
-			cases := shapeCases(st.Body, fields, f)
+			cases, unread := shapeCases(st.Body, fields, f)
 			if len(cases) == 0 {
 				p.note("step %s: its contract declares %s (%s), but that when: names no field and value the plan can "+
-					"build (empty, blank, whitespace, zero, negative, a missing @), so no malformed request was planned for it: "+
-					"write one, or say it in those words", st.ID, f.Label(), strings.TrimSpace(f.When))
+					"build, so no malformed request was planned for it: write one, or name the field and say it in words the "+
+					"plan reads (%s)", st.ID, f.Label(), strings.TrimSpace(f.When), shapeWording)
 				continue
 			}
 			p.addShapeProbes(lib, st, m, c, f, cases)
+			if len(unread) > 0 {
+				p.note("step %s: in %s (%s) the plan read no field and malformed value in %q, so no probe sends that case: "+
+					"write one, or say it in words the plan reads (%s)", st.ID, f.Label(), strings.TrimSpace(f.When),
+					strings.Join(unread, `", "`), shapeWording)
+			}
 		}
 		required := []string{}
 		for _, r := range c.Required {
@@ -83,8 +88,12 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 	}
 }
 
-func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) []shapeCase {
+const shapeWording = "empty, missing, blank, absent, unset, omitted, not set, required or none for an empty value; whitespace or " +
+	"spaces for a blank one; zero or 0; negative, below zero or less than zero; @, an at sign or at symbol for an email without one"
+
+func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shapeCase, []string) {
 	out := []shapeCase{}
+	unread := []string{}
 	seen := map[string]bool{}
 	carry := f.Field
 	for _, clause := range clauseSplit.Split(f.When, -1) {
@@ -97,6 +106,7 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) []shape
 			field = carry
 		}
 		if field == "" {
+			unread = append(unread, clause)
 			continue
 		}
 		carry = field
@@ -105,13 +115,17 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) []shape
 			continue
 		}
 		kind, value, ok := shapeValue(clause, fd, cur)
-		if !ok || seen[path+"|"+kind] {
+		if !ok {
+			unread = append(unread, clause)
+			continue
+		}
+		if seen[path+"|"+kind] {
 			continue
 		}
 		seen[path+"|"+kind] = true
 		out = append(out, shapeCase{path: path, field: field, kind: kind, value: value})
 	}
-	return out
+	return out, unread
 }
 
 func fieldWord(name string) *regexp.Regexp {

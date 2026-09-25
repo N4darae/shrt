@@ -1057,6 +1057,9 @@ func ruleNames(e Expectation) []string {
 	if e.Equals != nil {
 		names = append(names, "equals")
 	}
+	if e.Includes != nil {
+		names = append(names, "includes")
+	}
 	for _, c := range []struct {
 		name string
 		set  bool
@@ -1081,7 +1084,7 @@ func lintExpectRules(s *Step) []Issue {
 				"expect on %q carries no rule, so it asserts nothing", e.Path)})
 		case len(names) > 1:
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-				"expect on %q carries %d rules (%s) and only ONE can fire: Evaluate picks them in the fixed order exists > not_empty > contains > not_equal > equals > gt > gte > lt > lte > between > within, so %q wins and the rest are discarded silently. Split them into separate expect entries",
+				"expect on %q carries %d rules (%s) and only ONE can fire: Evaluate picks them in the fixed order exists > not_empty > contains > not_equal > equals > includes > gt > gte > lt > lte > between > within, so %q wins and the rest are discarded silently. Split them into separate expect entries",
 				e.Path, len(names), strings.Join(names, ", "), names[0])})
 		}
 		if why := TautologyReason(e); why != "" {
