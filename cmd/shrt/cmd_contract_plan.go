@@ -17,8 +17,10 @@ func contractPlan(args []string) error {
 	name := fs.String("name", "", "chain name, defaults to one derived from the rpc")
 	write := fs.Bool("write", false, "write the composed chain into the chains directory")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
-	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]]",
-		"\nexit codes:\n"+
+	showNotes := fs.Bool("notes", false, "print every note: why each probe is there and what the plan could not plan")
+	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes]",
+		"\nwithout -write it prints the order and the steps; -write writes the chain to the chains directory.\n"+
+			"\nexit codes:\n"+
 			"  0  the plan was printed, or with -write written; also when a required field still has no\n"+
 			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
 			"  1  nothing was planned or written\n"+
@@ -58,16 +60,20 @@ func contractPlan(args []string) error {
 	if err != nil {
 		return err
 	}
+	again := "shrt contract plan " + strings.Join(rest, " ")
+	if *name != "" {
+		again += " -name " + *name
+	}
+	order := strings.Join(shortNames(plan.Order), " -> ")
 	if !*write {
-		fmt.Printf("# order: %s\n", strings.Join(shortNames(plan.Order), " -> "))
-		for _, n := range plan.Notes {
-			fmt.Printf("# note: %s\n", n)
+		fmt.Printf("order: %s\n", order)
+		ids := make([]string, 0, len(plan.Chain.Steps))
+		for _, st := range plan.Chain.Steps {
+			ids = append(ids, st.ID)
 		}
-		if n := plan.UnfilledCount(); n > 0 {
-			fmt.Printf("# %d required field(s) carry no test data yet — chain lint ERRORs on each until "+
-				"filled. The plan derives order and wiring; the values are yours.\n", n)
-		}
-		fmt.Print(string(raw))
+		fmt.Printf("%d steps: %s\n", len(ids), strings.Join(ids, ", "))
+		printPlanNotes(plan, again, *showNotes)
+		fmt.Printf("next: %s -write\n", again)
 		return nil
 	}
 	path := filepath.Join(e.chainsDir(), chainName+".yaml")
@@ -80,17 +86,33 @@ func contractPlan(args []string) error {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s\n  order: %s\n", rel(e.cfg.Root, path), strings.Join(shortNames(plan.Order), " -> "))
-	for _, n := range plan.Notes {
-		fmt.Printf("  note: %s\n", n)
+	fmt.Printf("wrote %s: %d steps, order %s\n", rel(e.cfg.Root, path), len(plan.Chain.Steps), order)
+	printPlanNotes(plan, again, *showNotes)
+	if plan.UnfilledCount() > 0 {
+		fmt.Printf("next: fill the test data, then shrt chain lint %s\n", chainName)
+		return nil
+	}
+	fmt.Printf("next: shrt chain lint %s\n", chainName)
+	return nil
+}
+
+func printPlanNotes(plan *contract.Plan, again string, all bool) {
+	if all {
+		for _, n := range plan.Notes {
+			fmt.Printf("note: %s\n", n)
+		}
+	} else {
+		for _, n := range plan.FillNotes() {
+			fmt.Printf("fill: %s\n", n)
+		}
 	}
 	if n := plan.UnfilledCount(); n > 0 {
-		fmt.Printf("\n%d required field(s) still carry no test data. 'shrt chain lint' will report an ERROR "+
-			"for each until you fill them, and that is the division of labour: the plan derives the ORDER and "+
-			"the WIRING, you supply the VALUES. The note lines above name every one.\n", n)
+		fmt.Printf("%d required field(s) carry no test data, and chain lint errors on each until filled; "+
+			"after a value: in the contract, re-plan with %s -write -force\n", n, again)
 	}
-	fmt.Printf("\nnext: fill the test data, then shrt chain lint %s\n", chainName)
-	return nil
+	if n := len(plan.Notes) - len(plan.FillNotes()); n > 0 && !all {
+		fmt.Printf("%d more note(s) on why each probe is there and what could not be planned: %s -notes\n", n, again)
+	}
 }
 
 func planChainName(targets []string, lib *contract.Library, e *env) (string, error) {

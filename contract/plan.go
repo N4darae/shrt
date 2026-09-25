@@ -469,6 +469,16 @@ func (p *Plan) UnfilledCount() int {
 	return n
 }
 
+func (p *Plan) FillNotes() []string {
+	out := []string{}
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
 func (p *Plan) note(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
 	if containsString(p.Notes, text) {
@@ -815,13 +825,8 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	if _, declared := p.Chain.Vars[varName]; !declared {
 		if IsPlaceholder(seed, ScaffoldedBody) || hasTemplate(seed) {
 			p.Chain.Vars[varName] = ""
-			p.note("step %s: %s and %s %s must send the same value — both read ${vars.%s}, which is "+
-				"empty. Two ways to fill it, and they are not interchangeable: a literal in vars: if the "+
-				"value may repeat, or 'shrt run <chain> -var %s=...' if it must be fresh EVERY run, "+
-				"because a uniqueness-constrained field takes the literal once and is refused the second "+
-				"time. ${uuid} inside vars: is rejected by lint and always will be — no step has run when "+
-				"vars: is read, so only generators could ever resolve there and a rule about which "+
-				"references work where is worse than one that always fails loudly",
+			p.note("step %s: %s and %s %s must send the same value, ${vars.%s}, which is empty: declare it "+
+				"under vars: if the value may repeat, or pass -var %s=... on every run if it must be fresh",
 				id, field, producerID, ref.Path, varName, varName)
 		} else {
 			p.Chain.Vars[varName] = seed
@@ -915,7 +920,8 @@ func (p *Plan) noteRequirements() {
 				continue
 			}
 			if !HasUsableValue(pc.step.Body, name, ScaffoldedBody) {
-				p.note("step %s: %s is required and has no usable value — fill it", id, name)
+				p.note("step %s: %s is required and has no usable value: set fields.%s.value in %s's contract, "+
+					"or fill it in the chain", id, name, name, shortRPC(pc.step.Call))
 			}
 		}
 		if zeros := scaffoldZeros(pc.step.Body, pc.schema.Fields, pc.contract, pc.fields); len(zeros) > 0 {

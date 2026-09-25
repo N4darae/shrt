@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,24 +109,36 @@ func TestContractPlanTakesAnAliasAndSeveralTargets(t *testing.T) {
 	defer restore()
 
 	var err error
-	out := captureStdout(t, func() { err = contractPlan([]string{"CancelOrder@confirmed"}) })
-	if err != nil {
-		t.Fatalf("plan Rpc@alias: %v", err)
+	planned := func(args ...string) string {
+		t.Helper()
+		out := captureStdout(t, func() { err = contractPlan(append(args, "-write", "-force")) })
+		if err != nil {
+			t.Fatalf("plan %v: %v", args, err)
+		}
+		path := filepath.Join(dir, ".shrt", "chains", strings.Fields(strings.TrimPrefix(out, "wrote .shrt/chains/"))[0])
+		raw, rerr := os.ReadFile(strings.TrimSuffix(path, ":"))
+		if rerr != nil {
+			t.Fatalf("plan %v wrote no chain: %v\n%s", args, rerr, out)
+		}
+		return out + string(raw)
 	}
-	if !strings.Contains(out, "# order: CreateOrder -> ConfirmOrder -> CancelOrder@confirmed") ||
+	out := planned("CancelOrder@confirmed")
+	if !strings.Contains(out, "order CreateOrder -> ConfirmOrder -> CancelOrder@confirmed") ||
 		!strings.Contains(out, "name: orders-cancelorder-confirmed") ||
 		!strings.Contains(out, "id_order: ${confirm_order.order.id_order}") {
 		t.Fatalf("the aliased target must be planned with its overrides:\n%s", out)
 	}
 
-	out = captureStdout(t, func() { err = contractPlan([]string{"ConfirmOrder", "FetchOrder", "CancelOrder@confirmed"}) })
-	if err != nil {
-		t.Fatalf("plan A B C: %v", err)
-	}
-	if !strings.Contains(out, "# order: CreateOrder -> ConfirmOrder -> FetchOrder -> CancelOrder@confirmed\n") {
+	out = planned("ConfirmOrder", "FetchOrder", "CancelOrder@confirmed")
+	if !strings.Contains(out, "order CreateOrder -> ConfirmOrder -> FetchOrder -> CancelOrder@confirmed\n") {
 		t.Fatalf("several targets must compose one deduplicated chain in dependency order:\n%s", out)
 	}
 	if !strings.Contains(out, "name: orders-confirmorder-fetchorder-cancelorder-confirmed") {
 		t.Fatalf("the default name must name every target:\n%s", out)
+	}
+	out = captureStdout(t, func() { err = contractPlan([]string{"CancelOrder@confirmed"}) })
+	if err != nil || !strings.Contains(out, "order: CreateOrder -> ConfirmOrder -> CancelOrder@confirmed\n") ||
+		!strings.Contains(out, " steps: create_order, confirm_order, ") || strings.Contains(out, "apiVersion:") {
+		t.Fatalf("without -write the plan prints its order and step ids, not the chain: %v\n%s", err, out)
 	}
 }
