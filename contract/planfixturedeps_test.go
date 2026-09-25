@@ -45,3 +45,30 @@ func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t
 		t.Fatalf("the clerk copy runs between the clerk's product and the clerk's write: %s", strings.Join(stepIDs(p), ", "))
 	}
 }
+
+func TestAStateMoveWhoseRPCNeedsAnotherWriteIsPlannedWithThatWriteAsAFixture(t *testing.T) {
+	for _, target := range []string{"CancelOrder", "CreateOrder", "ListOrders"} {
+		p, text := confirmNeedsStockPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, target)
+		confirms, stocks := []string{}, []string{}
+		for _, st := range p.Chain.Steps {
+			switch {
+			case strings.HasSuffix(st.Call, "/ConfirmOrder"):
+				confirms = append(confirms, st.ID)
+			case strings.HasSuffix(st.Call, "/AddStock"):
+				stocks = append(stocks, st.ID)
+				if !strings.HasPrefix(st.ID, "add_stock_for_") {
+					t.Fatalf("%s: AddStock is a fixture dependency, not a target with probes of its own, got %s:\n%s", target, st.ID, text)
+				}
+			}
+		}
+		if len(confirms) == 0 || len(stocks) == 0 {
+			t.Fatalf("%s: the confirm-state probes are planned with AddStock as a fixture (confirm %v, stock %v):\n%s", target, confirms, stocks, text)
+		}
+		if strings.Contains(text, "which this plan does not call") {
+			t.Fatalf("%s: no state is dropped for a need the plan can satisfy:\n%s", target, text)
+		}
+		if len(p.Targets) != 1 {
+			t.Fatalf("%s: AddStock is not made a target: %v", target, p.Targets)
+		}
+	}
+}

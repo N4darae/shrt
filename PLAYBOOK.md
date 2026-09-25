@@ -460,9 +460,10 @@ CreateOrder->order.id_order`) and whose `exports:` or summary name the state the
 (`status CONFIRMED`, `to CANCELLED`), applies one to each further fixture after the unfiltered
 list, and adds one list per reachable state (`list_orders_pending`, `list_orders_confirmed`) asserting
 only the fixtures in that state come back: by id when the contract states creation order or one
-matches, their status always, and the count. A note names states no write reaches, and a write
-whose own `needs:` the plan does not call (a confirm that needs `AddStock`) is left out with a note
-saying which rpc to plan with it.
+matches, their status always, and the count. A note names states no write reaches. A write whose own `needs:` the plan does not call (a confirm
+that needs `AddStock`) is still used: the plan adds the prerequisite step for each entity it touches
+(`add_stock_for_create_product_for_filter`) without making that rpc a target; only a dependency it
+cannot satisfy that way leaves the state out, with a note saying which rpc to plan with it.
 
 A batch is tested with a refused item in the middle. With `conventions.item_envelope_path` set
 (`results[].status.code`) and a contract saying failures are reported per item (`reported on that
@@ -492,8 +493,8 @@ enum (`order.status`) and the contracts name writes that take its id and the sta
 (`fetch_order_after_confirm_order_for_replay`) and the replay of the fresh object's key
 (`create_order_replay_after_confirm_order`), asserting the replay's id and every numeric and enum
 field the read returns (`order.status equals ${fetch_order_after_confirm_order_for_replay.order.status}`).
-A write whose `needs:` the plan does not call is left out with a note naming what to plan with it
-(`CreateOrder AddStock`, so `ConfirmOrder` can run).
+A write whose `needs:` the plan does not call gets the prerequisite steps it needs as fixtures
+(`add_stock_for_create_product_2`, so `ConfirmOrder` can run), not as a target.
 
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with

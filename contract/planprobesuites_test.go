@@ -63,7 +63,7 @@ func TestAStateTransitionWhosePrerequisiteIsNotInThePlanIsLeftOutWithANote(t *te
 			c.Needs = nil
 		}
 		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
-			c.Needs = []string{"shop.catalog.v1.StockService/AddStock"}
+			c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
 		}
 	}, "ListOrders")
 	for _, st := range p.Chain.Steps {
@@ -72,7 +72,7 @@ func TestAStateTransitionWhosePrerequisiteIsNotInThePlanIsLeftOutWithANote(t *te
 		}
 	}
 	planStep(t, p, "list_orders_cancelled")
-	if !strings.Contains(strings.Join(p.Notes, "\n"), "needs AddStock") {
+	if !strings.Contains(strings.Join(p.Notes, "\n"), "needs AddStockBatch") {
 		t.Fatalf("the plan says why no fixture is confirmed: %v", p.Notes)
 	}
 }

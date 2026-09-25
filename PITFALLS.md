@@ -2030,6 +2030,24 @@ value but not a lost one, and `null` (or `""`, `0`, an empty list) to absent los
 masked and listed under `-masked` with the pattern that hid it. A value that became absent, or a
 value where the safe spot had no key, is still reported.
 
+## 93. Confirm-state probes dropped because ConfirmOrder needs AddStock
+
+**Symptom.** With `needs: [AddStock]` on ConfirmOrder, `contract plan CancelOrder`, `CreateOrder` and
+`ListOrders` said `ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStock, which this
+plan does not call` and left out every probe on a CONFIRMED order: the cancel that must give stock
+back, the replay after a confirm, the CONFIRMED status filter. The advice, `plan CancelOrder AddStock`,
+duplicated every AddStock probe and renamed the chain `...-addstock`.
+
+**Cause.** A state-moving write was held back whenever any of its dependencies was not already a
+step of the plan, although `needs:` is exactly what the plan satisfies on its own afterwards, one
+prerequisite step per entity the write touches.
+
+**Fix.** 2026-09-25: a `needs:` rpc whose contract takes the id of an entity the plan creates no
+longer holds the write back; the plan adds only the prerequisite steps it needs
+(`add_stock_for_create_product_for_state`), not the rpc as a target, and keeps the chain name. A
+dependency the plan cannot satisfy that way (a `from:` to an rpc it does not call) still drops the
+state with the note.
+
 ---
 
 # Decisions, so they are not relitigated

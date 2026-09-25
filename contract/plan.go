@@ -33,6 +33,7 @@ type Plan struct {
 	region   *fixtureRegion
 	isolated []string
 	parities []parityCopy
+	lib      *Library
 }
 
 type PlanOptions struct {
@@ -93,7 +94,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,

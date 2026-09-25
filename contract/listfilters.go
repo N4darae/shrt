@@ -510,9 +510,33 @@ func (p *Plan) missingDependencies(c *RPCContract) []string {
 	out := []string{}
 	for _, dep := range c.DependenciesFor("") {
 		rpc, _ := SplitNode(dep)
-		if !called[canonicalCall(p.cat, rpc)] {
+		if !called[canonicalCall(p.cat, rpc)] && !p.fixtureNeed(c, canonicalCall(p.cat, rpc), called) {
 			out = append(out, shortRPC(rpc))
 		}
 	}
 	return out
+}
+
+func (p *Plan) fixtureNeed(c *RPCContract, rpc string, called map[string]bool) bool {
+	declared := false
+	for _, n := range c.Needs {
+		need, _ := SplitNode(n)
+		declared = declared || canonicalCall(p.cat, need) == rpc
+	}
+	if !declared || chain.IsReadOnlyCall(rpc) || p.lib == nil {
+		return false
+	}
+	nc, ok := p.lib.Get(rpc)
+	if !ok {
+		return false
+	}
+	if m, err := p.cat.Lookup(rpc); err != nil || m.Streaming() {
+		return false
+	}
+	for name, ref := range topFrom(nc, p.cat) {
+		if !strings.Contains(name, ".") && called[ref.RPC] && !chain.IsReadOnlyCall(ref.RPC) {
+			return true
+		}
+	}
+	return false
 }
