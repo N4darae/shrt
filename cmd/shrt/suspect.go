@@ -51,24 +51,7 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 			return j, false
 		}
 	}
-	closure := map[int]map[string]bool{}
-	var reach func(i int) map[string]bool
-	reach = func(i int) map[string]bool {
-		if c, ok := closure[i]; ok {
-			return c
-		}
-		c := map[string]bool{}
-		closure[i] = c
-		for ref := range stepRefs(rec.Steps[i]) {
-			c[ref] = true
-			if j, ok := pos[ref]; ok && j < i {
-				for r := range reach(j) {
-					c[r] = true
-				}
-			}
-		}
-		return c
-	}
+	reach := refReach(rec, pos)
 	entities := stepRefs(rec.Steps[at])
 	nearest, nearestBad := -1, -1
 	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
@@ -104,6 +87,28 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	return -1, false
 }
 
+func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool {
+	closure := map[int]map[string]bool{}
+	var reach func(i int) map[string]bool
+	reach = func(i int) map[string]bool {
+		if c, ok := closure[i]; ok {
+			return c
+		}
+		c := map[string]bool{}
+		closure[i] = c
+		for ref := range stepRefs(rec.Steps[i]) {
+			c[ref] = true
+			if j, ok := pos[ref]; ok && j < i {
+				for r := range reach(j) {
+					c[r] = true
+				}
+			}
+		}
+		return c
+	}
+	return reach
+}
+
 type blame struct {
 	write   int
 	knock   bool
@@ -137,11 +142,14 @@ func (a attribution) of(step, path string) blame {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, a.lost(src, ref)
+		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref)
 		if b.write < 0 {
 			b.write = a.index(src)
 		}
 		return b
+	}
+	if w, why := a.afterFailedWrite(step, path); w >= 0 {
+		return blame{write: w, cascade: why}
 	}
 	if e, p := a.earlier(step, path); e >= 0 {
 		if isWrite(a.rec.Steps[e]) {
@@ -164,8 +172,18 @@ func (a attribution) of(step, path string) blame {
 	}
 	b.write, b.knock = suspectWrite(a.rec, step, a.bad)
 	if b.write >= 0 && !b.knock {
-		if why := a.echoed(a.rec.Steps[b.write], st, path); why != "" {
+		w := a.rec.Steps[b.write]
+		if why := a.echoed(w, st, path); why != "" {
 			return blame{write: -1, own: why}
+		}
+		var changed []string
+		if a.changed != nil {
+			changed = a.changed(w.ID)
+		}
+		for _, p := range changed {
+			if up, why := a.afterFailedWrite(w.ID, p); up >= 0 {
+				return blame{write: up, cascade: why}
+			}
 		}
 	}
 	return b
@@ -207,6 +225,53 @@ func (a attribution) lost(src, path string) string {
 		}
 	}
 	return methodName(st.Call) + " lost " + path
+}
+
+func (a attribution) afterFailedWrite(step, path string) (int, string) {
+	at := a.index(step)
+	if at < 0 || path == "" || a.e == nil || a.e.cat == nil {
+		return -1, ""
+	}
+	leaf := ""
+	for _, seg := range chain.SplitPath(path) {
+		if _, err := strconv.Atoi(seg); err != nil {
+			leaf = seg
+		}
+	}
+	pos := map[string]int{}
+	for i, st := range a.rec.Steps {
+		if _, seen := pos[st.ID]; st != nil && !seen {
+			pos[st.ID] = i
+		}
+	}
+	touched := refReach(a.rec, pos)(at)
+	for i, w := range a.rec.Steps[:at] {
+		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || (w.Status != runner.StatusFailed && w.Status != runner.StatusError) {
+			continue
+		}
+		same := false
+		for ref := range stepRefs(w) {
+			same = same || touched[ref]
+		}
+		if m, err := a.e.cat.Lookup(w.Call); same && err == nil && declares(m.Output(), leaf, 0) {
+			return i, fmt.Sprintf("after %s failed on the same record", methodName(w.Call))
+		}
+	}
+	return -1, ""
+}
+
+func declares(md protoreflect.MessageDescriptor, name string, depth int) bool {
+	if md == nil || depth > 4 {
+		return false
+	}
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if string(fd.Name()) == name || fd.JSONName() == name || declares(fd.Message(), name, depth+1) {
+			return true
+		}
+	}
+	return false
 }
 
 func (a attribution) earlier(step, path string) (int, string) {

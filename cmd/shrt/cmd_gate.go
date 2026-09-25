@@ -756,7 +756,7 @@ func (g *gateChain) printChanges() {
 		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", p, len(steps[p]), capList(steps[p], 3), example[p])
 	}
 	for _, c := range because {
-		fmt.Printf("    %d step(s) unevaluated because %s\n", cascades[c], c)
+		fmt.Printf("    %d step(s) %s\n", cascades[c], c)
 	}
 }
 
@@ -948,7 +948,7 @@ func printGateGroups(chains []*gateChain) {
 					steps++
 				}
 			}
-			fmt.Printf("    +%d step(s) in %d chain(s) unevaluated because %s\n", steps, in, c)
+			fmt.Printf("    +%d step(s) in %d chain(s) %s\n", steps, in, c)
 		}
 	}
 }
