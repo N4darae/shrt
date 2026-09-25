@@ -604,7 +604,10 @@ because a check that cannot run must fail, and you write the equivalent for your
 
 The score itself can be gated as a **ratchet** with `shrt contract quality -gate -baseline <file>`:
 it fails if the score rises, and also if it falls without the baseline being lowered, so improving
-a contract means lowering the number in the file. `shrt chain hollow -gate -baseline <file>` does
+a contract means lowering the number in the file. A failing gate lists the gaps it counts now, per
+rpc (`CreateOrder (2): 1 undocumented field(s): note`), since the file holds only a total; a new
+undocumented field is most often one the descriptor gained (a proto field added to a request), so
+document it in the rpc's `fields:` and the score comes back. `shrt chain hollow -gate -baseline <file>` does
 the same for hollow reads. A baseline file that does not exist fails the gate with the command
 that creates it with today's count (`echo <n> > <file>`; or write 0, run the gate once, and write
 the number it reports). That is what stops an N-of-N score from meaning less each time the
