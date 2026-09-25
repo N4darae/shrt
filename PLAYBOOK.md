@@ -249,8 +249,9 @@ points at a restart (exit 3). The same refusal at the same step in the previous 
 restart shown, is a finding (exit 1). A token refused long before the expiry its login stated
 prints `WARNING: token refused <N>s after issue ...`; settle it with a chain of held reads
 (PITFALLS §49). A step with no answer (dropped connection, timeout) is exit 3; the same in the
-previous run while later steps answered is a `FINDING`. A server error on a request answered
-elsewhere is `FINDING: intermittent failure at <rpc>`.
+previous run while later steps answered is a `FINDING`. A read with a server error is re-sent once
+and judged on the answer; a server error on a request answered then or elsewhere is
+`FINDING: intermittent failure at <rpc>`. Writes are never re-sent.
 
 ## 7. Author or extend a contract, in payoff order
 

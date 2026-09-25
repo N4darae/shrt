@@ -1343,6 +1343,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
+	res = r.resendRead(ctx, step, call, resolvedHeaders, sr, res, err)
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)

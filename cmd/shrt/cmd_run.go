@@ -190,7 +190,7 @@ func runRun(ctx context.Context, args []string) error {
 		if rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, fresh.line())
 		}
-	} else if flaky := detectIntermittent(e, rec); flaky != nil && !*dry && !rec.Passed() {
+	} else if flaky := detectIntermittent(e, rec); flaky != nil && !*dry && (!rec.Passed() || flaky.finding()) {
 		for _, line := range flaky.notes() {
 			fmt.Println("  note: " + line)
 		}

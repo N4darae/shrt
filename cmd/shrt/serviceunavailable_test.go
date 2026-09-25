@@ -67,14 +67,14 @@ func TestAnUnavailableTheServiceAnswersBetweenAnsweredCallsIsAFinding(t *testing
 
 func TestAnUnavailableTheServiceNeverAnswersAfterStaysNoVerdict(t *testing.T) {
 	f, ctx := flakyWorkspace(t)
-	f.set("unavailable", 503, 2, 3, 4)
+	f.set("unavailable", 503, everyNth(2, 1)...)
 	var err error
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet"}) })
 	var coded *exitError
 	if !errors.As(err, &coded) || coded.code != 3 {
 		t.Fatalf("run: unavailable at every call after the first, as in a restart, is no verdict, exit 3: %v\n%s", err, out)
 	}
-	f.set("unavailable", 503, 2, 3, 4)
+	f.set("unavailable", 503, everyNth(2, 1)...)
 	out, err = verifyOnce(t, ctx)
 	if !errors.As(err, &coded) || coded.code != 3 {
 		t.Fatalf("verify: unavailable at every call after the first is could-not-verify, exit 3: %v\n%s", err, out)

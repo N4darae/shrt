@@ -20,14 +20,16 @@ type flakyStep struct {
 	moved    string
 	answered string
 	repeated string
+	resent   bool
 }
 
-func (f flakyStep) sufficient() bool { return len(f.sameRun) > 0 || f.moved != "" }
+func (f flakyStep) sufficient() bool { return len(f.sameRun) > 0 || f.moved != "" || f.resent }
 
 type intermittentFailure struct {
 	steps  []flakyStep
 	weak   []flakyStep
 	hidden []string
+	rate   string
 }
 
 func serverError(st *runner.StepRecord) string {
@@ -42,6 +44,25 @@ func serverError(st *runner.StepRecord) string {
 		return ""
 	}
 	return errorText(st)
+}
+
+func resentAnswered(st *runner.StepRecord) bool {
+	if st == nil || st.FirstAttempt == nil || serverError(st) != "" || !answeredByService(st) {
+		return false
+	}
+	return serverAttempt(st.FirstAttempt)
+}
+
+func serverAttempt(a *runner.Attempt) bool {
+	code := strings.ToLower(a.Code)
+	return code == "unavailable" || serverErrorCodes[code] || a.HTTPStatus >= 500
+}
+
+func stepOf(rec *runner.Record, id string) (*runner.StepRecord, bool) {
+	if rec == nil {
+		return nil, false
+	}
+	return rec.Step(id)
 }
 
 func errorText(st *runner.StepRecord) string {
@@ -101,15 +122,26 @@ func runKind(rec *runner.Record) string {
 }
 
 func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
-	if rec == nil || rec.DryRun || rec.KeptRed != "" {
+	if rec == nil || rec.DryRun {
 		return nil
 	}
 	var last *runner.Record
 	loaded := false
 	out := &intermittentFailure{}
 	for _, st := range rec.Steps {
+		if resentAnswered(st) {
+			f := flakyStep{step: st, resent: true}
+			if !loaded {
+				last, loaded = latestRunBefore(e, rec), true
+			}
+			if was, ok := stepOf(last, st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
+				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+			}
+			out.steps = append(out.steps, f)
+			continue
+		}
 		why := serverError(st)
-		if why == "" {
+		if why == "" || rec.KeptRed != "" {
 			continue
 		}
 		f := flakyStep{step: st}
@@ -152,7 +184,10 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	}
 	failed := map[string]bool{}
 	for _, f := range append(append([]flakyStep{}, out.steps...), out.weak...) {
-		failed[f.step.ID] = true
+		failed[f.step.ID] = !f.resent
+	}
+	if len(out.steps) > 0 {
+		out.rate = callRate(rec, out.steps[0].step.Call)
 	}
 	for _, st := range rec.Steps {
 		if src, _ := heldBackBy(st); failed[st.ID] || failed[src] {
@@ -207,7 +242,11 @@ func (i *intermittentFailure) calls() string {
 func (i *intermittentFailure) line() string {
 	each, repeated := []string{}, true
 	for _, f := range i.steps {
-		each = append(each, fmt.Sprintf("step %d %s got %s, but %s", f.step.Index, f.step.ID, errorText(f.step), f.evidence()))
+		if f.resent {
+			each = append(each, fmt.Sprintf("step %d %s got %s, and its re-send was answered and judged", f.step.Index, f.step.ID, f.step.FirstAttempt.Text()))
+		} else {
+			each = append(each, fmt.Sprintf("step %d %s got %s, but %s", f.step.Index, f.step.ID, errorText(f.step), f.evidence()))
+		}
 		repeated = repeated && f.repeated != ""
 	}
 	hidden := ""
@@ -219,9 +258,64 @@ func (i *intermittentFailure) line() string {
 			"a defect in the backend, and a re-run fails the same way%s; %s",
 			i.calls(), i.steps[0].repeated, hidden, strings.Join(each, "; "))
 	}
-	return fmt.Sprintf("intermittent failure at %s: the backend fails this rpc on some calls and answers it on others, "+
-		"a defect in the backend (flaky under load, an exhausted pool, a race), not a deterministic regression at that step; "+
-		"a re-run may pass and does not clear it%s; %s", i.calls(), hidden, strings.Join(each, "; "))
+	how := "the backend fails this rpc on some calls and answers it on others"
+	if i.rate != "" {
+		how = i.rate
+	}
+	return fmt.Sprintf("intermittent failure at %s: %s, a backend defect (flaky under load, an exhausted pool, a race), "+
+		"not a deterministic regression at that step; a re-run may pass and does not clear it%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
+}
+
+func callRate(rec *runner.Record, call string) string {
+	var failedAt []int
+	n := 0
+	for _, st := range rec.Steps {
+		if st == nil || st.Call != call {
+			continue
+		}
+		if a := st.FirstAttempt; a != nil {
+			n++
+			if serverAttempt(a) {
+				failedAt = append(failedAt, n)
+			}
+		}
+		if st.HTTPStatus == 0 && st.Transport == nil {
+			continue
+		}
+		n++
+		if serverError(st) != "" {
+			failedAt = append(failedAt, n)
+		}
+		n += len(st.LatencyResent)
+	}
+	if len(failedAt) < 2 {
+		return ""
+	}
+	out := fmt.Sprintf("it failed %d of %d calls in this run", len(failedAt), n)
+	gap := failedAt[1] - failedAt[0]
+	for k := 2; k < len(failedAt); k++ {
+		if failedAt[k]-failedAt[k-1] != gap {
+			gap = 0
+		}
+	}
+	if gap > 1 && len(failedAt) > 2 {
+		out += ", every " + ordinal(gap)
+	}
+	return out + ", and answered the others"
+}
+
+func ordinal(n int) string {
+	suffix := "th"
+	switch {
+	case n%100 >= 11 && n%100 <= 13:
+	case n%10 == 1:
+		suffix = "st"
+	case n%10 == 2:
+		suffix = "nd"
+	case n%10 == 3:
+		suffix = "rd"
+	}
+	return fmt.Sprintf("%d%s", n, suffix)
 }
 
 func (i *intermittentFailure) notes() []string {

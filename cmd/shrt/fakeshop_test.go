@@ -18,6 +18,7 @@ type fakeShop struct {
 
 	cancelConfirmedBug bool
 	getProductFailN    int
+	getProductFailAt   map[int]bool
 	priceBug           bool
 	skuEchoBug         bool
 
@@ -87,7 +88,7 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		return 200, map[string]any{"status": ok(), "product": p}
 	case "/shop.catalog.v1.ProductService/GetProduct":
 		s.getCalls++
-		if s.getProductFailN > 0 && s.getCalls%s.getProductFailN == 0 {
+		if (s.getProductFailN > 0 && s.getCalls%s.getProductFailN == 0) || s.getProductFailAt[s.getCalls] {
 			return 500, map[string]any{"code": "internal", "message": "boom"}
 		}
 		p, found := s.products[fmt.Sprint(body["id_product"])]

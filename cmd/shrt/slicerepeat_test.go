@@ -37,6 +37,9 @@ func sliceFlaky(t *testing.T, failEvery int, args ...string) (string, error) {
 	t.Helper()
 	shop := newFakeShop()
 	shop.getProductFailN = failEvery
+	if failEvery == 0 {
+		shop.getProductFailAt = map[int]bool{2: true, 3: true, 4: true, 5: true}
+	}
 	chdirToFakeShop(t, shop)
 	writeFile(t, ".shrt/scratch/probe-get.yaml", flakyGetChain)
 	_ = runRun(context.Background(), []string{".shrt/scratch/probe-get.yaml", "-quiet", "-keep-going"})
@@ -48,9 +51,9 @@ func sliceFlaky(t *testing.T, failEvery int, args ...string) (string, error) {
 }
 
 func TestSliceVerifyRepeatsAndCallsAPartialMatchIntermittent(t *testing.T) {
-	out, err := sliceFlaky(t, 2)
+	out, err := sliceFlaky(t, 0)
 	if !strings.Contains(out, "intermittent: reproduced 1/3") {
-		t.Fatalf("every second GetProduct fails, so of three slice runs one reproduces the source run's internal error; "+
+		t.Fatalf("GetProduct calls 2 to 5 fail, so of three slice runs, each re-sending a failed read once, one reproduces the source run's internal error; "+
 			"a single-run receipt either way would be wrong:\n%s", out)
 	}
 	if got := exitCodeOf(err); got != 4 {
