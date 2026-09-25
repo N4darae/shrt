@@ -23,6 +23,8 @@ type shortSessionBackend struct {
 	logins int
 	left   map[string]int
 	short  bool
+	life   time.Duration
+	born   map[string]time.Time
 }
 
 func (b *shortSessionBackend) server() *httptest.Server {
@@ -36,13 +38,17 @@ func (b *shortSessionBackend) server() *httptest.Server {
 			b.logins++
 			token := fmt.Sprintf("tok-%d", b.logins)
 			b.left[token] = b.uses
+			if b.born == nil {
+				b.born = map[string]time.Time{}
+			}
+			b.born[token] = time.Now()
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "access_token": token,
 				"expires_at": fmt.Sprint(time.Now().Add(time.Hour).Unix())})
 			return
 		}
 		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		n, known := b.left[token]
-		if !known || b.short && n <= 0 {
+		if !known || b.short && n <= 0 || b.life > 0 && time.Since(b.born[token]) > b.life {
 			w.WriteHeader(401)
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": "unauthenticated", "message": "invalid or expired token"})
 			return
