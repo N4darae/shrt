@@ -105,7 +105,7 @@ var notes = map[string]string{
 
 	"Effect.increase": "The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key.",
 	"Effect.decrease": "As `increase`, shrinking.",
-	"Effect.of":       "An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`.",
+	"Effect.of":       "An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. Only with `increase` or `decrease`; `restore` takes none.",
 	"Effect.restore":  "The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`.",
 	"Effect.sum":      "`<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32.",
 	"Effect.times":    "The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`.",
