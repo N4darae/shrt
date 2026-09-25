@@ -62,6 +62,9 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
 	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
 	"     from the service), which keeps it exit 3\n" +
+	"  1  also when a step got no answer (the connection dropped, or no answer before target.timeout)\n" +
+	"     while later steps were answered, and the previous run that sent it got no answer there the\n" +
+	"     same way while answering later steps too: the backend fails that rpc every time\n" +
 	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
 	"     from no var), or naming no field while every field built from a reference is built from ${uuid}\n" +
 	"     or a clock value: the chain collides with itself on every run after the first, a chain defect\n"
@@ -198,6 +201,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if fresh != nil && driftedBefore(rec, report, fresh.index) {
 		fresh = nil
 	}
+	var dropped *unansweredRepeat
+	if unanswered && loss == nil && fresh == nil {
+		dropped = repeatedUnanswered(e, rec, unansweredStep)
+	}
 	var reuse *fixtureReuse
 	var literal *literalCollision
 	if !report.Clean() {
@@ -222,6 +229,7 @@ func runVerify(ctx context.Context, args []string) error {
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
 	case fresh != nil:
+	case dropped != nil:
 	case unanswered:
 		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
 		switch {
@@ -282,6 +290,8 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("FINDING: " + loss.line())
 		case fresh != nil:
 			fmt.Println("FINDING: " + fresh.line())
+		case dropped != nil:
+			fmt.Println("FINDING: " + dropped.line())
 		case loss != nil:
 			fmt.Println("WARNING: " + loss.line())
 		}
@@ -334,6 +344,9 @@ func runVerify(ctx context.Context, args []string) error {
 	}
 	if fresh != nil {
 		return fmt.Errorf("%s: %s", name, fresh.line())
+	}
+	if dropped != nil {
+		return fmt.Errorf("%s: %s", name, dropped.line())
 	}
 	if reuse.finding() && nonBackend == nil && !driftedBefore(rec, report, reuse.index) {
 		return fmt.Errorf("%s: %s", name, reuse.line())
@@ -959,6 +972,10 @@ func couldNotVerify(name, step, why string, rec *runner.Record) error {
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
 		remedy = timeoutRemedy + ", and run verify again"
+	}
+	if st, _ := answeredAfter(rec, step); answered > 0 && unansweredKind(st) != "" {
+		remedy += "; the backend answered later steps, so if the next run fails this rpc the same way while answering others, " +
+			"verify reports it as a finding"
 	}
 	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
 		"This is not a verdict about the backend: %s", name, step, why, past, remedy)

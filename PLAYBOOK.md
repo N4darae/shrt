@@ -433,6 +433,14 @@ that got no answer from the service (a gateway answer, a dropped connection). Th
 restart, exit 3. A run that passed with a read re-sent after a refused token and accepted says only that
 (`a read was re-sent after a refused token at step <n> <id>`), with no restart or re-run advice.
 
+A step the backend never answered (the connection dropped, or no answer before `target.timeout`)
+is could-not-verify, exit 3, since an outage or a crash explains it. When later steps of the same
+run were answered, and the previous run that sent that step got no answer there the same way while
+answering later steps too, the backend is up and fails that one rpc every time: `verify` prints
+`FINDING: ... the backend fails this rpc every time while answering others`, naming the rpc, and
+exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
+answered.
+
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
 - A login step is optional. Write one only when the chain is *testing* login, or when the flow
