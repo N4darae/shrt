@@ -32,12 +32,39 @@ func (p *Plan) assertOutcomes(lib *Library) {
 		}
 	}
 	if len(ids) > 0 {
-		p.note("%s %s %s what %s contract declares beyond the verdict, so a freshly planned chain passes 'chain lint -strict': "+
+		claim := ", so a freshly planned chain passes 'chain lint -strict'"
+		if p.verdictOnlyLeft(lib) {
+			claim = ""
+		}
+		p.note("%s %s %s what %s contract declares beyond the verdict%s: "+
 			"a reference the request sent read back, the state the contract names, the id a create returns, a stock level "+
 			"at least the quantity added, each item of a batch; that is the plan's floor, so add the values your test data "+
 			"should produce", pluralVerb(len(ids), "step", "steps"), strings.Join(clipList(ids, 6), ", "),
-			pluralVerb(len(ids), "asserts", "assert"), pluralVerb(len(ids), "its", "their"))
+			pluralVerb(len(ids), "asserts", "assert"), pluralVerb(len(ids), "its", "their"), claim)
 	}
+}
+
+func (p *Plan) verdictOnlyLeft(lib *Library) bool {
+	for _, st := range p.Chain.Steps {
+		if st.AllowFail || isRefusalStep(st) || !AssertsOnlyVerdict(st) {
+			continue
+		}
+		if m, err := p.cat.Lookup(st.Call); err == nil {
+			if c, ok := lib.Get(m.FullName); ok && len(DeclaredFacts(c)) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func declaresFact(c *RPCContract, name string) bool {
+	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
+		if _, ok := section[name]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
@@ -114,7 +141,7 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 			continue
 		}
 		for _, o := range scalars {
-			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && c.Exports[o.Name] != "" {
+			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && declaresFact(c, o.Name) {
 				out = append(out, chain.Expectation{Path: o.Name, Gte: "${steps." + st.ID + ".request." + key + "}"})
 			}
 		}

@@ -1622,6 +1622,21 @@ directory, like one with a slash.
 `-write <name>` writes, and `-write <chain>.yaml` there replaces the chain. Only a value with a
 slash is a path; `./<name>.yaml` still writes into the current directory.
 
+## 67. A planned `add_stock` that failed `chain lint -strict` under a note saying it passes
+
+**Symptom.** `contract plan AddStock` noted that a freshly planned chain passes `chain lint -strict`,
+and `chain lint -strict` then failed `add_stock` and `add_stock_qty_min`: `asserts only the
+verdict ... AddStock declares what its response carries (qty_on_hand)`.
+
+**Cause.** The plan asserted a stock level at least the quantity added only for a field the
+contract lists under `exports:`; this contract declared `qty_on_hand` under `terminal:`, which lint
+counts as declared too.
+
+**Fix.** 2026-09-25: the plan asserts `qty_on_hand gte: ${steps.<step>.request.qty}` for such a
+field declared under `exports:`, `terminal:` or `soft_signals:`, as lint reads them. The note claims
+a strict pass only when no planned step is still left asserting only the verdict of an rpc whose
+contract declares response fields.
+
 ---
 
 # Decisions, so they are not relitigated
