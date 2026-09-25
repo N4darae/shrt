@@ -9,8 +9,11 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-func scaffoldPlan(name string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
-	p := &Plan{stepOf: map[string]string{}, cat: cat}
+func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
+	p := &Plan{stepOf: map[string]string{}, cat: cat, reserved: map[string]bool{}, noun: noun}
+	for _, id := range ids {
+		p.reserved[id] = true
+	}
 	p.Chain = &chain.Chain{APIVersion: chain.APIVersion, Name: name}
 	methods := make([]*catalog.Method, len(refs))
 	for i, ref := range refs {
@@ -34,6 +37,12 @@ func scaffoldPlan(name string, refs, ids []string, lib *Library, cat *catalog.Ca
 		p.rewireProducers(step, producers, rpcOf, used)
 		if len(producers[m.FullName]) > 0 {
 			distinguishFixtures(step, ids[i], producers[m.FullName][0])
+		}
+		for _, c := range p.splitSharedProducers(step, p.grown) {
+			if rpcOf[c.original] != "" {
+				producers[c.call] = append(producers[c.call], c.id)
+				rpcOf[c.id] = c.call
+			}
 		}
 		producers[m.FullName] = append(producers[m.FullName], ids[i])
 		rpcOf[ids[i]] = m.FullName
@@ -177,7 +186,7 @@ func shortRPC(full string) string {
 }
 
 func ScaffoldChain(name, description string, refs, ids []string, lib *Library, cat *catalog.Catalog) ([]byte, []string, error) {
-	p, err := scaffoldPlan(name, refs, ids, lib, cat)
+	p, err := scaffoldPlan(name, "the chain", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
 	}

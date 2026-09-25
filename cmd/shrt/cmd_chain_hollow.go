@@ -155,17 +155,29 @@ func reportOrphans(rep *hollow.Report, renamed map[string]string) {
 	}
 	fmt.Printf("\n%d run record(s) under %d directory(ies) belong to no chain and were NOT counted above:\n",
 		rep.OrphanRecords, len(rep.Orphans))
+	deleted, moved := 0, 0
 	for _, d := range rep.Orphans {
 		if to, ok := renamed[d]; ok {
 			fmt.Printf("  orphan  %s  (renamed to %s: its safe spot records the rename; these records stay under the old name)\n", d, to)
+			moved++
 			continue
 		}
 		fmt.Printf("  orphan  %s\n", d)
+		deleted++
 	}
-	fmt.Print("Deleting a chain leaves its runs behind. They are still evidence of what happened, so " +
-		"nothing removes them for you — but a finding in one names a chain that no longer exists and " +
-		"cannot be acted on, so they are excluded from the counts and from the gate. Delete the " +
-		"directory when the evidence has served its purpose.\n")
+	if deleted > 0 {
+		fmt.Print("Deleting a chain leaves its runs behind. They are still evidence of what happened, so " +
+			"nothing removes them for you — but a finding in one names a chain that no longer exists and " +
+			"cannot be acted on, so they are excluded from the counts and from the gate. Delete the " +
+			"directory when the evidence has served its purpose.\n")
+	}
+	if moved > 0 {
+		fmt.Print("Renaming a chain leaves its runs under the old name: run records are stored by chain name, " +
+			"and 'confirm -rename-from' carries the safe spot, not the records. They are the renamed chain's " +
+			"history, but hollow counts only records under the current name, so they are excluded from the counts " +
+			"and from the gate; the renamed chain's own runs are counted. Delete the old directory when that " +
+			"evidence has served its purpose.\n")
+	}
 }
 
 func (e *env) scratchSource(source string) bool {

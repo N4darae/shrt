@@ -34,8 +34,8 @@ func TestPlanScaffoldsTwoDistinctItemsForARepeatedMessageInput(t *testing.T) {
 	if first["qty"] != "2" || second["qty"] != "3" {
 		t.Fatalf("qty = %v and %v, want the contract's 2 and a distinct 3", first["qty"], second["qty"])
 	}
-	if first["id_product"] != second["id_product"] {
-		t.Fatalf("a from: reference must stay the same in both items: %v vs %v", first["id_product"], second["id_product"])
+	if first["id_product"] != "${create_product.product.id_product}" || second["id_product"] != "${create_product_2.product.id_product}" {
+		t.Fatalf("the second item must read a second producer, not the first one's product: %v vs %v", first["id_product"], second["id_product"])
 	}
 	if !anyNote(plan.Notes, "lines") || !anyNote(plan.Notes, "two items") {
 		t.Fatalf("the plan must say why lines carries two items: %v", plan.Notes)
@@ -64,5 +64,44 @@ func TestSingleItemRepeatsNamesAFieldNoChainSendsTwice(t *testing.T) {
 	}}}
 	if got := contract.SingleItemRepeats([]*chain.Chain{one, two}, cat); len(got) != 0 {
 		t.Fatalf("a chain sends two lines, so nothing is missing: %+v", got)
+	}
+}
+
+func TestSingleItemRepeatsNamesItemsThatAllPointAtOneResource(t *testing.T) {
+	cat := catalogtest.Shop()
+	same := &chain.Chain{Name: "same", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "s"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{
+			map[string]any{"id_product": "${create_product.product.id_product}", "qty": "2"},
+			map[string]any{"id_product": "${create_product.product.id_product}", "qty": "3"},
+		}}},
+	}}
+	got := contract.SingleItemRepeats([]*chain.Chain{same}, cat)
+	if len(got) != 1 || got[0].Field != "lines" || !got[0].SameResource || got[0].Most != 2 {
+		t.Fatalf("got %+v, want CreateOrder lines reported as items that all point at the same resource", got)
+	}
+	if got[0].Resource != "${create_product.product.id_product}" {
+		t.Fatalf("resource = %q, want the reference both items share", got[0].Resource)
+	}
+
+	distinct := &chain.Chain{Name: "distinct", Steps: []*chain.Step{
+		{ID: "a", Call: shopCreateProduct, Body: map[string]any{"sku": "a"}},
+		{ID: "b", Call: shopCreateProduct, Body: map[string]any{"sku": "b"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{
+			map[string]any{"id_product": "${a.product.id_product}", "qty": "2"},
+			map[string]any{"id_product": "${b.product.id_product}", "qty": "3"},
+		}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{same, distinct}, cat); len(got) != 0 {
+		t.Fatalf("a chain sends two lines for two products, so nothing is missing: %+v", got)
+	}
+	literal := &chain.Chain{Name: "literal", Steps: []*chain.Step{
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{
+			map[string]any{"id_product": "p-1", "qty": "2"},
+			map[string]any{"id_product": "p-1", "qty": "3"},
+		}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{literal}, cat); len(got) != 1 || !got[0].SameResource {
+		t.Fatalf("two lines naming the same literal id point at one resource: %+v", got)
 	}
 }

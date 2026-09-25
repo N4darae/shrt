@@ -11,10 +11,12 @@ import (
 )
 
 type SingleItemRepeat struct {
-	RPC    string   `json:"rpc"`
-	Field  string   `json:"field"`
-	Most   int      `json:"most"`
-	Chains []string `json:"chains"`
+	RPC          string   `json:"rpc"`
+	Field        string   `json:"field"`
+	Most         int      `json:"most"`
+	Chains       []string `json:"chains"`
+	SameResource bool     `json:"same_resource,omitempty"`
+	Resource     string   `json:"resource,omitempty"`
 }
 
 func secondItems(body map[string]any, fields []*catalog.Field) []string {
@@ -115,9 +117,11 @@ func wholeReference(s string) bool {
 
 func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItemRepeat {
 	type tally struct {
-		most    int
-		unknown bool
-		chains  map[string]bool
+		most     int
+		unknown  bool
+		distinct bool
+		resource string
+		chains   map[string]bool
 	}
 	seen := map[string]*tally{}
 	keys := []string{}
@@ -134,7 +138,7 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 				continue
 			}
 			rpc := strings.TrimPrefix(m.Procedure(), "/")
-			countRepeats(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, n int, unknown bool) {
+			countRepeats(s.Body, catalog.DescribeMessage(m.Input()).Fields, "", func(path string, list []any, unknown bool) {
 				k := rpc + "\x00" + path
 				t := seen[k]
 				if t == nil {
@@ -143,15 +147,25 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 					keys = append(keys, k)
 				}
 				t.unknown = t.unknown || unknown
-				t.most = max(t.most, n)
+				t.most = max(t.most, len(list))
 				t.chains[c.Name] = true
+				if len(list) < 2 {
+					return
+				}
+				if shared, ok := sharedResource(c, list); ok {
+					if t.resource == "" {
+						t.resource = shared
+					}
+					return
+				}
+				t.distinct = true
 			})
 		}
 	}
 	out := []SingleItemRepeat{}
 	for _, k := range keys {
 		t := seen[k]
-		if t.unknown || t.most >= 2 {
+		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "")) {
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
@@ -160,7 +174,11 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 			names = append(names, name)
 		}
 		sort.Strings(names)
-		out = append(out, SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names})
+		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
+		if t.most >= 2 {
+			r.SameResource, r.Resource = true, t.resource
+		}
+		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].RPC != out[j].RPC {
@@ -171,7 +189,59 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 	return out
 }
 
-func countRepeats(v any, fields []*catalog.Field, path string, record func(path string, n int, unknown bool)) {
+func sharedResource(c *chain.Chain, list []any) (string, bool) {
+	first := ""
+	var want map[string]string
+	for _, item := range list {
+		got := map[string]string{}
+		resourceLeaves(c, item, "", "", got)
+		if len(got) == 0 {
+			return "", false
+		}
+		if want == nil {
+			want = got
+			for _, k := range sortedKeys(got) {
+				first = got[k]
+				break
+			}
+			continue
+		}
+		if len(got) != len(want) {
+			return "", false
+		}
+		for k, v := range want {
+			if got[k] != v {
+				return "", false
+			}
+		}
+	}
+	return first, true
+}
+
+func resourceLeaves(c *chain.Chain, v any, path, name string, out map[string]string) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, x := range t {
+			resourceLeaves(c, x, join(path, k), k, out)
+		}
+	case []any:
+		for i, x := range t {
+			resourceLeaves(c, x, join(path, strconv.Itoa(i)), name, out)
+		}
+	case string:
+		if src, ok := refSource(t); ok {
+			if _, isStep := c.Step(src); isStep || strings.HasPrefix(t, "${vars.") {
+				out[path] = t
+			}
+			return
+		}
+		if t != "" && !chain.HasReference(t) && idLike(name) {
+			out[path] = t
+		}
+	}
+}
+
+func countRepeats(v any, fields []*catalog.Field, path string, record func(path string, list []any, unknown bool)) {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return
@@ -188,10 +258,10 @@ func countRepeats(v any, fields []*catalog.Field, path string, record func(path 
 		}
 		list, isList := m[key].([]any)
 		if !isList {
-			record(at, 0, m[key] != nil)
+			record(at, nil, m[key] != nil)
 			continue
 		}
-		record(at, len(list), false)
+		record(at, list, false)
 		for _, item := range list {
 			countRepeats(item, f.Fields, at, record)
 		}
@@ -202,10 +272,15 @@ func (p *Plan) noteSecondItems(id string, grown []string) {
 	if len(grown) == 0 {
 		return
 	}
-	p.note("step %s: %s %s repeated, so the plan sends two items, the second with its numbers raised by one "+
+	noun := p.noun
+	if noun == "" {
+		noun = "the plan"
+	}
+	p.note("step %s: %s %s repeated, so %s sends two items, the second with its numbers raised by one "+
 		"and its free-text strings prefixed with 2- (ids, keys, enums, zeros and ${...} references are copied "+
-		"as they are). One item leaves per-item logic untested: a total summed over the items, a check on the second "+
-		"one. Give the second item its own values, or its own resource through an aliased producer step if the "+
-		"rpc wants distinct ones; 'shrt contract status -gaps' names repeated fields no chain sends with two",
-		id, strings.Join(grown, ", "), pluralVerb(len(grown), "is", "are"))
+		"as they are, except a reference to a step that creates a resource, which reads a second such step instead). "+
+		"One item leaves per-item logic untested: a total summed over the items, a check on the second "+
+		"one. Give the second item its own values, and assert what depends on both; 'shrt contract status -gaps' "+
+		"names repeated fields no chain sends with two, or whose items all point at the same resource",
+		id, strings.Join(grown, ", "), pluralVerb(len(grown), "is", "are"), noun)
 }

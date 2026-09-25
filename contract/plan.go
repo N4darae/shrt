@@ -20,9 +20,12 @@ type Plan struct {
 	Chain   *chain.Chain `json:"-" yaml:"-"`
 	Notes   []string     `json:"notes,omitempty" yaml:"notes,omitempty"`
 
-	stepOf  map[string]string
-	cat     *catalog.Catalog
-	pending []pendingChecks
+	stepOf   map[string]string
+	cat      *catalog.Catalog
+	pending  []pendingChecks
+	grown    []string
+	reserved map[string]bool
+	noun     string
 }
 
 type pendingChecks struct {
@@ -78,6 +81,10 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		Name:        name,
 		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
+	if !anyContract(order, lib) {
+		c.Description = fmt.Sprintf("reach %s; no contract covers %s yet, so this is a bare scaffold with no "+
+			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
+	}
 	p.Chain = c
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
@@ -91,7 +98,9 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		}
 		id := uniqueStepID(c, base)
 		p.stepOf[node] = id
-		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
+		step := p.buildStep(id, alias, method, lib)
+		p.splitSharedProducers(step, p.grown)
+		c.Steps = append(c.Steps, step)
 	}
 	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
@@ -263,7 +272,7 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 }
 
 func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*yaml.Node, []string, error) {
-	p, err := scaffoldPlan("", refs, ids, lib, cat)
+	p, err := scaffoldPlan("", "the step", refs, ids, lib, cat)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -304,7 +313,8 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if !ok {
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
-		p.noteSecondItems(id, secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields))
+		p.grown = secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields)
+		p.noteSecondItems(id, p.grown)
 		return step
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
@@ -356,7 +366,8 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
-	p.noteSecondItems(id, secondItems(step.Body, schema.Fields))
+	p.grown = secondItems(step.Body, schema.Fields)
+	p.noteSecondItems(id, p.grown)
 	if len(step.Expect) == 0 {
 		p.note("step %s: %s has no scalar or repeated response field, so nothing could be scaffolded to "+
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+
@@ -946,4 +957,14 @@ func stripIndexes(path string) string {
 		}
 	}
 	return strings.Join(kept, ".")
+}
+
+func anyContract(order []string, lib *Library) bool {
+	for _, node := range order {
+		rpc, _ := SplitNode(node)
+		if _, ok := lib.Get(rpc); ok {
+			return true
+		}
+	}
+	return false
 }

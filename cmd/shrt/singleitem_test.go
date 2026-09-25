@@ -56,3 +56,41 @@ steps:
 		t.Fatalf("a chain sends two lines, so there is no single-item gap:\n%s", out)
 	}
 }
+
+func TestContractStatusGapsNamesItemsThatAllPointAtOneResource(t *testing.T) {
+	srv := newFakeCLIBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/descriptor.binpb", string(catalogtest.ShopDescriptor()))
+	writeFile(t, ".shrt/chains/same.yaml", `apiVersion: shrt/v1
+name: same
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+          sku: s
+    - id: create_order
+      call: OrderService/CreateOrder
+      body:
+          lines:
+              - id_product: ${create_product.product.id_product}
+                qty: "2"
+              - id_product: ${create_product.product.id_product}
+                qty: "3"
+`)
+	var err error
+	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "same resource shop.orders.v1.OrderService/CreateOrder lines: every chain that sends two or more items points them all at ${create_product.product.id_product} (same)"
+	if !strings.Contains(out, want) {
+		t.Fatalf("want %q in:\n%s", want, out)
+	}
+	if !strings.Contains(out, "same resource a repeated message field") {
+		t.Fatalf("the legend must say what 'same resource' means:\n%s", out)
+	}
+	if strings.Contains(out, "no gaps") {
+		t.Fatalf("a same-resource field is a gap:\n%s", out)
+	}
+}
