@@ -146,7 +146,8 @@ refused twice, a `FINDING` (`-no-session-check` skips this). 3 is no verdict
 (the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
 nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
 
-`shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it).
+`shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it); it
+skips the contract checks while `.shrt/contracts` holds no overlay.
 Write `0` into `.shrt/quality-baseline` first; a gate failing on it names the current score, to
 write in as a reviewed edit. The first gate outside CI writes `.shrt/hollow-baseline` with today's
 count and says so; commit it. With `CI` set, a missing baseline fails the gate.
@@ -157,8 +158,10 @@ cd "$(git rev-parse --show-toplevel)"
 [ -f .shrt/docs/GRAMMAR.md ] || shrt init -agents=false -build=false
 shrt catalog build
 shrt doctor -strict
-shrt contract lint
-shrt contract quality -gate -baseline .shrt/quality-baseline
+if compgen -G '.shrt/contracts/*.y*ml' > /dev/null; then
+  shrt contract lint
+  shrt contract quality -gate -baseline .shrt/quality-baseline
+fi
 shrt chain lint -strict
 exec shrt gate
 ```
