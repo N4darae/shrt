@@ -2240,6 +2240,21 @@ leaf masked as a string operand is: an id- or timestamp-shaped value at an id-na
 differing only by the runs' fixture names. Another key, another count or another plain value still
 differs.
 
+## 107. A kept-red chain whose list came back in another order, readable only in `verify`
+
+**Symptom.** A kept-red chain pinned on status-filtered lists said `NEW FAILURE outside the pinned
+defect: list_orders_cancelled orders.0.id_order want=ord-0… got=ord-6…` and `held on pinned path
+orders.0.id_order`; that the list held the same items in another order was said only by `verify`,
+so a new defect showing through the pinned one read as noise.
+
+**Fix.** 2026-09-25: a new failure on an item of a list in the response names the kind of change:
+`(reordered: ord-a is at orders.2)` when the wanted id is at another position, `(item missing: no
+item of orders has id_order=ord-a)`, `(item added: orders holds 3 item(s))` for an `exists: false`
+on a position that is there, `(value changed: the item at orders.1 holds another status)`, and
+`(another item at orders.0, see orders.0.id_order)` for a field of an item whose id already
+differs. A pinned path that failed with another got carries the same label, and the NEW FAILURE
+summary under the step lines names the kinds per step (`list_orders (reordered)`).
+
 ---
 
 # Decisions, so they are not relitigated
