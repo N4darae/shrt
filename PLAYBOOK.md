@@ -1454,7 +1454,11 @@ hypothesis: a run saying `PINNED DEFECT GONE` while the chain still fails means 
 `-without <id,...>` writes the chain minus those steps and every step that reads one of them, by a
 reference or an export; `-without failed` names every step that failed in the run (`-run`, default
 latest), which leaves out the after-reads that fail with the defect too. It lists each step left out
-and why, and drops their `kept_red` pins. A step left in can still depend on what a left-out write
+and why, and drops their `kept_red` pins; its count (`the new chain holds 220 of the 229 steps`)
+is what the file holds, not steps known to pass. It writes the chain's `vars:` as the chain
+declares them and applies no `-var`. A `tag: kr1` in a slice written with `-kept-red -verify -var
+tag=kr1` is deliberate: a written slice declares a fresh var with the value its verified run sent
+(5 in the slice section below). A step left in can still depend on what a left-out write
 did to shared state, so run the rest before proposing it; `-write <chain>.yaml` replaces the chain
 itself. Remove the kept-red slice and plan again once the defect is fixed.
 

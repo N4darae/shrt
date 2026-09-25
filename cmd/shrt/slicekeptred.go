@@ -192,7 +192,9 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	if fromRun != "" {
 		how = fmt.Sprintf(" (failed in run %s)", fromRun)
 	}
-	fmt.Printf("%s without %s%s: %d of %d steps kept\n\n", c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total)
+	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out; "+
+		"a count of what the file holds, not of steps known to pass: none of them has run in this shape yet\n\n",
+		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed))
 	idW := 0
 	for _, r := range res.Removed {
 		idW = max(idW, len(r.ID))

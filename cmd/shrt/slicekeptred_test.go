@@ -133,7 +133,7 @@ func TestSliceWithoutFailedWritesTheRestOfTheChainThatStillRuns(t *testing.T) {
 	if strings.Join(ids, ",") != "create,other" {
 		t.Fatalf("fetch failed and fetch_again reads it, so both go: %v", ids)
 	}
-	for _, want := range []string{"fetch", "fetch_again", "reads fetch"} {
+	for _, want := range []string{"fetch", "fetch_again", "reads fetch", "the new chain holds 2 of the 4 steps, the 2 below left out", "not of steps known to pass"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("want %q in:\n%s", want, out)
 		}

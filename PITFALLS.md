@@ -2287,6 +2287,18 @@ prefers the newest `shrt run` record, prints a note naming the replay it passed 
 `-run <id>` that uses it, and uses a replay only when no run record reached the step, saying
 `(a shrt verify replay)` on the verdict line (`source_replay_of` under `-json`).
 
+## 111. "220 of 229 steps kept" read as 220 steps known to pass
+
+**Symptom.** `slice -without failed` printed `orders without ... : 220 of 229 steps kept`, which
+testers read as a guarantee about the rest. The same report blamed `-without` for a `tag: kr1`
+default in a written slice.
+
+**Fix.** 2026-09-25: the line reads `the new chain holds 220 of the 229 steps, the 9 below left out;
+a count of what the file holds, not of steps known to pass`. The var default was not `-without`'s:
+it writes `vars:` as the chain declares them. `tag: kr1` came from `slice -kept-red -verify -var
+tag=kr1 -write`, which on purpose writes a fresh var with the value its verified run sent (commit
+eb654d7, PLAYBOOK slice step 5); that behaviour is kept.
+
 ---
 
 # Decisions, so they are not relitigated
