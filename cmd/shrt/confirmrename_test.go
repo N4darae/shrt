@@ -91,6 +91,16 @@ func TestConfirmRenameFromRefusesWhenTheNewChainHasASafeSpot(t *testing.T) {
 	}
 }
 
+func TestConfirmRenameFromNamesTheFileThatStillClaimsTheOldName(t *testing.T) {
+	renameThingFlow(t, nil)
+	writeFile(t, ".shrt/chains/junk.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-renamed.yaml")),
+		"name: cli-renamed\n", "name: cli-thing-flow\n", 1))
+	_, err := confirmRename(t, "-by", "bob@example.test")
+	if err == nil || !strings.Contains(err.Error(), "junk.yaml") || strings.Contains(err.Error(), "cli-thing-flow.yaml") {
+		t.Fatalf("the refusal names the file that still declares the old name, got %v", err)
+	}
+}
+
 func TestConfirmRenameFromRefusesWhileTheOldChainExists(t *testing.T) {
 	renameThingFlow(t, nil)
 	writeFile(t, ".shrt/chains/cli-thing-flow.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-renamed.yaml")),

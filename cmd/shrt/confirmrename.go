@@ -31,9 +31,14 @@ func renameSafeSpot(e *env, to, from, by string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := chain.Resolve(e.chainsDir(), from); err == nil {
-		return fmt.Errorf("chain %s still exists, so %s is a copy, not a rename: a safe spot follows a rename only once the old "+
-			"chain file is gone. Delete or rename %s.yaml first, or run %s, propose and approve it normally", from, to, from, to)
+	if old, err := chain.Resolve(e.chainsDir(), from); err == nil {
+		file := from + ".yaml"
+		if old.SourcePath != "" {
+			file = rel(e.cfg.Root, old.SourcePath)
+		}
+		return fmt.Errorf("chain %s still exists (%s declares name: %s), so %s is a copy, not a rename: a safe spot follows a rename "+
+			"only once no chain file claims the old name. Delete %s or change its name: first, or run %s, propose and approve it normally",
+			from, file, from, to, file, to)
 	}
 	spot, err := e.store.LoadSafeSpot(from)
 	if err != nil {
