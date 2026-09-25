@@ -203,7 +203,7 @@ func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain
 	}
 	out := []string{}
 	for _, ch := range rep.Changes {
-		out = append(out, ch.Step+" "+ch.Path)
+		out = append(out, ch.Step+" "+ch.Path+": "+ch.Transition())
 	}
 	return out
 }
