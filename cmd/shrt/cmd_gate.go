@@ -522,7 +522,7 @@ type gateChain struct {
 func runGate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	wait := fs.Duration("retry-wait", 20*time.Second, "wait before re-running a run or verify that exited 3")
-	verbose := fs.Bool("v", false, "under each failing chain, every changed step and path")
+	verbose := fs.Bool("v", false, "under each failing chain, every changed step and path; at the end, each distinct change once")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   run each chain, verify each safe spot (a fresh -var tag each), group what failed", gateExitCodes)
@@ -648,6 +648,9 @@ func runGate(ctx context.Context, args []string) error {
 		fmt.Printf("note: a token of each of auth profiles %s was refused early once: a restart since they were cached, or sessions that end early; repeated on the re-login tokens of later runs it becomes a FINDING\n", strings.Join(once, ", "))
 	}
 	printGateGroups(chains)
+	if *verbose {
+		printDistinct(chains)
+	}
 	for _, f := range findings {
 		fmt.Println(f)
 	}
@@ -1220,6 +1223,48 @@ func headlineGate(chains []*gateChain) {
 			}
 			reported[rootOf(*head)] = true
 		}
+	}
+}
+
+func printDistinct(chains []*gateChain) {
+	type row struct {
+		example       string
+		exact         bool
+		steps, chains map[string]bool
+	}
+	rows, order := map[string]*row{}, []string{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if it.Suspect != "" && it.Own == "" {
+				continue
+			}
+			path, kind := gateIndex.ReplaceAllString(it.Path, "[]$1"), "value"
+			switch it.Kind {
+			case "refused":
+				path, kind = chain.EnvelopePath(), "refused"
+			case "membership":
+				path, _, _ = strings.Cut(path, "[]")
+				kind = "membership"
+			}
+			key := shortRPC(it.Call) + " " + path + " " + kind
+			if rows[key] == nil {
+				rows[key] = &row{steps: map[string]bool{}, chains: map[string]bool{}}
+				order = append(order, key)
+			}
+			if rows[key].example == "" || kind == "refused" && it.Path == path && !rows[key].exact {
+				rows[key].example, rows[key].exact = g.name+" "+it.Step+" "+it.verdict(), it.Path == path
+			}
+			rows[key].steps[g.name+" "+it.Step] = true
+			rows[key].chains[g.name] = true
+		}
+	}
+	if len(order) == 0 {
+		return
+	}
+	fmt.Println("distinct changes (suspect rpc, path, kind):")
+	for _, key := range order {
+		r := rows[key]
+		fmt.Printf("  %s: %d step(s) in %d chain(s); e.g. %s\n", key, len(r.steps), len(r.chains), r.example)
 	}
 }
 

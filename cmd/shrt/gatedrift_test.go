@@ -18,10 +18,13 @@ func TestTheGateHeadlinesAChainByItsFirstChangeNotReportedAbove(t *testing.T) {
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price("create"), after, refused}}}},
 		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{price("create"), after}}}},
 	})
-	out, code := runGateOut(t)
+	out, code := runGateOut(t, "-v")
 	for _, want := range []string{
 		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249\n",
 		"FAIL       cli-unique      kept red, drifted: pinned defect unchanged; setup drift from Create price (reported above)\n",
+		"distinct changes (suspect rpc, path, kind):\n" +
+			"  ThingService/Create thing.price value: 2 step(s) in 2 chain(s); e.g. cli-thing-flow create thing.price want=250 got=249\n" +
+			"  ThingService/Fetch error.code refused: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other error.code want=OK got=DENIED\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)

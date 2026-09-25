@@ -120,14 +120,17 @@ each with a fresh `-var tag` when the chain reads one, retries an exit 3 once af
 (20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
 regression, order changed, different input or chain change; `intermittent` when a `FINDING` says
-so; `not as pinned` for a kept-red chain that failed otherwise) or `NO VERDICT` with the first
-failing step and path (a list that shrank as its length), and under a `FAIL` the request of the suspect (`-v` adds each changed path with the
-steps it changed at). Failures are then grouped, one line per suspect rpc. The read itself is the
-suspect when it fails with a server error, when its list holds another set of items while every
-write before it answered as before, when only the order of a list changed, when the write it
-observes returned the same field of the same record unchanged, or when the same change follows two
-different writes. A change first seen in an earlier step's answer for the same field of the same
-record belongs to that step, a write whose own answer changed included. Otherwise it is the write
+so; `not as pinned` for a kept-red chain that failed otherwise, `kept red, drifted` when every pin
+failed as pinned and the rest is drift reported above) or `NO VERDICT` with the first failing step
+and path not already explained by a suspect an earlier line reported (a list that shrank as its
+length), and under a `FAIL` the request of the suspect (`-v` adds each changed path with the steps
+it changed at, and ends with each distinct change once). Failures are then grouped, one line per
+suspect rpc. The read itself is the suspect when it fails with a server error, when it is refused
+or its list holds another set of items while no write before it was refused, when only the order
+of a list changed, when the write it observes returned the same field of the same record
+unchanged, or when the same change follows two different writes. A change belongs to an earlier
+step when it is that step's answer for the same field of the same record, or a number that
+recomputes from the values earlier steps changed (a total over lines). Otherwise it is the write
 the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
 entity), reads beneath it; steps left unevaluated behind a failed step fold into one line under it:
 
