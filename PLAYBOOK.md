@@ -1251,8 +1251,12 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    (`<rpc>@<alias>`) the slice keeps the step whose id carries `_<alias>` (the id `contract plan`
    gives it), preferring among those the one the body references; for an unaliased edge it keeps
    the referenced step, else the nearest. An edge declared under one alias of a contract binds only
-   a step carrying that alias. Steps are numbered from 1, as in `shrt run` and the run record, and
-   so are expectations in a verify difference.
+   a step carrying that alias. A `from` / `same_as` edge on a field the kept step fills with a
+   literal or a `${vars.*}` value needs no producer and keeps nothing. A step that expects a
+   refusal (a `transport.code` other than `ok`, an envelope code other than `envelope_ok`), or
+   that the `-run` record shows refused, created nothing and is never kept as a producer; when
+   no other step calls the rpc the edge is listed as unmet. Steps are numbered from 1, as in
+   `shrt run` and the run record, and so are expectations in a verify difference.
 2. **Read the two named sections before trusting the count.** `unmet prerequisites` means a
    contract edge names an rpc *no earlier step calls*, so the slice may not stand alone.
    `WARNING possible under-inclusion` means the dropped steps BEFORE the target include WRITES
