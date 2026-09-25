@@ -17,7 +17,7 @@ scaffold leaves it present-but-empty rather than absent.
 | key | type | req | meaning |
 |---|---|---|---|
 | `apiVersion` | string | + | `shrt/v1`. Defaults to it when omitted. |
-| `name` | string | + | Names the run directory and the safe spot. Defaults to the file name. |
+| `name` | string | + | Names the run directory and the safe spot. Defaults to the file name; under `paths.chains` it must equal the file name, or `run`, `verify` and `chain lint` refuse the chain and `doctor` warns, since the chain is found by its file and would be verified against another safe spot than its runs are stored under. A file run by path keeps its own `name:`. |
 | `description` | string |  | What state this chain reproduces, for the next reader. |
 | `vars` | map string → any |  | Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var. |
 | `volatile` | list of string |  | Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value. |

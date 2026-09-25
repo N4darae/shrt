@@ -31,7 +31,7 @@ func layout() (string, string) {
 
 var notes = map[string]string{
 	"Chain.apiVersion":  "`shrt/v1`. Defaults to it when omitted.",
-	"Chain.name":        "Names the run directory and the safe spot. Defaults to the file name.",
+	"Chain.name":        "Names the run directory and the safe spot. Defaults to the file name; under `paths.chains` it must equal the file name, or `run`, `verify` and `chain lint` refuse the chain and `doctor` warns, since the chain is found by its file and would be verified against another safe spot than its runs are stored under. A file run by path keeps its own `name:`.",
 	"Chain.description": "What state this chain reproduces, for the next reader.",
 	"Chain.vars":        "Referenced as `${vars.x}`. Override per run with `-var x=y`. A chain that reads `${vars.x}` without declaring it here must be given `-var x=...`: `shrt run`, `run -dry-run` and `verify` refuse it before sending anything, naming each missing var.",
 	"Chain.volatile":    "Response paths masked when `shrt verify` diffs against the safe spot and when `shrt diff` compares two runs. Expectations still see the real value.",

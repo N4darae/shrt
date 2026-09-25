@@ -97,6 +97,9 @@ func runVerify(ctx context.Context, args []string) error {
 		return err
 	}
 	name := rest[0]
+	if _, err := chain.Resolve(e.chainsDir(), name); errors.As(err, new(*chain.NameMismatchError)) {
+		return err
+	}
 	if err := e.knownChain(name); err != nil {
 		return err
 	}

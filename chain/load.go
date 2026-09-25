@@ -55,6 +55,9 @@ func LoadDirPartial(dir string) ([]*Chain, []error, error) {
 	broken := []error{}
 	for _, n := range names {
 		c, err := LoadFile(filepath.Join(dir, n))
+		if err == nil {
+			err = NameMismatch(c)
+		}
 		if err != nil {
 			broken = append(broken, err)
 			continue
@@ -71,10 +74,50 @@ func Resolve(dir, ref string) (*Chain, error) {
 	for _, ext := range []string{".yaml", ".yml"} {
 		p := filepath.Join(dir, ref+ext)
 		if _, err := os.Stat(p); err == nil {
-			return LoadFile(p)
+			c, err := LoadFile(p)
+			if err != nil {
+				return nil, err
+			}
+			if err := NameMismatch(c); err != nil {
+				return nil, err
+			}
+			return c, nil
+		}
+	}
+	for _, n := range Names(dir) {
+		for _, ext := range []string{".yaml", ".yml"} {
+			p := filepath.Join(dir, n+ext)
+			if c, err := LoadFile(p); err == nil && c.Name == ref {
+				return nil, NameMismatch(c)
+			}
 		}
 	}
 	return nil, fmt.Errorf("chain %q not found in %s%s", ref, dir, DidYouMean(ref, Names(dir)))
+}
+
+func FileStem(path string) string {
+	return strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+}
+
+type NameMismatchError struct {
+	Path, Name, Stem string
+}
+
+func (e *NameMismatchError) Error() string {
+	return fmt.Sprintf("%s declares name: %s, but a chain under paths.chains is found by its file name %s: its runs would be "+
+		"stored as %s's while shrt verify %s compared them with %s's safe spot, so nothing is run or verified until the two agree: "+
+		"rename the file to %s.yaml, or set name: %s (or drop name:)", e.Path, e.Name, e.Stem, e.Name, e.Stem, e.Stem, e.Name, e.Stem)
+}
+
+func NameMismatch(c *Chain) error {
+	if c == nil || c.SourcePath == "" {
+		return nil
+	}
+	stem := FileStem(c.SourcePath)
+	if c.Name == stem {
+		return nil
+	}
+	return &NameMismatchError{Path: c.SourcePath, Name: c.Name, Stem: stem}
 }
 
 func Names(dir string) []string {
