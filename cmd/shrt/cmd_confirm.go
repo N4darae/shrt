@@ -30,6 +30,7 @@ func init() {
 const confirmUsage = "usage: shrt confirm <chain> -note \"what you checked\" [-run <id>] [-supersede]   propose, and print the summary to show the user\n" +
 	"       shrt confirm <chain> -approve -by <user email>                                only after the user said yes\n" +
 	"       shrt confirm <chain> -reject\n" +
+	"       shrt confirm <new> -rename-from <old> -by <user email>                        carry a safe spot across a pure chain rename\n" +
 	"       shrt confirm -pending                                                         list proposals awaiting a decision"
 
 func runConfirm(ctx context.Context, args []string) error {
@@ -41,8 +42,9 @@ func runConfirm(ctx context.Context, args []string) error {
 	approve := fs.Bool("approve", false, "approve the pending proposal and write the safe spot; run it only after the user has said yes")
 	reject := fs.Bool("reject", false, "discard the pending proposal")
 	pending := fs.Bool("pending", false, "list proposals awaiting a decision")
+	renameFrom := fs.String("rename-from", "", "carry the safe spot of `<old>` chain, renamed to this one, with its approval: only when the chain is identical apart from its name; needs -by")
 	setUsage(fs, confirmUsage, "\nexit codes:\n  0  proposal written, approved, rejected or listed\n"+
-		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, or nothing pending\n")
+		"  1  refused: no passing run, a chain with kept_red (never confirmed), no -note, no -by, nothing pending, or a -rename-from that is not a pure rename\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -60,6 +62,12 @@ func runConfirm(ctx context.Context, args []string) error {
 	name := rest[0]
 	if err := e.knownChain(name); err != nil {
 		return err
+	}
+	if *renameFrom != "" {
+		if *approve || *reject || *supersede || *note != "" {
+			return errors.New("-rename-from takes only -by: it carries an approved safe spot across a rename and proposes nothing")
+		}
+		return renameSafeSpot(e, name, *renameFrom, *by)
 	}
 	switch {
 	case *approve && *reject:

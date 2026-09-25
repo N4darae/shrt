@@ -877,6 +877,21 @@ on the proposal, and the old one is archived on approval as
 `.shrt/safespots/archive/<chain>/<run id>.json`, named by the run it held (the id the new safe
 spot's `supersedes` names; a run archived twice gets a `-2` suffix).
 
+A safe spot belongs to its chain's name. Renaming a chain file (and its `name:`) leaves the safe
+spot behind, and `doctor` warns that `chain "<new>" has the same step ids and calls`. When the
+rename is all that changed, carry the approved safe spot across instead of asking for a new
+approval: `shrt confirm <new> -rename-from <old> -by <email>`, with the email of the user who
+agreed to the rename (the same rule as `-approve`). It refuses unless `<old>` has a safe spot and
+no chain file any more, `<new>` has no safe spot, nothing is pending for either, and `<new>` is
+identical to what the safe spot recorded: step ids, order and calls, expectations, references,
+literal body values and headers, auth profiles, volatile and unordered paths; when the last commit
+still holds `<old>.yaml`, the whole file must match apart from `name:` (vars defaults, redact,
+descriptions). Any other difference is refused with the first one named, and the chain is run,
+proposed and approved normally. On success it moves `<old>.json` to `<new>.json` keeping
+`confirmed_by`, `confirmed_at` and `note`, records the rename under `renamed` and re-seals the
+digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` lists them as an
+orphan `renamed to <new>`, and the command prints the `rm -rf` that removes them.
+
 ## 9. Refactor and test against a safe spot
 
 This is what the whole loop is for, and it is the section most likely to be skipped, because a

@@ -32,8 +32,17 @@ type SafeSpot struct {
 	ProposedAt  *time.Time           `json:"proposed_at,omitempty"`
 	Supersedes  string               `json:"supersedes,omitempty"`
 	Volatile    []string             `json:"volatile,omitempty"`
+	Renamed     []Rename             `json:"renamed,omitempty"`
 	Digest      string               `json:"digest"`
 	Steps       []*runner.StepRecord `json:"steps"`
+}
+
+type Rename struct {
+	From   string    `json:"from"`
+	To     string    `json:"to"`
+	At     time.Time `json:"at"`
+	By     string    `json:"by"`
+	Digest string    `json:"digest_before"`
 }
 
 type Confirmation struct {
@@ -110,6 +119,45 @@ func (s *Store) LoadSafeSpot(chainName string) (*SafeSpot, error) {
 	return spot, nil
 }
 
+func (s *Store) RenameSafeSpot(from, to, by string, now time.Time) (*SafeSpot, string, error) {
+	by = strings.TrimSpace(by)
+	if by == "" {
+		return nil, "", ErrNotConfirmed
+	}
+	spot, err := s.LoadSafeSpot(from)
+	if err != nil {
+		return nil, "", err
+	}
+	if kind := spot.DigestKind(); kind != DigestCurrent {
+		return nil, "", fmt.Errorf("safe spot %s does not match its digest (%s), so its approval cannot be carried to %s: "+
+			"run %s, propose and approve it normally", s.SafeSpotPath(from), orDigestMismatch(kind), to, to)
+	}
+	if s.HasSafeSpot(to) {
+		return nil, "", fmt.Errorf("%w at %s: a rename cannot replace a safe spot; supersede it normally", ErrExists, s.SafeSpotPath(to))
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	spot.Renamed = append(spot.Renamed, Rename{From: from, To: to, At: now.UTC(), By: by, Digest: spot.Digest})
+	spot.Chain = to
+	spot.Digest = spot.ComputeDigest()
+	path := s.SafeSpotPath(to)
+	if err := writeJSON(path, spot); err != nil {
+		return nil, "", err
+	}
+	if err := os.Remove(s.SafeSpotPath(from)); err != nil {
+		return nil, "", err
+	}
+	return spot, path, nil
+}
+
+func orDigestMismatch(kind string) string {
+	if kind == "" {
+		return "hand-edited, or written by another tool"
+	}
+	return "an older digest format, " + kind
+}
+
 func (s *Store) HasSafeSpot(chainName string) bool {
 	_, err := os.Stat(s.SafeSpotPath(chainName))
 	return err == nil
@@ -161,6 +209,18 @@ func (spot *SafeSpot) DigestKind() string {
 }
 
 func (spot *SafeSpot) ComputeDigest() string {
+	if len(spot.Renamed) > 0 {
+		return hashJSON(struct {
+			Content     string
+			ConfirmedBy string
+			ConfirmedAt time.Time
+			Note        string
+			ProposedBy  string
+			ProposedAt  *time.Time
+			Supersedes  string
+			Renamed     []Rename
+		}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes, spot.Renamed})
+	}
 	return hashJSON(struct {
 		Content     string
 		ConfirmedBy string
