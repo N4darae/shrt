@@ -34,6 +34,9 @@ const doctorHelpTail = "\nchecks:\n" +
 	"               from another base_url, or for another login\n" +
 	"  auth         the auth profiles and every ${env.*} they read\n" +
 	"  conventions  the envelope conventions against the response messages\n" +
+	"  contracts    the contract overlays under paths.contracts load, and none sit in a subdirectory\n" +
+	"               shrt does not read\n" +
+	"  safespots    every safe spot under paths.safespots has its chain under paths.chains\n" +
 	"  upgrade      records from an older build or another target: unsealed runs, safe spots with no\n" +
 	"               auth_principal, runs, safe spots and cached tokens from another base_url\n" +
 	"\nexit codes:\n" +
