@@ -1259,6 +1259,15 @@ ${nowunix}`, and a `created_*`/`updated_*` stamp within 300s of `${nowunix}`. `c
 timestamp field of a step expecting success that no expectation reads (`unasserted-timestamp`, a
 hint, never promoted by `-strict`).
 
+**Fix, 2026-09-25 (later).** The hint suggested the expiry template, `within: {of:
+"${nowunix+3600}", by: 5}`, for `product.created_at`, and `plan` asserted a `GetProduct` read's
+`product.created_at` within 300s of now, "stamped by this call", which a read never is. Now the hint
+names a rule per field: `within: {of: "${nowunix}", by: 300}` for a stamp the call makes, `equals:
+${create_product.product.created_at}` for a creation stamp read back from a step that created it,
+and the lifetime template only for an expiry; `plan` scaffolds the same `equals` on a read. A step
+expecting a refusal (`not_equal` the ok verdict included) or asserting the message absent (`product
+exists: false`) gets no hint.
+
 ## 44. A list "sorted by sku" that a backend sorting by name also passes
 
 **Symptom.** ListProducts started sorting by name. A chain asserting `products.0.sku` and

@@ -288,8 +288,10 @@ A step whose only expectation is `error.code == OK` asserts that the server did 
 the call *did*. `shrt contract plan` does not invent that assertion: it cannot know what the call
 should have produced, so each planned step asserts the verdict, plus two checks it can derive: a
 range on each timestamp-like response field (an expiry within 5s of `${nowunix+<lifetime>}` when
-the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp within
-300s of `${nowunix}`), and, for a list rpc it is asked to plan, the order of the list. For the list
+the contract states the lifetime, else `gte: ${nowunix}`; a `created_*`/`updated_*` stamp the call
+makes within 300s of `${nowunix}`; a creation stamp a later step reads back, such as `GetProduct`'s
+`product.created_at`, equal to the one the creating step received,
+`equals: ${create_product.product.created_at}`, since the read did not stamp it), and, for a list rpc it is asked to plan, the order of the list. For the list
 it creates THREE items whose candidate sort keys disagree: the prefix field the list filters on
 (`sku`: base, base-b, base-a), every other string or number field of the create (`name` B, A, C;
 `price_minor` 750, 250, 500), and creation order, each put the three in a different order, so an

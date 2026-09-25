@@ -388,7 +388,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+
 			"'chain lint -strict' rejects it", id, m.FullName)
 	}
-	step.Expect = append(step.Expect, p.timestampExpectations(id, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))...)
+	step.Expect = append(step.Expect, p.timestampExpectations(step, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))...)
 	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema, fields: fields})
 	if len(c.Exports) > 0 {
 		step.Export = map[string]string{}

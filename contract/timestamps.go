@@ -75,7 +75,18 @@ func contractNote(c *RPCContract, path string) string {
 	return strings.Join(parts, " ")
 }
 
-func (p *Plan) timestampExpectations(id string, m *catalog.Method, c *RPCContract, domain string) []chain.Expectation {
+func (p *Plan) earlierMethods() map[string]*catalog.Method {
+	out := map[string]*catalog.Method{}
+	for _, s := range p.Chain.Steps {
+		if m, err := p.cat.Lookup(s.Call); err == nil {
+			out[s.ID] = m
+		}
+	}
+	return out
+}
+
+func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPCContract, domain string) []chain.Expectation {
+	id := step.ID
 	out := []chain.Expectation{}
 	for _, path := range chain.TimestampFields(m) {
 		last := path
@@ -108,6 +119,14 @@ func (p *Plan) timestampExpectations(id string, m *catalog.Method, c *RPCContrac
 			out = append(out, chain.Expectation{Path: path, Gte: "${nowunix}"})
 			p.note("step %s: %s is asserted gte ${nowunix}, not yet expired; the contract names no lifetime (\"valid for one hour\" in "+
 				"its summary or in terminal:/exports: for %s), so a tighter within: range could not be scaffolded", id, path, last)
+		case chain.IsCreationStampName(last) && chain.StampSource(step, path, p.earlierMethods()) != "":
+			src := chain.StampSource(step, path, p.earlierMethods())
+			out = append(out, chain.Expectation{Path: path, Equals: "${" + src + "." + path + "}"})
+			p.note("step %s: %s is asserted equal to the %s step %s received: this call did not stamp it, it returns the stored "+
+				"stamp, so a clock window would pass a stamp rewritten on every read", id, path, path, src)
+		case isStampName(last) && chain.IsReadOnlyCall(m.FullName):
+			p.note("step %s: %s was not stamped by this read and no earlier step it reads returned it, so no expectation was "+
+				"scaffolded; assert it equals the stamp of the step that set it", id, path)
 		case isStampName(last):
 			out = append(out, chain.Expectation{Path: path, Within: &chain.Within{Of: "${nowunix}", By: 300}})
 			p.note("step %s: %s is asserted within 300s of ${nowunix}: stamped by this call, so it is now, as far as the "+
