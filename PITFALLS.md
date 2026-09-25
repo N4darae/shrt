@@ -1688,6 +1688,82 @@ its last line, the one that exits 3 when a chain could not be verified.
 `.shrt/ci-gate.sh` (executable, meant to be committed); a re-run keeps an edited copy and
 `init -force` rewrites it. CI runs `bash .shrt/ci-gate.sh`.
 
+## 72. A kept-red slice that relaxed the other line of the same defect
+
+**Symptom.** `chain slice -step get_product_2_after_cancel -kept-red -keep get_product_after_cancel`
+wrote a slice pinned on the second product's stock only. The first product's read-back, which
+failed with the same defect, had its failing expectation dropped ("relaxed"), so the slice stayed
+green there once pinned, and the author restored the expectation and its pin by hand.
+
+**Cause.** A kept step that failed in the run was relaxed so the slice could reach the target, as in
+any slice. `-kept-red` pinned only `-step`, and there was no way to name more steps of one defect.
+
+**Fix.** 2026-09-25: under `-kept-red` a kept step that failed in the run is pinned, not relaxed, and
+`-kept-red=<id,...>` (or the flag repeated) keeps and pins more steps. The printed kept_red line
+counts only the pins the slice carried from the source chain; the new pins have their own line.
+
+## 73. `chain which -code 1102` listed the steps asserting 1301
+
+**Symptom.** GetCustomer refuses an unknown customer with 1102 and CreateOrder with 1301, both
+`reason: CustomerNotFound`. `chain which -code 1102` listed the CreateOrder steps too, and could
+pick one of them as the step to reproduce.
+
+**Cause.** The reason seen with 1102 was taken as an alias of the code, and a step matched when it
+asserted any alias, even a step that also asserted another app_code.
+
+**Fix.** 2026-09-25: a numeric `-code` matches on the code; a reason alias matches only a step that
+asserts no numeric code, and such a match says `matched by reason ... only`. The run-record fallback
+skips a reason whose sibling code field holds another code.
+
+## 74. `chain which` told a missing-token probe to keep every write
+
+**Symptom.** For `cancel_order_confirmed_without_token` (`skip_auth: true`, asserting
+`transport.code equals unauthenticated`) the reproduce line was `chain slice ... -keep writes`,
+which re-sends every earlier write of the chain for a call the backend refuses before it looks at
+any state.
+
+**Cause.** The reproduce command chose by the rpc's name alone: CancelOrder is a write, so it got
+`-keep writes` like a real cancel.
+
+**Fix.** 2026-09-25: a step sent with `skip_auth` or `auth: invalid` that expects a transport
+refusal, or any step expecting `unauthenticated`/`permission_denied` (401/403) at the transport, is
+an auth probe: `chain which` marks it `auth probe` (`kind: auth_probe` in JSON) and reproduces it
+with a plain closure slice.
+
+## 75. A slice that dropped the cancel whose missing restock it was meant to show
+
+**Symptom.** `chain slice -step get_product_2_after_cancel` of a chain that confirmed and cancelled
+an order kept only the product, its AddStock and the read. Without the confirm and the cancel the
+stock was never taken, the read passed, and `-verify` said NOT REPRODUCED; slicing a CreateOrder
+that failed on stock was INCONCLUSIVE because of the AddStock before it. The author had to find the
+writes with `-keep` by hand.
+
+**Cause.** The closure followed references from the kept steps back to their producers only. A
+cancel or a confirm is not referenced by the read: it changes the state the read sees, which is a
+dependency no reference records.
+
+**Fix.** 2026-09-25: the closure also keeps every earlier write that acts, directly or through what
+it references (not a `steps.X.request` value), on an entity the target or a kept read sends, and
+names the entity and the reader in its reason. Under `-mode pin` it keeps none of them for an entity
+pinned from the run, whose state that run left. With a run record, a write whose recorded answer
+changes only fields the reader's messages and contract never mention is left out, as `-verify` would
+judge it.
+
+## 76. Reads left `unevaluated` behind a failed step, with no way to judge them
+
+**Symptom.** Under F10 `get_product_2_after_confirm_order` failed, and
+`get_product_2_after_confirm_order_as_clerk`, which compares with its value, was reported
+`unevaluated` in every run. `chain slice -verify` of it said NOT REPRODUCED and blamed dropped
+writes, suggesting `-keep writes`; `chain which` listed the failure with no hint.
+
+**Cause.** A held-back expectation has no verdict in the source run. The slice relaxed the failed
+step, evaluated the expectation, and the comparison read "unevaluated vs evaluated" as a difference.
+
+**Fix.** 2026-09-25: `-verify` sets such expectations aside when the slice evaluated them; if nothing
+else differs the verdict is INCONCLUSIVE (exit 3, `unevaluated_behind` in JSON), naming the upstream
+step and what the evaluation gave, with no `-keep` advice. `chain which` prints, under such a
+failure, the step that blocked it and the `chain slice ... -verify` that evaluates it on its own.
+
 ---
 
 # Decisions, so they are not relitigated

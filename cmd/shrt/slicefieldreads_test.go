@@ -22,8 +22,8 @@ func TestADroppedWriteTheContractsSayTheTargetNeverReadsDoesNotBlockTheReceipt(t
 	_ = runRun(context.Background(), []string{".shrt/scratch/probe-orders.yaml", "-quiet", "-var", "tag=src"})
 
 	out, err := sliceCreateOrder(t, "s1")
-	if exitCodeOf(err) != 3 || !strings.Contains(out, "INCONCLUSIVE") || !strings.Contains(out, "-keep add_stock") {
-		t.Fatalf("with no contract nothing says CreateOrder ignores the stock add_stock sets on its line's product, so the match stays inconclusive (exit %d):\n%s", exitCodeOf(err), out)
+	if exitCodeOf(err) != 0 || !strings.Contains(out, "verify reproduced") || !strings.Contains(out, "add_stock            StockService/AddStock           changes the state of what create_product created, which create_order_single reads") {
+		t.Fatalf("with no contract nothing says CreateOrder ignores the stock add_stock sets on its line's product, so the slice keeps it and reproduces (exit %d):\n%s", exitCodeOf(err), out)
 	}
 
 	writeFile(t, ".shrt/contracts/orders.yaml", `apiVersion: shrt/contract/v1

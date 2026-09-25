@@ -206,7 +206,7 @@ steps:
           kind: KIND_A
           idempotency_key: ${uuid}
           meta:
-              trace_id: ${create.id}
+              trace_id: thing-1
       expect:
           - path: error.code
             equals: OK

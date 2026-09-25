@@ -42,7 +42,7 @@ func TestWhichCodeCountsASiblingAssertionAndTheSafeSpotBaseline(t *testing.T) {
 		}
 	})
 	out := whichOut(t, "-code", "1603")
-	if !strings.Contains(out, "denied  asserts NotYours") || !strings.Contains(out, "asserts 1603 or NotYours") {
+	if !strings.Contains(out, "denied  asserts NotYours") || !strings.Contains(out, "asserts 1603, or only the reason NotYours") {
 		t.Errorf("the step asserts the sibling detail of the same refusal, seen with 1603 in the run, so which lists it:\n%s", out)
 	}
 	writeFile(t, ".shrt/chains/cli-which-baselined.yaml", strings.Replace(whichBaselinedChain,

@@ -74,6 +74,30 @@ type WhichStep struct {
 	SliceSteps int             `json:"slice_steps,omitempty"`
 	Observed   *WhichEvidence  `json:"observed,omitempty"`
 	Newest     *WhichNewest    `json:"newest_unreached,omitempty"`
+	ByReason   string          `json:"matched_by_reason,omitempty"`
+	Kind       string          `json:"kind,omitempty"`
+}
+
+const WhichKindAuthProbe = "auth_probe"
+
+func IsAuthProbe(s *Step) bool {
+	if s == nil {
+		return false
+	}
+	withoutToken := s.SkipAuth || s.Auth == InvalidTokenAuth
+	for _, e := range s.Expect {
+		if !ExpectsTransportRefusal(e) {
+			continue
+		}
+		if withoutToken {
+			return true
+		}
+		switch strings.ToLower(stringify(e.Equals)) {
+		case "unauthenticated", "permission_denied", "401", "403":
+			return true
+		}
+	}
+	return false
 }
 
 type WhichChain struct {
@@ -151,14 +175,21 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 				why = append(why, WhyRPC)
 			}
 			asserts := assertedCodes(s)
+			byReason := ""
 			if q.Code != "" {
-				if !assertsAnyCode(asserts, q.Codes()) {
+				matched, reason := q.matchAsserts(asserts)
+				if !matched {
 					continue
 				}
+				byReason = reason
 				why = append(why, WhyCode)
 			}
+			kind := ""
+			if IsAuthProbe(s) {
+				kind = WhichKindAuthProbe
+			}
 			matches = append(matches, WhichStep{
-				Step: s.ID, Index: i + 1, Call: s.Call, Why: why, Asserts: asserts,
+				Step: s.ID, Index: i + 1, Call: s.Call, Why: why, Asserts: asserts, ByReason: byReason, Kind: kind,
 			})
 		}
 		if len(matches) == 0 {
@@ -200,8 +231,10 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
 	run := ""
+	step, _ := c.Step(best.Step)
 	switch {
 	case best.Observed == nil:
+	case IsAuthProbe(step):
 	case writeStep(c, best.Step, opts.ReadsOnly):
 		cmd += " -keep " + SliceKeepWrites
 	default:
@@ -249,6 +282,74 @@ func observationsFor(chainName string, load func(string) []Observation) (map[str
 	return byStep, order
 }
 
+func (q WhichQuery) IsNumericCode() bool {
+	return isDigits(strings.TrimSpace(q.Code))
+}
+
+func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
+	if assertsCode(asserts, q.Code) {
+		return true, ""
+	}
+	if !q.IsNumericCode() {
+		return assertsAnyCode(asserts, q.Aliases), ""
+	}
+	for _, a := range asserts {
+		if isDigits(a.Value) {
+			return false, ""
+		}
+	}
+	for _, alias := range q.Aliases {
+		if !isDigits(alias) && assertsCode(asserts, alias) {
+			return true, alias
+		}
+	}
+	return false, ""
+}
+
+func (q WhichQuery) matchResponse(response any) (string, string, bool) {
+	if path, ok := findCode(response, q.Code, ""); ok {
+		return path, q.Code, true
+	}
+	for _, alias := range q.Aliases {
+		path, ok := findCode(response, alias, "")
+		if !ok {
+			continue
+		}
+		if q.IsNumericCode() && !isDigits(alias) && siblingCodeDiffers(response, path, q.Code) {
+			continue
+		}
+		return path, alias, true
+	}
+	return "", "", false
+}
+
+func siblingCodeDiffers(response any, path, code string) bool {
+	segs := SplitPath(path)
+	if len(segs) == 0 {
+		return false
+	}
+	parent := response
+	if len(segs) > 1 {
+		v, ok := Get(response, strings.Join(segs[:len(segs)-1], "."))
+		if !ok {
+			return false
+		}
+		parent = v
+	}
+	obj, ok := parent.(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, name := range CodeFields() {
+		if v, ok := obj[name]; ok {
+			if text := stringify(v); isDigits(text) && !strings.EqualFold(text, code) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func PrimaryAssertionFor(asserts []CodeAssertion, q WhichQuery) (CodeAssertion, bool) {
 	for _, code := range q.Codes() {
 		if a, ok := PrimaryAssertion(asserts, code); ok {
@@ -284,6 +385,8 @@ func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool
 func isDigits(s string) bool {
 	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
+
+func IsDigits(s string) bool { return isDigits(s) }
 
 func evidenceFor(list []Observation, order []string, paths []string, assert CodeAssertion, byCode bool) *WhichEvidence {
 	var last *Observation
@@ -514,7 +617,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 			if q.RPC != "" && !stepCalls(s, q.RPC, opts.RPCOf) {
 				continue
 			}
-			if assertsAnyCode(assertedCodes(s), q.Codes()) {
+			if matched, _ := q.matchAsserts(assertedCodes(s)); matched {
 				continue
 			}
 			var hit *WhichUnasserted
@@ -522,11 +625,8 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 				if !o.Reached {
 					continue
 				}
-				for _, code := range q.Codes() {
-					if path, ok := findCode(o.Response, code, ""); ok {
-						hit = &WhichUnasserted{Chain: c.Name, Step: s.ID, Index: i + 1, Call: s.Call, Run: o.Run, Status: o.Status, Path: path, Code: code}
-						break
-					}
+				if path, code, ok := q.matchResponse(o.Response); ok {
+					hit = &WhichUnasserted{Chain: c.Name, Step: s.ID, Index: i + 1, Call: s.Call, Run: o.Run, Status: o.Status, Path: path, Code: code}
 				}
 			}
 			if hit == nil {

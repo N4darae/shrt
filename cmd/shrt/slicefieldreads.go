@@ -222,3 +222,13 @@ func recordIndex(rec *runner.Record, id string) int {
 	}
 	return -1
 }
+
+func stateIrrelevantIn(e *env, lib *contract.Library, c *chain.Chain, rec *runner.Record) func(string, string) bool {
+	if e.cat == nil || lib == nil || rec == nil {
+		return nil
+	}
+	res := &chain.SliceResult{Chain: c}
+	return func(writer, reader string) bool {
+		return fieldReadsOf(e.cat, lib, res, rec, writer, []string{reader}).verdict == readsUnrelated
+	}
+}

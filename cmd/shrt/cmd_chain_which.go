@@ -90,8 +90,19 @@ func describeWhichQuery(q chain.WhichQuery) string {
 	}
 	if q.Code != "" {
 		asserts := "asserts " + q.Code
-		if len(q.Aliases) > 0 {
-			asserts += " or " + strings.Join(q.Aliases, " or ") + " (seen with it in a run record or a contract failure, so the same refusal)"
+		reasons, codes := []string{}, []string{}
+		for _, a := range q.Aliases {
+			if q.IsNumericCode() && !chain.IsDigits(a) {
+				reasons = append(reasons, a)
+			} else {
+				codes = append(codes, a)
+			}
+		}
+		if len(codes) > 0 {
+			asserts += " or " + strings.Join(codes, " or ") + " (seen with it in a run record or a contract failure, so the same refusal)"
+		}
+		if len(reasons) > 0 {
+			asserts += ", or only the reason " + strings.Join(reasons, " or ") + " (seen with it) on a step that asserts no code; a step asserting another code with that reason is not " + q.Code
 		}
 		parts = append(parts, asserts)
 	}
@@ -222,7 +233,7 @@ func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, strin
 	login := isLoginStep(e)
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts
-		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) {
+		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) && !chain.IsAuthProbe(s) {
 			o.Keep = []string{chain.SliceKeepWrites}
 		}
 		if run != "" {
@@ -274,17 +285,29 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 			}
 			line := fmt.Sprintf("  %s  %-*s  asserts %-*s  slice %d/%d",
 				mark, idW, m.Step, codeW, whichCodeCell(m, q), m.SliceSteps, h.Steps)
+			if m.Kind == chain.WhichKindAuthProbe {
+				line += "  auth probe"
+			}
 			if m.Observed == nil {
 				fmt.Println(line)
+				if m.ByReason != "" {
+					fmt.Printf("    %s\n", byReasonNote(m, q))
+				}
 				if m.Newest != nil {
 					fmt.Printf("    no local run reached it; newest run %s: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 				}
 				continue
 			}
 			fmt.Println(line)
+			if m.ByReason != "" {
+				fmt.Printf("    %s\n", byReasonNote(m, q))
+			}
 			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
 			for _, f := range m.Observed.Failures {
 				fmt.Printf("    failed: %s\n", chain.DescribeFailure(f))
+				if note, ok := blockedNote(h.Chain, m.Step, m.Observed.Run, f); ok {
+					fmt.Printf("      %s\n", note)
+				}
 			}
 			if m.Newest != nil {
 				fmt.Printf("    newest run %s did not reach it: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
@@ -303,7 +326,13 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
 	fmt.Println("A write step is reproduced in closure mode with -keep writes, which creates what it needs afresh and keeps every earlier\n" +
 		"write its state may depend on: -mode pin would re-send the write against the entities the recorded run created, which that\n" +
-		"run already changed (a confirm answers AlreadyConfirmed).")
+		"run already changed (a confirm answers AlreadyConfirmed). A step marked auth probe (skip_auth, auth: invalid, or a\n" +
+		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +
+		"writes do not change its verdict, and -keep writes would only add steps.")
+}
+
+func byReasonNote(m chain.WhichStep, q chain.WhichQuery) string {
+	return fmt.Sprintf("matched by reason %s only: the step asserts no code, so it may expect a code other than %s that has the same reason", m.ByReason, q.Code)
 }
 
 func whyNewestUnreached(n *chain.WhichNewest) string {

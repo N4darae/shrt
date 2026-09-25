@@ -1379,7 +1379,10 @@ shrt run orders-rest -var tag=<fresh>                          # green: propose 
 
 `-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
 [{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
-gone or anything else fails. With `-verify` it pins only a slice that reproduced the step's verdict:
+gone or anything else fails. A kept step that failed in the run too (the first line's read-back
+when the target is the second's) is pinned the same way, not relaxed. When one defect shows on
+steps the slice would not keep, name them: `-kept-red=get_product_after_cancel` (a list, or the flag
+repeated) keeps each and pins it next to `-step`; a named step that failed no expectation is refused. With `-verify` it pins only a slice that reproduced the step's verdict:
 a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
 the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
 line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a
@@ -1461,8 +1464,13 @@ shrt chain which -code 1218 -json
    selectors together intersect. An `app_code` and a `reason` (any two `code_fields`) that a local
    run record carried side by side in one object, or that a contract's `failures:` entry declares
    together (`code: 1603`, `reason: PermissionDenied`), name the same refusal, so `-code 1603`
-   also finds a step asserting only `reason: PermissionDenied`, and the other way round; the header
-   line lists the aliases it searched (`asserts 1603 or PermissionDenied (seen with it ...)`).
+   also finds a step asserting only `reason: PermissionDenied`, and the other way round. A numeric
+   `-code` matches on the code: a reason stands in for it only on a step that asserts no numeric
+   code at all, and that match says `matched by reason ... only`. Two codes that share a reason
+   (`1102` and `1301`, both `CustomerNotFound`) stay apart, so `-code 1102` never lists a step
+   asserting `1301`; `-code CustomerNotFound` asks for the reason and finds both. The header line
+   lists what it searched (`asserts 1102, or only the reason CustomerNotFound (seen with it) on a
+   step that asserts no code ...`).
 2. **`asserted` and `OBSERVED` are different claims.** `asserted` means the chain says that step
    answers that code. `OBSERVED` means a run record under `.shrt/runs/` reached that step, and the
    line cites the NEWEST such run, whatever it got — `README.md`'s "where the authority is" rule,

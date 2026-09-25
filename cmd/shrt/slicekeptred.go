@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -181,4 +182,109 @@ func containsStr(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+type keptRedFlag struct {
+	on    bool
+	steps []string
+}
+
+func (f *keptRedFlag) IsBoolFlag() bool { return true }
+
+func (f *keptRedFlag) String() string {
+	if f == nil || !f.on {
+		return ""
+	}
+	return strings.Join(f.steps, ",")
+}
+
+func (f *keptRedFlag) Set(s string) error {
+	switch strings.TrimSpace(s) {
+	case "true":
+		f.on = true
+		return nil
+	case "false":
+		f.on, f.steps = false, nil
+		return nil
+	}
+	f.on = true
+	for _, id := range strings.Split(s, ",") {
+		if id = strings.TrimSpace(id); id != "" && !containsStr(f.steps, id) {
+			f.steps = append(f.steps, id)
+		}
+	}
+	return nil
+}
+
+func (f *keptRedFlag) arg() string {
+	if !f.on {
+		return ""
+	}
+	if len(f.steps) == 0 {
+		return "-kept-red"
+	}
+	return "-kept-red=" + strings.Join(f.steps, ",")
+}
+
+func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([]chain.Pin, error) {
+	for _, id := range named {
+		if id == res.Target {
+			return nil, fmt.Errorf("-kept-red=%s names the target step, which -kept-red pins anyway: name only the other steps that show the defect", id)
+		}
+	}
+	relaxable := relaxableIn(rec)
+	out := []chain.Pin{}
+	for _, k := range res.Kept {
+		if k.ID == res.Target {
+			continue
+		}
+		if containsStr(named, k.ID) {
+			pins, err := failurePins(res.Chain, rec, k.ID)
+			if err != nil {
+				return nil, fmt.Errorf("-kept-red=%s: %w", k.ID, err)
+			}
+			out = append(out, pins...)
+			continue
+		}
+		if !relaxable(k.ID) {
+			continue
+		}
+		if pins, err := failurePins(res.Chain, rec, k.ID); err == nil {
+			out = append(out, pins...)
+		}
+	}
+	return out, nil
+}
+
+func pinList(c *chain.Chain, pins []chain.Pin) string {
+	order := map[string]int{}
+	for i, s := range c.Steps {
+		order[s.ID] = i
+	}
+	sorted := append([]chain.Pin{}, pins...)
+	sort.SliceStable(sorted, func(a, b int) bool { return order[sorted[a].Step] < order[sorted[b].Step] })
+	byStep := map[string][]string{}
+	steps := []string{}
+	for _, p := range sorted {
+		if _, seen := byStep[p.Step]; !seen {
+			steps = append(steps, p.Step)
+		}
+		byStep[p.Step] = append(byStep[p.Step], p.Path)
+	}
+	parts := []string{}
+	for _, s := range steps {
+		parts = append(parts, s+" at "+strings.Join(byStep[s], ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func pinSubject(pins []chain.Pin) string {
+	steps := map[string]bool{}
+	for _, p := range pins {
+		steps[p.Step] = true
+	}
+	if len(steps) > 1 {
+		return "they"
+	}
+	return "it"
 }
