@@ -123,7 +123,7 @@ func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.
 	if !strings.Contains(out, "verify reproduced") {
 		t.Fatalf("want reproduced:\n%s", out)
 	}
-	if !strings.Contains(out, "2 dropped write step(s) wrote nothing in run") ||
+	if !strings.Contains(out, "2 dropped write step(s) were refused in run") ||
 		!strings.Contains(out, "refused: error.code = INTERNAL") || !strings.Contains(out, "refused: transport invalid_argument") {
 		t.Fatalf("the output must say which dropped writes were refused and why:\n%s", out)
 	}

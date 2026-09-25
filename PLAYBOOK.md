@@ -502,8 +502,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
      writes; `-keep writes` keeps every earlier write.
    - `intermittent: reproduced k/N` (4): the backend is flaky there; keeping more steps will not
      help.
-   Until a verdict, a slice is a hypothesis, and says so. `-run latest` prefers the newest `shrt
-   run` record that reached the target over a verify replay.
+   Until a verdict, a slice is a hypothesis, and says so. `-run latest` is the newest run (a
+   `shrt run` over an equally far verify replay); it refuses (3) if that run left the target unevaluated.
 5. **`-mode pin -run <id>`** drops producers whose only contribution was a value and pins their
    values into `vars:`. It does not re-send writes the source run performed, so a match is
    INCONCLUSIVE; `-verify` refuses a kept write on the run's own entities unless `-resend-writes`.

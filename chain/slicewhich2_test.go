@@ -142,7 +142,7 @@ func TestSliceDoesNotCountADroppedWriteTheSourceRunRefused(t *testing.T) {
 	if len(res.RefusedWrites) != 2 || res.RefusedWrites[1].Reason != "refused: error.code = 1303" {
 		t.Fatalf("the refused writes must still be listed with why: %+v", res.RefusedWrites)
 	}
-	if !strings.Contains(res.Chain.Description, "refused in run r1 and wrote nothing") {
+	if !strings.Contains(res.Chain.Description, "refused in run r1 and act on no entity a kept step uses") {
 		t.Fatalf("the description must say they were refused:\n%s", res.Chain.Description)
 	}
 }

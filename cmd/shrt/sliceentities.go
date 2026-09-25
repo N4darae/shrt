@@ -20,7 +20,7 @@ func relaxableIn(rec *runner.Record) func(string) bool {
 		if sr.HTTPStatus == 0 && len(sr.Response) == 0 {
 			return false
 		}
-		if _, wroteNothing := refused(id); wroteNothing {
+		if _, wroteNothing := refused(id); wroteNothing && chain.IsReadOnlyCall(sr.Call) {
 			return false
 		}
 		failed := 0
@@ -356,10 +356,8 @@ func otherEntitiesNote(other []string) string {
 	if len(other) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses, as far as the source run and the contracts show (the ids "+
-		"they act on appear in no kept step's request or response in the source run, or they answered exactly as an earlier call of the "+
-		"same rpc did; a write whose contract needs another write, as ConfirmOrder needs AddStock, also acts on the entities of the "+
-		"existing record it changes, such as the products on an order's lines)", strings.Join(other, ", "))
+	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses: the ids they act on appear in no kept step's "+
+		"request or response in the source run, or they answered as an earlier call of the same rpc did", capList(other, 5))
 }
 
 func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResult) bool {

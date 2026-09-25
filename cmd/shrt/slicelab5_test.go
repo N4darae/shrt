@@ -53,7 +53,7 @@ steps:
 `)
 }
 
-func TestCLISlicePinLatestUsesTheNewestRunThatReachedTheStep(t *testing.T) {
+func TestCLISliceLatestRefusesWhenTheNewestRunDidNotReachTheStep(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -95,20 +95,19 @@ steps:
 	}
 
 	var err error
-	var out string
-	stderr := captureStderr(t, func() {
-		out = captureStdout(t, func() {
-			err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-mode", "pin", "-run", "latest"})
-		})
+	out := captureStdout(t, func() {
+		err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-mode", "pin", "-run", "latest"})
 	})
-	if err != nil {
-		t.Fatalf("pin -run latest must fall back to the newest run that reached the step: %v", err)
+	if exitCodeOf(err) != 3 || strings.Contains(out, "run "+reaching) {
+		t.Fatalf("-run latest is the newest run, which never reached fetch: refuse with exit 3, never fall back to an older run: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "run "+reaching) {
-		t.Errorf("pin must use run %s, which reached fetch:\n%s", reaching, out)
+	for _, want := range []string{stopped, "step fetch", "-step create -run " + stopped, "-run " + reaching} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal must name %q: %v", want, err)
+		}
 	}
-	if !strings.Contains(stderr, stopped) {
-		t.Errorf("the note must name the newest run that did not reach the step: %q", stderr)
+	if strings.Count(err.Error(), "\n") != 0 {
+		t.Errorf("the refusal is one line: %q", err)
 	}
 
 	captureStdout(t, func() {
