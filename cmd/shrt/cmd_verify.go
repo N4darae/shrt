@@ -32,35 +32,39 @@ func init() {
 
 const verifyExitCodes = "\nexit codes:\n" +
 	"  0  no drift against the safe spot, and the replay passed\n" +
-	"  1  drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
-	"  3  could not verify: a step never got an answer (target unreachable, connection dropped,\n" +
-	"     sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
-	"     502/503/504 from a gateway, login or auth refused) and nothing drifted\n" +
-	"     before it; a change at or after that step\n" +
-	"     is not judged, so this is not a verdict about the backend; or the first failing step was\n" +
-	"     refused as a uniqueness conflict on a field built from a var whose value a recorded run of\n" +
-	"     this chain already used (fixture reused: re-run with a fresh -var), or that no recorded run\n" +
-	"     used, so something else created the record (fixture collision: re-run with a fresh -var);\n" +
-	"     or the backend refused a\n" +
-	"     token it had accepted earlier in the run (it likely restarted mid-run: re-run); when the\n" +
-	"     backend refused a token a login in this run had just issued, on its first use, the\n" +
-	"     credentials work and it says this may be an auth regression (exit 1 as a finding when the\n" +
-	"     previous run that sent that step was refused there the same way); or the first failing step\n" +
-	"     failed only because its response does not match the descriptor (validate_output, drift)\n" +
-	"     and nothing drifted before it, the descriptor being stale or the body carrying fields the\n" +
-	"     proto does not declare\n" +
-	"  1  also when that drift is a wrong-typed value or an undeclared enum value and the descriptor\n" +
-	"     matches a rebuild: the proto is current, so the backend changed (a regression at that step)\n" +
-	"  1  also when the backend refused, at the same step, a token it had accepted earlier in both this\n" +
-	"     run and the previous run that sent that step: not a restart, a refusal specific to that rpc;\n" +
-	"     also when a fixture collision on a field built from ${uuid} or a clock value follows a\n" +
-	"     previous run refused at the same step the same way: such values are unique to their run (a\n" +
-	"     repeat on var values stays exit 3, since another client may use the same values);\n" +
-	"     unless either run shows a restart (a call accepted when re-sent after a fresh login, data\n" +
-	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
-	"     from the service), which keeps it exit 3\n" +
-	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
-	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
+	"  1  a verdict: the backend or the chain changed or is wrong\n" +
+	"     - drift against the safe spot, the replay did not pass, or the chain has no safe spot\n" +
+	"     - validate_output drift that is a wrong-typed value or an undeclared enum value, and the\n" +
+	"       descriptor matches a rebuild: the proto is current, so the backend changed at that step\n" +
+	"     - the backend refused, at the same step, a token it had accepted earlier in both this run\n" +
+	"       and the previous run that sent that step: not a restart, a refusal specific to that rpc,\n" +
+	"       unless either run shows a restart (see 3)\n" +
+	"     - a fixture collision on a field built from ${uuid} or a clock value, after a previous run\n" +
+	"       refused at the same step the same way: such values are unique to their run (a repeat on\n" +
+	"       var values stays exit 3, since another client may use the same values)\n" +
+	"     - a token a login in this run had just issued, refused on its first use, when the previous\n" +
+	"       run that sent that step was refused there the same way: a possible auth regression\n" +
+	"     - the first failing step was refused as a uniqueness conflict on a literal field (built from\n" +
+	"       no var): the chain collides with itself on every run after the first, a chain defect\n" +
+	"  3  could not verify: not a verdict about the backend; a change at or after the affected step\n" +
+	"     is not judged\n" +
+	"     - a step never got an answer and nothing drifted before it: target unreachable, connection\n" +
+	"       dropped, sent but no answer before target.timeout, a Connect unavailable or a bare HTTP\n" +
+	"       502/503/504 from a gateway, login or auth refused\n" +
+	"     - fixture reused: the first failing step was refused as a uniqueness conflict on a field\n" +
+	"       built from a var whose value a recorded run of this chain already used; re-run with a\n" +
+	"       fresh -var\n" +
+	"     - fixture collision: the same, on a value no recorded run used, so something else created\n" +
+	"       the record; re-run with a fresh -var\n" +
+	"     - the backend refused a token it had accepted earlier in the run: it likely restarted\n" +
+	"       mid-run; re-run. A restart shows as a call accepted when re-sent after a fresh login,\n" +
+	"       data created before the refusal gone after the re-login, or a step before it that got no\n" +
+	"       answer from the service\n" +
+	"     - the backend refused a token a login in this run had just issued, on its first use: the\n" +
+	"       credentials work, and it says this may be an auth regression\n" +
+	"     - validate_output: the first failing step failed only because its response does not match\n" +
+	"       the descriptor, and nothing drifted before it: the descriptor is stale or the body carries\n" +
+	"       fields the proto does not declare\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
