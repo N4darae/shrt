@@ -268,9 +268,17 @@ Produced by resolving each form against a fixture scope:
 | `reason` | string |  | The backend's own reason string, verbatim. Must match the `errmsg.New` site. |
 | `message` | string |  | The message text, when it is worth pinning. |
 | `field` | string |  | The request field at fault, for shape errors, and the field a uniqueness refusal is about when its reason does not name it (`EmailTaken` names `email`). |
-| `when` | string |  | The condition that raises it. This is the one an author most often leaves vague. For a uniqueness refusal (a reason ending `Taken`, `Exists`, `AlreadyExists`, `Duplicate`, `InUse`, or a `when` saying unique or duplicate), `contract plan` of that rpc adds a step sending the same value again, expecting the refusal; say `ignoring case` here and it adds the value in another letter case too, and say the value is trimmed of surrounding whitespace and it adds the value padded with spaces. |
+| `when` | string |  | The condition that raises it. This is the one an author most often leaves vague. For a uniqueness refusal (a reason ending `Taken`, `Exists`, `AlreadyExists`, `Duplicate`, `InUse`, or a `when` saying unique or duplicate), `contract plan` of that rpc adds a step sending the same value again, expecting the refusal; say `ignoring case` here (or set `unique: {case: ignore}`) and it adds the value in another letter case too, and say the value is trimmed of surrounding whitespace (or set `unique: {trim: true}`) and it adds the value padded with spaces; a negated phrase (`not ignoring case`, `no trimming`) adds neither. |
 | `unreachable` | string |  | Declared but cannot fire, and why. Keeps it out of the coverage denominator without deleting the knowledge. The commonest honest use is a code NO shrt chain can observe: every request is validated against the descriptor before it is sent, so a refusal reachable only by a body the proto cannot express — a string where a message belongs, an enum value the descriptor does not know, a catch-all handler for a decode error — is out of reach for a descriptor-driven client and always will be. Say that here rather than leaving the code undeclared, or the coverage term charges you for a branch nothing can reach. |
 | `pending_deploy` | string |  | Declared, correct, and not yet on the box. Carries the commit that will make it reachable. |
+| `unique` | uniquecompare |  | How the backend compares the value of a uniqueness refusal, stated as data instead of prose: `unique: {case: ignore, trim: true}`. It decides which duplicate attempts `contract plan` adds, and wins over the prose. Unset (or a key of it unset), the plan reads the failure's `when`, its `message`, the rpc's `summary` and the field's `note`, and a negated phrase counts against: `no trimming`, `not trimmed`, `without trimming`, `untrimmed`, `case-sensitive`, `not ignoring case` mean no padded or case variant; a bare mention of whitespace (`whitespace only is invalid_argument`) says nothing about trimming. On a failure that is not a uniqueness refusal `contract lint` warns. |
+
+### `failures[].unique`
+
+| key | type | req | meaning |
+|---|---|---|---|
+| `case` | string |  | `ignore`: the value in another letter case is the same value, so the plan adds a case variant expecting the refusal. `exact`: case matters, no case variant. Anything else is a `contract lint` error. |
+| `trim` | bool |  | `true`: surrounding whitespace is trimmed before the comparison, so the plan adds the value padded with spaces, expecting the refusal. `false`: no padded variant. |
 
 ## 4. Config — `.shrt/config.yaml`
 

@@ -311,8 +311,12 @@ contract says the comparison ignores case (`ignoring case`, `case-insensitive` i
 references swapped (`CUST-${vars.tag}@EXAMPLE.TEST`), since a backend comparing case-sensitively
 passes an exact duplicate; a `${uuid}` in that field becomes `${vars.tag}` so both steps send the
 same value, and each run then needs `-var tag=<fresh>`. When it says the value is trimmed of
-surrounding whitespace, it adds the value padded with spaces too. When the contract says nothing
-about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
+surrounding whitespace, it adds the value padded with spaces too. A negated phrase counts against:
+`no trimming`, `not trimmed`, `without trimming`, `case-sensitive`, `not ignoring case` add no
+variant, and a mention of whitespace that is not about trimming (`whitespace only is
+invalid_argument`) adds none either. Say it as data to leave no doubt: `unique: {case: ignore,
+trim: true}` (or `case: exact`, `trim: false`) on the failure wins over the prose. When the contract
+says nothing about case, a note says how to ask for the variant rather than guessing. A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
 `-strict`); a refusal probe, a step with `allow_fail`, and an rpc whose contract declares no fact are

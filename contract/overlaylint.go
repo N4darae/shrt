@@ -319,6 +319,14 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 	if f.Unreachable != "" && f.When != "" {
 		add(SeverityWarn, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
 	}
+	if f.Unique != nil {
+		if f.Unique.Case != "" && f.Unique.Case != UniqueCaseIgnore && f.Unique.Case != UniqueCaseExact {
+			add(SeverityError, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
+		}
+		if _, unique := uniquenessNoun(f); !unique {
+			add(SeverityWarn, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
+		}
+	}
 	if f.PendingDeploy != "" {
 		if f.Unreachable != "" {
 			add(SeverityError, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)

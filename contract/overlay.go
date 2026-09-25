@@ -119,6 +119,13 @@ type Failure struct {
 	Unreachable string `yaml:"unreachable,omitempty" json:"unreachable,omitempty"`
 
 	PendingDeploy string `yaml:"pending_deploy,omitempty" json:"pending_deploy,omitempty"`
+
+	Unique *UniqueCompare `yaml:"unique,omitempty" json:"unique,omitempty"`
+}
+
+type UniqueCompare struct {
+	Case string `yaml:"case,omitempty" json:"case,omitempty"`
+	Trim *bool  `yaml:"trim,omitempty" json:"trim,omitempty"`
 }
 
 func (f Failure) Label() string {

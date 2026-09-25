@@ -17,7 +17,6 @@ var (
 	takenReason     = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*?)(?:AlreadyExists|AlreadyTaken|AlreadyInUse|AlreadyUsed|Exists|Taken|Duplicate|Duplicated|InUse|NotUnique)$`)
 	uniqueWhen      = regexp.MustCompile(`(?i)\bunique\b|\bduplicate\b`)
 	caseIgnored     = regexp.MustCompile(`(?i)ignor\w*\s+(?:the\s+)?(?:letter\s+)?case|case[- ]?insensitiv|regardless\s+of\s+(?:letter\s+)?case|(?:in|of)\s+any\s+(?:letter\s+)?case`)
-	spaceIgnored    = regexp.MustCompile(`(?i)white\s?space|\btrim|surrounding\s+spaces|leading\s+(?:and|or)\s+trailing`)
 	freshValueRef   = regexp.MustCompile(`\$\{\s*(?:uuid|now|nowunix|today)(?:[+-][^}]*)?\s*\}`)
 	anyValueRef     = regexp.MustCompile(`\$\{[^}]*\}`)
 	varValueRef     = regexp.MustCompile(`\$\{\s*vars\.[A-Za-z0-9_]+\s*\}`)
@@ -182,9 +181,9 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	current, _ := bodyValue(st.Body, field)
 	value, isText := current.(string)
 	switch {
-	case !caseIgnored.MatchString(text):
+	case !ignoresCase(f, text):
 		p.note("step %s: %s is refused as %s when it is taken; the plan sends the same value again. If the backend "+
-			"ignores case when comparing it, say so in the failure's when: (e.g. \"ignoring case\") and the plan adds "+
+			"ignores case when comparing it, set unique: {case: ignore} on the failure (or say \"ignoring case\" in its when:) and the plan adds "+
 			"a case variant too — a backend that compares case-sensitively passes an exact duplicate", st.ID, field, f.Label())
 	case !isText || swapLiteralCase(stableAcrossSteps(value)) == stableAcrossSteps(value):
 		p.note("step %s: the contract says %s is compared ignoring case, but its value %v has no letters outside "+
@@ -205,7 +204,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		p.note("step %s: the contract says %s is unique ignoring case, so the plan sends a case variant "+
 			"(step %s) as well as the exact duplicate%s", st.ID, field, added[len(added)-1].ID, note)
 	}
-	if isText && spaceIgnored.MatchString(text) {
+	if isText && trimsSpace(f, text) {
 		added = append(added, attempt("_space", fmt.Sprintf("the same %s with surrounding whitespace is the same %s "+
 			"once trimmed, so it is refused with %s too.", leaf, leaf, f.Label()), " "+ref+" "))
 	}
