@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, 
 			unevaluated = true
 			continue
 		}
-		got := stableGot(x.Path, x.Got, rec)
+		got := stableGot(x.Path, x.Got, rec, c, step)
 		if i, ok := have[step+"\x00"+x.Path]; ok {
 			if i >= 0 && c.KeptRed[i].Got == nil && got != nil {
 				c.KeptRed[i].Got = got
@@ -67,9 +68,12 @@ func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, 
 	return added, nil
 }
 
-func stableGot(path string, v any, rec *runner.Record) *string {
+func stableGot(path string, v any, rec *runner.Record, c *chain.Chain, step string) *string {
 	var text string
 	switch t := v.(type) {
+	case nil:
+		text = ""
+		return &text
 	case bool:
 		text = fmt.Sprint(t)
 	case float64:
@@ -78,19 +82,56 @@ func stableGot(path string, v any, rec *runner.Record) *string {
 		if t == pathmask.MaskRedacted || t == pathmask.MaskVolatile {
 			return nil
 		}
-		for _, val := range rec.Vars {
-			if sv, ok := val.(string); ok && len(sv) >= 2 && strings.Contains(t, sv) {
-				return nil
-			}
-		}
 		text = t
 	default:
 		return nil
 	}
-	if diff.LooksVolatile(path, v, v) {
+	best := ""
+	for k, val := range rec.Vars {
+		if sv, ok := val.(string); ok && len(sv) >= 2 && strings.Contains(text, sv) && (best == "" || len(sv) > len(rec.Vars[best].(string))) {
+			best = k
+		}
+	}
+	volatile := diff.LooksVolatile(path, v, v)
+	if best == "" && !volatile {
+		return &text
+	}
+	if ref := producedBy(text, rec, c, step); ref != "" {
+		return &ref
+	}
+	if best == "" {
 		return nil
 	}
+	text = strings.ReplaceAll(text, rec.Vars[best].(string), "${vars."+best+"}")
 	return &text
+}
+
+func producedBy(text string, rec *runner.Record, c *chain.Chain, step string) string {
+	if len(text) < 4 {
+		return ""
+	}
+	for _, st := range rec.Steps {
+		if st.ID == step {
+			break
+		}
+		if _, kept := c.Step(st.ID); !kept {
+			continue
+		}
+		var body any
+		if json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		found := ""
+		eachLeaf(body, "", func(p string, v any) {
+			if s, ok := v.(string); ok && s == text && (found == "" || len(p) < len(found)) {
+				found = p
+			}
+		})
+		if found != "" {
+			return "${" + st.ID + "." + found + "}"
+		}
+	}
+	return ""
 }
 
 func failedSteps(rec *runner.Record) []string {
@@ -205,8 +246,8 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	for _, k := range res.DroppedPins {
 		fmt.Printf("  kept_red pin on %s %s dropped with its step\n", k.Step, k.Path)
 	}
-	fmt.Printf("\nA step left in may still depend on what a left-out write did to shared state rather than on a reference: run it, " +
-		"and propose it as a safe spot only once it passes. Keep the defect visible in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>\n")
+	fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
+		"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
 		if !replaced {

@@ -145,6 +145,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
 	defer func() { writeGateSidecar(verifySidecar(e, rec, report)) }()
+	report.HideMasked = !*verbose
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
@@ -300,7 +301,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	} else {
 		body := &strings.Builder{}
 		defer func() {
-			verdict, rest := verifyVerdict(name, rec, report, nonBackend != nil, err, body.String())
+			verdict, rest := verifyVerdict(e, name, rec, report, nonBackend != nil, err, body.String())
 			fmt.Print(verdict + rest)
 		}()
 		if nonBackend != nil {
@@ -1080,7 +1081,7 @@ func intendedChangeNext(name string) string {
 	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
 }
 
-func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
+func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
 	if noVerdict {
 		return "", body
 	}
@@ -1102,19 +1103,49 @@ func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdi
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
-	bad := map[string]bool{}
-	for _, c := range report.Changes {
-		if c.Kind != diff.KindNotReached {
-			bad[c.Step] = true
-		}
+	if why == "regression" || why == "order changed" {
+		why = report.Class(*first) + alsoClasses(report, first)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	if req := requestLine(rec, first.Step, bad); req != "" && why == "regression" {
+	b := verifyAttribution(e, rec, report).of(first.Step, first.Path)
+	if b.own != "" {
+		line += "; suspect " + b.own
+	}
+	if req := requestLine(rec, first.Step, b); req != "" && strings.HasPrefix(why, "regression") {
 		line += "\n  " + req
-	} else if i, knock := suspectWrite(rec, first.Step, bad); i >= 0 && !knock {
-		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[i].ID, shortRPC(rec.Steps[i].Call))
+	} else if b.write >= 0 && !b.knock {
+		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[b.write].ID, shortRPC(rec.Steps[b.write].Call))
 	}
 	return line + "\n", body
+}
+
+func alsoClasses(report *diff.Report, first *diff.Change) string {
+	class := report.Class(*first)
+	byStep := map[string]string{}
+	for _, status := range []bool{false, true} {
+		for _, c := range report.Changes {
+			if _, seen := byStep[c.Step]; seen || c.Kind == diff.KindNotReached || c.Step == first.Step || (c.Kind == diff.KindStatus) != status {
+				continue
+			}
+			byStep[c.Step] = report.Class(c)
+		}
+	}
+	counts := map[string]int{}
+	for _, cl := range byStep {
+		if cl != class {
+			counts[cl]++
+		}
+	}
+	names := make([]string, 0, len(counts))
+	for cl := range counts {
+		names = append(names, cl)
+	}
+	sort.Strings(names)
+	out := ""
+	for _, cl := range names {
+		out += fmt.Sprintf("; also %s at %d step(s)", cl, counts[cl])
+	}
+	return out
 }
 
 func firstChange(report *diff.Report) (*diff.Change, int) {
@@ -1137,7 +1168,8 @@ func changeAt(rec *runner.Record, c diff.Change) string {
 	if st, ok := rec.Step(c.Step); ok && st != nil {
 		rpc = " (" + shortRPC(st.Call) + ")"
 	}
-	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, capText(compactValue(c.Want), 60), capText(compactValue(c.Got), 60))
+	want, got := gatePair(c.Want, c.Got)
+	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, want, got)
 }
 
 func compactValue(v any) string {

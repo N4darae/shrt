@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -20,7 +21,7 @@ func proposeAll(e *env, note, by string) error {
 	}
 	e.store.Notes = nil
 	branch, commit := gitWhere(e.cfg.Root)
-	briefs := []string{}
+	rows := []store.ProposalRow{}
 	failed := 0
 	for _, c := range chains {
 		rec, reason := proposable(e, c)
@@ -44,27 +45,46 @@ func proposeAll(e *env, note, by string) error {
 			failed++
 			continue
 		}
-		replaces := ""
-		if p.Replaces != "" {
-			replaces = ", replacing the safe spot from run " + p.Replaces
-		}
-		fmt.Printf("proposed %s: run %s%s, NOT a safe spot yet\n", c.Name, p.RunID, replaces)
-		briefs = append(briefs, store.ProposalBrief(p, rec, c.Description))
+		rows = append(rows, store.ProposalRowOf(p, rec))
 	}
-	if len(briefs) > 0 {
-		fmt.Printf("\nshow the user these %d summaries in the conversation, with what you checked, and ask them to approve or reject each:\n", len(briefs))
-		for _, b := range briefs {
-			fmt.Print("\n" + b)
-		}
-		fmt.Printf("\nonly after the user says yes to every one:  shrt confirm -all -approve -by <their email>\n" +
-			"for each one they reject, first:             shrt confirm <chain> -reject\n")
-	} else {
+	if len(rows) == 0 {
 		fmt.Println("nothing proposed")
+	} else {
+		printProposalRows(e, rows, note)
 	}
 	if failed > 0 {
 		return fmt.Errorf("%d chain(s) could not be proposed", failed)
 	}
 	return nil
+}
+
+func printProposalRows(e *env, rows []store.ProposalRow, note string) {
+	fmt.Printf("\nproposed %d chain(s), NOT safe spots yet; what the proposer checked: %s\n\n", len(rows), strings.Join(strings.Fields(note), " "))
+	fmt.Println("| chain | run | steps passed | rpcs | refusals asserted | check before approving |\n|---|---|---|---|---|---|")
+	volatile := map[string][]string{}
+	order := []string{}
+	for _, r := range rows {
+		fmt.Printf("| %s | `%s` | %s | %s | %s | %s |\n", r.Chain, r.Run, r.Steps, r.RPCs, r.Refusals, r.Check)
+		if volatile[r.Volatile] == nil {
+			order = append(order, r.Volatile)
+		}
+		volatile[r.Volatile] = append(volatile[r.Volatile], r.Chain)
+	}
+	for _, v := range order {
+		if v == "" {
+			continue
+		}
+		which := "every chain above"
+		if len(volatile[v]) < len(rows) {
+			which = strings.Join(volatile[v], ", ")
+		}
+		fmt.Printf("\n**Volatile, never compared by `shrt verify`:** %s (%s)\n", v, which)
+	}
+	fmt.Printf("\nApproving makes every response field of each run that no volatile pattern covers, not only the asserted ones, "+
+		"the baseline `shrt verify` compares against. Each chain's full summary, step by step: %s/<chain>.md\n", rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "pending")))
+	fmt.Printf("\nshow the user this table in the conversation, with what you checked, and ask them to approve or reject each:\n" +
+		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>\n" +
+		"for each one they reject, first:             shrt confirm <chain> -reject\n")
 }
 
 func proposable(e *env, c *chain.Chain) (*runner.Record, string) {

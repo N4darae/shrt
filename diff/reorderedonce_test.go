@@ -21,3 +21,20 @@ func TestAReorderedListIsNamedOnceAsStepThenPath(t *testing.T) {
 		t.Fatalf("one reordered list, got %v", rep.Reordered)
 	}
 }
+
+func TestAReorderedListIsClassedOrderChangedWhateverElseDrifted(t *testing.T) {
+	for _, other := range []bool{false, true} {
+		spot, rec := listSpot(), listRun(listRunReversed, nil)
+		if other {
+			rec.Steps[0].Response = []byte(`{"id_product":"prd-0066f622803d","sku":"sku-w-changed"}`)
+		}
+		rep := diff.Compare(spot, rec)
+		classes := map[string]string{}
+		for _, c := range rep.Changes {
+			classes[c.Step] = rep.Class(c)
+		}
+		if classes["list"] != "order changed" || other && classes["create_w"] != "regression" {
+			t.Errorf("with another change %v: the reorder is order changed, the other a regression, got %v", other, classes)
+		}
+	}
+}

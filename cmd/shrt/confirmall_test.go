@@ -31,8 +31,10 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("confirm -all: %v\n%s", err, out)
 	}
-	for _, want := range []string{"proposed cli-thing-flow: run ", "proposed cli-thing-again: run ", "skip     cli-thing-unrun: no run recorded",
-		"**Safe spot proposal: `cli-thing-flow`**", "only after the user says yes to every one:  shrt confirm -all -approve -by <their email>"} {
+	for _, want := range []string{"proposed 2 chain(s), NOT safe spots yet; what the proposer checked: fetch returns the created name",
+		"| cli-thing-flow | `", "| cli-thing-again | `", "| 2/2 | Create ×1, Fetch ×1 | none | no earlier passing run to compare with |",
+		"skip     cli-thing-unrun: no run recorded", ".shrt/safespots/pending/<chain>.md",
+		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("confirm -all output lacks %q:\n%s", want, out)
 		}

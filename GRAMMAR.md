@@ -128,7 +128,7 @@ A refused call whose `transport.*` assertions all hold is `passed`, with no `all
 |---|---|---|---|
 | `step` | string | + | The step the defect shows at. |
 | `path` | string | + | An expectation path of that step that must fail against an answered response; one entry per failing expectation. |
-| `got` | string |  | The value the failed expectation must have got, compared as text. Omit to pin only where it fails. |
+| `got` | string |  | The value the failed expectation must have got, compared as text; `""` is absent, and a `${...}` reference resolves against the run. Omit to pin only where it fails. |
 
 ## 2. References — `${...}`
 

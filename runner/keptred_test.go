@@ -36,6 +36,8 @@ func TestKeptRedHoldsOnlyWhenTheChainFailsExactlyAsPinned(t *testing.T) {
 		{"as pinned with got", keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qty_on_hand", Got: strp("5")}), runner.KeptRedAsPinned, "got=5"},
 		{"fails earlier", keptRedChain(6, 7, chain.Pin{Step: "second", Path: "qty_on_hand"}), runner.KeptRedNotAsPinned, `step "first" failed where nothing is pinned`},
 		{"fails differently", keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qty_on_hand", Got: strp("4")}), runner.KeptRedNotAsPinned, "second qty_on_hand: pinned got=4, now got=5"},
+		{"as pinned with a got read from the run", keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qty_on_hand", Got: strp("${first.qty_on_hand}")}), runner.KeptRedAsPinned, "failed exactly"},
+		{"a got read from the run differs", keptRedChain(5, 7, chain.Pin{Step: "second", Path: "qty_on_hand", Got: strp("${first.qty_on_hand}0")}), runner.KeptRedNotAsPinned, "pinned got=50, now got=5"},
 		{"pinned path held", keptRedChain(5, 7, chain.Pin{Step: "second", Path: "status.code"}), runner.KeptRedNotAsPinned, `failed where nothing is pinned`},
 		{"defect gone", keptRedChain(5, 5, chain.Pin{Step: "second", Path: "qty_on_hand"}), runner.KeptRedGone, "is gone"},
 	} {

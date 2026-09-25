@@ -1163,3 +1163,84 @@ func listRoot(path string) (string, bool) {
 	}
 	return path, false
 }
+
+type ProposalRow struct {
+	Chain, Run, Steps, RPCs, Refusals, Check string
+	Volatile                                 string
+}
+
+func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
+	passed := 0
+	calls, refusals := counter{}, counter{}
+	bare, verdictOnly, warned := 0, 0, 0
+	envelope := chain.EnvelopePath()
+	for _, st := range rec.Steps {
+		if st.Status == runner.StatusPassed {
+			passed++
+		}
+		calls.add(shortCall(st.Call))
+		answer := answerKind(st, envelope)
+		if answer != chain.EnvelopeOK() {
+			refusals.add(answer)
+		}
+		beyond := false
+		for _, e := range st.Expect {
+			beyond = beyond || e.Path != envelope && !chain.IsTransportPath(e.Path)
+		}
+		switch {
+		case len(st.Expect) == 0:
+			bare++
+		case !beyond && answer == chain.EnvelopeOK():
+			verdictOnly++
+		}
+		if st.Warning != "" {
+			warned++
+		}
+	}
+	check := []string{}
+	add := func(n int, what string) {
+		if n > 0 {
+			check = append(check, fmt.Sprintf("%d %s", n, what))
+		}
+	}
+	add(bare, "step(s) assert nothing")
+	add(verdictOnly, "step(s) assert only the verdict")
+	add(warned, "warning(s)")
+	add(len(p.Replaced), "difference(s) from the replaced safe spot")
+	add(len(p.Unstable), "field(s) differ from the earlier run and are not volatile")
+	add(len(p.Carried), "field(s) carried from before the change")
+	if p.ComparedTo == "" {
+		check = append(check, "no earlier passing run to compare with")
+	}
+	redacted, scrubbed := redactedSummary(rec)
+	if len(redacted) > 0 {
+		check = append(check, "redacted "+clipList(redacted, 3))
+	}
+	if len(scrubbed) > 0 {
+		check = append(check, "scrubbed "+clipList(scrubbed, 3))
+	}
+	stepVolatile, chainVolatile := []string{}, []string{}
+	for _, st := range rec.Steps {
+		for _, v := range st.Volatile {
+			stepVolatile = append(stepVolatile, fmt.Sprintf("`%s` (%s)", v, st.ID))
+		}
+	}
+	for _, v := range rec.Volatile {
+		chainVolatile = append(chainVolatile, "`"+v+"`")
+	}
+	if len(stepVolatile) > 0 {
+		check = append(check, "volatile "+clipList(stepVolatile, 3))
+	}
+	if masked := fullyMasked(rec); len(masked) > 0 {
+		check = append(check, "every field volatile at "+clipList(masked, 3))
+	}
+	row := ProposalRow{Chain: p.Chain, Run: p.RunID, Steps: fmt.Sprintf("%d/%d", passed, len(rec.Steps)),
+		RPCs: calls.top(3), Refusals: "none", Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
+	if len(refusals.order) > 0 {
+		row.Refusals = refusals.top(3)
+	}
+	if len(check) > 0 {
+		row.Check = strings.Join(check, "; ")
+	}
+	return row
+}

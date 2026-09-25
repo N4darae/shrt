@@ -170,3 +170,20 @@ func TestRunSummarySaysIntermittent(t *testing.T) {
 		t.Fatalf("run's summary says the failure looks intermittent, with evidence: %v\n%s", err, out)
 	}
 }
+
+func TestAServerErrorAtTheSameStepAsThePreviousRunIsARepeatedFailureARerunDoesNotClear(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2)
+	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "a re-run may pass") {
+		t.Fatalf("verify 1: a first failure is intermittent: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 2)
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify 2", err, out)
+	msg := err.Error()
+	if !strings.Contains(msg, "repeated failure at ThingService/Fetch") || strings.Contains(msg, "a re-run may pass") ||
+		!strings.Contains(msg, "failed at the same step(s) the same way") || !strings.Contains(msg, "a re-run fails the same way") ||
+		!strings.Contains(msg, "the errors hid the checks of fetch_again") {
+		t.Fatalf("verify 2: the same failure at the same step as the previous run is said so, with the checks it hid: %v\n%s", err, out)
+	}
+}

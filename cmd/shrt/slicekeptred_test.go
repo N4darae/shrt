@@ -152,7 +152,7 @@ func TestSliceKeptRedNamesTheSourceChainAsWhereTheRestGoes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("slice -kept-red -verify: %v\n%s", err, out)
 	}
-	for _, want := range []string{"-without failed -run ", "-write .shrt/chains/cli-one-defect.yaml\n", "replaces cli-one-defect itself", "leaves cli-one-defect, still red, in the gate"} {
+	for _, want := range []string{"-without failed -run ", "-write .shrt/chains/cli-one-defect.yaml\n", "out of cli-one-defect in place"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)
 		}

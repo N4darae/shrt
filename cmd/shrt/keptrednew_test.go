@@ -34,7 +34,7 @@ func TestANotAsPinnedSummaryPrintsEachReasonOnceAndLeadsWithTheFixtureLine(t *te
 		Failure:     "kept_red: ran every step, as -keep-going does; 2 of 3 steps did not pass\nstep \"confirm_order\": " + notSent,
 		KeptRedNote: `kept_red pins confirm_order status.code, but step "confirm_order" was not sent (why is on its line), so its pinned failure was not seen`,
 		KeptRedNew:  runner.NewFailurePrefix + "create_order refused at transport: a; b; c; d"}
-	out := runSummary(rec, false, true, "fixture collision: step \"create_order\" ...")
+	out := runSummary(nil, rec, false, true, "fixture collision: step \"create_order\" ...")
 	if strings.Contains(out, notSent) {
 		t.Errorf("with the step lines shown above, the summary does not repeat their reasons:\n%s", out)
 	}
@@ -42,7 +42,7 @@ func TestANotAsPinnedSummaryPrintsEachReasonOnceAndLeadsWithTheFixtureLine(t *te
 	if len(lines) < 3 || !strings.HasPrefix(strings.TrimSpace(lines[2]), "fixture collision") {
 		t.Errorf("the fixture line comes right after the verdict and the new failure:\n%s", out)
 	}
-	if quiet := runSummary(rec, false, false, ""); !strings.Contains(quiet, notSent) {
+	if quiet := runSummary(nil, rec, false, false, ""); !strings.Contains(quiet, notSent) {
 		t.Errorf("under -quiet no step line was printed, so the summary keeps the reason:\n%s", quiet)
 	}
 	if err := runVerdict(rec); err == nil || !strings.Contains(err.Error(), "and 3 more (listed above)") {

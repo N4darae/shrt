@@ -106,3 +106,19 @@ func ListChangeKind(item string) string {
 	}
 	return ""
 }
+
+func ReorderedPaths(sr *StepRecord) map[string]bool {
+	out := map[string]bool{}
+	kinds := listChangeKinds(sr)
+	for i, k := range kinds {
+		if strings.HasPrefix(k, "reordered") {
+			out[sr.Expect[i].Path] = true
+		}
+	}
+	for i, k := range kinds {
+		if _, see, ok := strings.Cut(k, ", see "); ok && strings.HasPrefix(k, "another item at ") && out[see] {
+			out[sr.Expect[i].Path] = true
+		}
+	}
+	return out
+}

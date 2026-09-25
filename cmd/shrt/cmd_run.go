@@ -152,12 +152,12 @@ func runRun(ctx context.Context, args []string) error {
 		rec.KeptRedNote = keptRedNotJudged(rec.KeptRedNote)
 	}
 	if *quiet {
-		fmt.Println(runSummary(quietRecord(rec), *dry, false, lead))
+		fmt.Println(runSummary(e, quietRecord(rec), *dry, false, lead))
 		if savedPath != "" && !quietlyGreen(rec) {
 			fmt.Printf("  run %s -> %s\n", rec.RunID, savedPath)
 		}
 	} else {
-		fmt.Println(runSummary(rec, *dry, true, lead))
+		fmt.Println(runSummary(e, rec, *dry, true, lead))
 	}
 	if line := neverRanLine(c, rec); line != "" && !*dry {
 		fmt.Println("  " + line)
@@ -425,7 +425,7 @@ func statusMark(s string, dry bool) string {
 }
 
 func summary(rec *runner.Record, dry bool) string {
-	return runSummary(rec, dry, false, "")
+	return runSummary(nil, rec, dry, false, "")
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {
@@ -452,7 +452,7 @@ func neverRanLine(c *chain.Chain, rec *runner.Record) string {
 		len(left), capList(left, 10))
 }
 
-func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
+func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string) string {
 	var b strings.Builder
 	verdict := strings.ToUpper(rec.Status)
 	if dry && rec.Passed() {
@@ -487,7 +487,7 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
-	if line := firstFailureRequest(rec); line != "" && !dry {
+	if line := firstFailureRequest(e, rec); line != "" && !dry {
 		fmt.Fprintf(&b, "\n  %s", line)
 	}
 	if rec.KeptRedNote != "" {
@@ -515,23 +515,23 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 	return b.String()
 }
 
-func firstFailureRequest(rec *runner.Record) string {
+func firstFailureRequest(e *env, rec *runner.Record) string {
 	if rec.KeptRed != "" || rec.Status != runner.StatusFailed {
 		return ""
 	}
-	bad, first := map[string]bool{}, ""
 	for _, st := range rec.Steps {
 		if st != nil && st.Status != runner.StatusPassed && st.Status != runner.StatusSkipped {
-			bad[st.ID] = true
-			if first == "" {
-				first = st.ID
+			path := ""
+			for _, ex := range st.Expect {
+				if !ex.Passed && ex.Rule != "unevaluated" {
+					path = ex.Path
+					break
+				}
 			}
+			return requestLine(rec, st.ID, runAttribution(e, rec).of(st.ID, path))
 		}
 	}
-	if first == "" {
-		return ""
-	}
-	return requestLine(rec, first, bad)
+	return ""
 }
 
 func quietlyGreen(rec *runner.Record) bool {

@@ -461,3 +461,17 @@ func (r *Report) noteHiddenStaleEchoes(pairs [][2]string) {
 		r.UnapprovedMasked = append(r.UnapprovedMasked, key)
 	})
 }
+
+func (r *Report) Class(c Change) string {
+	switch {
+	case r.underReordered(c), c.Kind == KindStatus && r.reorderOnlyStep(c.Step):
+		return "order changed"
+	case len(r.RequestChanges) > 0 && (!r.inputSeparated || c.WithInput) && r.OnlyChainChanged():
+		return "chain change"
+	case len(r.RequestChanges) > 0 && (!r.inputSeparated || c.WithInput):
+		return "different input"
+	case r.PrincipalChanged():
+		return "different input"
+	}
+	return "regression"
+}

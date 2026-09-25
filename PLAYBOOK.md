@@ -370,8 +370,8 @@ proposal came from. A chain with a safe spot needs `-supersede`; the old one is 
 `.shrt/safespots/archive/<chain>/`.
 
 For a whole suite, `shrt confirm -all -note "..."` proposes every chain whose latest run passed and
-whose safe spot is missing or differs (one line per chain, then each summary). Present every
-summary; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
+whose safe spot is missing or differs, as one table row per chain (the full summary of each is in
+`.shrt/safespots/pending/<chain>.md`). Present the table; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
 to the rest, `shrt confirm -all -approve -by <user email>` approves every pending proposal.
 
 A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -rename-from <old>
@@ -402,7 +402,7 @@ Reading the report:
 - `targets differ:` first means the replay ran against another target.
 - verify runs every step as `-keep-going` does; a step held back behind a failure is `not_reached`.
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
-  name or a `${uuid}`, and counts them; `-masked` lists them. A volatile value that was lost (null,
+  name or a `${uuid}`, and counts them under `-v`; `-masked` lists them. A volatile value that was lost (null,
   empty, gone) is still reported. Anything else that changes every run belongs in `volatile`.
 - It compares what each step SENT first. A changed request (`request differs ...`) or a changed
   chain (`chain differs ...`) gives `drift with different input` or `drift after a chain change`
