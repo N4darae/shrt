@@ -200,6 +200,13 @@ regression is never reported as merely unverified). Treat 3 in CI as "no verdict
 once the backend is up, or retry it automatically; do not mark the change red, and do not count it
 as green either.
 
+A `run` in the gate stops at its chain's first failure, so under `-quiet` a red chain shows that
+one failing step, and the steps after it were never sent: they may pass or fail. The run says so
+on a line of its own, `N later step(s) were not run (...)`, naming them. Treat the first failure as
+a lower bound on the blast radius, and re-run the chain with `-keep-going` to see which of the later
+steps fail too. A `verify` in the gate replays as `-keep-going` does and lists every step that did
+not pass, and so does a chain with `kept_red`.
+
 Each run and each replay gets a fresh tag, or the second CI run of a chain trips its own
 uniqueness constraints; the tag goes only to a chain that reads `${vars.tag}`, since `run` refuses
 a `-var` the chain never reads. Build the tag INTO other text (`sku: sku-${vars.tag}`, or a header value `X-Tag: t-${vars.tag}`): verify

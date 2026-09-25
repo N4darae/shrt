@@ -340,7 +340,9 @@ and `not_equal: SUCCESS`.
   response or exports is recorded `skipped` instead of being sent, and the run stays failed with
   every red step listed. One exception: when the failed step was answered and only its
   expectations failed, a step that reads a response field none of those failed expectations
-  covers (the id, when the total was wrong) is still sent.
+  covers (the id, when the total was wrong) is still sent. A run without `-keep-going` that
+  failed names the steps it never sent on a line of its own, `N later step(s) were not run (...)`,
+  so a `-quiet` run in a gate does not read as a single red step.
 - Assert on `error.details.0.app_code` **and** `reason` — but **only for a named business failure**.
   `error.code` alone is a Connect code that a dozen unrelated refusals share.
 - **A shape error has no `app_code` and no `reason` to assert on.** A refusal raised by request

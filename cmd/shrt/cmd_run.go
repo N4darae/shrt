@@ -120,6 +120,9 @@ func runRun(ctx context.Context, args []string) error {
 		}
 	}
 	fmt.Println(runSummary(rec, *dry, !*quiet, lead))
+	if line := neverRanLine(c, rec); line != "" && !*dry {
+		fmt.Println("  " + line)
+	}
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
@@ -337,6 +340,30 @@ func statusMark(s string, dry bool) string {
 
 func summary(rec *runner.Record, dry bool) string {
 	return runSummary(rec, dry, false, "")
+}
+
+func neverRanLine(c *chain.Chain, rec *runner.Record) string {
+	if c == nil || rec.KeepGoing || rec.KeptRed != "" || rec.Status != runner.StatusFailed {
+		return ""
+	}
+	ran := map[string]bool{}
+	for _, sr := range rec.Steps {
+		if sr != nil {
+			ran[sr.ID] = true
+		}
+	}
+	left := []string{}
+	for _, s := range c.Steps {
+		if s != nil && !ran[s.ID] {
+			left = append(left, s.ID)
+		}
+	}
+	if len(left) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d later step(s) were not run (%s): a run stops at its first failure, so whether they "+
+		"pass is unknown and this failure may not be the only one; run with -keep-going to see them",
+		len(left), capList(left, 10))
 }
 
 func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
