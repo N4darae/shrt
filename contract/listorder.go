@@ -85,7 +85,7 @@ func (p *Plan) listTargetFor(st *chain.Step, grow bool) *listTarget {
 		if prod == st {
 			break
 		}
-		if chain.IsReadOnlyCall(prod.Call) {
+		if chain.IsReadOnlyCall(prod.Call) || isRefusalStep(prod) {
 			continue
 		}
 		pm, err := p.cat.Lookup(prod.Call)

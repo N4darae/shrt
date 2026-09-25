@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -47,12 +48,24 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 		if !hasExistsFalse(st, t.listPath) {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}
-		if len(said) > 0 {
+		if n, ok := assertedLength(st, t.listPath); ok && len(said) > 0 {
 			p.note("step %s: %s must not appear in %s, which asserts it holds exactly %d item(s): a filter that lets them through fails",
-				st.ID, strings.Join(said, " and "), st.ID, len(t.producers))
+				st.ID, strings.Join(said, " and "), st.ID, n)
 		}
 		p.filterByState(lib, t)
 	}
+}
+
+func assertedLength(st *chain.Step, listPath string) (int, bool) {
+	for _, e := range st.Expect {
+		if e.Exists == nil || *e.Exists || !strings.HasPrefix(e.Path, listPath+".") {
+			continue
+		}
+		if n, err := strconv.Atoi(strings.TrimPrefix(e.Path, listPath+".")); err == nil {
+			return n, true
+		}
+	}
+	return 0, false
 }
 
 func hasExistsFalse(st *chain.Step, listPath string) bool {
