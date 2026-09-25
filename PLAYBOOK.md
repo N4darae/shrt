@@ -107,9 +107,10 @@ conventions:
 - `code_fields`: detail fields `chain which -code` searches and that can pin a refusal.
 - `validate_output`: a response the descriptor rejects fails its step with `"drift": true`.
 
-A path no response message declares fails `shrt run` before anything is sent. `shrt init` prints
-every key with its default, and the detected envelope path when it is not `error.code`. `GRAMMAR.md`
-§4 is the key table.
+A path no response message declares fails `shrt run` before anything is sent. With the login
+credentials exported, `shrt init` logs in once and writes `envelope_path`, the `envelope_ok` it read
+and an unambiguous `item_envelope_path`; otherwise it prints every key once. It never rewrites a
+`conventions:` block already there. `GRAMMAR.md` §4 is the key table.
 
 ## 4. Assert something that can fail
 
