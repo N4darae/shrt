@@ -64,6 +64,7 @@ func runRun(ctx context.Context, args []string) error {
 	quiet := fs.Bool("quiet", false, "no per-step progress; a green chain prints its verdict line only")
 	build := fs.String("build", "", buildFlagUsage)
 	keepGoing := fs.Bool("keep-going", false, "run past a failed step; a step reading a failed step is recorded skipped")
+	verbose := fs.Bool("v", false, "with -keep-going, print every step, not only the ones that did not pass")
 	setUsage(fs, "usage: shrt run <chain> [flags]", runExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -105,7 +106,7 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	rec, err := executeChain(ctx, e, c, withLatency(runner.Options{
 		Vars: supplied, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, DryRun: *dry, KeepGoing: *keepGoing, Build: *build,
-	}, latencyPolicy(e), latencySpot), *quiet || *asJSON)
+	}, latencyPolicy(e), latencySpot), *quiet || *asJSON, !*keepGoing || *verbose)
 	if err != nil {
 		return err
 	}
@@ -356,11 +357,13 @@ func unusedVarError(unused []string, chainName string, reads []string) error {
 
 const buildFlagUsage = "stamp this build `id` into the run record (overrides target.build_header)"
 
-func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Options, quiet bool) (*runner.Record, error) {
+func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Options, quiet bool, everyStep ...bool) (*runner.Record, error) {
 	r, _, err := runner.NewFromConfig(ctx, e.cfg, e.cat)
 	if err != nil {
 		return nil, err
 	}
+	condensed := len(everyStep) > 0 && !everyStep[0]
+	passed, behind, behindOrder := 0, map[string]int{}, []string{}
 	if !quiet {
 		idWidth := longestStepID(c)
 		unreachableShown := false
@@ -372,6 +375,17 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 					unreachableShown = true
 					fmt.Printf("%-5s %2d.. every remaining step %s\n", statusMark(sr.Status, opts.DryRun), sr.Index, sr.Error)
 				}
+				return
+			}
+			if condensed && sr.Status == runner.StatusPassed && len(shownWarnings(sr)) == 0 {
+				passed++
+				return
+			}
+			if src := unevaluatedBehind(sr); condensed && src != "" {
+				if behind[src] == 0 {
+					behindOrder = append(behindOrder, src)
+				}
+				behind[src]++
 				return
 			}
 			fmt.Println(progressLine(sr, opts.DryRun, idWidth))
@@ -400,7 +414,31 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 			}
 		}
 	}
-	return r.Run(ctx, c, opts)
+	rec, err := r.Run(ctx, c, opts)
+	if err != nil || quiet || !condensed {
+		return rec, err
+	}
+	for _, src := range behindOrder {
+		fmt.Printf("%d step(s) unevaluated behind %s\n", behind[src], src)
+	}
+	fmt.Printf("%d step(s) passed (-v prints every step)\n", passed)
+	return rec, nil
+}
+
+func unevaluatedBehind(sr *runner.StepRecord) string {
+	if sr.Status == runner.StatusSkipped && strings.HasPrefix(sr.Error, "not sent: ${") {
+		_, rest, ok := strings.Cut(sr.Error, `reads step "`)
+		if !ok {
+			return ""
+		}
+		src, _, _ := strings.Cut(rest, `"`)
+		return src
+	}
+	if sr.Status != runner.StatusFailed || sr.Error != "" {
+		return ""
+	}
+	src, _ := heldBackBy(sr)
+	return src
 }
 
 func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
@@ -515,6 +553,9 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 		if stepsShown && rec.KeptRed != "" {
 			failure, _, _ = strings.Cut(failure, "\n")
 			failure += " (each step's failure is on its line above)"
+		} else if stepsShown && rec.KeepGoing && strings.HasPrefix(failure, "-keep-going: ") {
+			failure, _, _ = strings.Cut(failure, "\n")
+			failure += " (above)"
 		}
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}

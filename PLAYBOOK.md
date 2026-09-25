@@ -207,7 +207,8 @@ The unit of failure coverage is an `(rpc, code)` pair some run record observed. 
 Before writing the probe, check the contract's `unreachable:` and `pending_deploy:`.
 
 To see what lies behind the first red, `shrt run -keep-going <chain>`: every step still runs; a
-step reading a failed step's response is recorded `skipped`.
+step reading a failed step's response is recorded `skipped`. It prints the steps that did not pass,
+one `N step(s) unevaluated behind <step>` line per cause and a passed count; `-v` prints every step.
 
 ## 6. Cross a principal boundary
 
