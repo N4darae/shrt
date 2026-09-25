@@ -135,7 +135,7 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		}
 	}
 	sort.Ints(idx)
-	if len(idx) < 2 || echoesRequestList(s.Body, at, idx) {
+	if len(idx) < 2 || mirrorsARequest(c, s, at, idx) {
 		return Issue{}, false
 	}
 	steps := []*Step{}
@@ -194,6 +194,54 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 			"fixtures values that sort differently under each key, with three or more items (sku a < c < b, name b < a < c, "+
 			"price c < a < b, none in creation order)",
 		list, strings.Join(ids, ", "), strings.Join(agree, ", "))}, true
+}
+
+func mirrorsARequest(c *Chain, s *Step, at map[int]string, idx []int) bool {
+	seen := map[string]bool{s.ID: true}
+	queue := []*Step{s}
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		if echoesRequestList(cur.Body, at, idx) {
+			return true
+		}
+		for _, id := range bodyRefSteps(cur.Body) {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			if st, ok := c.Step(id); ok {
+				queue = append(queue, st)
+			}
+		}
+	}
+	return false
+}
+
+func bodyRefSteps(v any) []string {
+	out := []string{}
+	switch t := v.(type) {
+	case string:
+		for _, m := range refPattern.FindAllString(t, -1) {
+			if id := refStepOf(m); id != "" && id != "vars" && id != "env" {
+				out = append(out, id)
+			}
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(t))
+		for k := range t {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			out = append(out, bodyRefSteps(t[k])...)
+		}
+	case []any:
+		for _, item := range t {
+			out = append(out, bodyRefSteps(item)...)
+		}
+	}
+	return out
 }
 
 func echoesRequestList(v any, at map[int]string, idx []int) bool {
