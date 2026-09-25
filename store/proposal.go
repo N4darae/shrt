@@ -292,6 +292,9 @@ func ProposalSummary(p *Proposal, rec *runner.Record) string {
 	if p.Build != "" {
 		fmt.Fprintf(&b, ", build `%s`", p.Build)
 	}
+	if rec.ChainSource != "" {
+		fmt.Fprintf(&b, ", chain file `%s`", filepath.Base(rec.ChainSource))
+	}
 	if p.Replaces == "" {
 		b.WriteString("\n\n| # | step | sent | asserted, all held | backend answered |\n|---|---|---|---|---|\n")
 	} else {

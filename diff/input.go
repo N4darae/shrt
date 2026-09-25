@@ -69,9 +69,14 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	edited := map[string]bool{}
 	causal := fx.Reads != nil
 	inputAt := map[string][]string{}
+	edits := stepEdits{touched: map[string]bool{}, writeAt: map[string]bool{}, afterAddedWrite: map[string]bool{}}
 	for _, c := range material {
 		if !expectationChange(c) {
-			if _, ok := index[c.Step]; !ok || stepLevel(c) {
+			_, ok := index[c.Step]
+			switch {
+			case stepLevel(c) && c.Path != "steps":
+				edits.note(c, ok, rec)
+			case !ok || stepLevel(c):
 				causal = false
 			}
 			inputAt[c.Step] = append(inputAt[c.Step], c.Path)
@@ -104,7 +109,7 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	renameWants(remaining, renamer(append(pairs, r.renames...)))
 	var explained map[string]bool
 	if causal && from >= 0 {
-		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads, readValueChanged(spot, rec, renamer(append(pairs, r.renames...))))
+		explained = explainedSteps(spot.Steps, remaining, inputAt, fx.Reads, readValueChanged(spot, rec, renamer(append(pairs, r.renames...))), edits)
 	}
 	kept := []Change{}
 	for _, c := range remaining {
@@ -126,7 +131,39 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	r.Changes = kept
 }
 
-func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read, valueChanged func(step, path string) bool) map[string]bool {
+type stepEdits struct {
+	touched         map[string]bool
+	writeAt         map[string]bool
+	afterAddedWrite map[string]bool
+}
+
+func (s stepEdits) note(c Change, inSpot bool, rec *runner.Record) {
+	s.touched[c.Step] = true
+	write := false
+	for _, call := range []any{c.Want, c.Got} {
+		if text, ok := call.(string); ok && text != "" && !chain.IsReadOnlyCall(text) {
+			write = true
+		}
+	}
+	if !write {
+		return
+	}
+	if inSpot {
+		s.writeAt[c.Step] = true
+		return
+	}
+	after := false
+	for _, st := range rec.Steps {
+		if after {
+			s.afterAddedWrite[st.ID] = true
+		}
+		if st.ID == c.Step {
+			after = true
+		}
+	}
+}
+
+func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[string][]string, reads map[string][]Read, valueChanged func(step, path string) bool, edits stepEdits) map[string]bool {
 	responseChanged := map[string]bool{}
 	for _, c := range changes {
 		if c.Kind != KindStatus && c.Kind != KindNotReached {
@@ -148,14 +185,19 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 				why = true
 			}
 		}
-		if stateChanged {
+		for _, rd := range reads[st.ID] {
+			if edits.touched[rd.Step] {
+				why = true
+			}
+		}
+		if stateChanged || edits.touched[st.ID] || edits.afterAddedWrite[st.ID] {
 			why = true
 		}
 		if why {
 			carried = true
 		}
 		explained[st.ID] = why
-		if len(inputAt[st.ID]) > 0 && responseChanged[st.ID] && !chain.IsReadOnlyCall(st.Call) {
+		if len(inputAt[st.ID]) > 0 && responseChanged[st.ID] && !chain.IsReadOnlyCall(st.Call) || edits.writeAt[st.ID] {
 			stateChanged = true
 		}
 		for _, c := range changes {

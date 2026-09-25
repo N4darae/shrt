@@ -75,7 +75,7 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	c, err := chain.Resolve(e.chainsDir(), rest[0])
+	c, err := e.resolveChain(rest[0])
 	if err != nil {
 		return err
 	}

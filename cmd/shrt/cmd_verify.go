@@ -102,7 +102,10 @@ func runVerify(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	name := e.chainName(rest[0])
+	name, err := e.chainName(rest[0])
+	if err != nil {
+		return err
+	}
 	if err := e.knownChain(name); err != nil {
 		return err
 	}
@@ -151,11 +154,11 @@ func runVerify(ctx context.Context, args []string) error {
 					"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
 					"replay live.\n", *useRun)
 		}
-		if resolved, resolveErr := chain.Resolve(e.chainsDir(), name); resolveErr == nil {
+		if resolved, resolveErr := e.resolveChainNamed(rest[0], name); resolveErr == nil {
 			c = resolved
 		}
 	} else {
-		c, err = chain.Resolve(e.chainsDir(), name)
+		c, err = e.resolveChainNamed(rest[0], name)
 		if err != nil {
 			for _, o := range doctor.OrphanSafeSpots(e.cfg) {
 				if o.Name == name {
@@ -428,6 +431,11 @@ func runVerify(ctx context.Context, args []string) error {
 		if report.OnlyExpectationsEdited() {
 			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
 				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
+		}
+		if report.OnlyChainChanged() {
+			return fmt.Errorf("regression: %d change(s) vs safe spot are at steps the chain change since it was confirmed cannot affect "+
+				"(not a changed, added or removed step, after no added or removed write, and reading none of those steps), so it does not "+
+				"explain them (%d more it explains)", n, len(report.Changes)-n)
 		}
 		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ, that read no value the different "+
 			"input changed and follow no write whose answer changed with it, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)

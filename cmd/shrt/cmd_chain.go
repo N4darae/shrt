@@ -465,15 +465,35 @@ func mismatchedFile(e *env, c *chain.Chain) string {
 	return filepath.Base(c.SourcePath)
 }
 
-func (e *env) chainName(ref string) string {
-	if strings.ContainsAny(ref, "/\\") || strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") {
-		return ref
+func (e *env) resolveChain(ref string) (*chain.Chain, error) {
+	c, err := chain.ResolveUnique(e.chainsDir(), ref)
+	var clash *chain.NameClashError
+	if errors.As(err, &clash) {
+		return nil, clash.Relative(func(p string) string { return rel(e.cfg.Root, p) })
 	}
-	c, err := chain.Resolve(e.chainsDir(), ref)
+	return c, err
+}
+
+func (e *env) resolveChainNamed(ref, name string) (*chain.Chain, error) {
+	if c, err := e.resolveChain(ref); err == nil && c.Name == name {
+		return c, nil
+	}
+	return e.resolveChain(name)
+}
+
+func (e *env) chainName(ref string) (string, error) {
+	if strings.ContainsAny(ref, "/\\") || strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") {
+		return ref, nil
+	}
+	c, err := e.resolveChain(ref)
+	var clash *chain.NameClashError
+	if errors.As(err, &clash) {
+		return "", err
+	}
 	if err != nil || c.Name == ref || nameMismatchIn(e, c) == nil {
-		return ref
+		return ref, nil
 	}
 	fmt.Fprintf(os.Stderr, "shrt: %s is chain %s (its name: differs from its file name), so its runs and safe spot are %s's\n",
 		rel(e.cfg.Root, c.SourcePath), c.Name, c.Name)
-	return c.Name
+	return c.Name, nil
 }

@@ -927,11 +927,13 @@ rename is all that changed, carry the approved safe spot across instead of askin
 approval: `shrt confirm <new> -rename-from <old> -by <email>`, with the email of the user who
 agreed to the rename (the same rule as `-approve`). It refuses unless `<old>` has a safe spot and
 no chain file any more, `<new>` has no safe spot, nothing is pending for either, and `<new>` is
-identical to what the safe spot recorded: step ids, order and calls, expectations, references,
-literal body values and headers, auth profiles, volatile and unordered paths; when the last commit
-still holds `<old>.yaml`, the whole file must match apart from `name:` (vars defaults, redact,
-descriptions). Any other difference is refused with the first one named, and the chain is run,
-proposed and approved normally. On success it moves `<old>.json` to `<new>.json` keeping
+identical, apart from `name:`, to the chain file the approved run ran: the safe spot keeps its
+`chain_digest`, so every body template (not only the value it resolved to), vars default,
+`allow_fail`, `export`, `redact`, `kept_red`, `unordered`, expectation and description is
+compared, whether or not the rename is committed yet. Any other difference is refused, naming
+where it differs from the last committed `<old>.yaml` when that is the approved file, and the chain
+is run, proposed and approved normally. A safe spot approved by an older shrt has no
+`chain_digest`, so nothing proves the rename pure: it is refused the same way. On success it moves `<old>.json` to `<new>.json` keeping
 `confirmed_by`, `confirmed_at` and `note`, records the rename under `renamed` and re-seals the
 digest. Run records of `<old>` stay under `.shrt/runs/<old>/`; `chain hollow` lists them as an
 orphan `renamed to <new>`, explained as a rename rather than a deleted chain (excluded from the
@@ -1062,9 +1064,14 @@ Three things that decide whether this works for a given chain:
   The chain's step list and expectations are compared too: a step removed, added, moved or
   re-pointed, an expectation edited, or a body field reading another step's field, since approval is a `chain differs` line, a chain change
   rather than an input change, and alone it fails with `drift after a chain change`, not a `regression`; a move is
-  never a response change, so beside an expectation edit it still makes the verdict a chain change. A step renamed in
+  never a response change, so beside an expectation edit it still makes the verdict a chain change. A removed, added or
+  re-called step explains only the steps it can affect: itself, every step after it when it is a write, and every step
+  reading it. A change at any other step (a read left in place when an unrelated trailing read was deleted) is still a
+  `regression`, and verify says the chain change `cannot affect` it. A step renamed in
   place (same call, same position, and that call's steps still at the same positions, so two steps of one call
-  renamed together, or their ids swapped with the bodies left in place, pair by position) is not a removal and an addition:
+  renamed together, or their ids swapped with the bodies left in place, pair by position) is not a removal and an addition;
+  nor is one renamed beside an inserted or deleted step: the steps whose ids did not change are paired first, and
+  between them a renamed step pairs with the old step of the same call in the same relative order:
   `verify`, `diff` and the `-supersede` review say `renamed step(s): step 8 list_orders -> list_customer_orders` and
   compare its response with the old step's, so a changed value there (`orders.0.total_minor want=750 got=1`) is judged. A call respelled to
   the same rpc (`ListProducts` to its fully qualified name) is not a change: the recorded
@@ -1317,7 +1324,8 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      cannot be verified from that chain. Nothing was compared; fix the cause the line names and
      re-run. A refusal before anything is sent exits 2 as well, without the verdict block: an
      unknown chain or step, no `-run`, a run that does not reach the step, a missing or not-fresh
-     `-var name=<fresh>`. Only a flag that cannot be parsed exits 1.
+     `-var name=<fresh>` (a `-var` equal to the source run's value for a var a kept write interpolates
+     is not fresh). Only a flag that cannot be parsed exits 1.
    - `INCONCLUSIVE` (3), also when the source run was recorded against another target than the
      config's: the line says `the source run was recorded against <A>, this target is <B>`. Under
      `-mode pin` nothing is sent (its ids were minted there); in closure mode a different verdict

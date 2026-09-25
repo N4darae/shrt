@@ -862,6 +862,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		RunID:       newRunID(now),
 		Chain:       c.Name,
 		ChainSource: c.SourcePath,
+		ChainDigest: c.Digest(),
 		Target:      r.Client.BaseURL(),
 		StartedAt:   now,
 		Status:      StatusPassed,

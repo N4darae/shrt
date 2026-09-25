@@ -23,6 +23,76 @@ func StepRenames(was, now []*runner.StepRecord) []StepRename {
 	if !uniqueIDs(was) || !uniqueIDs(now) {
 		return nil
 	}
+	if out := positionalRenames(was, now); out != nil {
+		return out
+	}
+	return alignedRenames(was, now)
+}
+
+func alignedRenames(was, now []*runner.StepRecord) []StepRename {
+	nowAt := map[string]int{}
+	for j, st := range now {
+		nowAt[st.ID] = j
+	}
+	type anchor struct{ i, j int }
+	anchors := []anchor{{-1, -1}}
+	for i, st := range was {
+		if j, ok := nowAt[st.ID]; ok {
+			if j < anchors[len(anchors)-1].j {
+				return nil
+			}
+			anchors = append(anchors, anchor{i, j})
+		}
+	}
+	anchors = append(anchors, anchor{len(was), len(now)})
+	out := []StepRename{}
+	for k := 1; k < len(anchors); k++ {
+		a, b := anchors[k-1], anchors[k]
+		w, n := was[a.i+1:b.i], now[a.j+1:b.j]
+		for _, m := range sameCallAlignment(w, n) {
+			out = append(out, StepRename{Was: w[m[0]].ID, Now: n[m[1]].ID, Index: a.j + 1 + m[1]})
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sameCallAlignment(was, now []*runner.StepRecord) [][2]int {
+	if len(was) == 0 || len(now) == 0 {
+		return nil
+	}
+	dp := make([][]int, len(was)+1)
+	for i := range dp {
+		dp[i] = make([]int, len(now)+1)
+	}
+	for i := len(was) - 1; i >= 0; i-- {
+		for j := len(now) - 1; j >= 0; j-- {
+			if SameCall(was[i], now[j]) {
+				dp[i][j] = 1 + dp[i+1][j+1]
+			} else {
+				dp[i][j] = max(dp[i+1][j], dp[i][j+1])
+			}
+		}
+	}
+	out := [][2]int{}
+	for i, j := 0, 0; i < len(was) && j < len(now); {
+		switch {
+		case SameCall(was[i], now[j]) && dp[i][j] == 1+dp[i+1][j+1]:
+			out = append(out, [2]int{i, j})
+			i++
+			j++
+		case dp[i+1][j] >= dp[i][j+1]:
+			i++
+		default:
+			j++
+		}
+	}
+	return out
+}
+
+func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 	wasAt, nowAt := map[string][]int{}, map[string][]int{}
 	for i, st := range was {
 		wasAt[callKey(st)] = append(wasAt[callKey(st)], i)
@@ -136,6 +206,6 @@ func RenamedLine(renames []StepRename, was, now string) string {
 	for _, rn := range renames {
 		list = append(list, fmt.Sprintf("step %d %s -> %s", rn.Index+1, rn.Was, rn.Now))
 	}
-	return fmt.Sprintf("renamed step(s): %s (named in %s -> in %s); the call and the position are the same, so each is compared "+
+	return fmt.Sprintf("renamed step(s): %s (named in %s -> in %s); the call is the same and the step keeps its place among the steps whose ids did not change, so each is compared "+
 		"as one step under its new name", strings.Join(list, ", "), was, now)
 }
