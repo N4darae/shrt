@@ -818,18 +818,18 @@ func failedExpectLines(source, replay chain.Verdict) []string {
 		for i, r := range replay.Expect {
 			if !used[i] && r.Path == e.Path && r.Rule == e.Rule {
 				used[i] = true
-				got = "got=" + quoted(r.Got)
+				got = chain.GotText(r.Rule, quoted(r.Got))
 				if r.Passed {
 					got += " (held)"
 				}
 				break
 			}
 		}
-		out = append(out, fmt.Sprintf("failed: %s %s want=%s source got=%s, slice %s", e.Path, e.Rule, quoted(e.Want), quoted(e.Got), got))
+		out = append(out, fmt.Sprintf("failed: %s %s source %s, slice %s", e.Path, chain.WantText(e.Rule, quoted(e.Want)), chain.GotText(e.Rule, quoted(e.Got)), got))
 	}
 	for i, r := range replay.Expect {
 		if !r.Passed && !used[i] {
-			out = append(out, fmt.Sprintf("failed in the slice only: %s %s want=%s got=%s", r.Path, r.Rule, quoted(r.Want), quoted(r.Got)))
+			out = append(out, fmt.Sprintf("failed in the slice only: %s %s", r.Path, chain.WantGot(r.Rule, quoted(r.Want), quoted(r.Got))))
 		}
 	}
 	return out

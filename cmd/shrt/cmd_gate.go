@@ -42,6 +42,7 @@ type gateItem struct {
 	Step   string `json:"step"`
 	Call   string `json:"call"`
 	Path   string `json:"path"`
+	Rule   string `json:"rule,omitempty"`
 	Want   string `json:"want"`
 	Got    string `json:"got"`
 	Writer string `json:"writer,omitempty"`
@@ -116,7 +117,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 				continue
 			}
 			found = true
-			side.Items = append(side.Items, gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Want: gateValue(ex.Want), Got: gateValue(ex.Got), Writer: entityWriter(rec, st.ID)})
+			side.Items = append(side.Items, gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: gateValue(ex.Want), Got: gateValue(ex.Got), Writer: entityWriter(rec, st.ID)})
 		}
 		if !found && st.Error != "" && !pinnedStep(c, st.ID) {
 			why, _, _ := strings.Cut(st.Error, "\n")
@@ -124,6 +125,10 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 		}
 	}
 	return side
+}
+
+func (it gateItem) verdict() string {
+	return it.Path + " " + chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
 func pinnedStep(c *chain.Chain, step string) bool {
@@ -405,7 +410,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if g.first == "" {
 			if len(out.side.Items) > 0 {
 				it := out.side.Items[0]
-				g.first = fmt.Sprintf("%s (%s) %s want=%s got=%s", it.Step, shortRPC(it.Call), it.Path, it.Want, it.Got)
+				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.verdict())
 			} else {
 				g.first = capText(what+": "+why, 200)
 			}
@@ -451,7 +456,7 @@ func printGateGroups(chains []*gateChain) {
 			gr := groups[key]
 			if gr == nil {
 				gr = &gateGroup{rpc: shortRPC(it.Call), path: path, steps: map[string]bool{}, chains: map[string]bool{}, writers: map[string]int{},
-					example: fmt.Sprintf("%s %s want=%s got=%s", g.name, it.Step, it.Want, it.Got)}
+					example: fmt.Sprintf("%s %s %s", g.name, it.Step, chain.WantGot(it.Rule, it.Want, it.Got))}
 				groups[key] = gr
 				order = append(order, key)
 			}

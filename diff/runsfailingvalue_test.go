@@ -30,8 +30,8 @@ func TestDiffShowsTheFailingValuesWhenBothRunsFailedAtTheSameStep(t *testing.T) 
 	text := diff.CompareRunsSkipping(a, b, nil, diff.Fixtures{Named: fixture}).Text()
 	for _, want := range []string{
 		"first failing step unchanged: get_customer, failing the same way in both: the values differ only by the fixture name each run sent",
-		"A: customer.name equals want=Customer b6a got=cust-b6a@example.test",
-		"B: customer.name equals want=Customer b6b got=cust-b6b@example.test",
+		"A: customer.name want=Customer b6a got=cust-b6a@example.test",
+		"B: customer.name want=Customer b6b got=cust-b6b@example.test",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("both runs failed at get_customer; the diff shows the failing values of each, masking the echo only in the comparison, want %q:\n%s", want, text)

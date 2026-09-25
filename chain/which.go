@@ -480,14 +480,16 @@ func codeIn(response any, paths []string) (string, string, bool) {
 
 func DescribeFailure(r ExpectResult) string {
 	out := r.Path
-	if r.Rule != "" && r.Rule != "equals" {
+	if !ruleShown(r.Rule) {
 		out += " " + r.Rule
-	}
-	if r.Want != nil {
-		out += " want=" + scalarText(r.Want)
+		if r.Want != nil {
+			out += " want=" + scalarText(r.Want)
+		}
+	} else if r.Want != nil || r.Rule == "not_empty" || r.Rule == "exists" {
+		out += " " + WantText(r.Rule, scalarText(r.Want))
 	}
 	if r.Got != nil {
-		out += " got=" + scalarText(r.Got)
+		out += " " + GotText(r.Rule, scalarText(r.Got))
 	}
 	if r.Detail != "" {
 		out += " (" + r.Detail + ")"

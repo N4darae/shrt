@@ -40,7 +40,7 @@ steps:
 	if !strings.Contains(out, "verify reproduced") {
 		t.Fatalf("the slice gives fetch the verdict it had: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "failed: name equals want=gadget source got=widget, slice got=widget") {
+	if !strings.Contains(out, "failed: name want=gadget source got=widget, slice got=widget") {
 		t.Errorf("a reproduced verdict must show the failing expectation it matched, with its values:\n%s", out)
 	}
 }

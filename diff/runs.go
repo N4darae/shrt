@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
@@ -755,7 +756,7 @@ func failingLines(s *runner.StepRecord) []string {
 		if e.Passed || e.Rule == "unevaluated" {
 			continue
 		}
-		out = append(out, fmt.Sprintf("%s %s want=%v got=%v", e.Path, e.Rule, e.Want, e.Got))
+		out = append(out, chain.DescribeFailure(chain.ExpectResult{Path: e.Path, Rule: e.Rule, Want: e.Want, Got: e.Got}))
 	}
 	if len(out) == 0 {
 		if s.Transport != nil {
