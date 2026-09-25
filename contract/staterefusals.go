@@ -133,9 +133,9 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 					}
 				}
 				if move == nil {
-					p.note("step %s: its contract declares %s for a %s in %s, but no write rpc in the contracts says it moves "+
-						"a %s there (a summary or export naming %s), so no fixture is put in that state to probe it",
-						st.ID, f.Label(), e.carrier, short[state], e.carrier, short[state])
+					p.note("step %s: its contract declares %s for %s in %s, but no write rpc in the contracts says it moves "+
+						"%s there (a summary or export naming %s), so no fixture is put in that state to probe it",
+						st.ID, f.Label(), withArticle(e.carrier), short[state], withArticle(e.carrier), short[state])
 					continue
 				}
 				p.addStateRefusal(lib, st, m, e, f, *move, short)
@@ -176,9 +176,9 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 		withArticle(e.carrier), short[move.value], f.Label(), strings.TrimSpace(f.When))
 	p.Chain.Steps = append(p.Chain.Steps, fixture, moved)
 	p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{refused}, refused.ID)...)
-	p.note("step %s: its contract declares %s for a %s in %s, so %s moves a fresh %s there with %s and %s expects exactly "+
+	p.note("step %s: its contract declares %s for %s in %s, so %s moves a fresh %s there with %s and %s expects exactly "+
 		"%s, the reads around it asserting the %s and what it holds unchanged: a backend that answers another code, or "+
-		"acts on the %s anyway, fails", st.ID, f.Label(), e.carrier, short[move.value], fixture.ID, e.carrier, moved.ID,
+		"acts on the %s anyway, fails", st.ID, f.Label(), withArticle(e.carrier), short[move.value], fixture.ID, e.carrier, moved.ID,
 		refused.ID, f.Label(), e.carrier, e.carrier)
 }
 

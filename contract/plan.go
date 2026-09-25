@@ -458,7 +458,11 @@ func (p *Plan) UnfilledCount() int {
 }
 
 func (p *Plan) note(format string, args ...any) {
-	p.Notes = append(p.Notes, fmt.Sprintf(format, args...))
+	text := fmt.Sprintf(format, args...)
+	if containsString(p.Notes, text) {
+		return
+	}
+	p.Notes = append(p.Notes, text)
 }
 
 func setBodyPath(body map[string]any, path string, value any) bool {

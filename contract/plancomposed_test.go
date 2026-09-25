@@ -3,6 +3,8 @@ package contract_test
 import (
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/contract"
 )
 
 func TestPlanCancelsAConfirmedOrderAndAssertsTheStockComesBack(t *testing.T) {
@@ -34,5 +36,23 @@ func TestPlanCancelsAConfirmedOrderAndAssertsTheStockComesBack(t *testing.T) {
 	p, text, _ = shopDemoPlan(t, "ConfirmOrder")
 	if _, ok := p.Chain.Step("confirm_order_after_cancelled"); ok {
 		t.Fatalf("a confirm of a cancelled order is a declared refusal, not a composition:\n%s", text)
+	}
+}
+
+func TestPlanSaysEachNoteOnce(t *testing.T) {
+	p, _ := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
+			c.Needs = append(c.Needs, "shop.catalog.v1.StockService/AddStockBatch")
+		}
+	}, "CancelOrder")
+	seen := map[string]bool{}
+	for _, n := range p.Notes {
+		if seen[n] {
+			t.Fatalf("note repeated: %s", n)
+		}
+		seen[n] = true
+	}
+	if !strings.Contains(strings.Join(p.Notes, "\n"), "would move a fixture to CONFIRMED") {
+		t.Fatalf("the plan says why no fixture is confirmed: %v", p.Notes)
 	}
 }
