@@ -157,7 +157,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 			where = fmt.Sprintf("%s (%s asks for %s)", short.ID, path, overdrawValue)
 		}
 		refused.Description = fmt.Sprintf("refused with %s (%s), and nothing it would have changed moves.", f.Label(), strings.TrimSpace(f.When))
-		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, refused, "")...)
+		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{refused}, refused.ID)...)
 		ids = append(ids, fmt.Sprintf("%s via %s", refused.ID, where))
 	}
 	p.note("step %s: %s expect %s; the reads around each assert that every entity it touches is unchanged, so a "+
@@ -367,15 +367,21 @@ func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityR
 	return entityRead{}, false
 }
 
-func (p *Plan) guardUnchanged(lib *Library, refused *chain.Step, label string) []*chain.Step {
-	entities := p.entitiesOf(lib, refused)
+func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string) []*chain.Step {
+	entities := []entityRead{}
+	seen := map[string]bool{}
+	for _, r := range refused {
+		for _, e := range p.entitiesOf(lib, r) {
+			if !seen[e.producer.ID] {
+				seen[e.producer.ID] = true
+				entities = append(entities, e)
+			}
+		}
+	}
 	if len(entities) == 0 {
 		p.note("step %s: no read rpc in the contracts takes the id of anything it touches, so nothing proves the "+
-			"refusal changed nothing: read the state it would have written after it", refused.ID)
-		return []*chain.Step{refused}
-	}
-	if label == "" {
-		label = refused.ID
+			"refusal changed nothing: read the state it would have written after it", refused[0].ID)
+		return refused
 	}
 	before, after := []*chain.Step{}, []*chain.Step{}
 	reserved := map[string]bool{}
@@ -414,7 +420,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused *chain.Step, label string) [
 		before = append(before, read)
 		after = append(after, check)
 	}
-	out := append(before, refused)
+	out := append(before, refused...)
 	return append(out, after...)
 }
 

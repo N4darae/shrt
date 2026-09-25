@@ -1316,6 +1316,19 @@ quantity of 100000 on the first item (and another on the last), the refused call
 every entity it touches before and after, asserting numeric and enum fields unchanged. In the lab
 the last-item probe also found a baseline that checks only the first line and confirms anyway.
 
+## 48. AddStock open to every role, green in the planned chain
+
+**Symptom.** AddStock stopped checking for ADMIN, so a clerk could add stock. The contract said
+`requires_role: [ADMIN]`, the config declared a `clerk` profile, and every planned chain stayed green.
+
+**Cause.** Plans ran every step as the default (admin) principal. Nothing ever called a gated rpc as
+anyone who should be refused, nor without a token.
+
+**Fix.** 2026-09-25: with auth configured, `contract plan` adds `<step>_as_<profile>` for each profile
+whose name is not a required role, expecting the declared denial, plus one missing-token and one
+invalid-token probe per plan, between reads proving the write changed nothing. `contract status
+-gaps` lists `no role probe` and `no token` for rpcs no chain probes that way.
+
 ---
 
 # Decisions, so they are not relitigated

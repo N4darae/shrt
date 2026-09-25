@@ -321,6 +321,18 @@ directly or through the step it reads, with the read rpc whose contract takes th
 field equal to the before-read. A backend that refuses but still takes the first line's stock fails
 there. Pin a shortage your backend really mishandles with `kept_red`; do not delete the probe.
 
+When the config declares auth, the plan also probes who may call. For a target whose contract names
+`requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
+`<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
+for a caller without the role (a reason such as `PermissionDenied`, or a `when:` naming the role);
+the plan assumes such a profile lacks the role, so name profiles after their role. The plan's first
+target also gets `<step>_without_token` (`skip_auth: true`) and `<step>_with_bad_token` (`auth:
+invalid`), expecting the domain's `connect_code: unauthenticated` failure as `transport.code` (one
+pair per plan, not per rpc). For a write, all of these sit between reads of what it touches
+(`get_product_before_add_stock_denied` / `…_after_…`), so a denied call that still wrote fails.
+`shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
+probe`) and the chained rpcs no chain calls without a token (`no token`).
+
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
 those facts. `chain lint` warns on such a step, planned or hand-written (`envelope-only`, failed by
