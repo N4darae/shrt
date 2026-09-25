@@ -120,7 +120,7 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 	}
 	f := gateWorkspace(t, map[string][]gateOutcome{
 		"run cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{item("create"), item("create_2")}}}},
-		"run cli-unique": {{code: 1, side: gateSidecar{Request: "create sent {\"name\":\"x\"}", Items: []gateItem{item("create"),
+		"run cli-unique": {{code: 1, side: gateSidecar{Sent: map[string]string{"create": " sent {\"name\":\"x\"}"}, Items: []gateItem{item("create"),
 			{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "name", Want: "a", Got: "b"},
 			{Step: "fetch_2", Call: "shrt.test.v1.ThingService/Fetch", Path: "count", Rule: "not_equal", Want: "0", Got: "0", Suspect: "shrt.test.v1.ThingService/Create", SuspectStep: "create"}}}}},
 		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: DRIFT\nREGRESSION: something\n",
@@ -135,7 +135,7 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		"  REGRESSION: something",
 		"FAIL       cli-unique      create (ThingService/Create) items.0.price want=250 got=249\n  create sent {\"name\":\"x\"}\n",
 		"  ThingService/Create: 3 step(s) in 2 chain(s), paths items[].price; e.g. cli-thing-flow create items[].price want=250 got=249\n" +
-			"    +1 read(s): Fetch count\n",
+			"    +1 step(s) after it: Fetch count\n",
 		"  ThingService/Fetch: 1 step(s) in 1 chain(s), paths name; no suspect write; e.g. cli-unique fetch name want=a got=b",
 		"FAIL: 2 of 2 chain(s) failed",
 	} {
@@ -227,7 +227,7 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	out, code = runGateOut(t)
 	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget") ||
 		!strings.Contains(out, "  suspect write create (ThingService/Create) sent {") ||
-		!strings.Contains(out, "ThingService/Create: passed itself, but reads after it failed or changed; e.g. cli-thing-flow create\n    +1 read(s): Fetch name\n") {
+		!strings.Contains(out, "ThingService/Create: passed itself, but steps after it failed or changed; e.g. cli-thing-flow create\n    +1 step(s) after it: Fetch name\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)
 	}
 }

@@ -155,7 +155,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 		failed[f.step.ID] = true
 	}
 	for _, st := range rec.Steps {
-		if src := heldBackBy(st); failed[st.ID] || failed[src] {
+		if src, _ := heldBackBy(st); failed[st.ID] || failed[src] {
 			out.hidden = append(out.hidden, st.ID)
 		}
 	}

@@ -98,18 +98,23 @@ each with a fresh `-var tag` when the chain reads one, retries an exit 3 once af
 (20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
 regression, order changed, different input or chain change) or `NO VERDICT` with the first failing
-step and path, and under a `FAIL` the request of the suspect. Failures are then grouped by suspect
-rpc. The read itself is the suspect when it fails with a server error, when only the order of a list
-changed, when the write it observes returned the same field of the same record unchanged, or when
-the same change follows two different writes; otherwise it is the write the read observes (`<write>`
-in `<read>_after_<write>`, else the nearest earlier write on the same entity), reads beneath it:
+step and path, and under a `FAIL` the request of the suspect (`-v` adds each changed path with the
+steps it changed at). Failures are then grouped, one line per suspect rpc. The read itself is the
+suspect when it fails with a server error, when its list holds another set of items while every
+write before it answered as before, when only the order of a list changed, when the write it
+observes returned the same field of the same record unchanged, or when the same change follows two
+different writes. A change first seen in an earlier step's answer for the same field of the same
+record belongs to that step, a write whose own answer changed included. Otherwise it is the write
+the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
+entity), reads beneath it; steps left unevaluated behind a failed step fold into one line under it:
 
 ```
 FAIL       items-move   regression: get_item_after_move_item (ItemService/GetItem) item.slot want=4 got=2
   suspect write move_item (ItemService/MoveItem) as operator sent {"id_item":"itm-1","slot":4}
 failures by suspect rpc (the read itself, or the failing or changed write it observes), then the rest:
-  ItemService/MoveItem: passed itself, but reads after it failed or changed; e.g. items-move move_item
-    +3 read(s): GetItem item.slot
+  ItemService/MoveItem: passed itself, but steps after it failed or changed; e.g. items-move move_item
+    +3 step(s) after it: GetItem item.slot
+    +2 step(s) in 1 chain(s) unevaluated because GetItem changed item.slot
 ```
 
 Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
