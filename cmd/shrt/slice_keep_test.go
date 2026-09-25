@@ -110,8 +110,8 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 		t.Errorf("the verdict must be recorded in the chain the slice equals: %v\n%s", err, raw)
 	}
 	entries, err := os.ReadDir(".shrt/runs/cli-noisy-flow")
-	if err != nil || len(entries) != 2 {
-		t.Errorf("the verify run record is kept next to the chain it ran: %v, %d", err, len(entries))
+	if err != nil || len(entries) != 4 {
+		t.Errorf("the source run and the three -repeat runs of the verify are kept next to the chain they ran: %v, %d", err, len(entries))
 	}
 }
 

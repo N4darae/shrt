@@ -24,7 +24,7 @@ import (
 
 type sliceProgress struct{ verify, sent bool }
 
-const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-build <id>] [-resend-writes]] [-json]"
+const sliceUsage = "usage: shrt chain slice <chain> -step <step-id> [-mode closure|pin] [-run <id>] [-keep <id,...>] [-var k=v] [-write [<name>] [-force]] [-verify [-repeat N] [-build <id>] [-resend-writes]] [-json]"
 
 const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"  0  the slice was printed or written\n" +
@@ -38,7 +38,9 @@ const sliceExitCodes = "\nexit codes, plain slice (no -verify):\n" +
 	"     a missing or not-fresh -var name=<fresh>, a pinned write without -resend-writes), so nothing was verified\n" +
 	"  3  INCONCLUSIVE: the verdict matched but the slice dropped write step(s) acting on an entity a kept\n" +
 	"     step uses, or the source run was recorded against another target than the config's (under\n" +
-	"     -mode pin nothing is sent then)\n"
+	"     -mode pin nothing is sent then)\n" +
+	"  4  intermittent: of the -repeat runs (default 3) some reproduced the verdict and some did not, so\n" +
+	"     the backend answers the target differently to the same input; the output says reproduced k/N\n"
 
 func chainSlice(ctx context.Context, args []string) error {
 	p := &sliceProgress{}
@@ -64,6 +66,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
 	write := &optionalString{}
 	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a value with a slash or ending in .yaml is a path, written exactly there, relative to the current directory")
+	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times and report how many reproduced the verdict: reproduced N/N, or intermittent: reproduced k/N (exit 4); a var a kept write interpolates gets -r2, -r3 appended on later runs")
 	keep := &stepList{}
 	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
 	setUsage(fs, sliceUsage, sliceExitCodes)
@@ -191,7 +194,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		if !*asJSON {
 			printSliceHeader(res)
 		}
-		verdict, verifyErr = runSliceVerify(ctx, e, res, rec, sliceVerifyArgs{
+		verdict, verifyErr = runSliceVerifyRepeated(ctx, e, res, rec, sliceVerifyArgs{
 			vars: vars, quiet: *asJSON, persist: write.set, name: writeArg, keep: *keep, build: *build,
 			otherTarget: sourceTargetDiffers(e, rec),
 			reslice: func(keep []string) *chain.SliceResult {
@@ -203,7 +206,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 				}
 				return next
 			},
-		})
+		}, repeatCount(fs, *repeat, res))
 		if verdict == nil {
 			return verifyErr
 		}
@@ -219,7 +222,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		rerun := whole && chain.IsSliceDescription(c.Description)
 		switch {
 		case verdict.Outcome == sliceReproduced && whole:
-			res.Verified = res.OwnRunVerdict(c.Name, verdict.SourceRun, verdict.SliceRun, now)
+			res.Verified = res.OwnRunVerdict(c.Name, verdict.SourceRun, verdict.runsLabel(), now)
 			record := chain.RecordVerified
 			if rerun {
 				record = chain.RecordRerun
@@ -228,22 +231,27 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 				return err
 			}
 			verdict.Recorded = c.SourcePath
-		case rerun && (verdict.Outcome == sliceNotReproduced || verdict.Outcome == sliceInconclusive):
+		case rerun && (verdict.Outcome == sliceNotReproduced || verdict.Outcome == sliceInconclusive || verdict.Outcome == sliceIntermittent):
 			outcome, detail := "not reproduced", first
-			if verdict.Outcome == sliceInconclusive {
+			switch verdict.Outcome {
+			case sliceInconclusive:
 				outcome, detail = "INCONCLUSIVE", why
+			case sliceIntermittent:
+				outcome, detail = fmt.Sprintf("INTERMITTENT, reproduced %d/%d", verdict.ReproducedRuns, verdict.Repeat), ""
 			}
-			line := res.OwnRunOutcome(outcome, c.Name, verdict.SourceRun, verdict.SliceRun, now, detail)
+			line := res.OwnRunOutcome(outcome, c.Name, verdict.SourceRun, verdict.runsLabel(), now, detail)
 			if err := recordVerdictIn(c.SourcePath, func(d string) string { return chain.RecordRerun(d, line) }); err != nil {
 				return err
 			}
 			verdict.Recorded = c.SourcePath
 		case verdict.Outcome == sliceReproduced:
-			res.MarkReproduced(verdict.SourceRun, verdict.SliceRun, now)
+			res.MarkReproduced(verdict.SourceRun, verdict.runsLabel(), now)
 		case verdict.Outcome == sliceNotReproduced && !whole:
-			res.MarkNotReproduced(verdict.SourceRun, verdict.SliceRun, now, first)
+			res.MarkNotReproduced(verdict.SourceRun, verdict.runsLabel(), now, first)
 		case verdict.Outcome == sliceInconclusive && !whole:
-			res.MarkInconclusive(verdict.SourceRun, verdict.SliceRun, now, why)
+			res.MarkInconclusive(verdict.SourceRun, verdict.runsLabel(), now, why)
+		case verdict.Outcome == sliceIntermittent && !whole:
+			res.MarkIntermittent(verdict.SourceRun, verdict.runsLabel(), verdict.ReproducedRuns, verdict.Repeat, now)
 		}
 		if verdict.Outcome != sliceDidNotRun && written != "" {
 			if err := writeSliceFile(written, res.Chain); err != nil {
@@ -582,24 +590,27 @@ const (
 )
 
 type sliceVerdict struct {
-	Step         string        `json:"step"`
-	Outcome      string        `json:"outcome"`
-	Reproduced   bool          `json:"reproduced"`
-	Reason       string        `json:"reason,omitempty"`
-	EnvelopePath string        `json:"envelope_path"`
-	SourceRun    string        `json:"source_run"`
-	SliceRun     string        `json:"slice_run,omitempty"`
-	Build        string        `json:"build,omitempty"`
-	SliceRecord  string        `json:"slice_record,omitempty"`
-	Status       string        `json:"slice_status,omitempty"`
-	Source       chain.Verdict `json:"source"`
-	Replay       chain.Verdict `json:"replay"`
-	Differences  []string      `json:"differences,omitempty"`
-	Next         string        `json:"next,omitempty"`
-	NotKeepable  []string      `json:"not_keepable,omitempty"`
-	OtherDropped []string      `json:"dropped_writes_other_entities,omitempty"`
-	OtherTarget  string        `json:"source_target_differs,omitempty"`
-	Recorded     string        `json:"verdict_written_to,omitempty"`
+	Step           string            `json:"step"`
+	Outcome        string            `json:"outcome"`
+	Reproduced     bool              `json:"reproduced"`
+	Reason         string            `json:"reason,omitempty"`
+	EnvelopePath   string            `json:"envelope_path"`
+	SourceRun      string            `json:"source_run"`
+	SliceRun       string            `json:"slice_run,omitempty"`
+	Build          string            `json:"build,omitempty"`
+	SliceRecord    string            `json:"slice_record,omitempty"`
+	Status         string            `json:"slice_status,omitempty"`
+	Source         chain.Verdict     `json:"source"`
+	Replay         chain.Verdict     `json:"replay"`
+	Differences    []string          `json:"differences,omitempty"`
+	Next           string            `json:"next,omitempty"`
+	NotKeepable    []string          `json:"not_keepable,omitempty"`
+	OtherDropped   []string          `json:"dropped_writes_other_entities,omitempty"`
+	Repeat         int               `json:"repeat,omitempty"`
+	ReproducedRuns int               `json:"reproduced_runs,omitempty"`
+	Runs           []sliceRunOutcome `json:"runs,omitempty"`
+	OtherTarget    string            `json:"source_target_differs,omitempty"`
+	Recorded       string            `json:"verdict_written_to,omitempty"`
 }
 
 type stepList []string
@@ -655,16 +666,22 @@ func (v *sliceVerdict) text() string {
 		sliceNotReproduced: "NOT REPRODUCED",
 		sliceInconclusive:  "INCONCLUSIVE",
 		sliceDidNotRun:     "DID NOT RUN",
-	}[v.Outcome]
+		sliceIntermittent:  "intermittent: reproduced",
+	}[v.Outcome] + v.countLabel()
 	slice := v.SliceRun
 	if slice == "" {
 		slice = "none"
 	}
-	fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s", head, v.Step, v.SourceRun, slice)
+	if v.Repeat > 1 {
+		fmt.Fprintf(&b, "verify %s: step %s, source run %s, %d slice runs, details from slice run %s", head, v.Step, v.SourceRun, v.Repeat, slice)
+	} else {
+		fmt.Fprintf(&b, "verify %s: step %s, source run %s, slice run %s", head, v.Step, v.SourceRun, slice)
+	}
 	if v.Build != "" {
 		fmt.Fprintf(&b, " on build %s", v.Build)
 	}
 	b.WriteString("\n")
+	b.WriteString(v.runLines())
 	fmt.Fprintf(&b, "  source: status %s, %s %q%s\n", v.Source.Status, v.EnvelopePath, v.Source.ErrorCode, refusalText(v.Source))
 	if v.Outcome == sliceDidNotRun {
 		fmt.Fprintf(&b, "  slice:  step %s was never sent, so there is no verdict to compare\n", v.Step)
@@ -759,6 +776,8 @@ func (v *sliceVerdict) settled() bool {
 
 func (v *sliceVerdict) err() error {
 	switch v.Outcome {
+	case sliceIntermittent:
+		return exitWith(4, "step %s: intermittent, the slice reproduced it in %d of %d runs", v.Step, v.ReproducedRuns, v.Repeat)
 	case sliceNotReproduced:
 		return exitWith(1, "step %s was NOT reproduced by the slice", v.Step)
 	case sliceDidNotRun:

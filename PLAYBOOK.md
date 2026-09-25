@@ -1305,7 +1305,19 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    closure mode alone does not. With `-run latest`, `-verify` and `-mode pin` use the newest run
    that REACHED the target (its step passed or failed) and say on stderr when that is not the
    newest run; an explicit `-run <id>` that stopped before the target is refused, naming a run
-   that reached it. It prints one of four
+   that reached it. It runs the slice `-repeat` times (default 3, `-repeat 1` for a single run)
+   and never lets one run stand for the whole: a backend that fails a step one call in four
+   (a flaky dependency, a counter, a race) otherwise gives `reproduced` once and `NOT REPRODUCED`
+   twice for the same command. The verdict line counts the runs (`verify reproduced 3/3`) and a
+   `runs:` line gives each slice run id and its outcome. When some runs reproduced and some did
+   not, the verdict is `intermittent: reproduced k/N` (exit 4, recorded as `INTERMITTENT by
+   'shrt chain slice -verify': ...`), with the details of a run that did not, and no `next:`
+   (keeping more steps does not fix a flake). When no run reproduced, the verdict is that of the
+   most telling run (NOT REPRODUCED over INCONCLUSIVE over DID NOT RUN). A var a kept write
+   interpolates gets `-r2`, `-r3` appended on the later runs (`-var tag=s1` sends `s1`, `s1-r2`,
+   `s1-r3`), so a repeat does not collide with the names the first run created. A `-mode pin`
+   slice sent with `-resend-writes` runs once unless `-repeat` is given, since each run re-sends
+   the write. Apart from `intermittent`, it prints one of four
    outcomes, each with its own exit code:
    - `reproduced` (0): the verdicts match and no write step the slice dropped changed an entity a
      kept step uses. Which entities a step uses is read from the source run: every id (a field named

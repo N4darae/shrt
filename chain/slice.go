@@ -161,6 +161,7 @@ type SliceResult struct {
 	Verified      string      `json:"verified,omitempty"`
 	NotReproduced string      `json:"not_reproduced,omitempty"`
 	Inconclusive  string      `json:"inconclusive,omitempty"`
+	Intermittent  string      `json:"intermittent,omitempty"`
 	Build         string      `json:"verify_build,omitempty"`
 	SourceRef     string      `json:"-"`
 	Chain         *Chain      `json:"-"`
@@ -475,7 +476,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
 	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
 		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	r.NotReproduced, r.Inconclusive = "", ""
+	r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
@@ -487,7 +488,7 @@ func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time
 	if difference != "" {
 		r.NotReproduced += " (" + difference + ")"
 	}
-	r.Verified, r.Inconclusive = "", ""
+	r.Verified, r.Inconclusive, r.Intermittent = "", "", ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
@@ -499,7 +500,16 @@ func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time,
 	if why != "" {
 		r.Inconclusive += " (" + why + ")"
 	}
-	r.Verified, r.NotReproduced = "", ""
+	r.Verified, r.NotReproduced, r.Intermittent = "", "", ""
+	if r.Chain != nil {
+		r.Chain.Description = sliceDescription(r)
+	}
+}
+
+func (r *SliceResult) MarkIntermittent(sourceRun, sliceRuns string, reproduced, runs int, at time.Time) {
+	r.Intermittent = fmt.Sprintf("on %s slice runs %s%s gave step %s the verdict it had in source run %s in %d of %d runs",
+		at.UTC().Format("2006-01-02"), sliceRuns, r.onBuild(), r.Target, sourceRun, reproduced, runs)
+	r.Verified, r.NotReproduced, r.Inconclusive = "", "", ""
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
@@ -507,8 +517,11 @@ func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time,
 
 func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun string, at time.Time, why string) string {
 	gave := "another verdict than"
-	if outcome == "INCONCLUSIVE" {
+	switch {
+	case outcome == "INCONCLUSIVE":
 		gave = "a verdict that does not settle it against"
+	case strings.HasPrefix(outcome, "INTERMITTENT"):
+		gave = "in only some runs the verdict of"
 	}
 	out := fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
 		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun)
@@ -538,6 +551,7 @@ const (
 	notReproducedPrefix = "NOT REPRODUCED by 'shrt chain slice -verify': "
 	rerunPrefix         = "RE-RUN by 'shrt chain slice -verify': "
 	inconclusivePrefix  = "INCONCLUSIVE by 'shrt chain slice -verify': "
+	intermittentPrefix  = "INTERMITTENT by 'shrt chain slice -verify': "
 )
 
 func verifiedLine(verified string) string {
@@ -554,7 +568,7 @@ func IsSliceDescription(description string) bool {
 }
 
 func RecordVerified(description, verified string) string {
-	return replaceVerdict(description, verifiedLine(verified), verifiedPrefix, notReproducedPrefix, inconclusivePrefix)
+	return replaceVerdict(description, verifiedLine(verified), verifiedPrefix, notReproducedPrefix, inconclusivePrefix, intermittentPrefix)
 }
 
 func RecordRerun(description, verdict string) string {
@@ -665,6 +679,8 @@ func sliceDescription(res *SliceResult) string {
 		b.WriteString("\n" + verifiedLine(res.Verified))
 	} else if res.NotReproduced != "" {
 		b.WriteString("\n" + notReproducedPrefix + res.NotReproduced + ".\n")
+	} else if res.Intermittent != "" {
+		b.WriteString("\n" + intermittentPrefix + res.Intermittent + ".\n")
 	} else if res.Inconclusive != "" {
 		b.WriteString("\n" + inconclusivePrefix + res.Inconclusive + ".\n")
 	} else {
