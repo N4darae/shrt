@@ -29,7 +29,7 @@ func TestUnderRPCTheChainWhoseNewestRunFailsThereRanksFirst(t *testing.T) {
 	if hits[0].Chain != "long" || hits[0].Best != "b" {
 		t.Fatalf("during an incident the step whose newest run FAILED at the rpc is the one to slice; got %s %s first", hits[0].Chain, hits[0].Best)
 	}
-	if want := "shrt chain slice long -step b -mode pin -run r2"; hits[0].Command != want {
+	if want := "shrt chain slice long -step b -keep writes"; hits[0].Command != want {
 		t.Fatalf("the first reproduce line must slice the failing step\nwant %q\ngot  %q", want, hits[0].Command)
 	}
 }

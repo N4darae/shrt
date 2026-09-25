@@ -1124,7 +1124,12 @@ shrt chain which -code 1218 -json
 3. **The last line of each block is the deliverable.** It is a `chain slice` invocation, and for an
    `OBSERVED` match it is the `-mode pin -run <id>` form, pinning the newest reaching run (even a
    contradicting one), because pinning that run's values is the cheaper reproduction of the same
-   incident. When a write the slice keeps interpolates a var into what it creates, the line ends
+   incident. That holds for a read. When the step itself is a write (`ConfirmOrder`, anything
+   `conventions.read_only_prefixes` does not name), the line is the closure form with
+   `-keep writes` and no `-run`: pinning would re-send the write on the entities the recorded run
+   created and already changed, and a confirm then answers `OrderAlreadyConfirmed` instead of
+   reproducing anything; `-keep writes` keeps each earlier write its state may depend on (a
+   restock the closure alone would drop). When a write the slice keeps interpolates a var into what it creates, the line ends
    with `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a string that a
    dropped step before the target also sent, template for template (`w-${vars.tag}` in both), is
    not counted: the kept write names what that step created under the run's value, so the slice
