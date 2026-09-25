@@ -65,6 +65,80 @@ func refChanges(before []*runner.StepRecord, was *runner.StepRecord, now *chain.
 		}
 		out = append(out, c)
 	}
+	return wholeItems(out, recorded, now.Body, was.BodyRefs, current)
+}
+
+func wholeItems(changes []Change, recorded any, body map[string]any, wasRefs, nowRefs map[string]string) []Change {
+	out := []Change{}
+	done := map[string]bool{}
+	for _, c := range changes {
+		if c.Kind != KindMissing && c.Kind != KindUnexpected {
+			out = append(out, c)
+			continue
+		}
+		p := strings.TrimPrefix(c.Path, BodyPathPrefix)
+		item, ok := goneItem(p, recorded, body, c.Kind == KindMissing)
+		if !ok {
+			out = append(out, c)
+			continue
+		}
+		if done[item] {
+			continue
+		}
+		done[item] = true
+		whole := Change{Step: c.Step, Path: BodyPathPrefix + item, Kind: c.Kind, Detail: RefDetail}
+		if c.Kind == KindMissing {
+			v, _ := chain.Get(recorded, item)
+			whole.Want = withTemplates(v, item, wasRefs)
+		} else {
+			v, _ := chain.Get(body, item)
+			whole.Got = withTemplates(v, item, nowRefs)
+		}
+		out = append(out, whole)
+	}
+	return out
+}
+
+func goneItem(path string, recorded any, body map[string]any, removed bool) (string, bool) {
+	segs := chain.SplitPath(path)
+	for i := 1; i < len(segs); i++ {
+		if !isIndexSeg(segs[i]) {
+			continue
+		}
+		prefix := strings.Join(segs[:i+1], ".")
+		_, inRecorded := chain.Get(recorded, prefix)
+		_, inBody := chain.Get(body, prefix)
+		if removed && inRecorded && !inBody || !removed && inBody && !inRecorded {
+			return prefix, true
+		}
+	}
+	return "", false
+}
+
+func isIndexSeg(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func withTemplates(v any, prefix string, refs map[string]string) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	out := make(map[string]any, len(m))
+	for k, x := range m {
+		out[k] = x
+		if t, ok := refs[prefix+"."+k]; ok {
+			out[k] = t
+		}
+	}
 	return out
 }
 
