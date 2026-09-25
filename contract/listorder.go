@@ -31,6 +31,7 @@ type listTarget struct {
 	producers []*chain.Step
 	carrier   string
 	anchor    string
+	unscoped  bool
 }
 
 func (p *Plan) discriminateListOrder(lib *Library, grow func(*chain.Step) bool) {
@@ -39,6 +40,7 @@ func (p *Plan) discriminateListOrder(lib *Library, grow func(*chain.Step) bool) 
 		if t == nil {
 			continue
 		}
+		p.scopeUnscopedList(t)
 		p.orderFixtures(t, lib)
 	}
 }
@@ -266,6 +268,10 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	ids := make([]string, 0, len(t.producers))
 	for _, prod := range t.producers {
 		ids = append(ids, prod.ID)
+	}
+	if t.unscoped {
+		p.noteUnscopedList(t, len(ids))
+		return
 	}
 	keys := make([]string, 0, len(ranks))
 	for k := range ranks {

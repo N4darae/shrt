@@ -89,6 +89,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintInertAllowFail(s)...)
 		issues = append(issues, lintLiteralIdempotency(s)...)
 		issues = append(issues, lintUnterminatedPrefix(s)...)
+		issues = append(issues, lintUnscopedCount(s, m)...)
 		issues = append(issues, lintUnevaluableOnRefusal(s)...)
 		known[s.ID] = true
 		responses[s.ID] = m

@@ -1617,6 +1617,21 @@ puts on the quantity field.
 that item (a write whose contract summary says add or increase, such as `add_stock` with `qty: 10`
 giving 11). 100000 is used only when no write in the chain adds to the item, and a note says so.
 
+## 68. An exact count on a list nothing scopes, green in lint and red on the second run
+
+**Symptom.** A contract whose `ListProducts` left `sku_prefix` without a `value:` got a plan with
+`sku_prefix: ""`, item positions and `products.3 exists: false`. `chain lint` said `ok`; the first
+run against a database holding other products failed, and so did every later one.
+
+**Cause.** An empty prefix lists every product. The plan asserted the three fixtures as the whole
+list, which only holds against an empty database.
+
+**Fix.** 2026-09-25: `contract plan` scopes such a list to the start every fixture's value shares
+(`sku-${vars.tag}-` for skus `sku-${vars.tag}-a`) and says so in a note; when no fixture value
+varies per run, it asserts only a lower bound (`products.2 exists: true`) and no position. `chain
+lint` warns `unscoped-count` on a read asserting an exact count while no field of its request reads
+a var, a step or a generator.
+
 ---
 
 # Decisions, so they are not relitigated
