@@ -91,7 +91,7 @@ func TestRemovingAMiddleStepKeepsTheFixtureEchoMaskedAtLaterSteps(t *testing.T) 
 	writeFile(t, ".shrt/chains/cli-dupmid.yaml", s[:a]+s[b:])
 
 	var verr error
-	out := captureStdout(t, func() { verr = runVerify(ctx, []string{"cli-dupmid", "-quiet", "-var", "tag=fresh2"}) })
+	out := captureStdout(t, func() { verr = runVerify(ctx, []string{"cli-dupmid", "-quiet", "-v", "-var", "tag=fresh2"}) })
 	if verr == nil || !strings.Contains(verr.Error(), "1 change(s)") {
 		t.Fatalf("only the removed step differs: want one change after a chain change, got %v\n%s", verr, out)
 	}

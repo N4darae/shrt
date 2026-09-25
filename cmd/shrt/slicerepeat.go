@@ -54,15 +54,16 @@ func runSliceVerifyRepeated(ctx context.Context, e *env, res *chain.SliceResult,
 	for i := 1; i <= n; i++ {
 		ai := a
 		ai.vars = repeatVars(a.vars, res, i)
-		if i > 1 && !a.quiet {
-			fmt.Printf("\nrepeat %d of %d:\n", i, n)
-		}
+		ai.quiet = a.quiet || n > 1
 		v, err := runSliceVerify(ctx, e, res, rec, ai)
 		if v == nil {
 			if len(verdicts) == 0 {
 				return nil, err
 			}
 			break
+		}
+		if n > 1 && !a.quiet {
+			fmt.Println(v.repeatLine(i, n))
 		}
 		verdicts = append(verdicts, v)
 		if v.Outcome == sliceDidNotRun && v.SliceRun == "" {
@@ -136,19 +137,16 @@ func (v *sliceVerdict) countLabel() string {
 	return fmt.Sprintf(" %d/%d", v.ReproducedRuns, v.Repeat)
 }
 
-func (v *sliceVerdict) runLines() string {
-	if v.Repeat <= 1 {
-		return ""
+func (v *sliceVerdict) repeatLine(i, n int) string {
+	line := fmt.Sprintf("repeat %d of %d: %s", i, n, outcomeWord(v.Outcome))
+	if v.SliceRun != "" {
+		line += fmt.Sprintf(", slice run %s %s", v.SliceRun, v.Status)
 	}
-	parts := make([]string, 0, len(v.Runs))
-	for i, r := range v.Runs {
-		id := r.SliceRun
-		if id == "" {
-			id = "none"
-		}
-		parts = append(parts, fmt.Sprintf("%d %s %s", i+1, id, outcomeWord(r.Outcome)))
+	if v.Outcome == sliceDidNotRun {
+		why, _, _ := strings.Cut(v.Reason, "\n")
+		line += ": " + capText(why, 200)
 	}
-	return "  runs: " + strings.Join(parts, "; ") + "\n"
+	return line
 }
 
 func outcomeWord(outcome string) string {

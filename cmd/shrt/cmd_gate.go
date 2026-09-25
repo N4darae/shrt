@@ -36,15 +36,20 @@ type gateSidecar struct {
 	KeptRed      string     `json:"kept_red,omitempty"`
 	EarlyProfile string     `json:"early_profile,omitempty"`
 	Items        []gateItem `json:"items,omitempty"`
+	Request      string     `json:"request,omitempty"`
 }
 
 type gateItem struct {
-	Step   string `json:"step"`
-	Call   string `json:"call"`
-	Path   string `json:"path"`
-	Want   string `json:"want"`
-	Got    string `json:"got"`
-	Writer string `json:"writer,omitempty"`
+	Step string `json:"step"`
+	Call string `json:"call"`
+	Path string `json:"path"`
+	Rule string `json:"rule,omitempty"`
+	Want string `json:"want"`
+	Got  string `json:"got"`
+
+	Suspect     string `json:"suspect,omitempty"`
+	SuspectStep string `json:"suspect_step,omitempty"`
+	KnockOn     bool   `json:"knock_on,omitempty"`
 }
 
 type gateOutcome struct {
@@ -106,6 +111,12 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
 	}
+	bad := map[string]bool{}
+	for _, st := range rec.Steps {
+		if st != nil && st.Status != runner.StatusPassed && st.Status != runner.StatusSkipped {
+			bad[st.ID] = true
+		}
+	}
 	for _, st := range rec.Steps {
 		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
 			continue
@@ -116,14 +127,28 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 				continue
 			}
 			found = true
-			side.Items = append(side.Items, gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Want: gateValue(ex.Want), Got: gateValue(ex.Got), Writer: entityWriter(rec, st.ID)})
+			side.Items = append(side.Items, suspected(rec, bad, gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: gateValue(ex.Want), Got: gateValue(ex.Got)}))
 		}
 		if !found && st.Error != "" && !pinnedStep(c, st.ID) {
 			why, _, _ := strings.Cut(st.Error, "\n")
-			side.Items = append(side.Items, gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)})
+			side.Items = append(side.Items, suspected(rec, bad, gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)}))
 		}
 	}
+	if len(side.Items) > 0 {
+		side.Request = requestLine(rec, side.Items[0].Step, bad)
+	}
 	return side
+}
+
+func suspected(rec *runner.Record, bad map[string]bool, it gateItem) gateItem {
+	if i, knock := suspectWrite(rec, it.Step, bad); i >= 0 {
+		it.Suspect, it.SuspectStep, it.KnockOn = rec.Steps[i].Call, rec.Steps[i].ID, knock
+	}
+	return it
+}
+
+func (it gateItem) verdict() string {
+	return it.Path + " " + chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
 func pinnedStep(c *chain.Chain, step string) bool {
@@ -137,10 +162,13 @@ func pinnedStep(c *chain.Chain, step string) bool {
 
 func verifySidecar(e *env, rec *runner.Record, report *diff.Report) gateSidecar {
 	side := gateSidecar{EarlyProfile: earlyProfile(e, rec)}
-	changed := map[string]bool{}
+	changed, bad := map[string]bool{}, map[string]bool{}
 	for _, c := range report.Changes {
 		if c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
 			changed[c.Step] = true
+		}
+		if c.Kind != diff.KindNotReached {
+			bad[c.Step] = true
 		}
 	}
 	for _, c := range report.Changes {
@@ -151,36 +179,15 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report) gateSidecar 
 		if st, ok := rec.Step(c.Step); ok && st != nil {
 			call = st.Call
 		}
-		side.Items = append(side.Items, gateItem{Step: c.Step, Call: call, Path: c.Path, Want: gateValue(c.Want), Got: gateValue(c.Got), Writer: entityWriter(rec, c.Step)})
+		side.Items = append(side.Items, suspected(rec, bad, gateItem{Step: c.Step, Call: call, Path: c.Path, Want: gateValue(c.Want), Got: gateValue(c.Got)}))
+	}
+	if len(side.Items) > 0 {
+		side.Request = requestLine(rec, side.Items[0].Step, bad)
 	}
 	return side
 }
 
-var gateRef = regexp.MustCompile(`\$\{\s*([A-Za-z0-9_-]+)\.`)
-
-func entityWriter(rec *runner.Record, step string) string {
-	at := -1
-	for i, st := range rec.Steps {
-		if st != nil && st.ID == step {
-			at = i
-		}
-	}
-	if at < 0 || !chain.IsReadOnlyCall(rec.Steps[at].Call) {
-		return ""
-	}
-	entities := map[string]bool{}
-	for _, ref := range rec.Steps[at].BodyRefs {
-		for _, m := range gateRef.FindAllStringSubmatch(ref, -1) {
-			entities[m[1]] = true
-		}
-	}
-	for i := at - 1; i >= 0; i-- {
-		if st := rec.Steps[i]; st != nil && entities[st.ID] && !chain.IsReadOnlyCall(st.Call) {
-			return st.Call
-		}
-	}
-	return ""
-}
+var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
 
 func earlyProfile(e *env, rec *runner.Record) string {
 	life := examineTokenLifetime(e, rec)
@@ -198,6 +205,7 @@ type gateChain struct {
 	spot      bool
 	verdict   string
 	first     string
+	request   string
 	notes     []string
 	items     []gateItem
 	failed    bool
@@ -250,6 +258,9 @@ func runGate(ctx context.Context, args []string) error {
 			g.absorb(what, out)
 		}
 		fmt.Println(g.line(width))
+		if g.request != "" && g.failed {
+			fmt.Println("  " + g.request)
+		}
 		for _, n := range g.notes {
 			fmt.Println("  " + n)
 		}
@@ -264,9 +275,8 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	findings := []string{}
 	if *hollowBaseline != "" && len(only) == 0 {
-		out := gateExec(ctx, []string{"chain", "hollow", "-gate", "-baseline", *hollowBaseline})
-		if out.code != 0 {
-			findings = append(findings, "hollow ratchet: "+lastLine(out.stderr+"\n"+out.stdout))
+		if f := gateHollow(ctx, *hollowBaseline); f != "" {
+			findings = append(findings, f)
 		}
 	}
 	profiles := []string{}
@@ -274,13 +284,21 @@ func runGate(ctx context.Context, args []string) error {
 		profiles = append(profiles, p)
 	}
 	sort.Strings(profiles)
+	once := []string{}
 	for _, p := range profiles {
 		if early[p] > 1 {
 			findings = append(findings, fmt.Sprintf("FINDING: tokens of auth profile %s were refused early in %d runs of this gate: "+
 				"the backend ends sessions long before the expiry its login states", p, early[p]))
 		} else {
-			fmt.Printf("note: a token of auth profile %s was refused early once; a deploy before this gate explains one\n", p)
+			once = append(once, p)
 		}
+	}
+	switch len(once) {
+	case 0:
+	case 1:
+		fmt.Printf("note: a token of auth profile %s was refused early once; a deploy before this gate explains one\n", once[0])
+	default:
+		fmt.Printf("note: a token of each of auth profiles %s was refused early once; a deploy before this gate explains that\n", strings.Join(once, ", "))
 	}
 	printGateGroups(chains)
 	for _, f := range findings {
@@ -382,7 +400,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			g.notes = append(g.notes, capText(line, 240))
 		}
 	}
-	why := errorLine(out.stderr, "shrt "+what+": ")
+	why := strings.TrimPrefix(errorLine(out.stderr, "shrt "+what+": "), "chain "+g.name+": ")
 	switch {
 	case out.code == 0:
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
@@ -399,13 +417,14 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 	default:
 		if !g.failed {
-			g.first = ""
+			g.first, g.request = "", ""
 		}
 		g.failed = true
 		if g.first == "" {
 			if len(out.side.Items) > 0 {
 				it := out.side.Items[0]
-				g.first = fmt.Sprintf("%s (%s) %s want=%s got=%s", it.Step, shortRPC(it.Call), it.Path, it.Want, it.Got)
+				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.verdict())
+				g.request = out.side.Request
 			} else {
 				g.first = capText(what+": "+why, 200)
 			}
@@ -434,32 +453,73 @@ func (g *gateChain) line(width int) string {
 var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 
 type gateGroup struct {
-	rpc, path string
-	steps     map[string]bool
-	chains    map[string]bool
-	writers   map[string]int
-	example   string
+	rpc, suspect  string
+	knockOn       bool
+	steps, chains map[string]bool
+	paths         []string
+	example       string
+	reads         map[string]bool
+	readRPCs      []string
+	readPaths     map[string][]string
+}
+
+func (gr *gateGroup) addPath(list *[]string, p string) {
+	if !containsName(*list, p) {
+		*list = append(*list, p)
+	}
 }
 
 func printGateGroups(chains []*gateChain) {
 	groups := map[string]*gateGroup{}
 	order := []string{}
+	group := func(key string) *gateGroup {
+		if groups[key] == nil {
+			groups[key] = &gateGroup{steps: map[string]bool{}, chains: map[string]bool{}, reads: map[string]bool{}, readPaths: map[string][]string{}}
+			order = append(order, key)
+		}
+		return groups[key]
+	}
 	for _, g := range chains {
 		for _, it := range g.items {
 			path := gateIndex.ReplaceAllString(it.Path, "[]$1")
-			key := shortRPC(it.Call) + " " + path
-			gr := groups[key]
-			if gr == nil {
-				gr = &gateGroup{rpc: shortRPC(it.Call), path: path, steps: map[string]bool{}, chains: map[string]bool{}, writers: map[string]int{},
-					example: fmt.Sprintf("%s %s want=%s got=%s", g.name, it.Step, it.Want, it.Got)}
-				groups[key] = gr
-				order = append(order, key)
+			step := g.name + " " + it.Step
+			example := fmt.Sprintf("%s %s %s %s", g.name, it.Step, path, chain.WantGot(it.Rule, it.Want, it.Got))
+			switch {
+			case it.Suspect != "" && !it.KnockOn:
+				gr := group("w " + shortRPC(it.Suspect))
+				gr.rpc = shortRPC(it.Suspect)
+				gr.reads[step] = true
+				gr.chains[g.name] = true
+				read := methodName(it.Call)
+				gr.addPath(&gr.readRPCs, read)
+				paths := gr.readPaths[read]
+				gr.addPath(&paths, path)
+				gr.readPaths[read] = paths
+				if gr.suspect == "" {
+					gr.suspect = g.name + " " + it.SuspectStep
+				}
+			case it.Suspect == "" && !chain.IsReadOnlyCall(it.Call):
+				gr := group("w " + shortRPC(it.Call))
+				gr.rpc = shortRPC(it.Call)
+				gr.steps[step] = true
+				gr.chains[g.name] = true
+				gr.addPath(&gr.paths, path)
+				if gr.example == "" {
+					gr.example = example
+				}
+			default:
+				gr := group("r " + shortRPC(it.Call))
+				gr.rpc, gr.knockOn = shortRPC(it.Call), it.KnockOn
+				if it.KnockOn {
+					gr.suspect = shortRPC(it.Suspect)
+				}
+				gr.steps[step] = true
+				gr.chains[g.name] = true
+				gr.addPath(&gr.paths, path)
+				if gr.example == "" {
+					gr.example = example
+				}
 			}
-			if !gr.steps[g.name+" "+it.Step] && it.Writer != "" {
-				gr.writers[shortRPC(it.Writer)]++
-			}
-			gr.steps[g.name+" "+it.Step] = true
-			gr.chains[g.name] = true
 		}
 	}
 	if len(order) == 0 {
@@ -467,20 +527,48 @@ func printGateGroups(chains []*gateChain) {
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		a, b := groups[order[i]], groups[order[j]]
+		if aw, bw := strings.HasPrefix(order[i], "w "), strings.HasPrefix(order[j], "w "); aw != bw {
+			return aw
+		}
 		if len(a.chains) != len(b.chains) {
 			return len(a.chains) > len(b.chains)
 		}
-		return len(a.steps) > len(b.steps)
+		return len(a.steps)+len(a.reads) > len(b.steps)+len(b.reads)
 	})
-	fmt.Println("failures by rpc and path, most widespread first:")
+	fmt.Println("failures by suspect write (the failing or changed write each read observes), then the rest:")
+	lines := 0
 	for i, key := range order {
-		if i == 12 {
+		gr := groups[key]
+		if lines >= 10 {
 			fmt.Printf("  and %d more\n", len(order)-i)
 			break
 		}
-		gr := groups[key]
-		fmt.Printf("  %s %s: %d step(s) in %d chain(s), e.g. %s%s\n", gr.rpc, gr.path, len(gr.steps), len(gr.chains), gr.example, writersNote(gr.writers))
+		switch {
+		case len(gr.steps) > 0:
+			tail := ""
+			if gr.knockOn {
+				tail = "; a knock-on of " + gr.suspect
+			} else if !strings.HasPrefix(key, "w ") {
+				tail = "; no suspect write"
+			}
+			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.rpc, len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
+		default:
+			fmt.Printf("  %s: passed itself, but reads after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
+		}
+		lines++
+		if len(gr.reads) > 0 {
+			parts := []string{}
+			for _, read := range gr.readRPCs {
+				parts = append(parts, read+" "+capList(gr.readPaths[read], 3))
+			}
+			fmt.Printf("    +%d read(s): %s\n", len(gr.reads), strings.Join(parts, "; "))
+			lines++
+		}
 	}
+}
+
+func methodName(call string) string {
+	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func errorLine(stderr, prefix string) string {
@@ -493,31 +581,32 @@ func errorLine(stderr, prefix string) string {
 	return line
 }
 
-func lastLine(s string) string {
-	lines := strings.Split(strings.TrimSpace(s), "\n")
-	return strings.TrimSpace(lines[len(lines)-1])
-}
-
-func writersNote(writers map[string]int) string {
-	if len(writers) == 0 {
+func gateHollow(ctx context.Context, baseline string) string {
+	if _, err := os.Stat(baseline); errors.Is(err, os.ErrNotExist) {
+		out := gateExec(ctx, []string{"chain", "hollow", "-json"})
+		var rep struct {
+			Reported *int `json:"reported"`
+		}
+		if out.code != 0 || json.Unmarshal([]byte(out.stdout), &rep) != nil || rep.Reported == nil {
+			return "hollow ratchet: " + gateError(out, "shrt chain: ")
+		}
+		if err := os.WriteFile(baseline, []byte(fmt.Sprintf("%d\n", *rep.Reported)), 0o644); err != nil {
+			return "hollow ratchet: " + err.Error()
+		}
+		fmt.Printf("hollow ratchet: %s did not exist; wrote today's count, %d, to it: commit it\n", baseline, *rep.Reported)
 		return ""
 	}
-	names := make([]string, 0, len(writers))
-	for w := range writers {
-		names = append(names, w)
+	out := gateExec(ctx, []string{"chain", "hollow", "-gate", "-baseline", baseline})
+	if out.code == 0 {
+		return ""
 	}
-	sort.Slice(names, func(i, j int) bool {
-		if writers[names[i]] != writers[names[j]] {
-			return writers[names[i]] > writers[names[j]]
-		}
-		return names[i] < names[j]
-	})
-	parts := []string{}
-	for i, w := range names {
-		if i == 2 {
-			break
-		}
-		parts = append(parts, fmt.Sprintf("%s x%d", w, writers[w]))
+	return "hollow ratchet: " + gateError(out, "shrt chain: ")
+}
+
+func gateError(out gateOutcome, prefix string) string {
+	if strings.TrimSpace(out.stderr) != "" {
+		return strings.TrimPrefix(errorLine(out.stderr, prefix), "hollow: ")
 	}
-	return "; its entity from " + strings.Join(parts, ", ")
+	line, _, _ := strings.Cut(strings.TrimSpace(out.stdout), "\n")
+	return line
 }

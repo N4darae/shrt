@@ -220,10 +220,68 @@ func (r ExpectResult) String() string {
 	if r.Passed {
 		status = "ok"
 	}
-	if r.Detail != "" {
-		return fmt.Sprintf("%s %s %s want=%v got=%v (%s)", status, r.Path, r.Rule, r.Want, r.Got, r.Detail)
+	out := fmt.Sprintf("%s %s %s", status, r.Path, WantGot(r.Rule, fmt.Sprint(r.Want), fmt.Sprint(r.Got)))
+	if !ruleShown(r.Rule) {
+		out = fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
 	}
-	return fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
+	if r.Detail != "" {
+		out += " (" + r.Detail + ")"
+	}
+	return out
+}
+
+func ruleShown(rule string) bool {
+	switch rule {
+	case "", "equals", "item_envelope", "not_equal", "gt", "gte", "lt", "lte", "contains", "includes", "between", "within", "not_empty", "exists":
+		return true
+	}
+	return false
+}
+
+func WantText(rule, want string) string {
+	switch rule {
+	case "not_equal":
+		return "want≠" + want
+	case "gt":
+		return "want>" + want
+	case "gte":
+		return "want≥" + want
+	case "lt":
+		return "want<" + want
+	case "lte":
+		return "want≤" + want
+	case "contains", "includes", "within":
+		return "want " + rule + " " + want
+	case "between":
+		return "want in " + want
+	case "not_empty":
+		return "want non-empty"
+	case "exists":
+		if want == "false" {
+			return "want absent"
+		}
+		return "want present"
+	case "", "equals", "item_envelope":
+		return "want=" + want
+	}
+	return "want " + rule + " " + want
+}
+
+func GotText(rule, got string) string {
+	if rule == "exists" && (got == "true" || got == "false") {
+		if got == "true" {
+			return "got present"
+		}
+		return "got absent"
+	}
+	if rule == "includes" {
+		return "got " + got + " item(s)"
+	}
+	return "got=" + got
+}
+
+func WantGot(rule, want, got string) string {
+	return WantText(rule, want) + " " + GotText(rule, got)
 }
 
 func TautologyReason(e Expectation) string {

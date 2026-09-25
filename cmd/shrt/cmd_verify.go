@@ -44,7 +44,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch")
+	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch, and each request value differing only in a fixture name")
 	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
 	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -343,6 +343,9 @@ func runVerify(ctx context.Context, args []string) (err error) {
 				report.FoldSteps(unjudgedSteps(rec, independent, driftAt), fmt.Sprintf("its response, or one it reads, does not "+
 					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 					"or add -v to list them", driftWhy))
+			}
+			if line := report.FixtureInputLine(); *verbose && line != "" {
+				fmt.Fprintln(body, line)
 			}
 			if *quiet {
 				fmt.Fprintln(body, report.QuietText())
@@ -1099,7 +1102,19 @@ func verifyVerdict(name string, rec *runner.Record, report *diff.Report, noVerdi
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
-	return fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s\n", name, why, steps, report.SafeSpotID, changeAt(rec, *first)), body
+	bad := map[string]bool{}
+	for _, c := range report.Changes {
+		if c.Kind != diff.KindNotReached {
+			bad[c.Step] = true
+		}
+	}
+	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
+	if req := requestLine(rec, first.Step, bad); req != "" && why == "regression" {
+		line += "\n  " + req
+	} else if i, knock := suspectWrite(rec, first.Step, bad); i >= 0 && !knock {
+		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[i].ID, shortRPC(rec.Steps[i].Call))
+	}
+	return line + "\n", body
 }
 
 func firstChange(report *diff.Report) (*diff.Change, int) {

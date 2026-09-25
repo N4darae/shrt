@@ -15,7 +15,7 @@ func TestCLISliceVerifyWithoutWriteDoesNotReprintTheSliceAfterTheVerdict(t *test
 		t.Fatalf("shrt run: %v", err)
 	}
 	out, _ := sliceVerify(t)
-	verdict := strings.Index(out, "INCONCLUSIVE")
+	verdict := strings.Index(out, "verify INCONCLUSIVE")
 	if verdict < 0 {
 		t.Fatalf("want an INCONCLUSIVE verdict:\n%s", out)
 	}

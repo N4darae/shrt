@@ -48,7 +48,7 @@ traffic.
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` |
 | `shrt version` | version, commit, build time and the docs it carries |
 | `shrt doctor` | check this repo's `.shrt/` installation; `-strict` fails on warnings |
-| `shrt gate` | run every chain and verify every safe spot with a fresh tag; one line per chain and changes grouped by rpc and path |
+| `shrt gate` | run every chain and verify every safe spot with a fresh tag; one line per chain, failures grouped by suspect write |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the rpcs |
 | `shrt catalog describe <rpc>` | request and response schema with proto comments |
@@ -97,13 +97,16 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 each with a fresh `-var tag` when the chain reads one, retries an exit 3 once after `-retry-wait`
 (20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` or `NO VERDICT` with the first
-failing step and path, then groups every failure across chains by rpc and response path, most
-widespread first:
+failing step and path, and under a `FAIL` the request it sent (for a read, the request of the write
+it observes). Failures are then grouped by suspect write: the write a failing read observes (`<write>`
+in `<read>_after_<write>`, else the nearest earlier write on the same entity), reads beneath it:
 
 ```
-FAIL       checkout   create_item (ItemService/CreateItem) item.price want=250 got=249
-failures by rpc and path, most widespread first:
-  ItemService/CreateItem item.price: 12 step(s) in 5 chain(s), e.g. checkout create_item want=250 got=249
+FAIL       items-move   get_item_after_move_item (ItemService/GetItem) item.slot want=4 got=2
+  suspect write move_item (ItemService/MoveItem) as operator sent {"id_item":"itm-1","slot":4}
+failures by suspect write (the failing or changed write each read observes), then the rest:
+  ItemService/MoveItem: passed itself, but reads after it failed or changed; e.g. items-move move_item
+    +3 read(s): GetItem item.slot
 ```
 
 Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
@@ -112,8 +115,9 @@ of the gate (one is a note: a deploy before the gate explains it), or the ratche
 nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
 
 `shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it).
-Write `0` into `.shrt/quality-baseline` and `.shrt/hollow-baseline` first; a gate failing on one
-names the current score, to write in as a reviewed edit.
+Write `0` into `.shrt/quality-baseline` first; a gate failing on it names the current score, to
+write in as a reviewed edit. The first gate writes `.shrt/hollow-baseline` with today's count and
+says so; commit it.
 
 ```bash
 set -euo pipefail

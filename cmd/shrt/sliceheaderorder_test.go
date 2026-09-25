@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestCLISliceVerifyPrintsTheHeaderBeforeTheStepProgress(t *testing.T) {
+func TestCLISliceVerifyPrintsTheHeaderThenOneLinePerRepeat(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -16,9 +16,9 @@ func TestCLISliceVerifyPrintsTheHeaderBeforeTheStepProgress(t *testing.T) {
 	}
 	out, _ := sliceVerify(t)
 	header := strings.Index(out, "slice of cli-noisy-flow for step fetch")
-	progress := strings.Index(out, "ok     1 create")
-	if header < 0 || progress < 0 {
-		t.Fatalf("want both the header and the step progress:\n%s", out)
+	progress := strings.Index(out, "repeat 1 of 3: ")
+	if header < 0 || progress < 0 || strings.Count(out, "\nrepeat ") != 3 || strings.Contains(out, "ok     1 create") {
+		t.Fatalf("want the header and one line per repeat, not the step table of each:\n%s", out)
 	}
 	if header > progress {
 		t.Fatalf("the slice header must come before the step progress it introduces:\n%s", out)

@@ -224,6 +224,13 @@ func runVerdict(rec *runner.Record) error {
 		if rec.KeptRedNew != "" {
 			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, shortNewFailure(rec.KeptRedNew))
 		}
+		if head, rest, ok := strings.Cut(rec.KeptRedNote, ":\n"); ok {
+			first, _, _ := strings.Cut(rest, "\n")
+			if strings.Contains(head, "now return something else") {
+				first = "a pinned step now returns something else: " + first
+			}
+			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, first)
+		}
 		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
 	case runner.KeptRedGone:
 		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
@@ -480,8 +487,11 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
+	if line := firstFailureRequest(rec); line != "" && !dry {
+		fmt.Fprintf(&b, "\n  %s", line)
+	}
 	if rec.KeptRedNote != "" {
-		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, rec.KeptRedNote)
+		fmt.Fprintf(&b, "\n  kept red (%s): %s", rec.KeptRed, strings.ReplaceAll(rec.KeptRedNote, "\n", "\n    "))
 	}
 	for _, line := range warningLines(rec) {
 		fmt.Fprintf(&b, "\n  %s", line)
@@ -503,6 +513,25 @@ func runSummary(rec *runner.Record, dry, stepsShown bool, lead string) string {
 		}
 	}
 	return b.String()
+}
+
+func firstFailureRequest(rec *runner.Record) string {
+	if rec.KeptRed != "" || rec.Status != runner.StatusFailed {
+		return ""
+	}
+	bad, first := map[string]bool{}, ""
+	for _, st := range rec.Steps {
+		if st != nil && st.Status != runner.StatusPassed && st.Status != runner.StatusSkipped {
+			bad[st.ID] = true
+			if first == "" {
+				first = st.ID
+			}
+		}
+	}
+	if first == "" {
+		return ""
+	}
+	return requestLine(rec, first, bad)
 }
 
 func quietlyGreen(rec *runner.Record) bool {

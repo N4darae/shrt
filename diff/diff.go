@@ -1198,6 +1198,18 @@ func (r *Report) MaskedList() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func (r *Report) FixtureInputLine() string {
+	if len(r.FixtureInput) == 0 {
+		return ""
+	}
+	names := []string{}
+	for _, c := range r.FixtureInput {
+		names = append(names, c.Step+" "+c.Path)
+	}
+	return fmt.Sprintf("%d request value(s) differ from the confirmed run only in a fixture name (a var inside other text, `sku-${vars.tag}`) "+
+		"or under a volatile path, so they are not counted as different input: %s", len(r.FixtureInput), strings.Join(names, ", "))
+}
+
 func (r *Report) QuietText() string {
 	if !r.Clean() || r.PrincipalChanged() || len(r.FullyMasked) > 0 || len(r.UnapprovedVolatile) > 0 ||
 		len(r.UnapprovedRedact) > 0 || len(r.RequestChanges) > 0 || len(r.RenamedSteps) > 0 {
@@ -1299,14 +1311,6 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "%d response field(s) are declared now and were on the wire, undeclared, in the safe spot's run, whose build did not "+
 			"record their value, so they were not compared (propose a passing run in place of the safe spot to compare them): %s\n",
 			len(r.UndeclaredUnknown), strings.Join(r.UndeclaredUnknown, ", "))
-	}
-	if len(r.FixtureInput) > 0 {
-		names := []string{}
-		for _, c := range r.FixtureInput {
-			names = append(names, c.Step+" "+c.Path)
-		}
-		fmt.Fprintf(&b, "%d request value(s) differ from the confirmed run only in a fixture name (a var inside other text, `sku-${vars.tag}`) "+
-			"or under a volatile path, so they are not counted as different input: %s\n", len(r.FixtureInput), strings.Join(names, ", "))
 	}
 	if len(r.RequestChanges) > 0 {
 		cause := "its input changed since it was confirmed"
