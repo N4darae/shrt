@@ -952,7 +952,9 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		upstreamOnly = len(v.Differences) == 0
 	}
 	related, other := relatedDroppedWrites(res, rec)
+	entityRelated := append([]string{}, related...)
 	related, reads := classifyFieldReads(e, res, rec, related)
+	broke := keptStepsBroken(replayRec, rec, res.Target)
 	uncreated := uncreatedExpected(res, source)
 	if outside := outsideState(replayRec, replay); len(outside) > 0 {
 		v.OutsideState = outside
@@ -979,6 +981,19 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 				v.BlockedBy = append(v.BlockedBy, b.upstream)
 			}
 		}
+	case len(broke) > 0:
+		v.Outcome = sliceInconclusive
+		v.Reason = fmt.Sprintf("kept step(s) %s passed in source run %s and fail in the slice, so the slice lacks something they need\n"+
+			"and the verdict of %s is no receipt.", strings.Join(broke, ", "), rec.RunID, res.Target)
+		if len(entityRelated) > 0 {
+			v.Reason += fmt.Sprintf(" Dropped write step(s) acting on entities the kept steps use: %s. Keep them and verify again.",
+				strings.Join(entityRelated, ", "))
+			v.OtherDropped = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(entityRelated, id) })
+			v.suggestKeep(res, rec, a, entityRelated)
+		} else if res.UnderIncluded {
+			v.suggestKeep(res, rec, a, droppedNames(res))
+		}
+		reads = nil
 	case len(v.Differences) == 0 && len(uncreated) > 0:
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("the verdict matched, but a failing expectation of step %s compares with what dropped write step(s) %s\n"+

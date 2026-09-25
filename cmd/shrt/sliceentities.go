@@ -322,6 +322,19 @@ func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 	return ""
 }
 
+func keptStepsBroken(replay, source *runner.Record, target string) []string {
+	var out []string
+	for _, sr := range replay.Steps {
+		if sr.ID == target || sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+			continue
+		}
+		if was, ok := source.Step(sr.ID); ok && was.Status == runner.StatusPassed {
+			out = append(out, sr.ID)
+		}
+	}
+	return out
+}
+
 func sliceCollisionNote(e *env, res *chain.SliceResult, replay *runner.Record) string {
 	if literal := detectLiteralCollision(e, res.Chain, replay); literal != nil {
 		return literal.line() + "."
