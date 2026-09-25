@@ -521,3 +521,76 @@ func EffectProblems(lib *Library, cat *catalog.Catalog) []Issue {
 	}
 	return issues
 }
+
+func effectsTodo(m *catalog.Method, all []*catalog.Method) string {
+	idOf := func(fields []*catalog.Field) (string, []Producer) {
+		for _, f := range fields {
+			if IsEntityIDField(f.Name) && !f.Repeated {
+				if producers := ProducersOf(f.Name, all, m.FullName); len(producers) > 0 {
+					return f.Name, producers
+				}
+			}
+		}
+		return "", nil
+	}
+	number := func(fields []*catalog.Field) string {
+		for _, f := range fields {
+			if !f.Repeated && chain.IsNumericKind(f.Kind) && !idLike(f.Name) {
+				return f.Name
+			}
+		}
+		return ""
+	}
+	in := catalog.DescribeMessage(m.Input()).Fields
+	path, producers := "", []Producer(nil)
+	if id, prods := idOf(in); id != "" && number(in) != "" {
+		path, producers = number(in), prods
+	}
+	for _, f := range in {
+		if path == "" && f.Repeated && f.Kind == "message" {
+			if id, prods := idOf(f.Fields); id != "" && number(f.Fields) != "" {
+				path, producers = f.Name+"."+number(f.Fields), prods
+			}
+		}
+	}
+	if path == "" {
+		return ""
+	}
+	moved := "<number>"
+	for _, pm := range all {
+		if pm.FullName != producers[0].RPC {
+			continue
+		}
+		asked := map[string]bool{}
+		for _, name := range numericNames(catalog.DescribeMessage(pm.Input()).Fields) {
+			asked[name] = true
+		}
+		kept := []string{}
+		for _, name := range answeredNumbers(pm) {
+			if !asked[name] && !idLike(name) && !IsVerdictFieldName(name) && !containsString(kept, name) {
+				kept = append(kept, name)
+			}
+		}
+		if len(kept) == 1 {
+			moved = kept[0]
+		}
+	}
+	return fmt.Sprintf("%s: {%s: {increase: %s}}, {%s: none} or another effect in GRAMMAR; delete if this write moves no number",
+		TodoMarker, moved, path, moved)
+}
+
+func answeredNumbers(m *catalog.Method) []string {
+	out := []string{}
+	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
+		if f.Kind == "message" && !f.Repeated && f.Name != chain.EnvelopeField() {
+			for _, sf := range f.Fields {
+				if !sf.Repeated && chain.IsNumericKind(sf.Kind) {
+					out = append(out, sf.Name)
+				}
+			}
+		} else if !f.Repeated && chain.IsNumericKind(f.Kind) {
+			out = append(out, f.Name)
+		}
+	}
+	return out
+}

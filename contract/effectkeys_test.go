@@ -185,3 +185,37 @@ func TestAnInvalidEffectIsRefusedAtLoad(t *testing.T) {
 		}
 	}
 }
+
+func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
+	cat, _ := shopDemo(t)
+	for domain, want := range map[string]map[string]string{
+		"catalog": {"StockService/AddStock": "{qty_on_hand: {increase: qty}}", "StockService/AddStockBatch": "{qty_on_hand: {increase: lines.qty}}", "ProductService/CreateProduct": ""},
+		"orders":  {"OrderService/CreateOrder": "{qty_on_hand: {increase: lines.qty}}", "OrderService/ConfirmOrder": ""},
+	} {
+		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		o, err := contract.LoadOverlayBytes(domain+".yaml", raw)
+		if err != nil {
+			t.Fatalf("a scaffold with an effects TODO loads: %v\n%s", err, raw)
+		}
+		for rpc, snippet := range want {
+			c := o.RPCs["shop."+domain+".v1."+rpc]
+			if c == nil {
+				t.Fatalf("no %s in the scaffold", rpc)
+			}
+			if c.IsUnfilled("effects") != (snippet != "") || snippet != "" && !strings.Contains(string(raw), "TODO: "+snippet) {
+				t.Fatalf("%s: want effects TODO %q:\n%s", rpc, snippet, raw)
+			}
+		}
+		lib := contract.NewLibrary([]*contract.Overlay{o})
+		without, err := contract.LoadOverlayBytes(domain+".yaml", []byte(regexp.MustCompile(`(?m)^\s+effects: .*\n`).ReplaceAllString(string(raw), "")))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if a, b := contract.Measure(lib, cat, domain).TotalScore, contract.Measure(contract.NewLibrary([]*contract.Overlay{without}), cat, domain).TotalScore; a != b {
+			t.Fatalf("an unfilled effects TODO costs nothing in quality: %d with it, %d without", a, b)
+		}
+	}
+}

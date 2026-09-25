@@ -160,6 +160,9 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
 			carryRequiredTodo(node, prior)
+			if todo := effectsTodo(m, all); todo != "" && len(prior.Effects) == 0 && prior.IsUnfilled("effects") {
+				put(node, "effects", scalar(todo))
+			}
 			addNewFields(node, prior, m, all)
 			return node
 		}
@@ -212,6 +215,9 @@ func scaffoldWrite(m *catalog.Method, all []*catalog.Method) *yaml.Node {
 	put(node, "required", requiredTodo())
 	if fields := scaffoldFields(m, all, fieldHint); len(fields.Content) > 0 {
 		put(node, "fields", fields)
+	}
+	if todo := effectsTodo(m, all); todo != "" {
+		put(node, "effects", scalar(todo))
 	}
 	if exports := exportsNode(m); len(exports.Content) > 0 {
 		put(node, "exports", exports)
