@@ -276,7 +276,11 @@ func descriptionLines(description string) []string {
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	strict := fs.Bool("strict", false, "treat assertion-quality warnings — an assertion that cannot fail, a step asserting nothing, an allow_fail that does nothing — as errors")
+	strict := fs.Bool("strict", false, "treat the assertion-quality warnings as errors: an assertion that cannot fail (unfailable-assertion), "+
+		"a step asserting nothing (asserts-nothing), an allow_fail that does nothing (inert-allow-fail), an export a later step "+
+		"silently overwrites (export-overwritten), arithmetic such as ${a.qty}+${b.qty} in an equals on a numeric field, compared "+
+		"as text and never computed (interpolated-arithmetic), and a step expecting success that asserts only the verdict although "+
+		"its rpc's contract declares response facts (envelope-only). Other warnings are not promoted")
 	setUsage(fs, "usage: shrt chain lint [<chain>...] [flags]   every chain under paths.chains when none is named",
 		"\nexit codes:\n  0  no lint error\n  1  a lint error, or under -strict an assertion-quality warning\n")
 	rest, err := parseArgs(fs, args)
