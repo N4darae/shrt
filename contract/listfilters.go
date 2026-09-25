@@ -46,6 +46,9 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 			p.terminatePrefix(t, &scope)
 			said = append(said, p.prefixExclusions(lib, t, scope)...)
 		}
+		if scope.prefixKey != "" {
+			p.probeEmptyFilter(lib, t, scope.prefixKey)
+		}
 		if !hasExistsFalse(st, t.listPath) {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}

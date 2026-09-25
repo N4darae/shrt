@@ -2122,6 +2122,22 @@ A new expectation rule, `includes`, holds when some item of a list matches the f
 list with no stated order, or one the backend's other records share, asserts each fixture by id
 with it, beside the count.
 
+## 99. An empty prefix that listed nothing, and `-gaps` said "no gaps"
+
+**Symptom.** The README says ListProducts with an empty `sku_prefix` lists every product. A
+backend returning nothing for it (round 25) was found only by a hand-written chain: the planned
+chain always sent the run's prefix, and `contract status -gaps` reported no gaps.
+
+**Cause.** The plan scopes a list to what the run created, so a count and positions hold on a
+second run; nothing then sent the empty value the contract describes, and no gap kind looked at
+list filters.
+
+**Fix.** 2026-09-25: when a list's contract says an empty filter lists all (the field's note, or a
+summary clause naming the field, `an empty prefix lists all`), the plan adds
+`<step>_empty_<field>` with the filter empty, asserting each fixture the chain created is among the
+items by id (`includes:`) and at least that many items, no position or exact count. `-gaps` lists
+`no empty filter` for such a field that no successful step sends empty or leaves out.
+
 ---
 
 # Decisions, so they are not relitigated

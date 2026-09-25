@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -208,4 +209,40 @@ func TestAListWithNoStatedOrderAssertsEachFixtureIsAMember(t *testing.T) {
 		}
 	}
 	wantExists(t, list, "orders.3", false)
+}
+
+func TestAListWhoseContractSaysAnEmptyFilterListsAllIsProbedEmpty(t *testing.T) {
+	p, text, _ := shopDemoPlanWith(t, contract.PlanOptions{}, "ListProducts")
+	probe := planStep(t, p, "list_products_empty_sku_prefix")
+	if bodyAt(t, probe, "sku_prefix") != "" {
+		t.Fatalf("the probe sends the prefix empty:\n%s", text)
+	}
+	found := map[string]bool{}
+	for _, e := range probe.Expect {
+		if m, ok := e.Includes.(map[string]any); ok && e.Path == "products" {
+			found[m["id_product"].(string)] = true
+		}
+		if strings.HasPrefix(e.Path, "products.0.") {
+			t.Fatalf("other runs' products share an unfiltered list, so no position is asserted:\n%s", text)
+		}
+	}
+	for _, id := range []string{"create_product", "create_product_2", "create_product_3", "create_product_prefix_inside"} {
+		if !found["${"+id+".product.id_product}"] {
+			t.Fatalf("the empty-prefix list includes %s by id:\n%s", id, text)
+		}
+	}
+	wantExists(t, probe, "products.4", true)
+}
+
+func TestEmptyFilterGapsNamesAFilterEveryChainSendsSet(t *testing.T) {
+	cat, lib := shopDemo(t)
+	set := &chain.Chain{Name: "set", Steps: []*chain.Step{{ID: "list_products", Call: "shop.catalog.v1.ProductService/ListProducts", Body: map[string]any{"sku_prefix": "sku-"}}}}
+	got := contract.EmptyFilterGaps([]*chain.Chain{set}, lib, cat)
+	if len(got) != 1 || got[0].Field != "sku_prefix" || got[0].Chains[0] != "set" {
+		t.Fatalf("got %+v, want ListProducts sku_prefix never sent empty", got)
+	}
+	empty := &chain.Chain{Name: "empty", Steps: []*chain.Step{{ID: "list_products", Call: "shop.catalog.v1.ProductService/ListProducts", Body: map[string]any{"sku_prefix": ""}}}}
+	if got := contract.EmptyFilterGaps([]*chain.Chain{set, empty}, lib, cat); len(got) != 0 {
+		t.Fatalf("a chain sends it empty: %+v", got)
+	}
 }
