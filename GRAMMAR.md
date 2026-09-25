@@ -502,7 +502,9 @@ body.<path> (${a.x} -> ${b.x})`. References are compared in one canonical spelli
 respelling that reads the same field (`${a.x}` -> `${steps.a.response.x}`, §2) is no chain change,
 nor is a field path respelt in case or as its JSON name (`${c.customer.id_customer}` ->
 `${c.customer.idCustomer}`), which resolves to the same field. Expectation, `kept_red` and
-`unordered` paths are matched the same way, so `order.totalMinor` for `order.total_minor` is no edit.
+`unordered` paths are matched the same way, so `order.totalMinor` for `order.total_minor` is no edit,
+and so are the references inside a step header's value: `X-Ref: r-${mk.product.IdProduct}` respelt
+`r-${steps.mk.response.product.id_product}` is no `request differs` at `headers.X-Ref`.
 For a safe spot approved before shrt kept them, verify resolves
 the chain's reference against the safe spot's own responses, and a field it would not have sent the
 recorded value to is that same chain change, naming the step field that held the recorded value.
