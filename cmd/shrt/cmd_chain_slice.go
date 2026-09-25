@@ -851,7 +851,23 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	v.Replay = verdictOf(replay)
 	v.Differences = chain.CompareVerdictsMasking(v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
 	related, other := relatedDroppedWrites(res, rec)
+	uncreated := uncreatedExpected(res, source)
 	switch {
+	case len(v.Differences) == 0 && len(uncreated) > 0:
+		v.Outcome = sliceInconclusive
+		v.Reason = fmt.Sprintf("the verdict matched, but a failing expectation of step %s compares with what dropped write step(s) %s\n"+
+			"created in source run %s, and the slice never sends them: what they created is absent from this slice whatever the\n"+
+			"backend does, so a correct backend fails it the same way and the match is no receipt. Keep them and verify again.",
+			res.Target, strings.Join(uncreated, ", "), rec.RunID)
+		keep := append([]string{}, uncreated...)
+		for _, r := range related {
+			if !slices.Contains(keep, r) {
+				keep = append(keep, r)
+			}
+		}
+		other = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(keep, id) })
+		v.OtherDropped = other
+		v.suggestKeep(res, rec, a, keep)
 	case len(v.Differences) > 0 && a.otherTarget != "":
 		v.Outcome = sliceInconclusive
 		v.OtherTarget = a.otherTarget
@@ -908,6 +924,30 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		}
 	}
 	return v, v.err()
+}
+
+func uncreatedExpected(res *chain.SliceResult, source *runner.StepRecord) []string {
+	step, ok := res.Chain.Step(res.Target)
+	if !ok || source == nil {
+		return nil
+	}
+	dropped := map[string]bool{}
+	for _, d := range res.DroppedWrites {
+		dropped[d.ID] = true
+	}
+	out := []string{}
+	for i, r := range source.Expect {
+		if r.Passed || i >= len(step.Expect) {
+			continue
+		}
+		text := fmt.Sprint(step.Expect[i].Operands()...)
+		for _, p := range res.Pins {
+			if dropped[p.Producer] && strings.Contains(text, "${vars."+p.Var+"}") && !slices.Contains(out, p.Producer) {
+				out = append(out, p.Producer)
+			}
+		}
+	}
+	return out
 }
 
 func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) string {

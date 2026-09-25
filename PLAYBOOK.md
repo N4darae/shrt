@@ -1558,8 +1558,15 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
      can come from the target. Run the chain here and slice from that run (`-run latest`).
      Otherwise: the verdicts match, but the slice dropped write steps that act on entities the
      kept steps use (a confirm of the order the target cancels, stock added to the product its
-     line holds), or whose entity cannot be told (a write whose request and response carry no
-     id). A match can come from state the slice never built, so it is not a receipt. The output
+     line holds, an order created for the customer a `ListOrders` target lists: a write whose
+     request carries an id the kept step's request carries and whose created entity is the kind
+     of item the kept step's response lists or asserts), or whose entity cannot be told (a write
+     whose request and response carry no id). A match can come from state the slice never built,
+     so it is not a receipt. Nor is a match on a failing expectation that compares with what a
+     dropped write created in the source run (`orders.1.id_order equals` the id a dropped
+     `CreateOrder` returned, under `-mode pin`): the slice never creates that item, so a correct
+     backend fails it the same way, and the verdict is INCONCLUSIVE naming the write, whatever
+     else was kept. The output
      ends with a `next:` line — `shrt chain slice <src> -step <t> -run <source-run> -keep
      <those writes> -verify -write` — naming only those writes, so the `-keep` set stays minimal:
      a write on another entity is never suggested, however many there are. NOT REPRODUCED
