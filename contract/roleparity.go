@@ -169,6 +169,13 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		}
 	}
 	if len(comparable) == 0 {
+		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(st, m)); len(readers) > 0 {
+			p.note("step %s: its contract lets every role call it, and %s %s the id of what it changes, but %s answers "+
+				"no number or state, only text and ids that each profile's own fixture sends differently, so nothing "+
+				"compares its effect as another profile: call it as each profile and assert what each read returns",
+				st.ID, strings.Join(readers, ", "), pluralVerb(len(readers), "takes", "take"), pluralVerb(len(readers), "it", "each"))
+			return
+		}
 		p.note("step %s: its contract lets every role call it, but no read rpc in the contracts takes the id of what it "+
 			"changes, so nothing compares its effect as another profile: call it as each profile on a fixture of its own "+
 			"and read back what it changed", st.ID)

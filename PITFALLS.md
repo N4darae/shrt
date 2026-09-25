@@ -1578,6 +1578,20 @@ field never runs and counts as failed. Nothing checked that before a run.
 on a response path of a step that expects a transport refusal (`transport.code` other than `ok`,
 `transport.http_status` other than 200), naming `skip_auth` or `auth: invalid` when the step has it.
 
+## 65. "No read rpc takes the id" printed where one does, or where there is no id
+
+**Symptom.** `contract plan CreateProduct` noted "step create_product_as_clerk: no read rpc in the
+contracts takes the id of anything it touches" for a create expected to be refused, and `contract
+plan CreateCustomer` noted "no read rpc in the contracts takes the id of what it changes" although
+`GetCustomer` is wired `from: CreateCustomer->customer.id_customer`.
+
+**Cause.** Both notes fired whenever no read could be *compared*, which needs a number or a state
+in the read's answer. A refused create has no id at all, and `GetCustomer` answers only text.
+
+**Fix.** 2026-09-25: steps that expect a create to be refused get one note saying they leave no id
+to read back. Where a read does take the id but answers only text and ids, the note names that read
+and says why it cannot compare before and after, or one profile with another.
+
 ---
 
 # Decisions, so they are not relitigated
