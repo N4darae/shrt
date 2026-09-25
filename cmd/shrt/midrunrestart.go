@@ -98,7 +98,7 @@ func previousRunSending(e *env, rec *runner.Record, step string) *runner.Record 
 		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
 			break
 		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
+		prev, err := loadRunNamedAs(e, rec, ids[i])
 		if err != nil || prev.DryRun || !ranBefore(prev, rec) || !sent(prev, step) {
 			continue
 		}

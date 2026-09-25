@@ -190,7 +190,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		if ids[i] == rec.RunID {
 			continue
 		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
+		prev, err := loadRunNamedAs(e, rec, ids[i])
 		if err != nil || prev.DryRun || !usedBy(prev, first.ID) {
 			continue
 		}
@@ -297,7 +297,7 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 		if id == prev.RunID || id == rec.RunID {
 			continue
 		}
-		other, err := e.store.LoadRun(rec.Chain, id)
+		other, err := loadRunNamedAs(e, rec, id)
 		if err != nil || other.DryRun || !ranBefore(other, prev) || !usedBy(other, step) {
 			continue
 		}

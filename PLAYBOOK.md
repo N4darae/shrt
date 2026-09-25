@@ -469,7 +469,9 @@ run were answered, and the previous run that sent that step got no answer there 
 answering later steps too, the backend is up and fails that one rpc every time: `verify` prints
 `FINDING: ... the backend fails this rpc every time while answering others`, naming the rpc, and
 exits 1. The first occurrence stays exit 3, and so does a repeat where nothing after the step was
-answered.
+answered. "The previous run that sent that step" (here, for an auth refusal and for a reused fixture)
+pairs steps the way verify pairs a renamed step, by call and position, so a step renamed since that
+run is still found under its old name.
 
 - A second kind of principal → declare it as a named profile in the config, then `auth: <profile>`
   on the step. Each profile holds its own token cache.
