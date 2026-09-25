@@ -1,7 +1,9 @@
 package pathmask
 
 import (
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"sort"
@@ -11,8 +13,12 @@ import (
 
 type encodedSecret struct {
 	base64  []string
+	folded  []string
 	percent *regexp.Regexp
+	entity  *regexp.Regexp
 }
+
+var htmlNamed = map[rune]string{'&': "amp", '<': "lt", '>': "gt", '"': "quot", '\'': "apos"}
 
 var encodedCache sync.Map
 
@@ -42,6 +48,36 @@ func encodedFormsOf(secret string) *encodedSecret {
 		}
 	}
 	sort.SliceStable(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
+	folded := []string{}
+	addFolded := func(s string) {
+		key := strings.ToLower(s)
+		if len(s) >= minFoldedSecret && !seen[key] {
+			seen[key] = true
+			folded = append(folded, s)
+		}
+	}
+	addFolded(hex.EncodeToString(raw))
+	for _, enc := range []*base32.Encoding{base32.StdEncoding, base32.HexEncoding} {
+		addFolded(enc.EncodeToString(raw))
+		bare := enc.WithPadding(base32.NoPadding)
+		addFolded(bare.EncodeToString(raw))
+		for shift := 0; shift < 5; shift++ {
+			full := bare.EncodeToString(append(make([]byte, shift), raw...))
+			from, to := (8*shift+4)/5, 8*(shift+len(raw))/5
+			if from < to && to <= len(full) {
+				addFolded(full[from:to])
+			}
+		}
+	}
+	sort.SliceStable(folded, func(i, j int) bool { return len(folded[i]) > len(folded[j]) })
+	var entity strings.Builder
+	for _, r := range secret {
+		fmt.Fprintf(&entity, "(?:%s|&#0*%d;|&#[xX]0*(?i:%x);", regexp.QuoteMeta(string(r)), r, r)
+		if name, ok := htmlNamed[r]; ok {
+			fmt.Fprintf(&entity, "|&%s;", name)
+		}
+		entity.WriteString(")")
+	}
 	var pattern strings.Builder
 	for i := 0; i < len(secret); i++ {
 		c := secret[i]
@@ -51,7 +87,7 @@ func encodedFormsOf(secret string) *encodedSecret {
 		}
 		pattern.WriteString(")")
 	}
-	out := &encodedSecret{base64: forms, percent: regexp.MustCompile(pattern.String())}
+	out := &encodedSecret{base64: forms, folded: folded, percent: regexp.MustCompile(pattern.String()), entity: regexp.MustCompile(entity.String())}
 	encodedCache.Store(secret, out)
 	return out
 }
@@ -64,8 +100,17 @@ func replaceEncoded(s, secret string) string {
 	for _, form := range forms.base64 {
 		s = strings.ReplaceAll(s, form, MaskRedacted)
 	}
+	lower := strings.ToLower(s)
+	for _, form := range forms.folded {
+		if strings.Contains(lower, strings.ToLower(form)) {
+			s = replaceFold(s, form)
+		}
+	}
 	if strings.ContainsAny(s, "%+") {
 		s = forms.percent.ReplaceAllLiteralString(s, MaskRedacted)
+	}
+	if strings.Contains(s, "&") {
+		s = forms.entity.ReplaceAllLiteralString(s, MaskRedacted)
 	}
 	return s
 }

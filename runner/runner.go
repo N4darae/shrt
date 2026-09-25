@@ -1485,6 +1485,7 @@ func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
 	for k, v := range sr.Headers {
 		sr.Headers[k] = redactor.ScrubText(v)
 	}
+	sr.serverBuild = redactor.ScrubText(sr.serverBuild)
 	sr.Error = redactor.ScrubText(sr.Error)
 	sr.Warning = redactor.ScrubText(sr.Warning)
 	sr.Note = redactor.ScrubText(sr.Note)

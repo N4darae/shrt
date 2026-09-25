@@ -507,10 +507,10 @@ func inexactRefIssue(stepID string, r Ref, responses map[string]*catalog.Method)
 	if !ok || m == nil || r.Err != nil {
 		return Issue{}, false
 	}
-	message, prefix := m.Output(), ""
+	message, prefix, section := m.Output(), "", "response."
 	path := strings.TrimPrefix(r.Rest, "response.")
 	if rest, isRequest := strings.CutPrefix(r.Rest, "request."); isRequest {
-		message, prefix, path = m.Input(), "request.", rest
+		message, prefix, section, path = m.Input(), "request.", "request.", rest
 	}
 	if path == "" || path == "response" || path == "request" {
 		return Issue{}, false
@@ -521,7 +521,7 @@ func inexactRefIssue(stepID string, r Ref, responses map[string]*catalog.Method)
 	}
 	want := "${" + r.Head + "." + prefix + exact + "}"
 	if strings.HasPrefix(r.Expr, "steps.") {
-		want = "${steps." + r.Head + "." + prefix + exact + "}"
+		want = "${steps." + r.Head + "." + section + exact + "}"
 	}
 	return Issue{Step: stepID, Severity: SeverityWarn, Kind: KindInexactPath, Message: fmt.Sprintf(
 		"${%s} reads %q, which matches a field of %s only by folding case and separators; the field is %q. It "+

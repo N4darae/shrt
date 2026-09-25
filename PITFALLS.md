@@ -1017,6 +1017,15 @@ A var such a header read as part of its value (`X-Passwd: "Sig ${vars.sig}"`) st
 in the record's `vars` and in the proposal's `| vars | sig=... |`, since only the whole header value
 was a secret. Each `${vars.*}` a credential-named header reads is now a secret of its own, learned
 before the chain runs, so `vars` shows `sig=<redacted>` even when the step is never reached.
+A header named `X-Passphrase` (also `X-Passcode`, `X-Pwd`) was stored in clear in `headers` and
+printed by `shrt diff` as `headers.X-Passphrase a=<value> b=<value>`, while `X-Credential` and
+`Proxy-Authorization` next to it were digested: `passphrase` is one word, and only `pass` split off
+by a separator was recognised. Since 2026-09-25 the rule is the one `GRAMMAR.md` states under
+`headers`: a name containing `token`, `secret`, `password`, `passwd`, `passphrase`, `passcode`,
+`auth`, `cookie`, `apikey`, `credential` or `privatekey`, or with a `-`/`_`/`.`-separated word such
+as `key`, `pass`, `pwd` or `pin`, is a credential header: digested when it reads only literals, vars
+and env, and its values scrubbed by value everywhere. A credential in a header named otherwise
+(`X-Magic: ${vars.pw}`) is not recognised by its name; read it from an env var named like one.
 A secret used as an object KEY (`{"tok-...": 1}`, a map keyed by session token) was left in clear
 while the value next to it was scrubbed. Keys are scrubbed like values now; two keys that scrub to
 the same text are kept apart as `<redacted>` and `<redacted>#2`.
@@ -1032,8 +1041,17 @@ percent-encoded (`s3cret%2Dadmin`). A secret of 8 characters or more is now also
 standard and URL-safe base64 forms, with and without padding, including where it sits inside a
 longer base64 value at any byte offset (a detail message that holds the token among other fields),
 and percent-encoded in any mix of `%XX` (either hex case) and plain characters, `+` for a space.
-Other transformations are left alone on purpose: a secret echoed reversed, with spaces between its
-characters, hashed, or encoded twice is NOT scrubbed, since recognising it would mean guessing at
+A later tester still found three encodings in clear, in the terminal and the run record: the admin
+password as hex (`7333637265742d61646d696e`), as an HTML character reference (`s3cret&#45;admin`)
+and as base32 (`OMZWG4TFOQWWCZDNNFXA====`). Since 2026-09-25 a secret of 8 characters or more is
+also scrubbed as hex in either case (inside a longer hex value too), with any of its characters
+written as an HTML character reference (`&#45;`, `&#x2d;`, `&#X2D;`, leading zeros allowed, and
+`&amp;` `&lt;` `&gt;` `&quot;` `&apos;` for those five characters), and as base32 in the standard
+and extended-hex alphabets, in either case, padded or not, at any byte offset inside a longer
+base32 value. Other transformations are left alone on purpose: a secret echoed reversed, with
+spaces between its characters, hashed, encrypted, in an encoding not listed here (ascii85,
+base58, quoted-printable, an HTML reference without its `;`), or
+encoded twice is NOT scrubbed, since recognising it would mean guessing at
 arbitrary transforms and blanking unrelated values. Keep such echoes out of committed runs.
 
 A scratch chain run by path took its runs directory from its `name:`, not its file: `.scratch/fake.yaml`

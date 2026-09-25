@@ -15,12 +15,12 @@ var secretHeaderWords = map[string]bool{
 	"auth": true, "authorization": true, "authentication": true, "token": true, "secret": true, "key": true,
 	"apikey": true, "password": true, "passwd": true, "pass": true, "cookie": true, "session": true,
 	"signature": true, "sig": true, "credential": true, "credentials": true, "otp": true, "pin": true,
-	"jwt": true, "bearer": true, "csrf": true, "xsrf": true,
+	"jwt": true, "bearer": true, "csrf": true, "xsrf": true, "pwd": true, "pw": true,
 }
 
 func secretHeader(name string) bool {
 	lower := strings.ToLower(name)
-	for _, hint := range []string{"token", "secret", "password", "auth", "cookie", "apikey"} {
+	for _, hint := range []string{"token", "secret", "password", "passwd", "passphrase", "passcode", "auth", "cookie", "apikey", "credential", "privatekey"} {
 		if strings.Contains(lower, hint) {
 			return true
 		}

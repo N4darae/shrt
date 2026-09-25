@@ -239,7 +239,7 @@ func runVerify(ctx context.Context, args []string) error {
 	case reuse != nil && !driftedBefore(rec, report, reuse.index):
 		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
 		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, reuse.line(), name, reuse.fresh())
+			"this is not a verdict about the backend. %s", name, reuse.line(), capitalized(reuse.rerun("verify", name)))
 	}
 	if *asJSON {
 		if olderSpot != "" {
@@ -283,7 +283,7 @@ func runVerify(ctx context.Context, args []string) error {
 			case reuse.finding():
 				fmt.Println("FINDING: " + reuse.line())
 			case reuse != nil:
-				fmt.Println(reuse.line() + "; re-run with a fresh value: shrt verify " + name + " " + reuse.fresh())
+				fmt.Println(reuse.line() + "; " + reuse.rerun("verify", name))
 			}
 			if literal != nil {
 				fmt.Println("CHAIN DEFECT: " + literal.line())

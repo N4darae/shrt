@@ -99,6 +99,20 @@ func (f *fixtureReuse) fresh() string {
 	return strings.Join(names, " ")
 }
 
+func (f *fixtureReuse) rerun(command, name string) string {
+	if len(f.vars) == 0 {
+		return fmt.Sprintf("a plain re-run generates a fresh value: shrt %s %s", command, name)
+	}
+	return fmt.Sprintf("re-run with a fresh value: shrt %s %s %s", command, name, f.fresh())
+}
+
+func capitalized(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}
+
 func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReuse {
 	if c == nil || rec == nil || rec.DryRun {
 		return nil
