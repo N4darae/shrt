@@ -101,6 +101,7 @@ func runConfirm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	previous, _ := e.store.LoadProposal(name)
 	comparedTo, unstable, carried := unstableFields(e, rec)
 	branch, commit := gitWhere(e.cfg.Root)
 	p, err := e.store.Propose(rec, store.ProposalInput{By: *by, Checked: *note, Supersede: *supersede, Now: time.Now(),
@@ -116,6 +117,10 @@ func runConfirm(ctx context.Context, args []string) error {
 		p.RunID, p.Chain, rel(e.cfg.Root, p.Report))
 	if p.Replaces != "" {
 		fmt.Printf("  replaces the safe spot from run %s once approved\n", p.Replaces)
+	}
+	if previous != nil {
+		fmt.Printf("  replaces pending proposal %s (proposed by %s at %s), which is discarded unapproved\n",
+			previous.RunID, previous.ProposedBy, previous.ProposedAt.Format(time.RFC3339))
 	}
 	if rec.ChainSource != "" {
 		fmt.Printf("  chain file:  %s (what run %s ran)\n", rel(e.cfg.Root, rec.ChainSource), rec.RunID)
