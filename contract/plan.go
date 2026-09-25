@@ -47,6 +47,7 @@ type PlanOptions struct {
 	LoginBodies map[string]map[string]any
 
 	ProfileBodies map[string]map[string]any
+	Redact        []string
 }
 
 type pendingChecks struct {
@@ -198,6 +199,9 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
 	p.echoNumbers()
 	p.assertOutcomes(lib)
+	p.assertStates(lib)
+	p.assertStreamEcho()
+	p.grouped("read-back", func() { p.readBackVariants(lib) })
 	p.grouped("read-back", func() { p.assertEffects(lib) })
 	p.noteReadBack(lib)
 	p.assertTimestamps(lib)
@@ -563,31 +567,37 @@ var gapMarkers = []string{
 func (p *Plan) GapNotes() []string {
 	out := []string{}
 	for _, note := range p.Notes {
-		if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
-			continue
+		if gap, ok := GapOf(note); ok {
+			out = append(out, gap)
 		}
-		at := -1
-		for _, m := range gapMarkers {
-			if i := strings.Index(note, m); i >= 0 && (at < 0 || i < at) {
-				at = i
-			}
-		}
-		if at < 0 {
-			continue
-		}
-		prefix := ""
-		body := note
-		if strings.HasPrefix(note, "step ") {
-			if i := strings.Index(note, ": "); i >= 0 && i < at {
-				prefix, body, at = note[:i+2], note[i+2:], at-i-2
-			}
-		}
-		if i := strings.LastIndex(body[:at], "; "); i >= 0 {
-			body = body[i+2:]
-		}
-		out = append(out, prefix+body)
 	}
 	return out
+}
+
+func GapOf(note string) (string, bool) {
+	if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
+		return "", false
+	}
+	at := -1
+	for _, m := range gapMarkers {
+		if i := strings.Index(note, m); i >= 0 && (at < 0 || i < at) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return "", false
+	}
+	prefix := ""
+	body := note
+	if strings.HasPrefix(note, "step ") {
+		if i := strings.Index(note, ": "); i >= 0 && i < at {
+			prefix, body, at = note[:i+2], note[i+2:], at-i-2
+		}
+	}
+	if i := strings.LastIndex(body[:at], "; "); i >= 0 {
+		body = body[i+2:]
+	}
+	return prefix + body, true
 }
 
 func (p *Plan) note(format string, args ...any) {

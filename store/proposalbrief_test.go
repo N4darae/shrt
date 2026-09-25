@@ -79,3 +79,26 @@ func TestAProposalRowNamesWhatToCheckInOneLine(t *testing.T) {
 		t.Errorf("one row per chain, with what to look at: %+v", row)
 	}
 }
+
+func TestAProposalRowReadsAStreamingStepsEnvelopeInItsMessages(t *testing.T) {
+	defer chain.SetEnvelope("", "")
+	chain.SetEnvelope("status.code", "SUCCESS")
+	watch := func(id, code string, expect ...chain.ExpectResult) *runner.StepRecord {
+		return &runner.StepRecord{ID: id, Call: "x.v1.OrderService/WatchOrder", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"messages":[{"status":{"code":"` + code + `"},"order":{"id":"o1"}}]}`), Expect: expect}
+	}
+	ok := chain.ExpectResult{Path: "messages.0.status.code", Rule: "equals", Want: "SUCCESS", Got: "SUCCESS", Passed: true}
+	rec := &runner.Record{RunID: "run-1", Chain: "watch", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+		watch("watch", "SUCCESS", ok),
+		watch("watch_record", "SUCCESS", ok, chain.ExpectResult{Path: "messages.0.order.id", Rule: "equals", Want: "o1", Got: "o1", Passed: true}),
+		watch("watch_unknown", "REJECTED", chain.ExpectResult{Path: "messages.0.status.code", Rule: "not_equal", Want: "SUCCESS", Got: "REJECTED", Passed: true}),
+	}}
+	row := store.ProposalRowOf(&store.Proposal{Chain: "watch", RunID: "run-1", ComparedTo: "run-0"}, rec)
+	if row.Refusals != "REJECTED ×1" || row.Check != "1 step(s) assert only the verdict" {
+		t.Errorf("messages.N.status.code is the envelope of a streamed step: %+v", row)
+	}
+	brief := store.ProposalBrief(&store.Proposal{Chain: "watch", RunID: "run-1", ComparedTo: "run-0"}, rec, "")
+	if strings.Contains(brief, "nothing at") || !strings.Contains(brief, "assert only the verdict: `watch`") {
+		t.Errorf("the brief reads the streamed envelope too:\n%s", brief)
+	}
+}

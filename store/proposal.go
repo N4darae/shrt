@@ -15,6 +15,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
@@ -342,7 +343,7 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 		}
 		beyond := false
 		for _, e := range st.Expect {
-			if e.Path != envelope && !chain.IsTransportPath(e.Path) {
+			if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
 				beyond = true
 				fields.add(indexPattern.ReplaceAllString(e.Path, ".N"))
 			}
@@ -423,10 +424,31 @@ func answerKind(st *runner.StepRecord, envelope string) string {
 		return st.Status
 	}
 	out, ok := verdictText(body, envelope, "details.0.app_code", "details.0.reason")
+	if ok {
+		return out
+	}
+	top, _ := body.(map[string]any)
+	messages, _ := top[catalog.StreamMessages].([]any)
+	for _, m := range messages {
+		v, found := verdictText(m, envelope, "details.0.app_code", "details.0.reason")
+		if found && !ok {
+			out, ok = v, true
+		}
+		if found && v != chain.EnvelopeOK() {
+			out = v
+			break
+		}
+	}
 	if !ok {
 		return "nothing at " + envelope
 	}
 	return out
+}
+
+var streamedPrefix = regexp.MustCompile(`^` + catalog.StreamMessages + `\.\d+\.`)
+
+func atEnvelope(path, envelope string) bool {
+	return path == envelope || streamedPrefix.MatchString(path) && streamedPrefix.ReplaceAllString(path, "") == envelope
 }
 
 func proposalHeader(p *Proposal, rec *runner.Record) string {
@@ -1185,7 +1207,7 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		}
 		beyond := false
 		for _, e := range st.Expect {
-			beyond = beyond || e.Path != envelope && !chain.IsTransportPath(e.Path)
+			beyond = beyond || !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path)
 		}
 		switch {
 		case len(st.Expect) == 0:

@@ -101,14 +101,8 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 				out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: text})
 			}
 		}
-		for _, sub := range car.Fields {
-			if read || len(sub.EnumValues) < 2 || sub.Repeated {
-				continue
-			}
-			values := sub.EnumValues[1:]
-			if v := stateIn([]string{c.Exports[car.Name], c.Summary}, values, enumShort(sub.EnumValues)); v != "" {
-				out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: v})
-			}
+		if !read {
+			out = append(out, stateExpectations(car, c)...)
 		}
 		if len(out) == 0 && !read {
 			for _, sub := range car.Fields {
@@ -147,6 +141,72 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 		}
 	}
 	return out
+}
+
+func stateExpectations(car *catalog.Field, c *RPCContract) []chain.Expectation {
+	out := []chain.Expectation{}
+	for _, sub := range car.Fields {
+		if len(sub.EnumValues) < 2 || sub.Repeated {
+			continue
+		}
+		if v := stateIn([]string{c.Exports[car.Name], c.Summary}, sub.EnumValues[1:], enumShort(sub.EnumValues)); v != "" {
+			out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: v})
+		}
+	}
+	return out
+}
+
+func (p *Plan) assertStates(lib *Library) {
+	for _, st := range p.Chain.Steps {
+		if st.AllowFail || isRefusalStep(st) || effectOutcome(st) != outcomeSuccess || chain.IsReadOnlyCall(st.Call) || p.streams(st) {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		c, ok := lib.Get(m.FullName)
+		car := singleCarrier(m)
+		if !ok || car == nil || len(DeclaredFacts(c)) == 0 {
+			continue
+		}
+		for _, e := range stateExpectations(car, c) {
+			if !hasExpectOn(st, e.Path) {
+				st.Expect = append(st.Expect, e)
+			}
+		}
+	}
+}
+
+func (p *Plan) assertStreamEcho() {
+	for _, st := range p.Chain.Steps {
+		if !p.streams(st) || st.AllowFail || isRefusalStep(st) {
+			continue
+		}
+		m, err := p.cat.Lookup(st.Call)
+		if err != nil {
+			continue
+		}
+		car := singleCarrier(m)
+		if car == nil {
+			continue
+		}
+		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+			key, ok := namecase.LookupKey(st.Body, f.Name)
+			if !ok || f.Repeated || !IsEntityIDField(f.Name) {
+				continue
+			}
+			text, _ := st.Body[key].(string)
+			src, isRef := refSource(text)
+			if !isRef || src == "vars" || src == "env" || p.stepByID(src) == nil {
+				continue
+			}
+			path := catalog.StreamMessages + ".0." + car.Name + "." + f.Name
+			if sub := fieldByName(car.Fields, f.Name); sub != nil && sub.Kind == f.Kind && !sub.Repeated && !hasExpectOn(st, path) {
+				st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: text})
+			}
+		}
+	}
 }
 
 func (p *Plan) assertTimestamps(lib *Library) {
