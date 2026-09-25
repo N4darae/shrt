@@ -136,6 +136,7 @@ type StepRecord struct {
 
 	serverBuild string
 	unreachable string
+	refused     []chain.ExpectResult
 }
 
 func (s *StepRecord) NotSentUnreachable() bool {

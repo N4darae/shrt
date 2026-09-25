@@ -38,7 +38,7 @@ func serverError(st *runner.StepRecord) string {
 		return ""
 	}
 	code := strings.ToLower(st.Transport.Code)
-	if !serverErrorCodes[code] && (st.HTTPStatus < 500 || code == "unavailable") {
+	if !serverErrorCodes[code] && st.HTTPStatus < 500 {
 		return ""
 	}
 	return errorText(st)
