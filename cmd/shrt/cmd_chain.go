@@ -376,6 +376,7 @@ func chainLint(args []string) error {
 			return err
 		}
 	} else {
+		explained := map[string]bool{}
 		for _, r := range reports {
 			if len(r.Issues) == 0 {
 				fmt.Printf("ok   %s\n", r.Chain)
@@ -394,6 +395,10 @@ func chainLint(args []string) error {
 					where = " [" + i.Step + "]"
 				}
 				fmt.Printf("%-5s %s %s\n", strings.ToUpper(i.Severity), where, i.Message)
+				if i.Why != "" && !explained[i.Why] {
+					explained[i.Why] = true
+					fmt.Printf("       %s\n", i.Why)
+				}
 			}
 		}
 	}

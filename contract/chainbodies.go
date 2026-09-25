@@ -49,7 +49,8 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 				Step:     s.ID,
 				Severity: chain.SeverityWarn,
 				Kind:     chain.KindEnvelopeOnly,
-				Message:  EnvelopeOnlyMessage(s.Call, facts),
+				Message:  envelopeOnlyShort(s.Call, facts),
+				Why:      envelopeOnlyWhy,
 			})
 		}
 		for _, name := range rc.Required {
@@ -176,11 +177,16 @@ func AssertsOnlyVerdict(s *chain.Step) bool {
 	return stepExpectsSuccess(s)
 }
 
-func EnvelopeOnlyMessage(rpc string, facts []string) string {
-	return fmt.Sprintf("asserts only the verdict, which says the call did not fail, not what it did — and the "+
-		"contract for %s declares what its response carries (%s). Assert at least one of those, with the value "+
-		"this step should have produced (README rule 4); 'chain lint -strict' fails a step that does not",
+const envelopeOnlyWhy = "The verdict says the call did not fail, not what it did: assert a field the contract declares, " +
+	"with the value the step should have produced (README rule 4); 'chain lint -strict' fails a step that does not"
+
+func envelopeOnlyShort(rpc string, facts []string) string {
+	return fmt.Sprintf("asserts only the verdict, though the contract for %s declares what its response carries (%s)",
 		rpc, strings.Join(clipList(facts, 4), ", "))
+}
+
+func EnvelopeOnlyMessage(rpc string, facts []string) string {
+	return envelopeOnlyShort(rpc, facts) + ". " + envelopeOnlyWhy
 }
 
 func stepExpectsSuccess(s *chain.Step) bool {

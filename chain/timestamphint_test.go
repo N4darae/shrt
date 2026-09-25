@@ -31,7 +31,7 @@ func timestampHints(t *testing.T, c *chain.Chain) string {
 	out := []string{}
 	for _, i := range chain.LintWith(c, catalogtest.Stamped(), chain.LintOptions{Hints: true}) {
 		if i.Kind == chain.KindUnassertedTimestamp {
-			out = append(out, i.Message)
+			out = append(out, i.Step+" "+i.Message)
 		}
 	}
 	return strings.Join(out, "\n")
@@ -62,7 +62,7 @@ steps:
 
 func TestTimestampHintSuggestsANowWindowForACreationStamp(t *testing.T) {
 	got := timestampHints(t, stampedChain(t, stampedFlow))
-	if !strings.Contains(got, `create_item item.created_at within: {of: "${nowunix}", by: 300}`) {
+	if !strings.Contains(got, `create_item timestamp item.created_at unasserted; expect within: {of: "${nowunix}", by: 300}`) {
 		t.Fatalf("a creation stamp is now, not an hour ahead: %q", got)
 	}
 	if strings.Contains(got, "nowunix+3600") {
@@ -72,7 +72,7 @@ func TestTimestampHintSuggestsANowWindowForACreationStamp(t *testing.T) {
 
 func TestTimestampHintOnAReadSuggestsTheStampTheCreatorReceived(t *testing.T) {
 	got := timestampHints(t, stampedChain(t, stampedFlow))
-	if !strings.Contains(got, "get_item item.created_at equals: ${create_item.item.created_at}") {
+	if !strings.Contains(got, "get_item timestamp item.created_at unasserted; expect equals: ${create_item.item.created_at}") {
 		t.Fatalf("a read returns the stored stamp, so it equals what create_item received: %q", got)
 	}
 }
@@ -122,7 +122,7 @@ steps:
         - path: item.updated_at
           within: {of: "${nowunix}", by: 300}
 `))
-	if !strings.Contains(got, `create_item item.expires_at within: {of: "${nowunix+3600}", by: 5}`) {
+	if !strings.Contains(got, `create_item timestamp item.expires_at unasserted; expect within: {of: "${nowunix+3600}", by: 5}`) {
 		t.Fatalf("an expiry keeps the lifetime template: %q", got)
 	}
 }
