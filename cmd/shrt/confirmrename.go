@@ -87,8 +87,15 @@ func renameSafeSpot(e *env, to, from, by string) error {
 
 func renameDifference(e *env, spot *store.SafeSpot, c *chain.Chain, from string) (string, string) {
 	if changes := diff.ChainChanges(spot, c); len(changes) > 0 {
-		ch := changes[0]
-		return "", fmt.Sprintf("the chain differs from what the safe spot recorded at %s %s (%s)", ch.Step, ch.Path, ch.Transition())
+		at := make([]string, 0, len(changes))
+		for _, ch := range changes {
+			if ch.StepOrder() {
+				at = append(at, "step order: "+ch.Moves())
+				continue
+			}
+			at = append(at, fmt.Sprintf("%s %s (%s)", ch.Step, ch.Path, ch.Transition()))
+		}
+		return "", fmt.Sprintf("the chain differs from what the safe spot recorded at %d place(s): %s", len(at), strings.Join(at, "; "))
 	}
 	if len(spot.Steps) != len(c.Steps) {
 		return "", fmt.Sprintf("the safe spot has %d step(s) and the chain %d", len(spot.Steps), len(c.Steps))
