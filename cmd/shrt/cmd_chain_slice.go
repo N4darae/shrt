@@ -65,7 +65,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var, repeatable: -var key=value; overrides a chain var when running -verify, and a var the chain does not declare is written into the slice")
 	write := &optionalString{}
-	fs.Var(write, "write", "write the slice to .shrt/chains/<name>.yaml; `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a value with a slash or ending in .yaml is a path, written exactly there, relative to the current directory")
+	fs.Var(write, "write", "write the slice to <name>.yaml next to the source chain (.shrt/chains for a chain there, the same directory for a chain given by a path outside it); `[name]` is optional (-write, or -write <name>) and defaults to <chain>-slice-<step-id>; a value with a slash or ending in .yaml is a path, written exactly there, relative to the current directory, and may name the source chain itself to replace it")
 	repeat := fs.Int("repeat", 3, "with -verify, run the slice this many times and report how many reproduced the verdict: reproduced N/N, or intermittent: reproduced k/N (exit 4); a var a kept write interpolates gets -r2, -r3 appended on later runs")
 	keep := &stepList{}
 	fs.Var(keep, "keep", "also keep these earlier steps and what they need, comma-separated or repeated: -keep `id[,id]`; the word writes keeps every earlier write step, and combines with ids: -keep writes,<id>")
@@ -174,11 +174,12 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			fmt.Println()
 		}
 	} else if write.set {
-		path := filepath.Join(e.chainsDir(), res.Chain.Name+".yaml")
+		path := filepath.Join(sliceDir(e, c), res.Chain.Name+".yaml")
 		if writePath != "" {
 			path = writePath
 		}
-		if err := mayOverwriteSlice(path, res, *force, *verify); err != nil {
+		source := writePath != "" && sameSliceFile(path, c.SourcePath)
+		if err := mayOverwriteSlice(path, res, *force || source, *verify); err != nil {
 			return err
 		}
 		if err := writeSliceFile(path, res.Chain); err != nil {
@@ -1484,6 +1485,38 @@ func pinnedWritesError(res *chain.SliceResult, pinned []string, closure string) 
 		"and the verdict is that of a second write, not the one recorded.\n"+
 		"Reproduce it in closure mode, which creates what the write needs afresh: %s\n"+
 		"or pass -resend-writes to send it anyway", res.Run, strings.Join(pinned, "; "), closure)
+}
+
+func sliceDir(e *env, c *chain.Chain) string {
+	chains := e.chainsDir()
+	if c.SourcePath == "" {
+		return chains
+	}
+	dir, err := filepath.Abs(filepath.Dir(c.SourcePath))
+	if err != nil {
+		return chains
+	}
+	if abs, err := filepath.Abs(chains); err == nil && abs == dir {
+		return chains
+	}
+	return dir
+}
+
+func sameSliceFile(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	x, err1 := filepath.Abs(a)
+	y, err2 := filepath.Abs(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	if x == y {
+		return true
+	}
+	sx, err1 := os.Stat(x)
+	sy, err2 := os.Stat(y)
+	return err1 == nil && err2 == nil && os.SameFile(sx, sy)
 }
 
 func sliceChainRef(arg string, c *chain.Chain) string {

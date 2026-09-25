@@ -1269,9 +1269,16 @@ shrt chain slice dealing-approve-obligation-guards -step approve_offset_d_not_op
    smaller chain. Without `-write` nothing is written and the YAML goes to stdout, and `-verify`
    still runs the slice but keeps no run record, since the record would name a chain that does not
    exist. `-keep id[,id]` forces named earlier steps back into the slice, with their own producers
-   and prerequisites; `-keep writes` does so for every earlier write step (see INCONCLUSIVE below). `-write` refuses to replace an existing chain file unless `-force`, except a
-   slice this command wrote of the same chain and step (its description starts
-   `Slice of <chain> reproducing step <step>:`), so the `next:` loop can re-slice in place.
+   and prerequisites; `-keep writes` does so for every earlier write step (see INCONCLUSIVE below).
+   `-write` and `-write <name>` put the file next to the source chain: in `paths.chains` for a
+   chain there, and beside it for a chain given by a path outside it (`.shrt/scratch/min.yaml`
+   slices to `.shrt/scratch/min-slice-<step>.yaml`), so an exploratory slice never lands in the
+   directory every sweep and gate runs. A value with a slash or ending in `.yaml` is written exactly
+   there. `-write` refuses to replace an existing chain file unless `-force` (exit 1, or 2 under
+   `-verify`, before anything is sent), except a slice this command wrote of the same chain and step
+   (its description starts `Slice of <chain> reproducing step <step>:`), so the `next:` loop can
+   re-slice in place, and the source chain file itself when you name it with `-write <its path>`:
+   the minimal-chain recipe below replaces the chain with its verified slice that way.
    A slice whose description carries a VERIFIED verdict is protected too: re-writing it without
    `-verify` keeps the verdict when the new slice is identical (same steps, vars and pinned
    values), and otherwise is refused unless `-force`, since the new slice was never verified.
