@@ -1637,6 +1637,24 @@ pointed at an id nothing created (`..._unknown_refs`) expects the same, so a han
 before it validates fails. A `when:` the plan cannot turn into a value, a `required:` field no such
 failure covers, and a contract that declares neither get a note; the plan does not guess.
 
+## 68. A cancel of a confirmed order that left it CONFIRMED, green in the planned chain
+
+**Symptom.** A backend whose CancelOrder changed nothing for a CONFIRMED order passed `shrt
+contract plan CancelOrder`, and so did the baseline, whose cancel never returns the stock a confirm
+reserved, though the contract says a CONFIRMED order gives its stock back.
+
+**Cause.** The plan cancelled only the PENDING order it had just created; no planned step ever
+cancelled an order another write had moved.
+
+**Fix.** 2026-09-25: for each other write whose contract says it moves the target's entity to a
+state the target does not refuse (ConfirmOrder to CONFIRMED for CancelOrder), the plan creates a
+fresh entity, reads it and what it holds (`get_product_before_confirm_order_before_…`), moves it
+(`confirm_order_before_cancel_order_after_confirmed`), runs the target on it
+(`cancel_order_after_confirmed`, expecting CANCELLED), and reads again: the entity must be in the
+target's state, and when the contract or the domain description says the target on an entity in
+that state returns, gives back, restores or releases what it holds, each number read before the
+move must be back. A state the target refuses is left to the refusal probe (#66).
+
 ---
 
 # Decisions, so they are not relitigated

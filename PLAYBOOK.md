@@ -372,6 +372,14 @@ invalid_argument` (`create_order_lines_empty`, `create_order_qty_zero` on the la
 before any lookup. When nothing declares a required field or a format, the plan says so and plans
 none: it does not guess what the handler validates.
 
+A write is also run from every state another write can put its entity in, when its contract does not
+refuse that state. For CancelOrder the plan creates a fresh order, reads its products, confirms it
+(`confirm_order_before_cancel_order_after_confirmed`), cancels it (`cancel_order_after_confirmed`,
+expecting CANCELLED) and reads again: the order must be CANCELLED, and since the contract says a
+CONFIRMED order gives its stock back, each product's `qty_on_hand` must equal the read taken before
+the confirm. Without such a sentence in the summary, the export or the domain description, only the
+state is asserted.
+
 When the config declares auth, the plan also probes who may call. For a target whose contract names
 `requires_role: [ADMIN]`, each auth profile whose name is not a required role (`clerk`) gets
 `<step>_as_clerk`, the same call under `auth: clerk`, expecting the failure the contract declares
