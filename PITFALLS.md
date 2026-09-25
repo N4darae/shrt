@@ -1424,6 +1424,19 @@ same, and asserted the id and the numbers, not the status.
 state, a fresh object moved by it, a read, and a replay asserting it equals the read, status included
 (`create_order_replay_after_confirm_order`, `create_order_replay_after_cancel_order`).
 
+## 55. A clerk saw price 0, and a clerk's confirm took stock twice, green in the planned chains
+
+**Symptom.** GetProduct answered `price_minor` 0 when a CLERK called it, and ConfirmOrder called by a
+CLERK took each line's stock twice. Both rpcs are open to every role; every planned chain stayed green.
+
+**Cause.** Plans called an open rpc only as the default profile. The role probes covered rpcs gated
+by `requires_role` and expected a refusal; nothing compared what an allowed lower role got.
+
+**Fix.** 2026-09-25: a target open to every role is repeated as each other profile: a read asserting
+the same answer field for field (`get_product_as_clerk`), a write on its own identically prepared
+fixtures with reads asserting the same effect (`confirm_order_as_clerk`,
+`get_product_after_confirm_order_as_clerk`).
+
 ---
 
 # Decisions, so they are not relitigated

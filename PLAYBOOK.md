@@ -351,6 +351,21 @@ pair per plan, not per rpc). For a write, all of these sit between reads of what
 `shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
 probe`) and the chained rpcs no chain calls without a token (`no token`).
 
+An rpc every role may call must behave the same for each of them, and only calling it as each proves
+it. For a target whose contract says `requires_role: [NONE]` (or names none), each other auth profile
+gets a copy. A read is repeated right after itself as that profile (`get_product_as_clerk`) and
+asserts every non-repeated field of the answer equal to the first read's (`product.price_minor
+equals ${get_product.product.price_minor}`), so a backend that zeroes the price for a clerk fails. A
+field that really differs by role is left out when the contract documents it under `terminal:` or
+`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`); a
+repeated field is not compared item by item, and a note says so. A write runs as that profile on
+fixtures of its own, copied from the steps that created and prepared its fixtures with unique
+fields changed and every number kept (`create_product_for_clerk`, `add_stock_for_clerk` at the same
+`qty`, `create_order_for_clerk`, then `confirm_order_as_clerk`); the plan reads what the default
+profile's write changed right after it (`get_product_after_confirm_order`) and what the other
+profile's changed after that one (`get_product_after_confirm_order_as_clerk`), asserting the same
+numbers and states. Timestamps are not compared. A confirm that takes stock twice for a clerk fails.
+
 Numbers in planned fixtures differ by magnitude, because a bug in arithmetic shows at a size the
 first fixture never reaches (a price stored as `price - price/1000` is right for 250 and wrong for
 1250). A second producer takes the first value plus 1000 (`create_product_2`, price 1250), three list
