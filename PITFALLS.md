@@ -2229,6 +2229,19 @@ spaces, so trimmed and untrimmed are the same.
 contract says is not trimmed) with two spaces before and after, asserting the echo and a read-back
 equal the request. A field the contract says is trimmed or normalised is left out, and a note names it.
 
+## 107. An unfiltered planned list that drifted every run
+
+**Symptom.** `shrt confirm` of a planned `ListProducts` chain warned `N field(s) differ (5 item(s)
+-> 112 item(s))` on `list_products_empty_sku_prefix`, and the step grew with every run: the plan
+wrote it without `volatile: [products]`, which three testers added by hand.
+
+**Fix.** 2026-09-25: a planned list step whose request nothing scopes to the run (no field reads a
+var, a step or a generator) declares its list volatile. The whole list is masked rather than the
+items' fields, since a per-item mask still reports every item another run added; a lost fixture
+stays visible through the `includes:` expectations, which a volatile path does not mask: `run` and
+`verify` (also with `-quiet`) name the missing id (`products includes want={"id_product":"prd-…"}
+got=0 (none of the 0 item(s) matches)`).
+
 ---
 
 # Decisions, so they are not relitigated

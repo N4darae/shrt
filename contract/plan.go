@@ -167,6 +167,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
 	p.noteIsolation()
+	p.maskUnscopedLists()
 	if err := c.Normalize(); err != nil {
 		return nil, err
 	}
