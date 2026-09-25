@@ -410,10 +410,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 			if sr.Error != "" {
 				fmt.Printf("       %s\n", skips.Condense(sr.ID, sr.Error))
 			}
-			for _, line := range strings.Split(sr.Warning, "\n") {
-				if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
-					continue
-				}
+			for _, line := range shownWarnings(sr) {
 				if at, seen := warned[line]; seen {
 					fmt.Printf("       the same warning as at step %s above\n", at)
 					continue
@@ -583,10 +580,7 @@ func warningLines(rec *runner.Record) []string {
 		if sr == nil {
 			continue
 		}
-		for _, line := range strings.Split(sr.Warning, "\n") {
-			if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
-				continue
-			}
+		for _, line := range shownWarnings(sr) {
 			if _, seen := stepsOf[line]; !seen {
 				warnings = append(warnings, line)
 			}
@@ -600,6 +594,24 @@ func warningLines(rec *runner.Record) []string {
 	}
 	if line := runner.UndeclaredFieldsLine(rec); line != "" {
 		out = append(out, "warning: "+line)
+	}
+	return out
+}
+
+func shownWarnings(sr *runner.StepRecord) []string {
+	cachedFirstUse := sr.AuthRetry == runner.AuthRetryResent && len(sr.TokenRefused) > 0
+	for _, r := range sr.TokenRefused {
+		cachedFirstUse = cachedFirstUse && r.Cached && r.FirstUse
+	}
+	out := []string{}
+	for _, line := range strings.Split(sr.Warning, "\n") {
+		if line = strings.TrimSpace(line); line == "" || strings.HasPrefix(line, runner.UndeclaredFieldsWarning) {
+			continue
+		}
+		if cachedFirstUse && (line == runner.CachedTokenResent || strings.HasPrefix(line, "the token was refused")) {
+			continue
+		}
+		out = append(out, line)
 	}
 	return out
 }

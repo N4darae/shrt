@@ -157,11 +157,19 @@ func (t *tokenLifetime) finding() bool {
 	return t != nil && t.restart == "" && (t.again != nil || t.prev != nil)
 }
 
-func (t *tokenLifetime) where(x earlyRefusal) string {
-	profile := x.step.AuthProfile
-	if profile == "" {
-		profile = transport.DefaultProfile
+func (t *tokenLifetime) cachedFirstUse() bool {
+	return t != nil && !t.finding() && t.restart == "" && t.first.r.Cached && t.first.r.FirstUse
+}
+
+func (t *tokenLifetime) profile(x earlyRefusal) string {
+	if x.step.AuthProfile == "" {
+		return transport.DefaultProfile
 	}
+	return x.step.AuthProfile
+}
+
+func (t *tokenLifetime) where(x earlyRefusal) string {
+	profile := t.profile(x)
 	whose := "a token a login in this run issued"
 	if x.r.Cached {
 		whose = "the cached token, on its first use in this run"
@@ -188,12 +196,11 @@ func (t *tokenLifetime) line() string {
 			"expiry its login states. This is a finding about the backend", t.prevRun,
 			strings.TrimPrefix(runner.TokenRefusalPhrase(t.prev.r), "token "), t.prev.step.Index, t.prev.step.ID)
 	}
-	again := " Refused early again, a token this run's login issued or the one the re-login issued, it is reported as a finding"
-	if t.first.r.Cached && t.first.r.FirstUse {
-		return head + ": possibly a restart since the token was cached. The token comes from an earlier run's login, and a backend " +
-			"restarted since then (a deploy, say) refuses it just as one that ends sessions long before the expiry its login states " +
-			"does; a first use of a cached token cannot tell the two apart." + again
+	if t.cachedFirstUse() {
+		return fmt.Sprintf("cached %s (auth profile %s, step %s): possibly a restart since the token was cached; logged in again",
+			runner.TokenRefusalPhrase(t.first.r), t.profile(t.first), t.first.step.ID)
 	}
+	again := " Refused early again, a token this run's login issued or the one the re-login issued, it is reported as a finding"
 	return head + ": the backend ends sessions long before the expiry its login states, or it restarted since that login; " +
 		"nothing in this run shows a restart." + again
 }
@@ -201,6 +208,9 @@ func (t *tokenLifetime) line() string {
 func (t *tokenLifetime) label() string {
 	if t.finding() {
 		return "FINDING: "
+	}
+	if t.cachedFirstUse() {
+		return "note: "
 	}
 	return "WARNING: "
 }

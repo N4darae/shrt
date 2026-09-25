@@ -185,7 +185,7 @@ func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
 	b.mu.Unlock()
 	var err error
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	if !strings.Contains(out, "WARNING: token refused") || !strings.Contains(out, "the cached token, on its first use in this run") {
+	if !strings.Contains(out, "note: cached token refused") || strings.Contains(out, "WARNING") {
 		t.Fatalf("the cached token was refused early on its first use: %v\n%s", err, out)
 	}
 	if strings.Contains(out, "nothing in this run shows a restart") {
@@ -193,5 +193,8 @@ func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
 	}
 	if !strings.Contains(out, "possibly a restart since the token was cached") || strings.Contains(out, "FINDING") {
 		t.Fatalf("the warning names a restart since the token was cached as a cause, and is no finding:\n%s", out)
+	}
+	if lines := nonEmptyLines(out); len(lines) != 2 || len(lines[1]) > 200 {
+		t.Fatalf("a cached token refused on its first use is one short line under the verdict:\n%s", out)
 	}
 }

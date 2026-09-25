@@ -387,7 +387,7 @@ func runVerify(ctx context.Context, args []string) error {
 			fmt.Println("WARNING: " + loss.line())
 		}
 		if life != nil && !life.finding() && nonBackend == nil {
-			fmt.Println("WARNING: " + life.line())
+			fmt.Println(life.label() + life.line())
 		}
 		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
 			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
