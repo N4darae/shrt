@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -129,6 +130,97 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	}
 	p.note("step %s: %s is an idempotency key; %s replays it with the same body and must return %s's %s, %s replays it with "+
 		"another body and %s%s", st.ID, key, replay.ID, st.ID, idField, other.ID, what, pair)
+	p.replayAfterTransitions(lib, st, m, key, carrier, idField)
+}
+
+func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.Method, key, carrier, idField string) {
+	var carrierMsg string
+	var stateField *catalog.Field
+	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
+		if fd.Name != carrier {
+			continue
+		}
+		carrierMsg = fd.Message
+		for _, sf := range fd.Fields {
+			if stateField == nil && len(sf.EnumValues) > 1 && !sf.Repeated {
+				stateField = sf
+			}
+		}
+	}
+	if stateField == nil {
+		return
+	}
+	idPath := carrier + "." + idField
+	read, ok := p.readerFor(lib, st, idPath)
+	if !ok {
+		return
+	}
+	values := stateField.EnumValues[1:]
+	short := enumShort(stateField.EnumValues)
+	initial := ""
+	if c, ok := lib.Get(st.Call); ok {
+		initial = stateIn([]string{c.Exports[carrier], c.Summary}, values, short)
+	}
+	t := &listTarget{step: st, itemMsg: carrierMsg, itemID: idField, carrier: carrier}
+	transitions := p.transitionsFor(lib, t, st, values, short, initial)
+	if len(transitions) == 0 {
+		return
+	}
+	echoed := map[string]bool{}
+	for _, sf := range carrierFields(m, carrier) {
+		echoed[sf.Name] = true
+	}
+	added, ids := []*chain.Step{}, []string{}
+	for _, tr := range transitions {
+		label := defaultID(tr.method.Name)
+		fixture := copyStep(st, p.freeStepID(st.ID+"_for_replay_after_"+label))
+		fixture.Export = nil
+		p.freshen(lib, fixture)
+		renameStepRefs(fixture, st.ID, fixture.ID)
+		fixture.Description = fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label)
+		p.assertEcho(fixture)
+		fixtureID := "${" + fixture.ID + "." + idPath + "}"
+
+		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
+		setBodyPath(body, tr.field, fixtureID)
+		move := &chain.Step{
+			ID:          p.freeStepID(label + "_for_replay"),
+			Description: fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]),
+			Call:        tr.method.FullName,
+			Auth:        tr.contract.Auth,
+			Body:        body,
+			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: carrier + "." + stateField.Name, Equals: tr.value}),
+		}
+
+		rbody := catalog.ScaffoldWith(read.reader.Input(), catalog.ScaffoldOptions{})
+		setBodyPath(rbody, read.field, fixtureID)
+		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
+		fetch := &chain.Step{
+			ID:          readID,
+			Description: fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID),
+			Call:        read.reader.FullName,
+			Auth:        read.contract.Auth,
+			Body:        rbody,
+			Expect:      append(SuccessExpectation(read.reader), chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value}),
+		}
+
+		replay := copyStep(fixture, p.freeStepID(st.ID+"_replay_after_"+label))
+		replay.Body[key] = "${steps." + fixture.ID + ".request." + key + "}"
+		replay.Description = fmt.Sprintf("the same request with %s's %s, after %s: the %s as it stands now (%s), not as it was created.",
+			fixture.ID, key, move.ID, carrier, short[tr.value])
+		replay.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, Equals: fixtureID})
+		for _, name := range read.scalars {
+			if echoed[name] {
+				replay.Expect = append(replay.Expect, chain.Expectation{Path: carrier + "." + name, Equals: "${" + readID + "." + read.carrier + "." + name + "}"})
+			}
+		}
+		added = append(added, fixture, move, fetch, replay)
+		ids = append(ids, replay.ID)
+	}
+	p.Chain.Steps = append(p.Chain.Steps, added...)
+	p.note("step %s: a replay can be answered from a copy taken at creation, so %s %s %s after moving a fresh %s with each write "+
+		"that changes its %s, and assert the replayed %s equals what the read just before returns, %s included",
+		st.ID, strings.Join(ids, " and "), pluralVerb(len(ids), "replays", "replay"), key, carrier, stateField.Name, carrier, stateField.Name)
 }
 
 func bumpNumbers(body map[string]any, fields []*catalog.Field) []string {

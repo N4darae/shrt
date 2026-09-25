@@ -1399,9 +1399,74 @@ key from ever being reused.
 **Fix.** 2026-09-25: a create target with a key field gets a replay with the same body, a replay with
 another body, and two creates without a key that must yield two ids.
 
+## 53. Cancel refused for orders of three lines, green in the planned chain
+
+**Symptom.** CancelOrder refused a PENDING order with three or more lines (`1304`). Every planned
+chain created orders of two lines and stayed green.
+
+**Cause.** The plan varied the repeated field's values but never its count: every fixture had two
+items, so logic that changes with the number of items (a loop bound, a limit) was never reached.
+
+**Fix.** 2026-09-25: a write target that reads a fixture with a two-item repeated field (or sends one
+itself) is repeated on a copy of that fixture with one item and with three (`create_order_1_lines`,
+`cancel_order_1_lines`, `create_order_3_lines`, `cancel_order_3_lines`), the third item reading a
+third resource of its own with its own preparation (`create_product_3`, `add_stock_3`).
+
+## 54. An idempotent replay answered with the order as it was created
+
+**Symptom.** After an order was confirmed or cancelled, replaying its `idempotency_key` returned it
+with status PENDING. The planned replay probes passed.
+
+**Cause.** They replayed only right after the create, when the stored and the created order are the
+same, and asserted the id and the numbers, not the status.
+
+**Fix.** 2026-09-25: a create target with a key and a state enum also gets, per write that moves the
+state, a fresh object moved by it, a read, and a replay asserting it equals the read, status included
+(`create_order_replay_after_confirm_order`, `create_order_replay_after_cancel_order`).
+
+## 55. A clerk saw price 0, and a clerk's confirm took stock twice, green in the planned chains
+
+**Symptom.** GetProduct answered `price_minor` 0 when a CLERK called it, and ConfirmOrder called by a
+CLERK took each line's stock twice. Both rpcs are open to every role; every planned chain stayed green.
+
+**Cause.** Plans called an open rpc only as the default profile. The role probes covered rpcs gated
+by `requires_role` and expected a refusal; nothing compared what an allowed lower role got.
+
+**Fix.** 2026-09-25: a target open to every role is repeated as each other profile: a read asserting
+the same answer field for field (`get_product_as_clerk`), a write on its own identically prepared
+fixtures with reads asserting the same effect (`confirm_order_as_clerk`,
+`get_product_after_confirm_order_as_clerk`).
+
+## 56. Customer names stored cut to 20 characters, green in the planned chain
+
+**Symptom.** CreateCustomer stored only the first 20 characters of the name. Planned chains stayed
+green; the defect showed only when a run's tag happened to make a name long and something read it.
+
+**Cause.** Plans sent the contract's short values and asserted no text they sent, so no fixture was
+long enough to be cut and nothing compared what came back.
+
+**Fix.** 2026-09-25: a write target whose response echoes text gets `<step>_long_text` and, for
+free text, `<step>_unicode_text`, asserting echo and read-back equal to the request; a stated
+maximum length is probed at it and one over it instead.
+
+## 57. One baseline defect left 45 planned steps without a safe spot
+
+**Symptom.** A planned chain failed at one step because of a real baseline defect. It could not be
+confirmed, and pinning it `kept_red` would also have kept every other step out of `verify`, so the
+agent either deleted the probe or left the whole chain unguarded.
+
+**Cause.** There was no short path from "this chain shows one defect" to "a red chain for the
+defect and a green one for the rest": slicing did not pin, and nothing removed a step together with
+what reads it.
+
+**Fix.** 2026-09-25: `shrt chain slice <c> -step <id> -kept-red [-verify]` writes the slice pinned on
+the step's failing expectations (only when it reproduced, under `-verify`), and `shrt chain slice
+<c> -without failed` writes the chain minus the failed steps and whatever reads them, to run and
+confirm.
+
 ---
 
-## 53. A confirm planned before any stock, red on a correct backend
+## 58. A confirm planned before any stock, red on a correct backend
 
 **Symptom.** `contract plan ListOrders AddStock ConfirmOrder CancelOrder` wrote `confirm_order_3`
 (the status-filter probe's transition) at step 11 and `add_stock` at step 189, for the first

@@ -138,6 +138,12 @@ catches it even before you assert it. A note names each such field and each adde
 second item its own test data where it matters, and assert what depends on both
 (`order.total_minor` for the pair, `order.lines.1.qty`). `chain new` does the same when the rpc list
 names one producer; list the producer twice and each item reads its own.
+The count is varied too, since a backend can break at a number of items two never reaches: a
+write target that reads a fixture sending a repeated message field with two items (a `CancelOrder`
+reading `create_order`), or sends one itself, is repeated on a copy of the fixture with one item
+and one with three (`create_order_1_lines` then `cancel_order_1_lines`, `create_order_3_lines` then
+`cancel_order_3_lines`), expecting what the target expects. The third item reads a third resource
+where the second reads its own (`create_product_3`, price 12345, prepared by `add_stock_3`).
 `shrt contract status -gaps` lists, as `one item`, each repeated request field that some chain
 sends but no chain sends with two or more items; as `same resource`, one that chains send with two
 or more items only when all of them point at the same resource (the same `${step...}` reference or
@@ -352,6 +358,21 @@ domain-level failure reaches only its own overlay's rpcs. For a write, all of th
 `shrt contract status -gaps` lists the role-gated rpcs no chain calls as a lower profile (`no role
 probe`) and the chained rpcs no chain calls without a token (`no token`).
 
+An rpc every role may call must behave the same for each of them, and only calling it as each proves
+it. For a target whose contract says `requires_role: [NONE]` (or names none), each other auth profile
+gets a copy. A read is repeated right after itself as that profile (`get_product_as_clerk`) and
+asserts every non-repeated field of the answer equal to the first read's (`product.price_minor
+equals ${get_product.product.price_minor}`), so a backend that zeroes the price for a clerk fails. A
+field that really differs by role is left out when the contract documents it under `terminal:` or
+`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`); a
+repeated field is not compared item by item, and a note says so. A write runs as that profile on
+fixtures of its own, copied from the steps that created and prepared its fixtures with unique
+fields changed and every number kept (`create_product_for_clerk`, `add_stock_for_clerk` at the same
+`qty`, `create_order_for_clerk`, then `confirm_order_as_clerk`); the plan reads what the default
+profile's write changed right after it (`get_product_after_confirm_order`) and what the other
+profile's changed after that one (`get_product_after_confirm_order_as_clerk`), asserting the same
+numbers and states. Timestamps are not compared. A confirm that takes stock twice for a clerk fails.
+
 Numbers in planned fixtures differ by magnitude, because a bug in arithmetic shows at a size the
 first fixture never reaches (a price stored as `price - price/1000` is right for 250 and wrong for
 1250). A second producer takes the first value plus 1000 (`create_product_2`, price 1250), three list
@@ -365,6 +386,22 @@ a failure's `when:` or the field's note states a minimum (`qty is zero or negati
 than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
 `<step>_<field>_below_min` one below, expected refused with that failure, between reads proving the
 refused write changed nothing.
+
+Text is tested at lengths and in characters the fixtures never use, since a column that truncates
+at 20 characters or mangles UTF-8 passes every short ASCII name. For a write target whose response
+carries back string fields it sends (not ids, keys or enums), the plan adds `<step>_long_text`,
+each such field grown by 65 characters (an email before its `@`, so it stays an email), and, for
+free-text fields (`name`, `title`, `description`, `note`, `comment`, `label`, ...),
+`<step>_unicode_text` with multi-byte characters (`Ünïcødé-日本語-✓`). Each asserts the response
+echoes every field exactly (`customer.name equals ${steps.create_customer_long_text.request.name}`)
+and, when a read rpc takes the created id, a read after it asserts the stored text the same way
+(`get_customer_after_create_customer_long_text`). When a field's note or a failure's `when:` states
+a maximum (`at most 40 characters`, `longer than 40 characters`), that field is left out of the long
+probe and gets `<step>_<field>_at_max` (exactly that many characters, accepted and stored; a unique
+field is built from `${uuid}` so its length is known) and `<step>_<field>_over_max` (one more,
+refused with the failure whose field or `when:` names the length, between reads proving nothing
+changed). A backend with a real limit you have not written down fails the long probe: state the
+limit in the contract and plan again, rather than deleting the probe.
 
 A list filter is tested by what it leaves out. For a list target the plan works out its scope: a
 request field holding a reference to a step that every fixture also reads is a parent (`id_customer`
@@ -404,6 +441,16 @@ a reason or `when:` saying idempotency, key reuse or conflict, that refusal); an
 is in `required:`, `<step>_no_key` and `<step>_no_key_2` sending an empty key, the second asserting
 an id different from the first. Copies elsewhere in a plan (a shortage probe's order) get a fresh
 `${uuid}` key so they are never mistaken for a replay.
+A replay must answer with the object as it is now, not as it was created: a backend that caches the
+response at creation replays a CONFIRMED order as PENDING. So when the created object carries a state
+enum (`order.status`) and the contracts name writes that take its id and the state they leave it in
+(`exports: order: ... status CONFIRMED`), the plan adds, per write, a fresh object
+(`create_order_for_replay_after_confirm_order`), the write (`confirm_order_for_replay`), a read
+(`fetch_order_after_confirm_order_for_replay`) and the replay of the fresh object's key
+(`create_order_replay_after_confirm_order`), asserting the replay's id and every numeric and enum
+field the read returns (`order.status equals ${fetch_order_after_confirm_order_for_replay.order.status}`).
+A write whose `needs:` the plan does not call is left out with a note naming what to plan with it
+(`CreateOrder AddStock`, so `ConfirmOrder` can run).
 
 A `note:` names each step
 whose contract declares response facts (`exports:`, `terminal:`, `soft_signals:`) together with
@@ -1293,6 +1340,33 @@ Three things that decide whether this works for a given chain:
   0 only while the chain fails exactly there, and 1 when an earlier or later step regresses, a
   step is left unsent, the failure changes, or the defect is gone. `shrt confirm` refuses a chain
   with `kept_red`, saying so, even when its run passed. `PITFALLS.md` §11.
+
+**One real defect in a long chain: keep it red in a slice of its own, confirm the rest.** A planned
+chain of 49 steps that shows one baseline defect cannot be confirmed (it did not pass) and must not
+be kept red as a whole if you want the other 45 steps guarded by `verify`, since a chain with
+`kept_red` never gets a safe spot. Split it in two commands, from the run that showed the defect:
+
+```bash
+shrt run orders -keep-going                                   # red at confirm_order_insufficient_stock_last_item
+shrt chain slice orders -step confirm_order_insufficient_stock_last_item \
+    -kept-red -verify -run latest -var tag=<fresh> -write orders-last-line-red
+shrt chain slice orders -without failed -run latest -write orders-rest
+shrt run orders-rest -var tag=<fresh>                          # green: propose and approve it
+```
+
+`-kept-red` pins the slice on every expectation of `-step` that failed in the run (`kept_red:
+[{step, path}]`, no `got`), so `shrt run` of it exits 0 while the defect is there and 1 once it is
+gone or anything else fails. With `-verify` it pins only a slice that reproduced the step's verdict:
+a slice that lost a dependency which is state rather than a reference (the `AddStock` that stocked
+the first line) passes where the chain failed, so it is not pinned and not written, and the `next:`
+line (which keeps `-kept-red`) says what to `-keep`. Without `-verify` the pinned slice is a
+hypothesis: a run saying `PINNED DEFECT GONE` while the chain still fails means exactly that.
+`-without <id,...>` writes the chain minus those steps and every step that reads one of them, by a
+reference or an export; `-without failed` names every step that failed in the run (`-run`, default
+latest), which leaves out the after-reads that fail with the defect too. It lists each step left out
+and why, and drops their `kept_red` pins. A step left in can still depend on what a left-out write
+did to shared state, so run the rest before proposing it; `-write <chain>.yaml` replaces the chain
+itself. Remove the kept-red slice and plan again once the defect is fixed.
 
 **Before a chain has a safe spot, `shrt diff` is the run-to-run check.** Only the user's yes
 creates a safe spot, so a refactor often has to be checked with none:
