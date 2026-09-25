@@ -38,6 +38,9 @@ type Finding struct {
 type Report struct {
 	RunsDir        string    `json:"runs_dir"`
 	Records        int       `json:"records"`
+	ReplayRecords  int       `json:"replay_records"`
+	KeptRedRecords int       `json:"kept_red_records"`
+	FailedRecords  int       `json:"failed_records"`
 	ReadSteps      int       `json:"read_steps"`
 	EnvelopeOnly   int       `json:"envelope_only"`
 	AssertsNothing int       `json:"asserts_nothing"`
@@ -391,6 +394,15 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			rep.Unsealed++
 		}
 		rep.Records++
+		if rec.ReplayOf != "" {
+			rep.ReplayRecords++
+		}
+		if rec.KeptRed != "" {
+			rep.KeptRedRecords++
+		}
+		if rec.Status != runner.StatusPassed {
+			rep.FailedRecords++
+		}
 		for _, step := range rec.Steps {
 			if step == nil || step.Status != "passed" || step.Transport != nil {
 				continue

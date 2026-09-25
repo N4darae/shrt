@@ -88,8 +88,8 @@ func chainHollow(args []string) error {
 		}
 		fmt.Printf("HOLLOW %-40s %-54s %-30s %s (%d record(s))\n", f.Chain, f.Step, f.RPC, f.RunID, f.Occurrences)
 	}
-	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the envelope verdict, %d asserting nothing, %d of those hollow\n",
-		rep.Records, rep.ReadSteps, rep.EnvelopeOnly, rep.AssertsNothing, rep.HollowRecords)
+	fmt.Printf("\n%s: %d passed read step(s), %d asserting only the envelope verdict, %d asserting nothing, %d of those hollow\n",
+		recordsCounted(rep), rep.ReadSteps, rep.EnvelopeOnly, rep.AssertsNothing, rep.HollowRecords)
 	fmt.Printf("%d distinct (chain, step): %d reported, %d allowlisted, %d whose chain now asserts a data path\n",
 		rep.DistinctSteps, rep.Unallowed, rep.Allowed, rep.ChainFixed)
 	reportOrphans(rep)
@@ -118,10 +118,16 @@ func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
 		return exitWith(1, "hollow: %d read step(s) passed while finding nothing, better than the baseline %d — "+
 			"lower %s to %d to keep the ratchet tight", rep.Unallowed, want, baselinePath, rep.Unallowed)
 	}
-	fmt.Printf("hollow: %d hollow read step(s) reported from %d record(s), at the baseline (%d allowlisted, %d whose chain now asserts a data path)\n",
-		rep.Unallowed, rep.Records, rep.Allowed, rep.ChainFixed)
+	fmt.Printf("hollow: %d hollow read step(s) reported from %s, at the baseline (%d allowlisted, %d whose chain now asserts a data path)\n",
+		rep.Unallowed, recordsCounted(rep), rep.Allowed, rep.ChainFixed)
 	reportOrphans(rep)
 	return nil
+}
+
+func recordsCounted(rep *hollow.Report) string {
+	return fmt.Sprintf("%d run record(s) (%d shrt run, %d verify replay(s); %d of chains kept red, %d that did not pass; "+
+		"a passed read step counts whatever its run's verdict)",
+		rep.Records, rep.Records-rep.ReplayRecords, rep.ReplayRecords, rep.KeptRedRecords, rep.FailedRecords)
 }
 
 func reportOrphans(rep *hollow.Report) {

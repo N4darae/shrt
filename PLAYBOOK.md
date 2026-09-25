@@ -279,7 +279,12 @@ names every one:
 shrt chain hollow            # exit 1 while any is unexplained, exit 2 if there are no records at all
 ```
 
-It counts the runs of the chains under `paths.chains` only. Runs of a chain no file there declares are
+It counts the runs of the chains under `paths.chains` only, and every kind of run record of them:
+`shrt run` records, `verify` replays (a gate that runs and verifies a chain leaves two records per
+gate run), runs of chains kept red and runs that failed, since a read step that passed is hollow
+whatever its run's verdict. The record count in its output splits them that way, `19 run
+record(s) (12 shrt run, 7 verify replay(s); 4 of chains kept red, 5 that did not pass; ...)`, so a
+count that grows by two per gate run is expected. Runs of a chain no file there declares are
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
 when the chain is gone. A run recorded before shrt kept `chain_source` cannot say it was run by path,
