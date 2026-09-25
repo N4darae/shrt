@@ -2210,6 +2210,15 @@ the shortage probes ask for one more.
 `<step>_exact_stock` on fixtures of its own, every line asking for exactly the stock the chain added,
 expecting success and a level of 0 in the reads after it.
 
+## 105. An order total that wrapped at 32 bits
+
+**Symptom.** A `CreateOrder` that summed `total_minor` in 32 bits passed every planned chain: the
+fixtures' totals (4250, a few thousand) never reach 2^31.
+
+**Fix.** 2026-09-25: for a target with a priced total in a 64-bit field, the plan adds
+`<step>_wide_total`, one line of 3 at price 1500000000 on a product of its own, asserting the total
+is exactly 4500000000, within any maximum the contract states.
+
 ---
 
 # Decisions, so they are not relitigated

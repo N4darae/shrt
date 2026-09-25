@@ -143,6 +143,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.isolating(lib, "shortage", func() { p.probeInsufficiency(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "exact", func() { p.probeExactStock(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.isolating(lib, "boundary", func() { p.probeBoundaries(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
+	p.isolating(lib, "wide", func() { p.probeWideTotals(lib, func(st *chain.Step) bool { return targetSteps[st.ID] }) })
 	p.probeTextLength(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeReadBack(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })
 	p.probeBatch(lib, func(st *chain.Step) bool { return targetSteps[st.ID] })

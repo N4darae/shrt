@@ -434,7 +434,12 @@ than zero`, `at least 5`), `<step>_<field>_min` at it, expected accepted, and
 `<step>_<field>_below_min` one below, expected refused with that failure, and, for a signed field whose
 minimum is 1 or more, `<step>_<field>_negative` at -1, refused the same way (a check for zero alone
 lets a negative quantity through and subtracts it), each between reads proving the
-refused write changed nothing.
+refused write changed nothing. A target whose contract states a priced total over its lines (`total_minor
+is the sum of qty times price_minor`) held in a 64-bit field also gets `<step>_wide_total`: one line
+of 3 on its own product priced at 1500000000 (`create_product_for_create_order_wide_total`), the
+total asserted as the exact literal 4500000000, past 2^31 and 2^32, so a sum computed or stored in 32
+bits wraps and fails. A maximum the contract states on the price or the quantity (`at most N`) is
+kept; the quantity grows instead until the sum passes 2^32.
 
 Text is tested at lengths and in characters the fixtures never use, since a column that truncates
 at 20 characters or mangles UTF-8 passes every short ASCII name. For a write target whose response
