@@ -52,3 +52,40 @@ func TestNumericIdsOnBothSidesAreMasked(t *testing.T) {
 		t.Fatalf("an id that became 0 is drift:\n%s", rep.Text())
 	}
 }
+
+func TestAllLetterHexIdIsStillIdShaped(t *testing.T) {
+	spot := &store.SafeSpot{Chain: "shop", RunID: "spot", Steps: []*runner.StepRecord{
+		{ID: "create_product_2", Call: "ThingService/Fetch", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"product":{"id_product":"prd-60b05a32d153","name":"Mug"}}`)},
+		{ID: "fetch_order", Call: "ThingService/Fetch", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"order":{"id_order":"ord-9e5744d2dabc","id_product":"prd-60b05a32d153"}}`)},
+	}}
+	run := runOf("run",
+		stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-edababebdffe","name":"Mug"}}`),
+		stepAs("fetch_order", runner.StatusPassed, `{"order":{"id_order":"ord-bcabceaddfdf","id_product":"prd-edababebdffe"}}`))
+	rep := diff.Compare(spot, run)
+	if !rep.Clean() || rep.Masked != 3 {
+		t.Fatalf("prefix plus 12 random hex characters is an id whether or not a digit happens to appear, masked=%d:\n%s", rep.Masked, rep.Text())
+	}
+	runs := diff.CompareRuns(runOf("a",
+		stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-60b05a32d153","name":"Mug"}}`)),
+		runOf("b", stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-edababebdffe","name":"Mug"}}`)))
+	if !runs.Same() {
+		t.Fatalf("shrt diff must mask it too:\n%s", runs.Text())
+	}
+	for name, got := range map[string]string{
+		"word id":        `{"product":{"id_product":"prd-undefinedxx","name":"Mug"}}`,
+		"short word":     `{"product":{"id_product":"prd-none","name":"Mug"}}`,
+		"shorter hex":    `{"product":{"id_product":"prd-abcdef","name":"Mug"}}`,
+		"changed name":   `{"product":{"id_product":"prd-edababebdffe","name":"Cup"}}`,
+		"other prefix":   `{"product":{"id_product":"ord-edababebdffe","name":"Mug"}}`,
+		"extra segment":  `{"product":{"id_product":"prd-edababebdffe-x","name":"Mug"}}`,
+		"placeholder id": `{"product":{"id_product":"prd-000000000000","name":"Mug"}}`,
+	} {
+		one := &store.SafeSpot{Chain: "shop", RunID: "spot", Steps: spot.Steps[:1]}
+		rep := diff.Compare(one, runOf("run", stepAs("create_product_2", runner.StatusPassed, got)))
+		if rep.Clean() {
+			t.Errorf("%s: must still be reported as drift:\n%s", name, rep.Text())
+		}
+	}
+}
