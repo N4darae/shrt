@@ -2255,6 +2255,18 @@ on a position that is there, `(value changed: the item at orders.1 holds another
 differs. A pinned path that failed with another got carries the same label, and the NEW FAILURE
 summary under the step lines names the kinds per step (`list_orders (reordered)`).
 
+## 108. `chain which` sent a write to `-keep writes` (29/72 steps) where a 6-step closure reproduced it
+
+**Symptom.** `chain which -code 1304` printed `reproduce: shrt chain slice ... -keep writes`, a slice of
+29 of 72 steps, while the plain closure `-verify` reproduced the verdict with 6. Since the closure
+keeps the writes that act on the entities the step uses (§75), `-keep writes` was only needed where
+the run shows one it leaves out.
+
+**Fix.** 2026-09-25: for a write step with a cited run, `which` slices it both ways; when the run
+shows no write the plain closure drops acting on an entity a kept step uses, the plain closure is the
+`reproduce:` line and `-keep writes` follows as `if that does not reproduce:`, each with its step
+count. Otherwise `-keep writes` stays the line, now with its count.
+
 ---
 
 # Decisions, so they are not relitigated

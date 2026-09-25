@@ -1564,7 +1564,11 @@ shrt chain which -code 1218 -json
    `-keep writes` and no `-run`: pinning would re-send the write on the entities the recorded run
    created and already changed, and a confirm then answers `OrderAlreadyConfirmed` instead of
    reproducing anything; `-keep writes` keeps each earlier write its state may depend on (a
-   restock the closure alone would drop). When a write the slice keeps interpolates a var into what it creates, the line ends
+   restock the closure alone would drop). When the cited run shows no write the plain closure
+   leaves out acting on an entity the step uses, the plain closure is the `reproduce:` line and
+   `-keep writes` follows it as `if that does not reproduce:`, each with its step count
+   (`(6 of 72 steps)`, `(29 of 72 steps)`; `command_steps`, `fallback_command` and `fallback_steps`
+   under `-json`). When a write the slice keeps interpolates a var into what it creates, the line ends
    with `-var <name>=<fresh>`; replace `<fresh>` before pasting. On the pinned form a string that a
    dropped step before the target also sent, template for template (`w-${vars.tag}` in both), is
    not counted: the kept write names what that step created under the run's value, so the slice
