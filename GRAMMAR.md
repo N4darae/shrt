@@ -353,7 +353,7 @@ Produced by resolving each form against a fixture scope:
 | `floor_ms` | int |  | Milliseconds a step must be slower than in the safe spot's run before it can be flagged. Default 250. |
 | `ratio` | float64 |  | How many times the safe spot's latency a step must take before it can be flagged; both this and `floor_ms` must hold. Default 3. Below 1 is refused. |
 | `remeasure` | int |  | How many more times a slow read is re-sent before it is judged (0..10). Default 2. 0 judges every step on its single measurement. |
-| `fail` | bool |  | When true, a confirmed slowdown fails `shrt verify` (exit 1, `latency regression in <chain>: ...`) when nothing else failed. Default false: a `LATENCY` warning line only. `shrt run` never fails on latency. |
+| `fail` | bool |  | When true, a confirmed slowdown fails `shrt verify` (exit 1, `latency regression in <chain>: ...`) when nothing else failed. Default false: a `LATENCY` warning line only; `shrt init` writes `latency: {fail: true}` into every config it creates (never into one that exists), so the CI gate is red on a slowdown out of the box. A slowdown is judged on the fastest of the step's answers after re-sending a slow read `remeasure` times, or, for a write, only when the previous run was slow there too, so one slow answer does not fail a gate. `shrt run` never fails on latency. |
 | `off` | bool |  | When true, no latency comparison is made and nothing is re-sent. |
 
 ## 5. Run record — `.shrt/runs/<chain>/<run-id>.json`

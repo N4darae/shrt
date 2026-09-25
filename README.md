@@ -229,6 +229,14 @@ not explain both (a restart during the gate, on top of a deploy before it, would
 to tell). A run that sees the re-login's own token refused early too, or the same early refusal as
 the chain's previous run, exits 1 with `FINDING: token refused ...` by itself.
 
+A slowdown fails the gate only through `verify`, and only with `latency: {fail: true}` in the
+config, which `shrt init` writes into every config it creates. Without it a step 700 times slower
+than in the safe spot's run prints a `LATENCY` line and the gate exits 0: check that an older config
+has it. The verdict stays safe from one slow answer: a slow read is re-sent (`latency.remeasure`,
+default 2) and judged on its fastest answer, and a write, which is not re-sent, is judged only when
+the previous run was slow there too (`LATENCY (unconfirmed)` otherwise, never a failure); a step must
+be both 250ms slower and 3 times as slow (`floor_ms`, `ratio`).
+
 A `run` in the gate stops at its chain's first failure, so under `-quiet` a red chain shows that
 one failing step, and the steps after it were never sent: they may pass or fail. The run says so
 on a line of its own, `N later step(s) were not run (...)`, naming them. Treat the first failure as
