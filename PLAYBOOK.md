@@ -152,7 +152,11 @@ the field whose sent value the refusal quotes, or else whose name it spells (`Em
 quotes or names is a literal (`sku: fixed-sku-1`, built from no var), no `-var` can help: the chain
 collides with itself, since every run after the first sends the same value. `verify` and `run` then
 say `the chain collides with itself: ... sku is the literal fixed-sku-1 ... build it from a var, e.g.
-sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. A var that
+sku: sku-${vars.tag}` and exit 1, a defect in the chain rather than could-not-verify. The same
+holds when the refusal quotes and names no field (`duplicate record`) while every field of the
+step built from a reference is built from `${uuid}` or a clock value: those are unique to their
+run and cannot be what collided, so the literal field (`sku: fixed-sku-ao3`) is blamed, never the
+`${uuid}` one, and a repeat is not a `FINDING`. A var that
 is a field's whole value (`${vars.key}`) has no safe default and stays undeclared.
 
 ## 3b. Tell shrt how YOUR backend answers

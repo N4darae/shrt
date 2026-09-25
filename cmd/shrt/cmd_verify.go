@@ -60,7 +60,8 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"     created before the refusal gone after the re-login, or a step before it that got no answer\n" +
 	"     from the service), which keeps it exit 3\n" +
 	"  1  also when the first failing step was refused as a uniqueness conflict on a literal field (built\n" +
-	"     from no var): the chain collides with itself on every run after the first, a chain defect\n"
+	"     from no var), or naming no field while every field built from a reference is built from ${uuid}\n" +
+	"     or a clock value: the chain collides with itself on every run after the first, a chain defect\n"
 
 func runVerify(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
