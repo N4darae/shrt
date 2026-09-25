@@ -2180,6 +2180,14 @@ batch step as unneeded (`possible under-inclusion`), although the batch did exac
 that rpc's effect per item (a field note `one AddStock per line`); the slice keeps that step as the
 prerequisite and reports nothing unmet.
 
+## 103. "is now part of every sweep" after rewriting the chain itself
+
+**Symptom.** `shrt chain slice <chain> -without failed -write .shrt/chains/<chain>.yaml`, which
+replaces the chain in place, went on to say the file `is now part of every sweep ... move it` to
+`.shrt/scratch/`, advice meant for a new slice file, not for the chain the sweep already ran.
+
+**Fix.** 2026-09-25: the note is left out when the file written is the source chain's own.
+
 ---
 
 # Decisions, so they are not relitigated

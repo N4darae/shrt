@@ -120,7 +120,7 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	if err != nil {
 		return err
 	}
-	written := ""
+	written, replaced := "", false
 	if write.set {
 		path := filepath.Join(sliceDir(e, c), res.Chain.Name+".yaml")
 		if writePath != "" {
@@ -136,7 +136,7 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		if err := writeSliceFile(path, res.Chain); err != nil {
 			return err
 		}
-		written = path
+		written, replaced = path, source
 	}
 	if asJSON {
 		return emitJSON(struct {
@@ -164,7 +164,9 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		"and propose it as a safe spot only once it passes. Keep the defect visible in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>\n")
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
-		fmt.Print(sweepNote(e, written, res.Chain.Name))
+		if !replaced {
+			fmt.Print(sweepNote(e, written, res.Chain.Name))
+		}
 		return nil
 	}
 	raw, err := res.Chain.Marshal()
