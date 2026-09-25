@@ -192,11 +192,23 @@ func runInit(ctx context.Context, args []string) error {
 			fmt.Println(hint)
 		}
 	}
-	if wroteConfig {
-		guidePath, _ := exampleEnvelope(loaded)
-		fmt.Print("\n" + config.ConventionsGuideFor(guidePath) + "\n")
+	unobserved, err := declareConventions(ctx, loaded, cfgPath)
+	if err != nil {
+		return err
 	}
-	reportEnvelope(loaded)
+	if unobserved != "" || (wroteConfig && loaded.Conventions.EnvelopePath == "") {
+		guidePath, _ := exampleEnvelope(loaded)
+		switch {
+		case wroteConfig:
+			fmt.Print("\n" + config.ConventionsGuideFor(guidePath))
+			if unobserved != "" {
+				fmt.Printf("init did not read envelope_ok itself: %s. Export the login credentials and re-run init to have it written.\n", unobserved)
+			}
+			fmt.Println()
+		default:
+			fmt.Printf("conventions: not declared, and init did not read envelope_ok: %s (shrt doctor says what to set)\n", unobserved)
+		}
+	}
 	if err := writeExampleChain(root, loaded, *force); err != nil {
 		return err
 	}
@@ -366,36 +378,6 @@ func rel(root, path string) string {
 		return path
 	}
 	return filepath.ToSlash(r)
-}
-
-const envelopeSuggestionFormat = "conventions:\n    envelope_path: %s\n    envelope_ok: <the value there meaning success>\n"
-
-func EnvelopeSuggestion(path string) string {
-	return fmt.Sprintf(envelopeSuggestionFormat, path)
-}
-
-func reportEnvelope(cfg *config.Config) {
-	if cfg.Conventions.EnvelopePath != "" {
-		return
-	}
-	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
-	if err != nil {
-		return
-	}
-	found := catalog.DetectEnvelope(cat)
-	if len(found) == 0 || found[0].Path == chain.DefaultEnvelopePath {
-		return
-	}
-	best := found[0]
-	fmt.Printf("\n%d of your %d unary rpc(s) answer with a message carrying a field at %q; the default is %q.\n",
-		best.Count, best.Of, best.Path, chain.DefaultEnvelopePath)
-	fmt.Printf("shrt GUESSED that from FIELD NAMES alone and cannot tell a verdict from business data\n" +
-		"that happens to be named that way, and it cannot guess envelope_ok at all — the success value\n" +
-		"is data, not a name. Check it against one response you know was refused. If it is the verdict,\n" +
-		"paste this at the TOP LEVEL of .shrt/config.yaml (column 0, not indented):\n\n")
-	fmt.Print(EnvelopeSuggestion(best.Path))
-	fmt.Printf("\n'shrt doctor' re-checks this every time, so a repo that skipped it says so rather than\n" +
-		"running a whole corpus against a path no response carries.\n")
 }
 
 const exampleEnvelopeExpect = "      - path: " + chain.DefaultEnvelopePath + "\n        equals: " + chain.DefaultEnvelopeOK + "\n"

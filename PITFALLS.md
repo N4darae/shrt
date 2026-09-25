@@ -46,8 +46,8 @@ fixture was reused, or authentication was refused. The output says which and end
 
 ## 7. A streaming rpc is refused everywhere
 
-**Cause.** shrt is unary only. **Fix.** None; leave it out of chains. `contract status -gaps` lists
-it as out of scope.
+**Cause.** shrt is unary only. **Fix.** Leave it out of chains. `contract status -gaps` lists it as
+covered by no chain: a defect in it (a missing auth check) needs a test of your own.
 
 ---
 

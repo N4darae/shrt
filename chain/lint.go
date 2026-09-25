@@ -983,7 +983,13 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	return issues
 }
 
-func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
+type AuthEnvGap struct {
+	Profile string
+	Step    string
+	Unset   []string
+}
+
+func UnsetAuthEnv(c *Chain, opts LintOptions) []AuthEnvGap {
 	if opts.AuthHeader == nil || opts.AuthEnv == nil || opts.Env == nil {
 		return nil
 	}
@@ -1002,7 +1008,7 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 			order = append(order, profile)
 		}
 	}
-	issues := []Issue{}
+	gaps := []AuthEnvGap{}
 	for _, profile := range order {
 		unset := []string{}
 		for _, name := range opts.AuthEnv(profile) {
@@ -1010,14 +1016,21 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 				unset = append(unset, name)
 			}
 		}
-		if len(unset) == 0 {
-			continue
+		if len(unset) > 0 {
+			gaps = append(gaps, AuthEnvGap{Profile: profile, Step: firstStep[profile], Unset: unset})
 		}
-		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
+	}
+	return gaps
+}
+
+func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
+	issues := []Issue{}
+	for _, g := range UnsetAuthEnv(c, opts) {
+		issues = append(issues, Issue{Severity: SeverityWarn, Kind: KindAuthEnvUnset, Message: fmt.Sprintf(
 			"from step %q on, this chain runs steps under auth profile %q, whose login body reads environment "+
 				"variables that are not exported in this shell: %s — shrt run refuses the chain before sending "+
 				"anything until they are set, since the login would fail after earlier steps had run",
-			firstStep[profile], profile, strings.Join(unset, ", "))})
+			g.Step, g.Profile, strings.Join(g.Unset, ", "))})
 	}
 	return issues
 }
@@ -1190,6 +1203,7 @@ const (
 	KindUnterminatedPrefix   = "unterminated-prefix"
 	KindUnevaluableOnRefusal = "unevaluable-on-refusal"
 	KindNameMismatch         = "name-differs-from-file"
+	KindAuthEnvUnset         = "auth-env-unset"
 )
 
 func IsAssertionQualityIssue(i Issue) bool {

@@ -20,9 +20,10 @@ summary:
 
 ```
 order: CreateAccount -> CreateInvoice -> PayInvoice
-12 steps: create_account, create_invoice, pay_invoice, ...
+12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
 fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-3 more note(s) on why each probe is there and what could not be planned: shrt contract plan PayInvoice -notes
+gap: step pay_invoice: the contract says nothing about what PayInvoice on a paid invoice gives back, so ...
+3 more note(s) on why each probe is there, and each gap in full: shrt contract plan PayInvoice -notes
 next: shrt contract plan PayInvoice -write
 ```
 
@@ -30,8 +31,10 @@ next: shrt contract plan PayInvoice -write
   tell whether the flow makes business sense.
 - **Every `fill:` line is test data you owe.** Add the `value:` to the contract, then re-plan with
   `-write -force`; a chain lint ERRORs on each unfilled field.
-- **`-notes` prints every note**: an assertion you owe (§4), a guessed `required`, an rpc with no
-  contract, a missing producer, a needed role.
+- **Every `gap:` line is something the plan could not plan or assert.** Say it in the contract and
+  re-plan, or write that step by hand.
+- **`-notes` prints every note** (why each probe is there, a guessed `required`, a needed role)
+  and every step id; `-v` prints only the ids.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
 - **A step the plan left out means the contract is missing an edge.** Fix the contract and
@@ -107,9 +110,10 @@ conventions:
 - `code_fields`: detail fields `chain which -code` searches and that can pin a refusal.
 - `validate_output`: a response the descriptor rejects fails its step with `"drift": true`.
 
-A path no response message declares fails `shrt run` before anything is sent. `shrt init` prints
-every key with its default, and the detected envelope path when it is not `error.code`. `GRAMMAR.md`
-§4 is the key table.
+A path no response message declares fails `shrt run` before anything is sent. With the login
+credentials exported, `shrt init` logs in once and writes `envelope_path`, the `envelope_ok` it read
+and an unambiguous `item_envelope_path`; otherwise it prints every key once. It never rewrites a
+`conventions:` block already there. `GRAMMAR.md` §4 is the key table.
 
 ## 4. Assert something that can fail
 
@@ -354,6 +358,11 @@ proposals. `confirm` refuses a run record whose seal does not match (edited by h
 `-approve`, a chain file that differs from the one the proposed run ran: approve on the branch the
 proposal came from. A chain with a safe spot needs `-supersede`; the old one is archived under
 `.shrt/safespots/archive/<chain>/`.
+
+For a whole suite, `shrt confirm -all -note "..."` proposes every chain whose latest run passed and
+whose safe spot is missing or differs (one line per chain, then each summary). Present every
+summary; `shrt confirm <chain> -reject` each one the user refuses, and only after the user said yes
+to the rest, `shrt confirm -all -approve -by <user email>` approves every pending proposal.
 
 A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -rename-from <old>
 -by <email>` carries it across; any other difference is refused.

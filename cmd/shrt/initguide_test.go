@@ -138,7 +138,11 @@ func TestContractPlanTakesAnAliasAndSeveralTargets(t *testing.T) {
 	}
 	out = captureStdout(t, func() { err = contractPlan([]string{"CancelOrder@confirmed"}) })
 	if err != nil || !strings.Contains(out, "order: CreateOrder -> ConfirmOrder -> CancelOrder@confirmed\n") ||
-		!strings.Contains(out, " steps: create_order, confirm_order, ") || strings.Contains(out, "apiVersion:") {
-		t.Fatalf("without -write the plan prints its order and step ids, not the chain: %v\n%s", err, out)
+		!strings.Contains(out, " steps: 2 setup, 1 target") || strings.Contains(out, "create_order,") || strings.Contains(out, "apiVersion:") {
+		t.Fatalf("without -write the plan prints its order and step count per group, not the ids or the chain: %v\n%s", err, out)
+	}
+	out = captureStdout(t, func() { err = contractPlan([]string{"CancelOrder@confirmed", "-v"}) })
+	if err != nil || !strings.Contains(out, "step ids: create_order, confirm_order, ") {
+		t.Fatalf("-v prints every step id: %v\n%s", err, out)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
@@ -17,9 +18,11 @@ func contractPlan(args []string) error {
 	name := fs.String("name", "", "chain name, defaults to one derived from the rpc")
 	write := fs.Bool("write", false, "write the composed chain into the chains directory")
 	force := fs.Bool("force", false, "overwrite an existing chain file")
-	showNotes := fs.Bool("notes", false, "print every note: why each probe is there and what the plan could not plan")
-	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes]",
-		"\nwithout -write it prints the order and the steps; -write writes the chain to the chains directory.\n"+
+	showNotes := fs.Bool("notes", false, "print every note in full, and every step id")
+	verbose := fs.Bool("v", false, "print every step id")
+	setUsage(fs, "usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write [-name <chain>] [-force]] [-notes] [-v]",
+		"\nwithout -write it prints the order, the step count per probe group, and a gap: line for each thing it could\n"+
+			"not plan or assert; -write writes the chain to the chains directory.\n"+
 			"\nexit codes:\n"+
 			"  0  the plan was printed, or with -write written; also when a required field still has no\n"+
 			"     usable value (a note names it and chain lint errors on it until you fill it)\n"+
@@ -67,11 +70,18 @@ func contractPlan(args []string) error {
 	order := strings.Join(shortNames(plan.Order), " -> ")
 	if !*write {
 		fmt.Printf("order: %s\n", order)
-		ids := make([]string, 0, len(plan.Chain.Steps))
-		for _, st := range plan.Chain.Steps {
-			ids = append(ids, st.ID)
+		groups := []string{}
+		for _, g := range plan.StepGroups() {
+			groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
 		}
-		fmt.Printf("%d steps: %s\n", len(ids), strings.Join(ids, ", "))
+		fmt.Printf("%d steps: %s\n", len(plan.Chain.Steps), strings.Join(groups, ", "))
+		if *verbose || *showNotes {
+			ids := make([]string, 0, len(plan.Chain.Steps))
+			for _, st := range plan.Chain.Steps {
+				ids = append(ids, st.ID)
+			}
+			fmt.Printf("step ids: %s\n", strings.Join(ids, ", "))
+		}
 		printPlanNotes(plan, again, *showNotes)
 		fmt.Printf("next: %s -write\n", again)
 		return nil
@@ -101,18 +111,40 @@ func printPlanNotes(plan *contract.Plan, again string, all bool) {
 		for _, n := range plan.Notes {
 			fmt.Printf("note: %s\n", n)
 		}
-	} else {
+	}
+	gaps := plan.GapNotes()
+	if !all {
 		for _, n := range plan.FillNotes() {
 			fmt.Printf("fill: %s\n", n)
+		}
+		for _, n := range gaps {
+			fmt.Printf("gap: %s\n", clipText(n, planGapWidth))
 		}
 	}
 	if n := plan.UnfilledCount(); n > 0 {
 		fmt.Printf("%d required field(s) carry no test data, and chain lint errors on each until filled; "+
 			"after a value: in the contract, re-plan with %s -write -force\n", n, again)
 	}
-	if n := len(plan.Notes) - len(plan.FillNotes()); n > 0 && !all {
-		fmt.Printf("%d more note(s) on why each probe is there and what could not be planned: %s -notes\n", n, again)
+	if n := len(plan.Notes) - len(plan.FillNotes()) - len(gaps); n > 0 && !all {
+		more := ""
+		if len(gaps) > 0 {
+			more = ", and each gap in full"
+		}
+		fmt.Printf("%d more note(s) on why each probe is there%s: %s -notes\n", n, more, again)
 	}
+}
+
+const planGapWidth = 160
+
+func clipText(text string, width int) string {
+	if len(text) <= width {
+		return text
+	}
+	cut := width - 3
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut] + "..."
 }
 
 func planChainName(targets []string, lib *contract.Library, e *env) (string, error) {

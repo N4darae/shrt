@@ -37,9 +37,10 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token, streaming; -v explains each kind in full")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
-	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
+	verbose := fs.Bool("v", false, "with -gaps, explain each kind of gap in full")
+	setUsage(fs, "usage: shrt contract status [-gaps [-v]] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
 			"  1  a flag or -phase that cannot be parsed, a contract overlay that does not parse, or a setup that\n"+
 			"     cannot load (no .shrt/config.yaml, a missing descriptor)\n")
@@ -142,7 +143,7 @@ func contractStatus(args []string) error {
 		return emitJSON(append(rows, totals))
 	}
 	if *showGaps {
-		printStatusGaps(rows)
+		printStatusGaps(rows, *verbose)
 		return nil
 	}
 	const statusFormat = "%-14s %6s %9s %8s %9s %7s %6s %6s\n"
@@ -223,125 +224,155 @@ func contractStatus(args []string) error {
 	return nil
 }
 
-func printStatusGaps(rows []statusRow) {
-	n := 0
+var gapMeaning = []struct{ kind, line string }{
+	{"no contract", "the rpc has no entry in .shrt/contracts/: shrt contract init <domain>"},
+	{"no path to", "a contract, but in no multi-step plan: a missing needs: or from:, unless a read taking no id; the config's login is never listed"},
+	{"one item", "no chain sends the repeated field with two or more items, so per-item logic is never exercised"},
+	{"same resource", "every multi-item step points all items at one resource, so per-item resource logic is never exercised"},
+	{"no repeat", "no chain sends one resource on two items, so merging or counting once per resource passes"},
+	{"no empty filter", "the contract says an empty filter lists all, and every chain sends it set"},
+	{"no login probe", "a failure the login's contract declares that no chain expects"},
+	{"no chain", "no chain calls the rpc, so no run or gate exercises it: shrt contract plan <rpc>"},
+	{"no role probe", "no chain calls the role-gated rpc as a profile lacking the role, so a dropped check passes"},
+	{"no profile probe", "no chain calls the every-role rpc as that profile, so a role check added by mistake passes"},
+	{"no token", "no chain calls the rpc without a token or with auth: invalid, so a dropped token check passes"},
+}
+
+func printStatusGaps(rows []statusRow, verbose bool) {
+	found := map[string]bool{}
+	gap := func(kind, format string, args ...any) {
+		found[kind] = true
+		fmt.Printf(format, args...)
+	}
 	for _, r := range rows {
 		for _, u := range r.Uncovered {
-			fmt.Printf("no contract  %s\n", u)
-			n++
+			gap("no contract", "no contract  %s\n", u)
 		}
 		for _, o := range r.Orphans {
-			fmt.Printf("no path to   %s\n", o)
-			n++
+			gap("no path to", "no path to   %s\n", o)
 		}
 	}
 	for _, r := range rows {
 		for _, one := range r.SingleItem {
 			if one.NoRepeat {
-				fmt.Printf("no repeat    %s %s: every chain that sends two or more items points each at a different resource (%s)\n",
+				gap("no repeat", "no repeat    %s %s: every chain that sends two or more items points each at a different resource (%s)\n",
 					one.RPC, one.Field, strings.Join(clip(one.Chains, 4), ", "))
-				n++
 				continue
 			}
 			if one.SameResource {
-				fmt.Printf("same resource %s %s: every chain that sends two or more items points them all at %s (%s)\n",
+				gap("same resource", "same resource %s %s: every chain that sends two or more items points them all at %s (%s)\n",
 					one.RPC, one.Field, one.Resource, strings.Join(clip(one.Chains, 4), ", "))
-				n++
 				continue
 			}
 			items := "1 item"
 			if one.Most != 1 {
 				items = fmt.Sprintf("%d items", one.Most)
 			}
-			fmt.Printf("one item     %s %s: at most %s in every chain that sends it (%s)\n",
+			gap("one item", "one item     %s %s: at most %s in every chain that sends it (%s)\n",
 				one.RPC, one.Field, items, strings.Join(clip(one.Chains, 4), ", "))
-			n++
 		}
 	}
 	for _, r := range rows {
 		for _, g := range r.EmptyGaps {
-			fmt.Printf("no empty filter %s %s: its contract says an empty %s lists all, and every chain sends it set (%s)\n",
+			gap("no empty filter", "no empty filter %s %s: its contract says an empty %s lists all, and every chain sends it set (%s)\n",
 				g.RPC, g.Field, g.Field, strings.Join(clip(g.Chains, 4), ", "))
-			n++
 		}
 	}
 	for _, r := range rows {
 		for _, g := range r.LoginGaps {
-			fmt.Printf("no login probe %s: its contract declares %s, and no chain expects it; the config's own logins only succeed\n", g.RPC, g.Failure)
-			n++
+			gap("no login probe", "no login probe %s: its contract declares %s, and no chain expects it; the config's own logins only succeed\n", g.RPC, g.Failure)
 		}
 	}
 	for _, r := range rows {
 		for _, line := range r.NoChain {
-			fmt.Printf("no chain     %s\n", line)
-			n++
+			gap("no chain", "no chain     %s\n", line)
 		}
 	}
 	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
 			if g.Kind == "role" {
-				fmt.Printf("no role probe %s: requires %s, and no chain calls it as profile %s\n", g.RPC, g.Roles, g.Profile)
+				gap("no role probe", "no role probe %s: requires %s, and no chain calls it as profile %s\n", g.RPC, g.Roles, g.Profile)
 			} else if g.Kind == "parity" {
-				fmt.Printf("no profile probe %s: its contract lets every role call it, and no chain calls it as profile %s\n", g.RPC, g.Profile)
+				gap("no profile probe", "no profile probe %s: its contract lets every role call it, and no chain calls it as profile %s\n", g.RPC, g.Profile)
 			} else {
-				fmt.Printf("no token     %s: no chain calls it with skip_auth: true or auth: invalid\n", g.RPC)
+				gap("no token", "no token     %s: no chain calls it with skip_auth: true or auth: invalid\n", g.RPC)
 			}
-			n++
 		}
 	}
 	for _, r := range rows {
 		for _, st := range r.Streaming {
-			fmt.Printf("streaming    %s  (out of scope: shrt is unary-only; not a gap, never REACHED)\n", st)
+			gap("streaming", "streaming    %s: shrt cannot call it; not covered by any chain\n", st)
 		}
 	}
-	if n == 0 {
+	if len(found) == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every unary one appears in some multi-step plan and is called by " +
 			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, every list filter whose contract says empty lists all is sent empty somewhere, every failure a login's contract declares is expected somewhere, " +
 			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
 	}
-	fmt.Print("\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
-		"no path to   it has a contract, but appears in no multi-step plan: nothing it needs is declared and\n" +
-		"             nothing declares it as a producer. Right for a read taking no id from elsewhere; a\n" +
-		"             missing 'needs:' or 'from:' for a write that cannot run on its own. A login the config's\n" +
-		"             auth calls needs no path and is never listed.\n" +
-		"one item     a repeated message field in a request, and no chain sends it with two or more items, so\n" +
-		"             per-item logic (a total summed over lines, a check on the second item) is never\n" +
-		"             exercised and a regression there passes every gate. Add a step, or a chain, that sends\n" +
-		"             two items with different values and asserts what depends on both.\n" +
-		"same resource a repeated message field that chains send with two or more items, but every item\n" +
-		"             of every such step points at the same resource (the same ${step...} reference or\n" +
-		"             literal id), so logic that uses each item's own resource (a price per line) is never\n" +
-		"             exercised: a backend that applies the first item's product to every line passes. Point\n" +
-		"             the second item at a second producer step with different values (shrt contract plan\n" +
-		"             scaffolds one).\n" +
-		"no repeat    a repeated message field whose items carry a resource, but no chain ever sends one\n" +
-		"             resource on two items, so a backend that merges, deduplicates or counts once per\n" +
-		"             resource (stock taken once for a product on two lines) passes. Send the same resource\n" +
-		"             on two items with different quantities and assert what depends on both (shrt contract\n" +
-		"             plan scaffolds <step>_same_<noun>_twice).\n" +
-		"no empty filter the contract says an empty (or absent) value of a list's filter lists everything,\n" +
-		"             but every chain sends it set, so a backend whose empty filter returns nothing passes.\n" +
-		"             Send it empty and assert the fixtures the chain created are among the items by id\n" +
-		"             (includes:); shrt contract plan <list rpc> scaffolds <step>_empty_<field>.\n" +
-		"no login probe a failure the login rpc's contract declares (BadCredentials) that no chain step\n" +
-		"             expects. The config's auth: block calls the login in every run, but only ever with the\n" +
-		"             right credentials, so that counts as calling it, not as probing its failures or the role\n" +
-		"             it returns: shrt contract plan <login rpc> scaffolds <step>_bad_password and one login\n" +
-		"             per profile asserting its role.\n" +
-		"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
-		"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
-		"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +
-		"no role probe the contract's requires_role names a role the profile's name is not, and no chain calls the\n" +
-		"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
-		"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
-		"             it changed nothing.\n" +
-		"no profile probe the contract lets every role call the rpc and no chain calls it with auth: <profile>, so\n" +
-		"             a role check added by mistake passes every gate. shrt contract plan <rpc> scaffolds\n" +
-		"             <step>_as_<profile> asserting what the default profile's call answered or left.\n" +
-		"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
-		"             checking the token passes. A plan scaffolds one pair for each target rpc.\n")
+	if verbose {
+		fmt.Print(statusGapLegend)
+		return
+	}
+	meant := false
+	for _, m := range gapMeaning {
+		if !found[m.kind] {
+			continue
+		}
+		if !meant {
+			fmt.Println()
+			meant = true
+		}
+		fmt.Printf("%-16s %s\n", m.kind, m.line)
+	}
+	if meant {
+		fmt.Println("shrt contract status -gaps -v explains each kind in full")
+	}
 }
+
+const statusGapLegend = "\nno contract  the rpc has no entry in .shrt/contracts/: shrt contract init <domain>\n" +
+	"no path to   it has a contract, but appears in no multi-step plan: nothing it needs is declared and\n" +
+	"             nothing declares it as a producer. Right for a read taking no id from elsewhere; a\n" +
+	"             missing 'needs:' or 'from:' for a write that cannot run on its own. A login the config's\n" +
+	"             auth calls needs no path and is never listed.\n" +
+	"one item     a repeated message field in a request, and no chain sends it with two or more items, so\n" +
+	"             per-item logic (a total summed over lines, a check on the second item) is never\n" +
+	"             exercised and a regression there passes every gate. Add a step, or a chain, that sends\n" +
+	"             two items with different values and asserts what depends on both.\n" +
+	"same resource a repeated message field that chains send with two or more items, but every item\n" +
+	"             of every such step points at the same resource (the same ${step...} reference or\n" +
+	"             literal id), so logic that uses each item's own resource (a price per line) is never\n" +
+	"             exercised: a backend that applies the first item's product to every line passes. Point\n" +
+	"             the second item at a second producer step with different values (shrt contract plan\n" +
+	"             scaffolds one).\n" +
+	"no repeat    a repeated message field whose items carry a resource, but no chain ever sends one\n" +
+	"             resource on two items, so a backend that merges, deduplicates or counts once per\n" +
+	"             resource (stock taken once for a product on two lines) passes. Send the same resource\n" +
+	"             on two items with different quantities and assert what depends on both (shrt contract\n" +
+	"             plan scaffolds <step>_same_<noun>_twice).\n" +
+	"no empty filter the contract says an empty (or absent) value of a list's filter lists everything,\n" +
+	"             but every chain sends it set, so a backend whose empty filter returns nothing passes.\n" +
+	"             Send it empty and assert the fixtures the chain created are among the items by id\n" +
+	"             (includes:); shrt contract plan <list rpc> scaffolds <step>_empty_<field>.\n" +
+	"no login probe a failure the login rpc's contract declares (BadCredentials) that no chain step\n" +
+	"             expects. The config's auth: block calls the login in every run, but only ever with the\n" +
+	"             right credentials, so that counts as calling it, not as probing its failures or the role\n" +
+	"             it returns: shrt contract plan <login rpc> scaffolds <step>_bad_password and one login\n" +
+	"             per profile asserting its role.\n" +
+	"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
+	"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
+	"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +
+	"no role probe the contract's requires_role names a role the profile's name is not, and no chain calls the\n" +
+	"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
+	"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
+	"             it changed nothing.\n" +
+	"no profile probe the contract lets every role call the rpc and no chain calls it with auth: <profile>, so\n" +
+	"             a role check added by mistake passes every gate. shrt contract plan <rpc> scaffolds\n" +
+	"             <step>_as_<profile> asserting what the default profile's call answered or left.\n" +
+	"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
+	"             checking the token passes. A plan scaffolds one pair for each target rpc.\n" +
+	"streaming    shrt calls unary rpcs only, so no chain covers a streaming rpc and a defect in it (a\n" +
+	"             missing auth check, say) passes every gate. Cover it with a test of your own.\n"
 
 func loginRPCs(e *env) map[string]bool {
 	out := map[string]bool{}
