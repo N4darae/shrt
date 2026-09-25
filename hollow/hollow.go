@@ -36,26 +36,28 @@ type Finding struct {
 }
 
 type Report struct {
-	RunsDir        string    `json:"runs_dir"`
-	Records        int       `json:"records"`
-	ReplayRecords  int       `json:"replay_records"`
-	KeptRedRecords int       `json:"kept_red_records"`
-	FailedRecords  int       `json:"failed_records"`
-	ReadSteps      int       `json:"read_steps"`
-	EnvelopeOnly   int       `json:"envelope_only"`
-	AssertsNothing int       `json:"asserts_nothing"`
-	HollowRecords  int       `json:"hollow_step_records"`
-	DistinctSteps  int       `json:"distinct_steps"`
-	ChainFixed     int       `json:"chain_asserts_data"`
-	Allowed        int       `json:"allowlisted"`
-	Unallowed      int       `json:"reported"`
-	Findings       []Finding `json:"findings"`
-	Orphans        []string  `json:"orphan_run_dirs,omitempty"`
-	OrphanRecords  int       `json:"orphan_records,omitempty"`
-	Scratch        []string  `json:"scratch_run_dirs,omitempty"`
-	ScratchRecords int       `json:"scratch_records,omitempty"`
-	Edited         []string  `json:"edited_records,omitempty"`
-	Unsealed       int       `json:"unsealed_records,omitempty"`
+	RunsDir        string `json:"runs_dir"`
+	Records        int    `json:"records"`
+	ReplayRecords  int    `json:"replay_records"`
+	KeptRedRecords int    `json:"kept_red_records"`
+	FailedRecords  int    `json:"failed_records"`
+
+	FailedKeptRedRecords int       `json:"failed_kept_red_records"`
+	ReadSteps            int       `json:"read_steps"`
+	EnvelopeOnly         int       `json:"envelope_only"`
+	AssertsNothing       int       `json:"asserts_nothing"`
+	HollowRecords        int       `json:"hollow_step_records"`
+	DistinctSteps        int       `json:"distinct_steps"`
+	ChainFixed           int       `json:"chain_asserts_data"`
+	Allowed              int       `json:"allowlisted"`
+	Unallowed            int       `json:"reported"`
+	Findings             []Finding `json:"findings"`
+	Orphans              []string  `json:"orphan_run_dirs,omitempty"`
+	OrphanRecords        int       `json:"orphan_records,omitempty"`
+	Scratch              []string  `json:"scratch_run_dirs,omitempty"`
+	ScratchRecords       int       `json:"scratch_records,omitempty"`
+	Edited               []string  `json:"edited_records,omitempty"`
+	Unsealed             int       `json:"unsealed_records,omitempty"`
 }
 
 func IsReadProcedure(procedure string) bool {
@@ -402,6 +404,9 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 		}
 		if rec.Status != runner.StatusPassed {
 			rep.FailedRecords++
+			if rec.KeptRed != "" {
+				rep.FailedKeptRedRecords++
+			}
 		}
 		for _, step := range rec.Steps {
 			if step == nil || step.Status != "passed" || step.Transport != nil {

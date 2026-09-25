@@ -11,13 +11,13 @@ import (
 func TestHollowGateSaysWhatRecordsItCounted(t *testing.T) {
 	baseline := filepath.Join(t.TempDir(), "hollow-baseline")
 	writeFile(t, baseline, "0\n")
-	rep := &hollow.Report{Records: 19, ReplayRecords: 7, KeptRedRecords: 4, FailedRecords: 5}
+	rep := &hollow.Report{Records: 19, ReplayRecords: 7, KeptRedRecords: 4, FailedRecords: 5, FailedKeptRedRecords: 3}
 	var err error
 	out := captureStdout(t, func() { err = hollowGate(rep, baseline, ".shrt/hollow-allow") })
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"from 19 run record(s)", "12 shrt run", "7 verify replay", "4 of chains kept red", "5 that did not pass"} {
+	for _, want := range []string{"from 19 run record(s)", "12 shrt run", "7 verify replay", "14 passed and 5 did not pass", "of chains kept red: 1 passed, 3 did not pass"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("want %q in:\n%s", want, out)
 		}

@@ -313,7 +313,8 @@ It counts the runs of the chains under `paths.chains` only, and every kind of ru
 `shrt run` records, `verify` replays (a gate that runs and verifies a chain leaves two records per
 gate run), runs of chains kept red and runs that failed, since a read step that passed is hollow
 whatever its run's verdict. The record count in its output splits them that way, `19 run
-record(s) (12 shrt run, 7 verify replay(s); 4 of chains kept red, 5 that did not pass; ...)`, so a
+record(s) (12 shrt run and 7 verify replay(s); 14 passed and 5 did not pass; of chains kept red: 1
+passed, 3 did not pass; ...)`, so a
 count that grows by two per gate run is expected. Runs of a chain no file there declares are
 listed apart and not counted: as `scratch <dir>` when they were run by path from a file that still
 exists (`shrt run .shrt/scratch/x.yaml`, or a slice `-verify -write`s to such a path), as `orphan <dir>`
