@@ -418,7 +418,7 @@ func VacuousNotEqualResult(path string, want, got any) bool {
 }
 
 func (e Expectation) PinsValue() bool {
-	if e.Equals != nil || e.Contains != "" {
+	if e.Equals != nil || e.Contains != "" || e.HasComparison() {
 		return true
 	}
 	return e.NotEqual != nil && !VacuousNotEqual(e.Path, e.NotEqual)

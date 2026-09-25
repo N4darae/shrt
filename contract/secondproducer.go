@@ -186,11 +186,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		c := copyStep(s, cid)
 		c.Body, _ = rewriteRefs(c.Body, map[string]string{src: id}).(map[string]any)
 		for i := range c.Expect {
-			c.Expect[i].Equals = rewriteRefs(c.Expect[i].Equals, map[string]string{src: id})
-			c.Expect[i].NotEqual = rewriteRefs(c.Expect[i].NotEqual, map[string]string{src: id})
-			if text, ok := rewriteRefs(c.Expect[i].Contains, map[string]string{src: id}).(string); ok {
-				c.Expect[i].Contains = text
-			}
+			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, map[string]string{src: id}) })
 		}
 		distinguishFixtures(c, cid, s.ID)
 		p.insertAfter(s.ID, c)
@@ -221,8 +217,7 @@ func copyStep(s *chain.Step, id string) *chain.Step {
 	c.Body, _ = cloneBody(s.Body).(map[string]any)
 	c.Expect = append([]chain.Expectation(nil), s.Expect...)
 	for i := range c.Expect {
-		c.Expect[i].Equals = cloneBody(c.Expect[i].Equals)
-		c.Expect[i].NotEqual = cloneBody(c.Expect[i].NotEqual)
+		c.Expect[i] = c.Expect[i].MapOperands(cloneBody)
 	}
 	if s.Headers != nil {
 		c.Headers = map[string]string{}

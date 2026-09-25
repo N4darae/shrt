@@ -7,12 +7,18 @@ import (
 )
 
 type Expectation struct {
-	Path     string `yaml:"path" json:"path"`
-	Equals   any    `yaml:"equals,omitempty" json:"equals,omitempty"`
-	NotEqual any    `yaml:"not_equal,omitempty" json:"not_equal,omitempty"`
-	Contains string `yaml:"contains,omitempty" json:"contains,omitempty"`
-	Exists   *bool  `yaml:"exists,omitempty" json:"exists,omitempty"`
-	NotEmpty bool   `yaml:"not_empty,omitempty" json:"not_empty,omitempty"`
+	Path     string  `yaml:"path" json:"path"`
+	Equals   any     `yaml:"equals,omitempty" json:"equals,omitempty"`
+	NotEqual any     `yaml:"not_equal,omitempty" json:"not_equal,omitempty"`
+	Contains string  `yaml:"contains,omitempty" json:"contains,omitempty"`
+	Exists   *bool   `yaml:"exists,omitempty" json:"exists,omitempty"`
+	NotEmpty bool    `yaml:"not_empty,omitempty" json:"not_empty,omitempty"`
+	Gt       any     `yaml:"gt,omitempty" json:"gt,omitempty"`
+	Gte      any     `yaml:"gte,omitempty" json:"gte,omitempty"`
+	Lt       any     `yaml:"lt,omitempty" json:"lt,omitempty"`
+	Lte      any     `yaml:"lte,omitempty" json:"lte,omitempty"`
+	Between  []any   `yaml:"between,omitempty" json:"between,omitempty"`
+	Within   *Within `yaml:"within,omitempty" json:"within,omitempty"`
 
 	vacuous string
 }
@@ -74,7 +80,7 @@ func (e Expectation) ResolveWith(scope *Scope) (Expectation, error) {
 		}
 		f.set(resolved)
 	}
-	return out, nil
+	return out.resolveComparisons(scope)
 }
 
 func (e Expectation) Evaluate(response any) ExpectResult {
@@ -108,6 +114,9 @@ func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectRe
 		}
 		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
 	default:
+		if r, ok := e.evaluateComparison(got, found); ok {
+			return r
+		}
 		if why := e.vacuousWhy(); why != "" {
 			return result(e.Path, "invalid", nil, nil, false, "not evaluated, the expectation is "+why)
 		}

@@ -1148,6 +1148,26 @@ undeclared var the slice reads is what `-verify` refuses as missing and what a w
 reports under `vars the chain does not declare`, and the file should say what the verified run sent.
 Either way a later run needs a fresh `-var`, which the slice's description says.
 
+## 39. A token expiry in milliseconds, green in every chain
+
+**Symptom.** Login started returning `expires_at` in milliseconds. Every chain stayed green,
+`verify` reported no drift, and the only chain that could have caught it asserted
+`expires_at equals: ${nowunix+3600}`, which failed now and then at a second boundary and was
+deleted as flaky.
+
+**Cause.** `verify` masks a field named `*_at`, `*_time` or `*timestamp` as volatile, because its
+value differs every run, so the one check left for a clock value is an expectation, and the only
+rules were exact: `equals` against a clock that ticks between the backend's stamp and the chain's.
+
+**Fix.** 2026-09-25: `gt`, `gte`, `lt`, `lte`, `between: [low, high]` and `within: {of: X, by: N}`
+compare numbers, an int64 stored as text and an RFC3339 time (read as unix seconds) alike, with
+`${nowunix+N}` bounds (GRAMMAR §1). `contract plan` scaffolds a range on every timestamp-like
+response field: an expiry within 5s of `${nowunix+<lifetime>}` when the contract states the lifetime
+(`valid for one hour` in the summary, or in `terminal:`/`exports:` for the field), else `gte:
+${nowunix}`, and a `created_*`/`updated_*` stamp within 300s of `${nowunix}`. `chain lint` names every
+timestamp field of a step expecting success that no expectation reads (`unasserted-timestamp`, a
+hint, never promoted by `-strict`).
+
 ---
 
 # Decisions, so they are not relitigated

@@ -879,7 +879,7 @@ func stepRefs(s *Step) []string {
 	collect(collectRefs(s.Body))
 	collect(collectRefs(headerValues(s.Headers)))
 	for _, e := range s.Expect {
-		collect(collectRefs([]any{e.Equals, e.NotEqual, e.Contains}))
+		collect(collectRefs(e.Operands()))
 	}
 	sort.Strings(out)
 	return out
@@ -941,11 +941,7 @@ func rewriteStep(s *Step, pins map[string]string) *Step {
 	if len(s.Expect) > 0 {
 		expect := make([]Expectation, 0, len(s.Expect))
 		for _, e := range s.Expect {
-			copied := e
-			copied.Equals = rewriteValue(e.Equals, pins)
-			copied.NotEqual = rewriteValue(e.NotEqual, pins)
-			copied.Contains = rewriteString(e.Contains, pins)
-			expect = append(expect, copied)
+			expect = append(expect, e.MapOperands(func(v any) any { return rewriteValue(v, pins) }))
 		}
 		out.Expect = expect
 	}

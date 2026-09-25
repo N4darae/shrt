@@ -58,6 +58,14 @@ var notes = map[string]string{
 	"Expectation.not_equal": "The path must be present AND differ. An absent path FAILS it, with `path not present in response` — use `exists: false` when absence is what you mean. May carry `${...}`. A single value on a path that holds an object, a list or a map (`status not_equal: SUCCESS`, where `status` is the envelope's parent message) differs from every answer and cannot fail: `chain lint` warns `unfailable-assertion`, which `-strict` fails.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
 	"Expectation.exists":    "Whether the server SENT the path. Read against the populated fields of the response, not the stored record, which materialises every declared field at its zero value. See the second table in §1.",
+	"Expectation.gt":        "Present and a number greater than this one. The value read and the bound are both read as numbers: an int64 stored as text is its number, and an RFC3339 time (a `google.protobuf.Timestamp`, `${now}`) is its unix seconds, so a timestamp compares against `${nowunix}` arithmetic. May carry `${...}`, including `${nowunix+3600}`. A value that is neither fails it, saying so.",
+	"Expectation.gte":       "As `gt`, greater than or equal. `expires_at gte: ${nowunix}` asserts a login did not hand out an already-expired token.",
+	"Expectation.lt":        "As `gt`, less than.",
+	"Expectation.lte":       "As `gt`, less than or equal. `created_at lte: ${nowunix}` asserts a record was not stamped in the future.",
+	"Expectation.between":   "Exactly two bounds, `[low, high]`, both inclusive, read as `gt` reads them: `expires_at between: [\"${nowunix+3595}\", \"${nowunix+3605}\"]`. Anything but two bounds fails it.",
+	"Expectation.within":    "`{of: X, by: N}`: present and at most N away from X, both read as `gt` reads them. The rule for a clock value, where `equals: ${nowunix+3600}` flakes when the backend's second is not the chain's: `expires_at within: {of: \"${nowunix+3600}\", by: 5}` holds for an hour-long token and fails one issued in milliseconds or for a day.",
+	"Within.of":             "The value the response must be near, read as `gt` reads its bound. May carry `${...}`.",
+	"Within.by":             "The largest distance allowed, a number.",
 	"Expectation.not_empty": "Present and not `\"\"`, `0`, `false`, `[]` or `{}`. `0` means zero of every numeric type, including an int64 or uint64, which the record stores as the string `\"0\"`.",
 
 	"Overlay.apiVersion":  "`shrt/contract/v1`.",
@@ -293,7 +301,7 @@ func render() ([]byte, error) {
 	writeTable(&b, "Pin", reflect.TypeOf(chain.Pin{}))
 
 	b.WriteString("\n## 2. References — `${...}`\n\n")
-	b.WriteString("Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains`.\n")
+	b.WriteString("Resolved in `body`, in `headers`, and in an expectation's `equals` / `not_equal` / `contains` and the\nbounds of `gt` / `gte` / `lt` / `lte` / `between` / `within`.\n")
 	b.WriteString("**Not** in an expectation's `path`.\n\n")
 	b.WriteString("A reference that is the whole value keeps its JSON type; inside a longer string it is\n")
 	b.WriteString("interpolated as text. Only a scalar has a text form: a message, list or map interpolated inside other text\n")
@@ -485,11 +493,14 @@ func yamlType(t reflect.Type) string {
 
 func exerciseRules() (string, error) {
 	resp := map[string]any{
-		"error":   map[string]any{"code": "OK"},
-		"id_deal": "d-1",
-		"rows":    []any{},
-		"count":   float64(0),
-		"total":   "0",
+		"error":      map[string]any{"code": "OK"},
+		"id_deal":    "d-1",
+		"rows":       []any{},
+		"count":      float64(0),
+		"total":      "0",
+		"expires_at": "1789127074",
+		"expires_ms": "1789127074000",
+		"created_at": "2026-09-11T10:44:34Z",
 	}
 	cases := []struct {
 		label string
@@ -502,6 +513,11 @@ func exerciseRules() (string, error) {
 		{"`not_equal: \"\"` on `id_deal`", chain.Expectation{Path: "id_deal", NotEqual: ""}, ""},
 		{"`not_equal: x` on a path that is ABSENT", chain.Expectation{Path: "nope", NotEqual: "x"}, ""},
 		{"`contains: d-` on `id_deal`", chain.Expectation{Path: "id_deal", Contains: "d-"}, ""},
+		{"`gt: 1789123474` on `expires_at` (an int64, stored as text)", chain.Expectation{Path: "expires_at", Gt: "1789123474"}, "int64"},
+		{"`between: [1789127000, 1789127100]` on `expires_at`", chain.Expectation{Path: "expires_at", Between: []any{"1789127000", "1789127100"}}, "int64"},
+		{"`within: {of: 1789127074, by: 5}` on `expires_ms`, the same instant in milliseconds", chain.Expectation{Path: "expires_ms", Within: &chain.Within{Of: "1789127074", By: 5}}, "int64"},
+		{"`lte: 1789123474` on `created_at` (RFC3339, read as unix seconds)", chain.Expectation{Path: "created_at", Lte: "1789123474"}, ""},
+		{"`gt: 0` on `id_deal` (not a number)", chain.Expectation{Path: "id_deal", Gt: 0}, ""},
 		{"`not_empty: true` on `id_deal`", chain.Expectation{Path: "id_deal", NotEmpty: true}, ""},
 		{"`not_empty: true` on an empty list", chain.Expectation{Path: "rows", NotEmpty: true}, ""},
 		{"`not_empty: true` on the number 0", chain.Expectation{Path: "count", NotEmpty: true}, "int32"},
@@ -530,7 +546,7 @@ func exerciseRules() (string, error) {
 	b.WriteString("its `\"0\"` is zero exactly as an int32's `0` is; on any numeric field `\"\"` in `equals` or `not_equal`\n")
 	b.WriteString("means that zero. A rule-less entry fails loudly rather than passing quietly. And the LAST row is the one\n")
 	b.WriteString("to remember: `Evaluate` is a fixed-precedence switch — `exists` > `not_empty` > `contains` >\n")
-	b.WriteString("`not_equal` > `equals` — so a second rule on one entry does not ADD a check, it REPLACES the one\n")
+	b.WriteString("`not_equal` > `equals` > `gt` > `gte` > `lt` > `lte` > `between` > `within` — so a second rule on one entry does not ADD a check, it REPLACES the one\n")
 	b.WriteString("you meant, and because the precedence runs weakest-first the entry still passes. `shrt chain lint`\n")
 	b.WriteString("rejects that and the rule-less entry since 2026-09-11; write one rule per entry, repeating the path.\n")
 	b.WriteString("\n")

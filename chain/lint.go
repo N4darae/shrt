@@ -31,6 +31,8 @@ type LintOptions struct {
 	AuthEnv      func(profile string) []string
 	Env          func(string) (string, bool)
 	Redact       []string
+
+	TimestampHints bool
 }
 
 func Lint(c *Chain, cat *catalog.Catalog) []Issue {
@@ -92,6 +94,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		}
 	}
 	issues = append(issues, lintUnorderedChain(c, methods)...)
+	if opts.TimestampHints {
+		issues = append(issues, lintUnassertedTimestamps(c, responses)...)
+	}
 	return issues
 }
 
@@ -111,7 +116,7 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool, responses map[
 				"expect path %q carries ${%s} — a path names a location in this step's own response, not a value, so it cannot resolve. Put the reference in equals/not_equal/contains instead",
 				e.Path, ref)})
 		}
-		for _, ref := range collectRefs([]any{e.Equals, e.NotEqual, e.Contains}) {
+		for _, ref := range collectRefs(e.Operands()) {
 			r := ParseRef(ref)
 			if why, own := ownStepProblem(s.ID, r, knownExports); own {
 				if why != "" {
@@ -252,7 +257,7 @@ func lintRefSyntax(s *Step) []Issue {
 		values = append(values, s.Headers[name])
 	}
 	for _, e := range s.Expect {
-		values = append(values, e.Equals, e.NotEqual, e.Contains)
+		values = append(values, e.Operands()...)
 	}
 	issues := []Issue{}
 	walkStrings(values, func(text string) {
@@ -902,7 +907,7 @@ func ExternalInputs(c *Chain) (vars []string, env []string) {
 	for _, s := range c.Steps {
 		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
 		for _, e := range s.Expect {
-			refs = append(refs, collectRefs([]any{e.Equals, e.NotEqual, e.Contains})...)
+			refs = append(refs, collectRefs(e.Operands())...)
 		}
 		for _, ref := range refs {
 			r := ParseRef(ref)
@@ -1046,6 +1051,14 @@ func ruleNames(e Expectation) []string {
 	if e.Equals != nil {
 		names = append(names, "equals")
 	}
+	for _, c := range []struct {
+		name string
+		set  bool
+	}{{"gt", e.Gt != nil}, {"gte", e.Gte != nil}, {"lt", e.Lt != nil}, {"lte", e.Lte != nil}, {"between", e.Between != nil}, {"within", e.Within != nil}} {
+		if c.set {
+			names = append(names, c.name)
+		}
+	}
 	return names
 }
 
@@ -1062,7 +1075,7 @@ func lintExpectRules(s *Step) []Issue {
 				"expect on %q carries no rule, so it asserts nothing", e.Path)})
 		case len(names) > 1:
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-				"expect on %q carries %d rules (%s) and only ONE can fire: Evaluate picks them in the fixed order exists > not_empty > contains > not_equal > equals, so %q wins and the rest are discarded silently. Split them into separate expect entries",
+				"expect on %q carries %d rules (%s) and only ONE can fire: Evaluate picks them in the fixed order exists > not_empty > contains > not_equal > equals > gt > gte > lt > lte > between > within, so %q wins and the rest are discarded silently. Split them into separate expect entries",
 				e.Path, len(names), strings.Join(names, ", "), names[0])})
 		}
 		if why := TautologyReason(e); why != "" {
