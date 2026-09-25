@@ -67,3 +67,22 @@ func TestTheGateCallsAnEarlyRefusalARestartWhenAHeldFreshTokenIsAccepted(t *test
 		t.Fatalf("-no-session-check leaves the note, got %d:\n%s", code, out)
 	}
 }
+
+func TestTheGateEndsWithOneCoverageLineWhenNoContractPlansTheSuite(t *testing.T) {
+	gateWorkspace(t, nil)
+	out, code := runGateOut(t)
+	if code != 0 || strings.Count(out, "coverage: ") != 1 ||
+		!strings.Contains(out, "rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write\n") {
+		t.Fatalf("no overlay: one coverage line, and the exit code stays the gate's, got %d:\n%s", code, out)
+	}
+	captureStdout(t, func() {
+		if err := commands["contract"].run(context.Background(), []string{"init", "-all"}); err != nil {
+			t.Fatalf("contract init: %v", err)
+		}
+	})
+	out, code = runGateOut(t)
+	if code != 0 || strings.Count(out, "coverage: ") != 1 ||
+		!strings.Contains(out, "rpc(s) with a contract have no chain calling them, so none of their planned probes run: shrt contract plan -all -write\n") {
+		t.Fatalf("contracts for rpcs no chain calls: one coverage line, exit unchanged, got %d:\n%s", code, out)
+	}
+}

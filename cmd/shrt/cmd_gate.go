@@ -549,6 +549,11 @@ func runGate(ctx context.Context, args []string) error {
 	for _, f := range findings {
 		fmt.Println(f)
 	}
+	if len(only) == 0 {
+		if line := gateCoverage(e); line != "" {
+			fmt.Println(line)
+		}
+	}
 	switch {
 	case failed > 0 || len(findings) > 0:
 		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; details: shrt verify <chain>, or shrt run <chain> -keep-going",

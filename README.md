@@ -144,7 +144,9 @@ of the gate, or the ratchet. Refused early once, the gate logs in afresh, holds 
 the refused one lived (at most 90s) and re-sends a read that passed: accepted, it was a restart;
 refused twice, a `FINDING` (`-no-session-check` skips this). 3 is no verdict
 (the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
-nor green. `shrt gate <chain>...` gates a subset, without the ratchet.
+nor green. `shrt gate <chain>...` gates a subset, without the ratchet. With no overlay, or an rpc
+whose contract no chain calls, the gate ends with one `coverage:` line naming the command that plans
+the missing probes; it never changes the exit code.
 
 `shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it); it
 skips the contract checks while `.shrt/contracts` holds no overlay.

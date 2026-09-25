@@ -88,3 +88,43 @@ func checkSession(ctx context.Context, e *env, profile string, at gateEarly, rea
 func seconds(d time.Duration) int {
 	return int(d.Round(time.Second) / time.Second)
 }
+
+func gateCoverage(e *env) string {
+	lib, err := e.library()
+	if err != nil || e.cat == nil {
+		return ""
+	}
+	if len(lib.Overlays) == 0 {
+		n := 0
+		for _, m := range e.cat.Methods() {
+			if m.StreamRefusal() == "" {
+				n++
+			}
+		}
+		if n == 0 {
+			return ""
+		}
+		return fmt.Sprintf("coverage: %d rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, "+
+			"read-backs); shrt contract init -all, then shrt contract plan -all -write", n)
+	}
+	called := map[string]bool{}
+	chains, _, _ := chain.LoadDirPartial(e.chainsDir())
+	for _, c := range chains {
+		for _, s := range c.Steps {
+			if m, err := e.cat.Lookup(s.Call); err == nil {
+				called[m.FullName] = true
+			}
+		}
+	}
+	n := 0
+	for _, rpc := range lib.RPCs() {
+		if m, err := e.cat.Lookup(rpc); err == nil && m.StreamRefusal() == "" && !called[m.FullName] {
+			n++
+		}
+	}
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("coverage: %d rpc(s) with a contract have no chain calling them, so none of their planned probes run: "+
+		"shrt contract plan -all -write", n)
+}
