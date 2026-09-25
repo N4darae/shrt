@@ -182,7 +182,7 @@ func (p *Plan) terminatePrefix(t *listTarget, scope *listScope) {
 			return
 		}
 		c := v[len(scope.prefix)]
-		if next != 0 && c != next || strings.IndexByte("-_./:#|~", c) < 0 {
+		if next != 0 && c != next || strings.IndexByte(prefixTerminators, c) < 0 {
 			return
 		}
 		next = c

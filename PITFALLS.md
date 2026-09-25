@@ -2242,6 +2242,19 @@ stays visible through the `includes:` expectations, which a volatile path does n
 `verify` (also with `-quiet`) name the missing id (`products includes want={"id_product":"prd-…"}
 got=0 (none of the 0 item(s) matches)`).
 
+## 108. Tag x's second product was tag x-2's first, and the collision blamed "something else"
+
+**Symptom.** `shrt run rpc-cancel-order -var tag=rpc-cancel-order-2` after a run with the default tag
+was refused `SkuTaken` at `create_product`, and printed `fixture collision ... no recorded run of this
+chain used that value`: the plan built the second product's sku `sku-${vars.tag}-2-`, which for tag
+`rpc-cancel-order` is the first product's sku for tag `rpc-cancel-order-2`.
+
+**Fix.** 2026-09-25: an ordinal fixture puts the ordinal after the character that follows the var
+(`sku-${vars.tag}-2`, `cust-${vars.tag}@2.example.test`), so it never ends with that character and no
+tag's fixture equals another tag's; the list prefix `sku-${vars.tag}-` still matches every fixture.
+A unique value ending in the var gets a note asking for a terminator. The collision line now says
+`fixture reused` and names the run, the step and the tag of this chain that already sent the value.
+
 ---
 
 # Decisions, so they are not relitigated

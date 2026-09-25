@@ -128,7 +128,11 @@ repeated message field in a request with two items: the second is a copy of the 
 numbers raised by one and its free-text strings prefixed with `2-`, while ids, keys, enums, zeros
 and `${...}` references are copied unchanged, except a reference to a step of the chain that
 creates something: the second item reads a second copy of that step instead (`create_product_2`,
-its var-built values suffixed `-2` and its numbers raised by one, so a different sku and price),
+its var-built values given the ordinal and its numbers raised by one, so a different sku and price;
+the ordinal goes after the character that follows the var, `sku-${vars.tag}-` becoming
+`sku-${vars.tag}-2` and `cust-${vars.tag}@example.test` becoming `cust-${vars.tag}@2.example.test`,
+so no tag's second fixture equals another tag's first, as `sku-${vars.tag}-2-` did for tag `x` and
+tag `x-2`; a value ending in the var (`sku-${vars.tag}`) cannot be kept apart that way, and a note says to end it with a terminator),
 and each write step that prepares the first (`add_stock`) gets a copy for the second
 (`add_stock_2`, its var-built values suffixed and its numbers raised by one, so `qty: "11"` next to
 `qty: "10"`), whether that step runs before the order or is pulled in after it by another target's
@@ -190,7 +194,8 @@ whether it took effect is unknown, which the line then says), it prints `fixture
 exits 3 with `could not verify <chain>: fixture reused`, not `regression`. It is also `fixture
 reused`, naming the chain and run, when a recorded run of ANOTHER chain of this repo sent the same
 value in a step that created it (`happy` and `cust2` both creating `c-${vars.tag}@...` under one
-tag). When no recorded run of any chain used that value, the other record came from somewhere else
+tag), and naming the run, the step and its tag when a recorded run of this chain sent the value at
+another step under another tag (`already sent that value at step "create_product_2" with tag=x`). When no recorded run of any chain used that value, the other record came from somewhere else
 (another client, a shared backend): it prints `fixture collision: ...` and exits 3 the same
 way, with the same fresh `-var` hint. When the previous run of the chain that sent that step was
 refused there the same way with a different value that no recorded run had created, two fresh

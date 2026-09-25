@@ -45,13 +45,18 @@ func prefixTargetKey(prefixKey string, producer *chain.Step) string {
 	return ""
 }
 
+const (
+	prefixTerminators = "-_./:#|~"
+	varTerminators    = prefixTerminators + "@"
+)
+
 func runPrefix(v string) string {
 	loc := planVarRef.FindStringIndex(v)
 	if loc == nil || strings.Contains(v[:loc[0]], "${") {
 		return ""
 	}
 	end := loc[1]
-	if end < len(v) && strings.IndexByte("-_./:#|~", v[end]) >= 0 {
+	if end < len(v) && strings.IndexByte(prefixTerminators, v[end]) >= 0 {
 		end++
 	}
 	return v[:end]

@@ -186,6 +186,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		distinctProducer(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix)
 	}
 	p.insertAfter(src, clone)
+	p.noteUnterminatedOrdinal(orig, clone)
 	extra := []producerClone{}
 	for _, s := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if s == orig || s == clone || s == reader || chain.IsReadOnlyCall(s.Call) || !readsStep(s, src) || readsStep(reader, s.ID) {
@@ -202,6 +203,36 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		extra = append(extra, producerClone{id: cid, call: s.Call, original: s.ID})
 	}
 	return id, extra
+}
+
+func (p *Plan) noteUnterminatedOrdinal(orig, clone *chain.Step) {
+	if p.lib == nil {
+		return
+	}
+	rpc := canonicalCall(p.cat, orig.Call)
+	c, ok := p.lib.Get(rpc)
+	if !ok {
+		return
+	}
+	for _, f := range p.lib.AllFailures(rpc) {
+		noun, unique := uniquenessNoun(f)
+		if !unique {
+			continue
+		}
+		field := p.uniqueField(orig, c, f, noun)
+		v, _ := bodyValue(orig.Body, field)
+		text, _ := v.(string)
+		loc := planVarRef.FindStringIndex(text)
+		if loc == nil || loc[0] == 0 || loc[1] != len(text) {
+			continue
+		}
+		second, _ := bodyValue(clone.Body, field)
+		p.note("step %s: %s %q ends in the var, so %s's %q is what %s sends for a tag ending in the ordinal (tag x-2 "+
+			"sends %q, as tag x's %s does): end the contract's value: with a terminator (%q) and the plan puts the "+
+			"ordinal after it, where no other tag's value can end", orig.ID, field, text, clone.ID, second, orig.ID,
+			strings.ReplaceAll(text, planVarRef.FindString(text), "x-2"), clone.ID, text+"-")
+		return
+	}
 }
 
 func readsStep(s *chain.Step, id string) bool {
@@ -258,6 +289,17 @@ func (p *Plan) insertAfter(id string, s *chain.Step) {
 	p.Chain.Steps = append(steps, s)
 }
 
+func markAfterVar(text string, loc []int, marker string) string {
+	rest := text[loc[1]:]
+	if rest == "" || strings.IndexByte(varTerminators, rest[0]) < 0 {
+		return text[:loc[1]] + "-" + marker + rest
+	}
+	if rest[0] == '@' {
+		return text[:loc[1]+1] + marker + "." + rest[1:]
+	}
+	return text[:loc[1]+1] + marker + rest[1:]
+}
+
 func distinctProducer(body map[string]any, fields []*catalog.Field, suffix string) {
 	distinctProducerAt(body, fields, suffix, 1)
 }
@@ -276,7 +318,7 @@ func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix str
 		}
 		if t, ok := body[key].(string); ok {
 			if loc := planVarRef.FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
-				body[key] = t[:loc[1]] + "-" + suffix + t[loc[1]:]
+				body[key] = markAfterVar(t, loc, suffix)
 				continue
 			}
 		}
