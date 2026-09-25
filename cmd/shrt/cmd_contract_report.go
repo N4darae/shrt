@@ -353,7 +353,8 @@ func contractQuality(args []string) error {
 		"\nexit codes:\n"+
 			"  0  the score was printed; under -gate, the score equals the baseline\n"+
 			"  1  under -gate: the score is worse (higher) than the baseline, better without the baseline\n"+
-			"     being lowered, or the baseline file is missing or unreadable; also an overlay that does\n"+
+			"     being lowered, or the baseline file is missing or unreadable; also a contract error\n"+
+			"     (contract lint lists it: no score is given), an overlay that does\n"+
 			"     not parse, or bad flags\n")
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
@@ -369,6 +370,16 @@ func contractQuality(args []string) error {
 	lib, err := e.library()
 	if err != nil {
 		return err
+	}
+	lintErrors := 0
+	for _, i := range contract.LintAll(lib, e.cat, e.cfg.AuthProfileNames()) {
+		if i.Severity == contract.SeverityError && (*only == "" || i.Domain == *only || (i.Domain == "" && strings.Contains(i.Message, *only))) {
+			lintErrors++
+		}
+	}
+	if lintErrors > 0 {
+		return fmt.Errorf("%d contract error(s), which 'shrt contract lint' lists: quality scores the gaps of contracts that lint, "+
+			"and an error is a gap no score measures, so it gives no score; fix them, then run it again", lintErrors)
 	}
 	report := contract.MeasurePhase(lib, e.cat, *only, *phase)
 
