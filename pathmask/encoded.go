@@ -14,6 +14,7 @@ import (
 type encodedSecret struct {
 	base64  []string
 	folded  []string
+	lowered []string
 	percent *regexp.Regexp
 	entity  *regexp.Regexp
 }
@@ -87,7 +88,11 @@ func encodedFormsOf(secret string) *encodedSecret {
 		}
 		pattern.WriteString(")")
 	}
-	out := &encodedSecret{base64: forms, folded: folded, percent: regexp.MustCompile(pattern.String()), entity: regexp.MustCompile(entity.String())}
+	lowered := make([]string, 0, len(folded))
+	for _, f := range folded {
+		lowered = append(lowered, strings.ToLower(f))
+	}
+	out := &encodedSecret{base64: forms, folded: folded, lowered: lowered, percent: regexp.MustCompile(pattern.String()), entity: regexp.MustCompile(entity.String())}
 	encodedCache.Store(secret, out)
 	return out
 }
@@ -100,10 +105,14 @@ func replaceEncoded(s, secret string) string {
 	for _, form := range forms.base64 {
 		s = strings.ReplaceAll(s, form, MaskRedacted)
 	}
-	lower := strings.ToLower(s)
-	for _, form := range forms.folded {
-		if strings.Contains(lower, strings.ToLower(form)) {
+	var lower string
+	for i, form := range forms.folded {
+		if i == 0 {
+			lower = strings.ToLower(s)
+		}
+		if strings.Contains(lower, forms.lowered[i]) {
 			s = replaceFold(s, form)
+			lower = strings.ToLower(s)
 		}
 	}
 	if strings.ContainsAny(s, "%+") {

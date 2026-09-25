@@ -1,8 +1,8 @@
 package diff
 
 import (
+	"container/heap"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -116,44 +116,195 @@ func reorderCandidates(want, got any, path string, declared map[string]bool, r *
 }
 
 func pairItems(want, got []any, r *strings.Replacer) []int {
-	type cand struct{ i, j, score int }
-	cands := []cand{}
-	for i := range want {
-		for j := range got {
-			cands = append(cands, cand{i, j, likeness(want[i], got[j], r)})
-		}
-	}
-	sort.SliceStable(cands, func(a, b int) bool {
-		x, y := cands[a], cands[b]
-		if x.score != y.score {
-			return x.score > y.score
-		}
-		dx, dy := x.i-x.j, y.i-y.j
-		if dx < 0 {
-			dx = -dx
-		}
-		if dy < 0 {
-			dy = -dy
-		}
-		if dx != dy {
-			return dx < dy
-		}
-		if x.i != y.i {
-			return x.i < y.i
-		}
-		return x.j < y.j
-	})
+	scores := pairScores(want, got, r)
 	order := make([]int, len(want))
 	for i := range order {
 		order[i] = -1
 	}
 	used := make([]bool, len(got))
-	for _, c := range cands {
-		if order[c.i] < 0 && !used[c.j] {
-			order[c.i], used[c.j] = c.j, true
+	rows := &rowHeap{}
+	for i, cands := range scores {
+		if len(cands) == 0 {
+			continue
+		}
+		row := &pairRow{i: i, cands: cands}
+		heap.Init(row)
+		rows.items = append(rows.items, row)
+	}
+	heap.Init(rows)
+	for rows.Len() > 0 {
+		row := rows.items[0]
+		best := row.cands[0]
+		if !used[best.j] {
+			order[row.i], used[best.j] = best.j, true
+			heap.Pop(rows)
+			continue
+		}
+		heap.Pop(row)
+		if row.Len() == 0 {
+			heap.Pop(rows)
+			continue
+		}
+		heap.Fix(rows, 0)
+	}
+	pairRemaining(order, used)
+	return order
+}
+
+type pairCand struct{ j, score int }
+
+type pairRow struct {
+	i     int
+	cands []pairCand
+}
+
+func (r *pairRow) before(a, b pairCand) bool {
+	if a.score != b.score {
+		return a.score > b.score
+	}
+	da, db := absInt(r.i-a.j), absInt(r.i-b.j)
+	if da != db {
+		return da < db
+	}
+	return a.j < b.j
+}
+
+func (r *pairRow) Len() int           { return len(r.cands) }
+func (r *pairRow) Less(a, b int) bool { return r.before(r.cands[a], r.cands[b]) }
+func (r *pairRow) Swap(a, b int)      { r.cands[a], r.cands[b] = r.cands[b], r.cands[a] }
+func (r *pairRow) Push(x any)         { r.cands = append(r.cands, x.(pairCand)) }
+func (r *pairRow) Pop() any {
+	last := r.cands[len(r.cands)-1]
+	r.cands = r.cands[:len(r.cands)-1]
+	return last
+}
+
+type rowHeap struct{ items []*pairRow }
+
+func (h *rowHeap) Len() int { return len(h.items) }
+func (h *rowHeap) Less(a, b int) bool {
+	x, y := h.items[a], h.items[b]
+	cx, cy := x.cands[0], y.cands[0]
+	if cx.score != cy.score {
+		return cx.score > cy.score
+	}
+	dx, dy := absInt(x.i-cx.j), absInt(y.i-cy.j)
+	if dx != dy {
+		return dx < dy
+	}
+	if x.i != y.i {
+		return x.i < y.i
+	}
+	return cx.j < cy.j
+}
+func (h *rowHeap) Swap(a, b int) { h.items[a], h.items[b] = h.items[b], h.items[a] }
+func (h *rowHeap) Push(x any)    { h.items = append(h.items, x.(*pairRow)) }
+func (h *rowHeap) Pop() any {
+	last := h.items[len(h.items)-1]
+	h.items = h.items[:len(h.items)-1]
+	return last
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
+func pairRemaining(order []int, used []bool) {
+	rows := []int{}
+	for i, j := range order {
+		if j < 0 {
+			rows = append(rows, i)
 		}
 	}
-	return order
+	free := 0
+	for _, u := range used {
+		if !u {
+			free++
+		}
+	}
+	for d := 0; len(rows) > 0 && free > 0 && d <= len(order)+len(used); d++ {
+		left := rows[:0]
+		for _, i := range rows {
+			assigned := false
+			for _, j := range []int{i - d, i + d} {
+				if j >= 0 && j < len(used) && !used[j] && !assigned {
+					order[i], used[j], assigned = j, true, true
+					free--
+				}
+				if d == 0 {
+					break
+				}
+			}
+			if !assigned {
+				left = append(left, i)
+			}
+		}
+		rows = left
+	}
+}
+
+func pairScores(want, got []any, r *strings.Replacer) [][]pairCand {
+	index := map[string][]int{}
+	for j, g := range got {
+		flattenLeaves(g, "", func(path, key string, _ any) {
+			k := path + "\x00" + key
+			index[k] = append(index[k], j)
+		})
+	}
+	out := make([][]pairCand, len(want))
+	score := make([]int, len(got))
+	touched := []int{}
+	for i, w := range want {
+		touched = touched[:0]
+		add := func(k string, n int) {
+			for _, j := range index[k] {
+				if score[j] == 0 {
+					touched = append(touched, j)
+				}
+				score[j] += n
+			}
+		}
+		flattenLeaves(w, "", func(path, key string, v any) {
+			add(path+"\x00"+key, 1)
+			if text, ok := v.(string); ok && r != nil {
+				if renamed := r.Replace(text); renamed != text {
+					add(path+"\x00"+leafKey(renamed), 2)
+				}
+			}
+		})
+		cands := make([]pairCand, 0, len(touched))
+		for _, j := range touched {
+			cands = append(cands, pairCand{j: j, score: score[j]})
+			score[j] = 0
+		}
+		out[i] = cands
+	}
+	return out
+}
+
+func leafKey(v any) string {
+	if text, ok := v.(string); ok {
+		return "string\x00" + text
+	}
+	return jsonKind(v) + "\x00" + fmt.Sprintf("%v", v)
+}
+
+func flattenLeaves(v any, path string, visit func(path, key string, v any)) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			flattenLeaves(item, path+"\x01k"+k, visit)
+		}
+	case []any:
+		for i, item := range t {
+			flattenLeaves(item, path+"\x01i"+strconv.Itoa(i), visit)
+		}
+	default:
+		visit(path, leafKey(v), v)
+	}
 }
 
 func permuted(got []any, order []int) ([]any, []int) {

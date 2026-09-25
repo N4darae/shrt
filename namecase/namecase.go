@@ -18,7 +18,33 @@ func Fold(s string) string {
 }
 
 func Equal(a, b string) bool {
-	return a == b || Fold(a) == Fold(b)
+	if a == b {
+		return true
+	}
+	i, j := 0, 0
+	for {
+		for i < len(a) && (a[i] == '_' || a[i] == '-') {
+			i++
+		}
+		for j < len(b) && (b[j] == '_' || b[j] == '-') {
+			j++
+		}
+		if i == len(a) || j == len(b) {
+			return i == len(a) && j == len(b)
+		}
+		if lowerASCII(a[i]) != lowerASCII(b[j]) {
+			return false
+		}
+		i++
+		j++
+	}
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + 32
+	}
+	return c
 }
 
 func Words(s string) []string {

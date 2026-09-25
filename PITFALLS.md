@@ -2336,6 +2336,20 @@ path on every other step of the chain.
 `volatile` applies to that step, from its step record, as GRAMMAR says ("for this step only"). The
 values it used to hide elsewhere are listed where they belong: an id, a fixture echo, or a change.
 
+## 115. Seconds of shrt's own time on a list of 1715 items
+
+**Symptom.** `shrt run` spent about 2s of its own time on one ListProducts answer of 1715 items,
+whose `latency_ms` was 14–34, and `verify` of the same chain about 9s; both grew with the list.
+
+**Fix.** 2026-09-25, profiled on a 1715-item list (`verify` 9.7s to 0.6s, `run` with a safe spot 1.0s
+to 0.35s): the pairing of list items that finds a reordered list compared every item with every
+other and sorted all n² pairs; it now scores only pairs sharing a value, through an index of each
+item's leaves, and takes the same greedy pairing from per-item heaps (a test checks it against the
+all-pairs pairing). Listing a chain's runs read every record started in the same second in full to
+order them; it now reads only `started_at`. Volatile patterns are split and case-folded once per
+mask, not per value, name comparison no longer allocates, and redaction skips the case-folded scan
+of an ASCII value that does not contain the secret.
+
 ---
 
 # Decisions, so they are not relitigated
