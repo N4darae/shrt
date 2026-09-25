@@ -58,6 +58,7 @@ type gateItem struct {
 	Own         string `json:"own,omitempty"`
 	Cascade     string `json:"cascade,omitempty"`
 	Class       string `json:"class,omitempty"`
+	Length      string `json:"length,omitempty"`
 }
 
 type gateOutcome struct {
@@ -132,7 +133,9 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 			}
 			found = true
 			want, got := gatePair(ex.Want, ex.Got)
-			side.Items = append(side.Items, a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got}))
+			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got})
+			it.Length = pastEnd(st, ex.Path)
+			side.Items = append(side.Items, it)
 		}
 		if !found && st.Error != "" && !pinnedStep(c, st.ID) {
 			why, _, _ := strings.Cut(st.Error, "\n")
@@ -141,6 +144,40 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 	}
 	side.Sent = firstSent(rec, side.Items)
 	return side
+}
+
+func pastEnd(st *runner.StepRecord, path string) string {
+	var body any
+	if json.Unmarshal(st.Response, &body) != nil {
+		return ""
+	}
+	segs := chain.SplitPath(path)
+	for k := 1; k < len(segs); k++ {
+		idx, err := strconv.Atoi(segs[k])
+		if err != nil {
+			continue
+		}
+		list := strings.Join(segs[:k], ".")
+		v, _ := chain.Get(body, list)
+		items, ok := v.([]any)
+		if !ok || idx < len(items) {
+			return ""
+		}
+		want := idx + 1
+		for _, ex := range st.Expect {
+			if ex.Rule == "exists" && ex.Want == false {
+				continue
+			}
+			if rest, ok := strings.CutPrefix(ex.Path, list+"."); ok {
+				head, _, _ := strings.Cut(rest, ".")
+				if n, err := strconv.Atoi(head); err == nil {
+					want = max(want, n+1)
+				}
+			}
+		}
+		return fmt.Sprintf("%s length want=%d got=%d", list, want, len(items))
+	}
+	return ""
 }
 
 func firstSent(rec *runner.Record, items []gateItem) map[string]string {
@@ -318,6 +355,13 @@ func (it gateItem) verdict() string {
 	return it.Path + " " + it.wantGot()
 }
 
+func (it gateItem) headline() string {
+	if it.Length != "" {
+		return it.Length
+	}
+	return it.verdict()
+}
+
 func (it gateItem) wantGot() string {
 	if strings.HasPrefix(it.Path, "(") {
 		return it.Got
@@ -359,6 +403,12 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 		}
 		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Want: want, Got: got})
 		it.Class = report.Class(c)
+		for _, l := range report.Changes {
+			if l.Kind == diff.KindLength && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
+				it.Length = fmt.Sprintf("%s length want=%s got=%s", l.Path, compactValue(l.Want), compactValue(l.Got))
+				break
+			}
+		}
 		side.Items = append(side.Items, it)
 	}
 	if latencyPolicy(e).Fail {
@@ -488,12 +538,19 @@ func runGate(ctx context.Context, args []string) error {
 		}
 	}
 	settleGate(chains)
+	shown := map[string]bool{}
 	for _, g := range chains {
 		fmt.Println(g.line(width))
 		if req := g.suspectLine(); req != "" && g.failed {
 			fmt.Println("  " + req)
 		}
 		for _, n := range g.notes {
+			key := noteKey(n)
+			if shown[key] {
+				fmt.Println("  " + key + ", as above")
+				continue
+			}
+			shown[key] = true
 			fmt.Println("  " + n)
 		}
 		if *verbose && g.failed {
@@ -520,7 +577,11 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	sort.Strings(profiles)
 	once := []string{}
+	sessionFinding := false
 	for _, p := range profiles {
+		if sessionFinding && early[p] == 1 {
+			continue
+		}
 		if early[p] > 1 {
 			findings = append(findings, fmt.Sprintf("FINDING: tokens of auth profile %s were refused early in %d runs of this gate: "+
 				"the backend ends sessions long before the expiry its login states", p, early[p]))
@@ -529,6 +590,7 @@ func runGate(ctx context.Context, args []string) error {
 		if !*noSessionCheck {
 			if line, finding, ok := checkSession(ctx, e, p, earlyAt[p], reads); ok {
 				if finding {
+					sessionFinding = true
 					findings = append(findings, line)
 				} else {
 					fmt.Println(line)
@@ -664,12 +726,12 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			if noteKey(n) == noteKey(line) {
 				seen = true
 				if strings.Contains(line, "repeated failure") {
-					g.notes[i] = capText(line, 240)
+					g.notes[i] = capNote(line, 240)
 				}
 			}
 		}
 		if !seen {
-			g.notes = append(g.notes, capText(line, 240))
+			g.notes = append(g.notes, capNote(line, 240))
 		}
 	}
 	why := strings.TrimPrefix(errorLine(out.stderr, "shrt "+what+": "), "chain "+g.name+": ")
@@ -695,11 +757,14 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if g.first == "" {
 			if len(out.side.Items) > 0 {
 				it := out.side.Items[0]
-				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.verdict())
+				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
 				g.firstAt = it.Step + " " + it.Path
 			} else {
-				g.first = capText(what+": "+why, 200)
+				g.first = capText(what+": "+strings.TrimPrefix(why, "kept red, but it did not fail as pinned: "), 200)
 			}
+		}
+		if what == "run" && out.side.KeptRed == runner.KeptRedNotAsPinned {
+			g.class = "not as pinned"
 		}
 		if what == "verify" {
 			g.adoptBlame(out.side)
@@ -723,6 +788,31 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			}
 		}
 	}
+}
+
+func capNote(line string, n int) string {
+	parts := strings.Split(line, "; ")
+	out := capText(parts[0], 2*n)
+	for _, p := range parts[1:] {
+		if len(out)+2+len(p) > n {
+			return out + "; ..."
+		}
+		out += "; " + p
+	}
+	return out
+}
+
+func (g *gateChain) intermittentFirst() bool {
+	it, ok := g.firstItem()
+	if !ok {
+		return false
+	}
+	for _, n := range g.notes {
+		if head, _, _ := strings.Cut(strings.TrimPrefix(n, "FINDING: intermittent failure at "), ": "); head != n && containsName(strings.Split(head, ", "), shortRPC(it.Call)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (g *gateChain) adoptBlame(side gateSidecar) {
@@ -828,7 +918,10 @@ func (g *gateChain) line(width int) string {
 	line := fmt.Sprintf("%-10s %-*s", verdict, width, g.name)
 	if g.first != "" && verdict != "PASS" && verdict != "KEPT RED" {
 		line += "  "
-		if g.class != "" && g.failed {
+		switch {
+		case g.failed && g.intermittentFirst():
+			line += "intermittent: "
+		case g.class != "" && g.failed:
 			line += g.class + ": "
 		}
 		line += g.first

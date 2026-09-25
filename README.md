@@ -119,8 +119,9 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 each with a fresh `-var tag` when the chain reads one, retries an exit 3 once after `-retry-wait`
 (20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
-regression, order changed, different input or chain change) or `NO VERDICT` with the first failing
-step and path, and under a `FAIL` the request of the suspect (`-v` adds each changed path with the
+regression, order changed, different input or chain change; `intermittent` when a `FINDING` says
+so; `not as pinned` for a kept-red chain that failed otherwise) or `NO VERDICT` with the first
+failing step and path (a list that shrank as its length), and under a `FAIL` the request of the suspect (`-v` adds each changed path with the
 steps it changed at). Failures are then grouped, one line per suspect rpc. The read itself is the
 suspect when it fails with a server error, when its list holds another set of items while every
 write before it answered as before, when only the order of a list changed, when the write it
