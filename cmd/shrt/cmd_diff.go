@@ -96,6 +96,7 @@ func compareRuns(_ context.Context, args []string) error {
 		fx = requestFixtures(c)
 	}
 	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
+	rep.DropUnsentDefaults(a, b, unsentDefault(e))
 	if len(rest) == 3 {
 		rep.SelectorA, rep.SelectorB = rest[1], rest[2]
 	}

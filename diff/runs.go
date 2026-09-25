@@ -31,38 +31,41 @@ type VarChange struct {
 }
 
 type RunReport struct {
-	Note             string       `json:"note"`
-	Chain            string       `json:"chain"`
-	RunA             string       `json:"run_a"`
-	RunB             string       `json:"run_b"`
-	StatusA          string       `json:"status_a"`
-	StatusB          string       `json:"status_b"`
-	TargetA          string       `json:"target_a,omitempty"`
-	TargetB          string       `json:"target_b,omitempty"`
-	BuildA           string       `json:"build_a,omitempty"`
-	BuildB           string       `json:"build_b,omitempty"`
-	KeepGoingA       bool         `json:"keep_going_a,omitempty"`
-	KeepGoingB       bool         `json:"keep_going_b,omitempty"`
-	VarChanges       []VarChange  `json:"var_changes,omitempty"`
-	FirstFailureA    string       `json:"first_failure_a,omitempty"`
-	FirstFailureB    string       `json:"first_failure_b,omitempty"`
-	StatusChanges    []StepStatus `json:"status_changes,omitempty"`
-	NoLongerReached  []string     `json:"no_longer_reached,omitempty"`
-	NewlyReached     []string     `json:"newly_reached,omitempty"`
-	WhyNotReached    []StepStatus `json:"why_not_reached,omitempty"`
-	ErrorChanges     []StepStatus `json:"error_changes,omitempty"`
-	SkippedKeepGoing []string     `json:"skipped_with_keep_going,omitempty"`
-	RequestChanges   []Change     `json:"request_changes,omitempty"`
-	FixtureRequests  int          `json:"fixture_requests,omitempty"`
-	FixtureEchoed    int          `json:"fixture_echoed,omitempty"`
-	Changes          []Change     `json:"changes,omitempty"`
-	Masked           int          `json:"masked"`
-	FullyMasked      []string     `json:"fully_masked,omitempty"`
-	RenamedSteps     []StepRename `json:"renamed_steps,omitempty"`
-	SelectorA        string       `json:"selector_a,omitempty"`
-	SelectorB        string       `json:"selector_b,omitempty"`
-	StartedA         time.Time    `json:"-"`
-	StartedB         time.Time    `json:"-"`
+	Note              string       `json:"note"`
+	Chain             string       `json:"chain"`
+	RunA              string       `json:"run_a"`
+	RunB              string       `json:"run_b"`
+	StatusA           string       `json:"status_a"`
+	StatusB           string       `json:"status_b"`
+	TargetA           string       `json:"target_a,omitempty"`
+	TargetB           string       `json:"target_b,omitempty"`
+	BuildA            string       `json:"build_a,omitempty"`
+	BuildB            string       `json:"build_b,omitempty"`
+	KeepGoingA        bool         `json:"keep_going_a,omitempty"`
+	KeepGoingB        bool         `json:"keep_going_b,omitempty"`
+	VarChanges        []VarChange  `json:"var_changes,omitempty"`
+	FirstFailureA     string       `json:"first_failure_a,omitempty"`
+	FirstFailureB     string       `json:"first_failure_b,omitempty"`
+	StatusChanges     []StepStatus `json:"status_changes,omitempty"`
+	NoLongerReached   []string     `json:"no_longer_reached,omitempty"`
+	NewlyReached      []string     `json:"newly_reached,omitempty"`
+	WhyNotReached     []StepStatus `json:"why_not_reached,omitempty"`
+	ErrorChanges      []StepStatus `json:"error_changes,omitempty"`
+	SkippedKeepGoing  []string     `json:"skipped_with_keep_going,omitempty"`
+	RequestChanges    []Change     `json:"request_changes,omitempty"`
+	FixtureRequests   int          `json:"fixture_requests,omitempty"`
+	FixtureEchoed     int          `json:"fixture_echoed,omitempty"`
+	Changes           []Change     `json:"changes,omitempty"`
+	Masked            int          `json:"masked"`
+	FullyMasked       []string     `json:"fully_masked,omitempty"`
+	RenamedSteps      []StepRename `json:"renamed_steps,omitempty"`
+	UnsentDefaults    []string     `json:"unsent_defaults,omitempty"`
+	UndeclaredSame    []string     `json:"undeclared_same,omitempty"`
+	UndeclaredUnknown []string     `json:"undeclared_uncompared,omitempty"`
+	SelectorA         string       `json:"selector_a,omitempty"`
+	SelectorB         string       `json:"selector_b,omitempty"`
+	StartedA          time.Time    `json:"-"`
+	StartedB          time.Time    `json:"-"`
 
 	compared     []comparedStep
 	idPairs      []idPair
@@ -556,6 +559,19 @@ func (r *RunReport) Text() string {
 		for _, c := range r.Changes {
 			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
 		}
+	}
+	if len(r.UnsentDefaults) > 0 {
+		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and absent from the other's, where they were not on "+
+			"the wire (left at the proto3 default, the same bytes), so they are not shown, as `shrt verify` does not count them: %s\n",
+			len(r.UnsentDefaults), strings.Join(r.UnsentDefaults, ", "))
+	}
+	if len(r.UndeclaredSame) > 0 {
+		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and were on the wire, undeclared, in the other's with "+
+			"the same value, so they are not shown: %s\n", len(r.UndeclaredSame), strings.Join(r.UndeclaredSame, ", "))
+	}
+	if len(r.UndeclaredUnknown) > 0 {
+		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and were on the wire, undeclared, in the other's, whose "+
+			"build did not record their value, so they were not compared: %s\n", len(r.UndeclaredUnknown), strings.Join(r.UndeclaredUnknown, ", "))
 	}
 	if r.FixtureEchoed > 0 {
 		fmt.Fprintf(&b, "\n%d response value(s) differ only by echoing the fixture name the run sent, as `shrt verify` masks them, not shown\n", r.FixtureEchoed)
