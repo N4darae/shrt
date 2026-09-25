@@ -213,6 +213,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
 	p.noteIsolation()
+	p.noteStreamingTargets()
 	p.maskUnscopedLists()
 	if err := c.Normalize(); err != nil {
 		return nil, err
@@ -566,7 +567,7 @@ func (p *Plan) StepGroups() []StepGroup {
 }
 
 var gapMarkers = []string{
-	"says nothing", "says neither", "was planned", "by hand", "could not", "cannot be built", "cannot say",
+	"server-streaming;", "says nothing", "says neither", "was planned", "by hand", "could not", "cannot be built", "cannot say",
 	"nothing proves", "no probe", "no level is asserted", "assert only that", "assert only whether",
 }
 
@@ -1080,6 +1081,19 @@ func (p *Plan) stepByID(id string) *chain.Step {
 func hasTemplate(v any) bool {
 	s, ok := v.(string)
 	return ok && strings.Contains(s, "${")
+}
+
+func StreamingGap(rpc string) string {
+	return rpc + ": server-streaming; only its first message is read, so what it sends later (updates on change) is not checked"
+}
+
+func (p *Plan) noteStreamingTargets() {
+	for _, node := range p.Targets {
+		rpc, _ := SplitNode(node)
+		if m, err := p.cat.Lookup(rpc); err == nil && m.ServerStreaming {
+			p.note("%s", StreamingGap(m.FullName))
+		}
+	}
 }
 
 func (p *Plan) noteRequirements() {
