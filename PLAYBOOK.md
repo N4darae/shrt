@@ -381,7 +381,8 @@ A failure with `connect_code: invalid_argument` is turned into malformed request
 each clause (split at `,`, `;` and `or`) that names a field and a value the plan can build (empty,
 only whitespace, zero, negative, no `@`, which may be written `an at sign` or `at symbol`) becomes a
 probe expecting `transport.code equals invalid_argument` (`create_order_lines_empty`,
-`create_order_qty_zero` on the last line, `create_customer_email_no_at`). A clause it cannot read
+`create_order_qty_zero` on the last line and `create_order_qty_zero_first_item` on the first,
+`create_customer_email_no_at`). A clause it cannot read
 (`email is not a well-formed address`) is named in a note with the failure and the words it reads. A copy with the other references pointed at ids nothing created
 (`create_order_lines_empty_unknown_refs`) expects the same code, since a malformed request is refused
 before any lookup. When nothing declares a required field or a format, the plan says so and plans
@@ -416,8 +417,15 @@ gets a copy. A read is repeated right after itself as that profile (`get_product
 asserts every non-repeated field of the answer equal to the first read's (`product.price_minor
 equals ${get_product.product.price_minor}`), so a backend that zeroes the price for a clerk fails. A
 field that really differs by role is left out when the contract documents it under `terminal:` or
-`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`); a
-repeated field is not compared item by item, and a note says so. A write runs as that profile on
+`soft_signals:` with text naming a role, caller or profile (`cost_minor: shown to ADMIN only`). A
+list is compared item by item when the first read asserts how many items it holds
+(`list_products_as_clerk`: `products.0.id_product equals ${list_products.products.0.id_product}` and
+so on, and no item past the last), or by the fixtures it must include when it is not scoped to the
+run; otherwise a note says it is not compared. A create whose reads answer only text and ids, so
+that no number compares the two profiles, is repeated as that profile with its unique fields
+changed and read back (`create_customer_as_clerk`, `get_customer_after_create_customer_as_clerk`).
+`shrt contract status -gaps` lists an rpc every role may call that no chain calls as a profile as
+`no profile probe`. A write runs as that profile on
 fixtures of its own, copied from the steps that created and prepared its fixtures with unique
 fields changed and every number kept (`create_product_for_clerk`, `add_stock_for_clerk` at the same
 `qty`, `create_order_for_clerk`, then `confirm_order_as_clerk`); the plan reads what the default

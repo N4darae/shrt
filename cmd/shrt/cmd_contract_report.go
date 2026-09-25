@@ -37,7 +37,7 @@ type statusRow struct {
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no repeat' (a repeated message field whose items always point at different resources, never one resource on two items), 'no empty filter' (a list filter whose contract says empty lists all, which every chain sends set), 'no login probe' (a failure the login's contract declares that no chain expects: the config's own logins only succeed), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: 'no contract' (no overlay entry), 'no path to' (a contract, but in no multi-step plan), 'one item' (a repeated message field every chain sends with at most one item), 'same resource' (a repeated message field whose items all point at one resource in every chain that sends two), 'no repeat' (a repeated message field whose items always point at different resources, never one resource on two items), 'no empty filter' (a list filter whose contract says empty lists all, which every chain sends set), 'no login probe' (a failure the login's contract declares that no chain expects: the config's own logins only succeed), 'no chain' (an rpc no chain calls, with the repeated fields it takes), 'no role probe' (a role-gated rpc no chain calls as a profile lacking the role), 'no profile probe' (an rpc every role may call that no chain calls as a given profile) and 'no token' (an rpc no chain calls without a token or with auth: invalid), then streaming rpcs, which are out of scope")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	setUsage(fs, "usage: shrt contract status [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
@@ -198,15 +198,21 @@ func contractStatus(args []string) error {
 	if unchained > 0 {
 		fmt.Printf("\n%d unary rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
 	}
-	roleGaps, tokenGaps := 0, 0
+	roleGaps, tokenGaps, parityGaps := 0, 0, 0
 	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
-			if g.Kind == "role" {
+			switch g.Kind {
+			case "role":
 				roleGaps++
-			} else {
+			case "parity":
+				parityGaps++
+			default:
 				tokenGaps++
 			}
 		}
+	}
+	if parityGaps > 0 {
+		fmt.Printf("\n%d rpc/profile pair(s) whose contract lets every role call the rpc are never called as that profile, so a role check added by mistake passes every gate: shrt contract status -gaps lists them as 'no profile probe'\n", parityGaps)
 	}
 	if roleGaps > 0 {
 		fmt.Printf("\n%d role-gated rpc/profile pair(s) are never called as a profile lacking the role, so a dropped role check passes every gate: shrt contract status -gaps lists them as 'no role probe'\n", roleGaps)
@@ -275,6 +281,8 @@ func printStatusGaps(rows []statusRow) {
 		for _, g := range r.ProbeGaps {
 			if g.Kind == "role" {
 				fmt.Printf("no role probe %s: requires %s, and no chain calls it as profile %s\n", g.RPC, g.Roles, g.Profile)
+			} else if g.Kind == "parity" {
+				fmt.Printf("no profile probe %s: its contract lets every role call it, and no chain calls it as profile %s\n", g.RPC, g.Profile)
 			} else {
 				fmt.Printf("no token     %s: no chain calls it with skip_auth: true or auth: invalid\n", g.RPC)
 			}
@@ -328,6 +336,9 @@ func printStatusGaps(rows []statusRow) {
 		"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
 		"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
 		"             it changed nothing.\n" +
+		"no profile probe the contract lets every role call the rpc and no chain calls it with auth: <profile>, so\n" +
+		"             a role check added by mistake passes every gate. shrt contract plan <rpc> scaffolds\n" +
+		"             <step>_as_<profile> asserting what the default profile's call answered or left.\n" +
 		"no token     no chain calls the rpc with skip_auth: true or auth: invalid, so an rpc that stopped\n" +
 		"             checking the token passes. A plan scaffolds one pair for each target rpc.\n")
 }

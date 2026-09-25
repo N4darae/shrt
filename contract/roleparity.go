@@ -96,9 +96,30 @@ func (p *Plan) probeRoleParity(lib *Library, isTarget func(*chain.Step) bool) {
 func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, profiles []string) {
 	leaves := []string{}
 	skipped := []string{}
+	lists := []string{}
+	includes := []chain.Expectation{}
 	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
 		if fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
 			continue
+		}
+		if fd.Repeated && fd.MapKey == "" && fd.Kind == "message" && len(fd.Fields) > 0 {
+			if n, ok := assertedLength(st, fd.Name); ok && n > 0 {
+				for i := 0; i < n; i++ {
+					responseLeaves(fd.Fields, fmt.Sprintf("%s.%d", fd.Name, i), &leaves)
+				}
+				lists = append(lists, fmt.Sprintf("%s.%d", fd.Name, n))
+				continue
+			}
+			found := false
+			for _, e := range st.Expect {
+				if e.Path == fd.Name && e.Includes != nil {
+					includes = append(includes, e)
+					found = true
+				}
+			}
+			if found {
+				continue
+			}
 		}
 		if fd.Repeated || fd.MapKey != "" {
 			skipped = append(skipped, fd.Name)
@@ -118,7 +139,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 		}
 		compared = append(compared, path)
 	}
-	if len(compared) == 0 {
+	if len(compared) == 0 && len(includes) == 0 {
 		return
 	}
 	at := st.ID
@@ -132,13 +153,25 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 		for _, path := range compared {
 			probe.Expect = append(probe.Expect, chain.Expectation{Path: path, Equals: "${" + st.ID + "." + path + "}"})
 		}
+		for _, path := range lists {
+			probe.Expect = append(probe.Expect, chain.Expectation{Path: path, Exists: boolPtr(false)})
+		}
+		for _, e := range includes {
+			probe.Expect = append(probe.Expect, e.MapOperands(cloneBody))
+		}
 		p.insertAfter(at, probe)
 		at = probe.ID
 		ids = append(ids, probe.ID)
 	}
 	msg := fmt.Sprintf("step %s: its contract lets every role call it, so %s %s the same read as another profile and "+
 		"%s each field %s answered (%s) equal: a backend that hides or zeroes a field for a lower role fails",
-		st.ID, strings.Join(ids, ", "), pluralVerb(len(ids), "sends", "send"), pluralVerb(len(ids), "asserts", "assert"), st.ID, strings.Join(compared, ", "))
+		st.ID, strings.Join(ids, ", "), pluralVerb(len(ids), "sends", "send"), pluralVerb(len(ids), "asserts", "assert"), st.ID, strings.Join(clipList(compared, 8), ", "))
+	if len(lists) > 0 {
+		msg += fmt.Sprintf("; each item of the list, by position, and no item past %s", strings.Join(lists, ", "))
+	}
+	if len(includes) > 0 {
+		msg += "; every fixture the list must include, by id"
+	}
 	if len(exempt) > 0 {
 		msg += fmt.Sprintf("; %s %s documented as role-specific in terminal:/soft_signals:, so not compared", strings.Join(exempt, ", "), pluralIs(len(exempt)))
 	}
@@ -169,6 +202,9 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		}
 	}
 	if len(comparable) == 0 {
+		if idPath := p.createdIDPath(st, m); idPath != "" && p.createParity(lib, st, idPath, profiles) {
+			return
+		}
 		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(st, m)); len(readers) > 0 {
 			p.note("step %s: its contract lets every role call it, and %s %s the id of what it changes, but %s answers "+
 				"no number or state, only text and ids that each profile's own fixture sends differently, so nothing "+
@@ -298,6 +334,33 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		"prepared as %s's were (unique fields changed, numbers kept), and the reads that follow assert the same numbers and states "+
 		"as the reads after %s: a backend that applies the write differently for a lower role fails",
 		st.ID, strings.Join(ids, ", "), pluralVerb(len(ids), "repeats", "repeat"), st.ID, st.ID)
+}
+
+func (p *Plan) createParity(lib *Library, st *chain.Step, idPath string, profiles []string) bool {
+	if _, ok := p.readerMatching(lib, st, idPath, false); !ok {
+		return false
+	}
+	ids := []string{}
+	for _, prof := range profiles {
+		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
+		w.Export = nil
+		w.Auth = prof
+		p.freshen(lib, w)
+		renameStepRefs(w, st.ID, w.ID)
+		w.Description = fmt.Sprintf("%s as profile %s, with its unique fields changed: created as it is for the default profile, and read back as sent.", st.ID, prof)
+		p.assertEcho(w)
+		added := []*chain.Step{w}
+		if read := p.readBackStep(lib, w, idPath); read != nil {
+			added = append(added, read)
+		}
+		p.Chain.Steps = append(p.Chain.Steps, added...)
+		ids = append(ids, w.ID)
+	}
+	p.note("step %s: its contract lets every role call it, so %s %s it as another profile, with its unique fields changed, "+
+		"and %s the record back: every field it sent, as sent. It answers no number or state to compare with the default "+
+		"profile's, so a backend that refuses the create for a lower role, or stores it differently, fails there",
+		st.ID, strings.Join(ids, ", "), pluralVerb(len(ids), "repeats", "repeat"), pluralVerb(len(ids), "reads", "read"))
+	return true
 }
 
 type parityCopy struct {

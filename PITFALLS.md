@@ -2286,6 +2286,20 @@ that moved it, so a create that started at 1 or an order that took a unit passed
 its response and in the read right after it; a target whose contract says it leaves the level alone
 is followed by reads asserting each level it names unchanged. A note quotes the sentence each came from.
 
+## 112. Zero on the last line only, and no clerk copy of a list or of CreateCustomer
+
+**Symptom.** The shape probe for `a line's qty is zero or negative` put `qty: 0` on the second line
+only, so a backend validating only the first line passed. `ListProducts`, `ListOrders` and
+`CreateCustomer`, which every role may call, got no `_as_clerk` copy: the list's only field is
+repeated, and GetCustomer answers only text, so the plan found nothing to compare; `-gaps` did not
+say so either.
+
+**Fix.** 2026-09-25: a shape probe on a repeated item's field also puts the value on the first item
+(`<step>_<field>_<kind>_first_item`). A list every role may call is read as each other profile and
+compared item by item when its length is asserted, or by the fixtures it includes; a create whose
+reads answer only text is repeated as that profile and read back. `-gaps` lists an rpc every role
+may call that no chain calls as a profile as `no profile probe`.
+
 ---
 
 # Decisions, so they are not relitigated

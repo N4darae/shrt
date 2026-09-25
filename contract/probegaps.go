@@ -55,6 +55,14 @@ func AuthProbeGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog, op
 				out = append(out, ProbeGap{RPC: m.FullName, Kind: "role", Roles: strings.Join(c.RequiresRole, " or "), Profile: prof})
 			}
 		}
+		if c, ok := lib.Get(m.FullName); ok && openToEveryRole(c) && !IsTodo(strings.Join(c.RequiresRole, " ")) {
+			for _, prof := range opts.Profiles {
+				if prof == "default" || prof == invalidProfile || asProfile[m.FullName][prof] {
+					continue
+				}
+				out = append(out, ProbeGap{RPC: m.FullName, Kind: "parity", Profile: prof})
+			}
+		}
 		if !tokenProbed[m.FullName] {
 			out = append(out, ProbeGap{RPC: m.FullName, Kind: "token"})
 		}

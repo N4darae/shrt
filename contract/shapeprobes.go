@@ -25,6 +25,7 @@ type shapeCase struct {
 	field string
 	kind  string
 	value any
+	first bool
 }
 
 func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
@@ -124,8 +125,20 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shap
 		}
 		seen[path+"|"+kind] = true
 		out = append(out, shapeCase{path: path, field: field, kind: kind, value: value})
+		if firstPath := firstItemPath(path); firstPath != "" && !seen[firstPath+"|"+kind] {
+			seen[firstPath+"|"+kind] = true
+			out = append(out, shapeCase{path: firstPath, field: field, kind: kind, value: value, first: true})
+		}
 	}
 	return out, unread
+}
+
+func firstItemPath(path string) string {
+	segs := chain.SplitPath(path)
+	if len(segs) != 3 || !isIndexSegment(segs[1]) || segs[1] == "0" {
+		return ""
+	}
+	return segs[0] + ".0." + segs[2]
 }
 
 func fieldWord(name string) *regexp.Regexp {
@@ -214,7 +227,11 @@ func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c
 	ids := []string{}
 	ordering := []string{}
 	for _, sc := range cases {
-		probe := copyStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
+		name := st.ID + "_" + leafName(sc.field) + "_" + sc.kind
+		if sc.first {
+			name += "_first_item"
+		}
+		probe := copyStep(st, p.freeStepID(name))
 		probe.Export = nil
 		if !chain.IsReadOnlyCall(st.Call) {
 			p.freshen(lib, probe)
