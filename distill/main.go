@@ -545,6 +545,8 @@ func existsPresence() string {
 		{"`not_empty: true` on `access_token`", chain.Expectation{Path: "access_token", NotEmpty: true}},
 		{"`equals: \"\"` on `access_token`", chain.Expectation{Path: "access_token", Equals: ""}},
 		{"`exists: true` on `error.code`", chain.Expectation{Path: "error.code", Exists: boolp(true)}},
+		{"`equals: \"\"` on `user.name`, inside a message not sent", chain.Expectation{Path: "user.name", Equals: ""}},
+		{"`exists: false` on `user.name`, inside a message not sent", chain.Expectation{Path: "user.name", Exists: boolp(false)}},
 	}
 	var b strings.Builder
 	b.WriteString("`exists` reads what the server SENT, not the stored record, which holds every declared field at\n")
@@ -558,7 +560,8 @@ func existsPresence() string {
 		}
 		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, r.Rule, verdict)
 	}
-	b.WriteString("\nA proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value.\n")
+	b.WriteString("\nA proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value. A field\n")
+	b.WriteString("inside a message the server did not send has no zero value: assert the message `exists: false`.\n")
 	return b.String()
 }
 
