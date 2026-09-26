@@ -1391,8 +1391,17 @@ func (r *Report) Text() string {
 	for _, fr := range renames {
 		renamedAt[fr.missing], renamedTo[fr.unexpected] = fr, true
 	}
+	changedAt := map[string]bool{}
+	for _, c := range r.Changes {
+		if c.Kind != KindStatus && c.Kind != KindNotReached {
+			changedAt[c.Step] = true
+		}
+	}
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
+		if c.Kind == KindStatus && changedAt[c.Step] {
+			continue
+		}
 		if c.Kind == KindNotReached {
 			c.Detail = skips.Condense(c.Step, c.Detail)
 		}

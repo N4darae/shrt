@@ -70,7 +70,7 @@ traffic.
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` |
 | `shrt version` | version, commit, build time and the docs it carries |
 | `shrt doctor` | check this repo's `.shrt/` installation; `-strict` fails on warnings |
-| `shrt gate` | run every chain and verify every safe spot with a fresh tag; one line per chain, failures grouped by suspect rpc |
+| `shrt gate` | verify every chain with a safe spot, run the rest, each with a fresh tag; one line per chain, failures grouped by suspect rpc |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the rpcs |
 | `shrt catalog describe <rpc>` | request and response schema with proto comments |
@@ -116,9 +116,10 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 
 ### CI gate
 
-`shrt gate` runs every chain in `.shrt/chains` (not `.shrt/scratch/`) and verifies every safe spot,
-each with a fresh `-var tag` when the chain reads one, retries an exit 3 once after `-retry-wait`
-(20s), and holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
+`shrt gate` sends every chain in `.shrt/chains` (not `.shrt/scratch/`) once: by verify when it has
+a safe spot, by run otherwise, and by run as well when it is kept red, or verify had no verdict or
+set aside a finding after a drift. Each gets a fresh `-var tag` when the chain reads one; an exit 3
+is retried once after `-retry-wait` (20s), and the gate holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
 `PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
 regression, order changed, different input or chain change; `intermittent` when a `FINDING` says
 so; `not as pinned` for a kept-red chain that failed otherwise, `kept red, drifted` when every pin
@@ -146,7 +147,7 @@ failures by suspect rpc (the read itself, or the failing or changed write it obs
 
 Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
 of the gate, or the ratchet. Refused early once, the gate logs in afresh, holds the token as long as
-the refused one lived (at most 90s) and re-sends a read that passed: accepted, it was a restart;
+the refused one lived (at most 30s) and re-sends a read that passed: accepted, it was a restart;
 refused, two more fresh tokens are held to half that age and to it again, and a second refusal is a
 `FINDING` naming the ages accepted and refused (`-no-session-check` skips this). 3 is no verdict
 (the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red

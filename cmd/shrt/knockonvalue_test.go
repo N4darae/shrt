@@ -86,3 +86,32 @@ func TestAKnockOnNeedsTheValueTheEarlierWriteAnswered(t *testing.T) {
 		t.Errorf("another value is not explained by the write: %+v", b)
 	}
 }
+
+func TestAStreamedMessageCarryingTheValueAWriteAnsweredIsFiledUnderTheWrite(t *testing.T) {
+	order := `{"order":{"id_order":"o1","total_minor":"1750"}}`
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, order).failing("order.total_minor", "4250", "1750"),
+		shopStep("watch_order", "shop.orders.v1.OrderService/WatchOrder", `{"messages":[`+order+`]}`, "create_order").
+			failing("messages.0.order.total_minor", "4250", "1750"),
+	)
+	if write, own, _ := blameOf(t, rec, "watch_order", "messages.0.order.total_minor"); write != "create_order" || own != "" {
+		t.Errorf("a streamed read answering the total the write answered is a knock-on of the write, got write %q own %q", write, own)
+	}
+}
+
+func TestAChangedTotalShowsTheLinesItIsComputedFromOnce(t *testing.T) {
+	order := `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p2","qty":"3"}],"total_minor":"1750"}}`
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","price_minor":"250"}}`),
+		shopStep("create_product_2", shopCreate, `{"product":{"id_product":"p2","price_minor":"1250"}}`),
+		shopStep("create_order", shopOrder, order, "create_product", "create_product_2").failing("order.total_minor", "4250", "1750"),
+	)
+	it := runAttribution(nil, rec).item(gateItem{Step: "create_order", Call: shopOrder, Path: "order.total_minor", Rule: "equals", Want: "4250", Got: "1750"})
+	if want := "order.total_minor want=4250 got=1750; lines: 2 x 250, 3 x 1250"; it.headline() != want {
+		t.Errorf("got %q, want %q", it.headline(), want)
+	}
+	rec.Steps[2].Expect[0].Want = "4000"
+	if it := runAttribution(nil, rec).item(gateItem{Step: "create_order", Call: shopOrder, Path: "order.total_minor"}); it.Inputs != "" {
+		t.Errorf("a want the lines do not give names no inputs, got %q", it.Inputs)
+	}
+}

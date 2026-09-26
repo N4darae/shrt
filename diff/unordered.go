@@ -498,20 +498,73 @@ func (r *Report) OnlyReordered() bool {
 	return true
 }
 
-func (r *Report) reorderedText() string {
-	if len(r.reordered) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	for _, at := range r.reordered {
-		b.WriteString("  " + at.step + " " + at.path + ": same items in another order: it holds what the safe spot holds, in another order. " +
-			"If the rpc promises no order, declare `unordered: [" + at.path + "]` on step " + at.step +
-			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
-		if failed := r.reorderExpect[at.step]; len(failed) > 0 {
-			b.WriteString("; the expectation(s) reading it by position failed: " + strings.Join(failed, "; "))
+type reorderGroup struct {
+	path  string
+	steps []string
+}
+
+func (r *Report) reorderedGroups() []reorderGroup {
+	var out []reorderGroup
+	at := map[string]int{}
+	for _, sp := range r.reordered {
+		i, ok := at[sp.path]
+		if !ok {
+			i = len(out)
+			at[sp.path] = i
+			out = append(out, reorderGroup{path: sp.path})
 		}
-		if n := r.hiddenUnder(at); n > 0 {
-			fmt.Fprintf(&b, "; %d positional change(s) under it are counted above but not listed one by one (-json lists them)", n)
+		if !containsString(out[i].steps, sp.step) {
+			out[i].steps = append(out[i].steps, sp.step)
+		}
+	}
+	return out
+}
+
+func (g reorderGroup) String() string {
+	return stepsText(g.steps, 3) + " " + g.path
+}
+
+func stepsText(steps []string, max int) string {
+	if len(steps) <= max {
+		return strings.Join(steps, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(steps[:max], ", "), len(steps)-max)
+}
+
+func (r *Report) ReorderedLists() []string {
+	var out []string
+	for _, g := range r.reorderedGroups() {
+		out = append(out, g.String())
+	}
+	return out
+}
+
+func (r *Report) reorderedText() string {
+	var b strings.Builder
+	for _, g := range r.reorderedGroups() {
+		on := "step " + g.steps[0]
+		if len(g.steps) > 1 {
+			on = "those steps"
+		}
+		b.WriteString("  " + g.String() + ": same items in another order: it holds what the safe spot holds, in another order. " +
+			"If the rpc promises no order, declare `unordered: [" + g.path + "]` on " + on +
+			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
+		var failed []string
+		hidden := 0
+		for _, step := range g.steps {
+			for _, e := range r.reorderExpect[step] {
+				if len(g.steps) > 1 {
+					e = step + " " + e
+				}
+				failed = append(failed, e)
+			}
+			hidden += r.hiddenUnder(stepPath{step: step, path: g.path})
+		}
+		if len(failed) > 0 {
+			b.WriteString("; the expectation(s) reading it by position failed: " + stepsText(failed, 3))
+		}
+		if hidden > 0 {
+			fmt.Fprintf(&b, "; %d positional change(s) under it are counted above but not listed one by one (-json lists them)", hidden)
 		}
 		b.WriteString("\n")
 	}
