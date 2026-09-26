@@ -79,7 +79,9 @@ Run them and paste the output:
 - Edit only your domain's overlay; report findings about other domains.
 - Behaviour comes from the spec, not the handler: `effects`, `failures[].when`, filters and state
   rules state what the service is meant to do (its README, API docs, tests). Read the handler for
-  field names, codes and shapes. Where the handler does something else than the spec says, write
+  field names, codes, shapes and `required` (what it rejects before any business rule runs; when the
+  spec says a field is required and the handler accepts it empty, write what the handler does and
+  report the difference). Where the handler does something else than the spec says, write
   the spec's behaviour and report the difference: a contract copied from a buggy handler plans the
   bug as correct.
 - When the source contradicts the proto comment on a name, code or shape, trust the source and
