@@ -465,3 +465,23 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 		t.Errorf("a first refused write is still the one the read observes, got %q", write)
 	}
 }
+
+func TestAListItemIsTheWritesRecordOnlyWhenItsOwnIDMatches(t *testing.T) {
+	var cancel, list, one any
+	_ = json.Unmarshal([]byte(`{"order":{"id_order":"o2","id_customer":"c1","status":"CANCELLED"}}`), &cancel)
+	_ = json.Unmarshal([]byte(`{"orders":[{"id_order":"o3","id_customer":"c1","status":"CONFIRMED"},{"id_order":"o2","id_customer":"c1","status":"CANCELLED"}]}`), &list)
+	_ = json.Unmarshal([]byte(`{"orders":[{"id_order":"o3","id_customer":"c1","status":"CONFIRMED"}]}`), &one)
+	for _, c := range []struct {
+		read any
+		path string
+		same bool
+	}{
+		{list, "orders.0.status", false},
+		{list, "orders.1.status", true},
+		{one, "orders.0.status", false},
+	} {
+		if got := sameEntity(c.read, c.path, cancel, "order.status"); got != c.same {
+			t.Errorf("%s: same record %v, want %v", c.path, got, c.same)
+		}
+	}
+}

@@ -923,20 +923,55 @@ func eachLeaf(v any, path string, visit func(string, any)) {
 }
 
 func sameEntity(a any, pa string, b any, pb string) bool {
-	parent := func(root any, path string) map[string]any {
+	parent := func(root any, path string) (map[string]any, []any) {
 		segs := chain.SplitPath(path)
 		if len(segs) < 2 {
-			return nil
+			return nil, nil
 		}
 		v, _ := chain.Get(root, strings.Join(segs[:len(segs)-1], "."))
 		m, _ := v.(map[string]any)
-		return m
+		var list []any
+		if _, err := strconv.Atoi(segs[len(segs)-2]); err == nil && len(segs) > 2 {
+			l, _ := chain.Get(root, strings.Join(segs[:len(segs)-2], "."))
+			list, _ = l.([]any)
+		}
+		return m, list
 	}
-	x, y := parent(a, pa), parent(b, pb)
+	idKey := func(k string) bool {
+		lower := strings.ToLower(k)
+		return lower == "id" || strings.HasPrefix(lower, "id_") || strings.HasSuffix(lower, "_id")
+	}
+	distinct := func(list []any, k string) bool {
+		seen := map[string]bool{}
+		for _, it := range list {
+			m, _ := it.(map[string]any)
+			v := compactValue(m[k])
+			if seen[v] {
+				return false
+			}
+			seen[v] = true
+		}
+		return true
+	}
+	x, xl := parent(a, pa)
+	y, yl := parent(b, pb)
+	matched := false
+	for k, v := range x {
+		w, ok := y[k]
+		if !idKey(k) || !ok || xl == nil && yl == nil || !distinct(xl, k) || !distinct(yl, k) {
+			continue
+		}
+		if compactValue(v) != compactValue(w) {
+			return false
+		}
+		matched = true
+	}
+	if matched {
+		return true
+	}
 	sawID := false
 	for k, v := range x {
-		lower := strings.ToLower(k)
-		if lower != "id" && !strings.HasPrefix(lower, "id_") && !strings.HasSuffix(lower, "_id") {
+		if !idKey(k) {
 			continue
 		}
 		if w, ok := y[k]; ok {

@@ -1125,7 +1125,11 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 		why = report.Class(*first) + alsoClasses(report, first)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	b := verifyAttribution(e, rec, report).of(first.Step, first.Path)
+	a := verifyAttribution(e, rec, report)
+	b := a.of(first.Step, first.Path)
+	if in := a.inputs(first.Step, first.Path); b.write < 0 && b.own == "" && in != "" {
+		line += "; " + in
+	}
 	if b.own != "" {
 		line += "; suspect " + b.own
 	}
@@ -1134,7 +1138,37 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	} else if b.write >= 0 && !b.knock {
 		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[b.write].ID, shortRPC(rec.Steps[b.write].Call))
 	}
-	return line + "\n", body
+	return line + "\n" + otherRoots(e, rec, report, first), body
+}
+
+func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Change) string {
+	items := verifyItems(e, rec, report)
+	seen := map[string]bool{}
+	for _, it := range items {
+		if it.Step == first.Step && it.Path == first.Path {
+			seen[baseOf(it)] = true
+		}
+	}
+	if len(seen) == 0 {
+		return ""
+	}
+	out := ""
+	for _, it := range items {
+		r := baseOf(it)
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
+		switch {
+		case it.Own != "" && it.Kind != "order":
+			out += "; suspect " + it.Own
+		case it.Own == "" && it.SuspectStep != "":
+			out += fmt.Sprintf(", after write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
+		}
+		out += "\n"
+	}
+	return out
 }
 
 func alsoClasses(report *diff.Report, first *diff.Change) string {

@@ -381,3 +381,32 @@ func filterMisses(request json.RawMessage, added []map[string]any) string {
 	}
 	return out
 }
+
+func (r *Report) Moved(step, path string) bool {
+	segs := strings.Split(path, ".")
+	names := renamer(r.renames)
+	for k := 1; k < len(segs); k++ {
+		i, err := strconv.Atoi(segs[k])
+		if err != nil {
+			continue
+		}
+		wl, gl := r.comparedAt(step, strings.Join(segs[:k], "."))
+		key := itemKey(wl, gl)
+		if key == "" || i < 0 || i >= len(wl) {
+			continue
+		}
+		want := fmt.Sprint(wl[i].(map[string]any)[key])
+		if names != nil {
+			want = names.Replace(want)
+		}
+		for j, g := range gl {
+			if fmt.Sprint(g.(map[string]any)[key]) == want {
+				if j != i {
+					return true
+				}
+				break
+			}
+		}
+	}
+	return false
+}

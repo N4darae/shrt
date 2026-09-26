@@ -395,7 +395,8 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 
 **How the gate names a suspect.** The read itself is the suspect when it fails with a server
 error, when it is refused or its list holds another set of items while no write before it was
-refused, when only the order of a list changed, when the write it observes returned the same field
+refused, when only the order of a list changed or the item at a position moved elsewhere in it
+(matched by its id), when the write it observes returned the same field
 of the same record unchanged, or when it contradicts what two different writes answered. A write
 whose answer a read of the same record contradicts is the suspect, with both values shown. A
 change belongs to an earlier step when it is that step's answer for the same field of the same
@@ -419,6 +420,7 @@ Reading the report:
 
 - Each change names the step, the path, its kind (`GRAMMAR.md` §7), `want` and `got`. A clean
   verify covers only that chain's steps.
+- The headline names the first change; each change under another suspect adds one `also:` line.
 - `targets differ:` first means the replay ran against another target.
 - verify runs every step as `-keep-going` does; a step held back behind a failure is `not_reached`.
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
