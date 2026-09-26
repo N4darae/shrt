@@ -1505,7 +1505,10 @@ func headlineGate(chains []*gateChain) {
 			case pin.or != "":
 				g.reported = true
 			case reported[r]:
-				text, g.reported = text+", reported above", true
+				if pin.Suspect != "" || pin.Own != "" {
+					text += ", reported above"
+				}
+				g.reported = true
 			default:
 				g.firstAt = pin.Step + " " + pin.Path
 				report(*pin)
