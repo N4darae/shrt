@@ -158,6 +158,15 @@ func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {
 			steps = append(steps, id)
 		}
 	}
+	lastWrite := ""
+	for _, s := range c.Steps {
+		switch {
+		case !chain.IsReadOnlyCall(s.Call):
+			lastWrite = s.ID
+		case containsStr(steps, lastWrite) && containsStr(failing, s.ID) && !containsStr(steps, s.ID):
+			steps = append(steps, s.ID)
+		}
+	}
 	return steps
 }
 

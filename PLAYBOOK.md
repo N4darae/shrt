@@ -446,8 +446,9 @@ shrt run billing                     # green: propose and approve it
 ```
 
 `chain pin` runs the chain with `-keep-going` first when its latest run did not reach every step,
-slices the first failing step (with the failing steps that read it or fail the same call the same
-way), rewrites the chain without them and runs it again, until it passes. It stops when a slice does
+slices the first failing step (with the failing steps that read it, fail the same call the same
+way, or are failing reads with no write between them and it), cuts just those steps from the chain
+file and runs it again, until it passes. It stops when a slice does
 not reproduce or a FINDING or intermittent failure explains the red.
 By hand: `chain slice <c> -step <id> -kept-red=<id,...> -verify -write`, then `chain slice <c>
 -without failed -write .shrt/chains/<c>.yaml`. Remove the red slice and plan again once the defect

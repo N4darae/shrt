@@ -219,3 +219,82 @@ func TestChainPinGivesSeparateDefectsTheirOwnSliceAndLeavesTheChainGreen(t *test
 		t.Fatalf("after one pin the rewritten chain runs green: %v", err)
 	}
 }
+
+const pinReadBackChain = `apiVersion: shrt/v1
+name: probe-wipe
+steps:
+  - call: CustomerService/CreateCustomer
+    id: create_customer
+    body: {email: "wipe-${vars.tag}@example.test"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: ProductService/CreateProduct
+    id: create_product
+    body:
+      sku: 'sku-${vars.tag}-wipe'
+      price_minor: "100"
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: OrderService/CreateOrder
+    id: create_order
+    body:
+      id_customer: ${create_customer.customer.id_customer}
+      lines:
+        - {id_product: "${create_product.product.id_product}", qty: "1"}
+      idempotency_key: wipe-${vars.tag}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+
+  - call: OrderService/CancelOrder
+    id: cancel_order
+    body:
+      id_order: ${create_order.order.id_order}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+
+  - call: OrderService/FetchOrder
+    id: fetch_after_cancel
+    body:
+      id_order: ${create_order.order.id_order}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+
+  - call: ProductService/GetProduct
+    id: get_product
+    body:
+      id_product: ${create_product.product.id_product}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+`
+
+func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFileAsWritten(t *testing.T) {
+	shop := newFakeShop()
+	shop.cancelWipesBug = true
+	chdirToFakeShop(t, shop)
+	writeFile(t, ".shrt/chains/probe-wipe.yaml", pinReadBackChain)
+	var err error
+	out := captureStdout(t, func() { err = chainPin(context.Background(), []string{"probe-wipe"}) })
+	if err != nil {
+		t.Fatalf("pin: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "wrote .shrt/chains/probe-wipe.yaml: cancel_order, fetch_after_cancel left out") {
+		t.Fatalf("the read-back that failed right after the pinned write leaves the chain with it:\n%s", out)
+	}
+	slice, err := chain.LoadFile(".shrt/chains/probe-wipe-slice-cancel_order.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	red := map[string]bool{}
+	for _, k := range slice.KeptRed {
+		red[k.Step] = true
+	}
+	if !red["cancel_order"] || !red["fetch_after_cancel"] || len(red) != 2 {
+		t.Fatalf("the slice keeps the write and its read-back red, got %v", slice.KeptRed)
+	}
+	cancelAt := strings.Index(pinReadBackChain, "\n  - call: OrderService/CancelOrder")
+	getAt := strings.Index(pinReadBackChain, "  - call: ProductService/GetProduct")
+	want := pinReadBackChain[:cancelAt+1] + pinReadBackChain[getAt:]
+	if raw, _ := os.ReadFile(".shrt/chains/probe-wipe.yaml"); string(raw) != want {
+		t.Fatalf("only the pinned steps leave the file, the rest stays as written:\n%s\nwant:\n%s", raw, want)
+	}
+}
