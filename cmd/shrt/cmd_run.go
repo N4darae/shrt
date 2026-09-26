@@ -528,7 +528,7 @@ func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
 	if len(expectationFailures(rec)) == 0 {
 		return ""
 	}
-	return "pin it: shrt chain pin " + ref
+	return "pin it: shrt chain pin " + ref + " (re-runs with -keep-going when needed)"
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {

@@ -26,7 +26,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	writeFile(t, ".shrt/chains/probe-orders.yaml", source)
 	var err error
 	out := captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
-	if err == nil || !strings.HasSuffix(strings.TrimSpace(out), "pin it: shrt chain pin probe-orders") {
+	if err == nil || !strings.HasSuffix(strings.TrimSpace(out), "pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)") {
 		t.Fatalf("a red run ends with the pin command:\n%s", out)
 	}
 
@@ -97,5 +97,11 @@ func TestChainPinLeavesTheChainAloneWhenTheSliceDoesNotReproduce(t *testing.T) {
 	}
 	if _, err := os.Stat(".shrt/chains/probe-orders-slice-cancel_confirmed.yaml"); err == nil {
 		t.Fatalf("no slice is written for a failure that did not reproduce")
+	}
+}
+
+func TestChainPinHelpSaysItReRunsWithKeepGoing(t *testing.T) {
+	if !strings.Contains(pinUsage, "it re-runs the chain with -keep-going first") {
+		t.Errorf("chain pin -h says whether it re-runs: %s", pinUsage)
 	}
 }
