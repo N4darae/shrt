@@ -495,7 +495,7 @@ usage: shrt <command> [flags]
   contract   author and use the curated RPC contracts agents write chains from
   diff       compare two recorded runs of a chain step by step, with no safe spot
   doctor     check this repo's .shrt/ installation: docs, descriptor, ignores, tokens, auth
-  gate       run every chain and verify every safe spot, grouping what failed
+  gate       verify every chain with a safe spot, run the rest, grouping what failed
   init       set up .shrt/ and the Claude agent kit in the current repo
   run        replay a chain against the target and record the result
   verify     replay a chain and diff it against its safe spot

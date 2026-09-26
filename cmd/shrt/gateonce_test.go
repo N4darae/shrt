@@ -52,8 +52,7 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 	classed := fetch
 	classed.Class = "regression"
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow":    {{code: 1, stdout: "  " + flaky + "\n", side: gateSidecar{Items: []gateItem{fetch}}}},
-		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{classed}}}},
+		"verify cli-thing-flow": {{code: 1, stdout: "  " + flaky + "\n", side: gateSidecar{Items: []gateItem{classed}}}},
 		"run cli-unique": {{code: 1, stdout: "  " + strings.Replace(flaky, "step 2 fetch", "step 3 fetch", 1) + "\n",
 			side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{fetch}}}},
 	})

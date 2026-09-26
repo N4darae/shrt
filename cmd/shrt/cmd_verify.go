@@ -144,7 +144,12 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
-	defer func() { writeGateSidecar(verifySidecar(e, rec, report, latency)) }()
+	runToo := false
+	defer func() {
+		side := verifySidecar(e, rec, report, latency)
+		side.RunToo = runToo
+		writeGateSidecar(side)
+	}()
 	report.HideMasked = !*verbose
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
@@ -204,6 +209,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	loss := examineSessionLoss(e, rec)
 	life := examineTokenLifetime(e, rec)
 	if life != nil && driftedBefore(rec, report, life.first.index) {
+		runToo = runToo || life.finding()
 		life = nil
 	}
 	var fresh *freshRefusal
@@ -211,7 +217,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		fresh = repeatedFreshRefusal(e, rec)
 	}
 	if fresh != nil && driftedBefore(rec, report, fresh.index) {
-		fresh = nil
+		runToo, fresh = true, nil
 	}
 	var dropped *unansweredRepeat
 	if unanswered && loss == nil && fresh == nil {
@@ -228,7 +234,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		if literal == nil {
 			reuse = detectFixtureReuse(e, c, rec)
 		} else if driftedBefore(rec, report, literal.index) {
-			literal = nil
+			runToo, literal = true, nil
 		}
 	}
 	var idem, lateIdem *idempotentReplay

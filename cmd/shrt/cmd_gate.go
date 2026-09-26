@@ -24,7 +24,7 @@ import (
 )
 
 func init() {
-	register(&command{name: "gate", summary: "run every chain and verify every safe spot, grouping what failed", run: runGate})
+	register(&command{name: "gate", summary: "verify every chain with a safe spot, run the rest, grouping what failed", run: runGate})
 }
 
 const gateReportEnv = "SHRT_GATE_REPORT"
@@ -43,6 +43,7 @@ type gateSidecar struct {
 	Reads        map[string]gateRead `json:"reads,omitempty"`
 	Items        []gateItem          `json:"items,omitempty"`
 	Sent         map[string]string   `json:"sent,omitempty"`
+	RunToo       bool                `json:"run_too,omitempty"`
 }
 
 type gateItem struct {
@@ -66,6 +67,7 @@ type gateItem struct {
 	Variant     string `json:"variant,omitempty"`
 	Pinned      string `json:"pinned,omitempty"`
 	Inputs      string `json:"inputs,omitempty"`
+	Failed      bool   `json:"failed,omitempty"`
 
 	or string
 }
@@ -501,17 +503,24 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 		if c.Kind == diff.KindNotReached || c.Kind == diff.KindStatus && changed[c.Step] {
 			continue
 		}
-		call := ""
+		call, rule, failed := "", "", false
+		want, got := gatePair(c.Want, c.Got)
 		if st, ok := rec.Step(c.Step); ok && st != nil {
 			call = st.Call
+			for _, ex := range st.Expect {
+				if !ex.Passed && ex.Rule != "unevaluated" && namecase.Equal(ex.Path, c.Path) {
+					rule, failed = ex.Rule, true
+					want, got = gatePair(ex.Want, ex.Got)
+					break
+				}
+			}
 		}
-		want, got := gatePair(c.Want, c.Got)
 		if c.Kind == diff.KindLength || c.Kind == diff.KindMembership {
 			if why, _, _ := strings.Cut(c.Detail, "; per-item ids not listed"); why != "" {
 				got = capText(got+" ("+why+")", 160)
 			}
 		}
-		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Want: want, Got: got})
+		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Rule: rule, Want: want, Got: got, Failed: failed})
 		it.Class = report.Class(c)
 		for _, l := range report.Changes {
 			if l.Kind == diff.KindLength && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
@@ -597,7 +606,7 @@ func runGate(ctx context.Context, args []string) error {
 	verbose := fs.Bool("v", false, "under each failing chain, every changed step and path; at the end, each distinct change once")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
-	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   run each chain, verify each safe spot (a fresh -var tag each), group what failed", gateExitCodes)
+	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -622,19 +631,23 @@ func runGate(ctx context.Context, args []string) error {
 	earlyAt := map[string]gateEarly{}
 	reads := map[string]gateRead{}
 	for _, g := range chains {
-		readsTag := false
+		readsTag, keptRed := false, false
 		if c, err := e.resolveChain(g.name); err == nil {
 			readsTag = len(c.UnusedVarNames(map[string]any{"tag": ""})) == 0
+			keptRed = len(c.KeptRed) > 0
 		}
-		steps := []string{}
-		if g.file != "" {
-			steps = append(steps, "run")
-		}
+		outs := map[string]gateOutcome{}
 		if g.spot {
-			steps = append(steps, "verify")
+			outs["verify"] = gateAttempt(ctx, "verify", g.name, tag, readsTag, *wait)
 		}
-		for _, what := range steps {
-			out := gateAttempt(ctx, what, g.name, tag, readsTag, *wait)
+		if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
+			outs["run"] = gateAttempt(ctx, "run", g.name, tag, readsTag, *wait)
+		}
+		for _, what := range []string{"run", "verify"} {
+			out, ok := outs[what]
+			if !ok {
+				continue
+			}
 			if p := out.side.EarlyProfile; p != "" {
 				early[p]++
 				if _, ok := earlyAt[p]; !ok {
@@ -872,6 +885,12 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if g.first == "" {
 			if len(out.side.Items) > 0 {
 				it := out.side.Items[0]
+				for _, f := range out.side.Items {
+					if f.Failed {
+						it = f
+						break
+					}
+				}
 				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
 				g.firstAt = it.Step + " " + it.Path
 			} else {

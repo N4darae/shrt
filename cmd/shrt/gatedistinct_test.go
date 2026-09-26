@@ -16,7 +16,7 @@ func TestEveryChangeAPassingWriteCausesHasADistinctRowSplitByHowTheWriteWasSent(
 	otherMove := gateItem{Step: "get_after_move_as_other", Call: get, Path: "thing.level", Want: "8", Got: "6",
 		Suspect: move, SuspectStep: "move_as_other", Variant: "as other"}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price, echo, refusedMove, otherMove},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price, echo, refusedMove, otherMove},
 			Sent: map[string]string{"create": ` sent {"price":"250"}`, "move_refused": ` sent {"id":"t1"}`, "move_as_other": ` as other sent {"id":"t2"}`}}}},
 	})
 	out, _ := runGateOut(t, "-v")

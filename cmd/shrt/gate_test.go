@@ -81,8 +81,8 @@ func TestTheGateRunsEveryChainAndVerifiesEverySafeSpotWithAFreshTag(t *testing.T
 			t.Errorf("a chain that reads no tag gets none: %v", c)
 		}
 	}
-	if strings.Join(got, ",") != "run cli-thing-flow,verify cli-thing-flow,run cli-unique" {
-		t.Fatalf("each chain runs, and each safe spot is verified: %v", got)
+	if strings.Join(got, ",") != "verify cli-thing-flow,run cli-unique" {
+		t.Fatalf("a chain with a safe spot is sent once, by verify, and one without runs: %v", got)
 	}
 	if len(tags) != 1 {
 		t.Fatalf("the chain that reads tag gets one: %v", tags)
@@ -119,15 +119,14 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		return gateItem{Step: step, Call: "shrt.test.v1.ThingService/Create", Path: "items.0.price", Want: "250", Got: "249"}
 	}
 	f := gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{item("create"), item("create_2")}}}},
 		"run cli-unique": {{code: 1, side: gateSidecar{Sent: map[string]string{"create": " sent {\"name\":\"x\"}"}, Items: []gateItem{item("create"),
 			{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "name", Want: "a", Got: "b"},
 			{Step: "fetch_2", Call: "shrt.test.v1.ThingService/Fetch", Path: "count", Rule: "not_equal", Want: "0", Got: "0", Suspect: "shrt.test.v1.ThingService/Create", SuspectStep: "create"}}}}},
 		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: DRIFT\nREGRESSION: something\n",
-			side: gateSidecar{Items: []gateItem{item("create")}}}},
+			side: gateSidecar{Items: []gateItem{item("create"), item("create_2")}}}},
 	})
 	out, code := runGateOut(t)
-	if code != 1 || f.tries["run cli-thing-flow"] != 1 {
+	if code != 1 || f.tries["verify cli-thing-flow"] != 1 || f.tries["run cli-thing-flow"] != 0 {
 		t.Fatalf("a failure fails the gate at once, exit 1, got %d:\n%s", code, out)
 	}
 	for _, want := range []string{
@@ -147,17 +146,17 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 
 func TestTheGateFailsWhenOneProfilesTokensAreRefusedEarlyInTwoRuns(t *testing.T) {
 	early := func(p string) []gateOutcome { return []gateOutcome{{side: gateSidecar{EarlyProfile: p}}} }
-	gateWorkspace(t, map[string][]gateOutcome{"run cli-thing-flow": early("default")})
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": early("default")})
 	out, code := runGateOut(t)
 	if code != 0 || !strings.Contains(out, "note: a token of auth profile default was refused early once") {
 		t.Fatalf("one early refusal is a note, exit 0; got %d:\n%s", code, out)
 	}
-	gateWorkspace(t, map[string][]gateOutcome{"run cli-thing-flow": early("default"), "run cli-unique": early("default")})
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": early("default"), "run cli-unique": early("default")})
 	out, code = runGateOut(t)
 	if code != 1 || !strings.Contains(out, "FINDING: tokens of auth profile default were refused early in 2 runs of this gate") {
 		t.Fatalf("the same profile's tokens refused early twice fail the gate; got %d:\n%s", code, out)
 	}
-	gateWorkspace(t, map[string][]gateOutcome{"run cli-thing-flow": early("default"), "run cli-unique": early("clerk")})
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": early("default"), "run cli-unique": early("clerk")})
 	if out, code = runGateOut(t); code != 0 || strings.Count(out, "note: ") != 1 || !strings.Contains(out, "auth profiles clerk, default was refused early once") {
 		t.Fatalf("one early refusal per profile is what a single restart explains, said once; got %d:\n%s", code, out)
 	}
@@ -241,7 +240,7 @@ func TestTheGateFailLineSaysWhatVerifyCallsItAndEachNoteOnce(t *testing.T) {
 	}
 	gateWorkspace(t, map[string][]gateOutcome{
 		"run cli-thing-flow":    {{code: 1, stdout: latency("701"), side: gateSidecar{Items: []gateItem{item}}}},
-		"verify cli-thing-flow": {{code: 1, stdout: latency("702"), side: gateSidecar{Items: []gateItem{classed}}}},
+		"verify cli-thing-flow": {{code: 1, stdout: latency("702"), side: gateSidecar{RunToo: true, Items: []gateItem{classed}}}},
 	})
 	out, _ := runGateOut(t)
 	if !strings.Contains(out, "FAIL       cli-thing-flow  order changed: fetch (ThingService/Fetch) items.0.id want=a got=b") {

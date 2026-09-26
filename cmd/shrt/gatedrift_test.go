@@ -14,7 +14,6 @@ func TestTheGateHeadlinesAChainByItsFirstChangeNotReportedAbove(t *testing.T) {
 	refused := gateItem{Step: "fetch_as_other", Call: fetch, Path: "error.code", Want: "OK", Got: "DENIED", Kind: "refused",
 		Own: "Fetch passes as default, refused as other (DENIED)"}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow":    {{code: 1, side: gateSidecar{Items: []gateItem{price("create"), after}}}},
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price("create"), after, refused}}}},
 		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{price("create"), after}}}},
 	})
@@ -41,8 +40,8 @@ func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 	pin := gateItem{Step: "get_pinned", Call: get, Path: "thing.level", Want: "-1", Got: "-3", Pinned: "8", Suspect: move, SuspectStep: "move", Variant: "refused (1305 TooFew)"}
 	drift := gateItem{Step: "create", Call: create, Path: "thing.price", Want: "250", Got: "249"}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{after, drift}}}},
-		"run cli-unique":     {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{drift, pin}}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{after, drift}}}},
+		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{drift, pin}}}},
 	})
 	out, _ := runGateOut(t)
 	want := "FAIL       cli-unique      not as pinned: get_pinned thing.level pinned got=8, now got=-3; suspect Move refused (1305 TooFew), reported above\n"
