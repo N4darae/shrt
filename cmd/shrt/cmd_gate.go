@@ -807,6 +807,7 @@ func runGate(ctx context.Context, args []string) error {
 			g.absorb(what, out)
 		}
 	}
+	mergeProfiles(chains)
 	settleGate(chains)
 	headlineGate(chains)
 	flakyFindings := settleFlaky(chains)
@@ -1289,6 +1290,43 @@ type gateGroup struct {
 func (gr *gateGroup) addPath(list *[]string, p string) {
 	if !containsName(*list, p) {
 		*list = append(*list, p)
+	}
+}
+
+func mergeProfiles(chains []*gateChain) {
+	variantRPC := func(it gateItem) string {
+		if it.Suspect != "" {
+			return shortRPC(it.Suspect)
+		}
+		return shortRPC(it.Call)
+	}
+	profile := func(v string) string {
+		if as, ok := strings.CutPrefix(v, "as "); ok {
+			p, _, _ := strings.Cut(as, ",")
+			return p
+		}
+		return ""
+	}
+	profiles := map[string]map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if it.Suspect == "" && chain.IsReadOnlyCall(it.Call) {
+				continue
+			}
+			r := variantRPC(it)
+			if profiles[r] == nil {
+				profiles[r] = map[string]bool{}
+			}
+			profiles[r][profile(it.Variant)] = true
+		}
+	}
+	for _, g := range chains {
+		for i, it := range g.items {
+			if p := profile(it.Variant); p != "" && len(profiles[variantRPC(it)]) > 1 {
+				v := strings.TrimPrefix(strings.TrimPrefix(it.Variant, "as "+p), ", ")
+				g.items[i].Variant = v
+			}
+		}
 	}
 }
 
