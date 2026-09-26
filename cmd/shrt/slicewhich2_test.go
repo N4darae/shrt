@@ -52,7 +52,7 @@ steps:
     - id: create
       call: ThingService/Create
       body:
-          name: w-${vars.tag}
+          name: w-${vars.batch}
           kind: KIND_A
       expect:
           - path: error.code
@@ -99,7 +99,7 @@ func round2Workspace(t *testing.T) *string {
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-r2-flow.yaml", round2Chain)
-	if err := runRun(context.Background(), []string{"cli-r2-flow", "-quiet", "-var", "tag=T1"}); err != nil {
+	if err := runRun(context.Background(), []string{"cli-r2-flow", "-quiet", "-var", "batch=T1"}); err != nil {
 		t.Fatalf("shrt run: %v", err)
 	}
 	return &code
@@ -116,14 +116,14 @@ func round2Slice(t *testing.T, args ...string) (string, error) {
 
 func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.T) {
 	round2Workspace(t)
-	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-keep", "other", "-var", "tag=T2", "-verify", "-write")
+	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-keep", "other", "-var", "batch=T2", "-verify", "-v", "-write")
 	if err != nil {
 		t.Fatalf("fill and blank were refused in the source run, so they wrote nothing; the slice must reproduce: %v\n%s", err, out)
 	}
 	if !strings.Contains(out, "verify reproduced") {
 		t.Fatalf("want reproduced:\n%s", out)
 	}
-	if !strings.Contains(out, "2 dropped write step(s) wrote nothing in run") ||
+	if !strings.Contains(out, "2 dropped write step(s) were refused in run") ||
 		!strings.Contains(out, "refused: error.code = INTERNAL") || !strings.Contains(out, "refused: transport invalid_argument") {
 		t.Fatalf("the output must say which dropped writes were refused and why:\n%s", out)
 	}
@@ -137,7 +137,7 @@ func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.
 	if strings.Contains(written.Description, "HYPOTHESIS") || !strings.Contains(written.Description, "VERIFIED") {
 		t.Fatalf("a reproduced slice's description must record the verdict, not the hypothesis:\n%s", written.Description)
 	}
-	if written.Vars["tag"] != "T2" {
+	if written.Vars["batch"] != "T2" {
 		t.Fatalf("the -var value of an undeclared var belongs in the written slice, got %v", written.Vars)
 	}
 }
@@ -145,7 +145,7 @@ func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.
 func TestCLISliceNotReproducedNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 	code := round2Workspace(t)
 	*code = "PERMISSION_DENIED"
-	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-var", "tag=T2", "-verify")
+	out, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-var", "batch=T2", "-verify")
 	if exitCodeOf(err) != 1 || !strings.Contains(out, "NOT REPRODUCED") {
 		t.Fatalf("the verdict differs, want NOT REPRODUCED exit 1, got %v:\n%s", err, out)
 	}
@@ -155,7 +155,7 @@ func TestCLISliceNotReproducedNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 			next = l
 		}
 	}
-	if !strings.Contains(next, "-keep other") || !strings.Contains(next, "-var tag=<fresh>") {
+	if !strings.Contains(next, "-keep writes") || !strings.Contains(next, "-var batch=<fresh>") {
 		t.Fatalf("a NOT REPRODUCED slice that dropped a write must name the -keep command: %q\n%s", next, out)
 	}
 	if strings.Contains(next, "fill") || strings.Contains(next, "blank") {
@@ -166,25 +166,25 @@ func TestCLISliceNotReproducedNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 func TestCLISliceClosureVerifyRefusesAnUndeclaredVarWithTheFlagToPass(t *testing.T) {
 	round2Workspace(t)
 	_, err := round2Slice(t, "-step", "fetch", "-run", "latest", "-verify")
-	if err == nil || !strings.Contains(err.Error(), "-var tag=<fresh>") {
-		t.Fatalf("closure re-creates w-${vars.tag}, so the run's tag collides; want the -var to pass, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "-var batch=<fresh>") {
+		t.Fatalf("closure re-creates w-${vars.batch}, so the run's batch collides; want the -var to pass, got %v", err)
 	}
 }
 
 func TestCLIPinSliceTakesAnUndeclaredVarFromTheSourceRun(t *testing.T) {
 	round2Workspace(t)
-	out, err := round2Slice(t, "-step", "create", "-mode", "pin", "-run", "latest", "-write")
+	out, err := round2Slice(t, "-step", "create", "-mode", "pin", "-run", "latest", "-v", "-write")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "tag = T1  (the value run ") {
-		t.Fatalf("pin mode must say tag is the value the run used:\n%s", out)
+	if !strings.Contains(out, "batch = T1  (the value run ") {
+		t.Fatalf("pin mode must say batch is the value the run used:\n%s", out)
 	}
 	written, err := chain.LoadFile(".shrt/chains/cli-r2-flow-slice-create.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if written.Vars["tag"] != "T1" {
+	if written.Vars["batch"] != "T1" {
 		t.Fatalf("the pinned slice must run on its own, got vars %v", written.Vars)
 	}
 }
@@ -229,8 +229,8 @@ func TestCLIWhichSeesTransportRefusedStepsAndPrintsEvidenceOnItsOwnLine(t *testi
 			t.Errorf("every evidence line reads the same way: %q", l)
 		}
 	}
-	if !strings.Contains(out, "-mode pin -run ") || !strings.Contains(out, "-var tag=<fresh>") {
-		t.Fatalf("the reproduce line must ask for a fresh tag, which create interpolates into a name:\n%s", out)
+	if strings.Contains(out, "-mode pin -run ") || !strings.Contains(out, "-var batch=<fresh>") {
+		t.Fatalf("the reproduce line of a write is a closure slice and must ask for a fresh batch, which create interpolates into a name:\n%s", out)
 	}
 }
 

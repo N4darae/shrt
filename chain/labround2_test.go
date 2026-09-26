@@ -88,10 +88,10 @@ func TestEnvelopeExistsWarningNamesTheEnvelopeCodeToAssert(t *testing.T) {
 func TestMissingVarsListsOnlyUndeclaredUnsuppliedVars(t *testing.T) {
 	c := &chain.Chain{Name: "t", Vars: map[string]any{"declared": "x"}, Steps: []*chain.Step{
 		{ID: "a", Call: "ThingService/Create", Body: map[string]any{
-			"name": "${vars.declared}-${vars.tag}-${vars.given}", "kind": "${vars.kind}"}},
+			"name": "${vars.declared}-${vars.batch}-${vars.given}-${vars.tag}", "kind": "${vars.kind}"}},
 	}}
 	got := c.MissingVars(map[string]any{"given": "y"})
-	if strings.Join(got, ",") != "kind,tag" {
-		t.Fatalf("MissingVars = %v, want [kind tag]", got)
+	if strings.Join(got, ",") != "batch,kind" {
+		t.Fatalf("MissingVars = %v, want [batch kind]: an undeclared tag is fresh per run", got)
 	}
 }

@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,9 +23,13 @@ type Deps struct {
 	Sources  map[string]*transport.LoginTokenSource
 	Bindings AuthBindings
 	Profiles []string
+	Route    func(*chain.Step) (string, bool)
 }
 
 func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs func(transport.Event)) (*Deps, error) {
+	if names := cfg.HandWrittenAuthHeaders(); len(names) > 0 {
+		return nil, errors.New(config.HandWrittenAuthProblem(names) + ", so nothing was sent")
+	}
 	timeout := 30 * time.Second
 	if cfg.Target.Timeout != "" {
 		d, err := time.ParseDuration(cfg.Target.Timeout)
@@ -53,6 +58,7 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 			return nil, err
 		}
 		mws = append(mws, transport.WithAuthRouter(*router))
+		deps.Route = routeOf(router, cat)
 	}
 
 	deps.Client = transport.New(transport.Options{
@@ -74,6 +80,7 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 	router := &transport.AuthRouter{
 		Default:  config.DefaultAuthProfile,
 		Envelope: transport.EnvelopeCodeReader(envelopePath),
+		Resend:   chain.IsReadOnlyCall,
 	}
 	deps.Sources = map[string]*transport.LoginTokenSource{}
 	deps.Profiles = cfg.AuthProfileNames()
@@ -84,6 +91,10 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 		spec, err := authSpec(name, auth, cat)
 		if err != nil {
 			return nil, err
+		}
+		spec.Target = strings.TrimRight(strings.TrimSpace(cfg.Target.BaseURL), "/")
+		if host := strings.TrimSpace(cfg.Target.HostOverride); host != "" {
+			spec.Target += " host=" + host
 		}
 		src := transport.NewLoginTokenSource(*spec, invoke)
 		if cfg.Root != "" && os.Getenv("SHRT_TOKEN_CACHE") != "0" {
@@ -100,6 +111,9 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 			ExpiresPath: auth.ExpiresPath,
 			Body:        spec.Body,
 			Sink:        src,
+			EnvVars:     chain.AuthBodyEnvNames(orEmpty(auth.Body)),
+			BodyFields:  orEmpty(auth.Body),
+			Header:      authHeader(spec),
 		})
 		owns, err := matcher(auth.Calls, cat)
 		if err != nil {
@@ -145,12 +159,14 @@ func authSpec(profile string, auth *config.Auth, cat *catalog.Catalog) (*transpo
 	}
 	header, scheme := auth.HeaderScheme()
 	return &transport.AuthSpec{
+		Profile:   profile,
+		EnvRefs:   chain.AuthBodyEnvRefs(body),
 		Procedure: m.Procedure(),
 		Canonicalize: func(raw []byte) ([]byte, error) {
 			return cat.Canonicalize(m.Output(), raw)
 		},
 		Body: func() ([]byte, error) {
-			resolved, err := chain.AuthBodyScope().ResolveValue(body)
+			resolved, err := chain.ResolveAuthBody(body)
 			if err != nil {
 				return nil, err
 			}
@@ -221,6 +237,9 @@ func NewFromConfig(ctx context.Context, cfg *config.Config, cat *catalog.Catalog
 	chain.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
 	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
 	chain.ApplyCodeFields(cfg.Conventions.CodeFields)
+	if err := chain.ValidateEnvelopeIn(cat, cfg.Conventions.EnvelopePath); err != nil {
+		return nil, Options{}, err
+	}
 	if err := chain.ValidateItemEnvelope(cat); err != nil {
 		return nil, Options{}, err
 	}
@@ -234,6 +253,7 @@ func NewFromConfig(ctx context.Context, cfg *config.Config, cat *catalog.Catalog
 		ValidateInput:  true,
 		ValidateOutput: cfg.Conventions.ValidateOutput,
 		Auth:           deps.Bindings,
+		AuthRoute:      deps.Route,
 		BuildHeader:    strings.TrimSpace(cfg.Target.BuildHeader),
 	}
 	return r, Options{Volatile: cfg.Volatile, Redact: cfg.Redact}, nil

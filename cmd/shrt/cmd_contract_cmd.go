@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/N4darae/shrt/contract"
+	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -59,15 +61,33 @@ func runContract(ctx context.Context, args []string) error {
 
 func (e *env) contractsDir() string { return e.cfg.Abs(e.cfg.Paths.Contracts) }
 
-func (e *env) library() (*contract.Library, []error, error) {
-	lib, broken, err := contract.LoadLibrary(e.contractsDir())
-	for _, b := range broken {
-		fmt.Fprintf(os.Stderr,
-			"warning: an overlay under %s did not load, so every rpc it curates is treated as having NO "+
-				"contract — a plan or slice built now silently drops its required/from/needs wiring: %v\n",
-			e.contractsDir(), b)
+func (e *env) library() (*contract.Library, error) {
+	lib, broken, err := contract.LoadLibraryIn(e.contractsDir(), e.cat)
+	if err != nil {
+		return nil, err
 	}
-	return lib, broken, err
+	if len(broken) > 0 {
+		return nil, brokenOverlaysError(e.contractsDir(), broken)
+	}
+	return lib, nil
+}
+
+func brokenOverlaysError(dir string, broken []error) error {
+	lines := make([]string, 0, len(broken))
+	for _, b := range broken {
+		lines = append(lines, "  "+b.Error())
+	}
+	return fmt.Errorf("%d contract overlay(s) under %s do not load, so nothing was checked or composed: "+
+		"reading the rest would treat every rpc they curate as having no contract and silently drop its "+
+		"required/from/needs wiring and checks. Fix them, then rerun:\n%s", len(broken), dir, strings.Join(lines, "\n"))
+}
+
+func sameYAML(a, b []byte) bool {
+	var x, y any
+	if yaml.Unmarshal(a, &x) != nil || yaml.Unmarshal(b, &y) != nil {
+		return false
+	}
+	return reflect.DeepEqual(x, y)
 }
 
 func contractInit(args []string) error {
@@ -75,6 +95,10 @@ func contractInit(args []string) error {
 	all := fs.Bool("all", false, "scaffold every domain in the catalog")
 	force := fs.Bool("force", false, "discard existing curation instead of carrying it forward")
 	stdout := fs.Bool("stdout", false, "print instead of writing")
+	setUsage(fs, "usage: shrt contract init <domain>... | -all [flags]   with no domain, lists the domains in the catalog",
+		"\nexit codes:\n  0  scaffolded or unchanged; with no domain, the domains were listed\n"+
+			"  1  an unknown domain, a contract overlay that does not parse, a flag that cannot be parsed, or a\n"+
+			"     setup that cannot load\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -94,13 +118,15 @@ func contractInit(args []string) error {
 		for _, d := range contract.DomainNames(e.cat.Methods()) {
 			fmt.Printf("  %-14s %d rpc(s)\n", d, len(byDomain[d]))
 		}
-		return fmt.Errorf("usage: shrt contract init <domain>... | -all")
+		fmt.Println("\nscaffold one: shrt contract init <domain>...  (or -all)")
+		return nil
 	}
 
-	lib, _, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
 	}
+	todos := 0
 	for _, domain := range targets {
 		methods, ok := byDomain[domain]
 		if !ok {
@@ -110,7 +136,12 @@ func contractInit(args []string) error {
 		if *force {
 			prior = nil
 		}
-		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, methods, prior, e.cat.Methods()))
+		path := filepath.Join(e.contractsDir(), domain+".yaml")
+		node := contract.ScaffoldOverlay(domain, methods, prior, e.cat.Methods())
+		if written, err := os.ReadFile(path); err == nil && !*force {
+			contract.KeepWrittenStyle(node, written)
+		}
+		raw, err := contract.RenderOverlay(node)
 		if err != nil {
 			return err
 		}
@@ -118,17 +149,28 @@ func contractInit(args []string) error {
 			fmt.Printf("--- %s\n%s\n", domain, raw)
 			continue
 		}
-		path := filepath.Join(e.contractsDir(), domain+".yaml")
+		if current, err := os.ReadFile(path); err == nil && sameYAML(current, raw) {
+			n := strings.Count(string(current), contract.TodoMarker)
+			todos += n
+			fmt.Printf("unchanged %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
+			continue
+		}
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			return err
 		}
 		if err := os.WriteFile(path, raw, 0o644); err != nil {
 			return err
 		}
-		fmt.Printf("wrote %s (%d rpc(s))\n", rel(e.cfg.Root, path), len(methods))
+		n := strings.Count(string(raw), contract.TodoMarker)
+		todos += n
+		fmt.Printf("wrote %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
 	}
 	if !*stdout {
-		fmt.Printf("\nfill every %s, then: shrt contract lint\n", contract.TodoMarker)
+		if todos == 0 {
+			fmt.Printf("\nno %s left in these overlays; check them: shrt contract lint\n", contract.TodoMarker)
+		} else {
+			fmt.Printf("\nfill the %d %s(s), then: shrt contract lint\n", todos, contract.TodoMarker)
+		}
 	}
 	return nil
 }
@@ -138,6 +180,9 @@ func contractLint(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	only := fs.String("domain", "", "report only this domain, ignoring the rest of the library")
 	quiet := fs.Bool("errors-only", false, "suppress warnings")
+	setUsage(fs, "usage: shrt contract lint [<domain>] [flags]   every overlay under paths.contracts when no domain is named",
+		"\nexit codes:\n  0  no contract error (warnings allowed)\n"+
+			"  1  a contract error, an overlay that does not parse, no overlay to check, or bad flags\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -149,7 +194,7 @@ func contractLint(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, broken, err := e.library()
+	lib, broken, err := contract.LoadLibraryIn(e.contractsDir(), e.cat)
 	if err != nil {
 		return err
 	}
@@ -164,14 +209,11 @@ func contractLint(args []string) error {
 				"scaffold it with 'shrt contract init %s'", *only, e.contractsDir(), *only)
 		}
 	}
-	all := []contract.Issue{}
-	for _, b := range broken {
-		all = append(all, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
-	}
-	all = append(all, contract.LintAll(lib, e.cat, e.cfg.AuthProfileNames())...)
-
 	issues := []contract.Issue{}
-	for _, i := range all {
+	for _, b := range broken {
+		issues = append(issues, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
+	}
+	for _, i := range contract.LintAll(lib, e.cat, e.cfg.AuthProfileNames()) {
 		if *quiet && i.Severity != contract.SeverityError {
 			continue
 		}
@@ -198,7 +240,7 @@ func contractLint(args []string) error {
 		} else {
 			fmt.Printf("\n%s\n", tally(issues))
 		}
-		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); !reach.Empty() {
+		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); len(broken) == 0 && !reach.Empty() {
 			fmt.Printf("note %d referenced rpc(s) live in domains not present in this library (%s) — alias and response-path checks could not run for them\n",
 				len(reach.RPCs), strings.Join(reach.Domains, ", "))
 			for _, rpc := range reach.RPCs {

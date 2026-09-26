@@ -3,6 +3,8 @@ package chain
 import (
 	"sort"
 	"strings"
+
+	"github.com/N4darae/shrt/namecase"
 )
 
 func collectRefs(v any) []string {
@@ -61,9 +63,9 @@ func (c *Chain) UnusedVarNames(supplied map[string]any) []string {
 		note(s.Headers)
 		note(s.Export)
 		for _, e := range s.Expect {
-			note(e.Equals)
-			note(e.NotEqual)
-			note(e.Contains)
+			for _, v := range e.Operands() {
+				note(v)
+			}
 		}
 	}
 	out := []string{}
@@ -99,9 +101,9 @@ func (c *Chain) DeclaredVarNames() []string {
 		note(s.Headers)
 		note(s.Export)
 		for _, e := range s.Expect {
-			note(e.Equals)
-			note(e.NotEqual)
-			note(e.Contains)
+			for _, v := range e.Operands() {
+				note(v)
+			}
 		}
 	}
 	out := make([]string, 0, len(seen))
@@ -134,6 +136,41 @@ func IsStableRef(s string) bool {
 
 func HasReference(s string) bool { return refPattern.MatchString(s) }
 
+func CanonicalRefs(text string) string {
+	return refPattern.ReplaceAllStringFunc(text, func(m string) string {
+		return "${" + CanonicalRef(refPattern.FindStringSubmatch(m)[1]) + "}"
+	})
+}
+
+func FoldedRefs(text string) string {
+	return refPattern.ReplaceAllStringFunc(text, func(m string) string {
+		ref := CanonicalRef(refPattern.FindStringSubmatch(m)[1])
+		if !strings.HasPrefix(ref, "steps.") {
+			return "${" + ref + "}"
+		}
+		parts := strings.SplitN(ref, ".", 4)
+		if len(parts) == 4 {
+			parts[3] = namecase.Fold(parts[3])
+		}
+		return "${" + strings.Join(parts, ".") + "}"
+	})
+}
+
+func CanonicalRef(expr string) string {
+	r := ParseRef(expr)
+	if r.Kind != RefStep || r.Err != nil || r.Head == "" {
+		return r.Expr
+	}
+	section, tail := "response", r.Rest
+	if first, sub, _ := strings.Cut(r.Rest, "."); first == "request" || first == "response" {
+		section, tail = first, sub
+	}
+	if tail == "" {
+		return "steps." + r.Head + "." + section
+	}
+	return "steps." + r.Head + "." + section + "." + tail
+}
+
 func (s *Step) SendReferences() []string {
 	if s == nil {
 		return nil
@@ -146,7 +183,7 @@ func (s *Step) SendReferences() []string {
 }
 
 func (e Expectation) References() []string {
-	return collectRefs([]any{e.Equals, e.NotEqual, e.Contains})
+	return collectRefs(e.Operands())
 }
 
 func (s *Step) References() []string {
@@ -158,7 +195,7 @@ func (s *Step) References() []string {
 		values = append(values, v)
 	}
 	for _, e := range s.Expect {
-		values = append(values, e.Equals, e.NotEqual, e.Contains)
+		values = append(values, e.Operands()...)
 	}
 	return collectRefs(values)
 }

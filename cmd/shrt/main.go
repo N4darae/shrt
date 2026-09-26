@@ -53,7 +53,7 @@ func main() {
 		usage()
 		os.Exit(2)
 	}
-	if err := cmd.run(ctx, args[1:]); err != nil {
+	if err := cmd.run(ctx, helpArgs(cmd.name, args[1:])); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
@@ -64,6 +64,23 @@ func main() {
 		}
 		os.Exit(1)
 	}
+}
+
+var groupCommands = map[string]bool{"chain": true, "contract": true, "catalog": true}
+
+func helpArgs(name string, args []string) []string {
+	for _, a := range args {
+		if a == "--" {
+			break
+		}
+		if a == "-h" || a == "-help" || a == "--help" {
+			if len(args) > 0 && !strings.HasPrefix(args[0], "-") && groupCommands[name] {
+				return []string{args[0], "-h"}
+			}
+			return []string{"-h"}
+		}
+	}
+	return args
 }
 
 func usage() {

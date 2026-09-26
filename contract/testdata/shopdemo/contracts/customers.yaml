@@ -1,0 +1,48 @@
+apiVersion: shrt/contract/v1
+domain: customers
+description: Customers that orders are placed for. Emails are unique regardless of letter case.
+failures:
+    - connect_code: unauthenticated
+      reason: Unauthenticated
+      when: the Authorization header is missing, or its token is unknown or expired
+rpcs:
+    shop.customers.v1.CustomerService/CreateCustomer:
+        summary: Register a customer with a unique email address and a display name.
+        requires_role: [NONE]
+        required: [email]
+        fields:
+            email:
+                value: cust-${vars.tag}@example.test
+                note: must contain @; unique ignoring case
+            name:
+                value: Customer ${vars.tag}
+                note: free display name, not validated by the handler
+        exports:
+            customer: the created customer; id_customer feeds orders
+        failures:
+            - connect_code: invalid_argument
+              reason: EmailInvalid
+              field: email
+              when: the email does not contain an @ character
+            - code: 1101
+              reason: EmailTaken
+              field: email
+              when: another customer already has this email, ignoring case
+        source: [server/server.go]
+        status: draft
+    shop.customers.v1.CustomerService/GetCustomer:
+        summary: Read one customer by id.
+        requires_role: [NONE]
+        required: [NONE]
+        fields:
+            id_customer:
+                from: shop.customers.v1.CustomerService/CreateCustomer->customer.id_customer
+                checked_by: app_lookup
+        exports:
+            customer: the stored customer, to compare with what was created
+        failures:
+            - code: 1102
+              reason: CustomerNotFound
+              when: no customer has this id, including an empty id
+        source: [server/server.go]
+        status: draft

@@ -96,7 +96,7 @@ func transportHint(path string) string {
 
 func lintTransport(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
-	shadowed := catalog.HasPath(catalog.DescribeMessage(m.Output()).Fields, []string{TransportPrefix})
+	shadowed := catalog.HasPath(m.Response().Fields, []string{TransportPrefix})
 	for _, e := range s.Expect {
 		if !IsTransportPath(e.Path) {
 			continue

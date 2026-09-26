@@ -223,3 +223,29 @@ func TestAuthInvalidWithNoAuthConfiguredFailsBeforeTraffic(t *testing.T) {
 		t.Fatalf("nothing should have been sent, got %v", srv.calls)
 	}
 }
+
+func TestATransportRefusedStepShowsTheDeclaredWantOfEachUnevaluatedExpectation(t *testing.T) {
+	srv := newFakeServer()
+	defer srv.Close()
+
+	c := probeChain(t, &chain.Step{ID: "no_token", Call: "ThingService/Fetch", SkipAuth: true,
+		Body: map[string]any{"id": "thing-1"},
+		Expect: []chain.Expectation{
+			{Path: "error.code", Equals: "REJECTED"},
+			{Path: "name", Contains: "wid"},
+		}})
+	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	sr := rec.Steps[0]
+	if len(sr.Expect) != 2 || sr.Expect[0].Rule != "unevaluated" {
+		t.Fatalf("want both expectations unevaluated, got %+v", sr.Expect)
+	}
+	if got := sr.Expect[0].String(); !strings.Contains(got, "want=REJECTED") {
+		t.Fatalf("the line must show what the chain declared, got %q", got)
+	}
+	if got := sr.Expect[1].String(); !strings.Contains(got, "want=contains wid") {
+		t.Fatalf("the line must show the declared rule and value, got %q", got)
+	}
+}

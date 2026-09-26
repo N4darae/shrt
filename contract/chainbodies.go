@@ -44,6 +44,15 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 		if !ok {
 			continue
 		}
+		if facts := DeclaredFacts(rc); len(facts) > 0 && !s.AllowFail && AssertsOnlyVerdict(s) {
+			issues = append(issues, chain.Issue{
+				Step:     s.ID,
+				Severity: chain.SeverityWarn,
+				Kind:     chain.KindEnvelopeOnly,
+				Message:  envelopeOnlyShort(s.Call, facts),
+				Why:      envelopeOnlyWhy,
+			})
+		}
 		for _, name := range rc.Required {
 			if IsRequiredLiteral(name) {
 				continue
@@ -141,9 +150,48 @@ func contractExplainsField(rc *RPCContract, name string) bool {
 	return !rc.IsUnfilled("fields." + name + ".note")
 }
 
+func DeclaredFacts(rc *RPCContract) []string {
+	if rc == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, section := range []map[string]string{rc.Exports, rc.Terminal, rc.SoftSignals} {
+		for key := range section {
+			seen[key] = true
+		}
+	}
+	return sortedFlagKeys(seen)
+}
+
+func AssertsOnlyVerdict(s *chain.Step) bool {
+	if len(s.Expect) == 0 {
+		return false
+	}
+	for _, e := range s.Expect {
+		head, _, _ := strings.Cut(e.Path, ".")
+		paging := chain.IsPagingFieldName(head) && e.Equals == nil && e.NotEqual == nil && e.Contains == ""
+		if !chain.IsVerdictPath(e.Path) && !chain.IsTransportPath(e.Path) && head != chain.EnvelopeField() && !paging {
+			return false
+		}
+	}
+	return stepExpectsSuccess(s)
+}
+
+const envelopeOnlyWhy = "The verdict says the call did not fail, not what it did: assert a field the contract declares, " +
+	"with the value the step should have produced (README rule 4); 'chain lint -strict' fails a step that does not"
+
+func envelopeOnlyShort(rpc string, facts []string) string {
+	return fmt.Sprintf("asserts only the verdict, though the contract for %s declares what its response carries (%s)",
+		rpc, strings.Join(clipList(facts, 4), ", "))
+}
+
+func EnvelopeOnlyMessage(rpc string, facts []string) string {
+	return envelopeOnlyShort(rpc, facts) + ". " + envelopeOnlyWhy
+}
+
 func stepExpectsSuccess(s *chain.Step) bool {
 	for _, e := range s.Expect {
-		if chain.ExpectsTransportRefusal(e) {
+		if chain.ExpectsTransportRefusal(e) || chain.PinsVerdictCode(e) {
 			return false
 		}
 		if e.Path != chain.EnvelopePath() {

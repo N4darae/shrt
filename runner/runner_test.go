@@ -2,6 +2,7 @@ package runner_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -105,7 +106,7 @@ func TestRunStopsAtFirstFailedStep(t *testing.T) {
 	}
 }
 
-func TestExpiredTokenRefreshesInsteadOfFailing(t *testing.T) {
+func TestARejectedTokenOnAWriteIsDroppedAndTheNextRunLogsInFresh(t *testing.T) {
 	srv := newFakeServer()
 	defer srv.Close()
 
@@ -116,8 +117,16 @@ func TestExpiredTokenRefreshesInsteadOfFailing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	if rec.Passed() || rec.Steps[0].AuthRetry != runner.AuthRetryNotResent {
+		t.Fatalf("a write answered 401 is not re-sent, since the backend may have performed it; got %s, auth_retry=%q",
+			rec.Status, rec.Steps[0].AuthRetry)
+	}
+	rec, err = r.Run(context.Background(), testChain(), runner.Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
 	if !rec.Passed() {
-		t.Fatalf("an expired token must not fail the chain, got %s: %s", rec.Status, rec.Failure)
+		t.Fatalf("the rejected token was dropped, so the next run must log in fresh and pass, got %s: %s", rec.Status, rec.Failure)
 	}
 	if srv.loginCount() != 2 {
 		t.Fatalf("want a second login after the rejection, got %d", srv.loginCount())
@@ -131,12 +140,9 @@ func TestUnknownRequestFieldFailsBeforeSending(t *testing.T) {
 	c := testChain()
 	c.Steps[0].Body["not_a_field"] = "x"
 
-	rec, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
-	if err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if rec.Steps[0].Status != runner.StatusError {
-		t.Fatalf("want a validation error, got %s", rec.Steps[0].Status)
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil || !strings.Contains(err.Error(), "nothing was sent") || !strings.Contains(err.Error(), "not_a_field") {
+		t.Fatalf("want a refusal naming the field before anything is sent, got %v", err)
 	}
 	for _, path := range srv.calls {
 		if path == "/shrt.test.v1.ThingService/Create" {

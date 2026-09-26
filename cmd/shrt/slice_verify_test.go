@@ -28,6 +28,8 @@ steps:
           name: filler
           kind: KIND_A
           idempotency_key: ${uuid}
+          meta:
+              trace_id: thing-1
       expect:
           - path: error.code
             equals: OK
@@ -130,6 +132,13 @@ func TestCLISliceVerifyLabelsTheConfiguredEnvelopePath(t *testing.T) {
 	}
 	writeFile(t, ".shrt/config.yaml", string(raw)+"conventions:\n    envelope_path: error.message\n")
 	writeNoisyChain(t, "widget")
+	noisy, err := os.ReadFile(".shrt/chains/cli-noisy-flow.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, ".shrt/chains/cli-noisy-flow.yaml", strings.ReplaceAll(string(noisy),
+		"          - path: error.code\n            equals: OK\n",
+		"          - path: error.code\n            equals: OK\n          - path: error.message\n            equals: \"\"\n"))
 	if err := runRun(context.Background(), []string{"cli-noisy-flow", "-quiet"}); err != nil {
 		t.Fatalf("shrt run: %v", err)
 	}

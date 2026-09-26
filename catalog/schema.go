@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/N4darae/shrt/namecase"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 const defaultSchemaDepth = 6
@@ -31,6 +33,8 @@ type Field struct {
 	Doc          string   `json:"doc,omitempty" yaml:"doc,omitempty"`
 	Fields       []*Field `json:"fields,omitempty" yaml:"fields,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty" yaml:"truncated,omitempty"`
+	Deprecated   bool     `json:"deprecated,omitempty" yaml:"deprecated,omitempty"`
+	JSONName     string   `json:"-" yaml:"-"`
 }
 
 func DescribeMessage(md protoreflect.MessageDescriptor) *Schema {
@@ -53,11 +57,15 @@ func describeFields(md protoreflect.MessageDescriptor, depth int, seen map[strin
 func describeField(fd protoreflect.FieldDescriptor, depth int, seen map[string]bool) *Field {
 	f := &Field{
 		Name:     string(fd.Name()),
+		JSONName: fd.JSONName(),
 		Number:   int32(fd.Number()),
 		Kind:     fd.Kind().String(),
 		Repeated: fd.IsList(),
 		Optional: fd.HasOptionalKeyword(),
 		Doc:      leadingComment(fd),
+	}
+	if opts, ok := fd.Options().(*descriptorpb.FieldOptions); ok && opts.GetDeprecated() {
+		f.Deprecated = true
 	}
 	if od := realOneof(fd); od != nil {
 		f.Oneof = string(od.Name())
@@ -111,6 +119,14 @@ func (f *Field) WellKnownExample() (any, bool) {
 }
 
 func FieldAt(fields []*Field, segs []string) (*Field, bool) {
+	return fieldAt(fields, segs, false)
+}
+
+func ResponseFieldAt(fields []*Field, segs []string) (*Field, bool) {
+	return fieldAt(fields, segs, true)
+}
+
+func fieldAt(fields []*Field, segs []string, folded bool) (*Field, bool) {
 	var cur *Field
 	for len(segs) > 0 {
 		head := segs[0]
@@ -118,13 +134,7 @@ func FieldAt(fields []*Field, segs []string) (*Field, bool) {
 		if isIndex(head) {
 			continue
 		}
-		var next *Field
-		for _, f := range fields {
-			if f.Name == head {
-				next = f
-				break
-			}
-		}
+		next := fieldNamed(fields, head, folded)
 		if next == nil {
 			return nil, false
 		}
@@ -137,12 +147,42 @@ func FieldAt(fields []*Field, segs []string) (*Field, bool) {
 	return cur, true
 }
 
+func fieldNamed(fields []*Field, name string, folded bool) *Field {
+	for _, f := range fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	if !folded {
+		return nil
+	}
+	for _, f := range fields {
+		if namecase.Equal(f.Name, name) {
+			return f
+		}
+	}
+	return nil
+}
+
 func HasPath(fields []*Field, segs []string) bool {
 	_, ok := FieldAt(fields, segs)
 	return ok
 }
 
+func HasResponsePath(fields []*Field, segs []string) bool {
+	_, ok := ResponseFieldAt(fields, segs)
+	return ok
+}
+
 func MissingIndex(fields []*Field, segs []string) (string, bool) {
+	return missingIndex(fields, segs, false)
+}
+
+func ResponseMissingIndex(fields []*Field, segs []string) (string, bool) {
+	return missingIndex(fields, segs, true)
+}
+
+func missingIndex(fields []*Field, segs []string, folded bool) (string, bool) {
 	walked := make([]string, 0, len(segs))
 	for i := 0; i < len(segs); i++ {
 		head := segs[i]
@@ -150,13 +190,7 @@ func MissingIndex(fields []*Field, segs []string) (string, bool) {
 		if isIndex(head) {
 			continue
 		}
-		var next *Field
-		for _, f := range fields {
-			if f.Name == head {
-				next = f
-				break
-			}
-		}
+		next := fieldNamed(fields, head, folded)
 		if next == nil {
 			return "", false
 		}
@@ -227,6 +261,9 @@ func writeFields(b *strings.Builder, fields []*Field, indent string) {
 		}
 		if f.Truncated {
 			b.WriteString(" ...")
+		}
+		if f.Deprecated {
+			b.WriteString(" DEPRECATED")
 		}
 		if f.Doc != "" {
 			fmt.Fprintf(b, "  # %s", f.Doc)

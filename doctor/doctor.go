@@ -13,6 +13,11 @@ import (
 	"github.com/N4darae/shrt/config"
 )
 
+type KitFile struct {
+	Path string
+	Want []byte
+}
+
 type Level int
 
 const (
@@ -32,6 +37,24 @@ func (l Level) String() string {
 	}
 }
 
+func (l Level) MarshalText() ([]byte, error) {
+	return []byte(l.String()), nil
+}
+
+func (l *Level) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "ok":
+		*l = LevelOK
+	case "WARN":
+		*l = LevelWarn
+	case "FAIL":
+		*l = LevelError
+	default:
+		return fmt.Errorf("unknown doctor level %q, want ok, WARN or FAIL", text)
+	}
+	return nil
+}
+
 type Finding struct {
 	Check  string
 	Level  Level
@@ -47,11 +70,14 @@ type Report struct {
 type Options struct {
 	Docs     fs.FS
 	DocNames []string
+	Kit      []KitFile
 	Env      func(string) string
 	Now      func() time.Time
 	Ignored  func(root string, paths []string) (map[string]bool, error)
 	Rebuild  func(ctx context.Context, cfg *config.Config) ([]byte, error)
 	Catalog  func(cfg *config.Config) (*catalog.Catalog, error)
+
+	TokenKeys func(cfg *config.Config, target string) []string
 }
 
 func (o Options) withDefaults() Options {
@@ -76,11 +102,16 @@ func (o Options) withDefaults() Options {
 var checks = []func(context.Context, *config.Config, Options, *Report){
 	checkBuild,
 	checkDocs,
+	checkKit,
 	checkDescriptor,
 	checkIgnored,
 	checkTokenCache,
 	checkAuth,
 	checkConventions,
+	checkContracts,
+	checkSafeSpots,
+	checkSafeSpotDigests,
+	checkUpgrade,
 }
 
 func Run(ctx context.Context, cfg *config.Config, opts Options) *Report {
@@ -152,13 +183,20 @@ func (r *Report) Text() string {
 	return b.String()
 }
 
+func warnings(n int) string {
+	if n == 1 {
+		return "1 warning"
+	}
+	return fmt.Sprintf("%d warnings", n)
+}
+
 func (r *Report) Summary() string {
 	fails, warns := r.Count(LevelError), r.Count(LevelWarn)
 	switch {
 	case fails > 0:
-		return fmt.Sprintf("%d failing, %d warning, %d ok", fails, warns, r.Count(LevelOK))
+		return fmt.Sprintf("%d failing, %s, %d ok", fails, warnings(warns), r.Count(LevelOK))
 	case warns > 0:
-		return fmt.Sprintf("%d warning, %d ok", warns, r.Count(LevelOK))
+		return fmt.Sprintf("%s, %d ok", warnings(warns), r.Count(LevelOK))
 	default:
 		return fmt.Sprintf("%d ok", r.Count(LevelOK))
 	}

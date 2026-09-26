@@ -8,8 +8,12 @@ import (
 )
 
 func ShopDescriptor() []byte {
+	return shopDescriptor(shopCommonFile())
+}
+
+func shopDescriptor(common *descriptorpb.FileDescriptorProto) []byte {
 	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{
-		shopCommonFile(), shopCatalogFile(), shopCustomersFile(), shopOrdersFile(),
+		common, shopCatalogFile(), shopCustomersFile(), shopOrdersFile(),
 	}}
 	raw, err := proto.Marshal(fds)
 	if err != nil {
@@ -20,6 +24,18 @@ func ShopDescriptor() []byte {
 
 func Shop() *catalog.Catalog {
 	cat, err := catalog.Parse(ShopDescriptor())
+	if err != nil {
+		panic(err)
+	}
+	return cat
+}
+
+func ShopWithErrorDetails() *catalog.Catalog {
+	common := shopFile("shop.common.v1", nil, []*descriptorpb.DescriptorProto{
+		message("ErrorDetail", int64Field("app_code", 1), str("reason", 2)),
+		message("Status", str("code", 1), str("message", 2), repeated(msg("details", 3, ".shop.common.v1.ErrorDetail"))),
+	})
+	cat, err := catalog.Parse(shopDescriptor(common))
 	if err != nil {
 		panic(err)
 	}
@@ -54,12 +70,15 @@ func shopCatalogFile() *descriptorpb.FileDescriptorProto {
 		message("CreateProductResponse", msg("status", 1, ".shop.common.v1.Status"), msg("product", 2, ".shop.catalog.v1.Product")),
 		message("GetProductRequest", str("id_product", 1)),
 		message("GetProductResponse", msg("status", 1, ".shop.common.v1.Status"), msg("product", 2, ".shop.catalog.v1.Product")),
+		message("ListProductsRequest", str("sku_prefix", 1)),
+		message("ListProductsResponse", msg("status", 1, ".shop.common.v1.Status"), repeated(msg("products", 2, ".shop.catalog.v1.Product"))),
 		message("AddStockRequest", str("id_product", 1), int64Field("qty", 2)),
 		message("AddStockResponse", msg("status", 1, ".shop.common.v1.Status"), int64Field("qty_on_hand", 2)),
 	},
 		service("ProductService",
 			method("CreateProduct", ".shop.catalog.v1.CreateProductRequest", ".shop.catalog.v1.CreateProductResponse"),
 			method("GetProduct", ".shop.catalog.v1.GetProductRequest", ".shop.catalog.v1.GetProductResponse"),
+			method("ListProducts", ".shop.catalog.v1.ListProductsRequest", ".shop.catalog.v1.ListProductsResponse"),
 		),
 		service("StockService",
 			method("AddStock", ".shop.catalog.v1.AddStockRequest", ".shop.catalog.v1.AddStockResponse"),

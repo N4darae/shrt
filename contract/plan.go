@@ -2,12 +2,16 @@ package contract
 
 import (
 	"fmt"
+	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,9 +22,35 @@ type Plan struct {
 	Chain   *chain.Chain `json:"-" yaml:"-"`
 	Notes   []string     `json:"notes,omitempty" yaml:"notes,omitempty"`
 
-	stepOf  map[string]string
-	cat     *catalog.Catalog
-	pending []pendingChecks
+	stepOf   map[string]string
+	cat      *catalog.Catalog
+	pending  []pendingChecks
+	grown    []string
+	reserved map[string]bool
+	noun     string
+	seconds  []producerSecond
+	preps    map[string][]string
+	opts     PlanOptions
+	region   *fixtureRegion
+	isolated []string
+	parities []parityCopy
+	lib      *Library
+	groupOf  map[*chain.Step]string
+	noteOf   map[string]string
+	current  string
+	rules    *effectRules
+	rulesOf  *Library
+	middles  map[*chain.Step]string
+}
+
+type PlanOptions struct {
+	Auth        bool
+	Profiles    []string
+	Logins      []string
+	LoginBodies map[string]map[string]any
+
+	ProfileBodies map[string]map[string]any
+	Redact        []string
 }
 
 type pendingChecks struct {
@@ -35,46 +65,68 @@ func BuildPlan(target string, lib *Library, cat *catalog.Catalog, name string) (
 }
 
 func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name string) (*Plan, error) {
+	return BuildPlanWith(targets, lib, cat, name, PlanOptions{})
+}
+
+func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name string, opts PlanOptions) (*Plan, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("nothing to plan: name at least one rpc")
 	}
 	nodes := []string{}
 	labels := []string{}
 	seen := map[string]bool{}
+	repeats := map[string]int{}
 	for _, raw := range targets {
 		node, m, err := ResolveTarget(raw, lib, cat)
 		if err != nil {
 			return nil, err
 		}
-		if m.Streaming() {
-			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, m.StreamRefusal())
+		if refusal := m.StreamRefusal(); refusal != "" {
+			return nil, fmt.Errorf("refusing to plan %s: %s", m.FullName, refusal)
 		}
 		if seen[node] {
+			repeats[node]++
 			continue
 		}
 		seen[node] = true
 		nodes = append(nodes, node)
 		labels = append(labels, shortNode(node))
 	}
-	order, edges, err := resolveOrder(nodes, lib, cat)
+	order, edges, listed, err := resolveOrder(nodes, lib, cat)
 	if err != nil {
 		return nil, err
 	}
 	for _, node := range order {
 		rpc, _ := SplitNode(node)
-		if dep, err := cat.Lookup(rpc); err == nil && dep.Streaming() {
+		dep, err := cat.Lookup(rpc)
+		if err != nil {
+			continue
+		}
+		why := dep.StreamRefusal()
+		if why == "" && dep.ServerStreaming && !seen[node] {
+			why = "a plan calls a server-streaming rpc only as its target"
+		}
+		if why != "" {
 			return nil, fmt.Errorf("refusing to plan %s: its contract graph pulls in %s, and %s — drop that "+
-				"edge (needs/from/same_as/before) from the contract", strings.Join(nodes, ", "), dep.FullName, dep.StreamRefusal())
+				"edge (needs/from/same_as/before) from the contract", strings.Join(nodes, ", "), dep.FullName, why)
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
 		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
+	if !anyContract(order, lib) {
+		c.Description = fmt.Sprintf("reach %s; no contract covers %s yet, so this is a bare scaffold with no "+
+			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
+	}
 	p.Chain = c
+	isTarget := map[string]bool{}
+	for _, node := range nodes {
+		isTarget[node] = true
+	}
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
 		method, err := cat.Lookup(rpc)
@@ -87,12 +139,87 @@ func BuildPlanFor(targets []string, lib *Library, cat *catalog.Catalog, name str
 		}
 		id := uniqueStepID(c, base)
 		p.stepOf[node] = id
-		c.Steps = append(c.Steps, p.buildStep(id, alias, method, lib))
+		step := p.buildStep(id, alias, method, lib)
+		p.fillLoginBody(step, method)
+		p.splitSharedProducers(step, p.grown)
+		c.Steps = append(c.Steps, step)
+		if !isTarget[node] {
+			p.prepareSecondProducers(step)
+		}
 	}
+	p.noteListProducers(listed)
+	targetSteps := map[string]bool{}
+	for _, node := range nodes {
+		targetSteps[p.stepOf[node]] = true
+	}
+	p.groupOf = map[*chain.Step]string{}
+	for _, st := range c.Steps {
+		p.groupOf[st] = "setup"
+		if targetSteps[st.ID] {
+			p.groupOf[st] = "target"
+		}
+	}
+	p.captureRegion(targetSteps)
+	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] && !p.streams(st) }
+	denied := func(st *chain.Step) bool { return targetSteps[st.ID] }
+	for _, pass := range []struct {
+		label, tag string
+		probe      func(*Library, func(*chain.Step) bool)
+	}{
+		{"list order", "", p.discriminateListOrder},
+		{"unique", "", p.probeUniqueness},
+		{"filter", "", p.probeListFilters},
+		{"shortage", "shortage", p.probeInsufficiency},
+		{"exact", "exact", p.probeExactStock},
+		{"boundary", "boundary", p.probeBoundaries},
+		{"wide total", "wide", p.probeWideTotals},
+		{"text length", "", p.probeTextLength},
+		{"read-back", "", p.probeReadBack},
+		{"batch", "", p.probeBatch},
+		{"replay", "", p.probeIdempotency},
+		{"token/role", "denied", p.probeDenials},
+		{"other role", "", p.probeRoleParity},
+		{"item count", "items", p.probeItemCounts},
+		{"state", "state", p.probeStateRefusals},
+		{"composed", "composed", p.probeComposedTransitions},
+		{"twice", "twice", p.probeSameEntityTwice},
+		{"unknown id", "unknown", p.probeUnknownIDs},
+		{"malformed", "shape", p.probeShapes},
+		{"login", "", p.probeLogin},
+	} {
+		only := targeted
+		if pass.label == "token/role" {
+			only = denied
+		}
+		p.grouped(pass.label, func() {
+			if pass.tag == "" {
+				pass.probe(lib, only)
+				return
+			}
+			p.isolating(lib, pass.tag, func() { pass.probe(lib, only) })
+		})
+	}
+	p.grouped("setup", func() { p.satisfyNeeds(lib) })
+	p.echoNumbers()
+	p.assertOutcomes(lib)
+	p.assertStates(lib)
+	p.assertStreamEcho()
+	p.grouped("read-back", func() { p.readBackVariants(lib) })
+	p.grouped("read-back", func() { p.assertEffects(lib) })
+	p.noteReadBack(lib)
+	p.assertTimestamps(lib)
+	p.trimMiddleItems()
+	p.noteRepeatedTargets(nodes, repeats, lib)
 	p.noteAliasSiblings(edges)
 	p.noteRequirements()
+	p.noteIsolation()
+	p.noteStreamingTargets()
+	p.maskUnscopedLists()
 	if err := c.Normalize(); err != nil {
 		return nil, err
+	}
+	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
+		p.declareInterpolatedVars(missing)
 	}
 	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
 		p.note("the chain reads ${vars.%s}, which the contract's value: entries use and the chain does not declare: "+
@@ -148,6 +275,9 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
 			continue
 		}
+		if !p.plainLooksDuplicate(rpc, nodes, edges[rpc]) {
+			continue
+		}
 		aliased := []string{}
 		ids := []string{p.stepOf[rpc]}
 		first := ""
@@ -168,6 +298,51 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 			"needs: instead",
 			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
 			strings.Join(aliased, ", "), shortNode(first))
+	}
+}
+
+func (p *Plan) plainLooksDuplicate(rpc string, nodes, via []string) bool {
+	onlyBefore := len(via) > 0
+	for _, edge := range via {
+		if !strings.Contains(edge, " before: ") {
+			onlyBefore = false
+		}
+	}
+	if onlyBefore {
+		return true
+	}
+	plain := p.stepByID(p.stepOf[rpc])
+	if plain == nil {
+		return false
+	}
+	for _, node := range nodes {
+		if node == rpc {
+			continue
+		}
+		if s := p.stepByID(p.stepOf[node]); s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {
+	for _, node := range nodes {
+		n := repeats[node]
+		if n == 0 {
+			continue
+		}
+		rpc, _ := SplitNode(node)
+		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
+			"as %s@after", shortNode(rpc), shortNode(rpc))
+		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
+			names := sortedAliasNames(c.Aliases)
+			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
+				shortNode(rpc), names[0], strings.Join(names, ", "))
+		}
+		p.note("%s is named %d times as a target, and a plan calls each target once, so the repeat(s) were "+
+			"merged into step %s. To call it again at another point in the chain, %s",
+			shortNode(node), n+1, p.stepOf[node], how)
 	}
 }
 
@@ -207,19 +382,16 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 }
 
 func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*yaml.Node, []string, error) {
-	p := &Plan{stepOf: map[string]string{}, cat: cat}
-	methods := make([]*catalog.Method, len(refs))
-	for i, ref := range refs {
-		m, err := cat.Lookup(ref)
+	p, err := scaffoldPlan("", "the step", refs, ids, lib, cat)
+	if err != nil {
+		return nil, nil, err
+	}
+	nodes := make([]*yaml.Node, 0, len(refs))
+	for _, step := range p.Chain.Steps {
+		m, err := cat.Lookup(step.Call)
 		if err != nil {
 			return nil, nil, err
 		}
-		methods[i] = m
-		p.stepOf[m.FullName] = ids[i]
-	}
-	nodes := make([]*yaml.Node, 0, len(refs))
-	for i, m := range methods {
-		step := p.buildStep(ids[i], "", m, lib)
 		body := step.Body
 		bare := *step
 		bare.Body = nil
@@ -251,10 +423,20 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if !ok {
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
+		p.grown = secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields)
+		p.noteSecondItems(id, p.grown)
 		return step
 	}
 	if c.Summary != "" && !IsTodo(c.Summary) {
-		step.Description = firstSentence(c.Summary)
+		step.Description = FirstSentence(c.Summary)
+	}
+	if a := c.Aliases[alias]; alias != "" && a != nil && strings.TrimSpace(a.Note) != "" && !IsTodo(a.Note) {
+		note := strings.Join(strings.Fields(a.Note), " ")
+		if step.Description == "" {
+			step.Description = note
+		} else {
+			step.Description = strings.TrimSuffix(step.Description, ".") + " — " + note
+		}
 	}
 	step.Auth = c.Auth
 	if alias != "" {
@@ -294,11 +476,14 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
+	p.grown = secondItems(step.Body, schema.Fields)
+	p.noteSecondItems(id, p.grown)
 	if len(step.Expect) == 0 {
 		p.note("step %s: %s has no scalar or repeated response field, so nothing could be scaffolded to "+
 			"assert. Write one — a step with no expect: passes whatever the server answers, and "+
 			"'chain lint -strict' rejects it", id, m.FullName)
 	}
+	step.Expect = append(step.Expect, p.timestampExpectations(step, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))...)
 	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema, fields: fields})
 	if len(c.Exports) > 0 {
 		step.Export = map[string]string{}
@@ -309,8 +494,176 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	return step
 }
 
+func (p *Plan) UnfilledCount() int {
+	n := 0
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") {
+			n++
+		}
+	}
+	for _, pc := range p.pending {
+		for _, name := range pc.contract.Required {
+			if IsRequiredLiteral(name) {
+				continue
+			}
+			if v, ok := bodyValue(pc.step.Body, name); ok {
+				if _, empty := emptyDeclaredVar(p.Chain, v); empty {
+					n++
+				}
+			}
+		}
+	}
+	return n
+}
+
+func (p *Plan) FillNotes() []string {
+	out := []string{}
+	for _, note := range p.Notes {
+		if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
+func (p *Plan) grouped(label string, probe func()) {
+	before := map[*chain.Step]bool{}
+	for _, st := range p.Chain.Steps {
+		before[st] = true
+	}
+	outer := p.current
+	p.current = label
+	probe()
+	p.current = outer
+	for _, st := range p.Chain.Steps {
+		if !before[st] && p.groupOf[st] == "" {
+			p.groupOf[st] = label
+		}
+	}
+}
+
+type StepGroup struct {
+	Label string
+	Steps int
+}
+
+func (p *Plan) StepGroups() []StepGroup {
+	out := []StepGroup{}
+	at := map[string]int{}
+	for _, st := range p.Chain.Steps {
+		label := p.groupOf[st]
+		if label == "" {
+			label = "other"
+		}
+		i, ok := at[label]
+		if !ok {
+			i = len(out)
+			at[label] = i
+			out = append(out, StepGroup{Label: label})
+		}
+		out[i].Steps++
+	}
+	return out
+}
+
+var gapMarkers = []string{
+	"server-streaming;", "says nothing", "says neither", "was planned", "by hand", "could not", "cannot be built", "cannot say",
+	"nothing proves", "no probe", "no level is asserted", "assert only that", "assert only whether",
+}
+
+func (p *Plan) GapNotes() []string {
+	out := []string{}
+	for _, note := range p.Notes {
+		if gap, ok := GapOf(note); ok {
+			out = append(out, gap)
+		}
+	}
+	return out
+}
+
+func GapOf(note string) (string, bool) {
+	if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
+		return "", false
+	}
+	at := -1
+	for _, m := range gapMarkers {
+		if i := strings.Index(note, m); i >= 0 && (at < 0 || i < at) {
+			at = i
+		}
+	}
+	if at < 0 {
+		return "", false
+	}
+	prefix := ""
+	body := note
+	if strings.HasPrefix(note, "step ") {
+		if i := strings.Index(note, ": "); i >= 0 && i < at {
+			prefix, body, at = note[:i+2], note[i+2:], at-i-2
+		}
+	}
+	if i := strings.LastIndex(body[:at], "; "); i >= 0 {
+		body = body[i+2:]
+	}
+	return prefix + body, true
+}
+
 func (p *Plan) note(format string, args ...any) {
-	p.Notes = append(p.Notes, fmt.Sprintf(format, args...))
+	text := fmt.Sprintf(format, args...)
+	if containsString(p.Notes, text) {
+		return
+	}
+	p.Notes = append(p.Notes, text)
+	if p.current != "" {
+		if p.noteOf == nil {
+			p.noteOf = map[string]string{}
+		}
+		p.noteOf[text] = p.current
+	}
+}
+
+type NoteGroup struct {
+	Label string
+	Steps int
+	Notes []string
+}
+
+func (p *Plan) NoteGroups() []NoteGroup {
+	out := []NoteGroup{}
+	at := map[string]int{}
+	for _, g := range p.StepGroups() {
+		at[g.Label] = len(out)
+		out = append(out, NoteGroup{Label: g.Label, Steps: g.Steps})
+	}
+	byID := map[string]string{}
+	for _, st := range p.Chain.Steps {
+		byID[st.ID] = p.groupOf[st]
+	}
+	fills := p.FillNotes()
+	for _, note := range p.Notes {
+		if _, gap := GapOf(note); gap || containsString(fills, note) {
+			continue
+		}
+		label := p.noteOf[note]
+		if label == "" {
+			for _, word := range strings.FieldsFunc(note, func(r rune) bool { return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+				if g, ok := byID[word]; ok && g != "" {
+					label = g
+					break
+				}
+			}
+		}
+		if label == "" {
+			label = "other"
+		}
+		i, ok := at[label]
+		if !ok {
+			i = len(out)
+			at[label] = i
+			out = append(out, NoteGroup{Label: label})
+		}
+		out[i].Notes = append(out[i].Notes, note)
+	}
+	return out
 }
 
 func setBodyPath(body map[string]any, path string, value any) bool {
@@ -449,8 +802,9 @@ func childContainer(m map[string]any, seg string) any {
 	return next
 }
 
-func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, error) {
+func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
 	order := []string{}
+	listed := []listProducer{}
 	state := map[string]int{}
 	edges := map[string][]string{}
 	canon := func(node string) (string, string, string) {
@@ -492,16 +846,30 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 				return err
 			}
 		}
+		if via == "the plan target" {
+			m, _ := cat.Lookup(rpc)
+			if msg := listedMessage(m); msg != "" && !nodesReturn(order, msg, cat) {
+				lp := listProducer{list: canonical, msg: msg}
+				if creator := creatorOf(msg, lib, cat); creator != "" && state[creator] == 0 {
+					label := shortNode(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
+					if err := visit(creator, label, append(trail, canonical)); err != nil {
+						return err
+					}
+					lp.creator = creator
+				}
+				listed = append(listed, lp)
+			}
+		}
 		state[canonical] = 2
 		order = append(order, canonical)
 		return nil
 	}
 	for _, target := range targets {
 		if err := visit(target, "the plan target", nil); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
-	return order, edges, nil
+	return order, edges, listed, nil
 }
 
 func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (string, string, string)) string {
@@ -542,8 +910,9 @@ func (p *Plan) YAML() ([]byte, error) {
 		return nil, err
 	}
 	steps := &yaml.Node{Kind: yaml.SequenceNode}
+	read := readRoots(p.Chain)
 	for _, step := range p.Chain.Steps {
-		node, err := p.stepNode(step)
+		node, err := p.stepNode(step, read)
 		if err != nil {
 			return nil, err
 		}
@@ -553,10 +922,11 @@ func (p *Plan) YAML() ([]byte, error) {
 	return yaml.Marshal(doc)
 }
 
-func (p *Plan) stepNode(step *chain.Step) (*yaml.Node, error) {
+func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, error) {
 	body := step.Body
 	shallow := *step
 	shallow.Body = nil
+	shallow.Export = readExports(step.Export, read)
 	node := &yaml.Node{}
 	if err := node.Encode(&shallow); err != nil {
 		return nil, err
@@ -594,7 +964,7 @@ func exportName(stepID, path string) string {
 	return stepID + "_" + strings.ReplaceAll(path, ".", "_")
 }
 
-func firstSentence(s string) string {
+func FirstSentence(s string) string {
 	flat := strings.Join(strings.Fields(s), " ")
 	if i := strings.Index(flat, ". "); i >= 0 {
 		return flat[:i+1]
@@ -624,19 +994,18 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 		setBodyPath(step.Body, field, text)
 		return
 	}
+	if hasTemplate(seed) && !IsPlaceholder(seed, ScaffoldedBody) {
+		setBodyPath(step.Body, field, "${steps."+producerID+".request."+ref.Path+"}")
+		return
+	}
 	if p.Chain.Vars == nil {
 		p.Chain.Vars = map[string]any{}
 	}
 	if _, declared := p.Chain.Vars[varName]; !declared {
 		if IsPlaceholder(seed, ScaffoldedBody) || hasTemplate(seed) {
 			p.Chain.Vars[varName] = ""
-			p.note("step %s: %s and %s %s must send the same value — both read ${vars.%s}, which is "+
-				"empty. Two ways to fill it, and they are not interchangeable: a literal in vars: if the "+
-				"value may repeat, or 'shrt run <chain> -var %s=...' if it must be fresh EVERY run, "+
-				"because a uniqueness-constrained field takes the literal once and is refused the second "+
-				"time. ${uuid} inside vars: is rejected by lint and always will be — no step has run when "+
-				"vars: is read, so only generators could ever resolve there and a rule about which "+
-				"references work where is worse than one that always fails loudly",
+			p.note("step %s: %s and %s %s must send the same value, ${vars.%s}, which is empty: declare it "+
+				"under vars: if the value may repeat, or pass -var %s=... on every run if it must be fresh",
 				id, field, producerID, ref.Path, varName, varName)
 		} else {
 			p.Chain.Vars[varName] = seed
@@ -644,6 +1013,60 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	}
 	setBodyPath(producer.Body, ref.Path, token)
 	setBodyPath(step.Body, field, token)
+}
+
+var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+
+func (p *Plan) declareInterpolatedVars(missing []string) {
+	interpolated, whole := map[string]bool{}, map[string]bool{}
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			for _, m := range planVarRef.FindAllStringSubmatchIndex(t, -1) {
+				name := t[m[2]:m[3]]
+				if m[0] == 0 && m[1] == len(t) {
+					whole[name] = true
+				} else {
+					interpolated[name] = true
+				}
+			}
+		case map[string]any:
+			for _, item := range t {
+				walk(item)
+			}
+		case []any:
+			for _, item := range t {
+				walk(item)
+			}
+		}
+	}
+	for _, st := range p.Chain.Steps {
+		if st != nil {
+			walk(st.Body)
+		}
+	}
+	value := p.Chain.Name
+	if value == "" {
+		value = "planned"
+	}
+	declared := []string{}
+	for _, name := range missing {
+		if !interpolated[name] || whole[name] || name == chain.RunTagVar {
+			continue
+		}
+		if p.Chain.Vars == nil {
+			p.Chain.Vars = map[string]any{}
+		}
+		p.Chain.Vars[name] = value
+		declared = append(declared, name)
+	}
+	if len(declared) > 0 {
+		p.note("the chain reads ${vars.%s} inside the contract's value: entries, so it is declared under vars: as %q "+
+			"and a first run needs no -var. A second run sends the same values: pass -var %s=<fresh> on every run "+
+			"where they must be unique, as a sweep does",
+			strings.Join(declared, "}, ${vars."), value, strings.Join(declared, "=<fresh> -var "))
+	}
 }
 
 func (p *Plan) stepByID(id string) *chain.Step {
@@ -658,6 +1081,19 @@ func (p *Plan) stepByID(id string) *chain.Step {
 func hasTemplate(v any) bool {
 	s, ok := v.(string)
 	return ok && strings.Contains(s, "${")
+}
+
+func StreamingGap(rpc string) string {
+	return rpc + ": server-streaming; only its first message is read, so what it sends later (updates on change) is not checked"
+}
+
+func (p *Plan) noteStreamingTargets() {
+	for _, node := range p.Targets {
+		rpc, _ := SplitNode(node)
+		if m, err := p.cat.Lookup(rpc); err == nil && m.ServerStreaming {
+			p.note("%s", StreamingGap(m.FullName))
+		}
+	}
 }
 
 func (p *Plan) noteRequirements() {
@@ -676,7 +1112,8 @@ func (p *Plan) noteRequirements() {
 				continue
 			}
 			if !HasUsableValue(pc.step.Body, name, ScaffoldedBody) {
-				p.note("step %s: %s is required and has no usable value — fill it", id, name)
+				p.note("step %s: %s is required and has no usable value: set fields.%s.value in %s's contract, "+
+					"or fill it in the chain", id, name, name, shortRPC(pc.step.Call))
 			}
 		}
 		if zeros := scaffoldZeros(pc.step.Body, pc.schema.Fields, pc.contract, pc.fields); len(zeros) > 0 {
@@ -685,6 +1122,9 @@ func (p *Plan) noteRequirements() {
 				"with value: \"0\", because a note: describes the field and does not silence this. This line is the only "+
 				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
 				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
+		}
+		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
+			p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
 		}
 		if len(pc.contract.RequiresRole) > 0 && !pc.contract.DeclaresNoRole() {
 			p.note("step %s: caller must hold role %s", id, strings.Join(pc.contract.RequiresRole, " or "))
@@ -798,4 +1238,47 @@ func stripIndexes(path string) string {
 		}
 	}
 	return strings.Join(kept, ".")
+}
+
+func anyContract(order []string, lib *Library) bool {
+	for _, node := range order {
+		rpc, _ := SplitNode(node)
+		if _, ok := lib.Get(rpc); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
+	body := p.opts.LoginBodies[m.FullName]
+	if len(body) == 0 {
+		return
+	}
+	filled := []string{}
+	keys := make([]string, 0, len(body))
+	for k := range body {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		k, ok := namecase.LookupKey(step.Body, key)
+		if !ok {
+			k = key
+		}
+		if cur, present := step.Body[k]; present && cur != "" && cur != nil {
+			continue
+		}
+		step.Body[k] = cloneBody(body[key])
+		filled = append(filled, k)
+	}
+	if len(filled) > 0 {
+		p.note("step %s: %s %s the values the config's auth: block sends for this login, so the step logs in as the chain's "+
+			"default principal does", step.ID, strings.Join(filled, ", "), pluralVerb(len(filled), "takes", "take"))
+	}
+}
+
+func (p *Plan) streams(st *chain.Step) bool {
+	m, err := p.cat.Lookup(st.Call)
+	return err == nil && m.ServerStreaming
 }

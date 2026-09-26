@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -13,6 +14,7 @@ func contractShow(args []string) error {
 	fs := flag.NewFlagSet("contract show", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	filter := fs.String("filter", "", "show every rpc whose name contains this substring")
+	setUsage(fs, "usage: shrt contract show <rpc>... | -filter <substring> [-json]", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -24,7 +26,7 @@ func contractShow(args []string) error {
 	if err != nil {
 		return err
 	}
-	lib, _, err := e.library()
+	lib, err := e.library()
 	if err != nil {
 		return err
 	}
@@ -63,9 +65,14 @@ func contractShow(args []string) error {
 		if i > 0 {
 			fmt.Println(strings.Repeat("-", 72))
 		}
-		generated := contract.ForCurated(m, lib, e.cat)
+		generated, notes := contract.ForCuratedWithNotes(m, lib, e.cat)
 		fmt.Print(generated.Text())
 		curated, hasCurated := lib.Get(m.FullName)
+		if hasCurated {
+			for _, n := range notes {
+				fmt.Fprintf(os.Stderr, "note: %s\n", n)
+			}
+		}
 		if !hasCurated {
 			fmt.Printf("\nNO CURATED CONTRACT\n  add one with: shrt contract init %s\n", contract.DomainOf(m))
 			continue

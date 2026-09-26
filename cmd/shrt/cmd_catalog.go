@@ -44,6 +44,8 @@ func runCatalog(ctx context.Context, args []string) error {
 
 func catalogBuild(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("catalog build", flag.ContinueOnError)
+	setUsage(fs, "usage: shrt catalog build\n"+
+		"rebuild descriptor.file from descriptor.source with descriptor.binary, after a proto change", "")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,6 +70,9 @@ func catalogList(args []string) error {
 	filter := fs.String("filter", "", "case-insensitive substring filter on the rpc name")
 	asJSON := fs.Bool("json", false, "emit JSON")
 	services := fs.Bool("services", false, "list services only")
+	setUsage(fs, "usage: shrt catalog ls [-filter <word>] [-services] [-json]   list the RPC surface",
+		"\nexit codes:\n  0  listed, including a filter that matches nothing\n"+
+			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml, a missing descriptor)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -87,12 +92,13 @@ func catalogList(args []string) error {
 	}
 
 	type row struct {
-		RPC       string `json:"rpc"`
-		Procedure string `json:"procedure"`
-		Input     string `json:"input"`
-		Output    string `json:"output"`
-		Streaming string `json:"streaming,omitempty"`
-		Doc       string `json:"doc,omitempty"`
+		RPC        string `json:"rpc"`
+		Procedure  string `json:"procedure"`
+		Input      string `json:"input"`
+		Output     string `json:"output"`
+		Streaming  string `json:"streaming,omitempty"`
+		Deprecated bool   `json:"deprecated,omitempty"`
+		Doc        string `json:"doc,omitempty"`
 	}
 	rows := []row{}
 	for _, m := range e.cat.Methods() {
@@ -100,12 +106,13 @@ func catalogList(args []string) error {
 			continue
 		}
 		rows = append(rows, row{
-			RPC:       m.FullName,
-			Procedure: m.Procedure(),
-			Input:     string(m.Input().FullName()),
-			Output:    string(m.Output().FullName()),
-			Streaming: m.StreamKind(),
-			Doc:       m.Doc,
+			RPC:        m.FullName,
+			Procedure:  m.Procedure(),
+			Input:      string(m.Input().FullName()),
+			Output:     string(m.Output().FullName()),
+			Streaming:  m.StreamKind(),
+			Deprecated: m.Deprecated(),
+			Doc:        m.Doc,
 		})
 	}
 	if *asJSON {
@@ -113,16 +120,24 @@ func catalogList(args []string) error {
 	}
 	streaming := 0
 	for _, r := range rows {
+		mark := ""
+		if r.Deprecated {
+			mark = "  [DEPRECATED: option deprecated = true]"
+		}
 		if r.Streaming == "" {
-			fmt.Println(r.RPC)
+			fmt.Println(r.RPC + mark)
+			continue
+		}
+		if r.Streaming == catalog.StreamKindServer {
+			fmt.Printf("%s  [%s: a step reads its first message as messages.0]%s\n", r.RPC, r.Streaming, mark)
 			continue
 		}
 		streaming++
-		fmt.Printf("%s  [%s — OUT OF SCOPE, shrt is unary-only]\n", r.RPC, r.Streaming)
+		fmt.Printf("%s  [%s — OUT OF SCOPE]%s\n", r.RPC, r.Streaming, mark)
 	}
 	fmt.Printf("\n%d rpc(s)", len(rows))
 	if streaming > 0 {
-		fmt.Printf(", %d of them streaming and not callable from a chain", streaming)
+		fmt.Printf(", %d of them client- or bidi-streaming and not callable from a chain", streaming)
 	}
 	fmt.Println()
 	return nil
@@ -131,6 +146,7 @@ func catalogList(args []string) error {
 func catalogDescribe(args []string) error {
 	fs := flag.NewFlagSet("catalog describe", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
+	setUsage(fs, "usage: shrt catalog describe <rpc> [-json]", "")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -151,12 +167,17 @@ func catalogDescribe(args []string) error {
 	if *asJSON {
 		return emitJSON(map[string]any{
 			"rpc": m.FullName, "procedure": m.Procedure(), "doc": m.Doc,
-			"file": m.File, "streaming": m.StreamKind(), "request": in, "response": out,
+			"file": m.File, "streaming": m.StreamKind(), "deprecated": m.Deprecated(), "request": in, "response": out,
 		})
 	}
 	fmt.Printf("%s\n  procedure: %s\n  file: %s\n", m.FullName, m.Procedure(), m.File)
-	if m.Streaming() {
-		fmt.Printf("  STREAMING: %s\n", m.StreamRefusal())
+	if refusal := m.StreamRefusal(); refusal != "" {
+		fmt.Printf("  STREAMING: %s\n", refusal)
+	} else if m.ServerStreaming {
+		fmt.Println("  STREAMING: server-streaming; a step records the first message it sends as messages.0 and stops reading")
+	}
+	if m.Deprecated() {
+		fmt.Println("  DEPRECATED: the proto marks this rpc (or its service) option deprecated = true")
 	}
 	if m.Doc != "" {
 		fmt.Printf("  doc: %s\n", m.Doc)

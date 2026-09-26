@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"os"
 	"strconv"
 	"strings"
 
@@ -24,7 +25,7 @@ func init() {
 
 const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
-	"       shrt diff <chain>                   latest~1 against latest"
+	"       shrt diff <chain>                   the two latest runs that are not shrt verify replays"
 
 func runDiff(ctx context.Context, args []string) error {
 	err := compareRuns(ctx, args)
@@ -38,25 +39,40 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
+	listMasked := fs.Bool("masked", false, "list every difference kept out of the comparison, with both values and what hid it: the volatile pattern, an id- or timestamp-shaped value, a renamed id or a fixture echo (masked_changes under -json)")
+	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ; also, as for every command, "+
+		"a flag that cannot be parsed or a setup that cannot load\n"+
+		"  2  could not compare: an unknown run, runs of two chains, or the wrong number of arguments\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
-		return err
+		if errors.Is(err, flag.ErrHelp) {
+			return err
+		}
+		return &exitError{code: 1, err: err}
 	}
 	e, err := loadEnv(false)
 	if err != nil {
-		return err
+		return &exitError{code: 1, err: err}
+	}
+	if len(rest) == 1 || len(rest) == 3 {
+		if err := e.knownChain(rest[0]); err != nil {
+			return err
+		}
 	}
 	var a, b *runner.Record
+	picked := ""
 	switch len(rest) {
 	case 1:
-		a, err = selectRun(e, rest[0], "latest~1")
-		if err == nil {
-			b, err = selectRun(e, rest[0], "latest")
-		}
+		a, b, picked, err = latestNonReplays(e, rest[0])
 	case 2:
 		a, err = findRunAnywhere(e, rest[0])
 		if err == nil {
 			b, err = findRunAnywhere(e, rest[1])
+		}
+		if err != nil {
+			if named := chainArgs(e, rest); named != nil {
+				return named
+			}
 		}
 		if err == nil && a.Chain != b.Chain {
 			err = fmt.Errorf("run %s is of chain %s and run %s is of chain %s: shrt diff compares two runs of the SAME chain",
@@ -76,18 +92,71 @@ func compareRuns(_ context.Context, args []string) error {
 	if a.RunID == b.RunID {
 		return fmt.Errorf("both sides are run %s: comparing a record with itself says nothing", a.RunID)
 	}
-	rep := diff.CompareRunsMasking(a, b, currentVolatile(e, a.Chain))
+	var fx diff.Fixtures
+	if c, err := chain.Resolve(e.chainsDir(), a.Chain); err == nil {
+		fx = requestFixtures(c)
+	}
+	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
+	rep.DropUnsentDefaults(a, b, unsentDefault(e))
+	if len(rest) == 3 {
+		rep.SelectorA, rep.SelectorB = rest[1], rest[2]
+	}
+	masked := rep.MaskedList()
+	if !*listMasked {
+		rep.MaskedChanges = nil
+	}
 	if *asJSON {
+		if picked != "" {
+			fmt.Fprintln(os.Stderr, "diff: "+picked)
+		}
 		if err := emitJSON(rep); err != nil {
 			return err
 		}
 	} else {
+		if picked != "" {
+			fmt.Println(picked)
+		}
 		fmt.Println(rep.Text())
+		if *listMasked {
+			fmt.Println("\n" + masked)
+		}
 	}
 	if !rep.Same() {
 		return exitWith(1, "runs %s and %s differ (a comparison between two runs, not a regression verdict)", a.RunID, b.RunID)
 	}
 	return nil
+}
+
+func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record, string, error) {
+	ids, err := e.store.ListRuns(chainName)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	picked := []*runner.Record{}
+	replays := []string{}
+	for i := len(ids) - 1; i >= 0 && len(picked) < 2; i-- {
+		rec, err := e.store.LoadRun(chainName, ids[i])
+		if err != nil {
+			return nil, nil, "", err
+		}
+		if rec.ReplayOf != "" {
+			replays = append(replays, rec.RunID)
+			continue
+		}
+		picked = append(picked, rec)
+	}
+	if len(picked) < 2 {
+		return nil, nil, "", fmt.Errorf("chain %s has %d recorded run(s) that are not shrt verify replays (%d replay(s) skipped), and a "+
+			"default diff needs two; name the runs to compare: shrt diff %s <run-a> <run-b> (latest and latest~N count replays too)",
+			chainName, len(picked), len(replays), chainName)
+	}
+	line := fmt.Sprintf("comparing the two latest runs of %s that are not shrt verify replays: run A %s, run B %s",
+		chainName, picked[1].RunID, picked[0].RunID)
+	if len(replays) > 0 {
+		line += fmt.Sprintf(" (skipped %d verify replay(s) of the safe spot, recorded by shrt verify beside a run against the same "+
+			"backend: %s; name one to compare it: shrt diff %s <run-a> <run-b>)", len(replays), capList(replays, 3), chainName)
+	}
+	return picked[1], picked[0], line, nil
 }
 
 func currentVolatile(e *env, chainName string) []string {
@@ -96,11 +165,7 @@ func currentVolatile(e *env, chainName string) []string {
 	if err != nil {
 		return out
 	}
-	out = append(out, c.Volatile...)
-	for _, s := range c.Steps {
-		out = append(out, s.Volatile...)
-	}
-	return out
+	return append(out, c.Volatile...)
 }
 
 func selectRun(e *env, chainName, sel string) (*runner.Record, error) {
@@ -118,10 +183,14 @@ func selectRun(e *env, chainName, sel string) (*runner.Record, error) {
 				sel, chainName, found[0].Chain)
 		}
 		ids, _ := e.store.ListRuns(chainName)
-		if len(ids) > 3 {
-			ids = ids[len(ids)-3:]
+		newest := []string{}
+		for i := len(ids) - 1; i >= 0 && len(newest) < 3; i-- {
+			newest = append(newest, ids[i])
 		}
-		return nil, fmt.Errorf("chain %s has no run %s (newest recorded: %s)", chainName, sel, strings.Join(ids, ", "))
+		if len(newest) == 0 {
+			return nil, fmt.Errorf("chain %s has no run %s, and no runs are recorded for it", chainName, sel)
+		}
+		return nil, fmt.Errorf("chain %s has no run %s (recorded, newest first: %s)", chainName, sel, strings.Join(newest, ", "))
 	}
 	ids, err := e.store.ListRuns(chainName)
 	if err != nil {
@@ -163,4 +232,33 @@ func findRunAnywhere(e *env, id string) (*runner.Record, error) {
 		return found[0], nil
 	}
 	return nil, fmt.Errorf("run id %s is recorded under %d chains; name the chain: shrt diff <chain> <run-a> <run-b>", id, len(found))
+}
+
+func chainArgs(e *env, args []string) error {
+	chains := []string{}
+	for _, a := range args {
+		if isChainName(e, a) {
+			chains = append(chains, a)
+		}
+	}
+	switch len(chains) {
+	case 0:
+		return nil
+	case len(args):
+		return fmt.Errorf("%s and %s are chain names, not run ids: shrt diff compares two runs of ONE chain, not two chains. "+
+			"Run 'shrt diff %s' for its two latest runs, or 'shrt diff %s <run-a> <run-b>'\n\n%s",
+			args[0], args[1], args[0], args[0], diffUsage)
+	}
+	return fmt.Errorf("%s is a chain name: with two arguments both are run ids. Name the chain first and then its two runs: "+
+		"'shrt diff %s <run-a> <run-b>' (ids, latest or latest~N), or 'shrt diff %s' for its two latest runs\n\n%s",
+		chains[0], chains[0], chains[0], diffUsage)
+}
+
+func isChainName(e *env, name string) bool {
+	for _, n := range chain.Names(e.chainsDir()) {
+		if n == name {
+			return true
+		}
+	}
+	return false
 }

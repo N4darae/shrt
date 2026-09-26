@@ -3,6 +3,9 @@ package chain
 import (
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/N4darae/shrt/namecase"
 )
 
 const APIVersion = "shrt/v1"
@@ -13,8 +16,10 @@ type Chain struct {
 	Description string         `yaml:"description,omitempty" json:"description,omitempty"`
 	Vars        map[string]any `yaml:"vars,omitempty" json:"vars,omitempty"`
 	Volatile    []string       `yaml:"volatile,omitempty" json:"volatile,omitempty"`
+	Unordered   []string       `yaml:"unordered,omitempty" json:"unordered,omitempty"`
 	Redact      []string       `yaml:"redact,omitempty" json:"redact,omitempty"`
 	Steps       []*Step        `yaml:"steps" json:"steps"`
+	KeptRed     []Pin          `yaml:"kept_red,omitempty" json:"kept_red,omitempty"`
 
 	SourcePath string `yaml:"-" json:"-"`
 }
@@ -31,6 +36,33 @@ type Step struct {
 	SkipAuth    bool              `yaml:"skip_auth,omitempty" json:"skip_auth,omitempty"`
 	AllowFail   bool              `yaml:"allow_fail,omitempty" json:"allow_fail,omitempty"`
 	Volatile    []string          `yaml:"volatile,omitempty" json:"volatile,omitempty"`
+	Unordered   []string          `yaml:"unordered,omitempty" json:"unordered,omitempty"`
+	Wait        string            `yaml:"wait,omitempty" json:"wait,omitempty"`
+}
+
+const MaxWait = 10 * time.Minute
+
+func (s *Step) WaitFor() (time.Duration, error) {
+	if strings.TrimSpace(s.Wait) == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(s.Wait))
+	if err != nil {
+		return 0, fmt.Errorf("wait %q is not a duration such as 25s or 2m", s.Wait)
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("wait %q must be longer than zero", s.Wait)
+	}
+	if d > MaxWait {
+		return 0, fmt.Errorf("wait %q is longer than the %s a step may wait", s.Wait, MaxWait)
+	}
+	return d, nil
+}
+
+type Pin struct {
+	Step string  `yaml:"step" json:"step"`
+	Path string  `yaml:"path" json:"path"`
+	Got  *string `yaml:"got,omitempty" json:"got,omitempty"`
 }
 
 func (c *Chain) Step(id string) (*Step, bool) {
@@ -66,7 +98,33 @@ func (c *Chain) Normalize() error {
 		if seen[s.ID] {
 			return fmt.Errorf("duplicate step id %q", s.ID)
 		}
+		if _, err := s.WaitFor(); err != nil {
+			return fmt.Errorf("step %q: %w", s.ID, err)
+		}
 		seen[s.ID] = true
+	}
+	return c.checkKeptRed()
+}
+
+func (c *Chain) checkKeptRed() error {
+	for i, k := range c.KeptRed {
+		s, ok := c.Step(k.Step)
+		if !ok {
+			return fmt.Errorf("kept_red[%d]: no step %q in this chain", i, k.Step)
+		}
+		found := false
+		for _, e := range s.Expect {
+			if namecase.Equal(e.Path, k.Path) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("kept_red[%d]: step %q has no expectation on path %q, so it can never fail there", i, k.Step, k.Path)
+		}
+	}
+	if problems := c.RedactedPinProblems(c.Redact); len(problems) > 0 {
+		return fmt.Errorf("%s", problems[0])
 	}
 	return nil
 }

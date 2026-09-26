@@ -2,6 +2,7 @@ package chain
 
 import (
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -103,6 +104,12 @@ func (s *Scope) resolveString(in string) (any, error) {
 		val, err := s.lookup(in[m[2]:m[3]])
 		if err != nil {
 			return nil, err
+		}
+		switch val.(type) {
+		case map[string]any, []any:
+			return nil, fmt.Errorf("reference ${%s} is interpolated inside other text (%q) but holds a message, list or map, "+
+				"which has no text form and would be sent as Go syntax; interpolate one scalar field of it instead",
+				strings.TrimSpace(in[m[2]:m[3]]), in)
 		}
 		b.WriteString(stringify(val))
 		last = m[1]
@@ -233,7 +240,7 @@ func (s *Scope) lookupStep(rest, expr string) (any, error) {
 	id, tail, _ := strings.Cut(rest, ".")
 	view, ok := s.Steps[id]
 	if !ok {
-		return nil, fmt.Errorf("unresolved reference ${%s}: no prior step %q", expr, id)
+		return nil, &UnresolvedRefError{Expr: expr, Detail: fmt.Sprintf("no prior step %q", id)}
 	}
 	root := view.Response
 	readsRequest := false
@@ -268,9 +275,56 @@ func (s *Scope) require(src map[string]any, path, expr string) (any, error) {
 	}
 	v, ok := Get(src, path)
 	if !ok {
-		return nil, fmt.Errorf("unresolved reference ${%s}", expr)
+		return nil, &UnresolvedRefError{Expr: expr}
 	}
 	return v, nil
+}
+
+type UnresolvedRefError struct {
+	Expr   string
+	Detail string
+}
+
+func (e *UnresolvedRefError) Error() string {
+	if e.Detail == "" {
+		return fmt.Sprintf("unresolved reference ${%s}", e.Expr)
+	}
+	return fmt.Sprintf("unresolved reference ${%s}: %s", e.Expr, e.Detail)
+}
+
+func ExplainLaterRef(c *Chain, stepIndex int, err error) error {
+	var u *UnresolvedRefError
+	if c == nil || !errors.As(err, &u) {
+		return err
+	}
+	r := ParseRef(u.Expr)
+	idx := newRefIndex(c)
+	here := stepIndex + 1
+	name := r.Head
+	if r.Kind == RefExports {
+		name, _, _ = strings.Cut(r.Rest, ".")
+	}
+	why := ""
+	switch r.Kind {
+	case RefExports:
+		if idx.exportedBy[name] > here {
+			why = idx.laterExport(name)
+		}
+	case RefBare:
+		if idx.exportedBy[name] > here {
+			why = idx.laterExport(name)
+		} else if idx.stepAt[name] > here {
+			why = idx.laterStep(name)
+		}
+	case RefStep:
+		if idx.stepAt[r.Head] > here {
+			why = idx.laterStep(r.Head)
+		}
+	}
+	if why == "" {
+		return err
+	}
+	return fmt.Errorf("unresolved reference ${%s}: it %s", u.Expr, why)
 }
 
 func (s *Scope) clock() time.Time {

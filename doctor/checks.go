@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -18,16 +19,19 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/contract"
 )
 
 const (
 	CheckDocs       = "docs"
+	CheckKit        = "agentkit"
 	CheckDescriptor = "descriptor"
 	CheckIgnored    = "gitignore"
 	CheckTokens     = "tokens"
 	CheckAuth       = "auth"
 
 	CheckConventions = "conventions"
+	CheckContracts   = "contracts"
 )
 
 func loadCatalog(cfg *config.Config) (*catalog.Catalog, error) {
@@ -76,6 +80,44 @@ func checkDocs(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	}
 }
 
+const reinstallKit = `rm -f .claude/skills/shrt/SKILL.md .claude/agents/shrt-contract-author.md && shrt init -build=false
+init keeps an existing .shrt/config.yaml, so this rewrites only the agent kit files you removed.`
+
+func checkKit(_ context.Context, cfg *config.Config, opts Options, r *Report) {
+	if len(opts.Kit) == 0 {
+		return
+	}
+	missing, drifted := []string{}, []string{}
+	for _, f := range opts.Kit {
+		got, err := os.ReadFile(cfg.Abs(filepath.FromSlash(f.Path)))
+		switch {
+		case err != nil:
+			missing = append(missing, f.Path)
+		case !bytes.Equal(got, f.Want):
+			drifted = append(drifted, f.Path)
+		}
+	}
+	if len(missing) == len(opts.Kit) {
+		r.add(CheckKit, LevelOK, "no agent kit installed under .claude/ (init -agents=false), so there is none to drift", "")
+		return
+	}
+	if len(missing) > 0 {
+		r.add(CheckKit, LevelError,
+			fmt.Sprintf("the agent kit is missing %s while the rest of it is installed", strings.Join(missing, ", ")),
+			reinstallKit)
+	}
+	if len(drifted) > 0 {
+		r.add(CheckKit, LevelError,
+			fmt.Sprintf("the agent kit has drifted from this binary in %s", strings.Join(drifted, ", ")),
+			"The skill and subagent are what an agent follows, and this binary enforces its own rules.\n"+
+				"Where they disagree the agent writes chains and contracts this build rejects or misreads.\n"+reinstallKit)
+	}
+	if len(missing) == 0 && len(drifted) == 0 {
+		r.add(CheckKit, LevelOK,
+			fmt.Sprintf("%d installed agent kit file(s) match the copy embedded in this binary", len(opts.Kit)), "")
+	}
+}
+
 const staleDescriptor = `shrt catalog build
 A stale descriptor does not fail loudly. A response whose message it does not know is kept
 RAW — camelCase, zero values omitted — so an assertion on a zero-valued field reads as "the
@@ -90,7 +132,8 @@ func checkDescriptor(ctx context.Context, cfg *config.Config, opts Options, r *R
 	have, err := os.ReadFile(file)
 	if err != nil {
 		r.add(CheckDescriptor, LevelError,
-			fmt.Sprintf("%s is missing, so every catalog, contract and chain command fails", cfg.Descriptor.File),
+			fmt.Sprintf("%s is missing, so run, verify, chain new/lint/slice/which and every catalog and contract "+
+				"command (except catalog build) fails; chain ls, chain hollow, diff and confirm still work", cfg.Descriptor.File),
 			"shrt catalog build")
 		return
 	}
@@ -142,8 +185,86 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 			"shrt init -build=false -agents=false   # appends only the lines that are missing")
 	}
 	if len(leaked) == 0 && ignored[secret] {
-		r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored", len(want)), "")
+		scratch, err := opts.Ignored(cfg.Root, []string{config.ScratchDir})
+		if err != nil || scratch == nil {
+			scratch = ignoredByFile(cfg.Root, []string{config.ScratchDir})
+		}
+		if scratch[config.ScratchDir] {
+			r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored, and so is %s",
+				len(want), config.ScratchDir), "")
+			return
+		}
+		r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored; %s, where "+
+			"exploratory slices are written, is not ignored, so a slice kept there shows as untracked: add it to .gitignore",
+			len(want), config.ScratchDir), "shrt init -build=false -agents=false   # appends only the lines that are missing")
 	}
+}
+
+func checkContracts(_ context.Context, cfg *config.Config, _ Options, r *Report) {
+	dir := cfg.Abs(cfg.Paths.Contracts)
+	shown := cfg.Paths.Contracts
+	cat, _ := loadCatalog(cfg)
+	lib, broken, err := contract.LoadLibraryIn(dir, cat)
+	if err != nil {
+		r.add(CheckContracts, LevelError, fmt.Sprintf("%s cannot be read: %v", shown, err), "")
+		return
+	}
+	if len(broken) > 0 {
+		lines := make([]string, 0, len(broken))
+		for _, b := range broken {
+			lines = append(lines, b.Error())
+		}
+		r.add(CheckContracts, LevelError,
+			fmt.Sprintf("%d contract overlay problem(s) under %s, and every contract command (lint, quality, "+
+				"plan, show) refuses to run until they are fixed: %s", len(broken), shown, strings.Join(lines, "; ")),
+			"shrt contract lint   # names each one")
+	}
+	ignored, err := contract.IgnoredOverlayFiles(dir)
+	if err == nil && len(ignored) > 0 {
+		for i := range ignored {
+			ignored[i] = filepath.ToSlash(ignored[i])
+		}
+		r.add(CheckContracts, LevelWarn,
+			fmt.Sprintf("%d YAML file(s) in a subdirectory of %s are not loaded — shrt reads only the files at "+
+				"its top level, so nothing in them is linted, scored or planned: %s",
+				len(ignored), shown, strings.Join(ignored, ", ")),
+			"move each overlay up into "+shown+", or out of it if it is not a contract")
+	}
+	stale := entriesNotInDescriptor(lib, cat, cfg.Root)
+	if len(stale) > 0 {
+		r.add(CheckContracts, LevelWarn,
+			fmt.Sprintf("%d contract entry(ies) name an rpc the descriptor does not have (removed from the proto?): %s",
+				len(stale), strings.Join(stale, ", ")),
+			"delete each entry, or rebuild the descriptor (shrt catalog build) if the rpc should still exist")
+	}
+	if len(broken) == 0 && len(ignored) == 0 && len(stale) == 0 {
+		r.add(CheckContracts, LevelOK,
+			fmt.Sprintf("%d contract(s) across %d overlay(s) under %s load", lib.Count(), len(lib.Overlays), shown), "")
+	}
+}
+
+func entriesNotInDescriptor(lib *contract.Library, cat *catalog.Catalog, root string) []string {
+	if lib == nil || cat == nil {
+		return nil
+	}
+	out := []string{}
+	for _, o := range lib.Overlays {
+		where := o.SourcePath
+		if rel, err := filepath.Rel(root, where); err == nil && where != "" {
+			where = filepath.ToSlash(rel)
+		}
+		names := make([]string, 0, len(o.RPCs))
+		for rpc := range o.RPCs {
+			names = append(names, rpc)
+		}
+		sort.Strings(names)
+		for _, rpc := range names {
+			if _, err := cat.Lookup(rpc); errors.Is(err, catalog.ErrNotFound) {
+				out = append(out, rpc+" in "+where)
+			}
+		}
+	}
+	return out
 }
 
 func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Report) {
@@ -179,12 +300,33 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 			expired++
 		}
 	}
+	counts := fmt.Sprintf("%d cached token(s), %d expired", len(entries), expired)
+	off := expired > 0
+	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
+		off = split.expired > 0 || split.foreignTotal() > 0 || split.other > 0
+		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d expired", split.mine, split.expired)
+		if off {
+			counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
+				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
+			if split.foreignTotal() > 0 {
+				counts += " (" + split.foreignTargets() + ")"
+			}
+			counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
+		}
+	}
+	if !off {
+		r.add(CheckTokens, LevelOK, counts, "")
+		return
+	}
 	r.add(CheckTokens, LevelOK,
-		fmt.Sprintf("%d cached token(s), %d expired by their own expires_at. A token the backend "+
+		fmt.Sprintf("%s. A token the backend "+
 			"has forgotten -- a restart, a revoke -- does not look expired here and cannot: only "+
 			"the backend knows. It is dropped when a call comes back unauthenticated, by HTTP "+
-			"status or in the response envelope, and the call is retried once against a fresh "+
-			"login. 'rm %s' forces that without a call", len(entries), expired,
+			"status or in the response envelope, and a fresh login is made. The call is re-sent once "+
+			"when it is a read, or when the refused token came from this cache and no call in the "+
+			"run had used it yet; a write refused with a token the backend already accepted in the "+
+			"run is not re-sent. A call still refused is an error, not a failure. 'rm %s' forces "+
+			"the fresh login without a call", counts,
 			config.DirName+"/"+config.TokensFile), "")
 }
 
@@ -239,10 +381,18 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(unset) > 0 {
 		r.add(CheckAuth, LevelWarn,
 			fmt.Sprintf("unset in this shell: %s", strings.Join(unset, ", ")),
-			"A run dies at step 1 with status error and SENDS NOTHING, which is a fixture problem and\n"+
-				"not a backend one. Export them before 'shrt run'.")
+			"'shrt run' of a chain with a step under one of these profiles refuses the chain before sending anything:\n"+
+				"it exits 1, writes no run record, and says 'step \"<id>\" (step N) runs under auth profile\n"+
+				"\"<profile>\", whose login body reads ${env.NAME}, and env NAME is not set, so nothing was sent'.\n"+
+				"That is a fixture problem, not a backend one. Export them before 'shrt run'.")
 	}
-	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 {
+	handWritten := cfg.HandWrittenAuthHeaders()
+	if len(handWritten) > 0 {
+		r.add(CheckAuth, LevelError, config.HandWrittenAuthProblem(handWritten),
+			"'shrt run' and 'shrt chain lint' refuse it. To call as another principal, declare it under\n"+
+				"auth.profiles and name it with auth: <profile> on the step.")
+	}
+	if len(literals) == 0 && len(unset) == 0 && len(unresolvable) == 0 && len(handWritten) == 0 {
 		r.add(CheckAuth, LevelOK,
 			fmt.Sprintf("%d auth profile(s): %s, every ${env.*} they read is set", len(names), strings.Join(names, ", ")), "")
 	}
@@ -400,8 +550,8 @@ func checkEnvelopePath(cat *catalog.Catalog, cfg *config.Config, r *Report) {
 	best := found[0]
 	r.add(CheckConventions, LevelWarn,
 		fmt.Sprintf("no conventions.envelope_path is set, so the default %q is in force — but %d of "+
-			"your %d response message(s) carry a verdict at %q instead and none carries the default",
-			chain.DefaultEnvelopePath, best.Count, len(cat.Methods()), best.Path),
+			"your %d unary rpc(s) answer with a message carrying a verdict at %q instead and none carries the default",
+			chain.DefaultEnvelopePath, best.Count, best.Of, best.Path),
 		"Check it against one response you know was refused, then set it:\n"+
 			"    conventions:\n        envelope_path: "+best.Path+"\n        envelope_ok: <the value there meaning success>\n"+
 			"shrt cannot guess envelope_ok: it reads field NAMES, and the success value is data.")
@@ -469,4 +619,16 @@ func declaredSomewhere(cat *catalog.Catalog, path string) bool {
 		}
 	}
 	return false
+}
+
+func DescriptorMatchesRebuild(ctx context.Context, cfg *config.Config) (bool, error) {
+	have, err := os.ReadFile(cfg.Abs(cfg.Descriptor.File))
+	if err != nil {
+		return false, err
+	}
+	fresh, err := rebuildDescriptor(ctx, cfg)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Equal(have, fresh), nil
 }

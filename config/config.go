@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -18,6 +19,7 @@ const (
 	FileName   = "config.yaml"
 	TokensFile = "tokens.json"
 	DocsDir    = DirName + "/docs"
+	ScratchDir = DirName + "/scratch/"
 )
 
 type Config struct {
@@ -28,6 +30,7 @@ type Config struct {
 	Auth        *Auth       `yaml:"auth,omitempty"`
 	Paths       Paths       `yaml:"paths"`
 	Conventions Conventions `yaml:"conventions,omitempty"`
+	Latency     *Latency    `yaml:"latency,omitempty"`
 	Volatile    []string    `yaml:"volatile,omitempty"`
 	Redact      []string    `yaml:"redact,omitempty"`
 }
@@ -163,6 +166,7 @@ func Default() *Config {
 func (c *Config) NeverCommit() []string {
 	runs := DirName + "/runs"
 	descriptor := DirName + "/descriptor.binpb"
+	safespots := DirName + "/safespots"
 	if c != nil {
 		if c.Paths.Runs != "" {
 			runs = c.Paths.Runs
@@ -170,12 +174,16 @@ func (c *Config) NeverCommit() []string {
 		if c.Descriptor.File != "" {
 			descriptor = c.Descriptor.File
 		}
+		if c.Paths.SafeSpots != "" {
+			safespots = c.Paths.SafeSpots
+		}
 	}
 	return []string{
 		strings.TrimSuffix(runs, "/") + "/",
 		descriptor,
 		DocsDir + "/",
 		DirName + "/" + TokensFile,
+		strings.TrimSuffix(safespots, "/") + "/pending/",
 	}
 }
 
@@ -230,6 +238,9 @@ func Load(start string) (*Config, error) {
 	if err := cfg.normalizeAuth(); err != nil {
 		return nil, err
 	}
+	if err := cfg.Latency.validate(); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -276,6 +287,32 @@ func (c *Config) AuthProfiles() map[string]*Auth {
 	return out
 }
 
+func (c *Config) HandWrittenAuthHeaders() []string {
+	if c == nil || c.Auth == nil {
+		return nil
+	}
+	auth := map[string]bool{"authorization": true}
+	for _, p := range c.AuthProfiles() {
+		header, _ := p.HeaderScheme()
+		auth[strings.ToLower(strings.TrimSpace(header))] = true
+	}
+	out := []string{}
+	for name := range c.Target.Headers {
+		if auth[strings.ToLower(strings.TrimSpace(name))] {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func HandWrittenAuthProblem(names []string) string {
+	return fmt.Sprintf("target.headers writes %s by hand while the config declares auth: it would be sent on every "+
+		"call no profile covers (a login, skip_auth, auth.skip_calls) while the run record says auth_profile none, "+
+		"and overwritten on every call a profile covers. Remove it from target.headers and let an auth profile "+
+		"carry the principal", strings.Join(names, ", "))
+}
+
 func (c *Config) AuthProfileNames() []string {
 	names := make([]string, 0, len(c.AuthProfiles()))
 	for name := range c.AuthProfiles() {
@@ -314,7 +351,7 @@ func decodeStrict(raw []byte, into any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return yamlkey.Explain(err, into)
 	}
 	var extra yaml.Node
 	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {

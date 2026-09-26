@@ -39,32 +39,33 @@ func dryRunChain(t *testing.T, name string, expect []chain.Expectation) *runner.
 	return rec
 }
 
+func dryRunRefusal(t *testing.T, name string, expect []chain.Expectation) error {
+	t.Helper()
+	c := &chain.Chain{Name: name, Steps: []*chain.Step{
+		{ID: "first", Call: "ThingService/Create", Body: map[string]any{"name": "widget", "kind": "KIND_A"},
+			Export: map[string]string{"alias_only": "id"}, Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+		{ID: "second", Call: "ThingService/Create", Body: map[string]any{"name": "widget", "kind": "KIND_A"}, Expect: expect},
+	}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	srv := newFakeServer()
+	defer srv.Close()
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{DryRun: true})
+	return err
+}
+
 func TestADryRunRefusesAnExpectationReferencingAFieldNoResponseCarries(t *testing.T) {
-	rec := dryRunChain(t, "dry-bad-expect-ref", []chain.Expectation{
+	err := dryRunRefusal(t, "dry-bad-expect-ref", []chain.Expectation{
 		{Path: "error.code", Equals: "OK"},
 		{Path: "id", Equals: "${first.field_that_cannot_exist}"},
 	})
-
-	if rec.Passed() {
+	if err == nil || !strings.Contains(err.Error(), "nothing was sent") {
 		t.Fatalf("a dry run must refuse a reference no response can satisfy; the live run is not the "+
-			"first place to learn this. record=%s", rec.Status)
+			"first place to learn this. got %v", err)
 	}
-	second, ok := rec.Step("second")
-	if !ok {
-		t.Fatal("no record for step second")
-	}
-	var unresolved *chain.ExpectResult
-	for i := range second.Expect {
-		if second.Expect[i].Rule == "unresolved" {
-			unresolved = &second.Expect[i]
-		}
-	}
-	if unresolved == nil {
-		t.Fatalf("the refusal must name the expectation that could not resolve, not just fail the "+
-			"step: expect=%+v", second.Expect)
-	}
-	if !strings.Contains(unresolved.Detail, "field_that_cannot_exist") {
-		t.Errorf("the detail must name the missing path so the author can find it: %q", unresolved.Detail)
+	if !strings.Contains(err.Error(), "field_that_cannot_exist") || !strings.Contains(err.Error(), `step "second"`) {
+		t.Errorf("the refusal must name the step and the missing path so the author can find it: %v", err)
 	}
 }
 
@@ -82,12 +83,12 @@ func TestADryRunStillAcceptsAnExpectationReferencingARealField(t *testing.T) {
 }
 
 func TestADryRunRefusesAnExpectationReadingAnExportAliasAsAResponseField(t *testing.T) {
-	rec := dryRunChain(t, "dry-alias-expect-ref", []chain.Expectation{
+	err := dryRunRefusal(t, "dry-alias-expect-ref", []chain.Expectation{
 		{Path: "error.code", Equals: "OK"},
 		{Path: "id", Equals: "${first.alias_only}"},
 	})
 
-	if rec.Passed() {
+	if err == nil || !strings.Contains(err.Error(), "alias_only") {
 		t.Fatal("an export alias is not a field on the response: ${step.alias} must be refused even " +
 			"though ${alias} on its own resolves, which is the shape that survived both gates and " +
 			"only failed live")

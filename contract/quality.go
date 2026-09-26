@@ -21,6 +21,7 @@ const (
 	WeightReadWithNoProducer      = 2
 	WeightMissingRequiresRole     = 2
 	WeightEmptyRequired           = 2
+	WeightNoContract              = 2
 )
 
 const (
@@ -57,6 +58,11 @@ func QualityTerms() []QualityTerm {
 		return 0
 	}
 	return []QualityTerm{
+		{WeightNoContract, PhaseHappy, "rpc in the catalog that no overlay covers, on top of what an empty entry for it scores",
+			func(r QualityRPC) int { return flag(r.NoContract) },
+			func(QualityRPC) string {
+				return "no contract in any overlay: scored as an empty entry plus this charge — shrt contract init <domain> writes one"
+			}},
 		{WeightUndocumentedField, PhaseHappy, "undocumented request field",
 			func(r QualityRPC) int { return len(r.UndocumentedFields) },
 			func(r QualityRPC) string {
@@ -134,6 +140,7 @@ type QualityRPC struct {
 	ReadWithNoProducer       bool     `json:"read_with_no_producer"`
 	MissingRequiresRole      bool     `json:"missing_requires_role"`
 	EmptyRequired            bool     `json:"empty_required"`
+	NoContract               bool     `json:"no_contract"`
 	WiredFields              int      `json:"wired_fields"`
 	HasSummary               bool     `json:"has_summary"`
 	Score                    int      `json:"score"`
@@ -188,13 +195,7 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 }
 
 func referenceableResponseField(f *catalog.Field) bool {
-	if f.Name == chain.EnvelopeField() {
-		return false
-	}
-	if f.Kind == "message" || f.Kind == "group" {
-		return f.Repeated
-	}
-	return true
+	return f.Name != chain.EnvelopeField()
 }
 
 func Measure(lib *Library, cat *catalog.Catalog, domain string) QualityReport {
@@ -220,6 +221,23 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 				continue
 			}
 			report.RPCs = append(report.RPCs, row)
+		}
+	}
+	if cat != nil {
+		for _, m := range cat.Methods() {
+			if m.Streaming() || (domain != "" && DomainOf(m) != domain) {
+				continue
+			}
+			if _, ok := lib.Get(m.FullName); ok {
+				continue
+			}
+			row := measureRPC(DomainOf(m), m.FullName, &RPCContract{}, shapes[m.FullName], lib.RequiredBy(m.FullName))
+			row.NoContract = true
+			row.Score = ScoreOfPhase(row, phase)
+			report.TotalScore += row.Score
+			if row.Score > 0 {
+				report.RPCs = append(report.RPCs, row)
+			}
 		}
 	}
 	sort.SliceStable(report.RPCs, func(i, j int) bool {
@@ -286,14 +304,13 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 	}
 
 	declaredResponse := map[string]bool{}
-	for key := range c.Exports {
-		declaredResponse[headSegment(key)] = true
-	}
-	for key := range c.Terminal {
-		declaredResponse[headSegment(key)] = true
-	}
-	for key := range c.SoftSignals {
-		declaredResponse[headSegment(key)] = true
+	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
+		for key, why := range section {
+			if IsTodo(why) {
+				continue
+			}
+			declaredResponse[headSegment(key)] = true
+		}
 	}
 	undeclaredResponse := []string{}
 	for _, name := range shape.ResponseFields {

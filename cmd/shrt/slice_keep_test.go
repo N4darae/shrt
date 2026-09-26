@@ -88,7 +88,7 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 	if exitCodeOf(err) != 3 {
 		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
 	}
-	want := "next: shrt chain slice cli-noisy-flow -step fetch -run " + source + " -keep fill -verify -write"
+	want := "next: shrt chain slice cli-noisy-flow -step fetch -run " + source + " -keep writes -verify -write"
 	if !strings.Contains(out, want) {
 		t.Fatalf("the INCONCLUSIVE advice must name a runnable command\nwant %q in:\n%s", want, out)
 	}
@@ -102,11 +102,50 @@ func TestCLISliceInconclusiveNamesTheCommandThatKeepsTheWrites(t *testing.T) {
 	if !strings.Contains(again, "verify reproduced") {
 		t.Errorf("with the write kept the verdict is a receipt:\n%s", again)
 	}
-	if _, err := os.Stat(".shrt/chains/cli-noisy-flow-slice-fetch.yaml"); err != nil {
-		t.Errorf("-write must keep the slice: %v", err)
+	if _, err := os.Stat(".shrt/chains/cli-noisy-flow-slice-fetch.yaml"); err == nil {
+		t.Errorf("with every write kept the slice is the chain itself, so -write records the verdict there instead of copying it")
 	}
-	entries, err := os.ReadDir(".shrt/runs/cli-noisy-flow-slice-fetch")
-	if err != nil || len(entries) != 1 {
-		t.Errorf("a written slice keeps its verify run record next to its chain: %v, %d", err, len(entries))
+	raw, err := os.ReadFile(".shrt/chains/cli-noisy-flow.yaml")
+	if err != nil || !strings.Contains(string(raw), "VERIFIED by 'shrt chain slice -verify'") {
+		t.Errorf("the verdict must be recorded in the chain the slice equals: %v\n%s", err, raw)
+	}
+	entries, err := os.ReadDir(".shrt/runs/cli-noisy-flow")
+	if err != nil || len(entries) != 4 {
+		t.Errorf("the source run and the three -repeat runs of the verify are kept next to the chain they ran: %v, %d", err, len(entries))
+	}
+}
+
+func TestCLISliceNextKeepsTheWritePathTheUserGave(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeNoisyChain(t, "widget")
+	if err := runRun(context.Background(), []string{"cli-noisy-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	out, err := sliceVerify(t, "-write", ".shrt/scratch/noisy-repro.yaml")
+	if exitCodeOf(err) != 3 {
+		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
+	}
+	if !strings.Contains(out, "-verify -write .shrt/scratch/noisy-repro.yaml\n") {
+		t.Fatalf("next must write where the user asked, not into .shrt/chains:\n%s", out)
+	}
+}
+
+func TestCLISliceRecordsAnInconclusiveVerdictInPlaceOfTheHypothesis(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeNoisyChain(t, "widget")
+	if err := runRun(context.Background(), []string{"cli-noisy-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	out, err := sliceVerify(t, "-write", ".shrt/scratch/noisy-repro.yaml")
+	if exitCodeOf(err) != 3 {
+		t.Fatalf("the plain slice is inconclusive, got exit %d:\n%s", exitCodeOf(err), out)
+	}
+	written := string(mustRead(t, ".shrt/scratch/noisy-repro.yaml"))
+	if !strings.Contains(written, "INCONCLUSIVE by 'shrt chain slice -verify'") || strings.Contains(written, "HYPOTHESIS") {
+		t.Fatalf("the INCONCLUSIVE verdict replaces the hypothesis paragraph:\n%s", written)
 	}
 }

@@ -24,6 +24,9 @@ type TokenSink interface {
 }
 
 type AuthSpec struct {
+	Profile      string
+	EnvRefs      []string
+	Target       string
 	Procedure    string
 	Canonicalize func([]byte) ([]byte, error)
 	Body         func() ([]byte, error)
@@ -43,6 +46,14 @@ type LoginTokenSource struct {
 	mu           sync.Mutex
 	token        string
 	expiresAt    time.Time
+	issuedAt     time.Time
+	sentAt       time.Time
+	relogins     []time.Time
+	ages         []time.Duration
+	pending      []time.Time
+	pendingAges  []time.Duration
+	fromCache    bool
+	accepted     bool
 	logins       int
 	cachePath    string
 	cacheProfile string
@@ -61,12 +72,13 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 	if s.token != "" && !s.stale() {
 		return s.token, nil
 	}
-	if token, expiresAt, ok := s.readCache(); ok {
-		s.token, s.expiresAt = token, expiresAt
+	if e, ok := s.readCache(); ok {
+		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins, s.ages = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt, e.Relogins, e.ReloginAges
 		if !s.stale() {
+			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
-		s.token, s.expiresAt = "", time.Time{}
+		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins, s.ages = "", time.Time{}, time.Time{}, time.Time{}, nil, nil
 	}
 	return s.login(ctx)
 }
@@ -79,13 +91,75 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	defer s.mu.Unlock()
 	s.token = token
 	s.expiresAt = expiresAt
+	s.issuedAt = time.Now()
+	s.sentAt = time.Time{}
+	s.relogins, s.ages = nil, nil
+	s.fromCache, s.accepted = false, false
+}
+
+func (s *LoginTokenSource) Accepted(token string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token == "" || token != s.token {
+		return
+	}
+	s.accepted = true
+	if s.fromCache && len(s.relogins) > 0 && time.Since(s.issuedAt) >= youngest(s.ages) {
+		s.relogins, s.ages = nil, nil
+		s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt})
+	}
+}
+
+func (s *LoginTokenSource) UntriedCached(token string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return token != "" && token == s.token && s.fromCache && !s.accepted
+}
+
+func (s *LoginTokenSource) Minted(token string) (minted, accepted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token == "" || token != s.token {
+		return false, false
+	}
+	return !s.fromCache, s.accepted
+}
+
+func (s *LoginTokenSource) Refusal(token string, at time.Time) (TokenRefusal, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if token == "" || token != s.token {
+		return TokenRefusal{}, false
+	}
+	return TokenRefusal{
+		Token: fingerprint(token), SentAt: s.sentAt, IssuedAt: s.issuedAt, ExpiresAt: s.expiresAt, RefusedAt: at,
+		Cached: s.fromCache, FirstUse: !s.accepted, Relogins: s.relogins,
+	}, true
+}
+
+func (s *LoginTokenSource) CurrentToken() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.token
 }
 
 func (s *LoginTokenSource) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pending, s.pendingAges = nil, nil
+	if now := time.Now(); s.token != "" && (TokenRefusal{IssuedAt: s.issuedAt, SentAt: s.sentAt, ExpiresAt: s.expiresAt, RefusedAt: now}).Early() {
+		keep := max(0, len(s.relogins)-1)
+		s.pending = append(append([]time.Time{}, s.relogins[keep:]...), now)
+		if len(s.ages) == len(s.relogins) {
+			s.pendingAges = append(append([]time.Duration{}, s.ages[keep:]...), now.Sub(s.issuedAt))
+		}
+	}
 	s.token = ""
+	s.relogins, s.ages = nil, nil
 	s.expiresAt = time.Time{}
+	s.issuedAt = time.Time{}
+	s.sentAt = time.Time{}
+	s.fromCache, s.accepted = false, false
 	s.dropCache()
 }
 
@@ -111,13 +185,26 @@ func (s *LoginTokenSource) loginBackoff() time.Duration {
 	return 7 * time.Second
 }
 
+func (s *LoginTokenSource) whose() string {
+	if s.spec.Profile == "" {
+		return ""
+	}
+	out := fmt.Sprintf("\n       this was the login of auth profile %q", s.spec.Profile)
+	if len(s.spec.EnvRefs) > 0 {
+		out += ", whose body reads " + strings.Join(s.spec.EnvRefs, ", ") + ": check those are set to credentials this backend accepts"
+	}
+	return out
+}
+
 func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	body, err := s.spec.Body()
 	if err != nil {
 		return "", fmt.Errorf("auth body: %w", err)
 	}
 	var res *Result
+	var sentAt time.Time
 	for attempt := 1; ; attempt++ {
+		sentAt = time.Now()
 		res, err = s.invoke(ctx, &Call{Procedure: s.spec.Procedure, Body: body})
 		if err != nil {
 			return "", fmt.Errorf("auth login: %w", err)
@@ -146,18 +233,34 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	}
 	token, ok := lookupString(payload, s.spec.TokenPath)
 	if !ok || token == "" {
-		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s", s.spec.TokenPath, excerpt(raw, 300))
+		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s%s", s.spec.TokenPath, excerpt(raw, 300), s.whose())
 	}
 	s.token = token
 	s.expiresAt = time.Time{}
+	s.issuedAt = time.Now()
+	s.sentAt = sentAt
+	s.relogins, s.pending = s.pending, nil
+	s.ages, s.pendingAges = s.pendingAges, nil
+	s.fromCache, s.accepted = false, false
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
 			s.expiresAt = time.Unix(unix, 0)
 		}
 	}
 	s.logins++
-	s.writeCache(s.token, s.expiresAt)
+	s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt, Relogins: s.relogins, ReloginAges: s.ages})
 	return token, nil
+}
+
+func youngest(ages []time.Duration) time.Duration {
+	if len(ages) == 0 {
+		return 0
+	}
+	out := ages[0]
+	for _, a := range ages[1:] {
+		out = min(out, a)
+	}
+	return out
 }
 
 type AuthProfile struct {
@@ -185,6 +288,7 @@ type AuthRouter struct {
 	Default  string
 	Skip     func(procedure string) bool
 	Envelope func(body []byte) string
+	Resend   func(procedure string) bool
 }
 
 func (r AuthRouter) byName(name string) *AuthProfile {
@@ -247,18 +351,63 @@ func WithAuthRouter(router AuthRouter) Middleware {
 			}
 			noteProfile(call, profile.Name)
 			header, scheme := profile.headerScheme()
-			if err := apply(ctx, profile.Source, call, header, scheme); err != nil {
+			token, err := apply(ctx, profile.Source, call, header, scheme)
+			if err != nil {
 				return nil, err
 			}
 			res, err := next(ctx, call)
-			if err != nil || !router.unauthenticated(res) {
+			if err != nil {
 				return res, err
 			}
+			tracked, _ := profile.Source.(tokenProvenance)
+			if !router.unauthenticated(res) {
+				if tracked != nil {
+					tracked.Accepted(token)
+				}
+				return res, nil
+			}
+			untried := tracked != nil && res.Status == http.StatusUnauthorized && tracked.UntriedCached(token)
+			minted, accepted := false, false
+			if tracked != nil {
+				minted, accepted = tracked.Minted(token)
+			}
+			noteRefusal(call, profile.Source, token)
 			profile.Source.Invalidate()
-			if err := apply(ctx, profile.Source, call, header, scheme); err != nil {
+			if !untried && (router.Resend == nil || !router.Resend(call.Procedure)) {
+				call.Meta[MetaAuthRetry] = AuthRetryNotResent
+				call.Meta[MetaAuthRefused] = true
+				switch {
+				case accepted:
+					call.Meta[MetaAuthRefusedFresh] = FreshTokenAccepted
+				case minted:
+					call.Meta[MetaAuthRefusedFresh] = FreshTokenMinted
+				}
+				return res, nil
+			}
+			token, err = apply(ctx, profile.Source, call, header, scheme)
+			if err != nil {
 				return nil, err
 			}
-			return next(ctx, call)
+			call.Meta[MetaAuthRetry] = AuthRetryResent
+			if untried {
+				call.Meta[MetaAuthRetryCached] = true
+			}
+			res, err = next(ctx, call)
+			if err != nil {
+				return res, err
+			}
+			if router.unauthenticated(res) {
+				call.Meta[MetaAuthRefused] = true
+				noteRefusal(call, profile.Source, token)
+				if tracked != nil {
+					if again, _ := tracked.Minted(token); again {
+						call.Meta[MetaAuthRefusedFresh] = FreshTokenRelogin
+					}
+				}
+			} else if tracked != nil {
+				tracked.Accepted(token)
+			}
+			return res, nil
 		}
 	}
 }
@@ -274,6 +423,45 @@ func WithAuth(src TokenSource, spec AuthSpec, skip func(procedure string) bool) 
 const DefaultProfile = "default"
 
 const MetaAuthProfile = "auth_profile"
+
+const (
+	MetaAuthRetry        = "auth_retry"
+	MetaAuthRetryCached  = "auth_retry_cached"
+	MetaAuthRefused      = "auth_refused"
+	MetaAuthRefusedFresh = "auth_refused_fresh"
+	MetaAuthTokenRefused = "auth_token_refused"
+	FreshTokenMinted     = "minted"
+	FreshTokenAccepted   = "accepted"
+	FreshTokenRelogin    = "relogin"
+	AuthRetryResent      = "resent"
+	AuthRetryNotResent   = "not_resent"
+)
+
+type tokenProvenance interface {
+	Accepted(token string)
+	UntriedCached(token string) bool
+	Minted(token string) (minted, accepted bool)
+}
+
+type tokenTiming interface {
+	Refusal(token string, at time.Time) (TokenRefusal, bool)
+}
+
+func noteRefusal(call *Call, src TokenSource, token string) {
+	timed, ok := src.(tokenTiming)
+	if !ok {
+		return
+	}
+	r, ok := timed.Refusal(token, time.Now())
+	if !ok {
+		return
+	}
+	if call.Meta == nil {
+		call.Meta = map[string]any{}
+	}
+	prior, _ := call.Meta[MetaAuthTokenRefused].([]TokenRefusal)
+	call.Meta[MetaAuthTokenRefused] = append(prior, r)
+}
 
 func noteProfile(call *Call, name string) {
 	if call.Meta == nil {
@@ -335,10 +523,10 @@ func callAuthProfile(call *Call) string {
 	return strings.TrimSpace(s)
 }
 
-func apply(ctx context.Context, src TokenSource, call *Call, header, scheme string) error {
+func apply(ctx context.Context, src TokenSource, call *Call, header, scheme string) (string, error) {
 	token, err := src.Token(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if call.Header == nil {
 		call.Header = map[string][]string{}
@@ -348,7 +536,7 @@ func apply(ctx context.Context, src TokenSource, call *Call, header, scheme stri
 		value = scheme + " " + token
 	}
 	call.Header.Set(header, value)
-	return nil
+	return token, nil
 }
 
 func isUnauthenticated(res *Result) bool {

@@ -16,7 +16,7 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
+func TestAClientStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	var hits int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
@@ -24,7 +24,7 @@ func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	}))
 	defer srv.Close()
 	cat := catalogtest.Rich()
-	method, err := cat.Lookup("OrderService/WatchOrder")
+	method, err := cat.Lookup("OrderService/UploadOrders")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,20 +37,15 @@ func TestAStreamingRPCIsRefusedBeforeSendingInRunAndDryRun(t *testing.T) {
 	r := &runner.Runner{Catalog: deps.Catalog, Client: deps.Client}
 	for _, dry := range []bool{false, true} {
 		c := normalized(t, &chain.Chain{Name: "watch", Steps: []*chain.Step{{
-			ID: "watch", Call: "OrderService/WatchOrder", SkipAuth: true,
-			Body:   map[string]any{"id_order": "x"},
+			ID: "upload", Call: "OrderService/UploadOrders", SkipAuth: true,
 			Expect: []chain.Expectation{{Path: "transport.code", Equals: "http_415"}},
 		}}})
 		rec, err := r.Run(context.Background(), c, runner.Options{DryRun: dry})
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatalf("dry=%v: a streaming rpc is a static refusal; want the chain refused before sending, got a record with status %s", dry, rec.Status)
 		}
-		sr := rec.Steps[0]
-		if rec.Passed() || sr.Status != runner.StatusError {
-			t.Errorf("dry=%v: a streaming rpc cannot be one POST; want the step refused as an error, got %s", dry, sr.Status)
-		}
-		if sr.Error != method.StreamRefusal() {
-			t.Errorf("dry=%v: want lint's StreamRefusal sentence, got %q", dry, sr.Error)
+		if !strings.Contains(err.Error(), method.StreamRefusal()) || !strings.Contains(err.Error(), "nothing was sent") {
+			t.Errorf("dry=%v: want lint's StreamRefusal sentence and that nothing was sent, got %q", dry, err)
 		}
 	}
 	if n := atomic.LoadInt32(&hits); n != 0 {

@@ -3,10 +3,15 @@ package runner
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"os"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,8 +19,11 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/transport"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type Runner struct {
@@ -26,6 +34,7 @@ type Runner struct {
 	ValidateOutput bool
 	OnStep         func(*StepRecord)
 	Auth           AuthBindings
+	AuthRoute      func(*chain.Step) (string, bool)
 	BuildHeader    string
 }
 
@@ -36,6 +45,9 @@ type AuthBinding struct {
 	ExpiresPath string
 	Body        func() ([]byte, error)
 	Sink        transport.TokenSink
+	EnvVars     []string
+	BodyFields  map[string]any
+	Header      string
 }
 
 type AuthBindings []*AuthBinding
@@ -134,6 +146,175 @@ func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical
 	return out
 }
 
+func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		learnMaskedTemplate(redactor, b.BodyFields, "")
+	}
+}
+
+func (bs AuthBindings) principals() map[string]string {
+	defaults := pathmask.NewRedactor(config.DefaultRedact())
+	out := map[string]string{}
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		fields := map[string]any{}
+		for k, v := range b.BodyFields {
+			if defaults.Masks(k) {
+				continue
+			}
+			resolved, err := chain.AuthBodyScope().ResolveValue(v)
+			if err != nil {
+				fields = nil
+				break
+			}
+			fields[k] = withoutSecrets(defaults, resolved, k)
+		}
+		if fields == nil {
+			continue
+		}
+		raw, err := json.Marshal(map[string]any{"call": b.Procedure, "fields": fields})
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(raw)
+		out[b.Profile] = hex.EncodeToString(sum[:8])
+	}
+	return out
+}
+
+func withoutSecrets(secrets *pathmask.Masker, v any, path string) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := map[string]any{}
+		for k, item := range t {
+			sub := pathmask.Join(path, k)
+			if secrets.Masks(sub) {
+				continue
+			}
+			out[k] = withoutSecrets(secrets, item, sub)
+		}
+		return out
+	case []any:
+		out := make([]any, 0, len(t))
+		for i, item := range t {
+			out = append(out, withoutSecrets(secrets, item, pathmask.Join(path, pathmask.IndexKey(i))))
+		}
+		return out
+	}
+	return v
+}
+
+func (bs AuthBindings) learnLoginResponse(redactor *pathmask.Masker, procedure string, response any) {
+	login := false
+	for _, b := range bs {
+		if b == nil || b.Procedure != procedure {
+			continue
+		}
+		login = true
+		if token, ok := chain.Get(response, b.TokenPath); ok && b.TokenPath != "" {
+			learnSecret(redactor, token)
+		}
+	}
+	if login {
+		learnMaskedValues(redactor, response, "")
+	}
+}
+
+func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
+	if path != "" && redactor.MasksValue(path, v) {
+		learnSecret(redactor, v)
+		return
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedValues(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	}
+}
+
+func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope, open)
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope, open)
+		}
+	case string:
+		if !redactor.Masks(path) {
+			return
+		}
+		env := scope.Env
+		if env == nil {
+			env = os.LookupEnv
+		}
+		for _, name := range chain.AuthBodyEnvNames(map[string]any{"v": t}) {
+			if value, ok := env(name); ok {
+				redactor.AddSecret(value)
+			}
+		}
+		public := false
+		for _, ref := range chain.VarRefs(t) {
+			if !secretVar(ref, t, open, redactor) {
+				public = true
+				continue
+			}
+			if value, err := scope.ResolveValue(ref); err == nil {
+				learnSecret(redactor, value)
+			}
+		}
+		if public && readsOnlyInputs(t) {
+			if value, err := scope.ResolveValue(t); err == nil && redactor.MasksValue(path, value) {
+				redactor.AddWholeSecret(fmt.Sprint(value))
+			}
+		}
+	}
+}
+
+func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, k))
+		}
+	case []any:
+		for i, item := range t {
+			learnMaskedTemplate(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
+		}
+	default:
+		if !redactor.Masks(path) {
+			return
+		}
+		resolved, err := chain.AuthBodyScope().ResolveValue(t)
+		if err == nil && redactor.MasksValue(path, resolved) {
+			learnSecret(redactor, resolved)
+		}
+	}
+}
+
+func (bs AuthBindings) learnTokens(redactor *pathmask.Masker) {
+	for _, b := range bs {
+		if b == nil {
+			continue
+		}
+		if holder, ok := b.Sink.(interface{ CurrentToken() string }); ok {
+			redactor.AddSecret(holder.CurrentToken())
+		}
+	}
+}
+
 func (bs AuthBindings) profiles() []string {
 	out := make([]string, 0, len(bs))
 	for _, b := range bs {
@@ -172,7 +353,13 @@ type Options struct {
 	DryRun    bool
 	KeepGoing bool
 	Build     string
-	heldBack  map[int]string
+
+	LatencySuspect func(stepID string, ms int64) bool
+	Remeasure      int
+
+	heldBack   map[int]string
+	principals map[string]string
+	chain      *chain.Chain
 }
 
 type buildTracker struct {
@@ -207,6 +394,215 @@ func (b *buildTracker) observe(rec *Record, sr *StepRecord) {
 	}
 }
 
+const (
+	AuthRetryResent    = transport.AuthRetryResent
+	AuthRetryNotResent = transport.AuthRetryNotResent
+)
+
+const freshTokenRefused = "may be an auth regression"
+
+func RefusedFreshToken(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && strings.Contains(sr.Error, freshTokenRefused)
+}
+
+const UndeclaredFieldsWarning = "response field(s) the proto does not declare, not compared: "
+
+const UndeclaredFieldsAdvice = "the backend sends fields the proto does not declare: update the proto/descriptor if you want " +
+	"them compared (an added field is backward compatible; a field is read only under its proto or JSON name, so a name " +
+	"that differs from a declared one only in case or separators is not read either)"
+
+func UndeclaredFieldsLine(rec *Record) string {
+	order, fields := []string{}, map[string][]string{}
+	for _, sr := range rec.Steps {
+		if sr == nil {
+			continue
+		}
+		for _, line := range strings.Split(sr.Warning, "\n") {
+			rest, ok := strings.CutPrefix(strings.TrimSpace(line), UndeclaredFieldsWarning)
+			if !ok {
+				continue
+			}
+			if _, seen := fields[sr.Call]; !seen {
+				order = append(order, sr.Call)
+			}
+			for _, f := range strings.Split(rest, ", ") {
+				if f != "" && !slicesContain(fields[sr.Call], f) {
+					fields[sr.Call] = append(fields[sr.Call], f)
+				}
+			}
+		}
+	}
+	if len(order) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(order))
+	for _, call := range order {
+		parts = append(parts, call+" -> "+strings.Join(fields[call], ", "))
+	}
+	return UndeclaredFieldsAdvice + ": " + strings.Join(parts, "; ")
+}
+
+func slicesContain(list []string, s string) bool {
+	for _, x := range list {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
+const notAnsweredByService = "not answered by the service"
+
+func unavailableAnswer(status int, code string) bool {
+	switch code {
+	case "unavailable":
+		return true
+	case "http_502", "http_503", "http_504":
+		return status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+	}
+	return false
+}
+
+func NotAnsweredByService(sr *StepRecord) bool {
+	return sr != nil && sr.Status == StatusError && sr.Transport != nil && unavailableAnswer(sr.HTTPStatus, sr.Transport.Code)
+}
+
+func serviceRefused(sr *StepRecord) bool {
+	return NotAnsweredByService(sr) && sr.Transport.Code == "unavailable"
+}
+
+func settleServiceRefusals(steps []*StepRecord) {
+	answered := func(st *StepRecord) bool {
+		return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !NotAnsweredByService(st)
+	}
+	var settled []*StepRecord
+	for i, sr := range steps {
+		if !serviceRefused(sr) {
+			continue
+		}
+		same, later := "", false
+		for j, o := range steps {
+			if j != i && answered(o) {
+				if same == "" && o.Call == sr.Call {
+					same = o.ID
+				}
+				later = later || j > i
+			}
+		}
+		if same == "" || !later {
+			continue
+		}
+		why, _, _ := strings.Cut(sr.Error, "\n")
+		sr.Error = why + "\n       " + fmt.Sprintf("HTTP %d from the service itself: it answered this rpc at step %q and the steps "+
+			"after this one, so this is not a restart or a gateway", sr.HTTPStatus, same)
+		settled = append(settled, sr)
+	}
+	for _, sr := range settled {
+		sr.Status, sr.Expect = StatusFailed, sr.refused
+	}
+}
+
+func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.TokenRefusal) {
+	if sr.Status != StatusFailed {
+		return
+	}
+	sr.Status = StatusError
+	if fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil {
+		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run: the "+
+			wasRefused(EarlyRefusalText(refusals))+". Either it ends sessions long before the expiry its login states, or it restarted "+
+			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused "+
+			"early again, with nothing showing a restart, is reported as a finding")
+		return
+	}
+	if fresh == transport.FreshTokenAccepted {
+		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run (issued by a "+
+			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
+			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
+			"reported as a finding. Only a token refused on its first use "+
+			"suggests the backend refuses valid tokens")
+		return
+	}
+	evidence := ""
+	switch fresh {
+	case transport.FreshTokenRelogin:
+		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
+			"was re-sent with the new token, and the backend refused that too"
+	case transport.FreshTokenMinted:
+		evidence = "the backend refused a token that a login in this run had just issued"
+	}
+	if evidence != "" {
+		confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
+		if fresh == transport.FreshTokenMinted {
+			confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
+				"re-sent after a fresh login and refused again is reported as a finding; re-run"
+		}
+		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
+			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
+			"because the rpc itself never answered; "+confirm)
+		return
+	}
+	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
+		"check the credentials of the step's auth profile and re-run")
+}
+
+func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
+	for i := range refusals {
+		if refusals[i].Early() {
+			return &refusals[i]
+		}
+	}
+	return nil
+}
+
+func EarlyRefusalText(refusals []transport.TokenRefusal) string {
+	r := EarlyRefusal(refusals)
+	if r == nil {
+		return ""
+	}
+	return TokenRefusalPhrase(*r)
+}
+
+func TokenRefusalPhrase(r transport.TokenRefusal) string {
+	stated, statedOK := r.Stated()
+	age, ageOK := r.Age()
+	left, _ := r.Left()
+	if !ageOK || !statedOK {
+		return fmt.Sprintf("token refused %ds before the expiry its login stated", Seconds(left))
+	}
+	return fmt.Sprintf("token refused %ds after issue although the login said it expires in %ds", Seconds(age), Seconds(stated))
+}
+
+func wasRefused(phrase string) string {
+	return strings.Replace(phrase, "token refused", "token was refused", 1)
+}
+
+func Seconds(d time.Duration) int64 {
+	return int64(d.Round(time.Second) / time.Second)
+}
+
+const CachedTokenResent = "cached token refused before the handler ran (backend restarted or token revoked); " +
+	"logged in again and re-sent: this is the second answer"
+
+func authRetryWarning(retry string, cached, freshRefused bool) string {
+	if retry == AuthRetryResent && cached && freshRefused {
+		return "the first attempt carried a token read from the on-disk cache that no call in this run had used yet, " +
+			"and was refused at authentication, so the token was dropped, a fresh login made, and this call re-sent; the " +
+			"backend refused the token that login had just issued too, so a stale cached token does not explain the " +
+			"refusal. This record is the second answer"
+	}
+	if retry == AuthRetryResent && cached {
+		return CachedTokenResent
+	}
+	if retry == AuthRetryResent {
+		return "the first attempt was answered unauthenticated, so the token was dropped, a fresh login made, " +
+			"and this call re-sent: the backend received it twice. It is a read (conventions.read_only_prefixes), " +
+			"so sending it again changes nothing; this record is the second answer"
+	}
+	return "answered unauthenticated, and not re-sent: this is not a read (conventions.read_only_prefixes), and " +
+		"the backend may already have performed it, so sending it again could perform it twice. The token was " +
+		"dropped, so the next call logs in fresh; re-run the chain if the token had simply expired"
+}
+
 func joinLines(a, b string) string {
 	if a == "" {
 		return b
@@ -215,7 +611,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, "expectation failed"))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, firstFailedExpectation(sr)))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -232,11 +628,26 @@ func failureOf(step *chain.Step, sr *StepRecord) string {
 	return failure
 }
 
-func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+type exportSource struct {
+	step string
+	path string
+}
+
+type exportSources map[string]exportSource
+
+func (x exportSources) steps() map[string]string {
+	out := make(map[string]string, len(x))
+	for name, src := range x {
+		out[name] = src.step
+	}
+	return out
+}
+
+func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
 	return readsBrokenIn(step.SendReferences(), broken, exporter)
 }
 
-func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter map[string]string) map[int]string {
+func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
 	held := map[int]string{}
 	for i, e := range step.Expect {
 		if ref, producer, ok := readsBrokenIn(e.References(), broken, exporter); ok {
@@ -246,9 +657,10 @@ func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, expor
 	return held
 }
 
-func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter map[string]string) (string, *StepRecord, bool) {
+func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
+	steps := exporter.steps()
 	for _, ref := range refs {
-		producer := producerOf(ref, exporter)
+		producer := producerOf(ref, steps)
 		sr, isBroken := broken[producer]
 		if producer == "" || !isBroken {
 			continue
@@ -256,7 +668,7 @@ func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter map[st
 		if readsRequest(ref) && sr.Request != nil {
 			continue
 		}
-		if readsSoundField(ref, sr) {
+		if readsSoundField(exportedPath(ref, exporter), sr) {
 			continue
 		}
 		return ref, sr, true
@@ -285,6 +697,28 @@ func readsSoundField(ref string, sr *StepRecord) bool {
 		}
 	}
 	return true
+}
+
+func exportedPath(ref string, exporter exportSources) string {
+	r := chain.ParseRef(ref)
+	name := ""
+	switch r.Kind {
+	case chain.RefExports:
+		name = r.Rest
+	case chain.RefBare:
+		name = r.Head
+	default:
+		return ref
+	}
+	name, tail, _ := strings.Cut(name, ".")
+	src, ok := exporter[name]
+	if !ok || src.path == "" {
+		return ref
+	}
+	if tail != "" {
+		return src.step + "." + src.path + "." + tail
+	}
+	return src.step + "." + src.path
 }
 
 func responsePathOf(ref string) (string, bool) {
@@ -340,6 +774,30 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 	return sr
 }
 
+func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
+	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
+	if method, err := r.Catalog.Lookup(step.Call); err == nil {
+		sr.Procedure = method.Procedure()
+	}
+	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
+	return sr
+}
+
+func unreachableReason(target string, dead *StepRecord) string {
+	return fmt.Sprintf("the target %s is unreachable (%s at step %q), so -keep-going stopped sending",
+		target, dead.unreachable, dead.ID)
+}
+
+func innermost(err error) string {
+	for {
+		next := errors.Unwrap(err)
+		if next == nil {
+			return err.Error()
+		}
+		err = next
+	}
+}
+
 func whyNotReadable(sr *StepRecord) string {
 	switch {
 	case sr.Status == StatusSkipped:
@@ -362,6 +820,100 @@ func whyNotReadable(sr *StepRecord) string {
 	}
 	return "did not pass (" + firstLine(firstNonEmpty(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
+}
+
+func envelopeOKNeverSeen(steps []*StepRecord) string {
+	path, ok := chain.EnvelopePath(), chain.EnvelopeOK()
+	if path == "" {
+		return ""
+	}
+	counts := map[string]int{}
+	for _, sr := range steps {
+		if sr.Transport != nil || sr.Drift || len(sr.Response) == 0 {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(sr.Response, &v); err != nil {
+			continue
+		}
+		code, found := chain.Get(v, path)
+		if !found || code == nil {
+			continue
+		}
+		text := fmt.Sprint(code)
+		if text == ok {
+			return ""
+		}
+		if !assertedValue(sr.Expect, path) && !assertsTransport(sr.Expect) {
+			counts[text]++
+		}
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	seen := make([]string, 0, len(counts))
+	verdicts, refusals := true, true
+	for text, n := range counts {
+		shown := text
+		if !looksLikeVerdict(text) {
+			shown = strconv.Quote(text)
+			verdicts = false
+		}
+		if !looksLikeRefusal(text) {
+			refusals = false
+		}
+		seen = append(seen, fmt.Sprintf("%s (%d)", shown, n))
+	}
+	sort.Strings(seen)
+	if !verdicts {
+		return fmt.Sprintf("no response in this run carried %s = %s, and the values found at %s were %s, which "+
+			"do not look like verdict codes. conventions.envelope_path in .shrt/config.yaml most likely names "+
+			"the wrong field: point it at the field that carries the verdict", path, ok, path, strings.Join(seen, ", "))
+	}
+	if refusals {
+		return ""
+	}
+	return fmt.Sprintf("no response in this run carried %s = %s, the configured success value; the values seen "+
+		"were %s. If one of those is how this backend spells success, conventions.envelope_ok in "+
+		".shrt/config.yaml is wrong, and every success is being read as a refusal", path, ok, strings.Join(seen, ", "))
+}
+
+func assertsTransport(results []chain.ExpectResult) bool {
+	for _, e := range results {
+		if chain.IsTransportPath(e.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+var (
+	verdictShape = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,40}$`)
+	refusalWords = []string{"REJECT", "ERROR", "FAIL", "DENIED", "FORBIDDEN", "INVALID", "UNAUTH", "NOT_FOUND",
+		"NOTFOUND", "REFUSE", "DECLINE", "CONFLICT", "ABORT", "EXPIRED"}
+)
+
+func looksLikeVerdict(text string) bool {
+	return verdictShape.MatchString(text)
+}
+
+func looksLikeRefusal(text string) bool {
+	upper := strings.ToUpper(text)
+	for _, w := range refusalWords {
+		if strings.Contains(upper, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertedValue(results []chain.ExpectResult, path string) bool {
+	for _, e := range results {
+		if e.Passed && e.Path == path && e.Rule == "equals" {
+			return true
+		}
+	}
+	return false
 }
 
 func inBandRefusal(response json.RawMessage) (string, bool) {
@@ -401,6 +953,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		RunID:       newRunID(now),
 		Chain:       c.Name,
 		ChainSource: c.SourcePath,
+		ChainDigest: c.Digest(),
 		Target:      r.Client.BaseURL(),
 		StartedAt:   now,
 		Status:      StatusPassed,
@@ -412,40 +965,93 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		Redacted:    append(append([]string{}, c.Redact...), opts.Redact...),
 		Steps:       make([]*StepRecord, 0, len(c.Steps)),
 	}
+	if _, given := opts.Vars[chain.RunTagVar]; !given && c.FreshRunTag() {
+		rec.Vars[chain.RunTagVar] = chain.NewRunTag()
+	}
 	if err := checkVarsSupplied(c, opts.Vars); err != nil {
 		return nil, err
 	}
 	if err := r.checkAuthProfiles(c); err != nil {
 		return nil, err
 	}
+	if err := r.checkCalls(c); err != nil {
+		return nil, err
+	}
+	if err := r.checkAuthEnv(c); err != nil {
+		return nil, err
+	}
+	if err := r.checkHandWrittenAuth(c); err != nil {
+		return nil, err
+	}
+	problems := c.PreflightProblems()
+	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
+	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
+	if r.Catalog != nil {
+		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
+	}
+	if len(problems) > 0 {
+		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(problems, "; "))
+	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
 	scope := chain.NewScope(rec.Vars)
 	if r.Now != nil {
 		scope.Now = r.Now
 	}
+	r.Auth.learnSecrets(redactor)
+	opts.principals = r.Auth.principals()
+	open := varsUsedInTheOpen(c, redactor)
+	for _, step := range c.Steps {
+		if step != nil {
+			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope, open)
+			learnHeaderSecrets(redactor, step.Headers, scope)
+		}
+	}
+	r.Auth.learnTokens(redactor)
+	if problems := r.requestProblems(c, rec.Vars); len(problems) > 0 {
+		return nil, errors.New(redactor.ScrubText(fmt.Sprintf("chain %q has a request that does not match its rpc, so nothing was sent "+
+			"(checked as -dry-run does, with synthetic values for references to earlier responses): %s",
+			c.Name, strings.Join(problems, "; "))))
+	}
 
 	builds := &buildTracker{header: r.BuildHeader, label: rec.Build}
 	broken := map[string]*StepRecord{}
-	exporter := map[string]string{}
-	failures := []string{}
+	exporter := exportSources{}
+	var failed []int
+	behindOn := map[int]string{}
+	var dead *StepRecord
+	unreached := 0
+	pastPins := len(c.KeptRed) > 0 && !opts.DryRun
+	keepGoing := opts.KeepGoing || pastPins
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind := false
-		if opts.KeepGoing {
+		if dead != nil {
+			sr = r.skippedUnreachable(i, step, dead)
+			rec.Steps = append(rec.Steps, sr)
+			rec.FailedSteps = append(rec.FailedSteps, step.ID)
+			unreached++
+			if r.OnStep != nil {
+				r.OnStep(sr)
+			}
+			continue
+		}
+		if keepGoing {
 			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
-				behind = true
+				behind, behindOn[i] = true, producer.ID
 			}
 		}
 		if sr == nil {
 			stepOpts := opts
-			if opts.KeepGoing {
+			stepOpts.chain = c
+			if keepGoing {
 				stepOpts.heldBack = heldBackExpectations(step, broken, exporter)
 			}
 			sr = r.runStep(ctx, scope, i, step, stepOpts, redactor)
 		}
-		for name := range step.Export {
-			exporter[name] = step.ID
+		scrubStep(sr, redactor)
+		for name, path := range step.Export {
+			exporter[name] = exportSource{step: step.ID, path: path}
 		}
 		builds.observe(rec, sr)
 		rec.Steps = append(rec.Steps, sr)
@@ -458,33 +1064,207 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		if step.AllowFail && sr.Status == StatusFailed && !sr.AssertionFailed() && !sr.Drift {
 			continue
 		}
-		failure := failureOf(step, sr)
-		if !opts.KeepGoing {
+		if !keepGoing && !serviceRefused(sr) {
 			rec.Status = sr.Status
-			rec.Failure = failure
+			rec.Failure = failureOf(step, sr)
 			break
 		}
+		keepGoing = true
+		broken[step.ID] = sr
+		rec.FailedSteps = append(rec.FailedSteps, step.ID)
+		failed = append(failed, i)
+		if sr.unreachable != "" {
+			dead = sr
+		}
+	}
+	settleServiceRefusals(rec.Steps)
+	failures := []string{}
+	said := map[string]int{}
+	repeats := map[int][]string{}
+	for _, i := range failed {
+		sr := rec.Steps[i]
 		if rec.Status == StatusPassed {
 			rec.Status = sr.Status
-			if behind {
+			if behindOn[i] != "" {
 				rec.Status = StatusFailed
 			}
 		}
-		broken[step.ID] = sr
-		rec.FailedSteps = append(rec.FailedSteps, step.ID)
-		failures = append(failures, failure)
+		failure := failureOf(c.Steps[i], sr)
+		key := strings.TrimPrefix(failure, fmt.Sprintf("step %q: ", sr.ID))
+		if behindOn[i] != "" {
+			key = "behind " + behindOn[i]
+		}
+		if at, ok := said[key]; ok {
+			repeats[at] = append(repeats[at], sr.ID)
+		} else {
+			said[key] = len(failures)
+			failures = append(failures, failure)
+		}
 	}
-	if len(failures) > 0 {
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", len(failures), len(c.Steps)) +
+	failedCount := len(failed)
+	for i, sr := range rec.Steps {
+		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
+			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
+		}
+	}
+	for at, ids := range repeats {
+		quoted := make([]string, 0, len(ids))
+		for _, id := range ids {
+			quoted = append(quoted, strconv.Quote(id))
+		}
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
+	}
+	switch {
+	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && failedCount == 1 && unreached == 0:
+		rec.Failure = failures[0]
+	case pastPins && len(failures) > 0:
+		rec.Failure = fmt.Sprintf("kept_red: ran every step, as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
+			strings.Join(failures, "\n")
+	case len(failures) > 0:
+		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
 			strings.Join(failures, "\n")
 	}
+	if unreached > 0 {
+		rec.Failure += fmt.Sprintf("\n%d later step(s) not sent: %s", unreached, unreachableReason(r.Client.BaseURL(), dead))
+	}
 
-	rec.Exports = maskExports(scope.Exports, c.Steps, redactor)
+	if !opts.DryRun {
+		rec.Warning = envelopeOKNeverSeen(rec.Steps)
+	}
+	rec.Exports = r.maskExports(scope.Exports, c.Steps, redactor)
 	if masked, ok := redactor.Apply(rec.Vars).(map[string]any); ok {
 		rec.Vars = masked
 	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Exports).(map[string]any); ok && rec.Exports != nil {
+		rec.Exports = scrubbed
+	}
+	if scrubbed, ok := redactor.ScrubValue(rec.Vars).(map[string]any); ok && rec.Vars != nil {
+		rec.Vars = scrubbed
+	}
+	rec.Failure = redactor.ScrubText(rec.Failure)
+	rec.Warning = redactor.ScrubText(rec.Warning)
+	if !opts.DryRun {
+		rec.KeptRed, rec.KeptRedNote, rec.KeptRedNew = keptRedVerdict(c, rec, scope)
+		rec.KeptRedNote = redactor.ScrubText(rec.KeptRedNote)
+		rec.KeptRedNew = redactor.ScrubText(rec.KeptRedNew)
+	}
 	rec.DurationMS = r.clock().Sub(now).Milliseconds()
 	return rec, nil
+}
+
+func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
+	if !r.ValidateInput || r.Catalog == nil {
+		return nil
+	}
+	scope := chain.NewScope(vars)
+	if r.Now != nil {
+		scope.Now = r.Now
+	}
+	problems := []string{}
+	for i, step := range c.Steps {
+		if step == nil {
+			continue
+		}
+		method, err := r.Catalog.Lookup(step.Call)
+		if err != nil || method.StreamRefusal() != "" {
+			continue
+		}
+		resolved, err := scope.ResolveValue(orEmpty(step.Body))
+		if err == nil {
+			if body, merr := json.Marshal(resolved); merr == nil {
+				if verr := r.Catalog.ValidateInput(method, body); verr != nil && !r.validWithoutSynthetic(scope, method, orEmpty(step.Body), vars) {
+					problems = append(problems, fmt.Sprintf("step %q (step %d): %v", step.ID, i+1, verr))
+				}
+			}
+		}
+		sample := method.ResponseSample()
+		scope.RecordSynthetic(step.ID, resolved, sample)
+		for name, path := range step.Export {
+			if v, ok := chain.Get(sample, path); ok {
+				scope.Exports[name] = v
+			}
+		}
+	}
+	return problems
+}
+
+func (r *Runner) validWithoutSynthetic(scope *chain.Scope, method *catalog.Method, body map[string]any, vars map[string]any) bool {
+	stripped, changed := dropSynthetic(body, vars)
+	if !changed {
+		return false
+	}
+	resolved, err := scope.ResolveValue(stripped)
+	if err != nil {
+		return true
+	}
+	raw, err := json.Marshal(resolved)
+	if err != nil {
+		return true
+	}
+	return r.Catalog.ValidateInput(method, raw) == nil
+}
+
+func dropSynthetic(v any, vars map[string]any) (any, bool) {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		changed := false
+		for k, item := range t {
+			if readsSynthetic(item, vars) {
+				changed = true
+				continue
+			}
+			kept, c := dropSynthetic(item, vars)
+			out[k], changed = kept, changed || c
+		}
+		return out, changed
+	case []any:
+		out := make([]any, 0, len(t))
+		changed := false
+		for _, item := range t {
+			if readsSynthetic(item, vars) {
+				changed = true
+				continue
+			}
+			kept, c := dropSynthetic(item, vars)
+			out, changed = append(out, kept), changed || c
+		}
+		return out, changed
+	}
+	return v, false
+}
+
+func readsSynthetic(v any, vars map[string]any) bool {
+	text, ok := v.(string)
+	if !ok {
+		return false
+	}
+	for _, ref := range chainRefs(text) {
+		r := chain.ParseRef(ref)
+		switch r.Kind {
+		case chain.RefExports:
+			return true
+		case chain.RefStep:
+			if !strings.HasPrefix(r.Rest, "request") {
+				return true
+			}
+		case chain.RefBare:
+			if _, isVar := vars[r.Head]; !isVar {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+var refExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+func chainRefs(text string) []string {
+	out := []string{}
+	for _, m := range refExpr.FindAllStringSubmatch(text, -1) {
+		out = append(out, m[1])
+	}
+	return out
 }
 
 func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *chain.Step, opts Options, redactor *pathmask.Masker) *StepRecord {
@@ -494,26 +1274,41 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, err)
 	}
-	sr.Procedure = method.Procedure()
-	if method.Streaming() {
-		return fail(sr, errors.New(method.StreamRefusal()))
+	if wait, err := step.WaitFor(); err != nil {
+		return fail(sr, err)
+	} else if wait > 0 && !opts.DryRun {
+		waited, err := r.wait(ctx, wait)
+		sr.WaitedMS = waited.Milliseconds()
+		if err != nil {
+			return fail(sr, fmt.Errorf("wait %s: %w", step.Wait, err))
+		}
 	}
+	sr.Procedure = method.Procedure()
+	if refusal := method.StreamRefusal(); refusal != "" {
+		return fail(sr, errors.New(refusal))
+	}
+	outputFields := method.Response().Fields
+	requestRedactor := redactor.WithNumeric(numericPaths(catalog.DescribeMessage(method.Input()).Fields))
+	redactor = redactor.WithNumeric(numericPaths(outputFields))
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
+	sr.BodyRefs = BodyRefs(step.Body)
 	body, err := json.Marshal(resolved)
 	if err != nil {
 		return fail(sr, fmt.Errorf("encode request: %w", err))
 	}
-	sr.Request = mustJSON(redactor.Apply(resolved), body)
+	sr.Request = mustJSON(requestRedactor.Apply(resolved), body)
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, err)
+		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
+	learnSentHeaderSecrets(redactor, step.Headers, resolvedHeaders)
+	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
@@ -522,7 +1317,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	if opts.DryRun {
 		sr.Status = StatusSkipped
-		sample := catalog.Scaffold(method.Output())
+		sample := method.ResponseSample()
 		scope.RecordSynthetic(step.ID, resolved, sample)
 		for name, path := range step.Export {
 			if v, ok := chain.Get(sample, path); ok {
@@ -540,18 +1335,47 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 
 	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders}
+	if method.ServerStreaming {
+		call.Stream = 1
+	}
 	if step.SkipAuth || step.Auth != "" {
 		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
+	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
+	res = r.resendRead(ctx, step, call, resolvedHeaders, sr, res, err)
+	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
 		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
+		sr.AuthPrincipal = opts.principals[profile]
+	}
+	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
+	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
+		sr.AuthRetry = retry
+		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
+		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
+		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached, fresh == transport.FreshTokenRelogin))
+		if early := EarlyRefusalText(sr.TokenRefused); early != "" && retry == AuthRetryResent {
+			sr.Warning = joinLines(sr.Warning, "the "+wasRefused(early))
+		}
+	}
+	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
+		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
+		defer authRefusedIsNoVerdict(sr, fresh, sr.TokenRefused)
 	}
 	if err != nil {
+		if transport.Unreachable(err) {
+			sr.unreachable = innermost(err)
+		} else {
+			sr.LatencyMS = time.Since(sentAt).Milliseconds()
+		}
 		return fail(sr, err)
 	}
 	sr.HTTPStatus = res.Status
 	sr.LatencyMS = res.Latency.Milliseconds()
+	if res.Error == nil && !method.ServerStreaming {
+		sr.LatencyResent = r.remeasure(ctx, step, method.Procedure(), body, resolvedHeaders, opts, sr.LatencyMS)
+	}
 	if r.BuildHeader != "" && res.Header != nil {
 		sr.serverBuild = res.Header.Get(r.BuildHeader)
 	}
@@ -574,6 +1398,14 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			}
 			return sr
 		}
+		if unavailableAnswer(res.Status, res.Error.Code) {
+			sr.Status, sr.refused = StatusError, sr.Expect
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was "+notAnsweredByService+", so this assertion never ran")
+			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the call was %s: a gateway or load balancer "+
+				"answered for it (the normal answer while the service restarts or is not ready), so this is not a verdict "+
+				"about the rpc. Re-run once the service is up", res.Status, notAnsweredByService)
+			return sr
+		}
 		sr.Status = StatusFailed
 		sr.Error = res.Error.Error()
 		if res.Error.Code == "unauthenticated" && len(r.Auth) == 0 {
@@ -584,28 +1416,76 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
-	canonical, populated, cerr := r.Catalog.CanonicalizeWithPresence(method.Output(), res.Body)
+	var canonical, populated []byte
+	var unknown []string
 	staleOutput := false
-	switch {
-	case cerr == nil:
-	case r.ValidateOutput:
-		sr.Response = jsonBodyOrString(res.Body)
-		sr.Status = StatusFailed
-		sr.Drift = true
-		sr.Expect = unevaluated(step.Expect)
-		sr.Error = "conventions.validate_output is on and this response does not match " +
-			string(method.Output().FullName()) + ": " + cerr.Error() +
-			"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
-			". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
-			"the body they would read could not be decoded. Rebuild the descriptor ('shrt catalog " +
-			"build') and re-run before reading it as a backend defect."
-		return sr
-	default:
-		canonical = res.Body
-		populated = res.Body
-		staleOutput = true
-		sr.Warning = "response kept as sent, it does not match " + string(method.Output().FullName()) +
-			" (the descriptor may be stale): " + cerr.Error()
+	if method.ServerStreaming {
+		canonical, populated, staleOutput = r.canonicalStream(method, res.Body)
+		if staleOutput {
+			sr.Warning = joinLines(sr.Warning, "a streamed message kept as sent, it does not match "+string(method.Output().FullName())+" (the descriptor may be stale)")
+		}
+	} else {
+		if key, repeated := repeatedKey(res.Body, method.Output()); repeated {
+			var last any
+			if err := json.Unmarshal(res.Body, &last); err == nil {
+				sr.Response = mustJSON(redactor.Apply(last), res.Body)
+			}
+			sr.Status = StatusFailed
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but the body repeats a key, so this assertion never ran")
+			sr.Error = fmt.Sprintf("the response repeats the key %s, so it carries two values for one field and decoders "+
+				"disagree on which one counts (this record keeps the last). Nothing here is a verdict: the expectations "+
+				"were not evaluated. A backend that writes a key twice is the defect to report", key)
+			return sr
+		}
+		var cerr error
+		canonical, populated, unknown, cerr = r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), res.Body)
+		if cerr != nil && unknownHoldsAVerdict(unknown) {
+			unknown = nil
+		}
+		switch {
+		case cerr == nil:
+		case r.ValidateOutput:
+			sr.Response = jsonBodyOrString(res.Body)
+			if len(unknown) > 0 {
+				var decoded any
+				if err := json.Unmarshal(canonical, &decoded); err == nil {
+					sr.Response = mustJSON(redactor.Apply(decoded), canonical)
+				}
+			}
+			sr.Status = StatusFailed
+			sr.Drift = true
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the backend answered, but conventions.validate_output "+
+				"is on and the body does not match the response message, so this assertion never ran")
+			sr.Error = "conventions.validate_output is on and this response does not match " +
+				string(method.Output().FullName()) + ": " + cerr.Error() +
+				"\n       The request WAS sent and the backend answered " + fmt.Sprint(res.Status) +
+				". Nothing here is evidence about the rpc: the expectations were not evaluated, because " +
+				"the body they would read could not be decoded. If 'shrt doctor' says the descriptor does not match a " +
+				"rebuild, rebuild it ('shrt catalog build') and re-run; if it matches, the backend sends what the proto " +
+				"does not declare."
+			return sr
+		case len(unknown) > 0:
+			sr.Warning = joinLines(sr.Warning, UndeclaredFieldsWarning+strings.Join(unknown, ", "))
+			if values := catalog.UndeclaredValues(method.Output(), res.Body); values != nil {
+				if raw, err := json.Marshal(redactor.Apply(values)); err == nil {
+					sr.Undeclared = raw
+				}
+			}
+			if enums := catalog.UnknownEnumValues(method.Output(), res.Body); len(enums) > 0 {
+				named := make([]string, 0, len(enums))
+				for _, e := range enums {
+					named = append(named, fmt.Sprintf("%s = %s (%s)", e.Path, e.Value, e.Enum))
+				}
+				sr.Warning = joinLines(sr.Warning, "response carries enum value(s) the descriptor does not declare, kept as sent "+
+					"rather than decoded as another value: "+strings.Join(named, ", ")+". Rebuild the descriptor ('shrt catalog build') to read them")
+			}
+		default:
+			canonical = res.Body
+			populated = res.Body
+			staleOutput = true
+			sr.Warning = joinLines(sr.Warning, "response kept as sent, it does not match "+string(method.Output().FullName())+
+				" (the descriptor may be stale): "+cerr.Error())
+		}
 	}
 
 	var decoded any
@@ -616,6 +1496,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err := json.Unmarshal(populated, &sent); err != nil {
 		return fail(sr, fmt.Errorf("decode response: %w", err))
 	}
+	r.Auth.learnLoginResponse(redactor, method.Procedure(), decoded)
 	sr.Response = mustJSON(redactor.Apply(decoded), canonical)
 	scope.Record(step.ID, resolved, decoded)
 	canonicalInput := func(raw []byte) ([]byte, error) { return r.Catalog.Canonicalize(method.Input(), raw) }
@@ -626,7 +1507,17 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
 		}
-		result := evaluate(scope, e, response, presence, redactor)
+		kind := ""
+		if !chain.IsTransportPath(e.Path) {
+			kind = fieldKind(outputFields, e.Path)
+		}
+		result := evaluateTyped(scope, e, response, presence, kind, redactor)
+		if !result.Passed && result.Detail == "" && e.Path == chain.EnvelopePath() {
+			result.Detail = refusalContext(decoded, e.Path, redactor)
+		}
+		if !result.Passed && result.Detail == "" && chain.IsTransportPath(e.Path) {
+			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
+		}
 		if why, held := opts.heldBack[i]; held {
 			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
 		}
@@ -636,13 +1527,18 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 	}
 
+	verdictDeclared := (!staleOutput && catalog.HasResponsePath(outputFields, chain.SplitPath(chain.EnvelopePath()))) ||
+		verdictBlocked(decoded, chain.EnvelopePath())
 	if len(step.Expect) == 0 {
-		if warning := unassertedRefusalWarning(decoded); warning != "" {
+		if warning := unassertedRefusalWarning(decoded, verdictDeclared); warning != "" {
 			sr.Warning = joinLines(sr.Warning, warning)
 		}
+	} else if result, refused := unpinnedRefusal(scope, decoded, step.Expect, verdictDeclared, redactor); refused {
+		sr.Expect = append(sr.Expect, result)
+		sr.Status = StatusFailed
 	}
 
-	if chain.ItemEnvelope() != "" && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
+	if chain.ItemEnvelope() != "" && !method.ServerStreaming && (staleOutput || chain.ItemEnvelopeDeclared(catalog.DescribeMessage(method.Output()).Fields)) {
 		refusals, itemErr := chain.ItemRefusals(decoded)
 		switch {
 		case itemErr == nil:
@@ -652,10 +1548,15 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		default:
 			return fail(sr, itemErr)
 		}
-		if surprises := chain.UndeclaredRefusals(refusals, step.Expect); len(surprises) > 0 {
+		refusals = withMisspeltItemVerdicts(sr, refusals, res.Body, unknown)
+		if surprises := chain.UndeclaredRefusals(refusals, boundExpect(scope, step.Expect)); len(surprises) > 0 {
 			got := make([]string, 0, len(surprises))
 			for _, r := range surprises {
-				got = append(got, r.String())
+				line := r.String()
+				if why := refusalContext(decoded, r.Path, redactor); why != "" {
+					line += " (" + why + ")"
+				}
+				got = append(got, line)
 			}
 			sr.Expect = append(sr.Expect, chain.ExpectResult{
 				Path:   chain.ItemEnvelope(),
@@ -663,7 +1564,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 				Want:   chain.EnvelopeOK(),
 				Got:    strings.Join(got, ", "),
 				Passed: false,
-				Detail: itemEnvelopeDetail(decoded),
+				Detail: itemEnvelopeDetail(decoded, surprises),
 			})
 			sr.Status = StatusFailed
 		}
@@ -684,6 +1585,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			}
 			scope.Exports[name] = v
 			if redactor.MasksValue(path, v) {
+				learnSecret(redactor, v)
 				sr.Exported[name] = pathmask.MaskRedacted
 				continue
 			}
@@ -693,17 +1595,66 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	return sr
 }
 
-func unassertedRefusalWarning(decoded any) string {
+func learnSecret(redactor *pathmask.Masker, v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case []any:
+		for _, item := range t {
+			learnSecret(redactor, item)
+		}
+	case string:
+		redactor.AddSecret(t)
+	case nil, bool:
+	default:
+		redactor.AddSecret(fmt.Sprint(t))
+	}
+}
+
+func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
+	sr.Request = redactor.ScrubJSON(sr.Request)
+	sr.Response = redactor.ScrubJSON(sr.Response)
+	if len(sr.Undeclared) > 0 {
+		sr.Undeclared = redactor.ScrubJSON(sr.Undeclared)
+	}
+	for i := range sr.Expect {
+		e := &sr.Expect[i]
+		e.Want = redactor.ScrubValue(e.Want)
+		e.Got = redactor.ScrubValue(e.Got)
+		e.Detail = redactor.ScrubText(e.Detail)
+	}
+	if scrubbed, ok := redactor.ScrubValue(sr.Exported).(map[string]any); ok && sr.Exported != nil {
+		sr.Exported = scrubbed
+	}
+	for k, v := range sr.Headers {
+		sr.Headers[k] = redactor.ScrubText(v)
+	}
+	sr.serverBuild = redactor.ScrubText(sr.serverBuild)
+	sr.Error = redactor.ScrubText(sr.Error)
+	sr.Warning = redactor.ScrubText(sr.Warning)
+	sr.Note = redactor.ScrubText(sr.Note)
+	if sr.Transport != nil {
+		sr.Transport.Message = redactor.ScrubText(sr.Transport.Message)
+	}
+}
+
+func unassertedRefusalWarning(decoded any, verdictDeclared bool) string {
 	path := chain.EnvelopePath()
 	if path == "" {
 		return ""
 	}
-	code, ok := chain.Get(decoded, path)
-	if !ok || code == nil {
-		return ""
+	text, has := verdictText(decoded, path)
+	if !has {
+		if !verdictDeclared {
+			return ""
+		}
+		return fmt.Sprintf("the response carries no verdict at %s (absent or empty, where this rpc's response "+
+			"message declares one), and this step declares no expect, so it is recorded passed with nothing "+
+			"checked; nothing says the backend did what was asked", path)
 	}
-	text := fmt.Sprint(code)
-	if text == "" || text == chain.EnvelopeOK() {
+	if text == chain.EnvelopeOK() {
 		return ""
 	}
 	return fmt.Sprintf("refused in-band (%s = %s, not %s), and this step declares no expect, so it is "+
@@ -712,12 +1663,277 @@ func unassertedRefusalWarning(decoded any) string {
 		chain.EnvelopeOK(), path, text)
 }
 
-func itemEnvelopeDetail(decoded any) string {
+func verdictBlocked(decoded any, path string) bool {
+	segs := chain.SplitPath(path)
+	cur := decoded
+	for i, seg := range segs {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return i > 0 && cur != nil
+		}
+		key, ok := namecase.LookupKey(m, seg)
+		if !ok {
+			return false
+		}
+		cur = m[key]
+	}
+	return false
+}
+
+func repeatedKey(raw []byte, md protoreflect.MessageDescriptor) (string, bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var walk func(path string, md protoreflect.MessageDescriptor, fd protoreflect.FieldDescriptor) (string, bool, error)
+	walk = func(path string, md protoreflect.MessageDescriptor, fd protoreflect.FieldDescriptor) (string, bool, error) {
+		tok, err := dec.Token()
+		if err != nil {
+			return "", false, err
+		}
+		delim, ok := tok.(json.Delim)
+		if !ok {
+			return "", false, nil
+		}
+		switch delim {
+		case '{':
+			var fields protoreflect.FieldDescriptors
+			var mapValue protoreflect.FieldDescriptor
+			switch {
+			case fd != nil && fd.IsMap():
+				mapValue = fd.MapValue()
+			case md != nil && !strings.HasPrefix(string(md.FullName()), "google.protobuf."):
+				fields = md.Fields()
+			}
+			seen := map[string]string{}
+			for dec.More() {
+				keyTok, err := dec.Token()
+				if err != nil {
+					return "", false, err
+				}
+				key, _ := keyTok.(string)
+				child := pathmask.Join(path, key)
+				identity := key
+				var childField protoreflect.FieldDescriptor
+				if mapValue != nil {
+					childField = mapValue
+				} else if fields != nil {
+					if f := fields.ByJSONName(key); f != nil {
+						childField = f
+					} else if f := fields.ByName(protoreflect.Name(key)); f != nil {
+						childField = f
+					}
+					if childField != nil {
+						identity = string(childField.Name())
+					}
+				}
+				if first, dup := seen[identity]; dup {
+					if first != key {
+						return child + " (also spelt " + first + ")", true, nil
+					}
+					return child, true, nil
+				}
+				seen[identity] = key
+				var childMsg protoreflect.MessageDescriptor
+				if childField != nil && !childField.IsMap() {
+					childMsg = childField.Message()
+				}
+				if at, found, err := walk(child, childMsg, childField); found || err != nil {
+					return at, found, err
+				}
+			}
+		case '[':
+			var elem protoreflect.MessageDescriptor
+			if fd != nil && fd.IsList() {
+				elem = fd.Message()
+			}
+			for i := 0; dec.More(); i++ {
+				if at, found, err := walk(pathmask.Join(path, pathmask.IndexKey(i)), elem, nil); found || err != nil {
+					return at, found, err
+				}
+			}
+		}
+		_, err = dec.Token()
+		return "", false, err
+	}
+	at, found, _ := walk("", md, nil)
+	return at, found
+}
+
+func verdictText(decoded any, path string) (string, bool) {
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return "", false
+	}
+	text := fmt.Sprint(code)
+	return text, text != ""
+}
+
+func unpinnedRefusal(scope *chain.Scope, decoded any, expect []chain.Expectation, verdictDeclared bool, redactor *pathmask.Masker) (chain.ExpectResult, bool) {
+	path := chain.EnvelopePath()
+	if path == "" {
+		return chain.ExpectResult{}, false
+	}
+	text, has := verdictText(decoded, path)
+	if pinsVerdict(scope, expect, !has) {
+		return chain.ExpectResult{}, false
+	}
+	if !has {
+		if !verdictDeclared {
+			return chain.ExpectResult{}, false
+		}
+		why := "it is absent or empty, though this rpc's response message declares it"
+		if verdictBlocked(decoded, path) {
+			why = "a value on the way to it is not an object (as in a string status), so no code can be read there"
+		}
+		detail := fmt.Sprintf("the response carries no verdict at %s: "+why+", and no expectation on this step pins the verdict, so the ones that "+
+			"held read zero values nothing vouches for. If an absent verdict is what this rpc answers, pin it "+
+			"(%s exists: false); if not, the backend did not say it did what was asked", path, path)
+		return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: "", Passed: false, Detail: detail}, true
+	}
+	if text == chain.EnvelopeOK() {
+		return chain.ExpectResult{}, false
+	}
+	detail := fmt.Sprintf("refused in-band (%s = %s, not %s), and no expectation on this step pins the verdict, "+
+		"so the ones that held read the zero values a refusal leaves. If the refusal is the point, assert it "+
+		"(%s equals: %s); if not, the backend rejected this call", path, text, chain.EnvelopeOK(), path, text)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		detail += " (" + context + ")"
+	}
+	return chain.ExpectResult{Path: path, Rule: "envelope", Want: chain.EnvelopeOK(), Got: text, Passed: false, Detail: detail}, true
+}
+
+func pinsVerdict(scope *chain.Scope, expect []chain.Expectation, absent bool) bool {
+	okEnvelope := okAnswer(chain.EnvelopePath(), chain.EnvelopeOK())
+	okTransport := chain.TransportOutcome(200, "", "")
+	for _, e := range boundExpect(scope, expect) {
+		switch {
+		case chain.IsTransportPath(e.Path):
+			if !e.EvaluateTyped(okTransport, okTransport, "").Passed {
+				return true
+			}
+		case chain.PinsVerdictCode(e):
+			return true
+		case chain.CoversVerdict(e.Path):
+			if absent && e.NotEqual != nil {
+				continue
+			}
+			if (e.Equals != nil && chain.IsVerdictItself(e.Path)) || !e.EvaluateTyped(okEnvelope, okEnvelope, "").Passed {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func boundExpect(scope *chain.Scope, expect []chain.Expectation) []chain.Expectation {
+	out := make([]chain.Expectation, len(expect))
+	for i, e := range expect {
+		out[i] = e
+		if bound, err := e.ResolveWith(scope); err == nil {
+			out[i] = bound
+		}
+	}
+	return out
+}
+
+func okAnswer(path, ok string) map[string]any {
+	segs := chain.SplitPath(path)
+	root := map[string]any{}
+	node := root
+	for i, seg := range segs {
+		if i == len(segs)-1 {
+			node[seg] = ok
+			break
+		}
+		next := map[string]any{}
+		node[seg] = next
+		node = next
+	}
+	return root
+}
+
+func envelopeBehindTransport(decoded, outcome any, redactor *pathmask.Masker) string {
+	path := chain.EnvelopePath()
+	if path == "" {
+		return ""
+	}
+	code, ok := chain.Get(decoded, path)
+	if !ok || code == nil {
+		return ""
+	}
+	said := fmt.Sprintf("the envelope said %s = %v", path, code)
+	if context := refusalContext(decoded, path, redactor); context != "" {
+		said += " " + context
+	}
+	if status, ok := chain.Get(outcome, "transport.http_status"); ok {
+		return fmt.Sprintf("answered with HTTP %v, so the transport did not refuse it; %s", status, said)
+	}
+	return said
+}
+
+func refusalContext(decoded any, codePath string, redactor *pathmask.Masker) string {
+	parent := ""
+	if i := strings.LastIndex(codePath, "."); i >= 0 {
+		parent = codePath[:i+1]
+	}
+	parts := []string{}
+	seen := map[string]bool{}
+	add := func(label, path string) {
+		v, ok := chain.Get(decoded, path)
+		if !ok || v == nil {
+			return
+		}
+		text := fmt.Sprint(v)
+		if text == "" || seen[label] {
+			return
+		}
+		if redactor.MasksValue(path, v) {
+			text = pathmask.MaskRedacted
+		}
+		if len(text) > 200 {
+			text = text[:200] + "..."
+		}
+		seen[label] = true
+		if label == "message" {
+			text = strconv.Quote(text)
+		}
+		parts = append(parts, label+"="+text)
+	}
+	add("message", parent+"message")
+	for _, field := range []string{"reason", "app_code"} {
+		add(field, parent+"details.0."+field)
+		add(field, parent+field)
+	}
+	return strings.Join(parts, " ")
+}
+
+func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 	said := "no top-level verdict at " + chain.EnvelopePath()
 	if v, ok := chain.Get(decoded, chain.EnvelopePath()); ok && v != nil {
 		said = fmt.Sprintf("the top-level envelope said %v", v)
+		top := fmt.Sprint(v)
+		same := len(surprises) > 0
+		for _, r := range surprises {
+			if r.Code != top {
+				same = false
+			}
+		}
+		if same {
+			return fmt.Sprintf("these items carry %s, the very value the top-level envelope carries, and "+
+				"conventions.envelope_ok is %q, so every one counts as refused. If %s is this backend's success "+
+				"value, the items were not refused at all: set conventions.envelope_ok: %s in .shrt/config.yaml",
+				top, chain.EnvelopeOK(), top, top)
+		}
 	}
-	return "every item in a batch response carries its own verdict, and these were refused while " + said +
+	missing := ""
+	for _, r := range surprises {
+		if r.Code == chain.NoItemVerdict {
+			missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
+				"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
+				"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
+			break
+		}
+	}
+	return "every item in a batch response carries its own verdict, and these were refused while " + said + missing +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
 		"MEANS to be refused is declared by pinning that line's verdict path, or one of its code fields (" +
 		strings.Join(chain.CodeFields(), ", ") + "), with equals, not_equal or contains, and is then not " +
@@ -725,11 +1941,15 @@ func itemEnvelopeDetail(decoded any) string {
 }
 
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
+	return evaluateTyped(scope, e, response, presence, "", redactor)
+}
+
+func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence any, kind string, redactor *pathmask.Masker) chain.ExpectResult {
 	bound, err := e.ResolveWith(scope)
 	if err != nil {
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
-	result := bound.EvaluateIn(response, presence)
+	result := bound.EvaluateTyped(response, presence, kind)
 	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
 	}
@@ -737,6 +1957,34 @@ func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, r
 		result.Want = pathmask.MaskRedacted
 	}
 	return result
+}
+
+func fieldKind(fields []*catalog.Field, path string) string {
+	segs := chain.SplitPath(path)
+	f, ok := catalog.ResponseFieldAt(fields, segs)
+	if !ok || f == nil || f.MapKey != "" || len(segs) == 0 {
+		return ""
+	}
+	if f.Repeated && !isIndexSegment(segs[len(segs)-1]) {
+		return ""
+	}
+	return f.Kind
+}
+
+func numericPaths(fields []*catalog.Field) func(string) bool {
+	return func(path string) bool { return chain.IsNumericKind(fieldKind(fields, path)) }
+}
+
+func isIndexSegment(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func transportOutcome(res *transport.Result) map[string]any {
@@ -747,7 +1995,7 @@ func transportOutcome(res *transport.Result) map[string]any {
 }
 
 func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map[string]any, redactor *pathmask.Masker) []chain.ExpectResult {
-	out := unevaluated(expect)
+	out := unevaluated(expect, redactor)
 	for i, e := range expect {
 		if chain.IsTransportPath(e.Path) {
 			out[i] = evaluate(scope, e, outcome, outcome, redactor)
@@ -768,7 +2016,7 @@ func refusalAsserted(expect []chain.Expectation, results []chain.ExpectResult) b
 	return true
 }
 
-func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
+func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
 	if len(exports) == 0 {
 		return exports
 	}
@@ -777,8 +2025,14 @@ func maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask
 		out[name] = v
 	}
 	for _, s := range steps {
+		masker := redactor
+		if r.Catalog != nil {
+			if m, err := r.Catalog.Lookup(s.Call); err == nil {
+				masker = redactor.WithNumeric(numericPaths(m.Response().Fields))
+			}
+		}
 		for name, path := range s.Export {
-			if _, exported := out[name]; exported && redactor.MasksValue(path, out[name]) {
+			if _, exported := out[name]; exported && masker.MasksValue(path, out[name]) {
 				out[name] = pathmask.MaskRedacted
 			}
 		}
@@ -801,6 +2055,63 @@ func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
 		"so nothing was sent: the run would have died at the first step reading one, after every step before "+
 		"it had already hit the backend. Supply %s, or declare a value under vars: in the chain",
 		c.Name, strings.Join(refs, ", "), strings.Join(flags, " "))
+}
+
+func (r *Runner) checkCalls(c *chain.Chain) error {
+	if r.Catalog == nil {
+		return nil
+	}
+	for i, step := range c.Steps {
+		method, err := r.Catalog.Lookup(step.Call)
+		if err != nil {
+			return fmt.Errorf("step %q (step %d) calls %q, which the catalog does not have, so nothing was sent: %w",
+				step.ID, i+1, step.Call, err)
+		}
+		if refusal := method.StreamRefusal(); refusal != "" {
+			return fmt.Errorf("step %q (step %d) cannot be sent, so nothing was sent: %s", step.ID, i+1, refusal)
+		}
+	}
+	return nil
+}
+
+func (r *Runner) checkAuthEnv(c *chain.Chain) error {
+	if r.AuthRoute == nil {
+		return nil
+	}
+	byProfile := map[string]*AuthBinding{}
+	for _, b := range r.Auth {
+		if b != nil {
+			byProfile[b.Profile] = b
+		}
+	}
+	for i, step := range c.Steps {
+		if step == nil || step.SkipAuth {
+			continue
+		}
+		profile, routed := r.AuthRoute(step)
+		b := byProfile[profile]
+		if !routed || b == nil {
+			continue
+		}
+		unset := []string{}
+		for _, name := range b.EnvVars {
+			if _, set := os.LookupEnv(name); !set {
+				unset = append(unset, name)
+			}
+		}
+		if len(unset) == 0 {
+			continue
+		}
+		refs := make([]string, 0, len(unset))
+		for _, name := range unset {
+			refs = append(refs, "${env."+name+"}")
+		}
+		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
+			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
+			"had already hit the backend. Export %s", step.ID, i+1, profile, strings.Join(refs, ", "),
+			strings.Join(unset, ", "), strings.Join(unset, ", "))
+	}
+	return nil
 }
 
 func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
@@ -891,6 +2202,18 @@ func fail(sr *StepRecord, err error) *StepRecord {
 	return sr
 }
 
+func (r *Runner) wait(ctx context.Context, d time.Duration) (time.Duration, error) {
+	start := time.Now()
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return time.Since(start), nil
+	case <-ctx.Done():
+		return time.Since(start), ctx.Err()
+	}
+}
+
 func (r *Runner) clock() time.Time {
 	if r.Now != nil {
 		return r.Now()
@@ -904,6 +2227,11 @@ func resolveHeaders(scope *chain.Scope, in map[string]string) (map[string][]stri
 		resolved, err := scope.ResolveValue(v)
 		if err != nil {
 			return nil, fmt.Errorf("header %q: %w", k, err)
+		}
+		switch resolved.(type) {
+		case map[string]any, []any:
+			return nil, fmt.Errorf("header %q: %s resolves to a message, list or map, which has no text form and would be "+
+				"sent as Go syntax; a header carries text only, so reference one scalar field of it instead", k, v)
 		}
 		out[k] = []string{fmt.Sprintf("%v", resolved)}
 	}
@@ -965,6 +2293,30 @@ func newRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
 }
 
+func capIDs(ids []string, max int) string {
+	if len(ids) <= max {
+		return strings.Join(ids, ", ")
+	}
+	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
+}
+
+func firstFailedExpectation(sr *StepRecord) string {
+	failed := []chain.ExpectResult{}
+	for _, e := range sr.Expect {
+		if !e.Passed {
+			failed = append(failed, e)
+		}
+	}
+	if len(failed) == 0 {
+		return "expectation failed"
+	}
+	out := "expectation failed: " + chain.DescribeFailure(failed[0])
+	if len(failed) > 1 {
+		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
+	}
+	return out
+}
+
 func failedExpectations(sr *StepRecord) string {
 	parts := []string{}
 	for _, e := range sr.Expect {
@@ -975,7 +2327,74 @@ func failedExpectations(sr *StepRecord) string {
 	return "expectation failed: " + strings.Join(parts, "; ")
 }
 
-func unevaluated(expect []chain.Expectation) []chain.ExpectResult {
+func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
+	declared := e.EvaluateIn(nil, nil)
+	want := declared.Want
+	if redactor.MasksValue(e.Path, want) {
+		want = pathmask.MaskRedacted
+	}
+	switch declared.Rule {
+	case "equals", "invalid":
+		return want
+	case "not_empty":
+		return "not_empty"
+	}
+	return declared.Rule + " " + fmt.Sprint(want)
+}
+
+func withMisspeltItemVerdicts(sr *StepRecord, refusals []chain.ItemRefusal, body []byte, unknown []string) []chain.ItemRefusal {
+	if len(unknown) == 0 {
+		return refusals
+	}
+	var sent any
+	if err := json.Unmarshal(body, &sent); err != nil {
+		return refusals
+	}
+	misspelt := chain.MisspeltItemVerdicts(sent, unknown)
+	if len(misspelt) == 0 {
+		return refusals
+	}
+	listed := map[string]bool{}
+	for _, r := range refusals {
+		listed[r.Line] = true
+	}
+	lines := []string{}
+	for _, m := range misspelt {
+		lines = append(lines, fmt.Sprintf("%s carries its verdict under %s, not %s", m.Refusal.Line, m.Key, m.Want))
+		if !listed[m.Refusal.Line] {
+			refusals = append(refusals, m.Refusal)
+		}
+	}
+	sort.SliceStable(refusals, func(a, b int) bool { return itemLine(refusals[a].Line) < itemLine(refusals[b].Line) })
+	sr.Warning = joinLines(sr.Warning, strings.Join(lines, "; ")+": a key that differs from the item verdict only in case or "+
+		"separators is not read, so each such line is judged as carrying no verdict, never as a success")
+	return refusals
+}
+
+func itemLine(line string) int {
+	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
+	return n
+}
+
+func unknownHoldsAVerdict(unknown []string) bool {
+	verdicts := []string{chain.EnvelopePath(), chain.ItemEnvelope()}
+	for _, u := range unknown {
+		for _, v := range verdicts {
+			if v != "" && (v == u || strings.HasPrefix(v, u+".")) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func unevaluated(expect []chain.Expectation, redactor *pathmask.Masker) []chain.ExpectResult {
+	return unevaluatedBecause(expect, redactor, "the call was refused before a response body existed, so this assertion never ran. "+
+		"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted "+
+		"with transport.code or transport.http_status")
+}
+
+func unevaluatedBecause(expect []chain.Expectation, redactor *pathmask.Masker, why string) []chain.ExpectResult {
 	if len(expect) == 0 {
 		return nil
 	}
@@ -984,11 +2403,30 @@ func unevaluated(expect []chain.Expectation) []chain.ExpectResult {
 		out = append(out, chain.ExpectResult{
 			Path:   e.Path,
 			Rule:   "unevaluated",
+			Want:   declaredWant(e, redactor),
 			Passed: false,
-			Detail: "the call was refused before a response body existed, so this assertion never ran. " +
-				"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted " +
-				"with transport.code or transport.http_status",
+			Detail: why,
 		})
 	}
 	return out
+}
+
+func (r *Runner) canonicalStream(method *catalog.Method, body []byte) (canonical, populated []byte, stale bool) {
+	var sent struct {
+		Messages []json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(body, &sent); err != nil {
+		return body, body, true
+	}
+	full, present := []json.RawMessage{}, []json.RawMessage{}
+	for _, raw := range sent.Messages {
+		c, p, _, err := r.Catalog.CanonicalizeDiscardingUnknown(method.Output(), raw)
+		if err != nil {
+			c, p, stale = raw, raw, true
+		}
+		full, present = append(full, c), append(present, p)
+	}
+	canonical, _ = json.Marshal(map[string]any{catalog.StreamMessages: full})
+	populated, _ = json.Marshal(map[string]any{catalog.StreamMessages: present})
+	return canonical, populated, stale
 }

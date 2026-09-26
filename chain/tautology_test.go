@@ -1,7 +1,6 @@
 package chain_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -13,7 +12,7 @@ func lintStep(s *chain.Step) []chain.Issue {
 	_ = c.Normalize()
 	out := []chain.Issue{}
 	for _, i := range chain.Lint(c, catalogtest.New()) {
-		if strings.Contains(i.Message, "cannot fail") {
+		if i.Kind == chain.KindUnfailable && i.Severity == chain.SeverityWarn {
 			out = append(out, i)
 		}
 	}

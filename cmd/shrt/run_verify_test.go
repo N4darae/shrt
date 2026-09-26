@@ -85,6 +85,14 @@ func newFakeCLIBackend() *httptest.Server {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/shrt.test.v1.ThingService/Create":
+			if meta, _ := body["meta"].(map[string]any); meta != nil && meta["trace_id"] != nil && meta["trace_id"] != "" {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error": map[string]any{"code": "OK"},
+					"id":    meta["trace_id"],
+					"name":  body["name"],
+				})
+				return
+			}
 			nextID++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error": map[string]any{"code": "OK"},
@@ -210,7 +218,7 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 		}
 	})
 	if !strings.Contains(out, "NOT a safe spot yet") || !strings.Contains(out, "-approve -by <their email>") ||
-		!strings.Contains(out, "| # | step | asserted, all held | backend answered |") {
+		!strings.Contains(out, "2 steps calling") || strings.Contains(out, "| # | step |") {
 		t.Fatalf("the proposal must say it is not a safe spot and how a person decides:\n%s", out)
 	}
 	if _, err := os.Stat(spot); err == nil {
@@ -220,7 +228,8 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the proposal must write a report for the person: %v", err)
 	}
-	for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve"} {
+	for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve",
+		"| # | step | sent | asserted, all held | backend answered |"} {
 		if !strings.Contains(string(report), want) {
 			t.Fatalf("report lacks %q:\n%s", want, report)
 		}
@@ -293,6 +302,7 @@ func TestCLIVerifyReportsDriftAgainstAHandWrittenSafeSpot(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeFile(t, ".shrt/safespots/cli-thing-flow.json", string(spotRaw))
+	resealSafeSpot(t, ".shrt/safespots/cli-thing-flow.json")
 
 	if err := runVerify(context.Background(), []string{"cli-thing-flow", "-run", rec["run_id"].(string), "-quiet"}); err != nil {
 		t.Fatalf("a fresh run replayed against its own safe spot must diff clean: %v", err)

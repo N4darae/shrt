@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/agentkit"
@@ -24,13 +28,53 @@ func init() {
 }
 
 func runInit(ctx context.Context, args []string) error {
+	loginUnsent := false
+	err := initRepo(ctx, args, &loginUnsent)
+	if err != nil || !loginUnsent {
+		return err
+	}
+	vars := "the login credentials"
+	if unset := unexportedLoginVars(); len(unset) > 0 {
+		vars = strings.Join(unset, ", ")
+	}
+	return exitWith(3, "init incomplete: conventions not observed; export %s and re-run shrt init", vars)
+}
+
+func unexportedLoginVars() []string {
+	root, err := os.Getwd()
+	if err != nil {
+		return nil
+	}
+	cfg, err := config.Load(root)
+	if err != nil || cfg.Auth == nil {
+		return nil
+	}
+	unset := []string{}
+	for _, name := range chain.AuthBodyEnvNames(cfg.Auth.Body) {
+		if _, set := os.LookupEnv(name); !set {
+			unset = append(unset, name)
+		}
+	}
+	return unset
+}
+
+func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	baseURL := fs.String("base-url", "http://127.0.0.1:8080", "backend the chains run against")
 	proto := fs.String("proto", "", "proto module path passed to buf build (a dir with buf.yaml)")
 	build := fs.Bool("build", true, "build the descriptor now")
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
-	force := fs.Bool("force", false, "overwrite the installed docs and agent kit, which are build output")
+	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit, .shrt/ci-gate.sh and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
+	verbose := fs.Bool("v", false, "also print the conventions: block to paste when init cannot observe it")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
+	setUsage(fs, "usage: shrt init [flags]   write .shrt/, build the descriptor, install the Claude skill and subagent; "+
+		"re-running keeps your config and chains",
+		"\nexit codes:\n  0  .shrt/ written, or already there and refreshed\n"+
+			"  1  init stopped: a flag that cannot be parsed, a .shrt/config.yaml that does not parse, a file it\n"+
+			"     could not write\n"+
+			"  2  the files were written but the descriptor did not build; fix the cause and run 'shrt catalog build'\n"+
+			"  3  the files were written but the login credentials are not exported, so conventions were not observed;\n"+
+			"     export them and re-run shrt init\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -45,6 +89,16 @@ func runInit(ctx context.Context, args []string) error {
 		return err
 	}
 
+	portFile := ""
+	if !baseURLGiven {
+		if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil {
+			if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
+				*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+				portFile = *baseURL
+			}
+		}
+	}
+
 	cfg := config.Default()
 	cfg.Root = root
 	cfg.Target.BaseURL = *baseURL
@@ -52,13 +106,14 @@ func runInit(ctx context.Context, args []string) error {
 		cfg.Descriptor.Source = *proto
 	}
 	cfg.Volatile = []string{"**.created_at", "**.updated_at"}
+	cfg.Latency = &config.Latency{Fail: true}
 
 	cfgPath := filepath.Join(root, config.DirName, config.FileName)
 	wroteConfig := false
 	if _, err := os.Stat(cfgPath); err == nil && !*forceConfig {
 		fmt.Printf("keep  %s (already exists)\n", rel(root, cfgPath))
 		if *force {
-			fmt.Println("      -force refreshes the docs and agent kit only. Your config is yours: it holds " +
+			fmt.Println("      -force refreshes the docs, the agent kit, .shrt/ci-gate.sh and .shrt/chains/example.yaml.template only. Your config is yours: it holds " +
 				"auth, conventions and volatile paths that no default can reconstruct, and rewriting it " +
 				"silently is how a declared convention disappears and a red chain turns green. " +
 				"Pass -force-config if you really want it rebuilt from defaults.")
@@ -68,19 +123,39 @@ func runInit(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("write %s\n", rel(root, cfgPath))
+		fmt.Println("      latency: {fail: true}: a slowdown verify confirms (a slow read re-sent and slow every time) fails it, so a CI gate " +
+			"is red on one; set fail: false to keep it a LATENCY warning line")
+		if portFile != "" {
+			fmt.Printf("      target.base_url: %s, from the port in .port at the repo root (pass -base-url to choose another)\n", portFile)
+		}
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
+	if err != nil && !wroteConfig {
+		return fmt.Errorf("%s does not parse, so init stopped: %w\n%s", rel(root, cfgPath), err, brokenConfigAdvice)
+	}
 	if err != nil {
 		return err
 	}
 
-	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, ".shrt/contracts"} {
+	kept := []string{}
+	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, loaded.Paths.Contracts} {
+		if dir == "" {
+			continue
+		}
+		shown := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/"
+		if info, err := os.Stat(loaded.Abs(dir)); err == nil && info.IsDir() {
+			kept = append(kept, shown)
+			continue
+		}
 		if err := os.MkdirAll(loaded.Abs(dir), 0o755); err != nil {
 			return err
 		}
+		fmt.Printf("write %s\n", shown)
 	}
-	fmt.Printf("write %s/{chains,runs,safespots}/\n", config.DirName)
+	if len(kept) > 0 {
+		fmt.Printf("keep  %s (already present)\n", strings.Join(kept, ", "))
+	}
 
 	docs, err := agentkit.Install(root, agentkit.DocAssets(), *force)
 	if err != nil {
@@ -92,8 +167,14 @@ func runInit(ctx context.Context, args []string) error {
 	if len(docs) == 0 {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
+	switch wrote, err := agentkit.InstallGateScript(root, *force); {
+	case err != nil:
+		return err
+	case wrote:
+		fmt.Printf("write %s (static checks, then shrt gate; run it with bash %s)\n", agentkit.GateScriptPath, agentkit.GateScriptPath)
+	}
 
-	switch added, err := ensureGitignore(root, loaded.NeverCommit()); {
+	switch added, err := ensureGitignore(root, initGitignore(loaded)); {
 	case err != nil:
 		return err
 	case added:
@@ -132,19 +213,62 @@ func runInit(ctx context.Context, args []string) error {
 		if err := scaffoldAuth(loaded); err != nil {
 			return err
 		}
+	} else if !wroteConfig {
+		roles, err := addMissingRoleProfiles(loaded, cfgPath)
+		if err != nil {
+			return err
+		}
+		if len(roles) > 0 {
+			fmt.Printf("write %s auth.profiles, keeping the rest of it as it was:\n", rel(root, cfgPath))
+			for _, r := range roles {
+				fmt.Printf("      role profile %s\n", r)
+			}
+		} else if hint := roleProfileHint(loaded); hint != "" && len(readmeAccounts(rootReadme(root))) > 0 {
+			fmt.Println(hint)
+		}
 	}
-	if wroteConfig {
+	unobserved, err := declareConventions(ctx, loaded, cfgPath)
+	if err != nil {
+		return err
+	}
+	*loginUnsent = strings.HasPrefix(unobserved, "the login was not sent")
+	if unobserved != "" || (wroteConfig && loaded.Conventions.EnvelopePath == "") {
 		guidePath, _ := exampleEnvelope(loaded)
-		fmt.Print("\n" + config.ConventionsGuideFor(guidePath) + "\n")
+		switch {
+		case *loginUnsent && !*verbose:
+		case wroteConfig:
+			fmt.Print("\n" + config.ConventionsGuideFor(guidePath))
+			if unobserved != "" {
+				fmt.Printf("init did not read envelope_ok itself: %s. Export the login credentials and re-run init to have it written.\n", unobserved)
+			}
+			fmt.Println()
+		default:
+			fmt.Printf("conventions: not declared, and init did not read envelope_ok: %s (shrt doctor says what to set)\n", unobserved)
+		}
 	}
-	reportEnvelope(loaded)
 	if err := writeExampleChain(root, loaded, *force); err != nil {
 		return err
+	}
+	if *loginUnsent {
+		return nil
+	}
+
+	if !wroteConfig {
+		fmt.Println("\nthis repo was already set up: init kept what it says it kept and wrote only the lines marked write.")
+		if baseURLGiven && loaded.Target.BaseURL != *baseURL {
+			printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
+		}
+		if loaded.Auth == nil {
+			fmt.Printf("  %s/%s still declares no auth:, so every authenticated call is a 401\n",
+				config.DirName, config.FileName)
+		}
+		fmt.Println("next: shrt doctor   # check this installation before you trust a green")
+		return nil
 	}
 
 	fmt.Println("\nnext:")
 	fmt.Printf("  read %s/README.md\n", agentkit.DocsDir)
-	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
+	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven || portFile != "")
 	if loaded.Auth == nil {
 		fmt.Printf("  declare auth: in %s/%s — nothing in this descriptor looked like a login rpc, so\n",
 			config.DirName, config.FileName)
@@ -176,6 +300,21 @@ func printBaseURLNext(have, flagValue string, given bool) {
 	default:
 		fmt.Printf("  check target.base_url in %s: every run and confirm goes to %s\n", where, have)
 	}
+}
+
+func initGitignore(cfg *config.Config) []string {
+	out := cfg.NeverCommit()
+	dir := cfg.Paths.SafeSpots
+	if dir == "" || filepath.IsAbs(dir) {
+		dir = config.DirName + "/safespots"
+	}
+	pending := strings.TrimSuffix(filepath.ToSlash(dir), "/") + "/pending/"
+	for _, extra := range []string{pending, config.ScratchDir} {
+		if !slices.Contains(out, extra) {
+			out = append(out, extra)
+		}
+	}
+	return out
 }
 
 func ensureGitignore(root string, want []string) (bool, error) {
@@ -231,15 +370,27 @@ func scaffoldAuth(cfg *config.Config) error {
 		profile.Calls = []string{contract.PackageRootOf(c.Method) + ".*"}
 		cfg.Auth.Profiles[name] = profile
 	}
+	roles := addRoleProfiles(cfg, best, os.Environ())
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 	fmt.Printf("write %s/%s auth: %s\n", config.DirName, config.FileName, best.Method.FullName)
-	for name, p := range cfg.Auth.Profiles {
-		fmt.Printf("      profile %-10s %s\n", name, p.Call)
+	names := make([]string, 0, len(cfg.Auth.Profiles))
+	for name := range cfg.Auth.Profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		fmt.Printf("      profile %-10s %s\n", name, cfg.Auth.Profiles[name].Call)
+	}
+	for _, r := range roles {
+		fmt.Printf("      role profile %s\n", r)
 	}
 	fmt.Println("      shrt GUESSED this from the descriptor — check it, and check the credential")
 	fmt.Println("      variables it names before the first run")
+	if hint := roleProfileHint(cfg); hint != "" {
+		fmt.Println(hint)
+	}
 	return nil
 }
 
@@ -269,36 +420,6 @@ func rel(root, path string) string {
 	return filepath.ToSlash(r)
 }
 
-const envelopeSuggestionFormat = "conventions:\n    envelope_path: %s\n    envelope_ok: <the value there meaning success>\n"
-
-func EnvelopeSuggestion(path string) string {
-	return fmt.Sprintf(envelopeSuggestionFormat, path)
-}
-
-func reportEnvelope(cfg *config.Config) {
-	if cfg.Conventions.EnvelopePath != "" {
-		return
-	}
-	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
-	if err != nil {
-		return
-	}
-	found := catalog.DetectEnvelope(cat)
-	if len(found) == 0 || found[0].Path == chain.DefaultEnvelopePath {
-		return
-	}
-	best := found[0]
-	fmt.Printf("\n%d of your %d response message(s) carry a field at %q; the default is %q.\n",
-		best.Count, len(cat.Methods()), best.Path, chain.DefaultEnvelopePath)
-	fmt.Printf("shrt GUESSED that from FIELD NAMES alone and cannot tell a verdict from business data\n" +
-		"that happens to be named that way, and it cannot guess envelope_ok at all — the success value\n" +
-		"is data, not a name. Check it against one response you know was refused. If it is the verdict,\n" +
-		"paste this at the TOP LEVEL of .shrt/config.yaml (column 0, not indented):\n\n")
-	fmt.Print(EnvelopeSuggestion(best.Path))
-	fmt.Printf("\n'shrt doctor' re-checks this every time, so a repo that skipped it says so rather than\n" +
-		"running a whole corpus against a path no response carries.\n")
-}
-
 const exampleEnvelopeExpect = "      - path: " + chain.DefaultEnvelopePath + "\n        equals: " + chain.DefaultEnvelopeOK + "\n"
 
 func exampleEnvelope(cfg *config.Config) (path, ok string) {
@@ -319,31 +440,48 @@ func exampleEnvelope(cfg *config.Config) (path, ok string) {
 	return chain.DefaultEnvelopePath, chain.DefaultEnvelopeOK
 }
 
+const exampleOKPlaceholder = "REPLACE_ME_SUCCESS_VALUE"
+
+var examplePlaceholderExpect = regexp.MustCompile(`      - path: \S+\n        equals: ` + exampleOKPlaceholder + `\n`)
+
+func untouchedExample(existing, template []byte) bool {
+	return strings.Contains(string(existing), exampleOKPlaceholder) &&
+		examplePlaceholderExpect.ReplaceAllLiteralString(string(existing), exampleEnvelopeExpect) == string(template)
+}
+
 func renderExampleChain(template []byte, path, ok string) []byte {
-	expect := "      - path: " + path + "\n        not_empty: true\n"
-	if ok != "" {
-		expect = "      - path: " + path + "\n        equals: " + ok + "\n"
+	if ok == "" {
+		ok = exampleOKPlaceholder
 	}
+	expect := "      - path: " + path + "\n        equals: " + ok + "\n"
 	return []byte(strings.ReplaceAll(string(template), exampleEnvelopeExpect, expect))
 }
 
 func writeExampleChain(root string, cfg *config.Config, force bool) error {
 	example := cfg.Abs(filepath.Join(cfg.Paths.Chains, "example.yaml.template"))
-	if _, err := os.Stat(example); err == nil && !force {
-		return nil
-	}
 	raw, err := agentkit.Read("templates/chain.example.yaml")
 	if err != nil {
 		return err
 	}
 	path, ok := exampleEnvelope(cfg)
+	if existing, err := os.ReadFile(example); err == nil && !force {
+		if ok == "" || !untouchedExample(existing, raw) {
+			return nil
+		}
+		if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
+			return err
+		}
+		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+		return nil
+	}
 	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
 		return err
 	}
 	fmt.Printf("write %s\n", rel(root, example))
+	fmt.Println("      every REPLACE_ME in it is a placeholder for your rpcs and fields; copy it to <name>.yaml and fill them in")
 	if ok == "" {
-		fmt.Printf("      its steps assert only that %s is present: envelope_ok is not declared, and the\n"+
-			"      success value is data shrt will not guess. Once it is, write equals: <that value>\n", path)
+		fmt.Printf("      its steps assert %s equals %s: envelope_ok is not declared, and the\n"+
+			"      success value is data shrt will not guess. Declare it, then write that value there\n", path, exampleOKPlaceholder)
 	}
 	return nil
 }

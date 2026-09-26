@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -26,7 +28,7 @@ func loadEnv(withCatalog bool) (*env, error) {
 	}
 	cfg, err := config.Load(wd)
 	if err != nil {
-		return nil, fmt.Errorf("%w\nrun 'shrt init' first", err)
+		return nil, configLoadError(wd, err)
 	}
 	contract.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
 	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
@@ -35,6 +37,7 @@ func loadEnv(withCatalog bool) (*env, error) {
 		cfg:   cfg,
 		store: store.New(cfg.Abs(cfg.Paths.Runs), cfg.Abs(cfg.Paths.SafeSpots)),
 	}
+	e.store.Notes = os.Stderr
 	if !withCatalog {
 		return e, nil
 	}
@@ -47,7 +50,59 @@ func loadEnv(withCatalog bool) (*env, error) {
 	return e, nil
 }
 
+const brokenConfigAdvice = "fix that line in the file. Plain 'shrt init' would not help: it keeps an existing config and " +
+	"stops on this same error. 'shrt init -force-config' rebuilds it from defaults, discarding your auth, " +
+	"conventions and volatile paths"
+
+func configLoadError(wd string, err error) error {
+	root, derr := config.Discover(wd)
+	if derr != nil {
+		return fmt.Errorf("%w\nrun 'shrt init' first", err)
+	}
+	return fmt.Errorf("%s exists but does not parse, so nothing was read from it: %w\n"+
+		"%s", filepath.Join(root, config.DirName, config.FileName), err, brokenConfigAdvice)
+}
+
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }
+
+func (e *env) targetURL() string {
+	return strings.TrimRight(strings.TrimSpace(e.cfg.Target.BaseURL), "/")
+}
+
+func (e *env) otherTarget(recorded string) bool {
+	now := e.targetURL()
+	return recorded != "" && now != "" && !config.SameTarget(recorded, now)
+}
+
+func (e *env) knownChain(name string) error {
+	if strings.ContainsAny(name, "/\\") || e.store.HasProposal(name) {
+		return nil
+	}
+	known := chain.Names(e.chainsDir())
+	for _, n := range known {
+		if n == name {
+			return nil
+		}
+	}
+	if _, err := chain.Resolve(e.chainsDir(), name); err == nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.Abs(e.cfg.Paths.Runs), name)); err == nil {
+		return nil
+	}
+	if _, err := os.Stat(filepath.Join(e.cfg.Abs(e.cfg.Paths.SafeSpots), name+".json")); err == nil {
+		return nil
+	}
+	if entries, err := os.ReadDir(e.cfg.Abs(e.cfg.Paths.Runs)); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				known = append(known, entry.Name())
+			}
+		}
+	}
+	return fmt.Errorf("chain %q not found: no chain file in %s and no run, safe spot or proposal recorded for it%s",
+		name, e.chainsDir(), chain.DidYouMean(name, known))
+}
 
 func emitJSON(v any) error {
 	enc := json.NewEncoder(os.Stdout)

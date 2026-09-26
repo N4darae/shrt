@@ -2,16 +2,39 @@ package chain
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
 type Expectation struct {
-	Path     string `yaml:"path" json:"path"`
-	Equals   any    `yaml:"equals,omitempty" json:"equals,omitempty"`
-	NotEqual any    `yaml:"not_equal,omitempty" json:"not_equal,omitempty"`
-	Contains string `yaml:"contains,omitempty" json:"contains,omitempty"`
-	Exists   *bool  `yaml:"exists,omitempty" json:"exists,omitempty"`
-	NotEmpty bool   `yaml:"not_empty,omitempty" json:"not_empty,omitempty"`
+	Path     string  `yaml:"path" json:"path"`
+	Equals   any     `yaml:"equals,omitempty" json:"equals,omitempty"`
+	Includes any     `yaml:"includes,omitempty" json:"includes,omitempty"`
+	NotEqual any     `yaml:"not_equal,omitempty" json:"not_equal,omitempty"`
+	Contains string  `yaml:"contains,omitempty" json:"contains,omitempty"`
+	Exists   *bool   `yaml:"exists,omitempty" json:"exists,omitempty"`
+	NotEmpty bool    `yaml:"not_empty,omitempty" json:"not_empty,omitempty"`
+	Gt       any     `yaml:"gt,omitempty" json:"gt,omitempty"`
+	Gte      any     `yaml:"gte,omitempty" json:"gte,omitempty"`
+	Lt       any     `yaml:"lt,omitempty" json:"lt,omitempty"`
+	Lte      any     `yaml:"lte,omitempty" json:"lte,omitempty"`
+	Between  []any   `yaml:"between,omitempty" json:"between,omitempty"`
+	Within   *Within `yaml:"within,omitempty" json:"within,omitempty"`
+
+	vacuous string
+}
+
+func (e Expectation) VacuousRule() string { return e.vacuous }
+
+func (e Expectation) vacuousWhy() string {
+	switch e.vacuous {
+	case `contains: ""`:
+		return `contains: "", which every value contains, so it can never fail; write the text the value must contain`
+	case "not_empty: false":
+		return "not_empty: false, which asks for nothing (only not_empty: true is a check), so it can never fail; " +
+			"write not_empty: true, or exists: false for a field that must be absent"
+	}
+	return ""
 }
 
 type ExpectResult struct {
@@ -40,6 +63,7 @@ func (e Expectation) ResolveWith(scope *Scope) (Expectation, error) {
 		set  func(any)
 	}{
 		{"equals", func() any { return e.Equals }, func(v any) { out.Equals = v }},
+		{"includes", func() any { return e.Includes }, func(v any) { out.Includes = v }},
 		{"not_equal", func() any { return e.NotEqual }, func(v any) { out.NotEqual = v }},
 		{"contains", func() any {
 			if e.Contains == "" {
@@ -58,7 +82,7 @@ func (e Expectation) ResolveWith(scope *Scope) (Expectation, error) {
 		}
 		f.set(resolved)
 	}
-	return out, nil
+	return out.resolveComparisons(scope)
 }
 
 func (e Expectation) Evaluate(response any) ExpectResult {
@@ -66,13 +90,17 @@ func (e Expectation) Evaluate(response any) ExpectResult {
 }
 
 func (e Expectation) EvaluateIn(response, presence any) ExpectResult {
+	return e.EvaluateTyped(response, presence, "")
+}
+
+func (e Expectation) EvaluateTyped(response, presence any, kind string) ExpectResult {
 	got, found := Get(response, e.Path)
 	switch {
 	case e.Exists != nil:
 		_, sent := Get(presence, e.Path)
 		return result(e.Path, "exists", *e.Exists, sent, sent == *e.Exists, "")
 	case e.NotEmpty:
-		ok := found && !isEmpty(got)
+		ok := found && !IsZeroOf(kind, got)
 		return result(e.Path, "not_empty", true, got, ok, "")
 	case e.Contains != "":
 		ok := found && strings.Contains(stringify(got), e.Contains)
@@ -81,15 +109,53 @@ func (e Expectation) EvaluateIn(response, presence any) ExpectResult {
 		if !found {
 			return result(e.Path, "not_equal", e.NotEqual, nil, false, "path not present in response")
 		}
-		return result(e.Path, "not_equal", e.NotEqual, got, !equal(got, e.NotEqual), "")
+		return result(e.Path, "not_equal", e.NotEqual, got, !equalOf(kind, got, e.NotEqual), "")
 	case e.Equals != nil:
 		if !found {
 			return result(e.Path, "equals", e.Equals, nil, false, "path not present in response")
 		}
-		return result(e.Path, "equals", e.Equals, got, equal(got, e.Equals), "")
+		return result(e.Path, "equals", e.Equals, got, equalOf(kind, got, e.Equals), "")
+	case e.Includes != nil:
+		return evaluateIncludes(e.Path, e.Includes, got, found)
 	default:
+		if r, ok := e.evaluateComparison(got, found, presence); ok {
+			return r
+		}
+		if why := e.vacuousWhy(); why != "" {
+			return result(e.Path, "invalid", nil, nil, false, "not evaluated, the expectation is "+why)
+		}
 		return result(e.Path, "invalid", nil, nil, false, "expectation has no rule")
 	}
+}
+
+func evaluateIncludes(path string, want, got any, found bool) ExpectResult {
+	if !found {
+		return result(path, "includes", want, nil, false, "path not present in response")
+	}
+	list, ok := got.([]any)
+	if !ok {
+		return result(path, "includes", want, got, false, "the value is not a list")
+	}
+	for _, item := range list {
+		if itemMatches(item, want) {
+			return result(path, "includes", want, len(list), true, "")
+		}
+	}
+	return result(path, "includes", want, len(list), false, fmt.Sprintf("none of the %d item(s) matches", len(list)))
+}
+
+func itemMatches(item, want any) bool {
+	fields, isMap := want.(map[string]any)
+	if !isMap {
+		return equal(item, want)
+	}
+	for k, v := range fields {
+		got, ok := Get(item, k)
+		if !ok || !equal(got, v) {
+			return false
+		}
+	}
+	return true
 }
 
 func result(path, rule string, want, got any, passed bool, detail string) ExpectResult {
@@ -101,6 +167,33 @@ func equal(got, want any) bool {
 		return true
 	}
 	return stringify(got) == stringify(want)
+}
+
+func equalOf(kind string, got, want any) bool {
+	if text, ok := want.(string); ok && text == "" && IsNumericKind(kind) {
+		return IsZeroOf(kind, got)
+	}
+	return equal(got, want)
+}
+
+func IsNumericKind(kind string) bool {
+	switch kind {
+	case "int32", "int64", "uint32", "uint64", "sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64",
+		"float", "double":
+		return true
+	}
+	return false
+}
+
+func IsZeroOf(kind string, v any) bool {
+	if text, ok := v.(string); ok && IsNumericKind(kind) {
+		if text == "" {
+			return true
+		}
+		n, err := strconv.ParseFloat(text, 64)
+		return err == nil && n == 0
+	}
+	return isEmpty(v)
 }
 
 func isEmpty(v any) bool {
@@ -127,10 +220,68 @@ func (r ExpectResult) String() string {
 	if r.Passed {
 		status = "ok"
 	}
-	if r.Detail != "" {
-		return fmt.Sprintf("%s %s %s want=%v got=%v (%s)", status, r.Path, r.Rule, r.Want, r.Got, r.Detail)
+	out := fmt.Sprintf("%s %s %s", status, r.Path, WantGot(r.Rule, fmt.Sprint(r.Want), fmt.Sprint(r.Got)))
+	if !ruleShown(r.Rule) {
+		out = fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
 	}
-	return fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
+	if r.Detail != "" {
+		out += " (" + r.Detail + ")"
+	}
+	return out
+}
+
+func ruleShown(rule string) bool {
+	switch rule {
+	case "", "equals", "item_envelope", "not_equal", "gt", "gte", "lt", "lte", "contains", "includes", "between", "within", "not_empty", "exists":
+		return true
+	}
+	return false
+}
+
+func WantText(rule, want string) string {
+	switch rule {
+	case "not_equal":
+		return "want≠" + want
+	case "gt":
+		return "want>" + want
+	case "gte":
+		return "want≥" + want
+	case "lt":
+		return "want<" + want
+	case "lte":
+		return "want≤" + want
+	case "contains", "includes", "within":
+		return "want " + rule + " " + want
+	case "between":
+		return "want in " + want
+	case "not_empty":
+		return "want non-empty"
+	case "exists":
+		if want == "false" {
+			return "want absent"
+		}
+		return "want present"
+	case "", "equals", "item_envelope":
+		return "want=" + want
+	}
+	return "want " + rule + " " + want
+}
+
+func GotText(rule, got string) string {
+	if rule == "exists" && (got == "true" || got == "false") {
+		if got == "true" {
+			return "got present"
+		}
+		return "got absent"
+	}
+	if rule == "includes" {
+		return "got " + got + " item(s)"
+	}
+	return "got=" + got
+}
+
+func WantGot(rule, want, got string) string {
+	return WantText(rule, want) + " " + GotText(rule, got)
 }
 
 func TautologyReason(e Expectation) string {

@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -36,6 +37,7 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 	}
 	issues = append(issues, lintCycles(lib, cat)...)
 	issues = append(issues, lintAliasAgreement(lib, cat)...)
+	issues = append(issues, EffectProblems(lib, cat)...)
 	sort.SliceStable(issues, func(i, j int) bool {
 		if issues[i].RPC != issues[j].RPC {
 			return issues[i].RPC < issues[j].RPC
@@ -49,6 +51,13 @@ func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
 	for i, f := range o.Failures {
 		issues = append(issues, lintFailure(o.Domain, "", fmt.Sprintf("domain failure %d", i+1), f)...)
+	}
+	for i, f := range o.Failures {
+		if f.Scope != "" && f.Scope != FailureScopeAll {
+			issues = append(issues, Issue{Domain: o.Domain, Field: fmt.Sprintf("domain failure %d", i+1), Severity: SeverityError,
+				Message: fmt.Sprintf("scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
+					"write scope: all for one every rpc of every domain shares", f.Scope)})
+		}
 	}
 	for _, rpc := range sortedRPCNames(o.RPCs) {
 		issues = append(issues, lintRPC(o.Domain, rpc, o.RPCs[rpc], lib, cat)...)
@@ -64,6 +73,11 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		})
 	}
 	m, err := cat.Lookup(rpc)
+	if errors.Is(err, catalog.ErrNotFound) {
+		add(SeverityError, "", "rpc %q is not in the descriptor (removed from the proto?): delete this entry, or rebuild "+
+			"the descriptor (shrt catalog build) if the rpc should still exist%s", rpc, cat.SuggestRPC(rpc))
+		return issues
+	}
 	if err != nil {
 		add(SeverityError, "", "%v", err)
 		return issues
@@ -83,6 +97,9 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 	in := catalog.DescribeMessage(m.Input()).Fields
 	out := catalog.DescribeMessage(m.Output()).Fields
+	if msg, ok := lintListNeeds(c, m, lib, cat); ok {
+		add(SeverityWarn, "needs", "%s", msg)
+	}
 
 	for _, name := range c.Required {
 		if IsRequiredLiteral(name) {
@@ -162,6 +179,11 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	seen := map[string]int{}
 	for i, f := range c.Failures {
 		issues = append(issues, lintFailure(domain, rpc, fmt.Sprintf("failure %d", i+1), f)...)
+		if f.Scope != "" {
+			issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: fmt.Sprintf("failure %d", i+1), Severity: SeverityError,
+				Message: "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every " +
+					"rpc of every domain; a failure under one rpc is that rpc's alone"})
+		}
 		if f.Code != 0 {
 			key := f.Label() + "\x00" + f.Field
 			if prior, dup := seen[key]; dup {
@@ -309,6 +331,14 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 	}
 	if f.Unreachable != "" && f.When != "" {
 		add(SeverityWarn, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
+	}
+	if f.Unique != nil {
+		if f.Unique.Case != "" && f.Unique.Case != UniqueCaseIgnore && f.Unique.Case != UniqueCaseExact {
+			add(SeverityError, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
+		}
+		if _, unique := uniquenessNoun(f); !unique {
+			add(SeverityWarn, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
+		}
 	}
 	if f.PendingDeploy != "" {
 		if f.Unreachable != "" {

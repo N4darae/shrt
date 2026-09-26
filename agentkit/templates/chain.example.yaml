@@ -1,31 +1,33 @@
 apiVersion: shrt/v1
 name: example
-description: replace this with the state the chain reproduces
+description: "REPLACE_ME: the state this chain reproduces"
 
 vars:
-  sku: SKU-A
+  thing_name: REPLACE_ME_NAME
 
 volatile:
-  - "**.id_item"
+  - "**.REPLACE_ME_ID_FIELD"
 
 steps:
-  - id: create_item
-    call: acme.inventory.item.v1.ItemService/CreateItem
+  - id: create_thing
+    call: REPLACE_ME.package.v1.REPLACE_MEService/CreateThing
     body:
-      sku: ${vars.sku}
+      REPLACE_ME_NAME_FIELD: ${vars.thing_name}
       idempotency_key: ${uuid}
     expect:
       - path: error.code
         equals: OK
+      - path: REPLACE_ME_ID_FIELD
+        not_empty: true
     export:
-      item_id: id_item
+      thing_id: REPLACE_ME_ID_FIELD
 
-  - id: fetch_item
-    call: acme.inventory.item.v1.ItemService/FetchItem
+  - id: fetch_thing
+    call: REPLACE_ME.package.v1.REPLACE_MEService/FetchThing
     body:
-      id_item: ${create_item.id_item}
+      REPLACE_ME_ID_FIELD: ${create_thing.REPLACE_ME_ID_FIELD}
     expect:
       - path: error.code
         equals: OK
-      - path: sku
-        equals: ${vars.sku}
+      - path: REPLACE_ME_NAME_FIELD
+        equals: ${vars.thing_name}

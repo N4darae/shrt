@@ -15,7 +15,7 @@ and tokens hunting for the rest of the path, and pays that cost again next time.
 
 shrt builds a descriptor set from the backend's proto sources (`shrt catalog build`, which runs
 `buf build` by default), so every method and message type comes from the protos the server is built
-from. It calls the backend as unary Connect requests: JSON over HTTP POST.
+from. It calls the backend as Connect requests: JSON over HTTP POST.
 
 A chain is a YAML file under `.shrt/chains/`. It is an ordered list of steps, and a step names an
 rpc, its request body, its assertions and what it exports. A body value is a literal or a `${...}`
@@ -36,9 +36,9 @@ Before a chain has a safe spot, `shrt diff` compares two of its recorded runs.
 
 ## Limits
 
-Unary RPCs only. `shrt catalog ls`, `shrt catalog describe` and `shrt contract show` mark a
-streaming rpc as out of scope, `shrt chain new` refuses to scaffold one, and `shrt chain lint`
-rejects a step that calls one.
+Unary and server-streaming RPCs only; a server-streaming step reads the first message. `shrt chain
+lint` rejects a client- or bidi-streaming step, and `shrt run` refuses a chain with one before
+sending anything.
 
 Every step runs, in order. shrt has no notion of an external side effect, so a chain that takes
 payments, sends mail or calls a third party needs a test environment that can absorb it or be reset.

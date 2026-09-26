@@ -20,6 +20,10 @@ func chainHollow(args []string) error {
 	runsPath := fs.String("runs", "", "runs directory to read (default paths.runs from the config)")
 	gate := fs.Bool("gate", false, "ratchet the reported count against -baseline: fail if it rises, and fail if it falls without the baseline being lowered")
 	baseline := fs.String("baseline", "", "file holding the reported count the ratchet holds to")
+	setUsage(fs, "usage: shrt chain hollow [flags]   read steps in the local run records that passed while the response carried nothing",
+		"\nexit codes:\n  0  no unexplained hollow read; under -gate, at the baseline\n"+
+			"  1  hollow reads reported; under -gate, worse or better than the baseline\n"+
+			"  2  no run records to read\n")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -58,7 +62,7 @@ func chainHollow(args []string) error {
 	if len(brokenChains) > 0 || *runsPath != "" {
 		known = nil
 	}
-	rep, scanErr := hollow.ScanKnown(runsDir, allow, hollow.DataAsserted(chains), known)
+	rep, scanErr := hollow.ScanKnownScratch(runsDir, allow, hollow.DataAsserted(chains), known, e.scratchSource)
 	if errors.Is(scanErr, hollow.ErrNoRecords) {
 		return exitWith(2,
 			"hollow: read 0 run records under %s.\nThe count of hollow reads is zero because there was nothing to read, not because there are none.\n"+
@@ -75,8 +79,9 @@ func chainHollow(args []string) error {
 		}
 		return nil
 	}
+	renamed := renamedChains(e)
 	if *gate {
-		return hollowGate(rep, *baseline, path)
+		return hollowGate(rep, *baseline, path, renamed)
 	}
 	for _, f := range rep.Findings {
 		if f.Status != hollow.StatusReported {
@@ -84,11 +89,11 @@ func chainHollow(args []string) error {
 		}
 		fmt.Printf("HOLLOW %-40s %-54s %-30s %s (%d record(s))\n", f.Chain, f.Step, f.RPC, f.RunID, f.Occurrences)
 	}
-	fmt.Printf("\n%d record(s): %d passed read step(s), %d asserting only the envelope verdict, %d of those hollow\n",
-		rep.Records, rep.ReadSteps, rep.EnvelopeOnly, rep.HollowRecords)
+	fmt.Printf("\n%s: %d passed read step(s), %d asserting only the envelope verdict, %d asserting nothing, %d of those hollow\n",
+		recordsCounted(rep), rep.ReadSteps, rep.EnvelopeOnly, rep.AssertsNothing, rep.HollowRecords)
 	fmt.Printf("%d distinct (chain, step): %d reported, %d allowlisted, %d whose chain now asserts a data path\n",
 		rep.DistinctSteps, rep.Unallowed, rep.Allowed, rep.ChainFixed)
-	reportOrphans(rep)
+	reportOrphans(rep, renamed)
 	if rep.Unallowed > 0 {
 		return exitWith(1,
 			"%d read step(s) passed while the response carried nothing.\n"+
@@ -99,7 +104,7 @@ func chainHollow(args []string) error {
 	return nil
 }
 
-func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
+func hollowGate(rep *hollow.Report, baselinePath, allowPath string, renamed map[string]string) error {
 	want, verdict, err := store.Ratchet(baselinePath, rep.Unallowed)
 	if err != nil {
 		return err
@@ -114,23 +119,100 @@ func hollowGate(rep *hollow.Report, baselinePath, allowPath string) error {
 		return exitWith(1, "hollow: %d read step(s) passed while finding nothing, better than the baseline %d — "+
 			"lower %s to %d to keep the ratchet tight", rep.Unallowed, want, baselinePath, rep.Unallowed)
 	}
-	fmt.Printf("hollow: %d hollow read step(s) reported from %d record(s), at the baseline (%d allowlisted, %d whose chain now asserts a data path)\n",
-		rep.Unallowed, rep.Records, rep.Allowed, rep.ChainFixed)
-	reportOrphans(rep)
+	fmt.Printf("hollow: %d hollow read step(s) reported from %s, at the baseline (%d allowlisted, %d whose chain now asserts a data path)\n",
+		rep.Unallowed, recordsCounted(rep), rep.Allowed, rep.ChainFixed)
+	reportOrphans(rep, renamed)
 	return nil
 }
 
-func reportOrphans(rep *hollow.Report) {
+func recordsCounted(rep *hollow.Report) string {
+	return fmt.Sprintf("%d run record(s) (%d shrt run and %d verify replay(s); %d passed and %d did not pass; "+
+		"of chains kept red: %d passed, %d did not pass; a passed read step counts whatever its run's verdict)",
+		rep.Records, rep.Records-rep.ReplayRecords, rep.ReplayRecords, rep.Records-rep.FailedRecords, rep.FailedRecords,
+		rep.KeptRedRecords-rep.FailedKeptRedRecords, rep.FailedKeptRedRecords)
+}
+
+func reportOrphans(rep *hollow.Report, renamed map[string]string) {
+	if len(rep.Edited) > 0 {
+		fmt.Printf("\n%d run record(s) were changed after shrt wrote them (their content no longer matches their seal) and were NOT counted:\n",
+			len(rep.Edited))
+		for _, p := range rep.Edited {
+			fmt.Printf("  edited  %s\n", p)
+		}
+	}
+	if rep.Unsealed > 0 {
+		fmt.Printf("\n%d counted run record(s) predate sealed run records, so an edit to them cannot be ruled out; re-run their chains for records shrt can check\n", rep.Unsealed)
+	}
+	if len(rep.Scratch) > 0 {
+		fmt.Printf("\n%d run record(s) under %d directory(ies) are runs of chains given by path, outside %s, and were NOT counted above:\n",
+			rep.ScratchRecords, len(rep.Scratch), "paths.chains")
+		for _, d := range rep.Scratch {
+			fmt.Printf("  scratch %s\n", d)
+		}
+	}
 	if len(rep.Orphans) == 0 {
 		return
 	}
 	fmt.Printf("\n%d run record(s) under %d directory(ies) belong to no chain and were NOT counted above:\n",
 		rep.OrphanRecords, len(rep.Orphans))
+	deleted, moved := 0, 0
 	for _, d := range rep.Orphans {
+		if to, ok := renamed[d]; ok {
+			fmt.Printf("  orphan  %s  (renamed to %s: its safe spot records the rename; these records stay under the old name)\n", d, to)
+			moved++
+			continue
+		}
 		fmt.Printf("  orphan  %s\n", d)
+		deleted++
 	}
-	fmt.Print("Deleting a chain leaves its runs behind. They are still evidence of what happened, so " +
-		"nothing removes them for you — but a finding in one names a chain that no longer exists and " +
-		"cannot be acted on, so they are excluded from the counts and from the gate. Delete the " +
-		"directory when the evidence has served its purpose.\n")
+	if deleted > 0 {
+		fmt.Print("Deleting a chain leaves its runs behind. They are still evidence of what happened, so " +
+			"nothing removes them for you — but a finding in one names a chain that no longer exists and " +
+			"cannot be acted on, so they are excluded from the counts and from the gate. Delete the " +
+			"directory when the evidence has served its purpose.\n")
+	}
+	if moved > 0 {
+		fmt.Print("Renaming a chain leaves its runs under the old name: run records are stored by chain name, " +
+			"and 'confirm -rename-from' carries the safe spot, not the records. They are the renamed chain's " +
+			"history, but hollow counts only records under the current name, so they are excluded from the counts " +
+			"and from the gate; the renamed chain's own runs are counted. Delete the old directory when that " +
+			"evidence has served its purpose.\n")
+	}
+}
+
+func (e *env) scratchSource(source string) bool {
+	if source == "" {
+		return false
+	}
+	path := source
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(e.cfg.Root, filepath.FromSlash(source))
+	}
+	if rel, err := filepath.Rel(e.chainsDir(), path); err == nil && !strings.HasPrefix(rel, "..") {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func renamedChains(e *env) map[string]string {
+	out := map[string]string{}
+	dir := e.cfg.Abs(e.cfg.Paths.SafeSpots)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		spot, err := e.store.LoadSafeSpot(strings.TrimSuffix(entry.Name(), ".json"))
+		if err != nil {
+			continue
+		}
+		for _, r := range spot.Renamed {
+			out[r.From] = spot.Chain
+		}
+	}
+	return out
 }

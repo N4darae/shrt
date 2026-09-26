@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,6 +64,7 @@ type RPCContract struct {
 	Before       []string                  `yaml:"before,omitempty" json:"before,omitempty"`
 	Fields       map[string]*FieldContract `yaml:"fields,omitempty" json:"fields,omitempty"`
 	Aliases      map[string]*AliasContract `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+	Effects      Effects                   `yaml:"effects,omitempty" json:"effects,omitempty"`
 	Exports      map[string]string         `yaml:"exports,omitempty" json:"exports,omitempty"`
 	Terminal     map[string]string         `yaml:"terminal,omitempty" json:"terminal,omitempty"`
 	SoftSignals  map[string]string         `yaml:"soft_signals,omitempty" json:"soft_signals,omitempty"`
@@ -106,6 +110,8 @@ type FieldContract struct {
 	Note      string `yaml:"note,omitempty" json:"note,omitempty"`
 }
 
+const FailureScopeAll = "all"
+
 type Failure struct {
 	Code        int    `yaml:"code,omitempty" json:"code,omitempty"`
 	ConnectCode string `yaml:"connect_code,omitempty" json:"connect_code,omitempty"`
@@ -114,8 +120,16 @@ type Failure struct {
 	Field       string `yaml:"field,omitempty" json:"field,omitempty"`
 	When        string `yaml:"when,omitempty" json:"when,omitempty"`
 	Unreachable string `yaml:"unreachable,omitempty" json:"unreachable,omitempty"`
+	Scope       string `yaml:"scope,omitempty" json:"scope,omitempty"`
 
 	PendingDeploy string `yaml:"pending_deploy,omitempty" json:"pending_deploy,omitempty"`
+
+	Unique *UniqueCompare `yaml:"unique,omitempty" json:"unique,omitempty"`
+}
+
+type UniqueCompare struct {
+	Case string `yaml:"case,omitempty" json:"case,omitempty"`
+	Trim *bool  `yaml:"trim,omitempty" json:"trim,omitempty"`
 }
 
 func (f Failure) Label() string {
@@ -387,6 +401,10 @@ type Library struct {
 }
 
 func LoadLibrary(dir string) (*Library, []error, error) {
+	return LoadLibraryIn(dir, nil)
+}
+
+func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
 		return NewLibrary(nil), nil, nil
@@ -405,15 +423,88 @@ func LoadLibrary(dir string) (*Library, []error, error) {
 
 	overlays := []*Overlay{}
 	broken := []error{}
+	definedIn := map[string]definedAt{}
 	for _, n := range names {
 		o, err := LoadOverlay(filepath.Join(dir, n))
 		if err != nil {
 			broken = append(broken, err)
 			continue
 		}
+		clash := false
+		for _, rpc := range sortedContractNames(o.RPCs) {
+			key := rpc
+			if cat != nil {
+				if m, err := cat.Lookup(rpc); err == nil {
+					key = m.FullName
+				}
+			}
+			if first, seen := definedIn[key]; seen {
+				named := rpc
+				if first.key != rpc || key != rpc {
+					named = fmt.Sprintf("%s (written %q there and %q here)", key, first.key, rpc)
+				}
+				broken = append(broken, fmt.Errorf("%s and %s both define %s: an rpc has one contract, and "+
+					"whichever file loads last would silently replace the other — keep the entry in one file",
+					first.path, o.SourcePath, named))
+				clash = true
+				continue
+			}
+			definedIn[key] = definedAt{path: o.SourcePath, key: rpc}
+		}
+		if clash {
+			continue
+		}
 		overlays = append(overlays, o)
 	}
-	return NewLibrary(overlays), broken, nil
+	lib := NewLibrary(overlays)
+	kept := []*Overlay{}
+	for _, o := range overlays {
+		problems := []string{}
+		for _, issue := range EffectProblems(&Library{Overlays: []*Overlay{o}, byRPC: lib.byRPC}, cat) {
+			problems = append(problems, fmt.Sprintf("%s %s: %s", shortRPC(issue.RPC), issue.Field, issue.Message))
+		}
+		if len(problems) > 0 {
+			broken = append(broken, fmt.Errorf("%s: %s", o.SourcePath, strings.Join(problems, "; ")))
+			continue
+		}
+		kept = append(kept, o)
+	}
+	if len(kept) == len(overlays) {
+		return lib, broken, nil
+	}
+	return NewLibrary(kept), broken, nil
+}
+
+type definedAt struct {
+	path string
+	key  string
+}
+
+func IgnoredOverlayFiles(dir string) ([]string, error) {
+	out := []string{}
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if os.IsNotExist(err) && path == dir {
+				return filepath.SkipDir
+			}
+			return err
+		}
+		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(d.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, path)
+		if relErr != nil {
+			rel = path
+		}
+		out = append(out, rel)
+		return nil
+	})
+	sort.Strings(out)
+	return out, err
 }
 
 func NewLibrary(overlays []*Overlay) *Library {
@@ -424,12 +515,28 @@ func NewLibrary(overlays []*Overlay) *Library {
 		inherited: map[string][]Failure{},
 		before:    map[string][]string{},
 	}
+	shared := map[*Overlay][]Failure{}
+	for _, o := range overlays {
+		for _, f := range o.Failures {
+			if f.Scope == FailureScopeAll {
+				shared[o] = append(shared[o], f)
+			}
+		}
+	}
 	for _, o := range overlays {
 		for rpc, c := range o.RPCs {
 			lib.byRPC[rpc] = c
 			lib.domainOf[rpc] = o.Domain
 			if len(o.Failures) > 0 {
-				lib.inherited[rpc] = o.Failures
+				lib.inherited[rpc] = append([]Failure{}, o.Failures...)
+			}
+			for _, other := range overlays {
+				if other != o {
+					lib.inherited[rpc] = append(lib.inherited[rpc], shared[other]...)
+				}
+			}
+			if len(lib.inherited[rpc]) == 0 {
+				delete(lib.inherited, rpc)
 			}
 			for _, target := range c.Before {
 				rpcOnly, _ := SplitNode(target)
@@ -511,10 +618,16 @@ func decodeStrict(raw []byte, into any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return err
+		return yamlkey.Explain(err, into)
 	}
 	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {
+	err := d.Decode(&extra)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return fmt.Errorf("this file holds more than one YAML document, and the one after the '---' does not "+
+			"parse (%v); only the first is read, so the rest would be silently ignored. Split it into separate "+
+			"files, or remove the '---'", err)
+	}
+	if err == nil && carriesContent(&extra) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}

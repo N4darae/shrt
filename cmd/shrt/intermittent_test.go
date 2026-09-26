@@ -1,0 +1,233 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/N4darae/shrt/runner"
+)
+
+const flakyChain = `apiVersion: shrt/v1
+name: cli-flaky
+steps:
+    - id: fetch
+      call: ThingService/Fetch
+      body: {id: thing-9}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch_again
+      call: ThingService/Fetch
+      body: {id: thing-9}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch2
+      call: ThingService/Fetch
+      body: {id: thing-10}
+      expect:
+          - path: error.code
+            equals: OK
+    - id: fetch3
+      call: ThingService/Fetch
+      body: {id: thing-11}
+      expect:
+          - path: error.code
+            equals: OK
+`
+
+type flakyServer struct {
+	mu     sync.Mutex
+	n      int
+	failAt map[int]bool
+	code   string
+	status int
+}
+
+func (f *flakyServer) set(code string, status int, at ...int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.n, f.code, f.status, f.failAt = 0, code, status, map[int]bool{}
+	for _, i := range at {
+		f.failAt[i] = true
+	}
+}
+
+func (f *flakyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body := map[string]any{}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.mu.Lock()
+	fail := false
+	if strings.HasSuffix(r.URL.Path, "/Fetch") {
+		f.n++
+		fail = f.failAt[f.n]
+	}
+	code, status := f.code, f.status
+	f.mu.Unlock()
+	w.Header().Set("Content-Type", "application/json")
+	if fail {
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": "pool exhausted"})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": body["id"], "name": "widget"})
+}
+
+func flakyWorkspace(t *testing.T) (*flakyServer, context.Context) {
+	f := &flakyServer{}
+	f.set("internal", http.StatusInternalServerError)
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-flaky.yaml", flakyChain)
+	ctx := context.Background()
+	captureStdout(t, func() {
+		if err := runRun(ctx, []string{"cli-flaky", "-quiet"}); err != nil {
+			t.Fatalf("shrt run: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-flaky", "-note", "baseline"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-flaky", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	return f, ctx
+}
+
+func verifyOnce(t *testing.T, ctx context.Context) (string, error) {
+	var err error
+	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-flaky", "-quiet"}) })
+	return out, err
+}
+
+func wantExit1(t *testing.T, what string, err error, out string) {
+	t.Helper()
+	var coded *exitError
+	if err == nil || errors.As(err, &coded) {
+		t.Fatalf("%s: an intermittent failure is a defect, exit 1, never 0 or 3: %v\n%s", what, err, out)
+	}
+}
+
+func TestAServerErrorOnARequestTheBackendAnsweredInTheSameRunIsAnIntermittentFinding(t *testing.T) {
+	for _, tc := range []struct {
+		code   string
+		status int
+	}{
+		{"internal", 500}, {"unknown", 500}, {"resource_exhausted", 429}, {"data_loss", 500},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			f, ctx := flakyWorkspace(t)
+			f.set(tc.code, tc.status, 2, 3)
+			out, err := verifyOnce(t, ctx)
+			wantExit1(t, "fetch_again failed", err, out)
+			msg := err.Error()
+			if !strings.Contains(msg, "intermittent failure at ThingService/Fetch") || strings.HasPrefix(msg, "regression") {
+				t.Fatalf("a %s at fetch_again, whose request fetch had answered in the same run, is an intermittent failure, not a regression: %v\n%s", tc.code, err, out)
+			}
+			if !strings.Contains(out, "same request at step 1 fetch in this run") || !strings.Contains(out, "FINDING: intermittent failure") {
+				t.Fatalf("the finding names its evidence: %v\n%s", err, out)
+			}
+		})
+	}
+}
+
+func TestAServerErrorThatMovesBetweenRunsIsIntermittentAndOneThatStaysIsARegression(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 3, 4)
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify 1", err, out)
+	if !strings.HasPrefix(err.Error(), "regression") || !strings.Contains(out, "this looks intermittent") ||
+		!strings.Contains(out, "the previous run that sent step fetch2, had it answered as expected") {
+		t.Fatalf("verify 1: one failure on a request nothing else in the run sent stays a regression, with a note that the previous run answered it: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 4, 5)
+	out, err = verifyOnce(t, ctx)
+	wantExit1(t, "verify 2", err, out)
+	if !strings.Contains(err.Error(), "intermittent failure at ThingService/Fetch") ||
+		!strings.Contains(out, "failed at step 3 fetch2 instead with the same error, and answered step fetch3 as expected") {
+		t.Fatalf("verify 2: the previous verify failed at another step with the same error, so this is intermittent: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 4, 5)
+	out, err = verifyOnce(t, ctx)
+	wantExit1(t, "verify 3", err, out)
+	if !strings.HasPrefix(err.Error(), "regression") || strings.Contains(out, "intermittent") {
+		t.Fatalf("verify 3: the same failure at the same step as the previous run is a regression, not intermittent: %v\n%s", err, out)
+	}
+}
+
+func TestRunSummarySaysIntermittent(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2)
+	var err error
+	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet"}) })
+	wantExit1(t, "run", err, out)
+	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
+		t.Fatalf("run's summary says the failure looks intermittent, with evidence: %v\n%s", err, out)
+	}
+}
+
+func TestAServerErrorAtTheSameStepAsThePreviousRunIsARepeatedFailureARerunDoesNotClear(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2, 3)
+	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "intermittent failure") || !strings.Contains(out, "a re-run may pass") {
+		t.Fatalf("verify 1: a first failure is intermittent: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 2, 3)
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify 2", err, out)
+	msg := err.Error()
+	if !strings.Contains(msg, "repeated failure at ThingService/Fetch") || strings.Contains(out, "a re-run may pass") ||
+		!strings.Contains(out, "failed at the same step(s) the same way") || !strings.Contains(out, "a re-run fails the same way") ||
+		!strings.Contains(out, "the errors hid the checks of fetch_again") {
+		t.Fatalf("verify 2: the same failure at the same step as the previous run is said so, with the checks it hid: %v\n%s", err, out)
+	}
+}
+
+func TestAReadThatGetsAServerErrorIsResentOnceAndJudgedOnTheAnswerWhileTheFindingStays(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2, 5)
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify", err, out)
+	msg := err.Error()
+	if !strings.Contains(msg, "intermittent failure at ThingService/Fetch (failed 2 of 6 calls)") ||
+		!strings.Contains(out, "intermittent failure at ThingService/Fetch: it failed 2 of 6 calls in this run, and answered") ||
+		!strings.Contains(out, "step 2 fetch_again, step 4 fetch3 got internal: pool exhausted, each re-send answered and judged") ||
+		strings.Contains(out, "hid the checks") || strings.HasPrefix(msg, "regression") {
+		t.Fatalf("each failed read is re-sent once, judged on the answer, and the failure is still a finding with its rate: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 2, 5)
+	out, err = verifyOnce(t, ctx)
+	wantExit1(t, "verify 2", err, out)
+	if !strings.Contains(err.Error(), "repeated failure at ThingService/Fetch") {
+		t.Fatalf("the same first-attempt failure at the same steps as the previous run is a repeated failure: %v\n%s", err, out)
+	}
+}
+
+func TestTheCallRateNamesAPeriodOnlyFromThreeFailures(t *testing.T) {
+	rec := &runner.Record{}
+	for i := 1; i <= 9; i++ {
+		st := &runner.StepRecord{Index: i, ID: "s", Call: "A/Get", Status: runner.StatusPassed, HTTPStatus: 200}
+		if i%3 == 0 {
+			st.FirstAttempt = &runner.Attempt{HTTPStatus: 500, Code: "internal", Message: "pool exhausted"}
+		}
+		rec.Steps = append(rec.Steps, st)
+	}
+	if got := callRate(rec, "A/Get"); got != "it failed 3 of 12 calls in this run, every 4th, and answered the others" {
+		t.Fatalf("each re-send is a call too, so a failure at every 3rd step is every 4th call: %q", got)
+	}
+	rec.Steps = rec.Steps[:6]
+	if got := callRate(rec, "A/Get"); got != "it failed 2 of 8 calls in this run, and answered the others" {
+		t.Fatalf("two failures name no period: %q", got)
+	}
+	rec.Steps = rec.Steps[:3]
+	if got := callRate(rec, "A/Get"); got != "" {
+		t.Fatalf("one failure is not a rate: %q", got)
+	}
+}

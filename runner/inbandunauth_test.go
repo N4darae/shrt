@@ -26,6 +26,14 @@ func TestInBandUnauthenticatedInvalidatesTheToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
+	if rec.Passed() || rec.Steps[0].AuthRetry != runner.AuthRetryNotResent {
+		t.Fatalf("the first step is a write, so it is not re-sent after the in-band refusal; got %s auth_retry=%q",
+			rec.Status, rec.Steps[0].AuthRetry)
+	}
+	rec, err = r.Run(context.Background(), testChain(), runner.Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
 	if srv.loginCount() != 2 {
 		t.Fatalf("the backend forgot every token and answered HTTP 200 with an in-band "+
 			"unauthenticated envelope, which is the shape conventions.envelope_path exists to "+

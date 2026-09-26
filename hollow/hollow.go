@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 var ErrNoRecords = errors.New("no run records were read")
@@ -34,18 +36,28 @@ type Finding struct {
 }
 
 type Report struct {
-	RunsDir       string    `json:"runs_dir"`
-	Records       int       `json:"records"`
-	ReadSteps     int       `json:"read_steps"`
-	EnvelopeOnly  int       `json:"envelope_only"`
-	HollowRecords int       `json:"hollow_step_records"`
-	DistinctSteps int       `json:"distinct_steps"`
-	ChainFixed    int       `json:"chain_asserts_data"`
-	Allowed       int       `json:"allowlisted"`
-	Unallowed     int       `json:"reported"`
-	Findings      []Finding `json:"findings"`
-	Orphans       []string  `json:"orphan_run_dirs,omitempty"`
-	OrphanRecords int       `json:"orphan_records,omitempty"`
+	RunsDir        string `json:"runs_dir"`
+	Records        int    `json:"records"`
+	ReplayRecords  int    `json:"replay_records"`
+	KeptRedRecords int    `json:"kept_red_records"`
+	FailedRecords  int    `json:"failed_records"`
+
+	FailedKeptRedRecords int       `json:"failed_kept_red_records"`
+	ReadSteps            int       `json:"read_steps"`
+	EnvelopeOnly         int       `json:"envelope_only"`
+	AssertsNothing       int       `json:"asserts_nothing"`
+	HollowRecords        int       `json:"hollow_step_records"`
+	DistinctSteps        int       `json:"distinct_steps"`
+	ChainFixed           int       `json:"chain_asserts_data"`
+	Allowed              int       `json:"allowlisted"`
+	Unallowed            int       `json:"reported"`
+	Findings             []Finding `json:"findings"`
+	Orphans              []string  `json:"orphan_run_dirs,omitempty"`
+	OrphanRecords        int       `json:"orphan_records,omitempty"`
+	Scratch              []string  `json:"scratch_run_dirs,omitempty"`
+	ScratchRecords       int       `json:"scratch_records,omitempty"`
+	Edited               []string  `json:"edited_records,omitempty"`
+	Unsealed             int       `json:"unsealed_records,omitempty"`
 }
 
 func IsReadProcedure(procedure string) bool {
@@ -89,11 +101,28 @@ func assertsOnlyEnvelope(rec *runner.StepRecord) bool {
 		if AssertsAbsence(e) || IsVacuousResult(e) {
 			continue
 		}
-		if !IsMetadataAssertion(e.Path, e.Rule) {
+		if !IsMetadataAssertion(e.Path, e.Rule) || pinsEnvelopeDetail(e) {
 			return false
 		}
 	}
 	return true
+}
+
+func pinsEnvelopeDetail(e chain.ExpectResult) bool {
+	if e.Rule != "equals" || fmt.Sprint(e.Want) == "" || e.Want == nil || !IsEnvelopePath(e.Path) {
+		return false
+	}
+	if strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath() {
+		return false
+	}
+	segs := chain.SplitPath(e.Path)
+	last := segs[len(segs)-1]
+	for _, name := range chain.CodeFields() {
+		if last == name {
+			return true
+		}
+	}
+	return false
 }
 
 func AssertsAbsenceExpectation(e chain.Expectation) bool {
@@ -171,6 +200,10 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 	for _, c := range chains {
 		for _, s := range c.Steps {
 			for _, e := range s.Expect {
+				e, envelopeRef := bindVars(e, c.Vars)
+				if envelopeRef {
+					continue
+				}
 				if declaresRefusalExpectation(e) {
 					out[stepKey(c.Name, s.ID)] = true
 					break
@@ -186,6 +219,29 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 		}
 	}
 	return out
+}
+
+var varRef = regexp.MustCompile(`^\$\{\s*vars\.([A-Za-z0-9_-]+)\s*\}$`)
+
+func bindVars(e chain.Expectation, vars map[string]any) (chain.Expectation, bool) {
+	bind := func(v any) (any, bool) {
+		text, ok := v.(string)
+		if !ok || !strings.Contains(text, "${") {
+			return v, false
+		}
+		if m := varRef.FindStringSubmatch(text); m != nil {
+			if bound, ok := vars[m[1]]; ok {
+				return bound, false
+			}
+		}
+		return v, true
+	}
+	var unbound, u bool
+	e.Equals, u = bind(e.Equals)
+	unbound = unbound || u
+	e.NotEqual, u = bind(e.NotEqual)
+	unbound = unbound || u
+	return e, unbound && strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath()
 }
 
 func BodyIsEmpty(response json.RawMessage) bool {
@@ -226,11 +282,21 @@ func valueIsEmpty(raw json.RawMessage) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return len(t) == 0
+		return listIsEmpty(t)
 	case map[string]any:
 		return mapIsEmpty(t)
 	}
 	return false
+}
+
+func listIsEmpty(items []any) bool {
+	for _, item := range items {
+		m, isMessage := item.(map[string]any)
+		if item != nil && (!isMessage || !mapIsEmpty(m)) {
+			return false
+		}
+	}
+	return true
 }
 
 func mapIsEmpty(m map[string]any) bool {
@@ -260,7 +326,7 @@ func anyIsEmpty(v any) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return len(t) == 0
+		return listIsEmpty(t)
 	case map[string]any:
 		return mapIsEmpty(t)
 	}
@@ -274,6 +340,10 @@ func Scan(runsDir string, allow *Allowlist, dataAsserted map[string]bool) (*Repo
 }
 
 func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, known map[string]bool) (*Report, error) {
+	return ScanKnownScratch(runsDir, allow, dataAsserted, known, nil)
+}
+
+func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]bool, known map[string]bool, scratch func(chainSource string) bool) (*Report, error) {
 	rep := &Report{RunsDir: runsDir, Findings: []Finding{}}
 	files, err := recordFiles(runsDir)
 	if err != nil {
@@ -282,6 +352,7 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 	if known != nil {
 		kept := files[:0]
 		orphaned := map[string]int{}
+		scratchDirs := map[string]bool{}
 		for _, path := range files {
 			dir := filepath.Base(filepath.Dir(path))
 			if known[strings.ToLower(dir)] {
@@ -289,13 +360,22 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 				continue
 			}
 			orphaned[dir]++
-			rep.OrphanRecords++
+			if scratch != nil && !scratchDirs[dir] && scratch(recordSource(path)) {
+				scratchDirs[dir] = true
+			}
 		}
 		files = kept
-		for dir := range orphaned {
+		for dir, n := range orphaned {
+			if scratchDirs[dir] {
+				rep.Scratch = append(rep.Scratch, dir)
+				rep.ScratchRecords += n
+				continue
+			}
 			rep.Orphans = append(rep.Orphans, dir)
+			rep.OrphanRecords += n
 		}
 		sort.Strings(rep.Orphans)
+		sort.Strings(rep.Scratch)
 	}
 	seen := map[string]*Finding{}
 	order := []string{}
@@ -308,7 +388,26 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 		if err := json.Unmarshal(raw, rec); err != nil {
 			continue
 		}
+		switch err := store.SealState(rec); {
+		case errors.Is(err, store.ErrRunEdited):
+			rep.Edited = append(rep.Edited, path)
+			continue
+		case errors.Is(err, store.ErrRunUnsealed):
+			rep.Unsealed++
+		}
 		rep.Records++
+		if rec.ReplayOf != "" {
+			rep.ReplayRecords++
+		}
+		if rec.KeptRed != "" {
+			rep.KeptRedRecords++
+		}
+		if rec.Status != runner.StatusPassed {
+			rep.FailedRecords++
+			if rec.KeptRed != "" {
+				rep.FailedKeptRedRecords++
+			}
+		}
 		for _, step := range rec.Steps {
 			if step == nil || step.Status != "passed" || step.Transport != nil {
 				continue
@@ -324,7 +423,11 @@ func ScanKnown(runsDir string, allow *Allowlist, dataAsserted map[string]bool, k
 			if !assertsOnlyEnvelope(step) {
 				continue
 			}
-			rep.EnvelopeOnly++
+			if len(step.Expect) == 0 {
+				rep.AssertsNothing++
+			} else {
+				rep.EnvelopeOnly++
+			}
 			if DeclaresRefusal(step.Expect) || !BodyIsEmpty(step.Response) {
 				continue
 			}
@@ -413,6 +516,8 @@ func expectationRule(e chain.Expectation) string {
 		return "not_equal"
 	case e.Equals != nil:
 		return "equals"
+	case e.Includes != nil:
+		return "includes"
 	}
 	return ""
 }
@@ -423,4 +528,18 @@ func IsVacuousResult(e chain.ExpectResult) bool {
 
 func isVacuousExpectation(e chain.Expectation) bool {
 	return e.NotEqual != nil && chain.VacuousNotEqual(e.Path, e.NotEqual)
+}
+
+func recordSource(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var head struct {
+		ChainSource string `json:"chain_source"`
+	}
+	if json.Unmarshal(raw, &head) != nil {
+		return ""
+	}
+	return head.ChainSource
 }
