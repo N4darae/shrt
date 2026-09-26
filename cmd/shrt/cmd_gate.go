@@ -64,6 +64,9 @@ type gateItem struct {
 	Length      string `json:"length,omitempty"`
 	Kind        string `json:"kind,omitempty"`
 	Variant     string `json:"variant,omitempty"`
+	Pinned      string `json:"pinned,omitempty"`
+
+	or string
 }
 
 type gateOutcome struct {
@@ -121,7 +124,8 @@ func writeGateSidecar(side gateSidecar) {
 
 func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 	side := earlySidecar(e, rec)
-	side.KeptRed, side.PinsHeld = rec.KeptRed, runner.PinsHeld(c, rec)
+	changedPins, held := runner.PinChanges(c, rec)
+	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
 	pinned := map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
@@ -133,12 +137,16 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 		}
 		found := false
 		for _, ex := range st.Expect {
-			if ex.Passed || ex.Rule == "unevaluated" || pinned[st.ID+" "+ex.Path] {
+			was, moved := changedPins[st.ID+" "+ex.Path]
+			if ex.Passed || ex.Rule == "unevaluated" || pinned[st.ID+" "+ex.Path] && !moved {
 				continue
 			}
 			found = true
 			want, got := gatePair(ex.Want, ex.Got)
 			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got})
+			if moved {
+				it.Pinned, _ = gatePair(was, ex.Got)
+			}
 			it.Length = pastEnd(st, ex.Path)
 			side.Items = append(side.Items, it)
 		}
@@ -930,6 +938,15 @@ func (g *gateChain) adoptBlame(side gateSidecar) {
 	}
 }
 
+func (g *gateChain) movedPin() *gateItem {
+	for i := range g.items {
+		if g.items[i].Pinned != "" {
+			return &g.items[i]
+		}
+	}
+	return nil
+}
+
 func (g *gateChain) firstItem() (gateItem, bool) {
 	for _, it := range g.items {
 		if it.Step+" "+it.Path == g.firstAt {
@@ -1062,7 +1079,7 @@ func settleGate(chains []*gateChain) {
 	for _, g := range chains {
 		for _, it := range g.items {
 			if key := methodName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1"); it.Suspect != "" && !it.KnockOn && it.Own == "" &&
-				it.Cascade == "" && chain.IsReadOnlyCall(it.Call) && !containsName(readAfter[key], methodName(it.Suspect)) {
+				it.Cascade == "" && it.Pinned == "" && chain.IsReadOnlyCall(it.Call) && !containsName(readAfter[key], methodName(it.Suspect)) {
 				readAfter[key] = append(readAfter[key], methodName(it.Suspect))
 			}
 		}
@@ -1070,7 +1087,11 @@ func settleGate(chains []*gateChain) {
 	for _, g := range chains {
 		for i, it := range g.items {
 			path := gateIndex.ReplaceAllString(it.Path, "[]$1")
-			if writes := readAfter[methodName(it.Call)+" "+path]; len(writes) > 1 && it.Suspect != "" && !it.KnockOn && it.Own == "" && it.Cascade == "" && !it.Firm {
+			writes := readAfter[methodName(it.Call)+" "+path]
+			if it.Pinned != "" && it.Suspect != "" && it.Own == "" && it.Cascade == "" && len(writes) > 0 && !containsName(writes, methodName(it.Suspect)) {
+				g.items[i].or = capList(writes, 2)
+			}
+			if len(writes) > 1 && it.Suspect != "" && !it.KnockOn && it.Own == "" && it.Cascade == "" && !it.Firm && it.Pinned == "" {
 				g.items[i].Own = fmt.Sprintf("%s changes %s after %d different writes (%s)", methodName(it.Call), path, len(writes), capList(writes, 3))
 				g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why = "", "", ""
 			}
@@ -1104,6 +1125,8 @@ func printGateGroups(chains []*gateChain) {
 				}
 			}
 			switch {
+			case it.or != "":
+				continue
 			case it.Own != "":
 				gr := group(shortRPC(it.Call))
 				gr.addPath(&gr.own, it.Own)
@@ -1265,6 +1288,28 @@ func headlineGate(chains []*gateChain) {
 				head = &g.items[i]
 			}
 		}
+		if pin := g.movedPin(); pin != nil {
+			r := rootOf(*pin)
+			text := fmt.Sprintf("%s %s pinned got=%s, now got=%s", pin.Step, pin.Path, pin.Pinned, pin.Got)
+			switch {
+			case pin.Own != "":
+				text += "; suspect the read: " + pin.Own
+			case pin.or != "":
+				text += "; suspect " + methodName(r) + ", or " + pin.or + " as at other steps reading " + methodName(pin.Call) + " " + leafOf(pin.Path)
+			case pin.Suspect != "":
+				text += "; suspect " + methodName(r)
+			}
+			switch {
+			case pin.or != "":
+				g.reported = true
+			case reported[r]:
+				text, g.reported = text+", reported above", true
+			default:
+				g.firstAt, reported[r] = pin.Step+" "+pin.Path, true
+			}
+			g.class, g.first = "not as pinned", text
+			continue
+		}
 		if len(from) == 0 {
 			if it, ok := g.firstItem(); ok {
 				reported[rootOf(it)] = true
@@ -1320,7 +1365,7 @@ func printDistinct(chains []*gateChain) {
 			key := shortRPC(it.Call) + " " + path + " " + kind
 			switch {
 			case own(it):
-			case it.Cascade != "" || it.KnockOn || roots[shortRPC(it.Suspect)+" "+leafOf(path)]:
+			case it.Cascade != "" || it.KnockOn || it.or != "" || roots[shortRPC(it.Suspect)+" "+leafOf(path)]:
 				continue
 			default:
 				key = it.suspectKey() + " -> " + methodName(it.Call) + " " + path + " " + kind

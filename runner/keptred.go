@@ -94,14 +94,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	return KeptRedNotAsPinned, "kept_red pins " + PinCount(len(c.KeptRed)) + ", but:\n" + strings.Join(problems, "\n"), finding
 }
 
-func PinsHeld(c *chain.Chain, rec *Record) bool {
-	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
-		return false
-	}
-	pins := map[string][]chain.Pin{}
-	for _, k := range c.KeptRed {
-		pins[k.Step] = append(pins[k.Step], k)
-	}
+func recordScope(rec *Record) *chain.Scope {
 	scope := chain.NewScope(rec.Vars)
 	for _, st := range rec.Steps {
 		if st == nil {
@@ -112,6 +105,55 @@ func PinsHeld(c *chain.Chain, rec *Record) bool {
 		_ = json.Unmarshal(st.Response, &resp)
 		scope.Record(st.ID, req, resp)
 	}
+	return scope
+}
+
+func PinChanges(c *chain.Chain, rec *Record) (map[string]string, bool) {
+	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
+		return nil, false
+	}
+	pins := map[string][]chain.Pin{}
+	for _, k := range c.KeptRed {
+		pins[k.Step] = append(pins[k.Step], k)
+	}
+	scope := recordScope(rec)
+	changed, held := map[string]string{}, true
+	for _, step := range c.Steps {
+		want := pins[step.ID]
+		if len(want) == 0 {
+			continue
+		}
+		sr, ok := rec.Step(step.ID)
+		if !ok || sr.Status == StatusSkipped || sr.Status == StatusPassed || sr.Transport != nil {
+			held = false
+			continue
+		}
+		for _, k := range resolvedPins(want, scope) {
+			seen := false
+			for _, ex := range sr.Expect {
+				if ex.Passed || !namecase.Equal(k.Path, ex.Path) {
+					continue
+				}
+				seen = true
+				if ex.Rule != unevaluatedRule && k.Got != nil && gotText(ex.Got) != *k.Got {
+					changed[step.ID+" "+ex.Path] = *k.Got
+				}
+			}
+			held = held && seen
+		}
+	}
+	return changed, held && len(changed) == 0
+}
+
+func PinsHeld(c *chain.Chain, rec *Record) bool {
+	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
+		return false
+	}
+	pins := map[string][]chain.Pin{}
+	for _, k := range c.KeptRed {
+		pins[k.Step] = append(pins[k.Step], k)
+	}
+	scope := recordScope(rec)
 	for _, step := range c.Steps {
 		sr, ok := rec.Step(step.ID)
 		if !ok || sr.Status == StatusSkipped {
