@@ -1218,11 +1218,9 @@ func firstChange(report *diff.Report) (*diff.Change, int) {
 func rank(c diff.Change) int {
 	switch {
 	case c.Kind == diff.KindStatus && (c.Want == runner.StatusError || c.Got == runner.StatusError):
-		return 3
+		return 2
 	case c.Kind == diff.KindStatus:
 		return 0
-	case c.Path == "response" || c.Path == chain.EnvelopePath() && chain.EnvelopePath() != "":
-		return 2
 	}
 	return 1
 }

@@ -8,20 +8,27 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-func TestTheHeadlineLeadsWithTheStepsFlippedVerdict(t *testing.T) {
-	env := chain.EnvelopePath()
+func TestTheHeadlineLeadsWithAStepsTransportError(t *testing.T) {
 	report := &diff.Report{Changes: []diff.Change{
-		{Step: "get", Path: "status", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusFailed},
+		{Step: "get", Path: "status", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusError},
 		{Step: "get", Path: "customer", Kind: diff.KindType, Want: nil, Got: map[string]any{}},
-		{Step: "get", Path: env, Kind: diff.KindChanged, Want: "REJECTED", Got: "SUCCESS"},
 		{Step: "list", Path: "total", Kind: diff.KindChanged, Want: 1, Got: 2},
 	}}
-	first, steps := firstChange(report)
-	if first == nil || first.Path != env || steps != 2 {
-		t.Fatalf("the envelope verdict flip leads, got %+v over %d step(s)", first, steps)
+	if first, steps := firstChange(report); first == nil || first.Kind != diff.KindStatus || steps != 2 {
+		t.Fatalf("a transport error leads, got %+v over %d step(s)", first, steps)
 	}
-	report.Changes = append([]diff.Change{{Step: "get", Path: "status", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusError}}, report.Changes[1:]...)
-	if first, _ = firstChange(report); first.Kind != diff.KindStatus {
-		t.Fatalf("a transport error leads, got %+v", first)
+	report.Changes[0].Got = runner.StatusFailed
+	if first, _ := firstChange(report); first.Path != "customer" {
+		t.Fatalf("a plain failure yields to the step's first change, got %+v", first)
+	}
+}
+
+func TestAReadNoLongerRefusedIsItsOwnSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	const get = "shop.customers.v1.CustomerService/GetCustomer"
+	rec := shopRecord(shopStep("get_unknown", get, `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
+	if own := runAttribution(nil, rec).of("get_unknown", "customer").own; own != "GetCustomer answers SUCCESS where it answered REJECTED" {
+		t.Fatalf("got %q", own)
 	}
 }

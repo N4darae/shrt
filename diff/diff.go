@@ -363,6 +363,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				stepChanges = append(stepChanges, c)
 			})
 		}
+		if env := chain.EnvelopePath(); env != "" {
+			sort.SliceStable(stepChanges, func(i, j int) bool { return stepChanges[i].Path == env && stepChanges[j].Path != env })
+		}
 		for _, c := range stepChanges {
 			shaped, why := false, ""
 			if c.Kind == KindChanged {
