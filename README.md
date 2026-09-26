@@ -116,44 +116,29 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 
 ### CI gate
 
-`shrt gate` sends every chain in `.shrt/chains` (not `.shrt/scratch/`) once: by verify when it has
-a safe spot, by run otherwise, and by run as well when it is kept red, or verify had no verdict or
-set aside a finding after a drift. Each gets a fresh `-var tag` when the chain reads one; an exit 3
-is retried once after `-retry-wait` (20s), and the gate holds `shrt chain hollow` to `.shrt/hollow-baseline`. It prints one line per chain,
-`PASS`, `KEPT RED` (failed exactly as its `kept_red` pins), `FAIL` (with what verify calls it:
-regression, order changed, different input or chain change; `intermittent` when a `FINDING` says
-so; `not as pinned` for a kept-red chain that failed otherwise, `kept red, drifted` when every pin
-failed as pinned and the rest is drift reported above) or `NO VERDICT` with the first failing step
-and path not already explained by a suspect an earlier line reported (a list that shrank as its
-length), and under a `FAIL` the request of the suspect (`-v` adds each changed path with the steps
-it changed at, and ends with each distinct change once). Failures are then grouped, one line per
-suspect rpc. The read itself is the suspect when it fails with a server error, when it is refused
-or its list holds another set of items while no write before it was refused, when only the order
-of a list changed, when the write it observes returned the same field of the same record
-unchanged, or when the same change follows two different writes. A change belongs to an earlier
-step when it is that step's answer for the same field of the same record, or a number that
-recomputes from the values earlier steps changed (a total over lines). Otherwise it is the write
-the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
-entity), reads beneath it; steps left unevaluated behind a failed step fold into one line under it:
+`shrt gate` sends every chain in `.shrt/chains` once (by verify when it has a safe spot, by run
+otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt chain hollow` to
+`.shrt/hollow-baseline`. One line per chain:
 
-```
-FAIL       items-move   regression: get_item_after_move_item (ItemService/GetItem) item.slot want=4 got=2
-  suspect write move_item (ItemService/MoveItem) as operator sent {"id_item":"itm-1","slot":4}
-failures by suspect rpc (the read itself, or the failing or changed write it observes), then the rest:
-  ItemService/MoveItem: passed itself, but steps after it failed or changed; e.g. items-move move_item
-    +3 step(s) after it: GetItem item.slot
-    +2 step(s) in 1 chain(s) unevaluated because GetItem changed item.slot
-```
+| line | means |
+|---|---|
+| `PASS` | ran green, no drift from its safe spot |
+| `KEPT RED` | failed exactly as its `kept_red` pins |
+| `kept red, drifted` | every pin held; the rest is drift already reported above |
+| `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
+| `FAIL intermittent:` | a `FINDING` says the rpc fails on some calls |
+| `FAIL not as pinned:` | a kept-red chain that failed otherwise; the moved pin and its suspect are named |
+| `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
-Exit 0 is green; 1 is a failure, a `FINDING`, tokens of one auth profile refused early in two runs
-of the gate, or the ratchet. Refused early once, the gate logs in afresh, holds the token as long as
-the refused one lived (at most 30s) and re-sends a read that passed: accepted, it was a restart;
-refused, two more fresh tokens are held to half that age and to it again, and a second refusal is a
-`FINDING` naming the ages accepted and refused (`-no-session-check` skips this). 3 is no verdict
-(the backend was down, restarting or refusing auth): re-run once it is up, and count it neither red
-nor green. `shrt gate <chain>...` gates a subset, without the ratchet. With no overlay, or an rpc
-whose contract no chain calls, the gate ends with one `coverage:` line naming the command that plans
-the missing probes; it never changes the exit code.
+Under a `FAIL` it prints the suspect's request; then one line per suspect rpc (split by auth
+profile and refusal code), with the steps it explains folded beneath. `-v` adds every changed path
+and ends with each distinct change once. How a suspect is chosen: `PLAYBOOK.md` §8.
+
+Exit 0 is green; 1 is a failure, a `FINDING` or the ratchet; 3 is no verdict (re-run once the
+backend is up, count it neither red nor green). A token refused early once makes the gate hold a
+fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early
+(`-no-session-check` skips it). `shrt gate <chain>...` gates a subset, without the ratchet. With no
+overlay, or an rpc whose contract no chain calls, it ends with one `coverage:` line.
 
 `shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it); it
 skips the contract checks while `.shrt/contracts` holds no overlay.

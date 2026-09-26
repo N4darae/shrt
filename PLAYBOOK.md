@@ -387,6 +387,16 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 2. Deploy the merged backend and run `shrt doctor -strict` and `shrt verify <chain>`.
 3. If it drifts, run, propose with `-supersede` and have a person approve.
 
+**How the gate names a suspect.** The read itself is the suspect when it fails with a server
+error, when it is refused or its list holds another set of items while no write before it was
+refused, when only the order of a list changed, when the write it observes returned the same field
+of the same record unchanged, or when the same change follows two different writes. When two or
+more other reads agree against what a write answered, the write is the suspect. A change belongs to
+an earlier step when it is that step's answer for the same field of the same record, or a number
+that recomputes from values earlier steps changed (a total over lines). Otherwise it is the write
+the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
+record); steps left unevaluated behind a failed step fold under it.
+
 ## 9. Refactor and test against a safe spot
 
 `shrt run` asks whether the assertions hold; `shrt verify` asks whether every response field still
