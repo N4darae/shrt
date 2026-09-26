@@ -449,9 +449,9 @@ func (it gateItem) shown() (string, string) {
 
 func listOf(path string) string {
 	segs := chain.SplitPath(path)
-	for i, seg := range segs {
-		if _, err := strconv.Atoi(seg); err == nil && i > 0 {
-			return strings.Join(segs[:i], ".")
+	for i := len(segs) - 1; i > 0; i-- {
+		if _, err := strconv.Atoi(segs[i]); err == nil {
+			return gateIndex.ReplaceAllString(strings.Join(segs[:i], "."), "[]$1")
 		}
 	}
 	return path

@@ -92,3 +92,11 @@ func TestTheSuspectWriteCarriesItsProfileAndRefusalUnlessItChangedItself(t *test
 		t.Errorf("a write that changed itself is the root under its own rpc, got %+v", it)
 	}
 }
+
+func TestAReorderedListInsideAnotherIsNamedByItsOwnPath(t *testing.T) {
+	for path, want := range map[string]string{"order.lines.0.qty": "order.lines", "orders.0.lines.1.qty": "orders[].lines", "messages.0.order.lines.0.id": "messages[].order.lines"} {
+		if got := listOf(path); got != want {
+			t.Errorf("%s: got %q, want %q", path, got, want)
+		}
+	}
+}
