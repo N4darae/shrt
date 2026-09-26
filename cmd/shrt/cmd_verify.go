@@ -44,7 +44,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
 	save := fs.Bool("save", true, "persist the replay record")
 	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch")
+	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch, and count the values kept out of the comparison")
 	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
 	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values, and each request value differing only in a fixture name")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -76,6 +76,9 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		if e.store.HasProposal(name) {
 			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
+		}
+		if c, cerr := chain.Resolve(e.chainsDir(), name); cerr == nil && len(c.KeptRed) > 0 {
+			return fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
 		}
 		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
 	}
@@ -154,7 +157,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		}
 		writeGateSidecar(side)
 	}()
-	report.HideMasked = !*verbose
+	report.HideMasked = !*verbose && !*listMasked
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
@@ -354,7 +357,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 					"or add -v to list them", driftWhy))
 			}
-			if line := report.FixtureInputLine(*listMasked); line != "" && (*verbose || !*quiet || *listMasked) {
+			if line := report.FixtureInputLine(*listMasked); line != "" && (*verbose || *listMasked) {
 				fmt.Fprintln(body, line)
 			}
 			if *quiet {

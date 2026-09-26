@@ -65,3 +65,14 @@ func TestContractStatusGapsSaysAServerStreamingRPCIsReadOnlyToItsFirstMessage(t 
 		t.Fatalf("want one line for the one callable server-streaming rpc, got %d:\n%s", n, out)
 	}
 }
+
+func TestContractStatusExplainsItsTableOnlyWithV(t *testing.T) {
+	chdirToRichWorkspace(t)
+	out := captureStdout(t, func() { _ = contractStatus(nil) })
+	if strings.Contains(out, "CONTRACT counts ENTRIES") || !strings.Contains(out, "shrt contract status -v") || !strings.Contains(out, "TOTAL") {
+		t.Errorf("the table and one line pointing to -v:\n%s", out)
+	}
+	if out = captureStdout(t, func() { _ = contractStatus([]string{"-v"}) }); !strings.Contains(out, "CONTRACT counts ENTRIES") {
+		t.Errorf("-v explains the columns and the scoring:\n%s", out)
+	}
+}

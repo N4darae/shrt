@@ -391,3 +391,20 @@ func TestChangesAfterAWriteThatFailedAtTheTransportAreFiledUnderIt(t *testing.T)
 		t.Errorf("the steps after the failed write do not count as writes the read changes after:\n%s", out)
 	}
 }
+
+func TestAWriteFailingOnAnotherRecordIsNotBlamedOnAnEarlierWriteOfTheSameRpc(t *testing.T) {
+	const add = "shop.catalog.v1.StockService/AddStock"
+	rec := shopRecord(
+		shopStep("create_a", shopCreate, `{"product":{"id_product":"p1"}}`),
+		shopStep("create_b", shopCreate, `{"product":{"id_product":"p2"}}`),
+		shopStep("add_zero", add, `{"qty_on_hand":"1"}`, "create_a").failing("qty_on_hand", "0", "1"),
+		shopStep("add_as_other", add, `{"qty_on_hand":"10"}`, "create_b").failing("qty_on_hand", "0", "10"),
+		shopStep("add_more_to_a", add, `{"qty_on_hand":"11"}`, "create_a").failing("qty_on_hand", "10", "11"),
+	)
+	if write, own, _ := blameOf(t, rec, "add_as_other", "qty_on_hand"); write != "" || own != "" {
+		t.Errorf("a write on another record failed on its own; got write %q own %q", write, own)
+	}
+	if write, _, _ := blameOf(t, rec, "add_more_to_a", "qty_on_hand"); write != "add_zero" {
+		t.Errorf("a write on the same record still echoes the earlier write; got %q", write)
+	}
+}

@@ -50,3 +50,14 @@ func TestConfirmSaysAKeptRedChainIsNeverConfirmed(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifySaysAKeptRedChainHasNoSafeSpotByDesign(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-red-flow.yaml", keptRedThingChain)
+	err := runVerify(context.Background(), []string{"cli-red-flow"})
+	if err == nil || !strings.Contains(err.Error(), "kept red on purpose, so it has no safe spot by design: shrt gate compares its pins") || strings.Contains(err.Error(), "shrt confirm") {
+		t.Fatalf("a kept-red chain is never confirmed, so verify does not suggest confirm: %v", err)
+	}
+}

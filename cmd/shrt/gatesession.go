@@ -25,7 +25,7 @@ type gateEarly struct {
 	age, stated time.Duration
 }
 
-const sessionHoldCap = 30 * time.Second
+var sessionHoldCap = 30 * time.Second
 
 func sessionReads(e *env, rec *runner.Record) map[string]gateRead {
 	if e == nil || e.cat == nil || rec == nil || rec.DryRun {
@@ -57,7 +57,7 @@ type sessionCheck struct {
 	finding bool
 }
 
-func checkSessions(ctx context.Context, e *env, profiles []string, at map[string]gateEarly, reads map[string]gateRead) map[string]sessionCheck {
+func checkSessions(ctx context.Context, e *env, profiles []string, at map[string]gateEarly, reads map[string]gateRead, verbose bool) map[string]sessionCheck {
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	out := map[string]sessionCheck{}
@@ -78,7 +78,7 @@ func checkSessions(ctx context.Context, e *env, profiles []string, at map[string
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if line, finding, ok := checkSession(ctx, e, p, at[p], reads); ok {
+			if line, finding, ok := checkSession(ctx, e, p, at[p], reads, verbose); ok {
 				mu.Lock()
 				out[p] = sessionCheck{line: line, finding: finding}
 				mu.Unlock()
@@ -89,7 +89,7 @@ func checkSessions(ctx context.Context, e *env, profiles []string, at map[string
 	return out
 }
 
-func checkSession(ctx context.Context, e *env, profile string, at gateEarly, reads map[string]gateRead) (string, bool, bool) {
+func checkSession(ctx context.Context, e *env, profile string, at gateEarly, reads map[string]gateRead, verbose bool) (string, bool, bool) {
 	read, ok := reads[profile]
 	if !ok || at.age <= 0 || at.stated <= 0 || e.cat == nil {
 		return "", false, false
@@ -101,11 +101,14 @@ func checkSession(ctx context.Context, e *env, profile string, at gateEarly, rea
 		return "", false, false
 	}
 	if first[0] {
-		line := fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was accepted", profile, ageText(hold))
-		if hold <= at.age {
-			line = fmt.Sprintf("session check: the early refusal of auth profile %s was most likely a restart: a fresh token held %s was accepted; "+
-				"sessions between %s and %s are not ruled out, and a repeat in a later gate is reported as a FINDING",
-				profile, ageText(hold), ageText(hold), ageText(at.age))
+		of := ""
+		if profile != "default" {
+			of = " of auth profile " + profile
+		}
+		line := fmt.Sprintf("session check: early token refusal%s was a restart (fresh token held %s accepted)", of, ageText(hold))
+		if hold <= at.age && verbose {
+			line += fmt.Sprintf("; sessions between %s and %s are not ruled out, and a repeat in a later gate is reported as a FINDING",
+				ageText(hold), ageText(at.age))
 		}
 		return line, false, true
 	}

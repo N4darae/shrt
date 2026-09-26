@@ -33,6 +33,9 @@ func spreadValue(base int64, rank int, quantity bool) int64 {
 	if rank == 1 {
 		return mid
 	}
+	if rank > 2 {
+		return spreadValue(base, 2, false) + int64(rank-2)*1000
+	}
 	if largeValue > mid {
 		return largeValue
 	}

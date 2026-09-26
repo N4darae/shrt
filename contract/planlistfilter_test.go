@@ -69,5 +69,5 @@ func TestPlanForAPrefixListAddsItemsContainingThePrefixElsewhereAndInAnotherCase
 	if !strings.HasPrefix(strings.ToLower(cased), strings.ToLower(prefix)) || strings.HasPrefix(cased, prefix) {
 		t.Fatalf("the case fixture starts with the prefix in another letter case: prefix %s, sku %s\n%s", prefix, cased, text)
 	}
-	wantExists(t, planStep(t, p, "list_products"), "products.3", false)
+	wantExists(t, planStep(t, p, "list_products"), "products.4", false)
 }

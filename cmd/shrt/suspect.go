@@ -639,9 +639,16 @@ func (a attribution) earlier(step, path string) (int, string) {
 	}
 	var body any
 	_ = json.Unmarshal(st.Response, &body)
+	pos := map[string]int{}
+	for i, s := range a.rec.Steps {
+		if _, seen := pos[s.ID]; s != nil && !seen {
+			pos[s.ID] = i
+		}
+	}
+	reach := refReach(a.rec, pos)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
-		if w == nil {
+		if w == nil || isWrite(st) && isWrite(w) && !related(reach, at, i, w.ID) {
 			continue
 		}
 		wm, err := a.e.cat.Lookup(w.Call)
@@ -657,6 +664,19 @@ func (a attribution) earlier(step, path string) (int, string) {
 		}
 	}
 	return -1, ""
+}
+
+func related(reach func(int) map[string]bool, at, i int, id string) bool {
+	touched := reach(at)
+	if touched[id] {
+		return true
+	}
+	for ref := range reach(i) {
+		if touched[ref] {
+			return true
+		}
+	}
+	return false
 }
 
 func heldBackBy(st *runner.StepRecord) (string, string) {

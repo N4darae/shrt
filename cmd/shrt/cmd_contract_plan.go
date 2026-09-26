@@ -151,7 +151,7 @@ func planAll(e *env, lib *contract.Library, write, force bool) error {
 		fmt.Printf("%d existing chain file(s) kept: -force overwrites them\n", kept)
 	}
 	if planned > 0 {
-		fmt.Println("every note, and each gap in full: shrt contract plan <rpc> -notes")
+		fmt.Println("every note: shrt contract plan <rpc> -notes")
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("%d rpc(s) not planned: %s", len(failed), strings.Join(failed, ", "))
@@ -197,7 +197,7 @@ func printFillAndGaps(plan *contract.Plan, indent string) {
 		fmt.Printf("%sfill: %s\n", indent, n)
 	}
 	for _, n := range plan.GapNotes() {
-		fmt.Printf("%sgap: %s\n", indent, clipText(n, planGapWidth))
+		fmt.Printf("%sgap: %s\n", indent, n)
 	}
 }
 
@@ -245,11 +245,7 @@ func printPlanNotes(plan *contract.Plan, again string, notes, full bool) {
 	}
 	switch n := len(plan.Notes) - len(plan.FillNotes()) - len(gaps); {
 	case n > 0 && !notes:
-		more := ""
-		if len(gaps) > 0 {
-			more = ", and each gap in full"
-		}
-		fmt.Printf("%d more note(s) on why each probe is there%s: %s -notes\n", n, more, again)
+		fmt.Printf("%d more note(s) on why each probe is there: %s -notes\n", n, again)
 	case n > 0 && !full:
 		fmt.Printf("every note in full, and every step id: %s -notes -v\n", again)
 	}

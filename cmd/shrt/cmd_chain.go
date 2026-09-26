@@ -230,7 +230,7 @@ func chainList(args []string) error {
 			fmt.Println()
 			continue
 		}
-		fmt.Printf("%s %-*s %2d step(s)  %s\n", mark, nameW, r.Name, r.Steps, summarise(r.Description, descWidth(nameW)))
+		fmt.Printf("%s %-*s %3d step(s)\n", mark, nameW, r.Name, r.Steps)
 		if r.File != "" {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
@@ -243,29 +243,6 @@ func chainList(args []string) error {
 	}
 	fmt.Print("; -long for the full description, -json for every field\n")
 	return nil
-}
-
-const lsLineWidth = 110
-
-func descWidth(nameW int) int {
-	w := lsLineWidth - (nameW + 16)
-	if w < 24 {
-		return 24
-	}
-	return w
-}
-
-func summarise(description string, width int) string {
-	first, _, _ := strings.Cut(description, "\n")
-	first = strings.TrimSpace(strings.ReplaceAll(first, "\r", ""))
-	r := []rune(first)
-	if len(r) <= width {
-		return first
-	}
-	if width < 2 {
-		return string(r[:width])
-	}
-	return strings.TrimRight(string(r[:width-1]), " ") + "\u2026"
 }
 
 func descriptionLines(description string) []string {

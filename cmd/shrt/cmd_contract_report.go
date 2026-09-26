@@ -40,8 +40,8 @@ func contractStatus(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token, first message, streaming; -v explains each kind in full")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
-	verbose := fs.Bool("v", false, "with -gaps, explain each kind of gap in full")
-	setUsage(fs, "usage: shrt contract status [-gaps [-v]] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
+	verbose := fs.Bool("v", false, "explain each column and the scoring under the table; with -gaps, each kind of gap in full")
+	setUsage(fs, "usage: shrt contract status [-v] [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
 		"\nexit codes:\n  0  the table, or with -gaps the gap list, was printed\n"+
 			"  1  a flag or -phase that cannot be parsed, a contract overlay that does not parse, or a setup that\n"+
 			"     cannot load (no .shrt/config.yaml, a missing descriptor)\n")
@@ -160,19 +160,23 @@ func contractStatus(args []string) error {
 		line(r)
 	}
 	line(totals)
-	fmt.Print("\nCONTRACT counts ENTRIES: a scaffold with nothing filled in counts, so it sits at its ceiling\n" +
-		"the moment one lands and cannot tell you a contract is usable. VERIFIED counts the entries a\n" +
-		"human set to 'status: verified'.\n" +
-		"REACHED counts the rpcs that appear in some MULTI-STEP 'shrt contract plan' — as the target or\n" +
-		"as a dependency of one. An rpc below it plans as a single step: nothing it needs is declared,\n" +
-		"and nothing declares it as a producer. That is correct for a login or a read taking no id from\n" +
-		"elsewhere, and a missing 'needs:' or 'from:' for a write that cannot run on its own. '-gaps'\n" +
-		"lists them as 'no path to'; only you can say which kind each one is. A client- or bidi-streaming\n" +
-		"rpc is never REACHED: shrt cannot call it.\n" +
-		"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
-		phaseScope(*phase) + ":\n" +
-		scoringTerms(*phase) +
-		"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
+	if *verbose {
+		fmt.Print("\nCONTRACT counts ENTRIES: a scaffold with nothing filled in counts, so it sits at its ceiling\n" +
+			"the moment one lands and cannot tell you a contract is usable. VERIFIED counts the entries a\n" +
+			"human set to 'status: verified'.\n" +
+			"REACHED counts the rpcs that appear in some MULTI-STEP 'shrt contract plan' — as the target or\n" +
+			"as a dependency of one. An rpc below it plans as a single step: nothing it needs is declared,\n" +
+			"and nothing declares it as a producer. That is correct for a login or a read taking no id from\n" +
+			"elsewhere, and a missing 'needs:' or 'from:' for a write that cannot run on its own. '-gaps'\n" +
+			"lists them as 'no path to'; only you can say which kind each one is. A client- or bidi-streaming\n" +
+			"rpc is never REACHED: shrt cannot call it.\n" +
+			"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
+			phaseScope(*phase) + ":\n" +
+			scoringTerms(*phase) +
+			"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
+	} else {
+		fmt.Println("\nwhat each column counts, and how GAPS and SCORE are scored: shrt contract status -v")
+	}
 	one, same, repeat := 0, 0, 0
 	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
 		switch {

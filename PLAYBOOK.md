@@ -22,8 +22,8 @@ summary:
 order: CreateAccount -> CreateInvoice -> PayInvoice
 12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
 fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if ...
-3 more note(s) on why each probe is there, and each gap in full: shrt contract plan PayInvoice -notes
+gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if it does), so the other reads assert only that they answer
+3 more note(s) on why each probe is there: shrt contract plan PayInvoice -notes
 next: shrt contract plan PayInvoice -write
 ```
 
@@ -33,7 +33,7 @@ next: shrt contract plan PayInvoice -write
   `-write -force`; a chain lint ERRORs on each unfilled field.
 - **Every `gap:` line is something the plan could not plan or assert.** Say it in the contract and
   re-plan, or write that step by hand.
-- **`-notes` prints each gap in full, then one line per probe group** with its step count and
+- **`-notes` prints each gap, then one line per probe group** with its step count and
   why it is there; `-notes -v` prints every note in full and every step id, `-v` alone the ids.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
@@ -142,8 +142,9 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
 - the verdict, each numeric field a write sent echoed back, a created id, the state the contract
   names, and a timestamp range (`within: {of: "${nowunix}", by: 300}` for a stamp the call makes,
   an expiry against the stated lifetime, `equals` for a creation stamp read back);
-- for a list: three fixtures whose candidate sort keys disagree, positions by id when the contract
-  states the order, otherwise membership (`includes:`) and a count; a fixture outside the filter's
+- for a list: three fixtures, or four when more keys compete, whose candidate sort keys disagree
+  either way, positions by id when the contract states the order, otherwise membership
+  (`includes:`) and a count; a fixture outside the filter's
   scope (another parent, a prefix not at the start), and one list per reachable state for an enum
   filter; a list the run does not scope is declared `volatile`;
 - for a uniqueness failure: the same value again, the same value with every other field changed,
@@ -278,7 +279,7 @@ a scaffold lands. RPCS above CONTRACT is an rpc no overlay covers. REACHED count
 multi-step plan; below it, a write that cannot run alone is missing a `needs:` or `from:`.
 `status -gaps` lists them as `no path to`.
 
-The score (the footer of `shrt contract status` prints today's list):
+The score (the footer of `shrt contract status -v` prints today's list):
 
 | weight | phase | term |
 |---|---|---|

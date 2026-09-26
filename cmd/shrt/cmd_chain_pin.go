@@ -14,7 +14,8 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-const pinUsage = "usage: shrt chain pin <chain>   keep a red chain's failing steps red in their own slice and leave them out of the chain"
+const pinUsage = "usage: shrt chain pin <chain>   keep a red chain's failing steps red in their own slice and leave them out of the chain;\n" +
+	"       it re-runs the chain with -keep-going first when its newest run did not reach every step"
 
 func chainPin(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("chain pin", flag.ContinueOnError)

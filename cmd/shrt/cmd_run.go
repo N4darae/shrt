@@ -111,9 +111,10 @@ func runRun(ctx context.Context, args []string) error {
 		return err
 	}
 	var flaky *intermittentFailure
+	var drift []diff.Change
 	flakyOnly := false
 	defer func() {
-		side := runSidecar(e, c, rec)
+		side := runSidecar(e, c, rec, drift)
 		if flaky.finding() {
 			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
 		}
@@ -121,7 +122,7 @@ func runRun(ctx context.Context, args []string) error {
 	}()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
-		judgePinnedDrift(e, c, rec, pinnedRef)
+		drift = judgePinnedDrift(e, c, rec, pinnedRef)
 		if spot == nil && latencySpot != nil {
 			for _, f := range latencyFlags(e, latencySpot, rec, latencyPolicy(e)) {
 				f.Against = "run " + pinnedRef.RunID + " (the last run that failed as pinned)"
@@ -527,7 +528,7 @@ func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
 	if len(expectationFailures(rec)) == 0 {
 		return ""
 	}
-	return "pin it: shrt chain pin " + ref
+	return "pin it: shrt chain pin " + ref + " (re-runs with -keep-going when needed)"
 }
 
 func neverRanLine(c *chain.Chain, rec *runner.Record) string {

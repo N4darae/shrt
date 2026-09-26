@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/contract"
 )
 
 func TestContractPlanAllPlansOneChainPerRPCWithAContract(t *testing.T) {
@@ -104,5 +106,15 @@ func TestContractPlanAllPrintsTheGapsPlanRPCAndNotesPrint(t *testing.T) {
 	}
 	if !strings.Contains(notes, "\ngap: step confirm_order: its contract declares 1305") {
 		t.Fatalf("-notes labels a gap as a gap:\n%s", notes)
+	}
+}
+
+func TestAPlanGapLineIsPrintedInFull(t *testing.T) {
+	long := "step list: the contracts do not say sku is compared case-sensitively, so no fixture with the prefix in another letter case was planned; " +
+		strings.Repeat("say what the filter does with another letter case, ", 3) + "END"
+	plan := &contract.Plan{Notes: []string{long}}
+	out := captureStdout(t, func() { printFillAndGaps(plan, "  ") })
+	if !strings.Contains(out, "END\n") || strings.Contains(out, "...") {
+		t.Errorf("a gap says how to close it, so it is never clipped:\n%s", out)
 	}
 }
