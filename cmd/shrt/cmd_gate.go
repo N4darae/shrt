@@ -532,6 +532,16 @@ func pinnedStep(c *chain.Chain, step string) bool {
 
 func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []diff.LatencyFlag) gateSidecar {
 	side := earlySidecar(e, rec)
+	side.Items = verifyItems(e, rec, report)
+	if latencyPolicy(e).Fail {
+		side.Items = append(side.Items, latencyItems(latency)...)
+	}
+	side.Sent = firstSent(rec, side.Items)
+	return side
+}
+
+func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
+	var items []gateItem
 	changed := map[string]bool{}
 	for _, c := range report.Changes {
 		if c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
@@ -568,13 +578,9 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 				break
 			}
 		}
-		side.Items = append(side.Items, it)
+		items = append(items, it)
 	}
-	if latencyPolicy(e).Fail {
-		side.Items = append(side.Items, latencyItems(latency)...)
-	}
-	side.Sent = firstSent(rec, side.Items)
-	return side
+	return items
 }
 
 func latencyItems(flags []diff.LatencyFlag) []gateItem {
