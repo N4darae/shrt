@@ -478,6 +478,11 @@ func (it gateItem) wantGot() string {
 	if strings.HasPrefix(it.Path, "(") {
 		return it.Got
 	}
+	if it.Class == "latency" {
+		was, _ := strconv.Atoi(strings.TrimSuffix(it.Want, "ms"))
+		now, _ := strconv.Atoi(strings.TrimSuffix(it.Got, "ms"))
+		return fmt.Sprintf("safe spot %s, now %s (%+dms)", it.Want, it.Got, now-was)
+	}
 	return chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
