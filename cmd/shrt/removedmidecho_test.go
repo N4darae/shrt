@@ -91,11 +91,11 @@ func TestRemovingAMiddleStepKeepsTheFixtureEchoMaskedAtLaterSteps(t *testing.T) 
 	writeFile(t, ".shrt/chains/cli-dupmid.yaml", s[:a]+s[b:])
 
 	var verr error
-	out := captureStdout(t, func() { verr = runVerify(ctx, []string{"cli-dupmid", "-quiet", "-v", "-var", "tag=fresh2"}) })
+	out := captureStdout(t, func() { verr = runVerify(ctx, []string{"cli-dupmid", "-quiet", "-masked", "-var", "tag=fresh2"}) })
 	if verr == nil || !strings.Contains(verr.Error(), "1 change(s)") {
 		t.Fatalf("only the removed step differs: want one change after a chain change, got %v\n%s", verr, out)
 	}
-	if strings.Contains(out, "error.message") {
+	if listed, _, _ := strings.Cut(out, "values echoing a fixture name, not compared:"); strings.Contains(listed, "error.message") {
 		t.Errorf("the refusal message only echoes the fixture name, as it does without the removal:\n%s", out)
 	}
 	if !strings.Contains(out, "dup name") {
@@ -110,7 +110,7 @@ func TestRemovingAMiddleStepKeepsTheFixtureEchoMaskedAtLaterSteps(t *testing.T) 
 			t.Fatalf("supersede: %v", err)
 		}
 	})
-	if strings.Contains(out, "error.message") {
+	if listed, _, _ := strings.Cut(out, "values echoing a fixture name, not compared:"); strings.Contains(listed, "error.message") {
 		t.Errorf("the supersede review does not carry the echoed message as a difference:\n%s", out)
 	}
 }

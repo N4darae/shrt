@@ -120,3 +120,35 @@ func TestVerifyDoesNotExcuseARegressionByAFreshTagOrAnExpectationVar(t *testing.
 		t.Errorf("the tag only names fixtures, so it is not blamed for the drift:\n%s", out)
 	}
 }
+
+func TestVerifyCountsFixtureNameInputsAndListsThemUnderMasked(t *testing.T) {
+	regressed := false
+	srv := newTotalBackend(&regressed)
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-fixture-flow.yaml", fixtureFlowChain)
+	ctx := context.Background()
+	captureStdout(t, func() {
+		if err := runRun(ctx, []string{"cli-fixture-flow", "-quiet"}); err != nil {
+			t.Fatalf("shrt run: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-fixture-flow", "-note", "total 300"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(ctx, []string{"cli-fixture-flow", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	regressed = true
+	for _, flags := range [][]string{nil, {"-v"}} {
+		out := captureStdout(t, func() { _ = runVerify(ctx, append([]string{"cli-fixture-flow", "-var", "tag=second"}, flags...)) })
+		if !strings.Contains(out, "request value(s) differ from the confirmed run only in a fixture name") || !strings.Contains(out, "-masked lists them") ||
+			strings.Contains(out, "create name") {
+			t.Errorf("%v: the fixture-name inputs are counted, not listed:\n%s", flags, out)
+		}
+	}
+	out := captureStdout(t, func() { _ = runVerify(ctx, []string{"cli-fixture-flow", "-var", "tag=third", "-masked"}) })
+	if !strings.Contains(out, "not counted as different input: create name") {
+		t.Errorf("-masked lists each fixture-name input:\n%s", out)
+	}
+}
