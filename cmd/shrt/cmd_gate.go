@@ -366,7 +366,7 @@ func verifyAttribution(e *env, rec *runner.Record, report *diff.Report) attribut
 			return true
 		},
 		reordered: func(step, path string) bool {
-			return report.Class(diff.Change{Step: step, Path: path}) == "order changed"
+			return report.Class(diff.Change{Step: step, Path: path}) == "order changed" || report.Moved(step, path)
 		},
 		changed: func(step string) []string {
 			var out []string
