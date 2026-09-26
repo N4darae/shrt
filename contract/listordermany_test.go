@@ -58,8 +58,8 @@ func TestChainNewAssertsEveryFixtureOfAListInSortOrder(t *testing.T) {
 	list := text[strings.Index(text, "id: list_products"):]
 	for _, want := range []string{
 		"- path: products.0.id_product\n          equals: ${create_product_10.product.id_product}",
-		"- path: products.8.id_product\n          equals: ${create_product_2.product.id_product}",
-		"- path: products.10.id_product\n          equals: ${create_product.product.id_product}",
+		"- path: products.7.id_product\n          equals: ${create_product.product.id_product}",
+		"- path: products.10.id_product\n          equals: ${create_product_2.product.id_product}",
 		"- path: products.11\n          exists: false",
 	} {
 		if !strings.Contains(list, want) {

@@ -142,8 +142,9 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
 - the verdict, each numeric field a write sent echoed back, a created id, the state the contract
   names, and a timestamp range (`within: {of: "${nowunix}", by: 300}` for a stamp the call makes,
   an expiry against the stated lifetime, `equals` for a creation stamp read back);
-- for a list: three fixtures whose candidate sort keys disagree, positions by id when the contract
-  states the order, otherwise membership (`includes:`) and a count; a fixture outside the filter's
+- for a list: three fixtures, or four when more keys compete, whose candidate sort keys disagree
+  either way, positions by id when the contract states the order, otherwise membership
+  (`includes:`) and a count; a fixture outside the filter's
   scope (another parent, a prefix not at the start), and one list per reachable state for an enum
   filter; a list the run does not scope is declared `volatile`;
 - for a uniqueness failure: the same value again, the same value with every other field changed,

@@ -226,12 +226,12 @@ func TestAListWhoseContractSaysAnEmptyFilterListsAllIsProbedEmpty(t *testing.T) 
 			t.Fatalf("other runs' products share an unfiltered list, so no position is asserted:\n%s", text)
 		}
 	}
-	for _, id := range []string{"create_product", "create_product_2", "create_product_3", "create_product_prefix_inside"} {
+	for _, id := range []string{"create_product", "create_product_2", "create_product_3", "create_product_4", "create_product_prefix_inside"} {
 		if !found["${"+id+".product.id_product}"] {
 			t.Fatalf("the empty-prefix list includes %s by id:\n%s", id, text)
 		}
 	}
-	wantExists(t, probe, "products.4", true)
+	wantExists(t, probe, "products.5", true)
 }
 
 func TestEmptyFilterGapsNamesAFilterEveryChainSendsSet(t *testing.T) {

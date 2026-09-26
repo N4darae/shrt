@@ -35,7 +35,7 @@ func TestAListWithAnEmptyPrefixIsScopedToThisRunBeforeItsCountIsAsserted(t *test
 	if got := bodyAt(t, list, "sku_prefix"); got != "sku-${vars.tag}-" {
 		t.Fatalf("an empty prefix lists every product in the database; the plan scopes it to the start the fixtures share, got %q:\n%s", got, text)
 	}
-	wantExists(t, list, "products.3", false)
+	wantExists(t, list, "products.4", false)
 	if !strings.Contains(text, "the start every fixture's value shares") {
 		t.Fatalf("the plan says it scoped the list:\n%s", text)
 	}
@@ -47,7 +47,7 @@ func TestAListNothingCanScopeAssertsALowerBoundOnly(t *testing.T) {
 	if got := bodyAt(t, list, "sku_prefix"); got != "" {
 		t.Fatalf("nothing in the fixtures varies per run, so the prefix stays empty, got %q:\n%s", got, text)
 	}
-	wantExists(t, list, "products.2", true)
+	wantExists(t, list, "products.3", true)
 	for _, e := range list.Expect {
 		if strings.HasPrefix(e.Path, "products.") && (e.Equals != nil || (e.Exists != nil && !*e.Exists)) {
 			t.Fatalf("an unscoped list holds whatever other runs left, so no position or exact count is asserted, got %s:\n%s", e.Path, text)
@@ -59,7 +59,7 @@ func TestAListNothingCanScopeAssertsALowerBoundOnly(t *testing.T) {
 			t.Fatalf("the planned chain passes its own lint rule: %v", i)
 		}
 	}
-	if !strings.Contains(text, "asserts at least 3 item(s)") {
+	if !strings.Contains(text, "asserts at least 4 item(s)") {
 		t.Fatalf("the plan says why it asserts only a lower bound:\n%s", text)
 	}
 }

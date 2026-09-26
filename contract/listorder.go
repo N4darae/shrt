@@ -15,9 +15,6 @@ import (
 const orderedItems = 3
 
 var (
-	anchorRanks  = []int{0, 2, 1}
-	fieldRanks   = [][]int{{1, 0, 2}, {2, 0, 1}, {1, 2, 0}}
-	looseRanks   = [][]int{{0, 2, 1}, {1, 0, 2}, {2, 0, 1}, {1, 2, 0}}
 	sortedByText = regexp.MustCompile(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
 	newestFirst  = regexp.MustCompile(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
 	oldestFirst  = regexp.MustCompile(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
@@ -141,7 +138,21 @@ func (p *Plan) listTargetFor(st *chain.Step, grow bool) *listTarget {
 
 func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 	first := t.producers[0]
-	for len(t.producers) < orderedItems {
+	var fields []*catalog.Field
+	pm, err := p.cat.Lookup(first.Call)
+	if err == nil {
+		fields = catalog.DescribeMessage(pm.Input()).Fields
+	}
+	names := orderableFields(first, fields, t.anchor)
+	keys := len(names)
+	if t.anchor != "" {
+		keys++
+	}
+	items := orderedItems
+	if keys > len(orderRanks(items)) {
+		items++
+	}
+	for len(t.producers) < items {
 		last := t.producers[len(t.producers)-1]
 		id := p.freeStepID(first.ID)
 		clone := copyStep(first, id)
@@ -149,66 +160,100 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 		t.producers = append(t.producers, clone)
 	}
 	if t.anchor == "" {
-		t.extra = append([]*chain.Step{}, t.producers[orderedItems:]...)
+		t.extra = append([]*chain.Step{}, t.producers[items:]...)
 	}
-	t.producers = t.producers[:orderedItems]
-	pm, err := p.cat.Lookup(first.Call)
+	t.producers = t.producers[:items]
 	if err != nil {
 		return
 	}
-	fields := catalog.DescribeMessage(pm.Input()).Fields
+	perms := orderRanks(items)
 	ranks := map[string][]int{}
+	next := 0
 	if t.anchor != "" {
 		if seed, ok := first.Body[t.anchor].(string); ok && seed != "" && runPrefix(seed) == seed {
 			first.Body[t.anchor] = seed + "-a"
 		}
 		base := "${steps." + first.ID + ".request." + t.anchor + "}"
 		for k, prod := range t.producers[1:] {
-			setBodyPath(prod.Body, t.anchor, base+"-"+string(rune('a'+anchorRanks[k+1]-1)))
+			setBodyPath(prod.Body, t.anchor, base+"-"+string(rune('a'+perms[0][k+1]-1)))
 		}
-		ranks[t.anchor] = anchorRanks
+		ranks[t.anchor] = perms[0]
+		next++
 	}
-	perms := fieldRanks
-	if t.anchor == "" {
-		perms = looseRanks
-	}
-	next := 0
-	names := make([]string, 0, len(fields))
-	for _, f := range fields {
-		names = append(names, f.Name)
-	}
-	sort.Strings(names)
 	for _, name := range names {
 		f := fieldByName(fields, name)
-		if f == nil || name == t.anchor || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.Kind == "bool" || f.Kind == "message" || f.Oneof != "" {
-			continue
-		}
-		key, ok := namecase.LookupKey(first.Body, name)
-		if !ok {
-			continue
-		}
+		key, _ := namecase.LookupKey(first.Body, name)
 		perm := perms[next%len(perms)]
 		original := first.Body[key]
-		varied := true
 		for k, prod := range t.producers {
-			v, ok := orderedValue(original, f.Name, f.Kind, perm[k])
-			if !ok {
-				varied = false
-				break
-			}
-			prod.Body[key] = v
-		}
-		if !varied {
-			for _, prod := range t.producers {
-				prod.Body[key] = original
-			}
-			continue
+			prod.Body[key], _ = orderedValue(original, f.Name, f.Kind, perm[k])
 		}
 		ranks[name] = perm
 		next++
 	}
 	varyItemNumbers(t.producers, fields)
 	p.noteOrder(t, ranks, lib)
+}
+
+func orderableFields(first *chain.Step, fields []*catalog.Field, anchor string) []string {
+	names := []string{}
+	for _, f := range fields {
+		names = append(names, f.Name)
+	}
+	sort.Strings(names)
+	out := []string{}
+	for _, name := range names {
+		f := fieldByName(fields, name)
+		if f == nil || name == anchor || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.Kind == "bool" || f.Kind == "message" || f.Oneof != "" {
+			continue
+		}
+		key, ok := namecase.LookupKey(first.Body, name)
+		if !ok {
+			continue
+		}
+		if _, ok := orderedValue(first.Body[key], f.Name, f.Kind, 0); ok {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+func orderRanks(n int) [][]int {
+	used := map[string]bool{}
+	class := func(order []int) {
+		fwd, back := fmt.Sprint(order), fmt.Sprint(reversed(order))
+		used[fwd], used[back] = true, true
+	}
+	identity := make([]int, n)
+	for i := range identity {
+		identity[i] = i
+	}
+	class(identity)
+	out := [][]int{}
+	var walk func(prefix []int, left []int)
+	walk = func(prefix, left []int) {
+		if len(left) == 0 {
+			if !used[fmt.Sprint(prefix)] {
+				class(prefix)
+				out = append(out, inverse(prefix))
+			}
+			return
+		}
+		for i, v := range left {
+			rest := append(append([]int{}, left[:i]...), left[i+1:]...)
+			walk(append(append([]int{}, prefix...), v), rest)
+		}
+	}
+	walk(nil, identity)
+	return out
+}
+
+func reversed(order []int) []int {
+	out := make([]int, len(order))
+	for i, v := range order {
+		out[len(order)-1-i] = v
+	}
+	return out
 }
 
 func fieldByName(fields []*catalog.Field, name string) *catalog.Field {
@@ -366,7 +411,7 @@ func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string,
 		p.note("step %s: %d steps create what %s lists (%s), and the %d beyond the %d shrt varied for the order %s, "+
 			"so no position is asserted, only that each fixture is in it by id (includes:) and that it holds exactly %d; "+
 			"give them values that sort apart under %s, or drop the extra creates, to have the order asserted",
-			t.step.ID, len(members), shortRPC(t.step.Call), strings.Join(ids, ", "), len(t.extra), orderedItems, why, len(members), key)
+			t.step.ID, len(members), shortRPC(t.step.Call), strings.Join(ids, ", "), len(t.extra), len(t.producers), why, len(members), key)
 		p.assertMembers(t)
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
 		return
