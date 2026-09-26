@@ -404,11 +404,15 @@ func (a attribution) item(it gateItem) gateItem {
 	if b.write >= 0 {
 		w := a.rec.Steps[b.write]
 		it.Suspect, it.SuspectStep, it.KnockOn = w.Call, w.ID, b.knock
+		it.Variant = asOf(w)
 		if !a.root(w.ID) {
 			it.Variant = variantOf(w)
 		}
 	}
 	if st, ok := a.rec.Step(it.Step); ok && st != nil {
+		if b.write < 0 && b.own == "" && isWrite(st) {
+			it.Variant = asOf(st)
+		}
 		switch {
 		case a.flipped(st) != "":
 			it.Kind = "refused"
@@ -433,10 +437,17 @@ func (a attribution) root(step string) bool {
 	return false
 }
 
+func asOf(w *runner.StepRecord) string {
+	if p := profileOf(w); p != "default" {
+		return "as " + p
+	}
+	return ""
+}
+
 func variantOf(w *runner.StepRecord) string {
 	var parts []string
-	if p := profileOf(w); p != "default" {
-		parts = append(parts, "as "+p)
+	if as := asOf(w); as != "" {
+		parts = append(parts, as)
 	}
 	if why := refusalOf(w); why != "" {
 		parts = append(parts, "refused ("+why+")")
@@ -449,6 +460,13 @@ func (it gateItem) suspectKey() string {
 		return shortRPC(it.Suspect)
 	}
 	return shortRPC(it.Suspect) + " " + it.Variant
+}
+
+func (it gateItem) ownKey() string {
+	if it.Variant == "" || it.Suspect != "" {
+		return shortRPC(it.Call)
+	}
+	return shortRPC(it.Call) + " " + it.Variant
 }
 
 func (it gateItem) shown() (string, string) {
@@ -1146,8 +1164,11 @@ func (g *gateChain) printChanges() {
 			continue
 		}
 		path, eg := it.shown()
-		if it.Variant != "" {
+		switch {
+		case it.Variant != "" && it.Suspect != "":
 			path += " after " + methodName(it.suspectKey())
+		case it.Variant != "":
+			path += "\x00" + methodName(it.ownKey())
 		}
 		if steps[path] == nil {
 			paths = append(paths, path)
@@ -1168,11 +1189,18 @@ func (g *gateChain) printChanges() {
 	}
 	for _, key := range sets {
 		ps := together[key]
-		eg := example[ps[0]]
-		if len(ps) > 1 {
-			eg = ps[0] + " " + eg
+		eg, by := example[ps[0]], ""
+		shown := make([]string, len(ps))
+		for i, p := range ps {
+			shown[i], by, _ = strings.Cut(p, "\x00")
+			if by != "" {
+				by += ": "
+			}
 		}
-		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", capList(ps, 4), len(steps[ps[0]]), capList(steps[ps[0]], 3), eg)
+		if len(ps) > 1 {
+			eg = shown[0] + " " + eg
+		}
+		fmt.Printf("    %s%s at %d step(s) (%s); e.g. %s\n", by, capList(shown, 4), len(steps[ps[0]]), capList(steps[ps[0]], 3), eg)
 	}
 	for _, c := range because {
 		fmt.Printf("    %d step(s) %s\n", cascades[c], c)
@@ -1316,7 +1344,7 @@ func printGateGroups(chains []*gateChain) {
 					gr.suspect = g.name + " " + it.SuspectStep
 				}
 			case it.Suspect == "" && !chain.IsReadOnlyCall(it.Call):
-				gr := group(shortRPC(it.Call))
+				gr := group(it.ownKey())
 				gr.write = true
 				own(gr)
 			default:
@@ -1390,7 +1418,7 @@ func rootOf(it gateItem) string {
 	if it.Suspect != "" && it.Own == "" {
 		return it.suspectKey()
 	}
-	return shortRPC(it.Call)
+	return it.ownKey()
 }
 
 func leafOf(path string) string {
@@ -1500,7 +1528,7 @@ func printDistinct(chains []*gateChain) {
 		for _, it := range g.items {
 			if own(it) {
 				path, _ := it.shown()
-				roots[shortRPC(it.Call)+" "+leafOf(path)] = true
+				roots[it.ownKey()+" "+leafOf(path)] = true
 			}
 		}
 	}
@@ -1517,10 +1545,10 @@ func printDistinct(chains []*gateChain) {
 				path, _, _ = strings.Cut(path, "[]")
 				kind = "membership"
 			}
-			key := shortRPC(it.Call) + " " + path + " " + kind
+			key := it.ownKey() + " " + path + " " + kind
 			switch {
 			case own(it):
-			case it.Cascade != "" || it.KnockOn || it.or != "" || roots[shortRPC(it.Suspect)+" "+leafOf(path)]:
+			case it.Cascade != "" || it.KnockOn || it.or != "" || roots[shortRPC(it.Suspect)+" "+leafOf(path)] || roots[it.suspectKey()+" "+leafOf(path)]:
 				continue
 			default:
 				key = it.suspectKey() + " -> " + methodName(it.Call) + " " + path + " " + kind

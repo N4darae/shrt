@@ -88,8 +88,8 @@ func TestTheSuspectWriteCarriesItsProfileAndRefusalUnlessItChangedItself(t *test
 	}
 	rec.Steps[4] = shopStep("confirm_order_as_clerk", shopConfirm, `{"order":{"id_order":"o2","n":"1"},`+shopOK+`}`, "create_order").failing("order.n", "2", "1").StepRecord
 	rec.Steps[4].AuthProfile = "clerk"
-	if it := runAttribution(nil, rec).item(gateItem{Step: "get_product_after_confirm_order_as_clerk", Call: shopGet, Path: "product.qty_on_hand"}); it.Variant != "" {
-		t.Errorf("a write that changed itself is the root under its own rpc, got %+v", it)
+	if it := runAttribution(nil, rec).item(gateItem{Step: "get_product_after_confirm_order_as_clerk", Call: shopGet, Path: "product.qty_on_hand"}); it.Variant != "as clerk" {
+		t.Errorf("a write that changed itself is the root under its own rpc and profile, got %+v", it)
 	}
 }
 
@@ -98,5 +98,30 @@ func TestAReorderedListInsideAnotherIsNamedByItsOwnPath(t *testing.T) {
 		if got := listOf(path); got != want {
 			t.Errorf("%s: got %q, want %q", path, got, want)
 		}
+	}
+}
+
+func TestAWriteThatFailedItsOwnExpectationsAsAnotherProfileIsItsOwnChange(t *testing.T) {
+	const move, get = "shrt.test.v1.ThingService/Move", "shrt.test.v1.ThingService/Get"
+	items := []gateItem{
+		{Step: "move_zero", Call: move, Path: "status.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS", Failed: true},
+		{Step: "move_as_other", Call: move, Path: "status.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS", Failed: true, Variant: "as other"},
+		{Step: "get_after_move_as_other", Call: get, Path: "thing.level", Want: "0", Got: "10", Failed: true,
+			Suspect: move, SuspectStep: "move_as_other", Variant: "as other"},
+	}
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: items}}}})
+	out, _ := runGateOut(t, "-v")
+	for _, want := range []string{
+		"    Move as other: status.code at 1 step(s) (move_as_other); e.g. want≠SUCCESS got=SUCCESS\n",
+		"  ThingService/Move as other: 1 step(s) in 1 chain(s), paths status.code; e.g. cli-thing-flow move_as_other status.code",
+		"  ThingService/Move status.code value: 1 step(s) in 1 chain(s)",
+		"  ThingService/Move as other status.code value: 1 step(s) in 1 chain(s)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "passed itself") {
+		t.Errorf("a write whose own expectations failed did not pass itself:\n%s", out)
 	}
 }
