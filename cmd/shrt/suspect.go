@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -372,6 +373,94 @@ func (a attribution) recomputed(step, path string) int {
 		}
 	}
 	return -1
+}
+
+func (a attribution) inputs(step, path string) string {
+	at := a.index(step)
+	if at < 0 || a.was == nil || path == "" {
+		return ""
+	}
+	var body any
+	if json.Unmarshal(a.rec.Steps[at].Response, &body) != nil {
+		return ""
+	}
+	now, _ := chain.Get(body, path)
+	old, _ := a.was(step, path)
+	nv, okNow := number(now)
+	wv, okWas := number(old)
+	segs := chain.SplitPath(path)
+	if !okNow || !okWas || nv == wv || len(segs) < 2 {
+		return ""
+	}
+	holder, _ := chain.Get(body, strings.Join(segs[:len(segs)-1], "."))
+	obj, ok := holder.(map[string]any)
+	if !ok {
+		return ""
+	}
+	known := a.inputsBefore(at)
+	for _, key := range sortedKeys(obj) {
+		lines, ok := obj[key].([]any)
+		if !ok || len(lines) == 0 {
+			continue
+		}
+		for _, leaf := range sortedKeys(known) {
+			if terms := linesTerms(lines, known[leaf], wv); terms != nil {
+				return key + ": " + strings.Join(terms, ", ")
+			}
+		}
+	}
+	return ""
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func linesTerms(lines []any, known map[string]input, want float64) []string {
+	first, _ := lines[0].(map[string]any)
+	factors := []string{""}
+	for _, k := range sortedKeys(first) {
+		if _, ok := number(first[k]); ok {
+			factors = append(factors, k)
+		}
+	}
+	for _, f := range factors {
+		sum, terms := 0.0, []string{}
+		for _, l := range lines {
+			m, _ := l.(map[string]any)
+			in, found := input{}, false
+			for _, x := range m {
+				if s, ok := x.(string); ok {
+					if got, ok := known[s]; ok {
+						in, found = got, true
+					}
+				}
+			}
+			q, ok := 1.0, true
+			if f != "" {
+				q, ok = number(m[f])
+			}
+			if !found || !ok {
+				terms = nil
+				break
+			}
+			sum += q * in.was
+			term := strconv.FormatFloat(in.now, 'f', -1, 64)
+			if f != "" {
+				term = strconv.FormatFloat(q, 'f', -1, 64) + " x " + term
+			}
+			terms = append(terms, term)
+		}
+		if terms != nil && sum == want {
+			return terms
+		}
+	}
+	return nil
 }
 
 func (a attribution) inputsBefore(at int) map[string]map[string]input {

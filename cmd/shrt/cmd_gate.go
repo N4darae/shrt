@@ -65,6 +65,7 @@ type gateItem struct {
 	Kind        string `json:"kind,omitempty"`
 	Variant     string `json:"variant,omitempty"`
 	Pinned      string `json:"pinned,omitempty"`
+	Inputs      string `json:"inputs,omitempty"`
 
 	or string
 }
@@ -384,6 +385,9 @@ func (a attribution) item(it gateItem) gateItem {
 	}
 	b := a.of(it.Step, path)
 	it.Own, it.Cascade, it.Why, it.Firm = b.own, b.cascade, b.why, b.firm
+	if b.write < 0 && b.own == "" {
+		it.Inputs = a.inputs(it.Step, path)
+	}
 	if b.write >= 0 {
 		w := a.rec.Steps[b.write]
 		it.Suspect, it.SuspectStep, it.KnockOn = w.Call, w.ID, b.knock
@@ -462,6 +466,8 @@ func (it gateItem) headline() string {
 	case it.Kind == "order":
 		path, what := it.shown()
 		return path + " " + what
+	case it.Inputs != "":
+		return it.verdict() + "; " + it.Inputs
 	}
 	return it.verdict()
 }
