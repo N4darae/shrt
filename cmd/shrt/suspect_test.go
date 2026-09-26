@@ -26,6 +26,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 		step("get_item", "GetItem", "create_item"),
 		step("get_item_after_move_box", "GetItem", "create_item"),
 		step("list_items", "ListItems"),
+		{ID: "get_item_unknown_id", Call: "x.v1.S/GetItem", BodyRefs: map[string]string{"id_item": "${create_item.id}-unknown"}},
 	}}
 	for _, c := range []struct {
 		read, bad, want string
@@ -37,6 +38,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 		{"list_items", "create_box", "create_box", true},
 		{"list_items", "", "", false},
 		{"fill_item", "", "", false},
+		{"get_item_unknown_id", "", "", false},
 	} {
 		i, knock := suspectWrite(rec, c.read, map[string]bool{c.bad: c.bad != ""})
 		got := ""
