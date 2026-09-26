@@ -85,7 +85,7 @@ traffic.
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify -run <id>` proves it |
-| `shrt chain pin <c>` | pin a red chain: its failing steps kept red in a verified slice, the chain rewritten without them |
+| `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`) |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints a short summary to show the user, the full report in `.shrt/safespots/pending/` |

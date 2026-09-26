@@ -38,15 +38,16 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 		"ran probe-orders -keep-going: run ",
 		"again with -keep add_stock",
 		"wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red on cancel_confirmed at status.code",
-		"wrote .shrt/chains/probe-orders.yaml: the pinned step(s) left out",
+		"wrote .shrt/chains/probe-orders.yaml: cancel_confirmed left out",
 		"verify reproduced",
+		", passed",
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("want %q in:\n%s", want, out)
 		}
 	}
-	if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n > 5 {
-		t.Fatalf("pin prints one line per written file and the verdict, got %d lines:\n%s", n, out)
+	if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n > 6 {
+		t.Fatalf("pin prints one line per run, per written file and the verdict, got %d lines:\n%s", n, out)
 	}
 	rest, err := chain.LoadFile(".shrt/chains/probe-orders.yaml")
 	if err != nil {
@@ -101,7 +102,120 @@ func TestChainPinLeavesTheChainAloneWhenTheSliceDoesNotReproduce(t *testing.T) {
 }
 
 func TestChainPinHelpSaysItReRunsWithKeepGoing(t *testing.T) {
-	if !strings.Contains(pinUsage, "it re-runs the chain with -keep-going first") {
+	if !strings.Contains(pinUsage, "re-running the chain with -keep-going first") {
 		t.Errorf("chain pin -h says whether it re-runs: %s", pinUsage)
+	}
+}
+
+const pinTwoDefectsChain = `apiVersion: shrt/v1
+name: probe-two
+steps:
+    - id: create_customer
+      call: CustomerService/CreateCustomer
+      body:
+        email: two-${vars.tag}@example.test
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: sku-${vars.tag}-two
+        price_minor: "100"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "50"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: add_stock_extra
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "50"
+      expect:
+        - path: qty_on_hand
+          equals: "999"
+    - id: create_order_big
+      call: OrderService/CreateOrder
+      body:
+        id_customer: ${create_customer.customer.id_customer}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "80"
+        idempotency_key: big-${vars.tag}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: confirm_big
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order_big.order.id_order}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: create_order_single
+      call: OrderService/CreateOrder
+      body:
+        id_customer: ${create_customer.customer.id_customer}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "1"
+        idempotency_key: single-${vars.tag}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: confirm_single
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order_single.order.id_order}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: cancel_confirmed
+      call: OrderService/CancelOrder
+      body:
+        id_order: ${create_order_single.order.id_order}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+`
+
+func TestChainPinGivesSeparateDefectsTheirOwnSliceAndLeavesTheChainGreen(t *testing.T) {
+	shop := newFakeShop()
+	shop.cancelConfirmedBug = true
+	chdirToFakeShop(t, shop)
+	writeFile(t, ".shrt/chains/probe-two.yaml", pinTwoDefectsChain)
+	var err error
+	out := captureStdout(t, func() { err = chainPin(context.Background(), []string{"probe-two"}) })
+	if err != nil {
+		t.Fatalf("pin: %v\n%s", err, out)
+	}
+	pins := map[string][]string{}
+	for _, target := range []string{"add_stock_extra", "confirm_big", "cancel_confirmed"} {
+		c, err := chain.LoadFile(".shrt/chains/probe-two-slice-" + target + ".yaml")
+		if err != nil {
+			t.Fatalf("each defect gets a slice of its own: %v\n%s", err, out)
+		}
+		for _, k := range c.KeptRed {
+			if !containsStr(pins[target], k.Step) {
+				pins[target] = append(pins[target], k.Step)
+			}
+		}
+		if len(pins[target]) != 1 || pins[target][0] != target {
+			t.Fatalf("slice of %s keeps red only its own step, got %v\n%s", target, pins[target], out)
+		}
+	}
+	if !strings.HasSuffix(strings.TrimSpace(out), ", passed") {
+		t.Fatalf("pin ends on the rewritten chain's own green run:\n%s", out)
+	}
+	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-two", "-quiet"}) })
+	if err != nil {
+		t.Fatalf("after one pin the rewritten chain runs green: %v", err)
 	}
 }
