@@ -39,6 +39,9 @@ func TestKeepGoingSendsAStepThatReadsAFailedStepOnlyInAnExpectation(t *testing.T
 	if held.Rule != "unevaluated" || held.Passed || !strings.Contains(held.Detail, `"create"`) {
 		t.Fatalf("the expectation reading the failed step must be unevaluated and name it, got %+v", held)
 	}
+	if held.Got == nil || held.Got != own.Got {
+		t.Fatalf("the step was sent, so the held expectation still shows what it answered, got %+v", held)
+	}
 	if !own.Passed {
 		t.Fatalf("the expectation on the step's own response still runs, got %+v", own)
 	}

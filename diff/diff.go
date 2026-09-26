@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -295,6 +296,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			change := Change{Step: want.ID, Path: "status", Kind: KindStatus, Want: want.Status, Got: got.Status}
 			if got.Status == runner.StatusError || got.Transport != nil {
 				change.Detail = firstLineOf(got.Error)
+			}
+			if change.Detail == "" {
+				change.Detail = heldBackDetail(got)
 			}
 			rep.Changes = append(rep.Changes, change)
 		}
@@ -1157,6 +1161,31 @@ func (c Change) describeValues() string {
 		return fmt.Sprintf("want=%s got=%s", show(c.Want), show(c.Got))
 	}
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
+}
+
+var heldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
+
+func heldBackDetail(st *runner.StepRecord) string {
+	answered, producer := []string{}, ""
+	for _, ex := range st.Expect {
+		if ex.Rule != "unevaluated" {
+			continue
+		}
+		if m := heldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
+			producer = m[1]
+		}
+		if ex.Got != nil {
+			answered = append(answered, ex.Path+"="+show(ex.Got))
+		}
+	}
+	if producer == "" {
+		return ""
+	}
+	out := "not judged: it reads step " + producer + ", which did not pass"
+	if len(answered) > 0 {
+		out = "answered " + strings.Join(answered, ", ") + ", " + out
+	}
+	return out
 }
 
 func show(v any) string {

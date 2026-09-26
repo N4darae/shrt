@@ -1387,7 +1387,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Expect = evaluateRefused(scope, step.Expect, outcome, redactor)
 		for i, why := range opts.heldBack {
 			if i < len(sr.Expect) {
-				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Passed: false, Detail: why}
+				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Want: sr.Expect[i].Want, Got: sr.Expect[i].Got, Detail: why}
 			}
 		}
 		if refusalAsserted(step.Expect, sr.Expect) {
@@ -1519,7 +1519,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
 		}
 		if why, held := opts.heldBack[i]; held {
-			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
+			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Want: result.Want, Got: result.Got, Detail: why}
 		}
 		sr.Expect = append(sr.Expect, result)
 		if !result.Passed {
