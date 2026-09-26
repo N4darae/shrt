@@ -51,24 +51,53 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 	fetch := gateItem{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "(failed)", Got: "internal: pool exhausted"}
 	classed := fetch
 	classed.Class = "regression"
+	rate := func(failed, calls int) []gateFlaky {
+		return []gateFlaky{{Call: fetch.Call, Failed: failed, Calls: calls, Every: 4, Steps: []string{"fetch"}}}
+	}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"verify cli-thing-flow": {{code: 1, stdout: "  " + flaky + "\n", side: gateSidecar{Items: []gateItem{classed}}}},
+		"verify cli-thing-flow": {{code: 1, stdout: "  " + flaky + "\n", side: gateSidecar{Items: []gateItem{classed}, Flaky: rate(3, 12)}}},
 		"run cli-unique": {{code: 1, stdout: "  " + strings.Replace(flaky, "step 2 fetch", "step 3 fetch", 1) + "\n",
-			side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{fetch}}}},
+			side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{fetch}, Flaky: rate(4, 16)}}},
 	})
-	out, _ := runGateOut(t)
+	out, code := runGateOut(t)
 	for _, want := range []string{
 		"FAIL       cli-thing-flow  intermittent: fetch (ThingService/Fetch) (failed) internal: pool exhausted\n",
-		"not a deterministic regression at that step; ...\n",
 		"FAIL       cli-unique      intermittent: 1 step(s) from Fetch (failed), reported above\n",
-		"  FINDING: intermittent failure at ThingService/Fetch, as above\n",
+		"  FINDING: intermittent failure at ThingService/Fetch, below\n",
+		"FINDING: intermittent failure at ThingService/Fetch (failed 7 of 28 calls, every 4th) in 2 chain(s)\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if strings.Count(out, "not a deterministic regression") != 1 {
-		t.Errorf("each FINDING is printed once:\n%s", out)
+	if code != 1 || strings.Contains(out, "not a deterministic regression") {
+		t.Errorf("the gate states the finding once, in its own line, and fails:\n%s", out)
+	}
+}
+
+func TestTheGateLabelsAChainFailingOnlyByAnIntermittentFindingAndStatesItOnce(t *testing.T) {
+	call := "shrt.test.v1.ThingService/Fetch"
+	side := func(repeated bool) gateSidecar {
+		return gateSidecar{FlakyOnly: true, Flaky: []gateFlaky{{Call: call, Failed: 2, Calls: 8, Every: 4, Repeated: repeated, Steps: []string{"fetch"}}}}
+	}
+	note := "FINDING: repeated failure at ThingService/Fetch: run r1, the previous verify of this chain, failed at the same step(s) the same way\n"
+	gateWorkspace(t, map[string][]gateOutcome{
+		"verify cli-thing-flow": {{code: 1, stdout: note, stderr: "shrt verify: cli-thing-flow: repeated failure at ThingService/Fetch (failed 2 of 8 calls)\n", side: side(true)}},
+		"run cli-unique":        {{code: 1, stdout: strings.Replace(note, "repeated", "intermittent", 1), side: side(false)}},
+	})
+	out, code := runGateOut(t)
+	for _, want := range []string{
+		"FINDING    cli-thing-flow  intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
+		"FINDING    cli-unique      intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
+		"FINDING: intermittent failure at ThingService/Fetch (failed 4 of 16 calls, every 4th) in 2 chain(s)\n",
+		"FAIL: 2 of 2 chain(s) failed, 1 finding(s)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+	if code != 1 || strings.Contains(out, "repeated") || strings.Count(out, "failure at ThingService/Fetch") != 1 {
+		t.Errorf("one wording for the one defect, stated once, and the gate fails:\n%s", out)
 	}
 }
 

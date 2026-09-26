@@ -110,7 +110,15 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { writeGateSidecar(runSidecar(e, c, rec)) }()
+	var flaky *intermittentFailure
+	flakyOnly := false
+	defer func() {
+		side := runSidecar(e, c, rec)
+		if flaky.finding() {
+			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
+		}
+		writeGateSidecar(side)
+	}()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
 		judgePinnedDrift(e, c, rec, pinnedRef)
@@ -155,7 +163,6 @@ func runRun(ctx context.Context, args []string) error {
 	var life *tokenLifetime
 	var loss *sessionLoss
 	var fresh *freshRefusal
-	var flaky *intermittentFailure
 	if !*dry {
 		life, loss = examineTokenLifetime(e, rec), examineSessionLoss(e, rec)
 		if loss == nil {
@@ -214,9 +221,10 @@ func runRun(ctx context.Context, args []string) error {
 		if flaky.finding() {
 			fmt.Println("  FINDING: " + flaky.line())
 			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
-				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.line())
+				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}
-			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
+			flakyOnly = rec.KeptRed == "" || rec.KeptRed == runner.KeptRedAsPinned
+			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.short())
 		}
 	}
 	if line := pinItLine(sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {

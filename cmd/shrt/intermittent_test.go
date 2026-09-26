@@ -131,7 +131,7 @@ func TestAServerErrorOnARequestTheBackendAnsweredInTheSameRunIsAnIntermittentFin
 			if !strings.Contains(msg, "intermittent failure at ThingService/Fetch") || strings.HasPrefix(msg, "regression") {
 				t.Fatalf("a %s at fetch_again, whose request fetch had answered in the same run, is an intermittent failure, not a regression: %v\n%s", tc.code, err, out)
 			}
-			if !strings.Contains(msg, "same request at step 1 fetch in this run") || !strings.Contains(out, "FINDING: intermittent failure") {
+			if !strings.Contains(out, "same request at step 1 fetch in this run") || !strings.Contains(out, "FINDING: intermittent failure") {
 				t.Fatalf("the finding names its evidence: %v\n%s", err, out)
 			}
 		})
@@ -151,7 +151,7 @@ func TestAServerErrorThatMovesBetweenRunsIsIntermittentAndOneThatStaysIsARegress
 	out, err = verifyOnce(t, ctx)
 	wantExit1(t, "verify 2", err, out)
 	if !strings.Contains(err.Error(), "intermittent failure at ThingService/Fetch") ||
-		!strings.Contains(err.Error(), "failed at step 3 fetch2 instead with the same error, and answered step fetch3 as expected") {
+		!strings.Contains(out, "failed at step 3 fetch2 instead with the same error, and answered step fetch3 as expected") {
 		t.Fatalf("verify 2: the previous verify failed at another step with the same error, so this is intermittent: %v\n%s", err, out)
 	}
 	f.set("internal", 500, 4, 5)
@@ -176,16 +176,16 @@ func TestRunSummarySaysIntermittent(t *testing.T) {
 func TestAServerErrorAtTheSameStepAsThePreviousRunIsARepeatedFailureARerunDoesNotClear(t *testing.T) {
 	f, ctx := flakyWorkspace(t)
 	f.set("internal", 500, 2, 3)
-	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "a re-run may pass") {
+	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "intermittent failure") || !strings.Contains(out, "a re-run may pass") {
 		t.Fatalf("verify 1: a first failure is intermittent: %v\n%s", err, out)
 	}
 	f.set("internal", 500, 2, 3)
 	out, err := verifyOnce(t, ctx)
 	wantExit1(t, "verify 2", err, out)
 	msg := err.Error()
-	if !strings.Contains(msg, "repeated failure at ThingService/Fetch") || strings.Contains(msg, "a re-run may pass") ||
-		!strings.Contains(msg, "failed at the same step(s) the same way") || !strings.Contains(msg, "a re-run fails the same way") ||
-		!strings.Contains(msg, "the errors hid the checks of fetch_again") {
+	if !strings.Contains(msg, "repeated failure at ThingService/Fetch") || strings.Contains(out, "a re-run may pass") ||
+		!strings.Contains(out, "failed at the same step(s) the same way") || !strings.Contains(out, "a re-run fails the same way") ||
+		!strings.Contains(out, "the errors hid the checks of fetch_again") {
 		t.Fatalf("verify 2: the same failure at the same step as the previous run is said so, with the checks it hid: %v\n%s", err, out)
 	}
 }
@@ -196,9 +196,10 @@ func TestAReadThatGetsAServerErrorIsResentOnceAndJudgedOnTheAnswerWhileTheFindin
 	out, err := verifyOnce(t, ctx)
 	wantExit1(t, "verify", err, out)
 	msg := err.Error()
-	if !strings.Contains(msg, "intermittent failure at ThingService/Fetch: it failed 2 of 6 calls in this run, and answered") ||
-		!strings.Contains(msg, "step 2 fetch_again got internal: pool exhausted, and its re-send was answered and judged") ||
-		strings.Contains(msg, "hid the checks") || strings.HasPrefix(msg, "regression") {
+	if !strings.Contains(msg, "intermittent failure at ThingService/Fetch (failed 2 of 6 calls)") ||
+		!strings.Contains(out, "intermittent failure at ThingService/Fetch: it failed 2 of 6 calls in this run, and answered") ||
+		!strings.Contains(out, "step 2 fetch_again, step 4 fetch3 got internal: pool exhausted, each re-send answered and judged") ||
+		strings.Contains(out, "hid the checks") || strings.HasPrefix(msg, "regression") {
 		t.Fatalf("each failed read is re-sent once, judged on the answer, and the failure is still a finding with its rate: %v\n%s", err, out)
 	}
 	f.set("internal", 500, 2, 5)

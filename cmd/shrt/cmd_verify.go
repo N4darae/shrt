@@ -144,10 +144,14 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
 	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
 	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
-	runToo := false
+	runToo, flakyOnly := false, false
+	var flaky *intermittentFailure
 	defer func() {
 		side := verifySidecar(e, rec, report, latency)
 		side.RunToo = runToo
+		if flaky.finding() {
+			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
+		}
 		writeGateSidecar(side)
 	}()
 	report.HideMasked = !*verbose
@@ -223,7 +227,6 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if unanswered && loss == nil && fresh == nil {
 		dropped = repeatedUnanswered(e, rec, unansweredStep)
 	}
-	var flaky *intermittentFailure
 	if loss == nil && fresh == nil && dropped == nil {
 		flaky = detectIntermittent(e, rec)
 	}
@@ -438,7 +441,8 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
 	}
 	if flaky.explainsAll(report) && !violation {
-		return fmt.Errorf("%s: %s", name, flaky.line())
+		flakyOnly = true
+		return fmt.Errorf("%s: %s", name, flaky.short())
 	}
 	if violation {
 		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))
@@ -541,7 +545,8 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			strings.Join(report.UnapprovedVolatile, ", "), name)
 	}
 	if flaky.finding() {
-		return fmt.Errorf("%s: %s", name, flaky.line())
+		flakyOnly = true
+		return fmt.Errorf("%s: %s", name, flaky.short())
 	}
 	if !rec.Passed() {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
@@ -1105,6 +1110,7 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 		return line + "\n", body
 	}
 	why, _, _ := strings.Cut(err.Error(), "\n")
+	why = strings.TrimPrefix(why, name+": ")
 	if kind, _, ok := strings.Cut(why, ":"); ok && len(kind) < 40 && !strings.Contains(kind, name) {
 		why = kind
 	}
