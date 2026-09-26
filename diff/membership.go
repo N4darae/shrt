@@ -74,29 +74,23 @@ func (r *Report) collapseMembership(rec *runner.Record) {
 		}
 		return c.Step + " " + l
 	}
-	noted := map[string]bool{}
-	for _, c := range r.Changes {
-		key := drop(c)
-		if key == "" || noted[key] {
-			continue
-		}
-		noted[key] = true
-		if i := at[key]; i >= 0 && r.Changes[i].Detail != "" {
-			r.Changes[i].Detail += "; per-item ids not listed"
-		} else if i < 0 {
-			extra[-1-i].Detail += "; per-item ids not listed"
-		}
-	}
 	kept := r.Changes[:0]
 	for _, c := range r.Changes {
-		if drop(c) == "" && (c.Kind == KindLength || c.Kind == KindMembership || listOf(resized[c.Step], c.Path) == "") {
+		if drop(c) == "" && listOf(resized[c.Step], c.Path) == "" {
 			kept = append(kept, c)
 		}
 	}
-	r.Changes = append(kept, extra...)
+	r.Changes = kept
+	for _, c := range extra {
+		if listOf(resized[c.Step], c.Path) == "" {
+			r.Changes = append(r.Changes, c)
+		}
+	}
 	for _, cs := range r.compared {
 		for _, l := range resized[cs.id] {
-			r.Changes = append(r.Changes, r.pairedChanges(cs, l)...)
+			if listOf(resized[cs.id], l) == "" {
+				r.Changes = append(r.Changes, r.pairedChanges(cs, l)...)
+			}
 		}
 	}
 }
@@ -260,28 +254,90 @@ func (r *Report) membership(rec *runner.Record, step, list string) (string, bool
 	}
 	present := map[string]bool{}
 	var added []map[string]any
+	var addedIDs []string
 	for _, it := range gl {
 		m := it.(map[string]any)
 		v := fmt.Sprint(m[key])
 		present[v] = true
 		if !expected[v] {
 			added = append(added, m)
+			addedIDs = append(addedIDs, v)
 		}
 	}
-	dropped := 0
-	for v := range expected {
-		if !present[v] {
-			dropped++
+	var dropped []string
+	for _, it := range wl {
+		v := fmt.Sprint(it.(map[string]any)[key])
+		if g, ok := rename[v]; ok {
+			v = g
+		}
+		if !present[v] && !containsString(dropped, v) {
+			dropped = append(dropped, v)
 		}
 	}
-	if len(added) == 0 && dropped == 0 {
+	if len(added) == 0 && len(dropped) == 0 {
 		return "", false
 	}
-	out := fmt.Sprintf("%d added, %d dropped, by %s", len(added), dropped, key)
+	out := fmt.Sprintf("%d added, %d dropped, by %s", len(added), len(dropped), key)
+	made := producedIDs(rec, step)
+	if len(dropped) > 0 {
+		out += "; dropped " + namedItems(dropped, made)
+	}
+	if len(added) > 0 {
+		out += "; added " + namedItems(addedIDs, made)
+	}
 	if st, ok := rec.Step(step); ok && st != nil {
 		out += filterMisses(st.Request, added)
 	}
 	return out, true
+}
+
+func namedItems(ids []string, made map[string]string) string {
+	shown := []string{}
+	for _, id := range ids[:min(len(ids), 5)] {
+		if by := made[id]; by != "" {
+			id += " (" + by + ")"
+		}
+		shown = append(shown, id)
+	}
+	if len(ids) > 5 {
+		return fmt.Sprintf("%s and %d more", strings.Join(shown, ", "), len(ids)-5)
+	}
+	return strings.Join(shown, ", ")
+}
+
+func producedIDs(rec *runner.Record, before string) map[string]string {
+	out := map[string]string{}
+	if rec == nil {
+		return out
+	}
+	var visit func(v any, key, step string)
+	visit = func(v any, key, step string) {
+		switch t := v.(type) {
+		case map[string]any:
+			for k, x := range t {
+				visit(x, k, step)
+			}
+		case []any:
+			for _, x := range t {
+				visit(x, key, step)
+			}
+		case string:
+			if _, seen := out[t]; !seen && idNamed(key) && idValue(t) {
+				out[t] = step
+			}
+		}
+	}
+	for _, st := range rec.Steps {
+		if st == nil || st.ID == before {
+			break
+		}
+		var body any
+		if chain.IsReadOnlyCall(st.Call) || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		visit(body, "", st.ID)
+	}
+	return out
 }
 
 func filterMisses(request json.RawMessage, added []map[string]any) string {

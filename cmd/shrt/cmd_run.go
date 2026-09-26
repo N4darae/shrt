@@ -110,7 +110,15 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	defer func() { writeGateSidecar(runSidecar(e, c, rec)) }()
+	var flaky *intermittentFailure
+	flakyOnly := false
+	defer func() {
+		side := runSidecar(e, c, rec)
+		if flaky.finding() {
+			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
+		}
+		writeGateSidecar(side)
+	}()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
 		judgePinnedDrift(e, c, rec, pinnedRef)
@@ -155,7 +163,6 @@ func runRun(ctx context.Context, args []string) error {
 	var life *tokenLifetime
 	var loss *sessionLoss
 	var fresh *freshRefusal
-	var flaky *intermittentFailure
 	if !*dry {
 		life, loss = examineTokenLifetime(e, rec), examineSessionLoss(e, rec)
 		if loss == nil {
@@ -214,9 +221,10 @@ func runRun(ctx context.Context, args []string) error {
 		if flaky.finding() {
 			fmt.Println("  FINDING: " + flaky.line())
 			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
-				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.line())
+				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}
-			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.line())
+			flakyOnly = rec.KeptRed == "" || rec.KeptRed == runner.KeptRedAsPinned
+			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.short())
 		}
 	}
 	if line := pinItLine(sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
@@ -363,7 +371,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return nil, err
 	}
 	condensed := len(everyStep) > 0 && !everyStep[0]
-	passed, behind, behindOrder := 0, map[string]int{}, []string{}
+	passed, behind, behindOrder, answered := 0, map[string]int{}, []string{}, map[string][]string{}
 	if !quiet {
 		idWidth := longestStepID(c)
 		unreachableShown := false
@@ -386,6 +394,9 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 					behindOrder = append(behindOrder, src)
 				}
 				behind[src]++
+				if line := answeredHeld(sr); line != "" {
+					answered[src] = append(answered[src], line)
+				}
 				return
 			}
 			fmt.Println(progressLine(sr, opts.DryRun, idWidth))
@@ -419,10 +430,34 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return rec, err
 	}
 	for _, src := range behindOrder {
-		fmt.Printf("%d step(s) unevaluated behind %s\n", behind[src], src)
+		line := fmt.Sprintf("%d step(s) unevaluated behind %s", behind[src], src)
+		if len(answered[src]) > 0 {
+			line += ": " + capList(answered[src], 3)
+		}
+		fmt.Println(line)
 	}
 	fmt.Printf("%d step(s) passed (-v prints every step)\n", passed)
 	return rec, nil
+}
+
+func answeredHeld(sr *runner.StepRecord) string {
+	var body any
+	if sr.Status != runner.StatusFailed || json.Unmarshal(sr.Response, &body) != nil {
+		return ""
+	}
+	var vals []string
+	for _, ex := range sr.Expect {
+		if ex.Rule != "unevaluated" {
+			continue
+		}
+		if v, ok := chain.Get(body, ex.Path); ok {
+			vals = append(vals, ex.Path+"="+capText(compactValue(v), 60))
+		}
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	return sr.ID + " answered " + strings.Join(vals, ", ") + " (not judged)"
 }
 
 func unevaluatedBehind(sr *runner.StepRecord) string {

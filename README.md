@@ -126,7 +126,8 @@ otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt cha
 | `KEPT RED` | failed exactly as its `kept_red` pins |
 | `kept red, drifted` | every pin held; the rest is drift already reported above |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
-| `FAIL intermittent:` | a `FINDING` says the rpc fails on some calls |
+| `FINDING intermittent:` / `repeated:` | its only failure is an rpc failing on some calls; one `FINDING:` line at the end counts them over every chain |
+| `FAIL intermittent:` | its first failure is such a call, and something else failed too |
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise; the moved pin and its suspect are named |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 

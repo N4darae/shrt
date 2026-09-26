@@ -280,4 +280,7 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s), paths latency; suspect the read: List is slower than in the safe spot's run") {
 		t.Fatalf("a latency regression is grouped under the slow rpc itself, got %d:\n%s", code, out)
 	}
+	if !strings.Contains(out, "list latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
+		t.Errorf("a latency change reads as the safe spot's and this run's time, not a threshold:\n%s", out)
+	}
 }

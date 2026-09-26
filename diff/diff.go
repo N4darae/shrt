@@ -1217,16 +1217,20 @@ func (r *Report) MaskedList() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (r *Report) FixtureInputLine() string {
+func (r *Report) FixtureInputLine(listed bool) string {
 	if len(r.FixtureInput) == 0 {
 		return ""
+	}
+	line := fmt.Sprintf("%d request value(s) differ from the confirmed run only in a fixture name or under a volatile path, "+
+		"so they are not counted as different input", len(r.FixtureInput))
+	if !listed {
+		return line + " (-masked lists them)"
 	}
 	names := []string{}
 	for _, c := range r.FixtureInput {
 		names = append(names, c.Step+" "+c.Path)
 	}
-	return fmt.Sprintf("%d request value(s) differ from the confirmed run only in a fixture name (a var inside other text, `sku-${vars.tag}`) "+
-		"or under a volatile path, so they are not counted as different input: %s", len(r.FixtureInput), strings.Join(names, ", "))
+	return line + ": " + strings.Join(names, ", ")
 }
 
 func (r *Report) QuietText() string {

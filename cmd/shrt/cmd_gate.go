@@ -44,6 +44,17 @@ type gateSidecar struct {
 	Items        []gateItem          `json:"items,omitempty"`
 	Sent         map[string]string   `json:"sent,omitempty"`
 	RunToo       bool                `json:"run_too,omitempty"`
+	Flaky        []gateFlaky         `json:"flaky,omitempty"`
+	FlakyOnly    bool                `json:"flaky_only,omitempty"`
+}
+
+type gateFlaky struct {
+	Call     string   `json:"call"`
+	Failed   int      `json:"failed"`
+	Calls    int      `json:"calls"`
+	Every    int      `json:"every,omitempty"`
+	Repeated bool     `json:"repeated,omitempty"`
+	Steps    []string `json:"steps,omitempty"`
 }
 
 type gateItem struct {
@@ -478,6 +489,11 @@ func (it gateItem) wantGot() string {
 	if strings.HasPrefix(it.Path, "(") {
 		return it.Got
 	}
+	if it.Class == "latency" {
+		was, _ := strconv.Atoi(strings.TrimSuffix(it.Want, "ms"))
+		now, _ := strconv.Atoi(strings.TrimSuffix(it.Got, "ms"))
+		return fmt.Sprintf("safe spot %s, now %s (%+dms)", it.Want, it.Got, now-was)
+	}
 	return chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
@@ -516,8 +532,8 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 			}
 		}
 		if c.Kind == diff.KindLength || c.Kind == diff.KindMembership {
-			if why, _, _ := strings.Cut(c.Detail, "; per-item ids not listed"); why != "" {
-				got = capText(got+" ("+why+")", 160)
+			if c.Detail != "" {
+				got = capText(got+" ("+c.Detail+")", 320)
 			}
 		}
 		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Rule: rule, Want: want, Got: got, Failed: failed})
@@ -598,6 +614,85 @@ type gateChain struct {
 	noVerdict bool
 	pinsHeld  bool
 	reported  bool
+	flaky     map[string]gateFlaky
+	flakyOnly bool
+	otherFail bool
+	flakyKind map[string]string
+}
+
+func (g *gateChain) findingOnly() bool {
+	return g.failed && g.flakyOnly && !g.otherFail
+}
+
+func (g *gateChain) flakyCalls() []string {
+	calls := make([]string, 0, len(g.flaky))
+	for c := range g.flaky {
+		calls = append(calls, c)
+	}
+	sort.Strings(calls)
+	return calls
+}
+
+func (g *gateChain) flakyKindOf(call string) string {
+	if k := g.flakyKind[call]; k != "" {
+		return k
+	}
+	if g.flaky[call].Repeated {
+		return "repeated"
+	}
+	return "intermittent"
+}
+
+func settleFlaky(chains []*gateChain) []string {
+	type total struct {
+		gateFlaky
+		chains   int
+		repeated bool
+		every    map[int]bool
+	}
+	totals, order := map[string]*total{}, []string{}
+	for _, g := range chains {
+		for _, call := range g.flakyCalls() {
+			f := g.flaky[call]
+			t := totals[call]
+			if t == nil {
+				t = &total{gateFlaky: gateFlaky{Call: call}, repeated: true, every: map[int]bool{}}
+				totals[call] = t
+				order = append(order, call)
+			}
+			t.Failed += f.Failed
+			t.Calls += f.Calls
+			t.chains++
+			t.repeated = t.repeated && f.Repeated
+			if f.Every > 1 {
+				t.every[f.Every] = true
+			}
+		}
+	}
+	var out []string
+	for _, call := range order {
+		t := totals[call]
+		kind := "intermittent"
+		if t.repeated {
+			kind = "repeated"
+		}
+		for _, g := range chains {
+			if _, ok := g.flaky[call]; ok {
+				if g.flakyKind == nil {
+					g.flakyKind = map[string]string{}
+				}
+				g.flakyKind[call] = kind
+			}
+		}
+		r := t.gateFlaky
+		if len(t.every) == 1 {
+			for k := range t.every {
+				r.Every = k
+			}
+		}
+		out = append(out, fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains))
+	}
+	return out
 }
 
 func runGate(ctx context.Context, args []string) error {
@@ -664,11 +759,15 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	settleGate(chains)
 	headlineGate(chains)
+	flakyFindings := settleFlaky(chains)
 	shown := map[string]bool{}
 	for _, g := range chains {
 		fmt.Println(g.line(width))
-		if req := g.suspectLine(); req != "" && g.failed {
+		if req := g.suspectLine(); req != "" && g.failed && !g.findingOnly() {
 			fmt.Println("  " + req)
+		}
+		if note := g.flakyNote(); note != "" {
+			fmt.Println("  " + note)
 		}
 		for _, n := range g.notes {
 			key := noteKey(n)
@@ -679,7 +778,7 @@ func runGate(ctx context.Context, args []string) error {
 			shown[key] = true
 			fmt.Println("  " + n)
 		}
-		if *verbose && g.failed {
+		if *verbose && g.failed && !g.findingOnly() {
 			g.printChanges()
 		}
 	}
@@ -691,7 +790,7 @@ func runGate(ctx context.Context, args []string) error {
 			unverified++
 		}
 	}
-	findings := []string{}
+	findings := flakyFindings
 	if *hollowBaseline != "" && len(only) == 0 {
 		if f := gateHollow(ctx, *hollowBaseline); f != "" {
 			findings = append(findings, f)
@@ -844,9 +943,18 @@ func noteKey(line string) string {
 }
 
 func (g *gateChain) absorb(what string, out gateOutcome) {
+	for _, f := range out.side.Flaky {
+		if g.flaky == nil {
+			g.flaky = map[string]gateFlaky{}
+		}
+		g.flaky[f.Call] = f
+	}
 	for _, line := range strings.Split(out.stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if !gateNotable.MatchString(line) {
+			continue
+		}
+		if len(out.side.Flaky) > 0 && (strings.HasPrefix(line, "FINDING: intermittent failure at ") || strings.HasPrefix(line, "FINDING: repeated failure at ")) {
 			continue
 		}
 		seen := false
@@ -877,11 +985,13 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 				g.first = capText(fmt.Sprintf("%s: %s %s", what, it.Step, it.Got), 200)
 			}
 		}
+	case out.side.FlakyOnly:
+		g.failed, g.flakyOnly = true, true
 	default:
-		if !g.failed {
+		if !g.failed || !g.otherFail {
 			g.first, g.sent = "", nil
 		}
-		g.failed = true
+		g.failed, g.otherFail = true, true
 		if g.first == "" {
 			if len(out.side.Items) > 0 {
 				it := out.side.Items[0]
@@ -936,17 +1046,35 @@ func capNote(line string, n int) string {
 	return out
 }
 
-func (g *gateChain) intermittentFirst() bool {
+func (g *gateChain) intermittentFirst() string {
 	it, ok := g.firstItem()
 	if !ok {
-		return false
+		return ""
 	}
-	for _, n := range g.notes {
-		if head, _, _ := strings.Cut(strings.TrimPrefix(n, "FINDING: intermittent failure at "), ": "); head != n && containsName(strings.Split(head, ", "), shortRPC(it.Call)) {
-			return true
-		}
+	if f, ok := g.flaky[it.Call]; ok && containsName(f.Steps, it.Step) {
+		return g.flakyKindOf(it.Call)
 	}
-	return false
+	return ""
+}
+
+func (g *gateChain) flakyLine() string {
+	parts := []string{}
+	for _, call := range g.flakyCalls() {
+		f := g.flaky[call]
+		parts = append(parts, fmt.Sprintf("%s %s", shortRPC(call), f.text()))
+	}
+	return g.flakyKindOf(g.flakyCalls()[0]) + ": " + strings.Join(parts, "; ")
+}
+
+func (g *gateChain) flakyNote() string {
+	if len(g.flaky) == 0 || g.findingOnly() {
+		return ""
+	}
+	rpcs := []string{}
+	for _, call := range g.flakyCalls() {
+		rpcs = append(rpcs, shortRPC(call))
+	}
+	return fmt.Sprintf("FINDING: %s failure at %s, below", g.flakyKindOf(g.flakyCalls()[0]), strings.Join(rpcs, ", "))
 }
 
 func (g *gateChain) adoptBlame(side gateSidecar) {
@@ -1054,6 +1182,8 @@ func (g *gateChain) printChanges() {
 func (g *gateChain) line(width int) string {
 	verdict := "PASS"
 	switch {
+	case g.findingOnly():
+		return strings.TrimRight(fmt.Sprintf("%-10s %-*s  %s", "FINDING", width, g.name, g.flakyLine()), " ")
 	case g.failed:
 		verdict = "FAIL"
 	case g.noVerdict:
@@ -1065,8 +1195,8 @@ func (g *gateChain) line(width int) string {
 	if g.first != "" && verdict != "PASS" && verdict != "KEPT RED" {
 		line += "  "
 		switch {
-		case g.failed && g.intermittentFirst():
-			line += "intermittent: "
+		case g.failed && g.intermittentFirst() != "":
+			line += g.intermittentFirst() + ": "
 		case g.class != "" && g.failed:
 			line += g.class + ": "
 		}

@@ -42,3 +42,20 @@ func TestANewFailureInAListSaysWhatKindOfChangeItIs(t *testing.T) {
 		t.Errorf("an extra item: %q", kinds[4])
 	}
 }
+
+func TestAListIsSameItemsInAnotherOrderOnlyWhenNoItemWasAddedOrMissing(t *testing.T) {
+	response, _ := json.Marshal(map[string]any{"orders": []any{
+		map[string]any{"id_order": "ord-b"},
+		map[string]any{"id_order": "ord-a"},
+		map[string]any{"id_order": "ord-x"},
+	}})
+	moved := chain.ExpectResult{Path: "orders.0.id_order", Rule: "equals", Want: "ord-a", Got: "ord-b"}
+	sr := &StepRecord{ID: "list", Status: StatusFailed, Response: response, Expect: []chain.ExpectResult{moved}}
+	if !ReorderedPaths(sr)["orders.0.id_order"] {
+		t.Errorf("an asserted id found at another index is a reorder")
+	}
+	sr.Expect = append(sr.Expect, chain.ExpectResult{Path: "orders.2", Rule: "exists", Want: false, Got: true})
+	if got := ReorderedPaths(sr); len(got) != 0 {
+		t.Errorf("a list holding an item it should not is a changed set, not a reorder: %v", got)
+	}
+}

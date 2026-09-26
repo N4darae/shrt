@@ -26,6 +26,7 @@ type flakyStep struct {
 func (f flakyStep) sufficient() bool { return len(f.sameRun) > 0 || f.moved != "" || f.resent }
 
 type intermittentFailure struct {
+	rec    *runner.Record
 	steps  []flakyStep
 	weak   []flakyStep
 	hidden []string
@@ -127,7 +128,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	}
 	var last *runner.Record
 	loaded := false
-	out := &intermittentFailure{}
+	out := &intermittentFailure{rec: rec}
 	for _, st := range rec.Steps {
 		if resentAnswered(st) {
 			f := flakyStep{step: st, resent: true}
@@ -239,21 +240,73 @@ func (i *intermittentFailure) calls() string {
 	return strings.Join(out, ", ")
 }
 
-func (i *intermittentFailure) line() string {
-	each, repeated := []string{}, true
+func (i *intermittentFailure) repeated() bool {
 	for _, f := range i.steps {
-		if f.resent {
-			each = append(each, fmt.Sprintf("step %d %s got %s, and its re-send was answered and judged", f.step.Index, f.step.ID, f.step.FirstAttempt.Text()))
-		} else {
-			each = append(each, fmt.Sprintf("step %d %s got %s, but %s", f.step.Index, f.step.ID, errorText(f.step), f.evidence()))
+		if f.repeated == "" {
+			return false
 		}
-		repeated = repeated && f.repeated != ""
 	}
+	return len(i.steps) > 0
+}
+
+func (i *intermittentFailure) kind() string {
+	if i.repeated() {
+		return "repeated"
+	}
+	return "intermittent"
+}
+
+func (i *intermittentFailure) short() string {
+	parts := []string{}
+	for _, r := range i.rates() {
+		parts = append(parts, shortRPC(r.Call)+" ("+r.text()+")")
+	}
+	return i.kind() + " failure at " + strings.Join(parts, ", ")
+}
+
+func (i *intermittentFailure) rates() []gateFlaky {
+	var out []gateFlaky
+	seen := map[string]bool{}
+	for _, f := range i.steps {
+		if seen[f.step.Call] {
+			continue
+		}
+		seen[f.step.Call] = true
+		r := callCounts(i.rec, f.step.Call)
+		r.Repeated = i.repeated()
+		for _, g := range i.steps {
+			if g.step.Call == f.step.Call && !g.resent {
+				r.Steps = append(r.Steps, g.step.ID)
+			}
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func (i *intermittentFailure) line() string {
+	resent, order, each := map[string][]string{}, []string{}, []string{}
+	for _, f := range i.steps {
+		at := fmt.Sprintf("step %d %s", f.step.Index, f.step.ID)
+		if !f.resent {
+			each = append(each, fmt.Sprintf("%s got %s, but %s", at, errorText(f.step), f.evidence()))
+			continue
+		}
+		why := f.step.FirstAttempt.Text()
+		if resent[why] == nil {
+			order = append(order, why)
+		}
+		resent[why] = append(resent[why], at)
+	}
+	for _, why := range order {
+		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent[why], 3), why))
+	}
+	each = each[:min(len(each), 4)]
 	hidden := ""
 	if len(i.hidden) > 0 {
 		hidden = "; the errors hid the checks of " + capList(i.hidden, 6)
 	}
-	if repeated {
+	if i.repeated() {
 		return fmt.Sprintf("repeated failure at %s: %s, so the backend fails this rpc at the same calls every run, not by chance: "+
 			"a defect in the backend, and a re-run fails the same way%s; %s",
 			i.calls(), i.steps[0].repeated, hidden, strings.Join(each, "; "))
@@ -266,7 +319,7 @@ func (i *intermittentFailure) line() string {
 		"not a deterministic regression at that step; a re-run may pass and does not clear it%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
 }
 
-func callRate(rec *runner.Record, call string) string {
+func callCounts(rec *runner.Record, call string) gateFlaky {
 	var failedAt []int
 	n := 0
 	for _, st := range rec.Steps {
@@ -288,18 +341,37 @@ func callRate(rec *runner.Record, call string) string {
 		}
 		n += len(st.LatencyResent)
 	}
-	if len(failedAt) < 2 {
-		return ""
-	}
-	out := fmt.Sprintf("it failed %d of %d calls in this run", len(failedAt), n)
-	gap := failedAt[1] - failedAt[0]
-	for k := 2; k < len(failedAt); k++ {
-		if failedAt[k]-failedAt[k-1] != gap {
-			gap = 0
+	out := gateFlaky{Call: call, Failed: len(failedAt), Calls: n}
+	if len(failedAt) > 2 {
+		gap := failedAt[1] - failedAt[0]
+		for k := 2; k < len(failedAt); k++ {
+			if failedAt[k]-failedAt[k-1] != gap {
+				gap = 0
+			}
+		}
+		if gap > 1 {
+			out.Every = gap
 		}
 	}
-	if gap > 1 && len(failedAt) > 2 {
-		out += ", every " + ordinal(gap)
+	return out
+}
+
+func (r gateFlaky) text() string {
+	out := fmt.Sprintf("failed %d of %d calls", r.Failed, r.Calls)
+	if r.Every > 1 {
+		out += ", every " + ordinal(r.Every)
+	}
+	return out
+}
+
+func callRate(rec *runner.Record, call string) string {
+	r := callCounts(rec, call)
+	if r.Failed < 2 {
+		return ""
+	}
+	out := fmt.Sprintf("it failed %d of %d calls in this run", r.Failed, r.Calls)
+	if r.Every > 1 {
+		out += ", every " + ordinal(r.Every)
 	}
 	return out + ", and answered the others"
 }

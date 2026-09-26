@@ -4,19 +4,24 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 func stepRefs(st *runner.StepRecord) map[string]bool {
 	out := map[string]bool{}
-	for _, ref := range st.BodyRefs {
+	for path, ref := range st.BodyRefs {
+		if diff.IDNamedPath(path) && !wholeRef.MatchString(strings.TrimSpace(ref)) {
+			continue
+		}
 		for _, m := range gateRef.FindAllStringSubmatch(ref, -1) {
 			switch m[1] {
 			case "vars", "env", "exports":
@@ -27,6 +32,8 @@ func stepRefs(st *runner.StepRecord) map[string]bool {
 	}
 	return out
 }
+
+var wholeRef = regexp.MustCompile(`^\$\{[^}]+\}$`)
 
 func isWrite(st *runner.StepRecord) bool {
 	return st != nil && !chain.IsReadOnlyCall(st.Call)
