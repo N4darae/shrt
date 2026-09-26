@@ -942,6 +942,33 @@ func failedPaths(results []chain.ExpectResult) []string {
 	return out
 }
 
+var stepProblem = regexp.MustCompile(`^step ("[^"]*" \(step \d+\))(.*)$`)
+
+func groupProblems(problems []string) []string {
+	var order []string
+	steps := map[string][]string{}
+	for _, p := range problems {
+		m := stepProblem.FindStringSubmatch(p)
+		if m == nil {
+			order = append(order, p)
+			continue
+		}
+		if steps[m[2]] == nil {
+			order = append(order, m[2])
+		}
+		steps[m[2]] = append(steps[m[2]], m[1])
+	}
+	out := make([]string, 0, len(order))
+	for _, key := range order {
+		if at := steps[key]; at != nil {
+			out = append(out, "step "+strings.Join(at, ", ")+key)
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return strings.TrimSpace(line)
@@ -990,7 +1017,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
 	if len(problems) > 0 {
-		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(problems, "; "))
+		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(groupProblems(problems), "; "))
 	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
 	scope := chain.NewScope(rec.Vars)

@@ -211,6 +211,38 @@ func (x *refIndex) laterExport(name string) string {
 	return ""
 }
 
+func nearPath(fields []*catalog.Field, segs []string) string {
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			continue
+		}
+		var next *catalog.Field
+		names := make([]string, 0, len(fields))
+		for _, f := range fields {
+			if f.Name == seg || f.JSONName == seg || namecase.Equal(f.Name, seg) {
+				next = f
+			}
+			names = append(names, f.Name)
+		}
+		if next == nil {
+			near := namecase.Closest(seg, names, 3)
+			quoted := make([]string, 0, len(near))
+			for _, n := range near {
+				quoted = append(quoted, strconv.Quote(strings.Join(append(append(append([]string{}, segs[:i]...), n), segs[i+1:]...), ".")))
+			}
+			if len(quoted) == 0 {
+				return ""
+			}
+			return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+		}
+		if next.Truncated || next.MapKey != "" {
+			return ""
+		}
+		fields = next.Fields
+	}
+	return ""
+}
+
 func didYouMean(name string, candidates []string) string {
 	near := namecase.Closest(name, candidates, 3)
 	if len(near) == 0 {
@@ -551,13 +583,23 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	if strings.HasPrefix(r.Rest, "request.") {
 		hint = ". A request path names a field of the request message that step sends, not of its response"
 	}
-	return Issue{
+	if strings.HasSuffix(why, "?)") {
+		hint = ""
+	}
+	issue := Issue{
 		Step:     stepID,
 		Severity: SeverityError,
 		Kind:     KindDeadRef,
 		Message:  fmt.Sprintf("${%s} %s%s", r.Expr, why, hint),
-	}, true
+	}
+	if why != NoArithmetic {
+		issue.Why = deadRefWhy
+	}
+	return issue, true
 }
+
+const deadRefWhy = "shrt run refuses a chain with such a reference before sending anything: resolving it would kill " +
+	"the run after every earlier step had already hit the backend"
 
 const NoArithmetic = "does arithmetic, and a reference does none (only a clock takes an offset: ${nowunix+3600}): " +
 	"work the value out and write it as a literal or a var"
@@ -578,9 +620,8 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 		if catalog.HasResponsePath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path)) {
 			return "", false
 		}
-		return fmt.Sprintf("reads request path %q, which is not a field of %s — step %q never sends it, so the run "+
-			"would die resolving it after every earlier step had already hit the backend, and shrt run refuses "+
-			"the chain before sending anything", path, m.Input().FullName(), r.Head), true
+		return fmt.Sprintf("reads request path %q, which is not a field of %s, so step %q never sends it%s", path,
+			m.Input().FullName(), r.Head, nearPath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path))), true
 	}
 	rest = strings.TrimPrefix(rest, "response.")
 	if rest == "" || rest == "response" {
@@ -593,9 +634,8 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 	if strings.ContainsAny(rest, "+-*/ ") {
 		return NoArithmetic, true
 	}
-	return fmt.Sprintf("reads %q, which is not a field of %s — step %q cannot produce it, so the run would "+
-		"die resolving it after every earlier step had already hit the backend, and shrt run refuses the "+
-		"chain before sending anything", rest, m.Output().FullName(), r.Head), true
+	return fmt.Sprintf("reads %q, which is not a field of %s, so step %q cannot produce it%s", rest,
+		m.Output().FullName(), r.Head, nearPath(fields, SplitPath(rest))), true
 }
 
 func headerValues(in map[string]string) []any {

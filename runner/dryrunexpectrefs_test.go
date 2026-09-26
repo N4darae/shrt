@@ -94,3 +94,30 @@ func TestADryRunRefusesAnExpectationReadingAnExportAliasAsAResponseField(t *test
 			"only failed live")
 	}
 }
+
+func TestADryRunRefusalNamesEachBadReferenceOnce(t *testing.T) {
+	c := &chain.Chain{Name: "dry-typo", Steps: []*chain.Step{
+		{ID: "first", Call: "ThingService/Create", Body: map[string]any{"name": "widget", "kind": "KIND_A"},
+			Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+		{ID: "second", Call: "ThingService/Fetch", Body: map[string]any{"id": "${first.idd}"},
+			Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+		{ID: "third", Call: "ThingService/Fetch", Body: map[string]any{"id": "${first.idd}"},
+			Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+	}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	srv := newFakeServer()
+	defer srv.Close()
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{DryRun: true})
+	if err == nil {
+		t.Fatal("a reference to a field the producer lacks must refuse the dry run")
+	}
+	msg := err.Error()
+	if strings.Count(msg, "${first.idd}") != 1 || !strings.Contains(msg, `step "second" (step 2), "third" (step 3): ${first.idd}`) {
+		t.Fatalf("the bad reference should be listed once with every step that reads it: %s", msg)
+	}
+	if !strings.Contains(msg, `did you mean "id"?`) {
+		t.Fatalf("the refusal should suggest the field it resembles: %s", msg)
+	}
+}
