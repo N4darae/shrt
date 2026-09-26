@@ -278,7 +278,7 @@ a scaffold lands. RPCS above CONTRACT is an rpc no overlay covers. REACHED count
 multi-step plan; below it, a write that cannot run alone is missing a `needs:` or `from:`.
 `status -gaps` lists them as `no path to`.
 
-The score (the footer of `shrt contract status` prints today's list):
+The score (the footer of `shrt contract status -v` prints today's list):
 
 | weight | phase | term |
 |---|---|---|
