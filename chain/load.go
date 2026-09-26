@@ -20,6 +20,10 @@ func LoadFile(path string) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadBytes(raw, path)
+}
+
+func loadBytes(raw []byte, path string) (*Chain, error) {
 	c := &Chain{}
 	if err := decodeStrict(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)

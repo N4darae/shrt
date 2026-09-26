@@ -218,7 +218,7 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		if _, err := os.Stat(path); err == nil && !force && !source {
 			return fmt.Errorf("%s already exists, pass -force to overwrite it or name another file: -write <name>", path)
 		}
-		if err := writeSliceFile(path, res.Chain); err != nil {
+		if err := writeWithout(path, source, res); err != nil {
 			return err
 		}
 		written, replaced = path, source
@@ -262,6 +262,17 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	}
 	fmt.Printf("\n%s\n", string(raw))
 	return nil
+}
+
+func writeWithout(path string, source bool, res *chain.WithoutResult) error {
+	if source {
+		if raw, err := os.ReadFile(path); err == nil {
+			if edited, ok := res.EditSource(raw, path); ok {
+				return os.WriteFile(path, edited, 0o644)
+			}
+		}
+	}
+	return writeSliceFile(path, res.Chain)
 }
 
 func containsStr(list []string, s string) bool {
