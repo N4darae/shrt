@@ -495,6 +495,8 @@ type effectModel struct {
 	pending *chain.Step
 	waiting []string
 	unread  map[string][]string
+	at      *chain.Step
+	below   map[string]string
 }
 
 const (
@@ -638,7 +640,7 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 
 func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string][]string, map[string]string, map[string][]string) {
 	md := &effectModel{level: map[string]int64{}, known: map[string]bool{}, stockOf: map[string]*stockRule{}, orders: map[string]*modelOrder{},
-		alias: map[string]string{}, dirty: map[string]bool{}, apply: apply, unread: map[string][]string{}}
+		alias: map[string]string{}, dirty: map[string]bool{}, apply: apply, unread: map[string][]string{}, below: map[string]string{}}
 	asserted := map[string][]string{}
 	silent := map[string]string{}
 	mark := func(kind, id string) {
@@ -659,6 +661,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		}
 		md.flush()
 		md.dirty = map[string]bool{}
+		md.at = st
 		out := effectOutcome(st)
 		if s := r.byEntity[rpc]; s != nil && out == outcomeSuccess {
 			md.stockOf[st.ID] = s
@@ -749,7 +752,39 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		}
 	}
 	md.flush()
+	if apply {
+		p.noteBelowZero(r, md)
+	}
 	return asserted, silent, md.unread
+}
+
+func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
+	for _, st := range p.Chain.Steps {
+		e, ok := md.below[st.ID]
+		if !ok {
+			continue
+		}
+		rpc := canonicalCall(p.cat, st.Call)
+		s := md.stockOf[e]
+		adders := []string{}
+		for _, a := range sortedRuleKeys(r.increase) {
+			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
+				adders = append(adders, a)
+			}
+		}
+		need := "the rpc that adds it"
+		if len(adders) > 0 {
+			need = strings.Join(adders, ", ")
+		}
+		p.note("step %s: it takes %s of %s below zero, since nothing before it adds any, so no level is asserted after it; "+
+			"add needs: [%s] to the contract of %s", st.ID, s.moved, e, need, shortRPC(rpc))
+		delete(md.below, st.ID)
+		for id, other := range md.below {
+			if canonicalCall(p.cat, p.stepByID(id).Call) == rpc && md.stockOf[other].entityRPC == s.entityRPC {
+				delete(md.below, id)
+			}
+		}
+	}
 }
 
 func (md *effectModel) watch(st *chain.Step, o *modelOrder) {
@@ -783,7 +818,10 @@ func (p *Plan) moveStock(md *effectModel, e string, by int64, ok bool) {
 	if md.stockOf[e] == nil {
 		return
 	}
-	if !ok {
+	if !ok || (by < 0 && md.known[e] && md.level[e]+by < 0) {
+		if _, seen := md.below[md.at.ID]; ok && !seen {
+			md.below[md.at.ID] = e
+		}
 		md.known[e], md.dirty[e] = false, false
 		return
 	}
