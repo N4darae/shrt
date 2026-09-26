@@ -521,8 +521,8 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 			}
 		}
 		if c.Kind == diff.KindLength || c.Kind == diff.KindMembership {
-			if why, _, _ := strings.Cut(c.Detail, "; per-item ids not listed"); why != "" {
-				got = capText(got+" ("+why+")", 160)
+			if c.Detail != "" {
+				got = capText(got+" ("+c.Detail+")", 320)
 			}
 		}
 		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Rule: rule, Want: want, Got: got, Failed: failed})
