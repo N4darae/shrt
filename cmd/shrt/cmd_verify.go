@@ -77,6 +77,9 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		if e.store.HasProposal(name) {
 			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
 		}
+		if c, cerr := chain.Resolve(e.chainsDir(), name); cerr == nil && len(c.KeptRed) > 0 {
+			return fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
+		}
 		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
 	}
 	if !spot.DigestMatches() {
