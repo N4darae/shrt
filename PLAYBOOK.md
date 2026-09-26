@@ -394,7 +394,7 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 3. If it drifts, run, propose with `-supersede` and have a person approve.
 
 **How the gate names a suspect.** The read itself is the suspect when it fails with a server
-error, when it is refused or its list holds another set of items while no write before it was
+error, when it is refused, stops refusing, or its list holds another set of items while no write before it was
 refused, when only the order of a list changed or the item at a position moved elsewhere in it
 (matched by its id), when the write it observes returned the same field
 of the same record unchanged, or when it contradicts what two different writes answered. A write

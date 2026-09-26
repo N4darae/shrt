@@ -1,0 +1,34 @@
+package main
+
+import (
+	"testing"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/runner"
+)
+
+func TestTheHeadlineLeadsWithAStepsTransportError(t *testing.T) {
+	report := &diff.Report{Changes: []diff.Change{
+		{Step: "get", Path: "status", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusError},
+		{Step: "get", Path: "customer", Kind: diff.KindType, Want: nil, Got: map[string]any{}},
+		{Step: "list", Path: "total", Kind: diff.KindChanged, Want: 1, Got: 2},
+	}}
+	if first, steps := firstChange(report); first == nil || first.Kind != diff.KindStatus || steps != 2 {
+		t.Fatalf("a transport error leads, got %+v over %d step(s)", first, steps)
+	}
+	report.Changes[0].Got = runner.StatusFailed
+	if first, _ := firstChange(report); first.Path != "customer" {
+		t.Fatalf("a plain failure yields to the step's first change, got %+v", first)
+	}
+}
+
+func TestAReadNoLongerRefusedIsItsOwnSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	const get = "shop.customers.v1.CustomerService/GetCustomer"
+	rec := shopRecord(shopStep("get_unknown", get, `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
+	if own := runAttribution(nil, rec).of("get_unknown", "customer").own; own != "GetCustomer answers SUCCESS where it answered REJECTED" {
+		t.Fatalf("got %q", own)
+	}
+}

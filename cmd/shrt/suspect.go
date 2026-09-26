@@ -260,6 +260,10 @@ func (a attribution) of(step, path string) blame {
 	if isWrite(st) {
 		return b
 	}
+	if was, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
+		b.own = fmt.Sprintf("%s answers %s where it answered %v", methodName(st.Call), verdictOf(st).ErrorCode, was)
+		return b
+	}
 	if list := ""; a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
 		if list = a.resized(step, path); list != "" {
 			b.own = fmt.Sprintf("%s answers another set of %s", methodName(st.Call), list)
@@ -342,6 +346,13 @@ func (a attribution) flipped(st *runner.StepRecord) string {
 		}
 	}
 	return ""
+}
+
+func (a attribution) accepted(st *runner.StepRecord) (any, bool) {
+	if a.was == nil || refusalOf(st) != "" || verdictOf(st).ErrorCode == "" {
+		return nil, false
+	}
+	return a.was(st.ID, chain.EnvelopePath())
 }
 
 func refusalOf(st *runner.StepRecord) string {

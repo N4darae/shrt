@@ -1208,11 +1208,21 @@ func firstChange(report *diff.Report) (*diff.Change, int) {
 			continue
 		}
 		steps[c.Step] = true
-		if first == nil || first.Kind == diff.KindStatus && c.Kind != diff.KindStatus && c.Step == first.Step {
+		if first == nil || c.Step == first.Step && rank(c) > rank(*first) {
 			first = &report.Changes[i]
 		}
 	}
 	return first, len(steps)
+}
+
+func rank(c diff.Change) int {
+	switch {
+	case c.Kind == diff.KindStatus && (c.Want == runner.StatusError || c.Got == runner.StatusError):
+		return 2
+	case c.Kind == diff.KindStatus:
+		return 0
+	}
+	return 1
 }
 
 func changeAt(rec *runner.Record, c diff.Change) string {
