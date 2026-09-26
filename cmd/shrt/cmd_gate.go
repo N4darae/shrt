@@ -140,11 +140,14 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change)
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
-	pinned := map[string]bool{}
+	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
+		if _, moved := changedPins[p.Step+" "+p.Path]; !moved {
+			heldPins[p.Step+" "+p.Path] = true
+		}
 	}
-	a := runAttribution(e, rec)
+	a := pinnedAttribution(e, rec, heldPins)
 	for _, st := range rec.Steps {
 		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
 			continue
@@ -245,6 +248,23 @@ func badSteps(rec *runner.Record) map[string]bool {
 }
 
 func runAttribution(e *env, rec *runner.Record) attribution {
+	return pinnedAttribution(e, rec, nil)
+}
+
+func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribution {
+	moved := func(st *runner.StepRecord) *runner.StepRecord {
+		if len(held) == 0 {
+			return st
+		}
+		cp := *st
+		cp.Expect = nil
+		for _, ex := range st.Expect {
+			if !held[st.ID+" "+ex.Path] {
+				cp.Expect = append(cp.Expect, ex)
+			}
+		}
+		return &cp
+	}
 	return attribution{e: e, rec: rec, bad: badSteps(rec),
 		unchanged: func(step, path string) bool {
 			st, ok := rec.Step(step)
@@ -260,7 +280,7 @@ func runAttribution(e *env, rec *runner.Record) attribution {
 		},
 		reordered: func(step, path string) bool {
 			st, ok := rec.Step(step)
-			return ok && st != nil && runner.ReorderedPaths(st)[path]
+			return ok && st != nil && runner.ReorderedPaths(moved(st))[path]
 		},
 		changed: func(step string) []string {
 			st, ok := rec.Step(step)
@@ -280,7 +300,7 @@ func runAttribution(e *env, rec *runner.Record) attribution {
 			if !ok || st == nil {
 				return ""
 			}
-			return listUnder(runResized(st), path)
+			return listUnder(runResized(moved(st)), path)
 		},
 		was: func(step, path string) (any, bool) {
 			st, ok := rec.Step(step)
