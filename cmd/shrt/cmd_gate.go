@@ -831,7 +831,7 @@ func runGate(ctx context.Context, args []string) error {
 			check = append(check, p)
 		}
 	}
-	checked := checkSessions(ctx, e, check, earlyAt, reads)
+	checked := checkSessions(ctx, e, check, earlyAt, reads, *verbose)
 	for _, p := range profiles {
 		if early[p] > 1 {
 			findings = append(findings, fmt.Sprintf("FINDING: tokens of auth profile %s were refused early in %d runs of this gate: "+

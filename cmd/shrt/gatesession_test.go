@@ -59,9 +59,18 @@ func TestTheGateCallsAnEarlyRefusalARestartWhenAHeldFreshTokenIsAccepted(t *test
 	restart()
 	out, code := runGateOut(t)
 	if code != 0 || strings.Contains(out, "FINDING") ||
-		!strings.Contains(out, "session check: the early refusal of auth profile default was a restart: a fresh token held 1") {
+		!strings.Contains(out, "session check: early token refusal was a restart (fresh token held 1") || strings.Contains(out, "not ruled out") {
 		t.Fatalf("a backend that restarted once is no finding, got %d:\n%s", code, out)
 	}
+	saved := sessionHoldCap
+	t.Cleanup(func() { sessionHoldCap = saved })
+	sessionHoldCap = time.Millisecond
+	cacheASessionToken(t)
+	restart()
+	if out, _ = runGateOut(t, "-v"); !strings.Contains(out, "accepted); sessions between ") {
+		t.Fatalf("-v adds the session lengths a hold shorter than the refused token's age leaves open:\n%s", out)
+	}
+	sessionHoldCap = saved
 	restart()
 	out, code = runGateOut(t, "-no-session-check")
 	if code != 0 || strings.Contains(out, "checking session lifetime") || !strings.Contains(out, "note: a token of auth profile default was refused early once") {
