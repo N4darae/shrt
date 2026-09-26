@@ -140,14 +140,16 @@ func TestVerifyCountsFixtureNameInputsAndListsThemUnderMasked(t *testing.T) {
 		}
 	})
 	regressed = true
-	for _, flags := range [][]string{nil, {"-v"}} {
-		out := captureStdout(t, func() { _ = runVerify(ctx, append([]string{"cli-fixture-flow", "-var", "tag=second"}, flags...)) })
-		if !strings.Contains(out, "request value(s) differ from the confirmed run only in a fixture name") || !strings.Contains(out, "(-masked lists them)") ||
-			strings.Contains(out, "create name") {
-			t.Errorf("%v: the fixture-name inputs are counted, not listed:\n%s", flags, out)
-		}
+	out := captureStdout(t, func() { _ = runVerify(ctx, []string{"cli-fixture-flow", "-var", "tag=second"}) })
+	if strings.Contains(out, "request value(s) differ") || strings.Contains(out, "were not counted") {
+		t.Errorf("the default verify does not count what it kept out of the comparison:\n%s", out)
 	}
-	out := captureStdout(t, func() { _ = runVerify(ctx, []string{"cli-fixture-flow", "-var", "tag=third", "-masked"}) })
+	out = captureStdout(t, func() { _ = runVerify(ctx, []string{"cli-fixture-flow", "-var", "tag=second", "-v"}) })
+	if !strings.Contains(out, "request value(s) differ from the confirmed run only in a fixture name") || !strings.Contains(out, "(-masked lists them)") ||
+		strings.Contains(out, "create name") {
+		t.Errorf("-v: the fixture-name inputs are counted, not listed:\n%s", out)
+	}
+	out = captureStdout(t, func() { _ = runVerify(ctx, []string{"cli-fixture-flow", "-var", "tag=third", "-masked"}) })
 	if !strings.Contains(out, "not counted as different input: create name") {
 		t.Errorf("-masked lists each fixture-name input:\n%s", out)
 	}
