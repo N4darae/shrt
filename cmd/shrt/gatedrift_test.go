@@ -50,6 +50,19 @@ func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 	}
 }
 
+func TestAMovedPinWithNoSuspectDoesNotPointAbove(t *testing.T) {
+	const get = "shrt.test.v1.ThingService/Get"
+	chains := []*gateChain{
+		{name: "a", failed: true, firstAt: "get thing.level", items: []gateItem{{Step: "get", Call: get, Path: "thing.level", Want: "5", Got: "8"}}},
+		{name: "b", failed: true, class: "not as pinned", items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "4", Got: "2", Pinned: "-1"}}},
+	}
+	settleGate(chains)
+	headlineGate(chains)
+	if want := "get_pinned thing.level pinned got=-1, now got=2"; chains[1].first != want {
+		t.Errorf("got %q, want %q", chains[1].first, want)
+	}
+}
+
 func TestAMovedPinAfterAnotherWriteThanTheOneChangingThatReadElsewhereNamesBoth(t *testing.T) {
 	const confirm, cancel, get = "shrt.test.v1.ThingService/Confirm", "shrt.test.v1.ThingService/Cancel", "shrt.test.v1.ThingService/Get"
 	chains := []*gateChain{

@@ -16,22 +16,43 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func stepRefs(st *runner.StepRecord) map[string]bool {
+func stepRefs(rec *runner.Record, at int) map[string]bool {
 	out := map[string]bool{}
-	for path, ref := range st.BodyRefs {
+	for path, ref := range rec.Steps[at].BodyRefs {
 		if diff.IDNamedPath(path) && !wholeRef.MatchString(strings.TrimSpace(ref)) {
 			continue
 		}
-		for _, m := range gateRef.FindAllStringSubmatch(ref, -1) {
-			switch m[1] {
-			case "vars", "env", "exports":
-			default:
-				out[m[1]] = true
+		for _, m := range bodyRefExpr.FindAllStringSubmatch(ref, -1) {
+			r := chain.ParseRef(m[1])
+			switch {
+			case r.Kind == chain.RefStep && r.Rest != "":
+				out[r.Head] = true
+			case r.Kind == chain.RefBare, r.Kind == chain.RefExports:
+				name := r.Head
+				if r.Kind == chain.RefExports {
+					name, _, _ = strings.Cut(r.Rest, ".")
+				}
+				if src := exporter(rec, at, name); src != "" {
+					out[src] = true
+				}
 			}
 		}
 	}
 	return out
 }
+
+func exporter(rec *runner.Record, at int, name string) string {
+	for i := at - 1; i >= 0; i-- {
+		if st := rec.Steps[i]; st != nil {
+			if _, ok := st.Exported[name]; ok {
+				return st.ID
+			}
+		}
+	}
+	return ""
+}
+
+var bodyRefExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 var wholeRef = regexp.MustCompile(`^\$\{[^}]+\}$`)
 
@@ -61,7 +82,7 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 		}
 	}
 	reach := refReach(rec, pos)
-	entities := stepRefs(rec.Steps[at])
+	entities := stepRefs(rec, at)
 	nearest, nearestBad := -1, -1
 	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
 		w := rec.Steps[i]
@@ -105,7 +126,7 @@ func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool 
 		}
 		c := map[string]bool{}
 		closure[i] = c
-		for ref := range stepRefs(rec.Steps[i]) {
+		for ref := range stepRefs(rec, i) {
 			c[ref] = true
 			if j, ok := pos[ref]; ok && j < i {
 				for r := range reach(j) {
@@ -599,7 +620,7 @@ func (a attribution) afterFailedWrite(step, path string) (int, string) {
 			continue
 		}
 		same := false
-		for ref := range stepRefs(w) {
+		for ref := range stepRefs(a.rec, i) {
 			same = same || touched[ref]
 		}
 		if m, err := a.e.cat.Lookup(w.Call); same && err == nil && declares(m.Output(), leaf, 0) {

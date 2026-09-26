@@ -51,6 +51,30 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 	}
 }
 
+func TestASuspectWriteIsFoundThroughExportedIDs(t *testing.T) {
+	step := func(id, call string, exported string, refs map[string]string) *runner.StepRecord {
+		st := &runner.StepRecord{ID: id, Call: "shop.v1.S/" + call, BodyRefs: refs}
+		if exported != "" {
+			st.Exported = map[string]any{exported: id + "-1"}
+		}
+		return st
+	}
+	for _, orderRef := range []string{"${id_order}", "${exports.id_order}"} {
+		rec := &runner.Record{Steps: []*runner.StepRecord{
+			step("create_product_a", "CreateProduct", "id_a", nil),
+			step("add_stock_a", "AddStock", "", map[string]string{"id_product": "${id_a}"}),
+			step("create_order", "CreateOrder", "id_order", map[string]string{"lines.0.id_product": "${id_a}"}),
+			step("confirm_order", "ConfirmOrder", "", map[string]string{"id_order": orderRef}),
+			step("fetch_order", "FetchOrder", "", map[string]string{"id_order": orderRef}),
+			step("stock_a_confirmed", "GetProduct", "", map[string]string{"id_product": "${id_a}"}),
+		}}
+		i, knock := suspectWrite(rec, "stock_a_confirmed", map[string]bool{})
+		if i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
+			t.Errorf("%s: got step %d knock-on %v, want confirm_order", orderRef, i, knock)
+		}
+	}
+}
+
 func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 	e := &env{cat: catalogtest.Shop()}
 	step := func(id, call, response string, refs ...string) *runner.StepRecord {
