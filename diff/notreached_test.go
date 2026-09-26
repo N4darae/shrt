@@ -85,11 +85,11 @@ func TestStepsAStoppedRunNeverReachedAreNotCountedAsChanges(t *testing.T) {
 	rec.Status = runner.StatusFailed
 
 	rep := diff.Compare(spot, rec)
-	if got := rep.Counted(); got != 2 {
-		t.Fatalf("the status and the total changed; the two steps never reached are not changes, counted %d:\n%s", got, rep.Text())
+	if got := rep.Counted(); got != 1 {
+		t.Fatalf("the total changed and failed the step, whose status is shown on the first failing step line; the two steps never reached are not changes, counted %d:\n%s", got, rep.Text())
 	}
 	text := rep.Text()
-	if !strings.Contains(text, "2 change(s) vs safe spot") || strings.Contains(text, "4 change(s)") {
+	if !strings.Contains(text, "1 change(s) vs safe spot") || strings.Contains(text, "4 change(s)") {
 		t.Fatalf("the header counts only the changes:\n%s", text)
 	}
 	if !strings.Contains(text, "[fetch..list] not_reached 2 step(s)") || !strings.Contains(text, "2 step(s) not reached") {

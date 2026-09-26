@@ -208,15 +208,32 @@ func (r *Report) NotReachedCount() int {
 }
 
 func (r *Report) Counted() int {
-	if n := len(r.Changes) - r.NotReachedCount(); n > 0 {
+	changedAt := r.valueChangedSteps()
+	n := 0
+	for _, c := range r.Changes {
+		if c.Kind != KindNotReached && !(c.Kind == KindStatus && changedAt[c.Step]) {
+			n++
+		}
+	}
+	if n > 0 {
 		return n
 	}
 	return len(r.Changes)
 }
 
+func (r *Report) valueChangedSteps() map[string]bool {
+	changedAt := map[string]bool{}
+	for _, c := range r.Changes {
+		if c.Kind != KindStatus && c.Kind != KindNotReached {
+			changedAt[c.Step] = true
+		}
+	}
+	return changedAt
+}
+
 func (r *Report) uncountedNote() string {
 	n := r.NotReachedCount()
-	if n == 0 || r.Counted() == len(r.Changes) {
+	if n == 0 || n == len(r.Changes) {
 		return ""
 	}
 	return fmt.Sprintf("; %d step(s) not reached are listed below and not counted: a step the run never sent is not a change", n)
@@ -1424,12 +1441,7 @@ func (r *Report) Text() string {
 	for _, fr := range renames {
 		renamedAt[fr.missing], renamedTo[fr.unexpected] = fr, true
 	}
-	changedAt := map[string]bool{}
-	for _, c := range r.Changes {
-		if c.Kind != KindStatus && c.Kind != KindNotReached {
-			changedAt[c.Step] = true
-		}
-	}
+	changedAt := r.valueChangedSteps()
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
 		if c.Kind == KindStatus && changedAt[c.Step] {
