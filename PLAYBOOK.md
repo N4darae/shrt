@@ -441,12 +441,14 @@ step returns something else than in the last run that failed as pinned, or the d
 **One real defect in a long chain: keep it red in a slice, confirm the rest:**
 
 ```bash
-shrt chain pin billing               # the failing steps kept red in a verified slice, billing without them
+shrt chain pin billing               # each defect kept red in its own verified slice, billing without them
 shrt run billing                     # green: propose and approve it
 ```
 
 `chain pin` runs the chain with `-keep-going` first when its latest run did not reach every step,
-and refuses when the slice does not reproduce or a FINDING or intermittent failure explains the red.
+slices the first failing step (with the failing steps that read it or fail the same call the same
+way), rewrites the chain without them and runs it again, until it passes. It stops when a slice does
+not reproduce or a FINDING or intermittent failure explains the red.
 By hand: `chain slice <c> -step <id> -kept-red=<id,...> -verify -write`, then `chain slice <c>
 -without failed -write .shrt/chains/<c>.yaml`. Remove the red slice and plan again once the defect
 is fixed.
@@ -519,7 +521,7 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `intermittent: reproduced k/N` (4): the backend is flaky there; keeping more steps will not
      help.
    Until a verdict, a slice is a hypothesis, and says so. `-run latest` is the newest run (a
-   `shrt run` over an equally far verify replay); it refuses (3) if that run left the target unevaluated.
+   `shrt run` over an equally far verify replay, unless only the replay failed the step); it refuses (3) if that run left the target unevaluated.
 5. **`-mode pin -run <id>`** drops producers whose only contribution was a value and pins their
    values into `vars:`. It does not re-send writes the source run performed, so a match is
    INCONCLUSIVE; `-verify` refuses a kept write on the run's own entities unless `-resend-writes`.

@@ -109,6 +109,44 @@ func TestSliceKeptRedWithVerifyPinsOnlyAReproducedSlice(t *testing.T) {
 	}
 }
 
+func TestSliceKeptRedWithVerifyPinsWhatTheSliceRunGot(t *testing.T) {
+	twoDefectWorkspace(t, "name", "gadget")
+	e, err := loadEnv(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := e.store.LatestRun("cli-two-defects")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := rec.Step("fetch_again")
+	for i := range st.Expect {
+		st.Expect[i].Got = "only-in-the-source-run"
+	}
+	if _, err := e.store.SaveRun(rec); err != nil {
+		t.Fatal(err)
+	}
+	out, err := twoDefectSlice(t, "-step", "fetch", "-kept-red=fetch_again", "-verify", "-run", rec.RunID, "-var", "tag=T13", "-write", ".shrt/chains/two-defects-replayed.yaml")
+	if err != nil {
+		t.Fatalf("slice -kept-red -verify: %v\n%s", err, out)
+	}
+	c, err := chain.LoadFile(".shrt/chains/two-defects-replayed.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range c.KeptRed {
+		if k.Got != nil && strings.Contains(*k.Got, "only-in-the-source-run") {
+			t.Fatalf("kept_red pins what the slice run got, not the source run: %+v", c.KeptRed)
+		}
+	}
+	if len(c.KeptRed) != 2 || strings.Contains(out, "failed in run "+rec.RunID) {
+		t.Fatalf("both steps pinned, and the kept_red line names the slice run the pins come from: %+v\n%s", c.KeptRed, out)
+	}
+	if err := runRun(context.Background(), []string{"two-defects-replayed", "-quiet", "-var", "tag=T14"}); err != nil {
+		t.Fatalf("the slice fails exactly as pinned: %v", err)
+	}
+}
+
 func TestSliceKeptRedRefusesAStepThatDidNotFail(t *testing.T) {
 	oneDefectWorkspace(t)
 	if out, err := oneDefectSlice(t, "-step", "other", "-kept-red"); err == nil || !strings.Contains(err.Error(), "nothing to pin") {

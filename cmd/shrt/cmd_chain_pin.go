@@ -14,14 +14,14 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-const pinUsage = "usage: shrt chain pin <chain>   keep a red chain's failing steps red in their own slice and leave them out of the chain;\n" +
-	"       it re-runs the chain with -keep-going first when its newest run did not reach every step"
+const pinUsage = "usage: shrt chain pin <chain>   keep each defect of a red chain red in a slice of its own and leave it out of the chain,\n" +
+	"       re-running the chain with -keep-going first when its newest run did not reach every step and after each rewrite until it passes"
 
 func chainPin(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("chain pin", flag.ContinueOnError)
-	setUsage(fs, pinUsage, "\nexit codes:\n  0  pinned: the slice reproduced the failure and is written kept red, the chain rewritten without it\n"+
-		"  1  refused: nothing failed, kept_red already declared, a FINDING or intermittent failure explains the red,\n"+
-		"     or the slice did not reproduce the failure\n")
+	setUsage(fs, pinUsage, "\nexit codes:\n  0  pinned: each slice reproduced its failure and is written kept red, the rewritten chain passed\n"+
+		"  1  refused or stopped: nothing failed, kept_red already declared, a FINDING or intermittent failure explains the red,\n"+
+		"     or a slice did not reproduce the failure\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -44,6 +44,26 @@ func chainPin(ctx context.Context, args []string) error {
 	if c.SourcePath == "" {
 		return fmt.Errorf("%s has no source file to rewrite", c.Name)
 	}
+	written := []string{}
+	for round := 0; round <= len(c.Steps); round++ {
+		if round > 0 {
+			if c, err = e.resolveChain(rest[0]); err != nil {
+				return err
+			}
+		}
+		done, err := pinRound(ctx, e, c, ref, round)
+		if err != nil && len(written) > 0 {
+			return fmt.Errorf("%s is still red after pinning %s: %v", c.Name, strings.Join(written, ", "), err)
+		}
+		if err != nil || done == "" {
+			return err
+		}
+		written = append(written, done)
+	}
+	return fmt.Errorf("%s is still red after pinning %s", c.Name, strings.Join(written, ", "))
+}
+
+func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, error) {
 	rec, _ := newestRecordReaching(e, c.Name, "", "", false)
 	if rec == nil || rec.ChainDigest != c.Digest() || !ranEveryStep(c, rec) {
 		out, runErr := quietly(func() error { return runRun(ctx, []string{ref, "-keep-going", "-quiet"}) })
@@ -53,29 +73,33 @@ func chainPin(ctx context.Context, args []string) error {
 			if runErr == nil {
 				runErr = fmt.Errorf("the -keep-going run of %s left no record", c.Name)
 			}
-			return runErr
+			return "", runErr
 		}
 		rec = next
 		fmt.Printf("ran %s -keep-going: run %s, %s\n", ref, rec.RunID, rec.Status)
 	}
 	if rec.Passed() {
-		fmt.Printf("nothing to pin: run %s of %s passed\n", rec.RunID, c.Name)
-		return nil
+		if round == 0 {
+			fmt.Printf("nothing to pin: run %s of %s passed\n", rec.RunID, c.Name)
+		}
+		return "", nil
 	}
 	if why := pinBlocker(e, c, rec); why != "" {
-		return fmt.Errorf("not pinned: run %s of %s is explained by what shrt run reports, not a defect to keep red: %s", rec.RunID, c.Name, why)
+		return "", fmt.Errorf("not pinned: run %s of %s is explained by what shrt run reports, not a defect to keep red: %s", rec.RunID, c.Name, why)
 	}
-	steps := expectationFailures(rec)
-	if len(steps) == 0 {
-		return fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
+	failing := expectationFailures(rec)
+	if len(failing) == 0 {
+		return "", fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
 	}
-	if other := slicesWithout(failedSteps(rec), steps); len(other) > 0 {
-		return fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
+	if other := slicesWithout(failedSteps(rec), failing); len(other) > 0 {
+		return "", fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
 			strings.Join(other, ", "), rec.RunID, ref)
 	}
+	steps := pinGroup(c, rec, failing)
 	slicePath := filepath.Join(sliceDir(e, c), chain.DefaultSliceName(c.Name, steps[0])+".yaml")
 	keep, sliceOut := "", ""
 	var pinned *chain.Chain
+	var err error
 	for attempt := 1; ; attempt++ {
 		before, _ := os.ReadFile(slicePath)
 		args := []string{ref, "-step", steps[0], "-kept-red=" + strings.Join(steps, ","), "-verify", "-write", "-run", rec.RunID}
@@ -101,23 +125,51 @@ func chainPin(ctx context.Context, args []string) error {
 	}
 	if pinned == nil {
 		fmt.Print(sliceOut)
-		return fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
+		return "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
 	}
 	withoutOut, err := quietly(func() error {
 		return sliceWithout(ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, false)
 	})
 	if err != nil {
 		fmt.Print(withoutOut)
-		return fmt.Errorf("%s is written kept red, but %s was not rewritten without %s: %v", shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
+		return "", fmt.Errorf("%s is written kept red, but %s was not rewritten without %s: %v", shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
 	}
 	fmt.Printf("wrote %s: kept red on %s\n", shownPath(slicePath), pinList(pinned, pinned.KeptRed))
-	fmt.Printf("wrote %s: the pinned step(s) left out\n", shownPath(c.SourcePath))
+	fmt.Printf("wrote %s: %s left out\n", shownPath(c.SourcePath), strings.Join(steps, ", "))
 	for _, line := range strings.Split(sliceOut, "\n") {
 		if strings.HasPrefix(line, "verify ") {
 			fmt.Println(line)
 		}
 	}
-	return nil
+	return shownPath(slicePath), nil
+}
+
+func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {
+	steps := []string{failing[0]}
+	readers := map[string]bool{}
+	if w, err := chain.Without(c, steps, ""); err == nil {
+		for _, r := range w.Removed {
+			readers[r.ID] = true
+		}
+	}
+	same := failureShape(rec, failing[0])
+	for _, id := range failing[1:] {
+		if readers[id] || failureShape(rec, id) == same {
+			steps = append(steps, id)
+		}
+	}
+	return steps
+}
+
+func failureShape(rec *runner.Record, id string) string {
+	st, _ := rec.Step(id)
+	paths := []string{st.Call}
+	for _, x := range st.Expect {
+		if !x.Passed && x.Rule != "unevaluated" {
+			paths = append(paths, x.Path)
+		}
+	}
+	return strings.Join(paths, "\x00")
 }
 
 func suggestedKeep(out string) string {
