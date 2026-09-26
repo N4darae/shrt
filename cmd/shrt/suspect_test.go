@@ -107,8 +107,7 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 		{"one read answers a field its write returned otherwise and no other read settles it", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
-		}, "get", "product.sku", "", "create",
-			`CreateProduct answered product.sku SKU-A, GetProduct reads sku-a: the write stored something else or the read changes it`},
+		}, "get", "product.sku", "", "create", "create answered product.sku=SKU-A, get reads sku-a"},
 		{"two read rpcs agree against what the write answered", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
@@ -173,17 +172,25 @@ func TestTheGateFilesAWriteTheReadsAgreeAgainstUnderTheWriteWithTheReason(t *tes
 	}
 }
 
-func TestAReadChangingAfterTwoDifferentWritesIsSuspectedItself(t *testing.T) {
-	item := func(chainName, write string) *gateChain {
-		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w"}}}
+func TestAReadContradictingTwoDifferentWritesIsSuspectedItself(t *testing.T) {
+	item := func(chainName, write, why string) *gateChain {
+		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w", Why: why}}}
 	}
-	out := captureStdout(t, func() { printGateGroups([]*gateChain{item("one", "Move"), item("two", "Fill")}) })
-	if !strings.Contains(out, "suspect the read: Get changes thing.state after 2 different writes (Move, Fill)") {
-		t.Errorf("two different writes before the same change of one read point at the read:\n%s", out)
+	out := captureStdout(t, func() {
+		printGateGroups([]*gateChain{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Fill", "w answered thing.state=a, get reads b")})
+	})
+	if !strings.Contains(out, "suspect the read: Get reads thing.state unlike what 2 different writes answered (Move, Fill)") {
+		t.Errorf("a read disagreeing with what two different writes answered is the suspect:\n%s", out)
 	}
-	out = captureStdout(t, func() { printGateGroups([]*gateChain{item("one", "Move"), item("two", "Move")}) })
-	if strings.Contains(out, "suspect the read") || !strings.Contains(out, "S/Move: passed itself") {
-		t.Errorf("one write before every change stays the suspect:\n%s", out)
+	for _, chains := range [][]*gateChain{
+		{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Move", "w answered thing.state=a, get reads b")},
+		{item("one", "Move", ""), item("two", "Fill", "")},
+		{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Fill", "")},
+	} {
+		out = captureStdout(t, func() { printGateGroups(chains) })
+		if strings.Contains(out, "suspect the read") || !strings.Contains(out, "  S/Move: ") {
+			t.Errorf("each chain's own lineage keeps its write the suspect:\n%s", out)
+		}
 	}
 }
 
@@ -331,7 +338,8 @@ func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testin
 func TestTheGateSuspectLineAgreesWithTheSummary(t *testing.T) {
 	g := func(name, write string) *gateChain {
 		return &gateChain{name: name, failed: true, firstAt: "get thing.state", sent: map[string]string{"get": " sent {}", "w": " sent {\"w\":1}"},
-			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w"}}}
+			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w",
+				Why: "w answered thing.state=a, get reads b"}}}
 	}
 	chains := []*gateChain{g("one", "Move"), g("two", "Fill")}
 	settleGate(chains)
@@ -340,7 +348,7 @@ func TestTheGateSuspectLineAgreesWithTheSummary(t *testing.T) {
 	}
 	chains = []*gateChain{g("one", "Move"), g("two", "Move")}
 	settleGate(chains)
-	if line := chains[0].suspectLine(); line != "suspect write w (S/Move) sent {\"w\":1}" {
+	if line := chains[0].suspectLine(); line != "suspect write w (S/Move) sent {\"w\":1}; w answered thing.state=a, get reads b" {
 		t.Errorf("got %q", line)
 	}
 }
@@ -404,14 +412,14 @@ func TestChangesAfterAWriteThatFailedAtTheTransportAreFiledUnderIt(t *testing.T)
 			Suspect: "shop.catalog.v1.StockService/AddStock", SuspectStep: "add", Cascade: "after AddStock failed on the same record"}
 	}
 	chains := []*gateChain{
-		{name: "one", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopCancel, SuspectStep: "cancel"}}},
-		{name: "two", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopConfirm, SuspectStep: "confirm"}}},
+		{name: "one", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopCancel, SuspectStep: "cancel", Why: "cancel answered 5"}}},
+		{name: "two", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopConfirm, SuspectStep: "confirm", Why: "confirm answered 5"}}},
 	}
 	out := captureStdout(t, func() { printGateGroups(chains) })
 	if !strings.Contains(out, "    +2 step(s) in 2 chain(s) after AddStock failed on the same record\n") {
 		t.Errorf("the steps after the failed write fold into one line under it:\n%s", out)
 	}
-	if !strings.Contains(out, "suspect the read: GetProduct changes product.qty_on_hand after 2 different writes (CancelOrder, ConfirmOrder)") {
+	if !strings.Contains(out, "suspect the read: GetProduct reads product.qty_on_hand unlike what 2 different writes answered (CancelOrder, ConfirmOrder)") {
 		t.Errorf("the steps after the failed write do not count as writes the read changes after:\n%s", out)
 	}
 }
@@ -430,5 +438,30 @@ func TestAWriteFailingOnAnotherRecordIsNotBlamedOnAnEarlierWriteOfTheSameRpc(t *
 	}
 	if write, _, _ := blameOf(t, rec, "add_more_to_a", "qty_on_hand"); write != "add_zero" {
 		t.Errorf("a write on the same record still echoes the earlier write; got %q", write)
+	}
+}
+
+func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	order := `{"order":{"id_order":"o1"},` + shopOK + `}`
+	create := shopStep("create_order", shopOrder, order, "create_product")
+	replay := shopStep("replay_order", shopOrder, order, "create_product")
+	replay.BodyRefs["idempotency_key"] = "${steps.create_order.request.idempotency_key}"
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1"},`+shopOK+`}`),
+		create,
+		shopStep("confirm_order", shopConfirm, order, "create_order"),
+		replay,
+		shopStep("confirm_again", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1303}]}}`, "create_order"),
+		shopStep("get_product", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"14"},`+shopOK+`}`, "create_product").failing("product.qty_on_hand", "15", "14"),
+	)
+	if write, own, _ := blameOf(t, rec, "get_product", "product.qty_on_hand"); write != "confirm_order" || own != "" {
+		t.Errorf("got write %q own %q, want confirm_order", write, own)
+	}
+	rec.Steps[2] = shopStep("confirm_order", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1305}]}}`, "create_order").StepRecord
+	rec.Steps = append(rec.Steps[:4], rec.Steps[5])
+	if write, _, _ := blameOf(t, rec, "get_product", "product.qty_on_hand"); write != "confirm_order" {
+		t.Errorf("a first refused write is still the one the read observes, got %q", write)
 	}
 }

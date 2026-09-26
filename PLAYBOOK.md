@@ -396,12 +396,13 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 **How the gate names a suspect.** The read itself is the suspect when it fails with a server
 error, when it is refused or its list holds another set of items while no write before it was
 refused, when only the order of a list changed, when the write it observes returned the same field
-of the same record unchanged, or when the same change follows two different writes. When two or
-more other reads agree against what a write answered, the write is the suspect. A change belongs to
-an earlier step when it is that step's answer for the same field of the same record, or a number
-that recomputes from values earlier steps changed (a total over lines). Otherwise it is the write
+of the same record unchanged, or when it contradicts what two different writes answered. A write
+whose answer a read of the same record contradicts is the suspect, with both values shown. A
+change belongs to an earlier step when it is that step's answer for the same field of the same
+record, or a number that recomputes from values earlier steps changed (a total over lines). Otherwise it is the write
 the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
-record); steps left unevaluated behind a failed step fold under it.
+record, skipping a refused repeat or idempotent replay of an earlier write); steps left unevaluated
+behind a failed step fold under it.
 
 ## 9. Refactor and test against a safe spot
 

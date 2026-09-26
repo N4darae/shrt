@@ -1148,6 +1148,9 @@ func (g *gateChain) suspectLine() string {
 	if g.sent[step] == "" {
 		return ""
 	}
+	if it.SuspectStep != "" && it.Own == "" {
+		return lead + g.sent[step] + whyText(it.Why)
+	}
 	return lead + g.sent[step]
 }
 
@@ -1264,12 +1267,18 @@ func (gr *gateGroup) addPath(list *[]string, p string) {
 }
 
 func settleGate(chains []*gateChain) {
-	readAfter := map[string][]string{}
+	readAfter, contradicted := map[string][]string{}, map[string][]string{}
 	for _, g := range chains {
 		for _, it := range g.items {
-			if key := methodName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1"); it.Suspect != "" && !it.KnockOn && it.Own == "" &&
-				it.Cascade == "" && it.Pinned == "" && chain.IsReadOnlyCall(it.Call) && !containsName(readAfter[key], methodName(it.Suspect)) {
+			key := methodName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1")
+			if it.Suspect == "" || it.KnockOn || it.Own != "" || it.Cascade != "" || it.Pinned != "" || !chain.IsReadOnlyCall(it.Call) {
+				continue
+			}
+			if !containsName(readAfter[key], methodName(it.Suspect)) {
 				readAfter[key] = append(readAfter[key], methodName(it.Suspect))
+			}
+			if it.contradicted() && !containsName(contradicted[key], methodName(it.Suspect)) {
+				contradicted[key] = append(contradicted[key], methodName(it.Suspect))
 			}
 		}
 	}
@@ -1280,12 +1289,16 @@ func settleGate(chains []*gateChain) {
 			if it.Pinned != "" && it.Suspect != "" && it.Own == "" && it.Cascade == "" && len(writes) > 0 && !containsName(writes, methodName(it.Suspect)) {
 				g.items[i].or = capList(writes, 2)
 			}
-			if len(writes) > 1 && it.Suspect != "" && !it.KnockOn && it.Own == "" && it.Cascade == "" && !it.Firm && it.Pinned == "" {
-				g.items[i].Own = fmt.Sprintf("%s changes %s after %d different writes (%s)", methodName(it.Call), path, len(writes), capList(writes, 3))
+			if writes := contradicted[methodName(it.Call)+" "+path]; len(writes) > 1 && it.contradicted() && !it.KnockOn && it.Own == "" && it.Cascade == "" && it.Pinned == "" {
+				g.items[i].Own = fmt.Sprintf("%s reads %s unlike what %d different writes answered (%s)", methodName(it.Call), path, len(writes), capList(writes, 3))
 				g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why = "", "", ""
 			}
 		}
 	}
+}
+
+func (it gateItem) contradicted() bool {
+	return it.Suspect != "" && it.Why != "" && !it.Firm
 }
 
 func printGateGroups(chains []*gateChain) {

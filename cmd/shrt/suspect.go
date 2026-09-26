@@ -77,7 +77,7 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 		return -1, false
 	}
 	if _, w, ok := strings.Cut(rec.Steps[at].ID, "_after_"); ok {
-		if j, ok := pos[w]; ok && j < at && isWrite(rec.Steps[j]) {
+		if j, ok := pos[w]; ok && j < at && isWrite(rec.Steps[j]) && !inert(rec, j, bad) {
 			return j, false
 		}
 	}
@@ -86,7 +86,7 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	nearest, nearestBad := -1, -1
 	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
 		w := rec.Steps[i]
-		if !isWrite(w) {
+		if !isWrite(w) || inert(rec, i, bad) {
 			continue
 		}
 		match := entities[w.ID]
@@ -115,6 +115,63 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 		}
 	}
 	return -1, false
+}
+
+func inert(rec *runner.Record, i int, bad map[string]bool) bool {
+	w := rec.Steps[i]
+	if bad[w.ID] {
+		return false
+	}
+	if refusalOf(w) != "" {
+		refs := stepRefs(rec, i)
+		for j, o := range rec.Steps[:i] {
+			if o == nil || o.Call != w.Call || refusalOf(o) != "" {
+				continue
+			}
+			for ref := range stepRefs(rec, j) {
+				if refs[ref] {
+					return true
+				}
+			}
+		}
+	}
+	for _, ref := range w.BodyRefs {
+		m := bodyRefExpr.FindStringSubmatch(ref)
+		if m == nil || !wholeRef.MatchString(strings.TrimSpace(ref)) {
+			continue
+		}
+		r := chain.ParseRef(m[1])
+		if r.Kind != chain.RefStep || !strings.HasPrefix(r.Rest, "request.") {
+			continue
+		}
+		for _, o := range rec.Steps[:i] {
+			if o != nil && o.ID == r.Head && o.Call == w.Call && sameIDs(o.Response, w.Response) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sameIDs(a, b json.RawMessage) bool {
+	var x, y map[string]any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	found := false
+	for k, v := range x {
+		ids, other := idsOf(v), idsOf(y[k])
+		sort.Strings(ids)
+		sort.Strings(other)
+		if len(ids) == 0 {
+			continue
+		}
+		if strings.Join(ids, " ") != strings.Join(other, " ") {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool {
@@ -795,8 +852,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
 			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
 	}
-	return blame{write: wi, why: fmt.Sprintf("%s answered %s %s, %s reads %s: the write stored something else or the read changes it",
-		methodName(w.Call), shown, capText(wv, 60), agree[0], capText(compactValue(rv), 60))}, true
+	return blame{write: wi, why: fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, shown, capText(wv, 60), r.ID, capText(compactValue(rv), 60))}, true
 }
 
 func carrierOf(m *catalog.Method, path string) (string, bool) {
@@ -907,9 +963,16 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 		lead = fmt.Sprintf("suspect write %s (%s)", st.ID, shortRPC(st.Call))
 	}
 	if sent := sentText(st); sent != "" {
-		return lead + sent
+		return lead + sent + whyText(b.why)
 	}
 	return ""
+}
+
+func whyText(why string) string {
+	if why == "" {
+		return ""
+	}
+	return "; " + why
 }
 
 func sentText(st *runner.StepRecord) string {
