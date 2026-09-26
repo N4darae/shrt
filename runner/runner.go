@@ -1293,7 +1293,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
 	sr.BodyRefs = BodyRefs(step.Body)
@@ -1305,7 +1305,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	learnSentHeaderSecrets(redactor, step.Headers, resolvedHeaders)
 	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
@@ -2194,6 +2194,14 @@ func seededNote(profile string) string {
 		return "seeded the shared auth token, later steps reuse it instead of logging in again"
 	}
 	return "seeded the " + profile + " auth token, later steps with auth: " + profile + " reuse it instead of logging in again"
+}
+
+func failRef(sr *StepRecord, err error) *StepRecord {
+	fail(sr, err)
+	if missing := (*chain.MissingPathError)(nil); errors.As(err, &missing) {
+		sr.Status = StatusFailed
+	}
+	return sr
 }
 
 func fail(sr *StepRecord, err error) *StepRecord {
