@@ -200,5 +200,9 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 	if err != nil {
 		return nil, nil, fmt.Errorf("render chain %s: %w", name, err)
 	}
-	return raw, p.Notes, nil
+	steps := map[string]bool{}
+	for _, st := range p.Chain.Steps {
+		steps[st.ID] = true
+	}
+	return raw, groupStepNotes(p.Notes, steps), nil
 }
