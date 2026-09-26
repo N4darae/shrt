@@ -27,3 +27,24 @@ func TestAReferenceWithArithmeticIsToldReferencesDoNone(t *testing.T) {
 	}
 	t.Fatal("the arithmetic reference was not reported")
 }
+
+func TestAVarWithArithmeticLintsAsRunRefusesIt(t *testing.T) {
+	c := &chain.Chain{Name: "arith", Vars: map[string]any{"stock": "3"}, Steps: []*chain.Step{
+		{ID: "create", Call: "ThingService/Create", Body: map[string]any{"name": "${vars.stock+5}"}},
+	}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, i := range chain.Lint(c, catalogtest.New()) {
+		if strings.Contains(i.Message, "stock+5") {
+			if i.Message != "${vars.stock+5} "+chain.NoArithmetic || i.Severity != chain.SeverityError {
+				t.Fatalf("want the no-arithmetic error, got %s %s", i.Severity, i.Message)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the arithmetic var was not reported")
+	}
+}
