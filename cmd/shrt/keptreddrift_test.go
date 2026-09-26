@@ -54,8 +54,8 @@ steps:
 		if err == nil || !strings.Contains(out, "FAILED, NOT AS PINNED") || !strings.Contains(out, "fetch changed total a=5 b=7") {
 			t.Fatalf("run %d: the pinned expectation still fails the same way, but the pinned step returns another total: %v\n%s", i+1, err, out)
 		}
-		if !strings.Contains(out, "re-pin") {
-			t.Fatalf("the note says how to accept the change:\n%s", out)
+		if !strings.Contains(out, "the pins held, so this is a new change outside them, not a reason to re-pin") || strings.Contains(out, "-force") {
+			t.Fatalf("the note says the pins held and does not suggest re-pinning the change:\n%s", out)
 		}
 		if strings.Contains(out, "NEW FAILURE") || !strings.Contains(err.Error(), "a pinned step now returns something else: fetch changed total a=5 b=7") {
 			t.Fatalf("a pinned step whose pins still fail as pinned is not a new failure outside the pinned defect: %v\n%s", err, out)

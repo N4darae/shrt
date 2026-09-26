@@ -136,7 +136,7 @@ func writeGateSidecar(side gateSidecar) {
 	}
 }
 
-func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
+func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change) gateSidecar {
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
@@ -167,6 +167,12 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record) gateSidecar {
 		if !found && st.Error != "" && !pinnedStep(c, st.ID) {
 			why, _, _ := strings.Cut(st.Error, "\n")
 			side.Items = append(side.Items, a.item(gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)}))
+		}
+	}
+	for _, ch := range drift {
+		if st, ok := rec.Step(ch.Step); ok && st != nil {
+			want, got := gatePair(ch.Want, ch.Got)
+			side.Items = append(side.Items, a.item(gateItem{Step: ch.Step, Call: st.Call, Path: ch.Path, Want: want, Got: got}))
 		}
 	}
 	side.Sent = firstSent(rec, side.Items)
@@ -1431,6 +1437,13 @@ func leafOf(path string) string {
 	return path
 }
 
+func baseOf(it gateItem) string {
+	if it.Suspect != "" && it.Own == "" {
+		return shortRPC(it.Suspect)
+	}
+	return shortRPC(it.Call)
+}
+
 func headlineGate(chains []*gateChain) {
 	label := map[string]string{}
 	for _, g := range chains {
@@ -1447,7 +1460,10 @@ func headlineGate(chains []*gateChain) {
 		}
 		return methodName(r)
 	}
-	reported := map[string]bool{}
+	reported, rpc := map[string]bool{}, map[string]bool{}
+	report := func(it gateItem) {
+		reported[rootOf(it)], rpc[baseOf(it)] = true, true
+	}
 	for _, g := range chains {
 		if !g.failed || len(g.items) == 0 {
 			continue
@@ -1457,7 +1473,10 @@ func headlineGate(chains []*gateChain) {
 		for i, it := range g.items {
 			r := rootOf(it)
 			switch {
-			case reported[r]:
+			case reported[r] || g.pinsHeld && rpc[baseOf(it)]:
+				if !reported[r] {
+					r = baseOf(it)
+				}
 				steps[it.Step] = true
 				if !containsName(from, name(r)) {
 					from = append(from, name(r))
@@ -1488,14 +1507,18 @@ func headlineGate(chains []*gateChain) {
 			case reported[r]:
 				text, g.reported = text+", reported above", true
 			default:
-				g.firstAt, reported[r] = pin.Step+" "+pin.Path, true
+				g.firstAt = pin.Step + " " + pin.Path
+				report(*pin)
 			}
 			g.class, g.first = "not as pinned", text
 			continue
 		}
+		if head != nil && g.pinsHeld {
+			g.class, g.first, g.firstAt = "pins held, new change", fmt.Sprintf("%s (%s) %s", head.Step, shortRPC(head.Call), head.headline()), head.Step+" "+head.Path
+		}
 		if len(from) == 0 {
 			if it, ok := g.firstItem(); ok {
-				reported[rootOf(it)] = true
+				report(it)
 			}
 			continue
 		}
@@ -1508,10 +1531,10 @@ func headlineGate(chains []*gateChain) {
 		default:
 			g.first = fmt.Sprintf("%s (%s) %s (+%s)", head.Step, shortRPC(head.Call), head.headline(), ref)
 			g.firstAt = head.Step + " " + head.Path
-			if head.Class != "" && g.class != "not as pinned" {
+			if head.Class != "" && g.class != "not as pinned" && !g.pinsHeld {
 				g.class = head.Class
 			}
-			reported[rootOf(*head)] = true
+			report(*head)
 		}
 	}
 }

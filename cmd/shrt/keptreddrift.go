@@ -35,17 +35,18 @@ func pinnedReference(e *env, c *chain.Chain, rec *runner.Record) *runner.Record 
 	return nil
 }
 
-func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) []string {
+func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) ([]string, []diff.Change) {
 	pinned := map[string]bool{}
 	for _, k := range c.KeptRed {
 		pinned[k.Step] = true
 	}
 	rep := diff.CompareRunsSkipping(ref, rec, currentVolatile(e, rec.Chain), requestFixtures(c))
 	rep.DropUnsentDefaults(ref, rec, unsentDefault(e))
-	out := []string{}
+	out, changes := []string{}, []diff.Change{}
 	for _, ch := range rep.Changes {
 		if pinned[ch.Step] {
 			out = append(out, fmt.Sprintf("%s %s %s %s", ch.Step, ch.Kind, ch.Path, ch.DescribeRuns()))
+			changes = append(changes, ch)
 		}
 	}
 	for _, id := range rep.NoLongerReached {
@@ -53,22 +54,22 @@ func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) []string {
 			out = append(out, id+" was answered in run "+ref.RunID+" and not in this run")
 		}
 	}
-	return out
+	return out, changes
 }
 
-func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Record) {
+func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Record) []diff.Change {
 	if rec.KeptRed != runner.KeptRedAsPinned {
-		return
+		return nil
 	}
 	if ref == nil {
 		rec.KeptRedNote += "; no earlier run of this chain file failed as pinned against this target, so what the pinned steps " +
 			"return beyond the pinned paths was not compared: this run is the reference for the next one"
-		return
+		return nil
 	}
-	drift := pinnedStepDrift(e, c, ref, rec)
+	drift, changes := pinnedStepDrift(e, c, ref, rec)
 	if len(drift) == 0 {
 		rec.KeptRedNote += "; the pinned steps return what they returned in run " + ref.RunID + ", the last run that failed as pinned"
-		return
+		return nil
 	}
 	shown := drift
 	if len(shown) > 5 {
@@ -77,8 +78,9 @@ func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Re
 	rec.KeptRed = runner.KeptRedNotAsPinned
 	rec.KeptRedNote = fmt.Sprintf("kept_red pins %s and every pin failed as pinned, but the pinned steps now return something else "+
 		"than in run %s, the last run that failed as pinned (a = that run, b = this one):\n%s\n"+
-		"compare: shrt diff %s %s %s; if intended, re-pin: shrt chain slice <source chain> -step <pinned step> -kept-red -write %s -force",
-		runner.PinCount(len(c.KeptRed)), ref.RunID, strings.Join(shown, "\n"), rec.Chain, ref.RunID, rec.RunID, rec.Chain)
+		"compare: shrt diff %s %s %s; the pins held, so this is a new change outside them, not a reason to re-pin",
+		runner.PinCount(len(c.KeptRed)), ref.RunID, strings.Join(shown, "\n"), rec.Chain, ref.RunID, rec.RunID)
+	return changes
 }
 
 func pinPathsOf(pins []chain.Pin) string {
