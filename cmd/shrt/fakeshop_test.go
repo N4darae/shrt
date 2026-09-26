@@ -17,6 +17,7 @@ type fakeShop struct {
 	mu sync.Mutex
 
 	cancelConfirmedBug bool
+	cancelWipesBug     bool
 	getProductFailN    int
 	getProductFailAt   map[int]bool
 	priceBug           bool
@@ -155,6 +156,10 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		o := s.orders[id]
 		if o == nil {
 			return 200, map[string]any{"status": rejected("OrderNotFound")}
+		}
+		if s.cancelWipesBug {
+			delete(s.orders, id)
+			return 200, map[string]any{"status": rejected("Wiped")}
 		}
 		if s.states[id] == "CONFIRMED" && s.cancelConfirmedBug {
 			return 200, map[string]any{"status": rejected("StillConfirmed"), "order": o}
