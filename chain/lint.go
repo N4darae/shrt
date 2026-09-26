@@ -559,6 +559,9 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	}, true
 }
 
+const NoArithmetic = "does arithmetic, and a reference does none (only a clock takes an offset: ${nowunix+3600}): " +
+	"work the value out and write it as a literal or a var"
+
 func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bool) {
 	if r.Kind != RefStep || r.Err != nil {
 		return "", false
@@ -586,6 +589,9 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 	fields := m.Response().Fields
 	if catalog.HasResponsePath(fields, SplitPath(rest)) {
 		return "", false
+	}
+	if strings.ContainsAny(rest, "+-*/ ") {
+		return NoArithmetic, true
 	}
 	return fmt.Sprintf("reads %q, which is not a field of %s — step %q cannot produce it, so the run would "+
 		"die resolving it after every earlier step had already hit the backend, and shrt run refuses the "+

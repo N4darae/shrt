@@ -2048,6 +2048,9 @@ func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
 	refs := make([]string, 0, len(missing))
 	flags := make([]string, 0, len(missing))
 	for _, name := range missing {
+		if strings.ContainsAny(name, "+*/ ") {
+			return fmt.Errorf("chain %q: ${vars.%s} %s", c.Name, name, chain.NoArithmetic)
+		}
 		refs = append(refs, "${vars."+name+"}")
 		flags = append(flags, "-var "+name+"=...")
 	}

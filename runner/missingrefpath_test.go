@@ -38,3 +38,19 @@ func TestAReferenceToAPathTheAnsweredStepLacksFailsTheReferencingStep(t *testing
 		t.Fatalf("use: %s %q, want failed naming %q", use.Status, use.Error, want)
 	}
 }
+
+func TestAVarReferenceWithArithmeticIsToldReferencesDoNone(t *testing.T) {
+	srv := newFakeServer()
+	defer srv.Close()
+
+	c := &chain.Chain{Name: "arith-var", Steps: []*chain.Step{
+		{ID: "create", Call: "ThingService/Create", Body: map[string]any{"name": "${vars.base + 3}", "kind": "KIND_A"}},
+	}}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{Vars: map[string]any{"base": 1}})
+	if err == nil || !strings.Contains(err.Error(), chain.NoArithmetic) || strings.Contains(err.Error(), "-var base + 3") {
+		t.Fatalf("want the no-arithmetic refusal, got %v", err)
+	}
+}
