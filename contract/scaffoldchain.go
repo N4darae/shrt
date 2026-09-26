@@ -31,7 +31,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	used := map[string]int{}
 	for i, m := range methods {
 		for rpc, ids := range producers {
-			p.stepOf[rpc] = ids[len(ids)-1]
+			p.stepOf[rpc] = leastUsed(ids, used)
 		}
 		step := p.buildStep(ids[i], "", m, lib)
 		p.rewireProducers(step, producers, rpcOf, used)
