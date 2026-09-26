@@ -7,6 +7,7 @@ import (
 	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
+	"gopkg.in/yaml.v3"
 )
 
 const stampedOverlay = `apiVersion: shrt/contract/v1
@@ -58,5 +59,38 @@ func TestPlanAssertsAReadStampEqualsTheOneItsCreatorReceived(t *testing.T) {
 	notes := strings.Join(p.Notes, "\n")
 	if strings.Contains(notes, "step get_item: item.created_at is asserted within") {
 		t.Fatalf("the read's note must not say it was stamped by this call: %s", notes)
+	}
+}
+
+func TestChainNewReadBackAssertsTheStampOfTheStepWhoseIDItReads(t *testing.T) {
+	path, ok := chain.EnvelopePath(), chain.EnvelopeOK()
+	contract.ApplyConventions(nil, "status.code", "SUCCESS")
+	t.Cleanup(func() { contract.ApplyConventions(nil, path, ok) })
+	create, get := "shrt.stamped.v1.ItemService/CreateItem", "shrt.stamped.v1.ItemService/GetItem"
+	raw, _, err := contract.ScaffoldChain("two", "", []string{create, create, get, get},
+		[]string{"create_item", "create_item_2", "get_item", "get_item_2"}, libraryFrom(t, stampedOverlay), catalogtest.Stamped())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c chain.Chain
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"get_item", "get_item_2"} {
+		st, _ := c.Step(id)
+		ref, _ := st.Body["id_item"].(string)
+		src := strings.TrimSuffix(strings.TrimPrefix(ref, "${"), ".item.id_item}")
+		found := false
+		for _, e := range st.Expect {
+			if e.Path == "item.created_at" {
+				found = true
+				if e.Equals != "${"+src+".item.created_at}" {
+					t.Fatalf("%s reads %s's id, so its created_at must equal %s's, not %v:\n%s", id, src, src, e.Equals, raw)
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("%s should assert item.created_at:\n%s", id, raw)
+		}
 	}
 }

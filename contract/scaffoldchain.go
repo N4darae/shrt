@@ -31,7 +31,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	used := map[string]int{}
 	for i, m := range methods {
 		for rpc, ids := range producers {
-			p.stepOf[rpc] = ids[len(ids)-1]
+			p.stepOf[rpc] = leastUsed(ids, used)
 		}
 		step := p.buildStep(ids[i], "", m, lib)
 		p.rewireProducers(step, producers, rpcOf, used)
@@ -200,5 +200,9 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 	if err != nil {
 		return nil, nil, fmt.Errorf("render chain %s: %w", name, err)
 	}
-	return raw, p.Notes, nil
+	steps := map[string]bool{}
+	for _, st := range p.Chain.Steps {
+		steps[st.ID] = true
+	}
+	return raw, groupStepNotes(p.Notes, steps), nil
 }

@@ -86,3 +86,13 @@ func TestACrossStepReferenceToAFieldTheDescriptorLacksIsAnError(t *testing.T) {
 			issues[0].Severity)
 	}
 }
+
+func TestADeadResponseReferenceSuggestsTheNearestField(t *testing.T) {
+	issues := crossStepIssues(t, map[string]any{"id": "${create.nmae}"}, nil)
+	if len(issues) != 1 || !strings.Contains(issues[0].Message, `(did you mean "name"?)`) {
+		t.Fatalf("a misspelt field should get a did-you-mean: %v", issues)
+	}
+	if strings.Contains(issues[0].Message, "would kill the run") || issues[0].Why == "" {
+		t.Fatalf("the refusal's reason belongs in Why, printed once, not in each message: %v", issues[0])
+	}
+}
