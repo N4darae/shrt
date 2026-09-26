@@ -381,6 +381,7 @@ func chainLint(args []string) error {
 	} else {
 		explained := map[string]bool{}
 		for _, r := range reports {
+			said := map[string]bool{}
 			if len(r.Issues) == 0 {
 				fmt.Printf("ok   %s\n", r.Chain)
 				continue
@@ -397,6 +398,11 @@ func chainLint(args []string) error {
 				if i.Step != "" {
 					where = " [" + i.Step + "]"
 				}
+				if i.Step != "" && said[i.Severity+" "+i.Message] {
+					fmt.Printf("%-5s %s %s, as above\n", strings.ToUpper(i.Severity), where, lintLead(i.Message))
+					continue
+				}
+				said[i.Severity+" "+i.Message] = true
 				fmt.Printf("%-5s %s %s\n", strings.ToUpper(i.Severity), where, i.Message)
 				if i.Why != "" && !explained[i.Why] {
 					explained[i.Why] = true
@@ -425,6 +431,15 @@ func chainLint(args []string) error {
 		}
 	}
 	return nil
+}
+
+func lintLead(msg string) string {
+	for _, sep := range []string{", ", "; ", ". ", ": "} {
+		if i := strings.Index(msg, sep); i > 0 {
+			msg = msg[:i]
+		}
+	}
+	return msg
 }
 
 func lintAuthBodies(cfg *config.Config) []chain.Issue {
