@@ -22,8 +22,8 @@ summary:
 order: CreateAccount -> CreateInvoice -> PayInvoice
 12 steps: 2 setup, 1 target, 4 token/role, 5 unknown id
 fill: create_account.name has no usable value: set fields.name.value in CreateAccount's contract
-gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if ...
-3 more note(s) on why each probe is there, and each gap in full: shrt contract plan PayInvoice -notes
+gap: step pay_invoice: PayInvoice says nothing of what it gives back from PAID (add effects: {balance: {restore: PAID}} if it does), so the other reads assert only that they answer
+3 more note(s) on why each probe is there: shrt contract plan PayInvoice -notes
 next: shrt contract plan PayInvoice -write
 ```
 
@@ -33,7 +33,7 @@ next: shrt contract plan PayInvoice -write
   `-write -force`; a chain lint ERRORs on each unfilled field.
 - **Every `gap:` line is something the plan could not plan or assert.** Say it in the contract and
   re-plan, or write that step by hand.
-- **`-notes` prints each gap in full, then one line per probe group** with its step count and
+- **`-notes` prints each gap, then one line per probe group** with its step count and
   why it is there; `-notes -v` prints every note in full and every step id, `-v` alone the ids.
 - **Compose a whole flow at once:** `shrt contract plan PayInvoice GetInvoice ListInvoices
   CancelInvoice@paid -write`. Each target may carry `@alias`; a node reached twice appears once.
