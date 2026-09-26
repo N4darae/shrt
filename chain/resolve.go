@@ -2,6 +2,7 @@ package chain
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -264,9 +265,48 @@ func (s *Scope) lookupStep(rest, expr string) (any, error) {
 	}
 	v, ok := lookup(root, tail)
 	if !ok {
-		return nil, fmt.Errorf("unresolved reference ${%s}: path %q missing in step %q", expr, tail, id)
+		if view.Synthetic {
+			return nil, fmt.Errorf("unresolved reference ${%s}: path %q missing in step %q", expr, tail, id)
+		}
+		return nil, &MissingPathError{Expr: expr, Step: id, Path: tail, Near: nearestPresent(root, tail)}
 	}
 	return v, nil
+}
+
+type MissingPathError struct {
+	Expr string
+	Step string
+	Path string
+	Near string
+}
+
+func (e *MissingPathError) Error() string {
+	msg := fmt.Sprintf("unresolved reference ${%s}: step %q answered without %s", e.Expr, e.Step, e.Path)
+	if e.Near != "" {
+		msg += " (" + e.Near + ")"
+	}
+	return msg
+}
+
+func nearestPresent(root any, path string) string {
+	segs := SplitPath(path)
+	for n := len(segs) - 1; n > 0; n-- {
+		prefix := strings.Join(segs[:n], ".")
+		v, ok := Get(root, prefix)
+		if !ok {
+			continue
+		}
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return ""
+		}
+		text := string(raw)
+		if len(text) > 80 {
+			text = text[:77] + "..."
+		}
+		return prefix + " is " + text
+	}
+	return ""
 }
 
 func (s *Scope) require(src map[string]any, path, expr string) (any, error) {

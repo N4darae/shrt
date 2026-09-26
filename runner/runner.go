@@ -1293,7 +1293,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
 	sr.BodyRefs = BodyRefs(step.Body)
@@ -1305,7 +1305,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	learnSentHeaderSecrets(redactor, step.Headers, resolvedHeaders)
 	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
@@ -1387,7 +1387,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Expect = evaluateRefused(scope, step.Expect, outcome, redactor)
 		for i, why := range opts.heldBack {
 			if i < len(sr.Expect) {
-				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Passed: false, Detail: why}
+				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Want: sr.Expect[i].Want, Got: sr.Expect[i].Got, Detail: why}
 			}
 		}
 		if refusalAsserted(step.Expect, sr.Expect) {
@@ -1519,7 +1519,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
 		}
 		if why, held := opts.heldBack[i]; held {
-			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
+			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Want: result.Want, Got: result.Got, Detail: why}
 		}
 		sr.Expect = append(sr.Expect, result)
 		if !result.Passed {
@@ -2048,6 +2048,9 @@ func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
 	refs := make([]string, 0, len(missing))
 	flags := make([]string, 0, len(missing))
 	for _, name := range missing {
+		if strings.ContainsAny(name, "+*/ ") {
+			return fmt.Errorf("chain %q: ${vars.%s} %s", c.Name, name, chain.NoArithmetic)
+		}
 		refs = append(refs, "${vars."+name+"}")
 		flags = append(flags, "-var "+name+"=...")
 	}
@@ -2194,6 +2197,14 @@ func seededNote(profile string) string {
 		return "seeded the shared auth token, later steps reuse it instead of logging in again"
 	}
 	return "seeded the " + profile + " auth token, later steps with auth: " + profile + " reuse it instead of logging in again"
+}
+
+func failRef(sr *StepRecord, err error) *StepRecord {
+	fail(sr, err)
+	if missing := (*chain.MissingPathError)(nil); errors.As(err, &missing) {
+		sr.Status = StatusFailed
+	}
+	return sr
 }
 
 func fail(sr *StepRecord, err error) *StepRecord {
