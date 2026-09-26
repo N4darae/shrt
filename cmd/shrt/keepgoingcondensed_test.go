@@ -61,7 +61,7 @@ func TestKeepGoingPrintsOnlyTheFailuresAGroupPerCauseAndAPassedCount(t *testing.
 	if err == nil {
 		t.Fatalf("create_bad fails, so the run fails:\n%s", out)
 	}
-	for _, want := range []string{"FAIL   2 create_bad", "3 step(s) unevaluated behind create_bad\n", "2 step(s) passed (-v prints every step)\n", "-keep-going: 4 of 6 steps did not pass (above)"} {
+	for _, want := range []string{"FAIL   2 create_bad", "3 step(s) unevaluated behind create_bad: fetch_compared answered id=", "2 step(s) passed (-v prints every step)\n", "-keep-going: 4 of 6 steps did not pass (above)"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("want %q in:\n%s", want, out)
 		}

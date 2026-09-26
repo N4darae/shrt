@@ -363,7 +363,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return nil, err
 	}
 	condensed := len(everyStep) > 0 && !everyStep[0]
-	passed, behind, behindOrder := 0, map[string]int{}, []string{}
+	passed, behind, behindOrder, answered := 0, map[string]int{}, []string{}, map[string][]string{}
 	if !quiet {
 		idWidth := longestStepID(c)
 		unreachableShown := false
@@ -386,6 +386,9 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 					behindOrder = append(behindOrder, src)
 				}
 				behind[src]++
+				if line := answeredHeld(sr); line != "" {
+					answered[src] = append(answered[src], line)
+				}
 				return
 			}
 			fmt.Println(progressLine(sr, opts.DryRun, idWidth))
@@ -419,10 +422,34 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 		return rec, err
 	}
 	for _, src := range behindOrder {
-		fmt.Printf("%d step(s) unevaluated behind %s\n", behind[src], src)
+		line := fmt.Sprintf("%d step(s) unevaluated behind %s", behind[src], src)
+		if len(answered[src]) > 0 {
+			line += ": " + capList(answered[src], 3)
+		}
+		fmt.Println(line)
 	}
 	fmt.Printf("%d step(s) passed (-v prints every step)\n", passed)
 	return rec, nil
+}
+
+func answeredHeld(sr *runner.StepRecord) string {
+	var body any
+	if sr.Status != runner.StatusFailed || json.Unmarshal(sr.Response, &body) != nil {
+		return ""
+	}
+	var vals []string
+	for _, ex := range sr.Expect {
+		if ex.Rule != "unevaluated" {
+			continue
+		}
+		if v, ok := chain.Get(body, ex.Path); ok {
+			vals = append(vals, ex.Path+"="+capText(compactValue(v), 60))
+		}
+	}
+	if len(vals) == 0 {
+		return ""
+	}
+	return sr.ID + " answered " + strings.Join(vals, ", ") + " (not judged)"
 }
 
 func unevaluatedBehind(sr *runner.StepRecord) string {
