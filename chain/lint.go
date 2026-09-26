@@ -961,7 +961,15 @@ func sortedKeys(m map[string]bool) []string {
 
 func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	issues := []Issue{}
-	missingVars, needEnv := ExternalInputs(c)
+	missing, needEnv := ExternalInputs(c)
+	missingVars := []string{}
+	for _, name := range missing {
+		if strings.ContainsAny(name, "+*/ ") {
+			issues = append(issues, Issue{Severity: SeverityError, Message: "${vars." + name + "} " + NoArithmetic})
+			continue
+		}
+		missingVars = append(missingVars, name)
+	}
 	if len(missingVars) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
 			"reads ${vars.%s} which this chain does not declare in vars: — the run needs %s, "+

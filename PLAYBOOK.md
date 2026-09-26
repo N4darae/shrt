@@ -52,7 +52,8 @@ shrt catalog describe acme.billing.invoice.v1.InvoiceService/CreateInvoice
 shrt chain new -name invoice-happy-path InvoiceService/CreateInvoice InvoiceService/GetInvoice
 ```
 
-`chain new` wires a later step's input to an earlier step's output when a contract says so, and
+`chain new` wires a later step's input to an earlier step's output when a contract says so, or,
+for an id field no contract sets, when `contract init` would guess that producer; it
 names a producer that is not in the list in a note. Then write the contract for what you learned
 (§7): the same work in the overlay composes the next chains.
 
