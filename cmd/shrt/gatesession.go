@@ -103,8 +103,9 @@ func checkSession(ctx context.Context, e *env, profile string, at gateEarly, rea
 	if first[0] {
 		line := fmt.Sprintf("session check: the early refusal of auth profile %s was a restart: a fresh token held %s was accepted", profile, ageText(hold))
 		if hold <= at.age {
-			line = fmt.Sprintf("session check: the early refusal of auth profile %s was a restart, or sessions last %s to %s: a fresh token held %s was accepted",
-				profile, ageText(hold), ageText(at.age), ageText(hold))
+			line = fmt.Sprintf("session check: the early refusal of auth profile %s was most likely a restart: a fresh token held %s was accepted; "+
+				"sessions between %s and %s are not ruled out, and a repeat in a later gate is reported as a FINDING",
+				profile, ageText(hold), ageText(hold), ageText(at.age))
 		}
 		return line, false, true
 	}

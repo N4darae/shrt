@@ -77,4 +77,10 @@ Run them and paste the output:
 - Never set `status: verified`.
 - Do not run `shrt run`, `shrt confirm`, or anything that sends traffic or mutates state.
 - Edit only your domain's overlay; report findings about other domains.
-- When the source contradicts the proto comment, trust the source and say so in the note.
+- Behaviour comes from the spec, not the handler: `effects`, `failures[].when`, filters and state
+  rules state what the service is meant to do (its README, API docs, tests). Read the handler for
+  field names, codes and shapes. Where the handler does something else than the spec says, write
+  the spec's behaviour and report the difference: a contract copied from a buggy handler plans the
+  bug as correct.
+- When the source contradicts the proto comment on a name, code or shape, trust the source and
+  say so in the note.
