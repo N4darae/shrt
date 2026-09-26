@@ -423,6 +423,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	}
 	if !ok {
 		p.note("step %s: %s has no contract, its body is a bare scaffold", id, m.FullName)
+		p.wireInferredIDs(step, m, nil)
 		p.grown = secondItems(step.Body, catalog.DescribeMessage(m.Input()).Fields)
 		p.noteSecondItems(id, p.grown)
 		return step
@@ -476,6 +477,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 				"value was NOT placed — 'shrt contract lint' names what is wrong with the key", id, name, m.Name)
 		}
 	}
+	p.wireInferredIDs(step, m, fields)
 	p.grown = secondItems(step.Body, schema.Fields)
 	p.noteSecondItems(id, p.grown)
 	if len(step.Expect) == 0 {
