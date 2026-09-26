@@ -110,8 +110,28 @@ func ListChangeKind(item string) string {
 func ReorderedPaths(sr *StepRecord) map[string]bool {
 	out := map[string]bool{}
 	kinds := listChangeKinds(sr)
+	var root any
+	_ = json.Unmarshal(sr.Response, &root)
+	changedSet := map[string]bool{}
 	for i, k := range kinds {
-		if strings.HasPrefix(k, "reordered") {
+		if pos, ok := listPositionOf(root, sr.Expect[i].Path); ok && !strings.HasPrefix(k, "reordered") && !strings.HasPrefix(k, "another item at ") {
+			changedSet[pos.list] = true
+		}
+	}
+	listOf := func(path string) string {
+		pos, _ := listPositionOf(root, path)
+		return pos.list
+	}
+	setChanged := func(list string) bool {
+		for l := range changedSet {
+			if list == l || strings.HasPrefix(list, l+".") {
+				return true
+			}
+		}
+		return false
+	}
+	for i, k := range kinds {
+		if strings.HasPrefix(k, "reordered") && !setChanged(listOf(sr.Expect[i].Path)) {
 			out[sr.Expect[i].Path] = true
 		}
 	}
