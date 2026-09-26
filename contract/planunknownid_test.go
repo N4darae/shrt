@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -81,8 +82,8 @@ func unknownPaths(v any, at string) []string {
 			out = append(out, unknownPaths(sub, strings.TrimPrefix(at+"."+k, "."))...)
 		}
 	case []any:
-		for _, sub := range x {
-			out = append(out, unknownPaths(sub, at+".N")...)
+		for i, sub := range x {
+			out = append(out, unknownPaths(sub, fmt.Sprintf("%s.%d", at, i))...)
 		}
 	case string:
 		if strings.HasSuffix(x, "-unknown") || strings.HasPrefix(x, "no-such-") {
@@ -90,4 +91,24 @@ func unknownPaths(v any, at string) []string {
 		}
 	}
 	return out
+}
+
+func TestPlanSendsAnUnknownIDOnTheFirstLineOfARepeatedFieldToo(t *testing.T) {
+	p, text, notes := shopDemoPlan(t, "CreateOrder")
+	last := planStep(t, p, "create_order_unknown_id_product")
+	first := planStep(t, p, "create_order_unknown_id_product_first_line")
+	if got := bodyAt(t, last, "lines.0.id_product"); strings.HasSuffix(got, "-unknown") {
+		t.Fatalf("the last-line probe keeps its first line real, got %s:\n%s", got, text)
+	}
+	if got := bodyAt(t, first, "lines.0.id_product"); !strings.HasSuffix(got, "-unknown") {
+		t.Fatalf("the first-line probe sends the unknown id on line 0, got %s:\n%s", got, text)
+	}
+	if got := bodyAt(t, first, "lines.1.id_product"); strings.HasSuffix(got, "-unknown") {
+		t.Fatalf("the first-line probe keeps its last line real, got %s:\n%s", got, text)
+	}
+	wantExpect(t, first, "status.details.0.reason", "ProductNotFound")
+	planStep(t, p, "get_product_after_create_order_unknown_id_product_first_line")
+	if !strings.Contains(notes, "create_order_unknown_id_product_first_line (lines.0.id_product") {
+		t.Fatalf("the plan names the first-line probe:\n%s", notes)
+	}
 }
