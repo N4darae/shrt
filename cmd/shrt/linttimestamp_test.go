@@ -38,7 +38,7 @@ func TestChainLintExplainsARepeatedWarningOnceAndNamesEachStep(t *testing.T) {
 	if err != nil {
 		t.Fatalf("warnings are not errors: %v\n%s", err, out)
 	}
-	if n := strings.Count(out, "verify masks a timestamp's value as volatile"); n != 1 {
+	if n := strings.Count(out, "verify masks timestamps"); n != 1 {
 		t.Fatalf("the explanation prints once per lint, got %d:\n%s", n, out)
 	}
 	if n := strings.Count(out, "[fetch] timestamp created_at unasserted; expect within:"); n != 2 {
