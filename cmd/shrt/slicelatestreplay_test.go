@@ -60,3 +60,32 @@ func TestSliceRunLatestIsTheNewerReplayWhenTheRunsDifferInReach(t *testing.T) {
 		t.Fatalf("a refusal needs no note: %q", note)
 	}
 }
+
+func TestSliceRunLatestIsTheNewerReplayWhenOnlyItFailedTheStep(t *testing.T) {
+	_, e, base := approvedThingFlowRun(t)
+	replay := copyRun(t, base, "29990101T000000Z-replay03")
+	replay.ReplayOf = base.RunID
+	for _, st := range replay.Steps {
+		if st.ID == "fetch" {
+			st.Status = runner.StatusFailed
+		}
+	}
+	if _, err := e.store.SaveRun(replay); err != nil {
+		t.Fatal(err)
+	}
+	var picked string
+	note := captureStderr(t, func() {
+		rec, err := loadRunReaching(e, "cli-thing-flow", "cli-thing-flow", "latest", "fetch")
+		if err != nil {
+			t.Fatal(err)
+		}
+		picked = rec.RunID
+	})
+	if picked != replay.RunID {
+		t.Fatalf("-run latest picked %s, want the replay in which fetch failed, %s", picked, replay.RunID)
+	}
+	if !strings.Contains(note, "run 29990101T000000Z-replay03, the newest record, a `shrt verify` replay in which fetch failed") ||
+		!strings.Contains(note, base.RunID+", passed it") {
+		t.Fatalf("the note names the run picked and the one passed over: %q", note)
+	}
+}

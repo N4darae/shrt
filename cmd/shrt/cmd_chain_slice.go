@@ -180,6 +180,10 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	res.SourceRef = ref
 	redPins, pinned := []chain.Pin{}, []chain.Pin{}
+	inherited, pinRun := len(res.Chain.KeptRed), ""
+	if rec != nil {
+		pinRun = rec.RunID
+	}
 	if keptRed.on {
 		if redPins, err = failurePins(res.Chain, rec, *step); err != nil {
 			return readsFailedAfter(e, ref, rec, *step, err)
@@ -309,8 +313,14 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 			res.MarkIntermittent(verdict.SourceRun, verdict.runsLabel(), verdict.ReproducedRuns, verdict.Repeat, now)
 		}
 		if keptRed.on && verdict.Outcome == sliceReproduced && !whole {
-			pinned = append(pinned, redPins...)
-			res.Chain.KeptRed = append(res.Chain.KeptRed, redPins...)
+			if verdict.replay != nil {
+				res.Chain.KeptRed = res.Chain.KeptRed[:inherited]
+				pinned, pinRun = replayPins(res, verdict.replay), verdict.replay.RunID
+				res.Chain.KeptRed = append(res.Chain.KeptRed, pinned...)
+			} else {
+				pinned = append(pinned, redPins...)
+				res.Chain.KeptRed = append(res.Chain.KeptRed, redPins...)
+			}
 		}
 		if keptRed.on && verdict.Outcome != sliceReproduced && written != "" && created {
 			if err := os.Remove(written); err != nil {
@@ -347,7 +357,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 	}
 	printSlice(res, written, verdict, *verbose)
 	if len(pinned) > 0 && (verdict == nil || verdict.Outcome == sliceReproduced) {
-		fmt.Print(keptRedLine(c, ref, rec, res.Chain, pinned, written))
+		fmt.Print(keptRedLine(c, ref, rec, pinRun, res.Chain, pinned, written))
 		if verdict == nil {
 			fmt.Println("unverified: add -verify to run the slice before pinning; a slice that lost a dependency on state shows the defect gone")
 		}
@@ -702,6 +712,7 @@ type sliceVerdict struct {
 	OutsideState   []string          `json:"outside_state,omitempty"`
 	ByDistance     []string          `json:"compared_by_distance,omitempty"`
 	SourceReplay   string            `json:"source_replay_of,omitempty"`
+	replay         *runner.Record
 }
 
 type stepList []string
@@ -932,6 +943,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		return didNotRun("could not run the slice: " + err.Error())
 	}
 	v.SliceRun = replayRec.RunID
+	v.replay = replayRec
 	v.Build = replayRec.Build
 	v.Status = replayRec.Status
 	if a.persist {
@@ -1656,9 +1668,19 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	if latestReached, _ := reachedStep(latest, step); ownReached != latestReached {
 		return latest, nil
 	}
+	if stepFailed(latest, step) && !stepFailed(own, step) {
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s failed; the newest `shrt run` record, %s, passed it\n",
+			latest.RunID, step, own.RunID)
+		return latest, nil
+	}
 	fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay: pass -run %s to slice from it\n",
 		own.RunID, chainName, latest.RunID, latest.RunID)
 	return own, nil
+}
+
+func stepFailed(rec *runner.Record, step string) bool {
+	sr, ok := rec.Step(step)
+	return ok && sr.Status == runner.StatusFailed
 }
 
 func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record, error) {

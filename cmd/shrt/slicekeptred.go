@@ -340,6 +340,22 @@ func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([
 	return out, nil
 }
 
+func replayPins(res *chain.SliceResult, replay *runner.Record) []chain.Pin {
+	ids := []string{}
+	for _, k := range res.Kept {
+		if k.ID != res.Target {
+			ids = append(ids, k.ID)
+		}
+	}
+	out := []chain.Pin{}
+	for _, id := range append(ids, res.Target) {
+		if pins, err := failurePins(res.Chain, replay, id); err == nil {
+			out = append(out, pins...)
+		}
+	}
+	return out
+}
+
 func pinList(c *chain.Chain, pins []chain.Pin) string {
 	order := map[string]int{}
 	for i, s := range c.Steps {
@@ -373,13 +389,13 @@ func pinSubject(pins []chain.Pin) string {
 	return "it"
 }
 
-func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, slice *chain.Chain, pins []chain.Pin, written string) string {
+func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, pinRun string, slice *chain.Chain, pins []chain.Pin, written string) string {
 	if written == "" {
 		return fmt.Sprintf("\nkept_red: nothing written, so nothing pinned: add -write to pin %s, as %s failed in run %s\n",
-			pinList(slice, pins), pinSubject(pins), rec.RunID)
+			pinList(slice, pins), pinSubject(pins), pinRun)
 	}
 	line := fmt.Sprintf("\nkept_red: pinned in %s on %s, as %s failed in run %s; its run exits 0 while it fails exactly so.",
-		shownPath(written), pinList(slice, pins), pinSubject(pins), rec.RunID)
+		shownPath(written), pinList(slice, pins), pinSubject(pins), pinRun)
 	if c.SourcePath != "" && sameSliceFile(written, c.SourcePath) {
 		return line + "\n"
 	}
