@@ -258,6 +258,7 @@ func (a attribution) of(step, path string) blame {
 		return blame{write: w}
 	}
 	if isWrite(st) {
+		b.why = a.unstored(st, path)
 		return b
 	}
 	if was, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
@@ -864,6 +865,46 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
 	}
 	return blame{write: wi, why: fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, shown, capText(wv, 60), r.ID, capText(compactValue(rv), 60))}, true
+}
+
+func (a attribution) unstored(w *runner.StepRecord, path string) string {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || a.unchanged(w.ID, path) {
+		return ""
+	}
+	wm, err := a.e.cat.Lookup(w.Call)
+	if err != nil {
+		return ""
+	}
+	want, ok := carrierOf(wm, path)
+	var wb any
+	if !ok || json.Unmarshal(w.Response, &wb) != nil {
+		return ""
+	}
+	wv, ok := chain.Get(wb, path)
+	if !ok {
+		return ""
+	}
+	for _, o := range a.rec.Steps[a.index(w.ID)+1:] {
+		if isWrite(o) {
+			return ""
+		}
+		om, err := a.e.cat.Lookup(o.Call)
+		var ob any
+		if err != nil || json.Unmarshal(o.Response, &ob) != nil {
+			continue
+		}
+		read := ""
+		eachLeaf(ob, "", func(p string, v any) {
+			if c, ok := carrierOf(om, p); read == "" && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
+				read = compactValue(v)
+			}
+		})
+		if read != "" {
+			return fmt.Sprintf("%s answered %s %s, but %s read %s: it answered other than it stored",
+				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), capText(compactValue(wv), 60), methodName(o.Call), capText(read, 60))
+		}
+	}
+	return ""
 }
 
 func carrierOf(m *catalog.Method, path string) (string, bool) {

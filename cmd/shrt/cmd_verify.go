@@ -1164,6 +1164,8 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 			out += "; suspect " + it.Own
 		case it.Own == "" && it.SuspectStep != "":
 			out += fmt.Sprintf(", after write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
+		case it.Why != "":
+			out += "; " + it.Why
 		}
 		out += "\n"
 	}
