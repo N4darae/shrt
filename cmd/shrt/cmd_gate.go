@@ -1521,6 +1521,9 @@ func printGateGroups(chains []*gateChain) {
 				own(gr)
 			default:
 				gr := group(shortRPC(it.Call))
+				if it.Why != "" {
+					gr.addPath(&gr.why, it.Why)
+				}
 				if it.KnockOn {
 					gr.knockOn, gr.suspect = true, shortRPC(it.Suspect)
 				}
@@ -1531,11 +1534,14 @@ func printGateGroups(chains []*gateChain) {
 	if len(order) == 0 {
 		return
 	}
-	suspect := func(gr *gateGroup) bool { return gr.write || len(gr.own) > 0 }
+	suspect := func(gr *gateGroup) bool { return gr.write || len(gr.own) > 0 || len(gr.why) > 0 }
 	sort.SliceStable(order, func(i, j int) bool {
 		a, b := groups[order[i]], groups[order[j]]
 		if suspect(a) != suspect(b) {
 			return suspect(a)
+		}
+		if (len(a.steps) > 0) != (len(b.steps) > 0) {
+			return len(a.steps) > 0
 		}
 		if len(a.chains) != len(b.chains) {
 			return len(a.chains) > len(b.chains)
@@ -1551,8 +1557,11 @@ func printGateGroups(chains []*gateChain) {
 			switch {
 			case len(gr.own) > 0:
 				tail = "; suspect the read: " + gr.own[0] + otherReasons(len(gr.own)-1)
-			case gr.write && len(gr.why) > 0:
+			case len(gr.why) > 0:
 				tail = "; " + gr.why[0] + otherReasons(len(gr.why)-1)
+				if gr.write && gr.suspect != "" {
+					gr.example = gr.suspect
+				}
 			case gr.write:
 			case gr.knockOn:
 				tail = "; a knock-on of " + gr.suspect
@@ -1561,7 +1570,11 @@ func printGateGroups(chains []*gateChain) {
 			}
 			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.rpc, len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
 		case len(gr.why) > 0:
-			fmt.Printf("  %s: suspect the write: %s%s; e.g. %s\n", gr.rpc, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
+			lead := "suspect the write: "
+			if strings.HasPrefix(gr.why[0], eitherWhy) {
+				lead = "suspect "
+			}
+			fmt.Printf("  %s: %s%s%s; e.g. %s\n", gr.rpc, lead, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:

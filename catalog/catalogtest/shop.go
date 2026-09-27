@@ -74,6 +74,9 @@ func shopCatalogFile() *descriptorpb.FileDescriptorProto {
 		message("ListProductsResponse", msg("status", 1, ".shop.common.v1.Status"), repeated(msg("products", 2, ".shop.catalog.v1.Product"))),
 		message("AddStockRequest", str("id_product", 1), int64Field("qty", 2)),
 		message("AddStockResponse", msg("status", 1, ".shop.common.v1.Status"), int64Field("qty_on_hand", 2)),
+		message("AddStockBatchRequest", repeated(msg("lines", 1, ".shop.catalog.v1.AddStockRequest"))),
+		message("StockResult", str("id_product", 1), int64Field("qty_on_hand", 2)),
+		message("AddStockBatchResponse", msg("status", 1, ".shop.common.v1.Status"), repeated(msg("results", 2, ".shop.catalog.v1.StockResult"))),
 	},
 		service("ProductService",
 			method("CreateProduct", ".shop.catalog.v1.CreateProductRequest", ".shop.catalog.v1.CreateProductResponse"),
@@ -82,6 +85,7 @@ func shopCatalogFile() *descriptorpb.FileDescriptorProto {
 		),
 		service("StockService",
 			method("AddStock", ".shop.catalog.v1.AddStockRequest", ".shop.catalog.v1.AddStockResponse"),
+			method("AddStockBatch", ".shop.catalog.v1.AddStockBatchRequest", ".shop.catalog.v1.AddStockBatchResponse"),
 		),
 	)
 }

@@ -401,14 +401,17 @@ error, when it is refused, stops refusing, or its list holds another set of item
 refused, when only the order of a list changed or the item at a position moved elsewhere in it
 (matched by its id), when the write it observes returned the same field
 of the same record unchanged, or when it contradicts what two different writes answered. A write
-whose answer a read of the same record contradicts is the suspect, with both values shown. A
+whose answer a read of the same record contradicts is the suspect, with both values shown; when
+the write answered as before and only the read moved, it is `the write or the read` (a write
+storing other than it answers looks the same from the API). A
 change belongs to an earlier step when it is that step's answer for the same field of the same
 record, or a number that recomputes from values earlier steps changed (a total over lines); a write
 refused where it passed, and what follows it, to the first earlier write on its record whose own
 answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
 rpc (`masked by`, `moved with`). Otherwise it is the write
 the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
-record, skipping a refused repeat or idempotent replay of an earlier write); steps left unevaluated
+record, skipping a refused repeat or idempotent replay of an earlier write; when several such writes
+all answered as before, `the write or the read` names their rpcs instead); steps left unevaluated
 behind a failed step fold under it.
 
 ## 9. Refactor and test against a safe spot
