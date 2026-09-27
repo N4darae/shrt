@@ -602,7 +602,7 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 		}
 		fmt.Fprintf(&b, "\n  %s", strings.ReplaceAll(failure, "\n", "\n  "))
 	}
-	if line := firstFailureRequest(e, rec); line != "" && !dry {
+	for _, line := range failureRequests(e, rec, dry) {
 		fmt.Fprintf(&b, "\n  %s", line)
 	}
 	if rec.KeptRedNote != "" {
@@ -630,23 +630,60 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	return b.String()
 }
 
-func firstFailureRequest(e *env, rec *runner.Record) string {
-	if rec.KeptRed != "" || rec.Status != runner.StatusFailed {
-		return ""
+func failureRequests(e *env, rec *runner.Record, dry bool) []string {
+	if dry || rec.KeptRed != "" || rec.Status != runner.StatusFailed {
+		return nil
 	}
+	att := runAttribution(e, rec)
+	type failure struct {
+		st *runner.StepRecord
+		b  blame
+	}
+	failures, writes := []failure{}, map[string]bool{}
 	for _, st := range rec.Steps {
-		if st != nil && st.Status != runner.StatusPassed && st.Status != runner.StatusSkipped {
-			path := ""
-			for _, ex := range st.Expect {
-				if !ex.Passed && ex.Rule != "unevaluated" {
-					path = ex.Path
-					break
-				}
+		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
+			continue
+		}
+		path := ""
+		for _, ex := range st.Expect {
+			if !ex.Passed && ex.Rule != "unevaluated" {
+				path = ex.Path
+				break
 			}
-			return requestLine(rec, st.ID, runAttribution(e, rec).of(st.ID, path))
+		}
+		b := att.of(st.ID, path)
+		if b.write >= 0 {
+			writes[rec.Steps[b.write].ID] = true
+		}
+		failures = append(failures, failure{st, b})
+	}
+	lines, count, order := map[string]string{}, map[string]int{}, []string{}
+	for _, f := range failures {
+		key := ""
+		switch {
+		case f.b.write >= 0:
+			key = rec.Steps[f.b.write].ID
+		case f.b.own != "":
+			key = f.st.Call
+		case writes[f.st.ID]:
+			key = f.st.ID
+		}
+		if _, seen := count[key]; !seen {
+			order = append(order, key)
+		}
+		if lines[key] == "" || f.b.write >= 0 && !strings.HasPrefix(lines[key], "suspect") {
+			lines[key] = requestLine(rec, f.st.ID, f.b)
+		}
+		count[key]++
+	}
+	sort.SliceStable(order, func(i, j int) bool { return count[order[i]] > count[order[j]] })
+	out := []string{}
+	for _, key := range order {
+		if lines[key] != "" && len(out) < 3 {
+			out = append(out, lines[key])
 		}
 	}
-	return ""
+	return out
 }
 
 func quietlyGreen(rec *runner.Record) bool {
