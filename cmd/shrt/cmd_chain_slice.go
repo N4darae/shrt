@@ -710,6 +710,7 @@ type sliceVerdict struct {
 	Replay         chain.Verdict     `json:"replay"`
 	Differences    []string          `json:"differences,omitempty"`
 	Next           string            `json:"next,omitempty"`
+	Prove          string            `json:"prove,omitempty"`
 	NotKeepable    []string          `json:"not_keepable,omitempty"`
 	OtherDropped   []string          `json:"dropped_writes_other_entities,omitempty"`
 	Repeat         int               `json:"repeat,omitempty"`
@@ -824,6 +825,9 @@ func (v *sliceVerdict) text() string {
 	}
 	if v.Recorded != "" {
 		fmt.Fprintf(&b, "  verdict recorded in the description of %s\n", v.Recorded)
+	}
+	if v.Prove != "" {
+		fmt.Fprintf(&b, "  whether a dropped write caused it: %s\n", v.Prove)
 	}
 	if v.Next != "" {
 		fmt.Fprintf(&b, "  next: %s\n", v.Next)
@@ -1179,6 +1183,9 @@ func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) str
 }
 
 func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, names []string) {
+	if len(names) > 0 {
+		v.Prove = fmt.Sprintf("shrt chain slice %s -without %s -verify -run %s", res.Source, names[len(names)-1], rec.RunID)
+	}
 	usable, blocked := failedInSource(rec, names)
 	asked, askedBlocked := failedInSource(rec, a.keep)
 	v.NotKeepable = append(append([]string{}, askedBlocked...), blocked...)

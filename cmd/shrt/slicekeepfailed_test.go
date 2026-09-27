@@ -38,3 +38,22 @@ func TestTheNextCommandLeavesOutAKeptStepThatFailedInTheSourceRun(t *testing.T) 
 		t.Fatalf("the reason must say the -keep id was left out and why: %s", v.Reason)
 	}
 }
+
+func TestAnInconclusiveSliceNamesTheWithoutCommandForTheNearestDroppedWrite(t *testing.T) {
+	res := &chain.SliceResult{
+		Source: "confirm-all-lines", Target: "stock_b", Mode: chain.SliceModeClosure,
+		DroppedWrites: []chain.Dropped{{Index: 2, ID: "stock", Call: "StockService/AddStock"}, {Index: 4, ID: "cancel", Call: "OrderService/CancelOrder"}},
+		UnderIncluded: true,
+		Chain:         &chain.Chain{Steps: []*chain.Step{{ID: "stock_b", Call: "ProductService/GetProduct"}}},
+	}
+	rec := &runner.Record{RunID: "r1", Steps: []*runner.StepRecord{
+		{Index: 2, ID: "stock", Status: runner.StatusPassed},
+		{Index: 4, ID: "cancel", Status: runner.StatusPassed},
+		{Index: 7, ID: "stock_b", Status: runner.StatusFailed},
+	}}
+	v := &sliceVerdict{Step: "stock_b"}
+	v.suggestKeep(res, rec, sliceVerifyArgs{}, []string{"stock", "cancel"})
+	if want := "shrt chain slice confirm-all-lines -without cancel -verify -run r1"; v.Prove != want {
+		t.Fatalf("prove %q, want %q", v.Prove, want)
+	}
+}
