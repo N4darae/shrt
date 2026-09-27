@@ -139,8 +139,9 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
   fields and item numbers (so a total over the items) disagree pairwise either way (a
   server-generated id is not controlled), positions by id when the contract states the order,
   otherwise membership (`includes:`) and a count; a fixture outside the filter's scope (another
-  parent, a prefix not at the start), and one list per reachable state for an enum filter; a list
-  the run does not scope is declared `volatile`;
+  parent, a prefix not at the start), one list per reachable state for an enum filter, and a list
+  of 12 fixtures (one past a stated "at most N") so a cap shows; a list the run does not scope is
+  declared `volatile`;
 - for a uniqueness failure: the same value again, the same value with every other field changed,
   and a case or whitespace variant when the contract says the comparison ignores case or trims
   (`unique: {case: ignore, trim: true}` states it as data);
