@@ -99,7 +99,11 @@ func compareRuns(_ context.Context, args []string) error {
 		return fmt.Errorf("both sides are run %s: comparing a record with itself says nothing", a.RunID)
 	}
 	var fx diff.Fixtures
-	if c, err := chain.Resolve(e.chainsDir(), a.Chain); err == nil {
+	c, err := chain.Resolve(e.chainsDir(), a.Chain)
+	if err != nil && a.ChainSource != "" {
+		c, err = chain.LoadFile(a.ChainSource)
+	}
+	if err == nil {
 		fx = requestFixtures(c)
 	}
 	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)

@@ -12,9 +12,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/N4darae/shrt/runner"
-	"github.com/N4darae/shrt/transport"
 )
 
 type shortSessionBackend struct {
@@ -208,38 +205,23 @@ func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
 	}
 }
 
-func TestReloginTokensRefusedEarlyThreeTimesInARowAreAFinding(t *testing.T) {
+func TestCachedTokensRefusedAfterEachOfSeveralRestartsStayNotes(t *testing.T) {
 	b := &shortSessionBackend{uses: 100}
 	shortSessionWorkspace(t, b, lifetimeWrites)
 	ctx := context.Background()
-	restart := func() {
-		b.mu.Lock()
-		b.left = map[string]int{}
-		b.mu.Unlock()
-	}
 	var err error
 	captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
 	if err != nil {
 		t.Fatalf("first run: %v", err)
 	}
-	restart()
-	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	if err != nil || !strings.Contains(out, "note: cached token refused") || !strings.Contains(out, "since the token was cached") {
-		t.Fatalf("the first early refusal of a cached token is the ambiguous note: %v\n%s", err, out)
-	}
-	restart()
-	out = captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	if err != nil || !strings.Contains(out, "note: cached token refused") || !strings.Contains(out, "possibly a second restart since the re-login") {
-		t.Fatalf("the re-login's token refused early once is still a note, naming the earlier refusal: %v\n%s", err, out)
-	}
-	restart()
-	out = captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	var coded *exitError
-	if err == nil || errors.As(err, &coded) {
-		t.Fatalf("a third early refusal in a row, each of the re-login's token, is a finding, exit 1: %v\n%s", err, out)
-	}
-	if !strings.Contains(out, "FINDING: token refused") || !strings.Contains(out, "one restart does not explain three refusals in a row") {
-		t.Fatalf("the finding names the refusals the re-logins followed:\n%s", out)
+	for i := 1; i <= 3; i++ {
+		b.mu.Lock()
+		b.left = map[string]int{}
+		b.mu.Unlock()
+		out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
+		if err != nil || strings.Contains(out, "FINDING") || !strings.Contains(out, "possibly a restart since the token was cached") {
+			t.Fatalf("after restart %d a cached token refused on first use is a restart's note, never a finding: %v\n%s", i, err, out)
+		}
 	}
 }
 
@@ -265,28 +247,5 @@ func TestAReloginTokenAcceptedFromTheCacheIsAnOrdinaryCachedTokenAgain(t *testin
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
 	if err != nil || strings.Contains(out, "FINDING") || !strings.Contains(out, "note: cached token refused") {
 		t.Fatalf("a token accepted in a later run and then refused is explained by a restart since: %v\n%s", err, out)
-	}
-}
-
-func TestAReloginTokenRefusedLongAfterTheEarlierRefusalStaysANote(t *testing.T) {
-	issued := time.Date(2026, 9, 25, 19, 28, 6, 0, time.UTC)
-	refusal := func(after time.Duration, relogins ...time.Time) *runner.Record {
-		return &runner.Record{Steps: []*runner.StepRecord{{Index: 1, ID: "list", Status: runner.StatusPassed,
-			TokenRefused: []transport.TokenRefusal{{Token: "5f8c09ca", IssuedAt: issued, ExpiresAt: issued.Add(time.Hour),
-				RefusedAt: issued.Add(after), Cached: true, FirstUse: true, Relogins: relogins}}}}}
-	}
-	earlier := issued.Add(-22 * time.Second)
-	if life := examineTokenLifetime(nil, refusal(38*time.Second, earlier, issued)); !life.finding() || life.label() != "FINDING: " ||
-		!strings.Contains(life.line(), "after the refusal at 19:28:06Z") || !strings.Contains(life.line(), "at 19:27:44Z had issued") {
-		t.Fatalf("the third refusal in a row, each within seconds of the last: a finding, got %q", life.line())
-	}
-	if life := examineTokenLifetime(nil, refusal(38*time.Second, issued)); life.finding() || life.label() != "note: " {
-		t.Fatalf("one re-login token refused is still a note, got %q", life.line())
-	}
-	if life := examineTokenLifetime(nil, refusal(10*time.Minute, earlier.Add(-10*time.Minute), issued)); !life.finding() {
-		t.Fatalf("refusals minutes apart, each well inside the hour the login stated, still chain: got %q", life.line())
-	}
-	if life := examineTokenLifetime(nil, refusal(38*time.Second, earlier.Add(-2*time.Hour), issued)); life.finding() {
-		t.Fatalf("an earlier refusal longer ago than the stated lifetime does not chain: got %q", life.line())
 	}
 }

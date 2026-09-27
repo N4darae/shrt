@@ -1012,6 +1012,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	}
 	problems := chain.VarRefProblems(rec.Vars)
 	problems = append(problems, c.PreflightProblems()...)
+	problems = append(problems, c.ExportStepClashes()...)
 	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
 	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
 	if r.Catalog != nil {

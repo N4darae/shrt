@@ -28,7 +28,7 @@ A `+` in the `req` column means the key is always written out (no `omitempty`).
 | `body` | map string → any |  | The request, validated against the proto request message before anything is sent. |
 | `headers` | map string → string |  | Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it. |
 | `expect` | list of expectation |  | Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`. |
-| `export` | map string → string |  | `name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error; one another step also exports is a warning (`export-overwritten`). |
+| `export` | map string → string |  | `name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is refused by lint and run; one another step also exports is a warning (`export-overwritten`). |
 | `auth` | string |  | Auth profile from `.shrt/config.yaml` for this step. `invalid` sends a token the backend never issued and never logs in again: the invalid-token probe. Contradicts `skip_auth`. |
 | `skip_auth` | bool |  | Attach no auth header: the missing-token probe. A login step does not need it. |
 | `allow_fail` | bool |  | Let the chain go on past a transport refusal on a step with no expectations. It never waives a failed expectation or an `error` step; with expectations it does nothing (`inert-allow-fail`). |
@@ -369,7 +369,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `auth_principal` | string | Digest of the account the profile logged in as, no secret in it; `verify` compares it. |
 | `auth_retry` | string | `resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent. |
 | `first_attempt` | attempt | A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING. |
-| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal, or three in a row across runs, is a `FINDING`. |
+| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal is a `FINDING`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass). |
 | `http_status` | int | Transport status. 200 with a non-OK envelope code is an in-band refusal. |
 | `latency_ms` | int | Wall time of the call. |
