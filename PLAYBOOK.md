@@ -73,7 +73,7 @@ of it (`create_account_2`, with its own unique values and its own preparation st
 second item its own data where it matters and assert what depends on both. `plan` also varies the
 count (one item and three) for write targets. `shrt contract status -gaps` lists fields no chain
 sends with two items (`one item`), with two items on one resource only (`same resource`), or never
-with one resource twice (`no repeat`).
+with one resource on two applied items (`no repeat`).
 
 Habits that keep a chain re-runnable:
 
@@ -144,16 +144,18 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
 - the verdict, each numeric field a write sent echoed back, a created id, the state the contract
   names, and a timestamp range (`within: {of: "${nowunix}", by: 300}` for a stamp the call makes,
   an expiry against the stated lifetime, `equals` for a creation stamp read back);
-- for a list: three fixtures, or four when more keys compete, whose candidate sort keys disagree
-  either way, positions by id when the contract states the order, otherwise membership
-  (`includes:`) and a count; a fixture outside the filter's
-  scope (another parent, a prefix not at the start), and one list per reachable state for an enum
-  filter; a list the run does not scope is declared `volatile`;
+- for a list: three fixtures, or four when more keys compete, whose creation order, varied request
+  fields and item numbers (so a total over the items) disagree pairwise either way (a
+  server-generated id is not controlled), positions by id when the contract states the order,
+  otherwise membership (`includes:`) and a count; a fixture outside the filter's scope (another
+  parent, a prefix not at the start), and one list per reachable state for an enum filter; a list
+  the run does not scope is declared `volatile`;
 - for a uniqueness failure: the same value again, the same value with every other field changed,
   and a case or whitespace variant when the contract says the comparison ignores case or trims
   (`unique: {case: ignore, trim: true}` states it as data);
 - for a quantity or limit failure: a request just past the limit and one exactly at it, on the first
-  and the last item, with reads before and after asserting a refused write changed nothing;
+  and the last item, and one item twice whose quantities fit alone but not together, with reads
+  before and after asserting a refused write changed nothing;
 - a failure whose `when:` names a state, probed from that state; a not-found failure, probed with
   an id nothing created; `invalid_argument` clauses in `when:` (empty, zero, negative, missing `@`)
   turned into malformed requests;

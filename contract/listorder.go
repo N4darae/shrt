@@ -145,6 +145,10 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 	}
 	names := orderableFields(first, fields, t.anchor)
 	keys := len(names)
+	lists := itemNumbers([]*chain.Step{first}, fields, nil)
+	if len(lists) > 0 {
+		keys++
+	}
 	if t.anchor != "" {
 		keys++
 	}
@@ -191,7 +195,9 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 		ranks[name] = perm
 		next++
 	}
-	varyItemNumbers(t.producers, fields)
+	if len(lists) > 0 {
+		ranks[strings.Join(lists, ", ")] = varyItemNumbers(t.producers, fields, perms[next%len(perms)])
+	}
 	p.noteOrder(t, ranks, lib)
 }
 

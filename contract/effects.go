@@ -1247,9 +1247,9 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		p.freshen(lib, fixture)
 		renameStepRefs(fixture, order.ID, fixture.ID)
 		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)
-		a, b := q-1, int64(1)
-		if a < 1 {
-			a = 1
+		a, b := max(q-1, 1), int64(1)
+		if supplied, ok := p.suppliedFor(lib, p.entityRefsBeside(order.Body, v.list+".0."+v.itemQty)); a <= b && (!ok || supplied >= 3) {
+			a = 2
 		}
 		one[v.itemQty], other[v.itemQty] = strconv.FormatInt(a, 10), strconv.FormatInt(b, 10)
 		fixture.Body[v.list] = []any{one, other}

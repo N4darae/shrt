@@ -122,6 +122,16 @@ func TestSingleItemRepeatsNamesAFieldThatNeverCarriesOneResourceTwice(t *testing
 	if len(got) != 1 || got[0].Field != "lines" || !got[0].NoRepeat || got[0].SameResource {
 		t.Fatalf("got %+v, want CreateOrder lines named as never carrying one product twice (a refused step does not count)", got)
 	}
+	defer chain.SetItemEnvelope("")
+	chain.SetItemEnvelope("results[].status.code")
+	refusedItem := &chain.Chain{Name: "refused_item", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "d"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product", "0")}},
+			Expect: []chain.Expectation{{Path: "results.1.status.code", Equals: "REJECTED"}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{distinct, refusedItem}, cat); len(got) != 1 || !got[0].NoRepeat {
+		t.Fatalf("got %+v, want lines still named: the second item on the product is refused, so nothing is applied twice", got)
+	}
 	twice := &chain.Chain{Name: "twice", Steps: []*chain.Step{
 		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "c"}},
 		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product", "3")}}},

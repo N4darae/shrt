@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -101,48 +102,85 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 			"and read the state it would have changed before and after it", st.ID, f.Label())
 		return
 	}
-	ids, unknown := []string{}, []string{}
+	type variant struct {
+		suffix string
+		apply  func(body map[string]any) (string, bool)
+	}
+	variants := []variant{}
 	for i, path := range paths {
 		suffix := name
 		if i > 0 {
 			suffix = name + "_last_item"
 		}
-		refused := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
+		variants = append(variants, variant{suffix, func(body map[string]any) (string, bool) {
+			qty, derived := p.shortageQuantity(lib, body, path)
+			setBodyPath(body, path, qty)
+			if !derived {
+				return fmt.Sprintf("%s asks for %s, more than any fixture holds", path, qty), false
+			}
+			return fmt.Sprintf("%s asks for %s, one more than the stock this chain added", path, qty), true
+		}})
+	}
+	split := false
+	if segs := chain.SplitPath(paths[0]); len(segs) > 2 && isIndexSegment(segs[len(segs)-2]) {
+		body := st.Body
+		if source != nil {
+			body = source.Body
+		}
+		if supplied, ok := p.suppliedFor(lib, p.entityRefsBeside(body, paths[0])); ok {
+			split = true
+			list, qty := strings.Join(segs[:len(segs)-2], "."), segs[len(segs)-1]
+			a, b := supplied+1-supplied/2, supplied/2
+			if b < 1 {
+				b = 1
+			}
+			variants = append(variants, variant{name + "_split", func(body map[string]any) (string, bool) {
+				one, other := cloneBody(itemAt(body, paths[0])).(map[string]any), cloneBody(itemAt(body, paths[0])).(map[string]any)
+				one[qty], other[qty] = strconv.FormatInt(a, 10), strconv.FormatInt(b, 10)
+				setBodyPath(body, list, []any{one, other})
+				return fmt.Sprintf("%s.0 twice, asking for %d and %d, each within the %d this chain added and together more", list, a, b, supplied), true
+			}})
+		}
+	}
+	ids, unknown := []string{}, []string{}
+	for _, v := range variants {
+		refused := copyStep(st, p.freeStepID(st.ID+"_"+v.suffix))
 		refused.Export = nil
 		refused.Expect = append([]chain.Expectation{}, expect...)
 		where := ""
 		if source == nil {
-			qty, derived := p.shortageQuantity(lib, refused.Body, path)
+			set, derived := v.apply(refused.Body)
 			if !derived {
 				unknown = append(unknown, refused.ID)
 			}
-			setBodyPath(refused.Body, path, qty)
 			p.freshen(lib, refused)
-			where = fmt.Sprintf("%s set to %s", path, qty)
+			where = set
 		} else {
-			qty, derived := p.shortageQuantity(lib, source.Body, path)
-			short := copyStep(source, p.freeStepID(source.ID+"_for_"+suffix))
+			short := copyStep(source, p.freeStepID(source.ID+"_for_"+v.suffix))
 			short.Export = nil
-			short.Description = fmt.Sprintf("as %s, but %s asks for %s, one more than the stock this chain added, for %s.", source.ID, path, qty, refused.ID)
+			set, derived := v.apply(short.Body)
+			short.Description = fmt.Sprintf("as %s, but %s, for %s.", source.ID, set, refused.ID)
 			if !derived {
 				unknown = append(unknown, short.ID)
-				short.Description = fmt.Sprintf("as %s, but %s asks for %s, more than any fixture holds, for %s.", source.ID, path, qty, refused.ID)
 			}
-			setBodyPath(short.Body, path, qty)
 			p.freshen(lib, short)
 			renameStepRefs(short, source.ID, short.ID)
 			renameStepRefs(refused, source.ID, short.ID)
 			p.Chain.Steps = append(p.Chain.Steps, short)
-			where = fmt.Sprintf("%s (%s asks for %s)", short.ID, path, qty)
+			where = fmt.Sprintf("%s (%s)", short.ID, set)
 		}
 		refused.Description = fmt.Sprintf("refused with %s (%s), and nothing it would have changed moves.", f.Label(), strings.TrimSpace(f.When))
 		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{refused}, refused.ID)...)
 		ids = append(ids, fmt.Sprintf("%s via %s", refused.ID, where))
 	}
+	why := ""
+	if split {
+		why = ", and in a third, on one item repeated so each fits and only their sum does not, since a backend checking each item alone confirms that"
+	}
 	p.note("step %s: %s expect %s; the reads around each assert that every entity it touches is unchanged, so a "+
 		"backend that refuses but still applies part of the write fails. The shortage sits on the first item and, in "+
-		"a second probe, on the last, since a backend checking only the first item confirms the second",
-		st.ID, strings.Join(ids, " and "), f.Label())
+		"a second probe, on the last, since a backend checking only the first item confirms the second%s",
+		st.ID, strings.Join(ids, " and "), f.Label(), why)
 	p.noteShortageQuantity(st, unknown)
 }
 
