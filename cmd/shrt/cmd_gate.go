@@ -46,6 +46,7 @@ type gateSidecar struct {
 	RunToo       bool                `json:"run_too,omitempty"`
 	Flaky        []gateFlaky         `json:"flaky,omitempty"`
 	FlakyOnly    bool                `json:"flaky_only,omitempty"`
+	Errors       []gateFlaky         `json:"errors,omitempty"`
 }
 
 type gateFlaky struct {
@@ -55,6 +56,8 @@ type gateFlaky struct {
 	Every    int      `json:"every,omitempty"`
 	Repeated bool     `json:"repeated,omitempty"`
 	Steps    []string `json:"steps,omitempty"`
+
+	promoted bool
 }
 
 type gateItem struct {
@@ -84,6 +87,7 @@ type gateItem struct {
 	or        string
 	with      string
 	withAbove bool
+	from      string
 }
 
 type gateOutcome struct {
@@ -644,7 +648,7 @@ func latencyItems(flags []diff.LatencyFlag) []gateItem {
 var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
 
 func earlySidecar(e *env, rec *runner.Record) gateSidecar {
-	side := gateSidecar{Reads: sessionReads(e, rec)}
+	side := gateSidecar{Reads: sessionReads(e, rec), Errors: serverErrors(rec)}
 	life := examineTokenLifetime(e, rec)
 	if life == nil || life.finding() {
 		return side
@@ -698,6 +702,8 @@ type gateChain struct {
 	flakyOnly bool
 	otherFail bool
 	flakyKind map[string]string
+	errors    map[string]gateFlaky
+	errored   map[string]string
 }
 
 func (g *gateChain) findingOnly() bool {
@@ -728,6 +734,7 @@ func settleFlaky(chains []*gateChain) []string {
 		gateFlaky
 		chains   int
 		repeated bool
+		judged   bool
 		every    map[int]bool
 	}
 	totals, order := map[string]*total{}, []string{}
@@ -743,7 +750,8 @@ func settleFlaky(chains []*gateChain) []string {
 			t.Failed += f.Failed
 			t.Calls += f.Calls
 			t.chains++
-			t.repeated = t.repeated && f.Repeated
+			t.repeated = t.repeated && (f.Repeated || f.promoted)
+			t.judged = t.judged || !f.promoted
 			if f.Every > 1 {
 				t.every[f.Every] = true
 			}
@@ -753,7 +761,7 @@ func settleFlaky(chains []*gateChain) []string {
 	for _, call := range order {
 		t := totals[call]
 		kind := "intermittent"
-		if t.repeated {
+		if t.repeated && t.judged {
 			kind = "repeated"
 		}
 		for _, g := range chains {
@@ -773,6 +781,96 @@ func settleFlaky(chains []*gateChain) []string {
 		out = append(out, fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains))
 	}
 	return out
+}
+
+func foldFlaky(chains []*gateChain) {
+	found := map[string]bool{}
+	for _, g := range chains {
+		for call := range g.flaky {
+			found[call] = true
+		}
+		for call, e := range g.errors {
+			found[call] = found[call] || e.Every > 1
+		}
+	}
+	explained := make([]map[string]bool, len(chains))
+	for i, g := range chains {
+		explained[i] = g.explainedBy(found)
+	}
+	folded := func(i int, it gateItem) bool {
+		return explained[i][it.from+" "+it.Step] || explained[i][it.from+" "+it.SuspectStep]
+	}
+	listKey := func(it gateItem) string {
+		return methodName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1")
+	}
+	elsewhere := map[string]bool{}
+	for i, g := range chains {
+		for _, it := range g.items {
+			if it.Kind == "membership" && !folded(i, it) {
+				elsewhere[listKey(it)] = true
+			}
+		}
+	}
+	for i, g := range chains {
+		kept := g.items[:0:0]
+		for _, it := range g.items {
+			if !folded(i, it) || it.Kind == "membership" && elsewhere[listKey(it)] {
+				kept = append(kept, it)
+			}
+		}
+		if len(kept) == len(g.items) || !g.failed {
+			continue
+		}
+		if len(kept) == 0 {
+			g.items, g.flakyOnly, g.otherFail = nil, true, false
+			continue
+		}
+		g.items = kept
+		if _, ok := g.firstItem(); !ok {
+			it := kept[0]
+			for _, k := range kept {
+				if k.Failed {
+					it = k
+					break
+				}
+			}
+			g.first, g.firstAt = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline()), it.Step+" "+it.Path
+			if it.Class != "" && g.class != "not as pinned" {
+				g.class = it.Class
+			}
+		}
+	}
+}
+
+func (g *gateChain) explainedBy(found map[string]bool) map[string]bool {
+	for call, e := range g.errors {
+		if _, ok := g.flaky[call]; !ok && found[call] {
+			if g.flaky == nil {
+				g.flaky = map[string]gateFlaky{}
+			}
+			e.promoted = true
+			g.flaky[call] = e
+		}
+	}
+	explained := map[string]bool{}
+	for grew := len(g.errored) > 0; grew; {
+		grew = false
+		own := map[string]bool{}
+		for _, it := range g.items {
+			key := it.from + " " + it.Step
+			if _, ok := own[key]; !ok {
+				own[key] = true
+			}
+			call := g.errored[key]
+			own[key] = own[key] && (call == it.Call && found[call] || explained[it.from+" "+it.SuspectStep])
+		}
+		for step, ok := range own {
+			if ok && !explained[step] {
+				explained[step], grew = true, true
+			}
+		}
+	}
+	return explained
 }
 
 func runGate(ctx context.Context, args []string) error {
@@ -838,6 +936,7 @@ func runGate(ctx context.Context, args []string) error {
 		}
 	}
 	mergeProfiles(chains)
+	foldFlaky(chains)
 	settleGate(chains)
 	headlineGate(chains)
 	flakyFindings := settleFlaky(chains)
@@ -1030,6 +1129,17 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 		g.flaky[f.Call] = f
 	}
+	if g.errors == nil {
+		g.errors, g.errored = map[string]gateFlaky{}, map[string]string{}
+	}
+	for _, f := range append(append([]gateFlaky{}, out.side.Flaky...), out.side.Errors...) {
+		for _, s := range f.Steps {
+			g.errored[what+" "+s] = f.Call
+		}
+	}
+	for _, f := range out.side.Errors {
+		g.errors[f.Call] = f
+	}
 	for _, line := range strings.Split(out.stdout, "\n") {
 		line = strings.TrimSpace(line)
 		if !gateNotable.MatchString(line) {
@@ -1106,7 +1216,10 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if what == "verify" {
 			g.adoptBlame(out.side)
 		}
-		g.items = append(g.items, out.side.Items...)
+		for _, it := range out.side.Items {
+			it.from = what
+			g.items = append(g.items, it)
+		}
 		for step, sent := range out.side.Sent {
 			if g.sent == nil {
 				g.sent = map[string]string{}
