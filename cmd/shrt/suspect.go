@@ -274,7 +274,10 @@ func (a attribution) of(step, path string) blame {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref, up)
+		b.write, b.cascade = up.write, up.cascade
+		if !strings.HasPrefix(b.cascade, "unevaluated because ") {
+			b.cascade = "unevaluated because " + a.lost(src, ref, up)
+		}
 		if b.write < 0 {
 			b.write = a.index(src)
 		}
