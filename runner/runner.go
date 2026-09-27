@@ -1609,7 +1609,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		for name, path := range step.Export {
 			v, ok := chain.Get(decoded, path)
 			if !ok {
-				missing := fmt.Sprintf("export %q: path %q missing in response", name, path)
+				missing := fmt.Sprintf("export %q: path %q missing in response%s", name, path, chain.NearResponsePath(method, path))
 				if sr.AssertionFailed() {
 					missing = failedExpectations(sr) + "; " + missing
 				}
