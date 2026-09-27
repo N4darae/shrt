@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
@@ -36,12 +37,16 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 		seen[s] = true
 		candidates = append(candidates, outsideValue{path: path, value: s})
 	}
+	creates := target.Call != "" && !chain.IsReadOnlyCall(target.Call)
 	for _, ex := range target.Expect {
 		if ex.Passed || ex.Rule == "unevaluated" {
 			continue
 		}
-		addCandidate(ex.Path, ex.Got)
 		item := listItemPrefix(ex.Path)
+		if item == "" && creates {
+			continue
+		}
+		addCandidate(ex.Path, ex.Got)
 		if item == "" {
 			continue
 		}

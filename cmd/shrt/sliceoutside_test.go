@@ -41,3 +41,21 @@ func TestASliceFailureReadingAnOrderNoStepCreatedIsACaveat(t *testing.T) {
 		t.Errorf("a failure over what the slice created carries no caveat: %v", got)
 	}
 }
+
+func TestAnIdTheFailingWriteItselfAnsweredIsNotOutsideState(t *testing.T) {
+	create := &runner.StepRecord{ID: "create_order", Call: "shop.orders.v1.OrderService/CreateOrder", Status: runner.StatusPassed,
+		Request:  json.RawMessage(`{"idempotency_key":"k-1"}`),
+		Response: json.RawMessage(`{"order":{"id_order":"ord-aaaaaaaaaaa1"}}`)}
+	replay := &runner.StepRecord{ID: "create_order_replay", Call: "shop.orders.v1.OrderService/CreateOrder", Status: runner.StatusFailed,
+		Request:  json.RawMessage(`{"idempotency_key":"k-1"}`),
+		Response: json.RawMessage(`{"order":{"id_order":"ord-bbbbbbbbbbb2"}}`),
+		Expect:   []chain.ExpectResult{{Path: "order.id_order", Rule: "equals", Want: "ord-aaaaaaaaaaa1", Got: "ord-bbbbbbbbbbb2"}}}
+	run := &runner.Record{RunID: "slice", Steps: []*runner.StepRecord{create, replay}}
+	if got := outsideState(run, replay); len(got) != 0 {
+		t.Errorf("the replay created ord-bbbbbbbbbbb2 itself, inside the slice: %v", got)
+	}
+	replay.Call = "shop.orders.v1.OrderService/FetchOrder"
+	if got := outsideState(run, replay); len(got) != 1 {
+		t.Errorf("a read answering an id no step sent or received did not create it: %v", got)
+	}
+}
