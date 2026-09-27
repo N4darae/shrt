@@ -79,8 +79,8 @@ func TestPlanSendsABatchTwelveItemsEachNamingItsOwnResource(t *testing.T) {
 			t.Fatalf("only the first and the last line are asserted one by one, got %s:\n%s", e.Path, text)
 		}
 	}
-	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_12_lines"), "product.qty_on_hand", "${add_stock_batch_12_lines.results.0.qty_on_hand}")
-	wantExpect(t, planStep(t, p, "get_product_12_after_add_stock_batch_12_lines"), "product.qty_on_hand", "${add_stock_batch_12_lines.results.11.qty_on_hand}")
+	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_12_lines"), "product.qty_on_hand", int64(9))
+	wantExpect(t, planStep(t, p, "get_product_12_after_add_stock_batch_12_lines"), "product.qty_on_hand", int64(14))
 	planStep(t, p, "create_product_12")
 	if !strings.Contains(notes, "add_stock_batch_12_lines sends 12") {
 		t.Fatalf("a note says why twelve: %s", notes)

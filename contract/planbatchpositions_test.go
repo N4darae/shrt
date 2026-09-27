@@ -31,8 +31,7 @@ func TestABatchIsProbedWithTheRefusedLineFirstLastAndNamingAnUnknownID(t *testin
 	before := planStep(t, p, "get_product_2_before_add_stock_batch_unknown_id_product_line")
 	after := planStep(t, p, "get_product_2_after_add_stock_batch_unknown_id_product_line")
 	wantExpect(t, after, "product.qty_on_hand", "${"+before.ID+".product.qty_on_hand}")
-	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_unknown_id_product_line"), "product.qty_on_hand",
-		"${add_stock_batch_unknown_id_product_line.results.0.qty_on_hand}")
+	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_unknown_id_product_line"), "product.qty_on_hand", int64(12))
 	wantExpect(t, planStep(t, p, "get_product_after_add_stock_batch_partial_first"), "product.qty_on_hand",
 		"${get_product_before_add_stock_batch_partial_first.product.qty_on_hand}")
 	if !strings.Contains(notes, "also refuse one line each") {
