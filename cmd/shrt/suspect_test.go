@@ -503,8 +503,8 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 		t.Errorf("without a reference the nearest write is named, got %+v", b)
 	}
 	moved := []diff.Change{{Step: "get_product", Path: "product.qty_on_hand", Kind: diff.KindChanged, Want: "15", Got: "14"}}
-	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.write >= 0 || b.why != "the write or the read: confirm_order (ConfirmOrder), or earlier create_order, create_product, answered as before" {
-		t.Errorf("against a reference where every write answered as before, the nearest is named first, got %+v", b)
+	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.write >= 0 || b.why != "the write or the read: create_order (CreateOrder), or earlier create_product, answered as before" {
+		t.Errorf("against a reference, a write refused as before is no candidate and the nearest other is named first, got %+v", b)
 	}
 }
 

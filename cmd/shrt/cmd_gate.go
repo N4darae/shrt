@@ -467,7 +467,7 @@ func (a attribution) item(it gateItem) gateItem {
 		}
 	}
 	if st, ok := a.rec.Step(it.Step); ok && st != nil {
-		if b.write < 0 && b.own == "" && isWrite(st) {
+		if b.write < 0 && (b.own == "" && isWrite(st) || b.own != "" && b.own == a.principal(st, path)) {
 			it.Variant = asOf(a.e, st)
 		}
 		switch {
@@ -1712,7 +1712,7 @@ func printGateGroups(chains []*gateChain) {
 			case it.or != "" || it.Passes && it.with == "":
 				continue
 			case it.Own != "":
-				gr := group(shortRPC(it.Call))
+				gr := group(it.ownKey())
 				gr.addPath(&gr.own, it.Own)
 				own(gr)
 			case it.Suspect != "" && it.Cascade != "":

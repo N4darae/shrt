@@ -398,7 +398,8 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 
 **How the gate names a suspect.** The read itself is the suspect when it fails with a server
 error, when it is refused, stops refusing, or its list holds another set of items while no write before it was
-refused, when only the order of a list changed or the item at a position moved elsewhere in it
+refused and no changed write made an item of it, when a read of the same record as another profile did not change
+(`differently as clerk than as default`, filed under the rpc as that profile), when only the order of a list changed or the item at a position moved elsewhere in it
 (matched by its id), when the write it observes returned the same field
 of the same record unchanged, or when it contradicts what two different writes answered. A write
 whose answer a read of the same record contradicts is the suspect, with both values shown; when
@@ -410,7 +411,8 @@ refused where it passed, and what follows it, to the first earlier write on its 
 answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
 rpc, or the write it blames there (`masked by`, `moved with`). Otherwise it is the write
 the read observes (the nearest earlier write on the same record, skipping a refused repeat or
-idempotent replay of an earlier write; when a reference shows several such writes all answered as
+idempotent replay of an earlier write and, against a reference, a write refused as before or one whose
+response lacks the field and whose contract declares `effects:` not moving it; when a reference shows several such writes all answered as
 before, `the write or the read` names them, nearest first and filed under it, unless exactly one of them since the
 last unchanged read of that record has contract `effects:` moving the field: that one is named); a list
 item's id links it to the writes naming that id; steps left unevaluated

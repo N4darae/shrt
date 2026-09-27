@@ -312,6 +312,9 @@ func (a attribution) of(step, path string) blame {
 	}
 	if list := ""; a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
 		if list = a.resized(step, path); list != "" {
+			if w := a.listedFrom(step, path); w >= 0 {
+				return blame{write: w}
+			}
 			b.own = fmt.Sprintf("%s answers another set of %s", methodName(st.Call), list)
 			if !a.writeChangedBefore(step) {
 				b.own += ", and the writes before it answered as before"
@@ -323,9 +326,16 @@ func (a attribution) of(step, path string) blame {
 		b.own = fmt.Sprintf("%s answers the same items in another order", methodName(st.Call))
 		return b
 	}
+	if why := a.principal(st, path); why != "" {
+		b.own = why
+		return b
+	}
 	b.write, b.knock = suspectWrite(a.rec, step, path, a.bad)
 	if b.knock && !a.explains(b.write, st, path) {
 		b.write, b.knock = -1, false
+	}
+	if b.write >= 0 && !b.knock && !a.bears(b.write, path) {
+		b.write = a.bearing(a.index(step), path)
 	}
 	if b.write >= 0 && !b.knock {
 		w := a.rec.Steps[b.write]
@@ -364,6 +374,9 @@ func (a attribution) asBefore(at int, path string, b blame) blame {
 	var earlier []string
 	leaf, movers, since := leafOf(path), []int{}, a.seenSince(at, path)
 	for _, i := range entityWrites(a.rec, at, path, a.bad, pos) {
+		if !a.bears(i, path) {
+			continue
+		}
 		if i > since && a.moves(i, leaf) {
 			movers = append(movers, i)
 		}
