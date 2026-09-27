@@ -189,7 +189,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			side.Items = append(side.Items, a.item(gateItem{Step: ch.Step, Call: st.Call, Path: ch.Path, Want: want, Got: got}))
 		}
 	}
-	side.Sent = firstSent(rec, side.Items)
+	side.Sent = firstSent(e, rec, side.Items)
 	return side
 }
 
@@ -227,7 +227,7 @@ func pastEnd(st *runner.StepRecord, path string) string {
 	return ""
 }
 
-func firstSent(rec *runner.Record, items []gateItem) map[string]string {
+func firstSent(e *env, rec *runner.Record, items []gateItem) map[string]string {
 	if len(items) == 0 {
 		return nil
 	}
@@ -240,6 +240,9 @@ func firstSent(rec *runner.Record, items []gateItem) map[string]string {
 		for _, step := range []string{it.Step, it.SuspectStep} {
 			if st, ok := rec.Step(step); ok && st != nil {
 				if sent := sentText(st); sent != "" {
+					if asOf(e, st) == "" {
+						sent = strings.TrimPrefix(sent, " as "+st.AuthProfile)
+					}
 					out[step] = sent
 				}
 			}
@@ -458,14 +461,14 @@ func (a attribution) item(it gateItem) gateItem {
 	if wi >= 0 {
 		w := a.rec.Steps[wi]
 		it.Suspect, it.SuspectStep, it.KnockOn = w.Call, w.ID, b.knock
-		it.Variant = asOf(w)
+		it.Variant = asOf(a.e, w)
 		if !a.root(w.ID) {
-			it.Variant = variantOf(w)
+			it.Variant = a.variantOf(w)
 		}
 	}
 	if st, ok := a.rec.Step(it.Step); ok && st != nil {
 		if b.write < 0 && b.own == "" && isWrite(st) {
-			it.Variant = asOf(st)
+			it.Variant = asOf(a.e, st)
 		}
 		switch {
 		case a.flipped(st) != "":
@@ -491,16 +494,17 @@ func (a attribution) root(step string) bool {
 	return false
 }
 
-func asOf(w *runner.StepRecord) string {
-	if p := profileOf(w); p != "default" {
-		return "as " + p
+func asOf(e *env, w *runner.StepRecord) string {
+	p := profileOf(w)
+	if p == "default" || p == runner.NoAuthProfile && e != nil && e.cfg != nil && e.cat != nil && loginRPCs(e)[w.Call] {
+		return ""
 	}
-	return ""
+	return "as " + p
 }
 
-func variantOf(w *runner.StepRecord) string {
+func (a attribution) variantOf(w *runner.StepRecord) string {
 	var parts []string
-	if as := asOf(w); as != "" {
+	if as := asOf(a.e, w); as != "" {
 		parts = append(parts, as)
 	}
 	if why := refusalOf(w); why != "" {
@@ -594,7 +598,7 @@ func verifySidecar(e *env, rec *runner.Record, report *diff.Report, latency []di
 	if latencyPolicy(e).Fail {
 		side.Items = append(side.Items, latencyItems(latency)...)
 	}
-	side.Sent = firstSent(rec, side.Items)
+	side.Sent = firstSent(e, rec, side.Items)
 	return side
 }
 

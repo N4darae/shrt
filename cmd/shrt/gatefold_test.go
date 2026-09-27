@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog/catalogtest"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 )
@@ -45,5 +47,22 @@ func TestAReadAttributedToAWriteIsGroupedAndPinnedUnderThatWrite(t *testing.T) {
 	if strings.Contains(out, "ProductService/GetProduct:") || !strings.Contains(out, "OrderService/ConfirmOrder: suspect the write: "+firm) ||
 		!strings.Contains(out, "+3 step(s) after it: GetProduct product.qty_on_hand") {
 		t.Errorf("each read moved by ConfirmOrder is a step after ConfirmOrder, not a GetProduct suspect:\n%s", out)
+	}
+}
+
+func TestTheLoginRpcCarriesNoProfileSuffix(t *testing.T) {
+	const login, create = "shrt.test.v1.AuthService/Login", "shrt.test.v1.ThingService/Create"
+	e := &env{cat: catalogtest.New(), cfg: &config.Config{Auth: &config.Auth{Call: login}}}
+	for _, c := range []struct {
+		call, profile, want string
+	}{
+		{login, runner.NoAuthProfile, ""},
+		{create, runner.NoAuthProfile, "as none"},
+		{create, "clerk", "as clerk"},
+		{create, "", ""},
+	} {
+		if got := asOf(e, &runner.StepRecord{Call: c.call, AuthProfile: c.profile}); got != c.want {
+			t.Errorf("%s %q: got %q, want %q", c.call, c.profile, got, c.want)
+		}
 	}
 }
