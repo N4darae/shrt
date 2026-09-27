@@ -143,7 +143,7 @@ func writeGateSidecar(side gateSidecar) {
 	}
 }
 
-func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change, against *diff.RunReport) gateSidecar {
+func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change, against *diff.RunReport, ref *runner.Record) gateSidecar {
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
@@ -155,6 +155,11 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 		}
 	}
 	a := pinnedAttribution(e, rec, heldPins)
+	var since []diff.Change
+	if ref != nil && !rec.Passed() {
+		since = diff.CompareRunsSkipping(ref, rec, currentVolatile(e, rec.Chain), requestFixtures(c)).Changes
+		a.was = wasOr(a.was, since)
+	}
 	for _, st := range rec.Steps {
 		if st == nil || st.Status == runner.StatusSkipped {
 			continue
@@ -179,6 +184,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			side.Items = append(side.Items, a.item(gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)}))
 		}
 	}
+	side.Items = withRootChanges(a, rec, side.Items, since)
 	if against != nil {
 		a = changesAttribution(e, rec, against.Changes)
 	}
@@ -327,6 +333,45 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 			}
 			return nil, false
 		},
+	}
+}
+
+func withRootChanges(a attribution, rec *runner.Record, items []gateItem, since []diff.Change) []gateItem {
+	has, need := map[string]bool{}, map[string]bool{}
+	for _, it := range items {
+		has[it.Step] = true
+		need[it.SuspectStep] = it.SuspectStep != ""
+	}
+	for _, ch := range since {
+		st, ok := rec.Step(ch.Step)
+		if !need[ch.Step] || has[ch.Step] || ch.Kind != diff.KindChanged || !ok || st == nil {
+			continue
+		}
+		want, got := gatePair(ch.Want, ch.Got)
+		it := a.item(gateItem{Step: ch.Step, Call: st.Call, Path: ch.Path, Want: want, Got: got})
+		at := len(items)
+		for i, x := range items {
+			if a.index(x.Step) > a.index(ch.Step) {
+				at = i
+				break
+			}
+		}
+		items = append(items[:at], append([]gateItem{it}, items[at:]...)...)
+	}
+	return items
+}
+
+func wasOr(was func(step, path string) (any, bool), changes []diff.Change) func(step, path string) (any, bool) {
+	return func(step, path string) (any, bool) {
+		if v, ok := was(step, path); ok {
+			return v, ok
+		}
+		for _, c := range changes {
+			if c.Step == step && c.Path == path && c.Kind == diff.KindChanged {
+				return c.Want, true
+			}
+		}
+		return nil, false
 	}
 }
 
@@ -1643,7 +1688,7 @@ func settleKeptRed(chains []*gateChain) {
 				switch {
 				case by != it.Call && it.Own == "" && methodName(it.Suspect) != methodName(by):
 					g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why, g.items[i].Variant = p.it.Suspect, p.it.SuspectStep, "", p.it.Variant
-				case by == it.Call && it.Suspect != "" && it.Own == "":
+				case by == it.Call && it.Suspect != "" && it.Own == "" && (p.it.Own != "" || it.Pinned != ""):
 					g.items[i].Own, g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why, g.items[i].Variant = p.it.Own, "", "", "", ""
 				}
 				break
