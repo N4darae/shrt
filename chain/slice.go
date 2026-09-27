@@ -29,7 +29,7 @@ const RefusedNotSent = "not sent"
 func DefaultReadOnlyPrefixes() []string {
 	return []string{
 		"Fetch", "Get", "List", "Preview", "Search",
-		"Read", "Query", "Find", "Lookup", "Describe", "Show", "Count", "Export", "Download", "Retrieve",
+		"Read", "Query", "Find", "Lookup", "Describe", "Show", "Count", "Export", "Download", "Retrieve", "Watch", "Subscribe",
 	}
 }
 
