@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 )
 
@@ -52,7 +53,7 @@ func renameable(path string, want, got any) bool {
 	if !idValue(want) || !idValue(got) || jsonKind(want) != jsonKind(got) {
 		return false
 	}
-	if idNamed(lastKey(path)) {
+	if namecase.IDNamed(lastKey(path)) {
 		return sameScalar(want, got) || sameShape(want, got)
 	}
 	return bothAre(want, got, uuidShape.MatchString)
@@ -68,19 +69,8 @@ func idValue(v any) bool {
 	return false
 }
 
-func idNamed(key string) bool {
-	lower := strings.ToLower(key)
-	switch {
-	case lower == "id", lower == "ids", lower == "idempotency_key",
-		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"), strings.HasPrefix(lower, "id_"),
-		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelIDPrefix(key):
-		return true
-	}
-	return false
-}
-
 func IDNamedPath(path string) bool {
-	return idNamed(lastKey(path))
+	return namecase.IDNamed(lastKey(path))
 }
 
 func idKey(v any) string {

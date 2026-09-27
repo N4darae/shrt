@@ -44,6 +44,7 @@ func Lint(c *Chain, cat *catalog.Catalog) []Issue {
 func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues := []Issue{}
 	issues = append(issues, lintVars(c)...)
+	issues = append(issues, lintVolatileIDs(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
 	issues = append(issues, lintAuthEnv(c, opts)...)
@@ -66,6 +67,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintWholeTag(c, s, m)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
+		issues = append(issues, lintAbsentReads(c, s, known)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
 		for _, why := range never {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})

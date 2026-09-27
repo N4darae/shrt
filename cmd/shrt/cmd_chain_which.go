@@ -111,7 +111,7 @@ func describeWhichQuery(q chain.WhichQuery) string {
 }
 
 func sliceSizeOf(e *env, lib *contract.Library) func(*chain.Chain, string) (int, bool) {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 	return func(c *chain.Chain, step string) (int, bool) {
 		res, err := chain.Slice(c, step, opts)
 		if err != nil {
@@ -205,7 +205,7 @@ func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*cha
 		if err != nil {
 			continue
 		}
-		o := chain.SliceOptions{Mode: chain.SliceModePin, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), RunID: rec.RunID,
+		o := chain.SliceOptions{Mode: chain.SliceModePin, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib), RunID: rec.RunID,
 			Value: recordValues(rec), RunVars: recordVars(rec), Refused: refusedIn(rec), Performed: performedIn(rec)}
 		res, err := chain.Slice(c, h.Best, o)
 		if err != nil {
@@ -254,7 +254,7 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 		if err != nil {
 			continue
 		}
-		o := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
+		o := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 		plain, err := chain.Slice(c, h.Best, o)
 		if err != nil {
 			continue
@@ -285,7 +285,7 @@ func freshVarFlags(fresh []string) string {
 }
 
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib)}
+	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 	login := isLoginStep(e)
 	return func(c *chain.Chain, step, run string) []string {
 		o := opts

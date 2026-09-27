@@ -440,7 +440,8 @@ Reading the report:
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
   name or a `${uuid}`, and counts them under `-v`; `-masked` lists them. A volatile value that was lost (null,
   empty, gone) is still reported, as is a volatile list's length when the step's expectation on it
-  failed. Anything else that changes every run belongs in `volatile`.
+  failed. Anything else that changes every run belongs in `volatile`; ids do not (verify pairs
+  them across runs, and a volatile id hides a stale one).
 - It compares what each step SENT first. A changed request (`request differs ...`) or a changed
   chain (`chain differs ...`) gives `drift with different input` or `drift after a chain change`
   when it explains every response change, otherwise `regression`.
@@ -518,8 +519,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 
 1. **Read the reason on every kept step**: `target`, `produces ${x} used by <step>`,
    `contract needs <rpc> (<edge>)`, or `changes the state <rpc> sets on <step>`. It keeps the
-   producers of what kept steps reference, the contracts' prerequisites, and earlier writes that act
-   on an entity the kept steps use.
+   producers of what kept steps reference, the contracts' prerequisites, earlier writes that act
+   on an entity the kept steps use, and earlier writes that send a unique value (id, unique or
+   idempotency field; any field without a contract) the target sends again, compared ignoring case.
 2. **Read `unmet prerequisites` and `WARNING possible under-inclusion`** before trusting the size:
    a dropped earlier write can be state the target needed, and the slice can go green without it.
 3. **`-write [name]`, then `chain lint` it.** `-write` and `-write <name>.yaml` put the file beside

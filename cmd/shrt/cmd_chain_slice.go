@@ -146,6 +146,7 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		return err
 	}
 	opts.Prereqs = contract.PrereqsFor(lib)
+	opts.KeyField = contract.KeyFieldFor(lib)
 	var rec *runner.Record
 	if *runID == "" {
 		if err := runRequired(*mode, *verify); err != nil {
