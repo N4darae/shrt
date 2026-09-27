@@ -38,7 +38,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 		"ran probe-orders -keep-going: run ",
 		"again with -keep add_stock",
 		"wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red on cancel_confirmed at status.code",
-		"wrote .shrt/chains/probe-orders.yaml: cancel_confirmed left out",
+		"wrote .shrt/chains/probe-orders.yaml: probe-orders no longer runs cancel_confirmed: kept red in probe-orders-slice-cancel_confirmed",
 		"verify reproduced",
 		", passed",
 	} {
@@ -211,8 +211,11 @@ func TestChainPinGivesSeparateDefectsTheirOwnSliceAndLeavesTheChainGreen(t *test
 			t.Fatalf("slice of %s keeps red only its own step, got %v\n%s", target, pins[target], out)
 		}
 	}
-	if !strings.HasSuffix(strings.TrimSpace(out), ", passed") {
-		t.Fatalf("pin ends on the rewritten chain's own green run:\n%s", out)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	want := "wrote .shrt/chains/probe-two.yaml: probe-two no longer runs add_stock_extra: kept red in probe-two-slice-add_stock_extra; " +
+		"confirm_big: kept red in probe-two-slice-confirm_big; cancel_confirmed: kept red in probe-two-slice-cancel_confirmed"
+	if len(lines) < 2 || !strings.HasSuffix(lines[len(lines)-2], ", passed") || lines[len(lines)-1] != want {
+		t.Fatalf("pin ends on the rewritten chain's green run, then one line naming what it no longer runs and where each went:\n%s", out)
 	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-two", "-quiet"}) })
 	if err != nil {
@@ -277,7 +280,7 @@ func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFile
 	if err != nil {
 		t.Fatalf("pin: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "wrote .shrt/chains/probe-wipe.yaml: cancel_order, fetch_after_cancel left out") {
+	if !strings.Contains(out, "wrote .shrt/chains/probe-wipe.yaml: probe-wipe no longer runs cancel_order, fetch_after_cancel: kept red in probe-wipe-slice-cancel_order") {
 		t.Fatalf("the read-back that failed right after the pinned write leaves the chain with it:\n%s", out)
 	}
 	slice, err := chain.LoadFile(".shrt/chains/probe-wipe-slice-cancel_order.yaml")
@@ -296,5 +299,19 @@ func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFile
 	want := pinReadBackChain[:cancelAt+1] + pinReadBackChain[getAt:]
 	if raw, _ := os.ReadFile(".shrt/chains/probe-wipe.yaml"); string(raw) != want {
 		t.Fatalf("only the pinned steps leave the file, the rest stays as written:\n%s\nwant:\n%s", raw, want)
+	}
+}
+
+func TestPinNamesTheReadsOfAPinnedStepThatNoSliceHolds(t *testing.T) {
+	c := &chain.Chain{Name: "src", Steps: []*chain.Step{
+		{ID: "make", Call: "S/Create", Export: map[string]string{"id": "thing.id"}},
+		{ID: "confirm", Call: "S/Confirm", Body: map[string]any{"id": "${id}"}, Export: map[string]string{"ref": "ref"}},
+		{ID: "read_ref", Call: "S/Get", Body: map[string]any{"ref": "${ref}"}},
+		{ID: "read_make", Call: "S/Get", Body: map[string]any{"id": "${id}"}},
+	}}
+	slice := &chain.Chain{Name: "src-slice-confirm", Steps: c.Steps[:2]}
+	got := movedSteps(c, slice, []string{"confirm"})
+	if want := "confirm: kept red in src-slice-confirm; read_ref: in no slice"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
