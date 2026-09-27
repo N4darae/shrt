@@ -82,6 +82,7 @@ type gateItem struct {
 	Inputs      string `json:"inputs,omitempty"`
 	Failed      bool   `json:"failed,omitempty"`
 	Passes      bool   `json:"passes,omitempty"`
+	Order       string `json:"order,omitempty"`
 
 	or        string
 	with      string
@@ -596,6 +597,9 @@ func (it gateItem) ownKey() string {
 }
 
 func (it gateItem) shown() (string, string) {
+	if it.Kind == "order" && it.Order != "" {
+		return listOf(it.Path), "same items in another order (" + it.Order + ")"
+	}
 	if it.Kind == "order" {
 		return listOf(it.Path), "same items in another order"
 	}
@@ -695,6 +699,9 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		}
 		it := a.item(gateItem{Step: c.Step, Call: call, Path: path, Rule: rule, Want: want, Got: got, Failed: failed})
 		it.Class = report.Class(c)
+		if it.Kind == "order" {
+			it.Order = orderKey(rec, report.Changes, it.Step, it.Path)
+		}
 		for _, l := range report.Changes {
 			if l.Kind == diff.KindLength && l.Detail != diff.VolatileFailed && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
 				it.Length = fmt.Sprintf("%s length want=%s got=%s", l.Path, compactValue(l.Want), compactValue(l.Got))

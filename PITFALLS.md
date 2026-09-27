@@ -280,7 +280,8 @@ nothing and stays masked. **Fix.** Treat it as a real change.
 
 ## 45. `order changed`, or `same items in another order`
 
-**Cause.** The list holds the safe spot's items in another order. **Fix.** Declare
+**Cause.** The list holds the safe spot's items in another order (`now by name, was by sku` when
+one item field orders each). **Fix.** Declare
 `unordered: [<list>]` only if its order varies between runs of one release; otherwise, or when a
 positional expectation fails, it is a regression.
 

@@ -61,7 +61,7 @@ func staticText(c *Chain, v any, depth int) (string, bool) {
 	return "", false
 }
 
-func staticLess(a, b string) (bool, bool) {
+func StaticLess(a, b string) (bool, bool) {
 	x, errX := strconv.ParseFloat(a, 64)
 	y, errY := strconv.ParseFloat(b, 64)
 	if errX == nil && errY == nil {
@@ -163,7 +163,7 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		for i := 0; i+1 < len(steps) && ascending; i++ {
 			a, okA := staticText(c, steps[i].Body[f], 0)
 			b, okB := staticText(c, steps[i+1].Body[f], 0)
-			less, known := staticLess(a, b)
+			less, known := StaticLess(a, b)
 			ascending = okA && okB && known && less
 		}
 		if ascending {
