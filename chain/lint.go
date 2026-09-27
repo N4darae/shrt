@@ -213,7 +213,33 @@ func (x *refIndex) laterExport(name string) string {
 	return ""
 }
 
+func fitIndexes(fields []*catalog.Field, segs []string) []string {
+	out := []string{}
+	var last *catalog.Field
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			if last == nil || last.Repeated {
+				out = append(out, seg)
+			}
+			continue
+		}
+		last = nil
+		for _, f := range fields {
+			if f.Name == seg || f.JSONName == seg || namecase.Equal(f.Name, seg) {
+				last = f
+			}
+		}
+		if last == nil || last.Truncated || last.MapKey != "" {
+			return append(out, segs[i:]...)
+		}
+		out = append(out, seg)
+		fields = last.Fields
+	}
+	return out
+}
+
 func nearPath(fields []*catalog.Field, segs []string) string {
+	top := fields
 	for i, seg := range segs {
 		if isIndexSegment(seg) {
 			continue
@@ -243,7 +269,8 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 			}
 			quoted := make([]string, 0, len(near))
 			for _, n := range near {
-				quoted = append(quoted, strconv.Quote(strings.Join(append(append(append([]string{}, segs[:i]...), n), segs[i+1:]...), ".")))
+				path := append(append(append([]string{}, segs[:i]...), strings.Split(n, ".")...), segs[i+1:]...)
+				quoted = append(quoted, strconv.Quote(strings.Join(fitIndexes(top, path), ".")))
 			}
 			if len(quoted) == 0 {
 				return ""
