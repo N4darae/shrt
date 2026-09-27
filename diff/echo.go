@@ -12,6 +12,7 @@ const minRenamedID = 4
 type comparedStep struct {
 	id        string
 	want, got any
+	sent      any
 	mask      *pathmask.Masker
 }
 
