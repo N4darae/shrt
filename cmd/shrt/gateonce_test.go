@@ -137,3 +137,21 @@ func TestARunItemPastTheEndOfItsListCarriesTheLength(t *testing.T) {
 		t.Errorf("an item the list holds has no length headline, got %q", got)
 	}
 }
+
+func TestTheGateHeadlinesADeterministicChangeOverTheIntermittentOne(t *testing.T) {
+	flakyAt := gateItem{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "(failed)", Got: "internal: pool exhausted", Failed: true, Class: "regression"}
+	slow := gateItem{Step: "fetch2", Call: "shrt.test.v1.ThingService/Fetch", Path: "latency", Want: "0ms", Got: "701ms", Class: "latency"}
+	gateWorkspace(t, map[string][]gateOutcome{
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{flakyAt, slow},
+			Flaky: []gateFlaky{{Call: flakyAt.Call, Failed: 1, Calls: 2, Steps: []string{"fetch"}}}}}},
+	})
+	out, _ := runGateOut(t)
+	for _, want := range []string{
+		"FAIL       cli-thing-flow  latency: fetch2 (ThingService/Fetch) latency safe spot 0ms, now 701ms (+701ms)\n",
+		"  FINDING: intermittent failure at ThingService/Fetch, below\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+}

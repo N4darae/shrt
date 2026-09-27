@@ -1078,11 +1078,17 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 		if g.first == "" {
 			if len(out.side.Items) > 0 && out.side.KeptRed != runner.KeptRedGone {
-				it := out.side.Items[0]
+				it, rank := out.side.Items[0], -1
 				for _, f := range out.side.Items {
+					r := 0
 					if f.Failed {
-						it = f
-						break
+						r++
+					}
+					if fl, ok := g.flaky[f.Call]; !ok || !containsName(fl.Steps, f.Step) {
+						r += 2
+					}
+					if r > rank {
+						it, rank = f, r
 					}
 				}
 				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
