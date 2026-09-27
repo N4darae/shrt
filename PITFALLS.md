@@ -303,12 +303,10 @@ failing at a fixed cadence (every Nth call), and every chain its errors explain 
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 
-**Cause.** Sessions may end before their stated expiry, or the backend restarted. Cached tokens
-refused early three times in a row, each issued by the re-login after the last refusal, are a
-`FINDING`. **Fix.** Write a short chain whose reads carry `wait:` longer than the suspected lifetime
-and shorter than the stated one, twice in a row after the login; against a backend ending sessions
-early it prints `FINDING: token refused ...` (exit 1), otherwise it passes. Keep it out of the
-per-commit gate.
+**Cause.** Sessions may end before their stated expiry, or the backend restarted. **Fix.** Write a
+short chain whose reads carry `wait:` longer than the suspected lifetime and shorter than the stated
+one, twice in a row after the login; against a backend ending sessions early it prints
+`FINDING: token refused ...` (exit 1), otherwise it passes. Keep it out of the per-commit gate.
 
 ## 50. `drift after a chain change` or `drift with different input`, not `regression`
 

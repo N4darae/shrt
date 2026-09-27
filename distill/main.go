@@ -205,7 +205,7 @@ var notes = map[string]string{
 	"StepRecord.note":              "Runner commentary, e.g. whether a login seeded a profile's token.",
 	"StepRecord.auth_retry":        "`resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent.",
 	"StepRecord.first_attempt":     "A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING.",
-	"StepRecord.token_refused":     "Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal, or three in a row across runs, is a `FINDING`.",
+	"StepRecord.token_refused":     "Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal is a `FINDING`.",
 	"StepRecord.auth_profile":      "The profile whose token the step carried: `default`, a profile name, `invalid`, or `none`.",
 	"StepRecord.auth_principal":    "Digest of the account the profile logged in as, no secret in it; `verify` compares it.",
 	"StepRecord.volatile":          "Step-level volatile patterns.",

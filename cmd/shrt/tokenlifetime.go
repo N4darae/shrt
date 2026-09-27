@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/transport"
@@ -21,10 +20,7 @@ type tokenLifetime struct {
 	prevRun string
 	prev    *earlyRefusal
 	restart string
-	relogin []time.Time
 }
-
-const reloginWindow = 2 * time.Minute
 
 func earlyRefusals(rec *runner.Record) []earlyRefusal {
 	if rec == nil || rec.DryRun {
@@ -61,10 +57,7 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 			break
 		}
 	}
-	if r := t.first.r; t.restart == "" && t.again == nil && r.Cached && r.FirstUse {
-		t.relogin = reloginChain(r)
-	}
-	if t.restart != "" || t.again != nil || len(t.relogin) > 0 || e == nil {
+	if t.restart != "" || t.again != nil || e == nil {
 		return t
 	}
 	mine := firstInRun(all)
@@ -83,25 +76,6 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 		}
 	}
 	return t
-}
-
-func reloginChain(r transport.TokenRefusal) []time.Time {
-	window := reloginWindow
-	if !r.IssuedAt.IsZero() && r.ExpiresAt.After(r.IssuedAt) {
-		window = max(window, r.ExpiresAt.Sub(r.IssuedAt))
-	}
-	at := r.RefusedAt
-	for i := len(r.Relogins) - 1; i >= 0; i-- {
-		if at.Sub(r.Relogins[i]) > window {
-			return r.Relogins[i+1:]
-		}
-		at = r.Relogins[i]
-	}
-	return r.Relogins
-}
-
-func clock(t time.Time) string {
-	return t.UTC().Format("15:04:05Z")
 }
 
 func refusedEarly(st *runner.StepRecord) bool {
@@ -180,7 +154,7 @@ func sessionRestartEvidence(rec *runner.Record, index int) string {
 }
 
 func (t *tokenLifetime) finding() bool {
-	return t != nil && t.restart == "" && (t.again != nil || t.prev != nil || len(t.relogin) > 1)
+	return t != nil && t.restart == "" && (t.again != nil || t.prev != nil)
 }
 
 func (t *tokenLifetime) cachedFirstUse() bool {
@@ -216,21 +190,11 @@ func (t *tokenLifetime) line() string {
 			"a single restart does not end two sessions issued on either side of it, and nothing in this run shows a restart, "+
 			"so the backend ends sessions long before the expiry its login states. This is a finding about the backend",
 			strings.TrimPrefix(runner.TokenRefusalPhrase(t.again.r), "token "), t.again.step.Index, t.again.step.ID)
-	case len(t.relogin) > 1:
-		return fmt.Sprintf("%s (auth profile %s, step %s); it was issued by the re-login after the refusal at %s, whose token "+
-			"the re-login after the refusal at %s had issued: one restart does not explain three refusals in a row, so the "+
-			"backend ends sessions long before the expiry its login states", runner.TokenRefusalPhrase(t.first.r),
-			t.profile(t.first), t.first.step.ID, clock(t.relogin[1]), clock(t.relogin[0]))
 	case t.prev != nil:
 		return head + fmt.Sprintf(", and in run %s the token that run's login issued was %s (step %d %s): "+
 			"a restart would have to land inside both runs, and neither shows one, so the backend ends sessions long before the "+
 			"expiry its login states. This is a finding about the backend", t.prevRun,
 			strings.TrimPrefix(runner.TokenRefusalPhrase(t.prev.r), "token "), t.prev.step.Index, t.prev.step.ID)
-	}
-	if t.cachedFirstUse() && len(t.relogin) == 1 {
-		return fmt.Sprintf("cached %s (auth profile %s, step %s): possibly a second restart since the re-login after the refusal "+
-			"at %s issued it; logged in again, and refused early once more it is a FINDING",
-			runner.TokenRefusalPhrase(t.first.r), t.profile(t.first), t.first.step.ID, clock(t.relogin[0]))
 	}
 	if t.cachedFirstUse() {
 		return fmt.Sprintf("cached %s (auth profile %s, step %s): possibly a restart since the token was cached; logged in again",
