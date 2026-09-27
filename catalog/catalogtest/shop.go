@@ -65,7 +65,7 @@ func shopCommonFile() *descriptorpb.FileDescriptorProto {
 
 func shopCatalogFile() *descriptorpb.FileDescriptorProto {
 	return shopFile("shop.catalog.v1", []string{"shop.common.v1.proto"}, []*descriptorpb.DescriptorProto{
-		message("Product", str("id_product", 1), str("sku", 2), int64Field("price_minor", 3)),
+		message("Product", str("id_product", 1), str("sku", 2), int64Field("price_minor", 3), int64Field("qty_on_hand", 4)),
 		message("CreateProductRequest", str("sku", 1), str("name", 2), int64Field("price_minor", 3)),
 		message("CreateProductResponse", msg("status", 1, ".shop.common.v1.Status"), msg("product", 2, ".shop.catalog.v1.Product")),
 		message("GetProductRequest", str("id_product", 1)),

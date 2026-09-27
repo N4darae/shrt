@@ -400,7 +400,10 @@ refused, when only the order of a list changed or the item at a position moved e
 of the same record unchanged, or when it contradicts what two different writes answered. A write
 whose answer a read of the same record contradicts is the suspect, with both values shown. A
 change belongs to an earlier step when it is that step's answer for the same field of the same
-record, or a number that recomputes from values earlier steps changed (a total over lines). Otherwise it is the write
+record, or a number that recomputes from values earlier steps changed (a total over lines); a write
+refused where it passed, and what follows it, to the first earlier write on its record whose own
+answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
+rpc (`masked by`, `moved with`). Otherwise it is the write
 the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
 record, skipping a refused repeat or idempotent replay of an earlier write); steps left unevaluated
 behind a failed step fold under it.

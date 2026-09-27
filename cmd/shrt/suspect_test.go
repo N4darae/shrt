@@ -485,3 +485,28 @@ func TestAListItemIsTheWritesRecordOnlyWhenItsOwnIDMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestAnEarlierWriteThatChangedTheSameFieldOnTheRecordIsTheSuspectOfWhatFollows(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	order := `{"order":{"id_order":"o1","status":"ORDER_STATUS_PENDING"},` + shopOK + `}`
+	refused := `{"status":{"code":"REJECTED","details":[{"app_code":1305}]}}`
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1"},`+shopOK+`}`),
+		shopStep("add_stock", "shop.catalog.v1.StockService/AddStock", `{"qty_on_hand":"9",`+shopOK+`}`, "create_product").failing("qty_on_hand", "10", "9"),
+		shopStep("create_order", shopOrder, order, "create_product"),
+		shopStep("confirm_order", shopConfirm, order, "create_order"),
+		shopStep("get_product_after_confirm_order", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"7"},`+shopOK+`}`, "create_product").failing("product.qty_on_hand", "8", "7"),
+		shopStep("confirm_exact", shopConfirm, refused, "create_order").failing("status.code", "SUCCESS", "REJECTED"),
+		shopStep("fetch_order_after_confirm_exact", shopFetch, order, "create_order").failing("order.status", "ORDER_STATUS_CONFIRMED", "ORDER_STATUS_PENDING"),
+	)
+	for _, c := range []struct{ step, path string }{
+		{"get_product_after_confirm_order", "product.qty_on_hand"},
+		{"confirm_exact", "status.code"},
+		{"fetch_order_after_confirm_exact", "order.status"},
+	} {
+		if write, own, _ := blameOf(t, rec, c.step, c.path); write != "add_stock" || own != "" {
+			t.Errorf("%s: got write %q own %q, want add_stock, whose own qty_on_hand changed first", c.step, write, own)
+		}
+	}
+}

@@ -250,7 +250,7 @@ func (a attribution) of(step, path string) blame {
 			if w := a.recomputed(a.rec.Steps[e].ID, p); w >= 0 {
 				return blame{write: w}
 			}
-			return blame{write: e}
+			return blame{write: a.behind(e)}
 		}
 		return a.of(a.rec.Steps[e].ID, p)
 	}
@@ -258,6 +258,9 @@ func (a attribution) of(step, path string) blame {
 		return blame{write: w}
 	}
 	if isWrite(st) {
+		if a.flipped(st) != "" {
+			b.write = a.changedWriteBefore(step)
+		}
 		return b
 	}
 	if was, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
@@ -294,6 +297,9 @@ func (a attribution) of(step, path string) blame {
 			if up, why := a.afterFailedWrite(w.ID, p); up >= 0 {
 				return blame{write: up, cascade: why}
 			}
+		}
+		if up := a.behind(b.write); up != b.write {
+			return blame{write: up}
 		}
 	}
 	return b
@@ -747,12 +753,55 @@ func (a attribution) earlier(step, path string) (int, string) {
 		var wb any
 		_ = json.Unmarshal(w.Response, &wb)
 		for _, p := range a.changed(w.ID) {
-			if c, ok := carrierOf(wm, p); ok && c == want && sameEntity(body, path, wb, p) {
+			c, ok := carrierOf(wm, p)
+			if !ok || !sameEntity(body, path, wb, p) {
+				continue
+			}
+			if c == want || isWrite(w) && fieldOf(c) == fieldOf(want) && related(reach, at, i, w.ID) {
 				return i, p
 			}
 		}
 	}
 	return -1, ""
+}
+
+func (a attribution) behind(w int) int {
+	if a.flipped(a.rec.Steps[w]) != "" {
+		if up := a.changedWriteBefore(a.rec.Steps[w].ID); up >= 0 {
+			return up
+		}
+	}
+	return w
+}
+
+func (a attribution) changedWriteBefore(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	pos := map[string]int{}
+	for i, s := range a.rec.Steps {
+		if _, seen := pos[s.ID]; s != nil && !seen {
+			pos[s.ID] = i
+		}
+	}
+	reach := refReach(a.rec, pos)
+	for i := 0; i < at; i++ {
+		w := a.rec.Steps[i]
+		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) {
+			continue
+		}
+		for _, p := range a.changed(w.ID) {
+			if a.reordered == nil || !a.reordered(w.ID, p) {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func fieldOf(carrier string) string {
+	return carrier[strings.LastIndex(carrier, ".")+1:]
 }
 
 func related(reach func(int) map[string]bool, at, i int, id string) bool {
