@@ -185,7 +185,8 @@ input, so the fresh tag makes every verify of it drift. A slowdown fails the gat
 Left of `edit` is derivation, and the tool does it. Right of it is evidence. Yours is the middle:
 the test data, and the assertions that say what correct means. A gate runs
 `shrt chain lint -strict`, which fails the six assertion-quality warnings in the command table;
-other warnings, such as `unasserted-timestamp`, stay warnings and exit 0.
+other warnings, such as `unasserted-timestamp` (one line per lint; `-v` lists each step), stay
+warnings and exit 0.
 Authoring the contract itself is a different loop, fed by `shrt contract quality`
 (`PLAYBOOK.md` §7).
 
