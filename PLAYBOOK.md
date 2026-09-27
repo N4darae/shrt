@@ -345,7 +345,7 @@ shrt run <name> -dry-run        # resolve and validate, send nothing; does not l
 shrt run <name>
 ```
 
-Progress lines start with the step status: `ok`, `FAIL` (answered, an expectation did not hold),
+Progress lines start with the step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the request),
 `ERROR` (the step never completed), `SKIP` (held back under `-keep-going`), `--` (dry run).
 `shrt run` refuses before sending anything a chain with a missing var, an unset env var, a
 reference to a field the producing message does not declare, or a body the proto rejects in any
