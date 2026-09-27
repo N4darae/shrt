@@ -530,3 +530,19 @@ func TestAnEarlierWriteThatChangedTheSameFieldOnTheRecordIsTheSuspectOfWhatFollo
 		}
 	}
 }
+
+func TestAWriteAnsweringItsListInAnotherOrderThanTheReadSaysSo(t *testing.T) {
+	stored := `{"order":{"id_order":"o1","lines":[{"id_product":"a","qty":"2"},{"id_product":"b","qty":"3"}]}}`
+	reversed := `{"order":{"id_order":"o1","lines":[{"id_product":"b","qty":"3"},{"id_product":"a","qty":"2"}]}}`
+	fetched := shopStep("fetch_order", shopFetch, stored, "create_order")
+	fetched.Expect = []chain.ExpectResult{{Path: "order.lines.0.qty", Rule: "equals", Want: "2", Got: "2", Passed: true}}
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, reversed).failing("order.lines.0.qty", "2", "3"),
+		fetched,
+	)
+	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("create_order", "order.lines.0.qty")
+	want := "CreateOrder answered order.lines in another order than FetchOrder read: it answered other than it stored"
+	if b.why != want {
+		t.Errorf("why %q, want %q", b.why, want)
+	}
+}

@@ -942,6 +942,10 @@ func (a attribution) unstored(w *runner.StepRecord, path string) string {
 		if err != nil || json.Unmarshal(o.Response, &ob) != nil {
 			continue
 		}
+		if list, ok := reorderedList(wb, ob, path); ok && sameEntity(wb, list, ob, list) {
+			return fmt.Sprintf("%s answered %s in another order than %s read: it answered other than it stored",
+				methodName(w.Call), list, methodName(o.Call))
+		}
 		read := ""
 		eachLeaf(ob, "", func(p string, v any) {
 			if c, ok := carrierOf(om, p); read == "" && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
@@ -954,6 +958,34 @@ func (a attribution) unstored(w *runner.StepRecord, path string) string {
 		}
 	}
 	return ""
+}
+
+func reorderedList(w, r any, path string) (string, bool) {
+	segs := chain.SplitPath(path)
+	for i, seg := range segs {
+		if _, err := strconv.Atoi(seg); err != nil || i == 0 {
+			continue
+		}
+		prefix := strings.Join(segs[:i], ".")
+		wl, wok := chain.Get(w, prefix)
+		rl, rok := chain.Get(r, prefix)
+		wa, _ := wl.([]any)
+		ra, _ := rl.([]any)
+		if !wok || !rok || len(wa) < 2 || len(wa) != len(ra) {
+			return "", false
+		}
+		ws, rs := make([]string, len(wa)), make([]string, len(ra))
+		for j := range wa {
+			ws[j], rs[j] = compactValue(wa[j]), compactValue(ra[j])
+		}
+		if strings.Join(ws, "\x00") == strings.Join(rs, "\x00") {
+			return "", false
+		}
+		sort.Strings(ws)
+		sort.Strings(rs)
+		return prefix, strings.Join(ws, "\x00") == strings.Join(rs, "\x00")
+	}
+	return "", false
 }
 
 func carrierOf(m *catalog.Method, path string) (string, bool) {
