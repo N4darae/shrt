@@ -44,26 +44,58 @@ func chainPin(ctx context.Context, args []string) error {
 	if c.SourcePath == "" {
 		return fmt.Errorf("%s has no source file to rewrite", c.Name)
 	}
-	written := []string{}
+	written, moved := []string{}, []string{}
+	source := shownPath(c.SourcePath)
+	report := func() {
+		if len(moved) > 0 {
+			fmt.Printf("wrote %s: %s no longer runs %s\n", source, c.Name, strings.Join(moved, "; "))
+		}
+	}
 	for round := 0; round <= len(c.Steps); round++ {
 		if round > 0 {
 			if c, err = e.resolveChain(rest[0]); err != nil {
 				return err
 			}
 		}
-		done, err := pinRound(ctx, e, c, ref, round)
+		done, gone, err := pinRound(ctx, e, c, ref, round)
+		if done != "" {
+			written, moved = append(written, done), append(moved, gone)
+			continue
+		}
+		report()
 		if err != nil && len(written) > 0 {
 			return fmt.Errorf("%s is still red after pinning %s: %v", c.Name, strings.Join(written, ", "), err)
 		}
-		if err != nil || done == "" {
-			return err
-		}
-		written = append(written, done)
+		return err
 	}
+	report()
 	return fmt.Errorf("%s is still red after pinning %s", c.Name, strings.Join(written, ", "))
 }
 
-func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, error) {
+func movedSteps(c, slice *chain.Chain, steps []string) string {
+	removed := steps
+	if w, err := chain.Without(c, steps, ""); err == nil {
+		removed = nil
+		for _, r := range w.Removed {
+			removed = append(removed, r.ID)
+		}
+	}
+	held, lost := []string{}, []string{}
+	for _, id := range removed {
+		if _, ok := slice.Step(id); ok {
+			held = append(held, id)
+		} else {
+			lost = append(lost, id)
+		}
+	}
+	out := strings.Join(held, ", ") + ": kept red in " + slice.Name
+	if len(lost) > 0 {
+		out += "; " + strings.Join(lost, ", ") + ": in no slice"
+	}
+	return out
+}
+
+func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, string, error) {
 	rec, _ := newestRecordReaching(e, c.Name, "", "", false)
 	if rec == nil || rec.ChainDigest != c.Digest() || !ranEveryStep(c, rec) {
 		out, runErr := quietly(func() error { return runRun(ctx, []string{ref, "-keep-going", "-quiet"}) })
@@ -73,7 +105,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 			if runErr == nil {
 				runErr = fmt.Errorf("the -keep-going run of %s left no record", c.Name)
 			}
-			return "", runErr
+			return "", "", runErr
 		}
 		rec = next
 		fmt.Printf("ran %s -keep-going: run %s, %s\n", ref, rec.RunID, rec.Status)
@@ -82,17 +114,17 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		if round == 0 {
 			fmt.Printf("nothing to pin: run %s of %s passed\n", rec.RunID, c.Name)
 		}
-		return "", nil
+		return "", "", nil
 	}
 	if why := pinBlocker(e, c, rec); why != "" {
-		return "", fmt.Errorf("not pinned: run %s of %s is explained by what shrt run reports, not a defect to keep red: %s", rec.RunID, c.Name, why)
+		return "", "", fmt.Errorf("not pinned: run %s of %s is explained by what shrt run reports, not a defect to keep red: %s", rec.RunID, c.Name, why)
 	}
 	failing := expectationFailures(rec)
 	if len(failing) == 0 {
-		return "", fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
+		return "", "", fmt.Errorf("not pinned: no step of run %s failed an expectation, and kept_red pins failed expectations only", rec.RunID)
 	}
 	if other := slicesWithout(failedSteps(rec), failing); len(other) > 0 {
-		return "", fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
+		return "", "", fmt.Errorf("not pinned: %s in run %s errored rather than failed an expectation, so no kept_red can pin it: shrt run %s says why",
 			strings.Join(other, ", "), rec.RunID, ref)
 	}
 	steps := pinGroup(c, rec, failing)
@@ -125,23 +157,22 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 	}
 	if pinned == nil {
 		fmt.Print(sliceOut)
-		return "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
+		return "", "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
 	}
 	withoutOut, err := quietly(func() error {
 		return sliceWithout(ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, false)
 	})
 	if err != nil {
 		fmt.Print(withoutOut)
-		return "", fmt.Errorf("%s is written kept red, but %s was not rewritten without %s: %v", shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
+		return "", "", fmt.Errorf("%s is written kept red, but %s was not rewritten without %s: %v", shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
 	}
 	fmt.Printf("wrote %s: kept red on %s\n", shownPath(slicePath), pinList(pinned, pinned.KeptRed))
-	fmt.Printf("wrote %s: %s left out\n", shownPath(c.SourcePath), strings.Join(steps, ", "))
 	for _, line := range strings.Split(sliceOut, "\n") {
 		if strings.HasPrefix(line, "verify ") {
 			fmt.Println(line)
 		}
 	}
-	return shownPath(slicePath), nil
+	return shownPath(slicePath), movedSteps(c, pinned, steps), nil
 }
 
 func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {
