@@ -951,9 +951,9 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			methodName(r.Call), shown, methodName(w.Call))}, true
 	case len(agree) > 1:
 		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
-			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
+			methodName(w.Call), shown, valueText(wv), strings.Join(agree, ", "), valueText(compactValue(rv)))}, true
 	}
-	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, capText(wv, 60), r.ID, capText(compactValue(rv), 60))
+	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, valueText(wv), r.ID, valueText(compactValue(rv)))
 	if agreed && before == wv {
 		why = eitherWhy + why
 	}
@@ -961,6 +961,13 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 }
 
 const eitherWhy = "the write or the read: "
+
+func valueText(s string) string {
+	if s == "" {
+		return `""`
+	}
+	return capText(s, 60)
+}
 
 func envelopeOnly(path string) bool {
 	var segs []string
@@ -1005,15 +1012,15 @@ func (a attribution) unstored(w *runner.StepRecord, path string) string {
 			return fmt.Sprintf("%s answered %s in another order than %s read: it answered other than it stored",
 				methodName(w.Call), list, methodName(o.Call))
 		}
-		read := ""
+		read, found := "", false
 		eachLeaf(ob, "", func(p string, v any) {
-			if c, ok := carrierOf(om, p); read == "" && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
-				read = compactValue(v)
+			if c, ok := carrierOf(om, p); !found && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
+				read, found = compactValue(v), true
 			}
 		})
-		if read != "" {
+		if found {
 			return fmt.Sprintf("%s answered %s %s, but %s read %s: it answered other than it stored",
-				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), capText(compactValue(wv), 60), methodName(o.Call), capText(read, 60))
+				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), valueText(compactValue(wv)), methodName(o.Call), valueText(read))
 		}
 	}
 	return ""

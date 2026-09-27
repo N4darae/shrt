@@ -112,6 +112,10 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 		}, "get", "product.sku", "", "create", "the write or the read: create answered product.sku=SKU-A, get reads sku-a"},
+		{"an empty value the read answers is shown", []*runner.StepRecord{
+			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
+			failing(step("get", get, `{"product":{"id_product":"p1","sku":""}}`, "create"), "product.sku", "SKU-A", ""),
+		}, "get", "product.sku", "", "create", `the write or the read: create answered product.sku=SKU-A, get reads ""`},
 		{"without a reference the read agreed with, the contradiction stays on the write", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-B", "sku-a"),
@@ -537,6 +541,10 @@ func TestAWriteAnsweringOtherThanALaterReadOfTheRecordShowsBothValues(t *testing
 	want := "ConfirmOrder answered order.total_minor 7, but FetchOrder read 9: it answered other than it stored"
 	if b.write >= 0 || b.own != "" || b.why != want {
 		t.Errorf("got write %d own %q why %q, want the write's own failure with %q", b.write, b.own, b.why, want)
+	}
+	fetched.Response = []byte(`{"order":{"id_order":"o1","total_minor":""}}`)
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.why != `ConfirmOrder answered order.total_minor 7, but FetchOrder read "": it answered other than it stored` {
+		t.Errorf("an empty read is shown, got %q", b.why)
 	}
 	rec.Steps[2], rec.Steps[3] = rec.Steps[3], rec.Steps[2]
 	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.why != "" {
