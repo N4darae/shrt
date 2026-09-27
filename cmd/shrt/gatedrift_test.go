@@ -95,3 +95,26 @@ func TestAKeptRedChainWhosePinsHeldNamesANewChangeWithoutARePin(t *testing.T) {
 		t.Errorf("want %q and no re-pin in:\n%s", want, out)
 	}
 }
+
+func TestAFailedFirstChangeReportedAboveStillLeadsOverADrift(t *testing.T) {
+	const add, create = "shrt.test.v1.ThingService/Add", "shrt.test.v1.ThingService/Create"
+	failed := func(step string) gateItem {
+		return gateItem{Step: step, Call: add, Path: "status.code", Want: "REJECTED", Got: "SUCCESS", Failed: true}
+	}
+	drift := gateItem{Step: "create", Call: create, Path: "thing.name", Want: "long name", Got: "long"}
+	chains := []*gateChain{
+		{name: "a", failed: true, first: "add (ThingService/Add) status.code want=REJECTED got=SUCCESS", firstAt: "add status.code", items: []gateItem{failed("add")}},
+		{name: "b", failed: true, firstAt: "add_as_clerk status.code", items: []gateItem{failed("add_as_clerk"), failed("add_again"), drift}},
+		{name: "c", failed: true, firstAt: "add_once status.code", items: []gateItem{failed("add_once")}},
+	}
+	headlineGate(chains)
+	for i, want := range []string{
+		"add (ThingService/Add) status.code want=REJECTED got=SUCCESS",
+		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS (+1 step(s) from Add code, reported above)",
+		"add_once (ThingService/Add) status.code want=REJECTED got=SUCCESS, reported above",
+	} {
+		if chains[i].first != want {
+			t.Errorf("chain %s: got %q, want %q", chains[i].name, chains[i].first, want)
+		}
+	}
+}

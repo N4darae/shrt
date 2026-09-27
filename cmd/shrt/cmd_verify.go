@@ -1216,20 +1216,27 @@ func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 		st, ok := rec.Step(step)
 		return ok && st != nil && (st.Status == runner.StatusFailed || st.Status == runner.StatusError)
 	}
-	lead := false
+	best := 0
 	for i, c := range report.Changes {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
 		steps[c.Step] = true
-		switch f := failing(c.Step); {
-		case first == nil || f && !lead:
-			first, lead = &report.Changes[i], f
+		level := 0
+		if failing(c.Step) {
+			level = 1
+			if report.Class(c) != "order changed" {
+				level = 2
+			}
+		}
+		switch {
+		case first == nil || level > best:
+			first, best = &report.Changes[i], level
 		case c.Step == first.Step && rank(c) > rank(*first):
 			first = &report.Changes[i]
 		}
 	}
-	if first != nil && lead && rec != nil {
+	if first != nil && best > 0 && rec != nil {
 		if root := rootChange(report, rec, *first); root != nil {
 			first = root
 		}

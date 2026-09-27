@@ -172,7 +172,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			}
 			found = found || !ex.Passed
 			want, got := gatePair(ex.Want, ex.Got)
-			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got, Passes: ex.Passed})
+			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got, Passes: ex.Passed, Failed: !ex.Passed})
 			if moved {
 				it.Pinned, _ = gatePair(was, ex.Got)
 			}
@@ -2081,8 +2081,30 @@ func headlineGate(chains []*gateChain) {
 			g.class, g.first = "not as pinned", text
 			continue
 		}
+		lead, ok := g.firstItem()
 		if head != nil && g.pinsHeld {
 			g.class, g.first, g.firstAt = "pins held, new change", fmt.Sprintf("%s (%s) %s", head.Step, shortRPC(head.Call), head.headline()), head.Step+" "+head.Path
+		}
+		if ok && leadRank(lead) > 0 && (head == nil || leadRank(lead) > leadRank(*head)) && len(from) > 0 {
+			n, above := len(steps), reported[rootOf(lead)] || g.pinsHeld && rpc[baseOf(lead)]
+			if steps[lead.Step] {
+				n--
+			}
+			g.first = fmt.Sprintf("%s (%s) %s", lead.Step, shortRPC(lead.Call), lead.headline())
+			if n > 0 {
+				g.first += fmt.Sprintf(" (+%d step(s) from %s, reported above)", n, strings.Join(from, ", "))
+			} else {
+				g.first += ", reported above"
+			}
+			if above {
+				g.reported = true
+			} else {
+				report(lead)
+			}
+			if g.pinsHeld {
+				g.class, g.firstAt = "pins held, new change", lead.Step+" "+lead.Path
+			}
+			continue
 		}
 		if len(from) == 0 {
 			if it, ok := g.firstItem(); ok {
@@ -2105,6 +2127,16 @@ func headlineGate(chains []*gateChain) {
 			report(*head)
 		}
 	}
+}
+
+func leadRank(it gateItem) int {
+	switch {
+	case !it.Failed && !strings.HasPrefix(it.Path, "("):
+		return 0
+	case it.Kind == "order":
+		return 1
+	}
+	return 2
 }
 
 func printDistinct(chains []*gateChain) {
