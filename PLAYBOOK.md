@@ -434,7 +434,8 @@ Reading the report:
 - verify runs every step as `-keep-going` does; a step held back behind a failure is `not_reached`.
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
   name or a `${uuid}`, and counts them under `-v`; `-masked` lists them. A volatile value that was lost (null,
-  empty, gone) is still reported. Anything else that changes every run belongs in `volatile`.
+  empty, gone) is still reported, as is a volatile list's length when the step's expectation on it
+  failed. Anything else that changes every run belongs in `volatile`.
 - It compares what each step SENT first. A changed request (`request differs ...`) or a changed
   chain (`chain differs ...`) gives `drift with different input` or `drift after a chain change`
   when it explains every response change, otherwise `regression`.

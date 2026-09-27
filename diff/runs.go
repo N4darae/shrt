@@ -276,6 +276,9 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		}
 		gone := valueVanished(c)
 		volatile := underMask(masker, c.Path) && !(gone && masker.Masks(c.Path))
+		if volatile && failedLength(sb, c) {
+			volatile, c.Detail = false, VolatileFailed
+		}
 		if volatile || (shaped && !gone) {
 			r.Masked++
 			c.Step = sa.ID

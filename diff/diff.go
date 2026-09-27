@@ -29,6 +29,8 @@ const (
 	KindNotReached = "not_reached"
 )
 
+const VolatileFailed = "declared volatile, shown as its expectation failed"
+
 type Change struct {
 	Step   string `json:"step,omitempty"`
 	Path   string `json:"path"`
@@ -373,6 +375,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
+			case c.Path != "response" && maskedValue(stepMask, c) && failedLength(got, c):
+				c.Detail = VolatileFailed
+				rep.Changes = append(rep.Changes, c)
 			case c.Path != "response" && maskedValue(stepMask, c) && !vanishedUnderMask(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
@@ -981,6 +986,18 @@ func unapproved(approved []string, rec *runner.Record, extra []string) []string 
 		add(st.Volatile)
 	}
 	return out
+}
+
+func failedLength(st *runner.StepRecord, c Change) bool {
+	if c.Kind != KindLength {
+		return false
+	}
+	for _, ex := range st.Expect {
+		if !ex.Passed && ex.Rule != "unevaluated" && (ex.Path == c.Path || strings.HasPrefix(ex.Path, c.Path+".")) {
+			return true
+		}
+	}
+	return false
 }
 
 func maskedValue(m *pathmask.Masker, c Change) bool {

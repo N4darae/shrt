@@ -1144,7 +1144,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	items := verifyItems(e, rec, report)
 	seen := map[string]bool{}
 	for _, it := range items {
-		if it.Step == first.Step && it.Path == first.Path {
+		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
 			seen[baseOf(it)] = true
 		}
 	}
@@ -1230,6 +1230,12 @@ func changeAt(rec *runner.Record, c diff.Change) string {
 	rpc := ""
 	if st, ok := rec.Step(c.Step); ok && st != nil {
 		rpc = " (" + shortRPC(st.Call) + ")"
+		for _, ex := range st.Expect {
+			if c.Kind == diff.KindStatus && !ex.Passed && ex.Rule != "unevaluated" {
+				want, got := gatePair(ex.Want, ex.Got)
+				return fmt.Sprintf("%s%s %s %s", c.Step, rpc, ex.Path, chain.WantGot(ex.Rule, want, got))
+			}
+		}
 	}
 	want, got := gatePair(c.Want, c.Got)
 	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, want, got)
