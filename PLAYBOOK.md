@@ -408,10 +408,10 @@ change belongs to an earlier step when it is that step's answer for the same fie
 record, or a number that recomputes from values earlier steps changed (a total over lines); a write
 refused where it passed, and what follows it, to the first earlier write on its record whose own
 answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
-rpc (`masked by`, `moved with`). Otherwise it is the write
+rpc, or the write it blames there (`masked by`, `moved with`). Otherwise it is the write
 the read observes (the nearest earlier write on the same record, skipping a refused repeat or
 idempotent replay of an earlier write; when a reference shows several such writes all answered as
-before, `the write or the read` names them, nearest first, unless exactly one of them since the
+before, `the write or the read` names them, nearest first and filed under it, unless exactly one of them since the
 last unchanged read of that record has contract `effects:` moving the field: that one is named); a list
 item's id links it to the writes naming that id; steps left unevaluated
 behind a failed step fold under it.

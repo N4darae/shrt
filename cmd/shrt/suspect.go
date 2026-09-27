@@ -243,6 +243,7 @@ type blame struct {
 	cascade string
 	why     string
 	firm    bool
+	lead    string
 }
 
 type attribution struct {
@@ -377,7 +378,7 @@ func (a attribution) asBefore(at int, path string, b blame) blame {
 		return blame{write: movers[0], firm: true, why: fmt.Sprintf("its contract moves %s; the other writes on that record answered as before", leaf)}
 	}
 	w := a.rec.Steps[b.write]
-	b.write, b.why = -1, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
+	b.write, b.lead, b.why = -1, w.ID, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
 	return b
 }
 
