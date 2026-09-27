@@ -740,7 +740,14 @@ func earlySidecar(e *env, rec *runner.Record) gateSidecar {
 }
 
 func gatePair(want, got any) (string, string) {
-	return capPair(compactValue(want), compactValue(got), 60)
+	return capPair(shownValue(want), shownValue(got), 60)
+}
+
+func shownValue(v any) string {
+	if s, ok := v.(string); ok {
+		return chain.EdgeQuoted(s)
+	}
+	return compactValue(v)
 }
 
 func capPair(want, got string, n int) (string, string) {

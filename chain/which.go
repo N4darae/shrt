@@ -504,7 +504,17 @@ func scalarText(v any) string {
 			return string(b)
 		}
 	}
+	if t, ok := v.(string); ok {
+		return EdgeQuoted(t)
+	}
 	return stringify(v)
+}
+
+func EdgeQuoted(s string) string {
+	if s == "" || strings.TrimSpace(s) != s {
+		return strconv.Quote(s)
+	}
+	return s
 }
 
 func assertsAnyCode(asserts []CodeAssertion, codes []string) bool {

@@ -127,3 +127,9 @@ func TestAFailingStepWithAChangeOtherThanOrderLeadsOverAnOrderOnlyFailure(t *tes
 		t.Errorf("the failure that is not only another order leads: first %+v, items %+v", first, items)
 	}
 }
+
+func TestTheGateQuotesAStringWhoseEdgeSpacesChanged(t *testing.T) {
+	if want, got := gatePair("  Customer a  ", "  Customer a"); want != `"  Customer a  "` || got != `"  Customer a"` {
+		t.Errorf("got want=%s got=%s", want, got)
+	}
+}
