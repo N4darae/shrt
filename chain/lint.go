@@ -66,6 +66,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintWholeTag(c, s, m)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
+		issues = append(issues, lintAbsentReads(c, s, known)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
 		for _, why := range never {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
