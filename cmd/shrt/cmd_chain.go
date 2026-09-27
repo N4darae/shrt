@@ -127,7 +127,11 @@ func chainNew(args []string) error {
 	if err := os.WriteFile(path, raw, 0o644); err != nil {
 		return err
 	}
-	fmt.Printf("wrote %s (%d step(s))\nedit the body, then: shrt chain lint %s\n", path, len(c.Steps), *name)
+	n := len(c.Steps)
+	if written, err := chain.LoadFile(path); err == nil {
+		n = len(written.Steps)
+	}
+	fmt.Printf("wrote %s (%d step(s))\nedit the body, then: shrt chain lint %s\n", path, n, *name)
 	return nil
 }
 
