@@ -112,9 +112,10 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	var flaky *intermittentFailure
 	var drift []diff.Change
+	var driftReport *diff.RunReport
 	flakyOnly := false
 	defer func() {
-		side := runSidecar(e, c, rec, drift)
+		side := runSidecar(e, c, rec, drift, driftReport)
 		if flaky.finding() {
 			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
 		}
@@ -122,7 +123,7 @@ func runRun(ctx context.Context, args []string) error {
 	}()
 	var pinnedSlow []diff.LatencyFlag
 	if !*dry && len(c.KeptRed) > 0 {
-		drift = judgePinnedDrift(e, c, rec, pinnedRef)
+		drift, driftReport = judgePinnedDrift(e, c, rec, pinnedRef)
 		if spot == nil && latencySpot != nil {
 			for _, f := range latencyFlags(e, latencySpot, rec, latencyPolicy(e)) {
 				f.Against = "run " + pinnedRef.RunID + " (the last run that failed as pinned)"
@@ -259,6 +260,9 @@ func runVerdict(rec *runner.Record) error {
 				first = "a pinned step now returns something else: " + first
 			}
 			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, first)
+		}
+		if _, one, ok := strings.Cut(rec.KeptRedNote, ", but "); ok {
+			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, one)
 		}
 		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
 	case runner.KeptRedGone:
