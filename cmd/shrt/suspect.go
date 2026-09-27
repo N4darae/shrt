@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,25 +82,12 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 			return j, false
 		}
 	}
-	reach := refReach(rec, pos)
-	entities := stepRefs(rec, at)
 	nearest, nearestBad := -1, -1
-	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
-		w := rec.Steps[i]
-		if !isWrite(w) || inert(rec, i, bad) {
-			continue
-		}
-		match := entities[w.ID]
-		for e := range reach(i) {
-			match = match || entities[e]
-		}
-		if !match {
-			continue
-		}
+	for _, i := range entityWrites(rec, at, bad, pos) {
 		if nearest < 0 {
 			nearest = i
 		}
-		if bad[w.ID] && nearestBad < 0 {
+		if bad[rec.Steps[i].ID] && nearestBad < 0 {
 			nearestBad = i
 		}
 	}
@@ -115,6 +103,26 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 		}
 	}
 	return -1, false
+}
+
+func entityWrites(rec *runner.Record, at int, bad map[string]bool, pos map[string]int) []int {
+	reach := refReach(rec, pos)
+	entities := stepRefs(rec, at)
+	var out []int
+	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
+		w := rec.Steps[i]
+		if !isWrite(w) || inert(rec, i, bad) {
+			continue
+		}
+		match := entities[w.ID]
+		for e := range reach(i) {
+			match = match || entities[e]
+		}
+		if match {
+			out = append(out, i)
+		}
+	}
+	return out
 }
 
 func inert(rec *runner.Record, i int, bad map[string]bool) bool {
@@ -302,7 +310,38 @@ func (a attribution) of(step, path string) blame {
 		if up := a.behind(b.write); up != b.write {
 			return blame{write: up}
 		}
+		if _, named, _ := strings.Cut(step, "_after_"); !a.bad[w.ID] && named != w.ID {
+			return a.asBefore(a.index(step), b)
+		}
 	}
+	return b
+}
+
+func (a attribution) asBefore(at int, b blame) blame {
+	pos := map[string]int{}
+	for i, st := range a.rec.Steps {
+		if st == nil {
+			continue
+		}
+		if _, seen := pos[st.ID]; !seen {
+			pos[st.ID] = i
+		}
+	}
+	writes := entityWrites(a.rec, at, a.bad, pos)
+	if len(writes) < 2 {
+		return b
+	}
+	slices.Reverse(writes)
+	var names []string
+	for _, i := range writes {
+		if name := methodName(a.rec.Steps[i].Call); !slices.Contains(names, name) {
+			names = append(names, name)
+		}
+	}
+	if len(names) > 4 {
+		names = append(names[:3], fmt.Sprintf("%d more", len(names)-3))
+	}
+	b.write, b.why = -1, eitherWhy+strings.Join(names, " or ")+" answered as before"
 	return b
 }
 

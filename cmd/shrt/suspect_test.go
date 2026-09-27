@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 
@@ -134,11 +135,11 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 			step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 		}, "get", "product.sku", "", "create", ""},
-		{"the write carries no such field, so a wrong value after it stays on the write", []*runner.StepRecord{
+		{"writes that answered as before are named, none as the suspect", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"5"}}`)),
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"6"}}`, "create"), "product.price_minor", "5", "6"),
-		}, "get", "product.price_minor", "", "add", ""},
+		}, "get", "product.price_minor", "", "", "the write or the read: CreateProduct or AddStock answered as before"},
 		{"a list item the write answered is shown with its index", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -476,13 +477,23 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 		shopStep("confirm_again", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1303}]}}`, "create_order"),
 		shopStep("get_product", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"14"},`+shopOK+`}`, "create_product").failing("product.qty_on_hand", "15", "14"),
 	)
-	if write, own, _ := blameOf(t, rec, "get_product", "product.qty_on_hand"); write != "confirm_order" || own != "" {
-		t.Errorf("got write %q own %q, want confirm_order", write, own)
+	candidates := func() []int {
+		pos := map[string]int{}
+		for i, st := range rec.Steps {
+			pos[st.ID] = i
+		}
+		return entityWrites(rec, len(rec.Steps)-1, map[string]bool{}, pos)
+	}
+	if got := candidates(); !slices.Equal(got, []int{2, 1, 0}) {
+		t.Errorf("got steps %v, want the writes before it without the repeats", got)
 	}
 	rec.Steps[2] = shopStep("confirm_order", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1305}]}}`, "create_order").StepRecord
 	rec.Steps = append(rec.Steps[:4], rec.Steps[5])
-	if write, _, _ := blameOf(t, rec, "get_product", "product.qty_on_hand"); write != "confirm_order" {
-		t.Errorf("a first refused write is still the one the read observes, got %q", write)
+	if got := candidates(); !slices.Equal(got, []int{2, 1, 0}) {
+		t.Errorf("a first refused write is still one the read observes, got %v", got)
+	}
+	if why := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("get_product", "product.qty_on_hand").why; why != "the write or the read: CreateProduct or CreateOrder or ConfirmOrder answered as before" {
+		t.Errorf("got %q", why)
 	}
 }
 
@@ -585,5 +596,19 @@ func TestTheGateNamesTheWriteOrTheReadWithTheRootWriteAsExample(t *testing.T) {
 	out = captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
 	if !strings.Contains(out, "  S/Batch: suspect "+why+"; e.g. one w\n") {
 		t.Errorf("got:\n%s", out)
+	}
+}
+
+func TestAGroupWhoseRpcFailedItselfRanksAboveOnesThatPassedThemselves(t *testing.T) {
+	var chains []*gateChain
+	for _, name := range []string{"one", "two", "three"} {
+		chains = append(chains, &gateChain{name: name, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "n", Want: "1", Got: "2", Suspect: "x.v1.S/Make", SuspectStep: "make"}}})
+	}
+	chains = append(chains, &gateChain{name: "four", items: []gateItem{{Step: "add", Call: "x.v1.S/Add", Path: "n", Want: "1", Got: "2"}}},
+		&gateChain{name: "five", items: []gateItem{{Step: "read", Call: "x.v1.S/Read", Path: "n", Want: "1", Got: "2", Why: eitherWhy + "Add or Make answered as before"}}})
+	out := captureStdout(t, func() { printGateGroups(chains) })
+	add, read, made := strings.Index(out, "  S/Add:"), strings.Index(out, "  S/Read: 1 step(s) in 1 chain(s), paths n; the write or the read: Add or Make answered as before;"), strings.Index(out, "  S/Make: passed itself")
+	if add < 0 || read < 0 || made < add || made < read {
+		t.Errorf("groups that failed themselves come first:\n%s", out)
 	}
 }

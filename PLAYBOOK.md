@@ -408,7 +408,8 @@ refused where it passed, and what follows it, to the first earlier write on its 
 answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
 rpc (`masked by`, `moved with`). Otherwise it is the write
 the read observes (`<write>` in `<read>_after_<write>`, else the nearest earlier write on the same
-record, skipping a refused repeat or idempotent replay of an earlier write); steps left unevaluated
+record, skipping a refused repeat or idempotent replay of an earlier write; when several such writes
+all answered as before, `the write or the read` names their rpcs instead); steps left unevaluated
 behind a failed step fold under it.
 
 ## 9. Refactor and test against a safe spot
