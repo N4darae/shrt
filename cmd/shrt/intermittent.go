@@ -226,6 +226,24 @@ func (i *intermittentFailure) otherFailures(rec *runner.Record) []string {
 	return out
 }
 
+func (i *intermittentFailure) classOf(report *diff.Report, a attribution) func(diff.Change) string {
+	flaky := map[string]bool{}
+	if i.finding() {
+		for _, f := range i.steps {
+			flaky[f.step.ID] = true
+		}
+	}
+	return func(c diff.Change) string {
+		if len(flaky) == 0 {
+			return report.Class(c)
+		}
+		if b := a.of(c.Step, c.Path); flaky[c.Step] || b.write >= 0 && flaky[a.rec.Steps[b.write].ID] {
+			return i.kind()
+		}
+		return report.Class(c)
+	}
+}
+
 func (i *intermittentFailure) finding() bool { return i != nil && len(i.steps) > 0 }
 
 func (i *intermittentFailure) calls() string {

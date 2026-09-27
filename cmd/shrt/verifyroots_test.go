@@ -31,7 +31,7 @@ func TestTheVerifyHeadlineNamesEachDistinctSuspectOnce(t *testing.T) {
 			shopStep("list", shopList, c.list),
 		)
 		report := diff.Compare(spot, rec)
-		line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, false, errors.New("regression: x"), "")
+		line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, nil, false, errors.New("regression: x"), "")
 		head, rest, _ := strings.Cut(line, "\n")
 		if !strings.Contains(head, "first: create (ProductService/CreateProduct) product.price_minor want=5 got=6") || rest != c.also {
 			t.Errorf("want the first change, then %q; got:\n%s", c.also, line)
@@ -50,7 +50,7 @@ func TestTheVerifyHeadlineShowsTheLinesAChangedTotalIsComputedFrom(t *testing.T)
 	}
 	rec := steps("1750")
 	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("4250").Steps}, rec)
-	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, false, errors.New("regression: x"), "")
+	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, nil, false, errors.New("regression: x"), "")
 	if !strings.Contains(line, "order.total_minor want=4250 got=1750; lines: 2 x 250, 3 x 1250\n") {
 		t.Errorf("got:\n%s", line)
 	}
