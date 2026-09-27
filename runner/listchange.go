@@ -52,6 +52,12 @@ func listChangeKinds(sr *StepRecord) map[int]string {
 		return out
 	}
 	itemKind := map[string]string{}
+	wanted := map[string]int{}
+	for _, ex := range sr.Expect {
+		if pos, ok := listPositionOf(root, ex.Path); ok && ex.Rule == "equals" && identityKey(ex.Path) && pos.rest != "" {
+			wanted[pos.list+"\x00"+pos.rest+"\x00"+gotText(ex.Want)]++
+		}
+	}
 	for i, ex := range sr.Expect {
 		if ex.Passed || ex.Rule != "equals" || !identityKey(ex.Path) {
 			continue
@@ -61,6 +67,19 @@ func listChangeKinds(sr *StepRecord) map[int]string {
 			continue
 		}
 		kind := fmt.Sprintf("item missing: no item of %s has %s=%s", pos.list, pos.rest, gotText(ex.Want))
+		if n := wanted[pos.list+"\x00"+pos.rest+"\x00"+gotText(ex.Want)]; n > 1 {
+			have := 0
+			for _, item := range pos.items {
+				if v, ok := chain.Get(item, pos.rest); ok && gotText(v) == gotText(ex.Want) {
+					have++
+				}
+			}
+			if have >= n {
+				continue
+			}
+			kind = fmt.Sprintf("item missing: %s holds %d of the %d item(s) with %s=%s", pos.list, have, n, pos.rest, gotText(ex.Want))
+			pos.items = nil
+		}
 		for j, item := range pos.items {
 			if v, ok := chain.Get(item, pos.rest); ok && j != pos.index && gotText(v) == gotText(ex.Want) {
 				kind = fmt.Sprintf("reordered: %s is at %s.%d", gotText(ex.Want), pos.list, j)

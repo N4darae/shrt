@@ -42,7 +42,7 @@ func (r *Report) collapseMembership(rec *runner.Record) {
 		if c.Kind != KindLength || c.Step == "" || c.Detail != "" {
 			continue
 		}
-		if detail, changed := r.membership(rec, c.Step, c.Path); detail != "" {
+		if detail, changed := r.membership(rec, c.Step, c.Path, true); detail != "" {
 			r.Changes[i].Detail = detail
 			if changed {
 				resized[c.Step] = append(resized[c.Step], c.Path)
@@ -58,7 +58,7 @@ func (r *Report) collapseMembership(rec *runner.Record) {
 			continue
 		}
 		lists[c.Step] = append(lists[c.Step], l)
-		if detail, changed := r.membership(rec, c.Step, l); changed {
+		if detail, changed := r.membership(rec, c.Step, l, false); changed {
 			_, gl := r.comparedAt(c.Step, l)
 			at[c.Step+" "+l] = -1 - len(extra)
 			extra = append(extra, Change{Step: c.Step, Path: l, Kind: KindMembership, Want: len(gl), Got: len(gl), Detail: detail})
@@ -103,21 +103,19 @@ func (r *Report) pairedChanges(cs comparedStep, list string) []Change {
 		return nil
 	}
 	names := renamer(r.renames)
-	was := map[string]any{}
-	for _, it := range wl {
-		v := fmt.Sprint(it.(map[string]any)[key])
-		if names != nil {
-			v = names.Replace(v)
-		}
-		was[v] = it
+	was := map[string][]any{}
+	for i := range wl {
+		v, _ := occurrence(wl, key, i, names)
+		was[v] = append(was[v], wl[i])
 	}
 	aligned := make([]any, len(gl))
 	var out []Change
 	for i, it := range gl {
-		w, ok := was[fmt.Sprint(it.(map[string]any)[key])]
-		if !ok {
+		v, n := occurrence(gl, key, i, nil)
+		if n >= len(was[v]) {
 			continue
 		}
+		w := was[v][n]
 		aligned[i] = w
 		walk(w, it, list+"."+strconv.Itoa(i), func(c Change) {
 			c.Step = cs.id
@@ -207,23 +205,24 @@ func itemKey(lists ...[]any) string {
 		}
 	}
 	keys := []string{}
+	repeated := map[string]bool{}
 	for k := range candidates {
-		distinct := true
 		for _, l := range lists {
 			seen := map[string]bool{}
 			for _, it := range l {
 				v := fmt.Sprint(it.(map[string]any)[k])
 				if seen[v] {
-					distinct = false
+					repeated[k] = true
 				}
 				seen[v] = true
 			}
 		}
-		if distinct {
-			keys = append(keys, k)
-		}
+		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool {
+		if repeated[keys[i]] != repeated[keys[j]] {
+			return !repeated[keys[i]]
+		}
 		if (keys[i] == "id") != (keys[j] == "id") {
 			return keys[i] == "id"
 		}
@@ -235,32 +234,62 @@ func itemKey(lists ...[]any) string {
 	return keys[0]
 }
 
-func (r *Report) membership(rec *runner.Record, step, list string) (string, bool) {
+func repeatedKey(key string, lists ...[]any) bool {
+	for _, l := range lists {
+		for i := range l {
+			if _, n := occurrence(l, key, i, nil); n > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func occurrence(items []any, key string, i int, names *strings.Replacer) (string, int) {
+	v := keyOf(items[i], key, names)
+	n := 0
+	for _, it := range items[:i] {
+		if keyOf(it, key, names) == v {
+			n++
+		}
+	}
+	return v, n
+}
+
+func keyOf(item any, key string, names *strings.Replacer) string {
+	v := fmt.Sprint(item.(map[string]any)[key])
+	if names != nil {
+		v = names.Replace(v)
+	}
+	return v
+}
+
+func (r *Report) membership(rec *runner.Record, step, list string, repeats bool) (string, bool) {
 	wl, gl := r.comparedAt(step, list)
 	key := itemKey(wl, gl)
-	if key == "" {
+	if key == "" || !repeats && repeatedKey(key, wl, gl) {
 		return "", false
 	}
 	rename := map[string]string{}
 	for _, p := range r.renames {
 		rename[p[0]] = p[1]
 	}
-	expected := map[string]bool{}
+	expected := map[string]int{}
 	for _, it := range wl {
 		v := fmt.Sprint(it.(map[string]any)[key])
 		if g, ok := rename[v]; ok {
 			v = g
 		}
-		expected[v] = true
+		expected[v]++
 	}
-	present := map[string]bool{}
+	present := map[string]int{}
 	var added []map[string]any
 	var addedIDs []string
 	for _, it := range gl {
 		m := it.(map[string]any)
 		v := fmt.Sprint(m[key])
-		present[v] = true
-		if !expected[v] {
+		present[v]++
+		if present[v] > expected[v] {
 			added = append(added, m)
 			addedIDs = append(addedIDs, v)
 		}
@@ -271,7 +300,7 @@ func (r *Report) membership(rec *runner.Record, step, list string) (string, bool
 		if g, ok := rename[v]; ok {
 			v = g
 		}
-		if !present[v] && !containsString(dropped, v) {
+		if present[v]--; present[v] < 0 {
 			dropped = append(dropped, v)
 		}
 	}
@@ -396,12 +425,9 @@ func (r *Report) Moved(step, path string) bool {
 		if key == "" || i < 0 || i >= len(wl) {
 			continue
 		}
-		want := fmt.Sprint(wl[i].(map[string]any)[key])
-		if names != nil {
-			want = names.Replace(want)
-		}
-		for j, g := range gl {
-			if fmt.Sprint(g.(map[string]any)[key]) == want {
+		want, n := occurrence(wl, key, i, names)
+		for j := range gl {
+			if v, m := occurrence(gl, key, j, nil); v == want && m == n {
 				if j != i {
 					return true
 				}

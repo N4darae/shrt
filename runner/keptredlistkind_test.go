@@ -86,3 +86,21 @@ func TestAValueUnderAListThatEchoesTheRequestInAnotherOrderIsAReorder(t *testing
 		t.Errorf("a line answered with another qty is a value change, not a reorder")
 	}
 }
+
+func TestALineMissingFromLinesOfOneProductIsMissingNotReordered(t *testing.T) {
+	response, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 6},
+	}}})
+	sr := &StepRecord{ID: "fetch", Status: StatusFailed, Response: response, Expect: []chain.ExpectResult{
+		{Path: "order.lines.0.id_product", Rule: "equals", Want: "a", Got: "a", Passed: true},
+		{Path: "order.lines.1.id_product", Rule: "equals", Want: "a"},
+		{Path: "order.lines.1.qty", Rule: "equals", Want: float64(5)},
+	}}
+	kinds := listChangeKinds(sr)
+	if kinds[1] != "item missing: order.lines holds 1 of the 2 item(s) with id_product=a" {
+		t.Errorf("a repeated id is counted, not looked up: %q", kinds[1])
+	}
+	if len(ReorderedPaths(sr)) != 0 {
+		t.Errorf("a dropped line is not a reorder: %v", ReorderedPaths(sr))
+	}
+}

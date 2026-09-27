@@ -102,3 +102,23 @@ func TestAProposalRowReadsAStreamingStepsEnvelopeInItsMessages(t *testing.T) {
 		t.Errorf("the brief reads the streamed envelope too:\n%s", brief)
 	}
 }
+
+func TestAProposalRowCountsARefusedBatchLineItAsserts(t *testing.T) {
+	defer chain.SetEnvelope("", "")
+	defer chain.SetItemEnvelope("")
+	chain.SetEnvelope("status.code", "SUCCESS")
+	chain.SetItemEnvelope("results[].status.code")
+	rec := &runner.Record{RunID: "run-1", Chain: "batch", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+		{ID: "batch", Call: "x.v1.StockService/AddStockBatch", Status: runner.StatusPassed,
+			Response: json.RawMessage(`{"status":{"code":"SUCCESS"},"results":[{"status":{"code":"SUCCESS"}},{"status":{"code":"REJECTED","details":[{"app_code":1203,"reason":"InvalidQty"}]}},{"status":{"code":"REJECTED"}}]}`),
+			Expect: []chain.ExpectResult{
+				{Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "SUCCESS", Passed: true},
+				{Path: "results.1.status.code", Rule: "not_equal", Want: "SUCCESS", Got: "REJECTED", Passed: true},
+				{Path: "results.1.status.details.0.app_code", Rule: "equals", Want: "1203", Got: "1203", Passed: true},
+			}},
+	}}
+	row := store.ProposalRowOf(&store.Proposal{Chain: "batch", RunID: "run-1", ComparedTo: "run-0"}, rec)
+	if row.Refusals != "REJECTED 1203 InvalidQty ×1" {
+		t.Errorf("an asserted refused line counts once; an unasserted one does not: %+v", row)
+	}
+}
