@@ -7,13 +7,14 @@ import (
 )
 
 type TokenRefusal struct {
-	Token     string    `json:"token"`
-	SentAt    time.Time `json:"sent_at,omitzero"`
-	IssuedAt  time.Time `json:"issued_at,omitzero"`
-	ExpiresAt time.Time `json:"expires_at,omitzero"`
-	RefusedAt time.Time `json:"refused_at"`
-	Cached    bool      `json:"cached,omitempty"`
-	FirstUse  bool      `json:"first_use,omitempty"`
+	Token     string      `json:"token"`
+	SentAt    time.Time   `json:"sent_at,omitzero"`
+	IssuedAt  time.Time   `json:"issued_at,omitzero"`
+	ExpiresAt time.Time   `json:"expires_at,omitzero"`
+	RefusedAt time.Time   `json:"refused_at"`
+	Cached    bool        `json:"cached,omitempty"`
+	FirstUse  bool        `json:"first_use,omitempty"`
+	Relogins  []time.Time `json:"relogins,omitempty"`
 }
 
 func fingerprint(token string) string {
