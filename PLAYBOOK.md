@@ -83,7 +83,7 @@ Habits that keep a chain re-runnable:
 | a value two steps share | one reference to the first step's request (`${steps.a.request.x}`) or one var |
 | a unique name per run | `inv-${vars.tag}-a`; an undeclared `tag` is fresh on every run |
 
-`plan` leaves `tag` undeclared, so every run gets a fresh one and none needs `-var`. When a run is refused as a duplicate, `run`, `verify` and `gate` say
+`plan` leaves `tag` undeclared, so every run gets a fresh one and none needs `-var`. When a run is refused as a duplicate, `run` and `verify` say
 which (PITFALLS §23): `fixture reused` or `fixture collision` (exit 3, re-run with a fresh `-var`),
 or `CHAIN DEFECT: the chain collides with itself` (exit 1: build the literal field from a var).
 
