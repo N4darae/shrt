@@ -47,3 +47,17 @@ func TestTheHeadlineLeadsWithTheFirstFailingStepOverAnEarlierDrift(t *testing.T)
 		t.Fatalf("without a record the first change leads, got %+v", first)
 	}
 }
+
+func TestVerifyLeadsWithTheChangedWriteAFailingReadObserves(t *testing.T) {
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","total_minor":"7"}}`),
+		shopStep("fetch_order", shopFetch, `{"order":{"id_order":"o1","total_minor":"7"}}`, "create_order").failing("order.total_minor", "9", "7"),
+	)
+	report := &diff.Report{Changes: []diff.Change{
+		{Step: "create_order", Path: "order.total_minor", Kind: diff.KindChanged, Want: "9", Got: "7"},
+		{Step: "fetch_order", Path: "order.total_minor", Kind: diff.KindChanged, Want: "9", Got: "7"},
+	}}
+	if c, _ := firstChange(report, rec); c == nil || c.Step != "create_order" {
+		t.Errorf("first change %+v, want the write the failing read observes", c)
+	}
+}

@@ -1229,7 +1229,32 @@ func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 			first = &report.Changes[i]
 		}
 	}
+	if first != nil && lead && rec != nil {
+		if root := rootChange(report, rec, *first); root != nil {
+			first = root
+		}
+	}
 	return first, len(steps)
+}
+
+func rootChange(report *diff.Report, rec *runner.Record, c diff.Change) *diff.Change {
+	bad := map[string]bool{}
+	for _, x := range report.Changes {
+		if x.Kind != diff.KindNotReached {
+			bad[x.Step] = true
+		}
+	}
+	w, fallback := suspectWrite(rec, c.Step, c.Path, bad)
+	if fallback || w < 0 || !bad[rec.Steps[w].ID] {
+		return nil
+	}
+	var root *diff.Change
+	for i, x := range report.Changes {
+		if x.Step == rec.Steps[w].ID && x.Kind != diff.KindNotReached && (root == nil || rank(x) > rank(*root)) {
+			root = &report.Changes[i]
+		}
+	}
+	return root
 }
 
 func rank(c diff.Change) int {
