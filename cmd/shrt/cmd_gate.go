@@ -399,12 +399,13 @@ func runResized(st *runner.StepRecord) []string {
 			}
 			member := rest == "" && ex.Rule == "exists"
 			if rest != "" && ex.Rule == "equals" && diff.IDNamedPath(rest) {
-				member = true
+				have := 0
 				for _, it := range items {
 					if got, ok := chain.Get(it, rest); ok && compactValue(got) == compactValue(ex.Want) {
-						member = false
+						have++
 					}
 				}
+				member = have < wantedAt(st.Expect, list, rest, ex.Want)
 			}
 			if member {
 				out = append(out, list)
@@ -413,6 +414,22 @@ func runResized(st *runner.StepRecord) []string {
 		}
 	}
 	return out
+}
+
+func wantedAt(expect []chain.ExpectResult, list, rest string, want any) int {
+	n := 0
+	for _, ex := range expect {
+		segs := chain.SplitPath(ex.Path)
+		for k := 1; k < len(segs); k++ {
+			if _, err := strconv.Atoi(segs[k]); err == nil {
+				if ex.Rule == "equals" && strings.Join(segs[:k], ".") == list && strings.Join(segs[k+1:], ".") == rest && compactValue(ex.Want) == compactValue(want) {
+					n++
+				}
+				break
+			}
+		}
+	}
+	return n
 }
 
 func listUnder(lists []string, path string) string {
