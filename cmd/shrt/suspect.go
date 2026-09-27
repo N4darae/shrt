@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,11 +75,6 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	}
 	if at < 0 || isWrite(rec.Steps[at]) {
 		return -1, false
-	}
-	if _, w, ok := strings.Cut(rec.Steps[at].ID, "_after_"); ok {
-		if j, ok := pos[w]; ok && j < at && isWrite(rec.Steps[j]) && !inert(rec, j, bad) {
-			return j, false
-		}
 	}
 	nearest, nearestBad := -1, -1
 	for _, i := range entityWrites(rec, at, bad, pos) {
@@ -215,6 +209,7 @@ type blame struct {
 
 type attribution struct {
 	e         *env
+	ref       bool
 	rec       *runner.Record
 	bad       map[string]bool
 	unchanged func(step, path string) bool
@@ -310,7 +305,7 @@ func (a attribution) of(step, path string) blame {
 		if up := a.behind(b.write); up != b.write {
 			return blame{write: up}
 		}
-		if _, named, _ := strings.Cut(step, "_after_"); !a.bad[w.ID] && named != w.ID {
+		if a.ref && !a.bad[w.ID] {
 			return a.asBefore(a.index(step), b)
 		}
 	}
@@ -327,21 +322,17 @@ func (a attribution) asBefore(at int, b blame) blame {
 			pos[st.ID] = i
 		}
 	}
-	writes := entityWrites(a.rec, at, a.bad, pos)
-	if len(writes) < 2 {
-		return b
-	}
-	slices.Reverse(writes)
-	var names []string
-	for _, i := range writes {
-		if name := methodName(a.rec.Steps[i].Call); !slices.Contains(names, name) {
-			names = append(names, name)
+	var earlier []string
+	for _, i := range entityWrites(a.rec, at, a.bad, pos) {
+		if i != b.write {
+			earlier = append(earlier, a.rec.Steps[i].ID)
 		}
 	}
-	if len(names) > 4 {
-		names = append(names[:3], fmt.Sprintf("%d more", len(names)-3))
+	if len(earlier) == 0 {
+		return b
 	}
-	b.write, b.why = -1, eitherWhy+strings.Join(names, " or ")+" answered as before"
+	w := a.rec.Steps[b.write]
+	b.write, b.why = -1, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
 	return b
 }
 
@@ -881,7 +872,7 @@ func heldBackBy(st *runner.StepRecord) (string, string) {
 
 func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, bool) {
 	w := a.rec.Steps[wi]
-	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) {
 		return blame{}, false
 	}
 	rm, err := a.e.cat.Lookup(r.Call)
@@ -916,7 +907,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			return
 		}
 		c, ok := carrierOf(wm, p)
-		if !ok || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
+		if !ok || envelopeOnly(p) || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
@@ -960,9 +951,9 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			methodName(r.Call), shown, methodName(w.Call))}, true
 	case len(agree) > 1:
 		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
-			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
+			methodName(w.Call), shown, valueText(wv), strings.Join(agree, ", "), valueText(compactValue(rv)))}, true
 	}
-	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, capText(wv, 60), r.ID, capText(compactValue(rv), 60))
+	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, valueText(wv), r.ID, valueText(compactValue(rv)))
 	if agreed && before == wv {
 		why = eitherWhy + why
 	}
@@ -971,8 +962,28 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 
 const eitherWhy = "the write or the read: "
 
+func valueText(s string) string {
+	if s == "" {
+		return `""`
+	}
+	return capText(s, 60)
+}
+
+func envelopeOnly(path string) bool {
+	var segs []string
+	for _, seg := range chain.SplitPath(path) {
+		if _, err := strconv.Atoi(seg); err != nil {
+			segs = append(segs, seg)
+		}
+	}
+	p := strings.Join(segs, ".")
+	list, _, _ := strings.Cut(chain.ItemEnvelope(), "[].")
+	item, ok := strings.CutPrefix(p, list+".")
+	return p == "" || p == "code" || p == "message" || strings.HasPrefix(p, "transport.") || chain.IsEnvelopePath(p) || ok && list != "" && chain.IsEnvelopePath(item)
+}
+
 func (a attribution) unstored(w *runner.StepRecord, path string) string {
-	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || a.unchanged(w.ID, path) {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) || a.unchanged(w.ID, path) {
 		return ""
 	}
 	wm, err := a.e.cat.Lookup(w.Call)
@@ -1001,15 +1012,15 @@ func (a attribution) unstored(w *runner.StepRecord, path string) string {
 			return fmt.Sprintf("%s answered %s in another order than %s read: it answered other than it stored",
 				methodName(w.Call), list, methodName(o.Call))
 		}
-		read := ""
+		read, found := "", false
 		eachLeaf(ob, "", func(p string, v any) {
-			if c, ok := carrierOf(om, p); read == "" && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
-				read = compactValue(v)
+			if c, ok := carrierOf(om, p); !found && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
+				read, found = compactValue(v), true
 			}
 		})
-		if read != "" {
+		if found {
 			return fmt.Sprintf("%s answered %s %s, but %s read %s: it answered other than it stored",
-				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), capText(compactValue(wv), 60), methodName(o.Call), capText(read, 60))
+				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), valueText(compactValue(wv)), methodName(o.Call), valueText(read))
 		}
 	}
 	return ""
@@ -1182,8 +1193,12 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 		lead = fmt.Sprintf("suspect read %s (%s)", step, shortRPC(st.Call))
 	}
 	if b.write >= 0 {
+		it := gateItem{Call: st.Call, Suspect: rec.Steps[b.write].Call, Why: b.why}
 		st = rec.Steps[b.write]
 		lead = fmt.Sprintf("suspect write %s (%s)", st.ID, shortRPC(st.Call))
+		if or := it.orRead(); or != "" {
+			lead = fmt.Sprintf("suspect %s (%s%s)", st.ID, shortRPC(st.Call), or)
+		}
 	}
 	if sent := sentText(st); sent != "" {
 		return lead + sent + whyText(b.why)

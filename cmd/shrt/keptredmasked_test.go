@@ -73,7 +73,7 @@ func TestAKeptRedDriftIsJudgedAgainstTheRunItDriftedFrom(t *testing.T) {
 	list.Expect = []chain.ExpectResult{{Path: "orders.1", Rule: "exists", Want: false, Got: true}}
 	rec := shopRecord(create, confirm, list)
 	held := map[string]bool{"list_cancelled orders.1": true}
-	if b := pinnedAttribution(nil, rec, held).of("list_cancelled", "orders"); !strings.Contains(b.why, "ConfirmOrder") {
+	if b := pinnedAttribution(nil, rec, held).of("list_cancelled", "orders"); b.write < 0 {
 		t.Fatalf("judged by its expectations alone, the read changed after a write: %+v", b)
 	}
 	drift := []diff.Change{{Step: "list_cancelled", Path: "orders", Kind: diff.KindLength, Want: 3, Got: 2}}
