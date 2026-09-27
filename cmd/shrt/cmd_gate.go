@@ -642,6 +642,9 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		}
 		items = append(items, it)
 	}
+	if first, _ := firstChange(report, rec); first != nil {
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Step == first.Step && items[j].Step != first.Step })
+	}
 	return items
 }
 
