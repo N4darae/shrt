@@ -1204,7 +1204,7 @@ func (c Change) describeValues() string {
 var heldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
 
 func heldBackDetail(st *runner.StepRecord) string {
-	answered, producer := []string{}, ""
+	answered, held, producer := []string{}, []string{}, ""
 	for _, ex := range st.Expect {
 		if ex.Rule != "unevaluated" {
 			continue
@@ -1212,6 +1212,7 @@ func heldBackDetail(st *runner.StepRecord) string {
 		if m := heldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
 			producer = m[1]
 		}
+		held = append(held, ex.Path)
 		if ex.Got != nil {
 			answered = append(answered, ex.Path+"="+show(ex.Got))
 		}
@@ -1219,9 +1220,9 @@ func heldBackDetail(st *runner.StepRecord) string {
 	if producer == "" {
 		return ""
 	}
-	out := "not judged: it reads step " + producer + ", which did not pass"
+	out := strings.Join(held, ", ") + " not judged: it reads step " + producer + ", which did not pass"
 	if len(answered) > 0 {
-		out = "answered " + strings.Join(answered, ", ") + ", " + out
+		out = "answered " + strings.Join(answered, ", ") + ", not judged: it reads step " + producer + ", which did not pass"
 	}
 	return out
 }
