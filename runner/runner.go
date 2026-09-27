@@ -1341,7 +1341,12 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
-			return fail(sr, err)
+			fail(sr, err)
+			sr.Status, sr.Request = StatusFailed, nil
+			if why := opts.chain.RefTypeMismatches(r.Catalog, i); opts.DryRun && len(why) > 0 {
+				sr.Error = fmt.Sprintf("request does not match %s: %s", method.Input().FullName(), strings.Join(why, "; "))
+			}
+			return sr
 		}
 	}
 	if opts.DryRun {
@@ -1604,7 +1609,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		for name, path := range step.Export {
 			v, ok := chain.Get(decoded, path)
 			if !ok {
-				missing := fmt.Sprintf("export %q: path %q missing in response", name, path)
+				missing := fmt.Sprintf("export %q: path %q missing in response%s", name, path, chain.NearResponsePath(method, path))
 				if sr.AssertionFailed() {
 					missing = failedExpectations(sr) + "; " + missing
 				}
@@ -1969,6 +1974,18 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 		"reported here"
 }
 
+func capValue(v any, n int) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	text := []rune(string(raw))
+	if len(text) <= n {
+		return string(text)
+	}
+	return string(text[:n-3]) + "..."
+}
+
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
 	return evaluateTyped(scope, e, response, presence, "", redactor)
 }
@@ -1979,6 +1996,11 @@ func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence a
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
 	result := bound.EvaluateTyped(response, presence, kind)
+	if result.Rule == "exists" && !result.Passed && result.Got == true && result.Detail == "" {
+		if v, ok := chain.Get(redactor.Apply(presence), e.Path); ok {
+			result.Detail = "holds " + capValue(v, 60)
+		}
+	}
 	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
 	}

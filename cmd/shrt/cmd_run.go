@@ -147,12 +147,15 @@ func runRun(ctx context.Context, args []string) error {
 		if err := emitJSON(rec); err != nil {
 			return err
 		}
+		if literal := detectLiteralCollision(e, c, rec); literal != nil && !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
+			return fmt.Errorf("chain defect in %s: %s", c.Name, literal.line())
+		}
 		return runVerdict(rec)
 	}
 	lead := ""
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
 		if literal := detectLiteralCollision(e, c, rec); literal != nil {
-			lead = literal.line()
+			lead = "CHAIN DEFECT: " + literal.line()
 		} else if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
 			lead = "FINDING: " + reuse.line()
 		} else if reuse != nil {

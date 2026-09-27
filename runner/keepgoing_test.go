@@ -125,8 +125,8 @@ func TestKeepGoingContinuesPastAStepThatWasNeverSent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if rec.Status != runner.StatusError {
-		t.Fatalf("the run's verdict must be the first failure's, as without -keep-going: want %s, got %s", runner.StatusError, rec.Status)
+	if rec.Status != runner.StatusFailed {
+		t.Fatalf("the run's verdict must be the first failure's, as without -keep-going: want %s, got %s", runner.StatusFailed, rec.Status)
 	}
 	if got := stepByID(t, rec, "independent").Status; got != runner.StatusPassed {
 		t.Fatalf("a step that reads nothing from the broken one should still run, got %s", got)

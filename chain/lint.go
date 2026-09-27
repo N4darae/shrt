@@ -226,6 +226,9 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 		}
 		if next == nil {
 			near := namecase.Closest(seg, names, 3)
+			if len(near) == 0 {
+				near = namesWithWord(seg, names, 3)
+			}
 			quoted := make([]string, 0, len(near))
 			for _, n := range near {
 				quoted = append(quoted, strconv.Quote(strings.Join(append(append(append([]string{}, segs[:i]...), n), segs[i+1:]...), ".")))
@@ -241,6 +244,26 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 		fields = next.Fields
 	}
 	return ""
+}
+
+func NearResponsePath(m *catalog.Method, path string) string {
+	if m == nil {
+		return ""
+	}
+	return nearPath(m.Response().Fields, SplitPath(path))
+}
+
+func namesWithWord(word string, names []string, limit int) []string {
+	out := []string{}
+	for _, n := range names {
+		for _, w := range strings.Split(n, "_") {
+			if len(out) < limit && strings.EqualFold(w, word) {
+				out = append(out, n)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func didYouMean(name string, candidates []string) string {
@@ -861,7 +884,8 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 				Step:     s.ID,
 				Severity: SeverityError,
 				Kind:     KindBadExport, Message: fmt.Sprintf("export %q reads %q which is not a field of %s, so shrt run "+
-					"fails this step when the path is missing from the response", name, path, m.Output().FullName()),
+					"fails this step when the path is missing from the response%s", name, path, m.Output().FullName(),
+					nearPath(schema.Fields, SplitPath(path))),
 			})
 		}
 	}

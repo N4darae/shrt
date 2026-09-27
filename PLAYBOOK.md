@@ -85,7 +85,7 @@ Habits that keep a chain re-runnable:
 
 `plan` leaves `tag` undeclared, so every run gets a fresh one and none needs `-var`. When a run is refused as a duplicate, `run` and `verify` say
 which (PITFALLS §23): `fixture reused` or `fixture collision` (exit 3, re-run with a fresh `-var`),
-or `the chain collides with itself` (exit 1: build the literal field from a var).
+or `CHAIN DEFECT: the chain collides with itself` (exit 1: build the literal field from a var).
 
 ## 3b. Tell shrt how YOUR backend answers
 
@@ -345,7 +345,7 @@ shrt run <name> -dry-run        # resolve and validate, send nothing; does not l
 shrt run <name>
 ```
 
-Progress lines start with the step status: `ok`, `FAIL` (answered, an expectation did not hold),
+Progress lines start with the step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the request),
 `ERROR` (the step never completed), `SKIP` (held back under `-keep-going`), `--` (dry run).
 `shrt run` refuses before sending anything a chain with a missing var, an unset env var, a
 reference to a field the producing message does not declare, or a body the proto rejects in any

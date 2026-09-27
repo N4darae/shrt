@@ -91,3 +91,29 @@ func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
 	}
 	return out
 }
+
+func (c *Chain) RefTypeMismatches(cat *catalog.Catalog, index int) []string {
+	if cat == nil || index < 0 || index >= len(c.Steps) {
+		return nil
+	}
+	responses := map[string]*catalog.Method{}
+	exports := map[string]exportOrigin{}
+	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
+		m, err := cat.Lookup(s.Call)
+		if i == index {
+			if err != nil {
+				return nil
+			}
+			never, maybe := refTypeProblems(s, m, responses, exports)
+			return append(never, maybe...)
+		}
+		if err == nil {
+			responses[s.ID] = m
+		}
+		noteExports(s, exports)
+	}
+	return nil
+}

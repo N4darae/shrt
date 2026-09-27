@@ -32,3 +32,47 @@ steps:
 		}
 	}
 }
+
+func TestAReferenceThatCannotFillItsFieldFailsWithExit1AndDryRunNamesTheTypes(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-qty.yaml", `apiVersion: shrt/v1
+name: cli-qty
+steps:
+    - id: create
+      call: ThingService/Create
+      body:
+          name: widget
+          kind: KIND_A
+      expect:
+          - path: error.code
+            equals: OK
+      export:
+          thing_id: id
+    - id: again
+      call: ThingService/Create
+      body:
+          name: widget
+          kind: KIND_A
+          qty: ${thing_id}
+      expect:
+          - path: error.code
+            equals: OK
+`)
+	ctx := context.Background()
+	for _, args := range [][]string{{"cli-qty", "-quiet", "-dry-run"}, {"cli-qty", "-quiet"}} {
+		var err error
+		out := captureStdout(t, func() { err = runRun(ctx, args) })
+		if code := exitCodeOf(err); code != 1 {
+			t.Errorf("%v: a request the proto rejects is a failure, not a missing verdict: want exit 1, got %d: %v\n%s", args, code, err, out)
+		}
+		if strings.Contains(out, "again sent") {
+			t.Errorf("%v: the refused request was never sent:\n%s", args, out)
+		}
+	}
+	out := captureStdout(t, func() { _ = runRun(ctx, []string{"cli-qty", "-dry-run"}) })
+	if !strings.Contains(out, "${thing_id} fills qty, declared int64") || strings.Contains(out, `qty: ""`) {
+		t.Errorf("a dry run names the reference and the field types, not the blank synthetic value:\n%s", out)
+	}
+}
