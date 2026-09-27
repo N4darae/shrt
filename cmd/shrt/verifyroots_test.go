@@ -70,3 +70,20 @@ func TestAStatusOnlyChangeIsNamedByTheExpectationThatFailed(t *testing.T) {
 		t.Errorf("gate item got %+v", items)
 	}
 }
+
+func TestTheGateLeadsWithTheStepVerifyNamesFirst(t *testing.T) {
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","lines":[{"qty":"4"}]}}`),
+		shopStep("replay_same", shopOrder, `{"order":{"id_order":"o2","lines":[{"qty":"4"}]}}`).failing("order.id_order", "o1", "o2"),
+		shopStep("replay_other_body", shopOrder, `{"order":{"id_order":"o3","lines":[{"qty":"7"}]}}`),
+	)
+	report := &diff.Report{Changes: []diff.Change{
+		{Step: "replay_other_body", Path: "order.lines.0.qty", Kind: diff.KindChanged, Want: "4", Got: "7"},
+		{Step: "replay_same", Path: "order.id_order", Kind: diff.KindChanged, Want: "o1", Got: "o2"},
+	}}
+	first, _ := firstChange(report, rec)
+	items := verifyItems(&env{cat: catalogtest.Shop()}, rec, report)
+	if first == nil || first.Step != "replay_same" || len(items) != 2 || items[0].Step != "replay_same" {
+		t.Errorf("verify names replay_same first, so the gate item order must lead with it: first %+v, items %+v", first, items)
+	}
+}
