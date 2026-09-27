@@ -30,8 +30,8 @@ func TestStatusFilterMovesRunOnResourcesOfTheirOwn(t *testing.T) {
 		}
 	}
 	wantExpect(t, planStep(t, p, "list_orders_confirmed"), "orders.0.id_order", "${create_order_3.order.id_order}")
-	wantExpect(t, planStep(t, p, "get_product_after_confirm_order_3"), "product.qty_on_hand", 5-4)
-	wantExpect(t, planStep(t, p, "get_product_2_after_confirm_order_3"), "product.qty_on_hand", 6-1)
+	wantExpect(t, planStep(t, p, "get_product_after_confirm_order_3"), "product.qty_on_hand", 5-2)
+	wantExpect(t, planStep(t, p, "get_product_2_after_confirm_order_3"), "product.qty_on_hand", 6-3)
 	if !strings.Contains(notes, "filter (4, for create_order_3)") {
 		t.Fatalf("the isolation note names the filter's fixtures:\n%s", notes)
 	}

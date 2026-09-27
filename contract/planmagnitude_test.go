@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
@@ -73,5 +74,17 @@ func TestPlanVariesNumbersInsideRepeatedItemsAcrossListFixtures(t *testing.T) {
 		if n, _ := strconv.Atoi(qty); n > 5 {
 			t.Fatalf("a quantity grows by one per fixture so it stays within the stock the plan adds, got %s:\n%s", qty, text)
 		}
+	}
+	totals := []int{}
+	for _, id := range []string{"create_order", "create_order_2", "create_order_3"} {
+		for _, e := range planStep(t, p, id).Expect {
+			if e.Path == "order.total_minor" {
+				n, _ := strconv.Atoi(fmt.Sprint(e.Equals))
+				totals = append(totals, n)
+			}
+		}
+	}
+	if len(totals) != 3 || (totals[0] < totals[1]) == (totals[1] < totals[2]) {
+		t.Fatalf("the totals the lines add up to sort neither in creation order nor against it, got %v:\n%s", totals, text)
 	}
 }
