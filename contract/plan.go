@@ -186,6 +186,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		{"unknown id", "unknown", p.probeUnknownIDs},
 		{"malformed", "shape", p.probeShapes},
 		{"login", "", p.probeLogin},
+		{"list cap", "", p.probeListCaps},
 	} {
 		only := targeted
 		if pass.label == "token/role" {

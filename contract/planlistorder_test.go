@@ -44,7 +44,7 @@ func TestPlanForAListGivesFixturesWhoseSortKeysDisagreeEitherWay(t *testing.T) {
 	}
 	creates := map[string]map[string]any{}
 	for _, st := range p.Chain.Steps {
-		if strings.HasSuffix(st.Call, "/CreateProduct") && !strings.Contains(st.ID, "_prefix_") {
+		if strings.HasSuffix(st.Call, "/CreateProduct") && !strings.Contains(st.ID, "_prefix_") && !strings.Contains(st.Description, " of 12 for ") {
 			creates[st.ID] = st.Body
 		}
 	}
