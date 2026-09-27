@@ -89,3 +89,28 @@ func TestSliceRunLatestIsTheNewerReplayWhenOnlyItFailedTheStep(t *testing.T) {
 		t.Fatalf("the note names the run picked and the one passed over: %q", note)
 	}
 }
+
+func TestSliceRunLatestIsTheNewestReplayWhenNoRunWasRecordedBesideIt(t *testing.T) {
+	_, e, base := approvedThingFlowRun(t)
+	for _, id := range []string{"29990101T000000Z-replay04", "29990101T000001Z-replay05"} {
+		replay := copyRun(t, base, id)
+		replay.ReplayOf = base.RunID
+		if _, err := e.store.SaveRun(replay); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var picked string
+	note := captureStderr(t, func() {
+		rec, err := loadRunReaching(e, "cli-thing-flow", "cli-thing-flow", "latest", "fetch")
+		if err != nil {
+			t.Fatal(err)
+		}
+		picked = rec.RunID
+	})
+	if picked != "29990101T000001Z-replay05" {
+		t.Fatalf("-run latest picked %s, want the newest replay, as shrt diff compares it", picked)
+	}
+	if !strings.Contains(note, "as shrt diff picks it") || !strings.Contains(note, "-run "+base.RunID) {
+		t.Fatalf("the note names the replay picked and the run passed over: %q", note)
+	}
+}

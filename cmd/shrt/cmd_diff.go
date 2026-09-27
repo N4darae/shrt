@@ -141,8 +141,7 @@ func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record,
 	picked := []*runner.Record{}
 	replays := []string{}
 	for i := len(recs) - 1; i >= 0 && len(picked) < 2; i-- {
-		beside := i > 0 && recs[i-1].ReplayOf == ""
-		if recs[i].ReplayOf != "" && (len(picked) > 0 || beside) {
+		if recs[i].ReplayOf != "" && (len(picked) > 0 || i > 0 && replayBesideRun(recs[i-1], recs[i])) {
 			replays = append(replays, recs[i].RunID)
 			continue
 		}
@@ -164,6 +163,10 @@ func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record,
 			"backend: %s; name one to compare it: shrt diff %s <run-a> <run-b>)", len(replays), capList(replays, 3), chainName)
 	}
 	return picked[1], picked[0], line, nil
+}
+
+func replayBesideRun(prev, rec *runner.Record) bool {
+	return rec.ReplayOf != "" && prev.ReplayOf == ""
 }
 
 func currentVolatile(e *env, chainName string) []string {

@@ -153,6 +153,8 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		}
 		if needStep {
 			rec, err = loadRunReaching(e, c.Name, ref, *runID, *step)
+		} else if *runID == "latest" {
+			rec, err = latestRun(e, c.Name, *step)
 		} else {
 			rec, err = e.store.LoadRun(c.Name, *runID)
 		}
@@ -1656,6 +1658,10 @@ func newestRecordReaching(e *env, chainName, step, skip string, replays bool) (*
 }
 
 func latestRun(e *env, chainName, step string) (*runner.Record, error) {
+	ids, err := e.store.ListRuns(chainName)
+	if err != nil {
+		return nil, err
+	}
 	latest, err := e.store.LatestRun(chainName)
 	if err != nil || latest.ReplayOf == "" {
 		return latest, err
@@ -1668,14 +1674,27 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	if latestReached, _ := reachedStep(latest, step); ownReached != latestReached {
 		return latest, nil
 	}
-	if stepFailed(latest, step) && !stepFailed(own, step) {
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s failed; the newest `shrt run` record, %s, passed it\n",
-			latest.RunID, step, own.RunID)
+	if stepFailed(latest, step) != stepFailed(own, step) {
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s %s; the newest `shrt run` record, %s, %s it\n",
+			latest.RunID, step, stepStatus(latest, step), own.RunID, stepStatus(own, step))
 		return latest, nil
 	}
-	fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay: pass -run %s to slice from it\n",
+	prev, err := e.store.LoadRun(chainName, ids[len(ids)-2])
+	if err != nil || !replayBesideRun(prev, latest) {
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run %s\n",
+			latest.RunID, own.RunID)
+		return latest, nil
+	}
+	fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay recorded right after it: pass -run %s to slice from it\n",
 		own.RunID, chainName, latest.RunID, latest.RunID)
 	return own, nil
+}
+
+func stepStatus(rec *runner.Record, step string) string {
+	if sr, ok := rec.Step(step); ok {
+		return sr.Status
+	}
+	return "was not run"
 }
 
 func stepFailed(rec *runner.Record, step string) bool {
