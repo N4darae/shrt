@@ -515,7 +515,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    replaces another file; a slice of the same chain and step is replaced in place.
 4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice (3 times by
    default, `-repeat N`) and compares the target step's verdict with the source run's: envelope
-   code, reason and app code, transport refusal, and each expectation's pass, want and got. It
+   code, reason and app code, transport refusal, and each expectation's pass, want and got; when
+   those match and the source run drifted at the target against its safe spot, the slice must
+   drift the same paths. It
    writes the source run's vars into the slice, except fresh vars a kept write interpolates, which
    you must pass (`-var name=<fresh>`). Outcomes:
    - `reproduced` (0): the verdicts match and no dropped write touched an entity a kept step uses.

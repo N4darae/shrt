@@ -995,6 +995,17 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Differences = compareSliceVerdicts(res, v.Source, withoutBlocked(v.Source, v.Replay, blocked), sameUpToFixtures(rec.Vars, replayRec.Vars))
 		upstreamOnly = len(v.Differences) == 0
 	}
+	if len(v.Differences) == 0 {
+		missing, matched := sliceDrift(e, res, rec, replayRec)
+		v.Differences = missing
+		if matched != "" {
+			defer func() {
+				if v.Outcome == sliceReproduced {
+					v.Reason = strings.TrimPrefix(v.Reason+"\n"+matched, "\n")
+				}
+			}()
+		}
+	}
 	related, other := relatedDroppedWrites(res, rec)
 	entityRelated := append([]string{}, related...)
 	related, reads := classifyFieldReads(e, res, rec, related)
