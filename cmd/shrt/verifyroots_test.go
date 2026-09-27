@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -85,5 +86,27 @@ func TestTheGateLeadsWithTheStepVerifyNamesFirst(t *testing.T) {
 	items := verifyItems(&env{cat: catalogtest.Shop()}, rec, report)
 	if first == nil || first.Step != "replay_same" || len(items) != 2 || items[0].Step != "replay_same" {
 		t.Errorf("verify names replay_same first, so the gate item order must lead with it: first %+v, items %+v", first, items)
+	}
+}
+
+func TestTheVerifyHeadlineKeepsARefusedWriteOfTheSameRpcAsItsOwnRoot(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	steps := func(status, qty string) *runner.Record {
+		return shopRecord(
+			shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"10"},`+shopOK+`}`),
+			shopStep("create_product_2", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"10"},`+shopOK+`}`),
+			shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"2"}]},`+shopOK+`}`, "create_product"),
+			shopStep("confirm_order", shopConfirm, `{"order":{"id_order":"o1","status":"`+status+`"},`+shopOK+`}`, "create_order"),
+			shopStep("create_order_2", shopOrder, `{"order":{"id_order":"o2","lines":[{"id_product":"p2","qty":"20"}]},`+shopOK+`}`, "create_product_2"),
+			shopStep("confirm_short", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1305}]}}`, "create_order_2"),
+			shopStep("get_product_2", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"`+qty+`"},`+shopOK+`}`, "create_product_2"),
+		)
+	}
+	rec := steps("PENDING", "-10")
+	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("CONFIRMED", "10").Steps}, rec)
+	line, _ := verifyVerdict(effectsEnv(t), "shop", rec, report, nil, false, errors.New("regression: x"), "")
+	if !strings.Contains(line, "  also: get_product_2 (ProductService/GetProduct) product.qty_on_hand want=10 got=-10, after write confirm_short (OrderService/ConfirmOrder)") {
+		t.Errorf("the refused confirm moved stock, a root apart from the confirm that answered PENDING; got:\n%s", line)
 	}
 }

@@ -51,7 +51,7 @@ func TestAWriteThatNeitherAnswersNorMovesTheFieldIsNoCandidate(t *testing.T) {
 	moved := []diff.Change{{Step: "clerk_get", Path: "product.price_minor", Kind: diff.KindChanged, Want: "500", Got: "0"}}
 	b := changesAttribution(effectsEnv(t), rec, moved).of("clerk_get", "product.price_minor")
 	if b.write < 0 || rec.Steps[b.write].ID != "create_product" || strings.Contains(b.why, "add_stock") {
-		t.Errorf("AddStock neither answers nor moves price_minor and the clerk's was refused, so CreateProduct is the only write: %+v", b)
+		t.Errorf("AddStock neither answers nor moves price_minor, refused or not, so CreateProduct is the only write: %+v", b)
 	}
 }
 

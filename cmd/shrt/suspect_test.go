@@ -506,6 +506,9 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.write >= 0 || b.why != "the write or the read: create_order (CreateOrder), or earlier create_product, answered as before" {
 		t.Errorf("against a reference, a write refused as before is no candidate and the nearest other is named first, got %+v", b)
 	}
+	if b := changesAttribution(effectsEnv(t), rec, moved).of("get_product", "product.qty_on_hand"); b.lead != "confirm_order" || !strings.HasPrefix(b.why, "the write or the read: confirm_order (ConfirmOrder), or earlier create_product,") {
+		t.Errorf("a refused write whose contract effects move the field stays the first candidate, got %+v", b)
+	}
 }
 
 func TestAListItemIsTheWritesRecordOnlyWhenItsOwnIDMatches(t *testing.T) {
