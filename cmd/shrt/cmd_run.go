@@ -115,7 +115,7 @@ func runRun(ctx context.Context, args []string) error {
 	var driftReport *diff.RunReport
 	flakyOnly := false
 	defer func() {
-		side := runSidecar(e, c, rec, drift, driftReport)
+		side := runSidecar(e, c, rec, drift, driftReport, pinnedRef)
 		if flaky.finding() {
 			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
 		}
