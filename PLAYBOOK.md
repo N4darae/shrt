@@ -411,7 +411,9 @@ answer changed. A kept-red pin or drift on an rpc and path the gate reports else
 rpc (`masked by`, `moved with`). Otherwise it is the write
 the read observes (the nearest earlier write on the same record, skipping a refused repeat or
 idempotent replay of an earlier write; when a reference shows several such writes all answered as
-before, `the write or the read` names them, nearest first); steps left unevaluated
+before, `the write or the read` names them, nearest first, unless exactly one of them since the
+last unchanged read of that record has contract `effects:` moving the field: that one is named); a list
+item's id links it to the writes naming that id; steps left unevaluated
 behind a failed step fold under it.
 
 ## 9. Refactor and test against a safe spot
