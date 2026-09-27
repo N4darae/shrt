@@ -86,11 +86,62 @@ func listChangeKinds(sr *StepRecord) map[int]string {
 			out[i] = fmt.Sprintf("item missing: %s holds %d item(s)", pos.list, len(pos.items))
 		case itemKind[at] != "":
 			out[i] = "another item at " + at + ", see " + itemKind[at]
+		case ex.Rule == "equals" && sentReordered(sr.Request, pos):
+			out[i] = "reordered: " + pos.list + " holds the items sent, in another order"
 		case ex.Rule == "equals":
 			out[i] = "value changed: the item at " + at + " holds another " + pos.rest
 		}
 	}
 	return out
+}
+
+func sentReordered(request json.RawMessage, pos listPosition) bool {
+	var req any
+	if len(pos.items) < 2 || json.Unmarshal(request, &req) != nil {
+		return false
+	}
+	segs := chain.SplitPath(pos.list)
+	sent, _ := findList(req, segs[len(segs)-1]).([]any)
+	if len(sent) != len(pos.items) {
+		return false
+	}
+	count, same := map[string]int{}, true
+	for j, item := range pos.items {
+		want, ok := sent[j].(map[string]any)
+		if !ok || len(want) == 0 {
+			return false
+		}
+		got := map[string]any{}
+		for k := range want {
+			got[k], _ = chain.Get(item, k)
+		}
+		a, b := fmt.Sprint(want), fmt.Sprint(got)
+		count[a]++
+		count[b]--
+		same = same && a == b
+	}
+	for _, n := range count {
+		if n != 0 {
+			return false
+		}
+	}
+	return !same
+}
+
+func findList(v any, key string) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return nil
+	}
+	if l, ok := m[key].([]any); ok {
+		return l
+	}
+	for _, child := range m {
+		if l := findList(child, key); l != nil {
+			return l
+		}
+	}
+	return nil
 }
 
 var listChangeWords = []string{"reordered", "item missing", "item added", "another item", "value changed"}

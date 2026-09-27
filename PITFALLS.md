@@ -280,7 +280,9 @@ nothing and stays masked. **Fix.** Treat it as a real change.
 
 ## 45. `order changed`, or `same items in another order`
 
-**Cause.** The rpc promises no order. **Fix.** Declare `unordered: [<list>]` on the step or chain.
+**Cause.** The list holds the safe spot's items in another order. **Fix.** Only if its order also
+varies between runs of one release, declare `unordered: [<list>]` on the step or chain; otherwise,
+and whenever an expectation reading it by position fails, it is a regression.
 
 ## 46. A step-level `volatile` did not mask another step
 

@@ -342,7 +342,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `status` | string | `passed`, `failed` or `error`; never `skipped`, which is a step status. |
 | `dry_run` | bool | True for a `-dry-run` record, which is never saved. |
 | `keep_going` | bool | True for a `-keep-going` run. |
-| `replay_of` | string | On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips such records. |
+| `replay_of` | string | On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips one recorded right after a run. |
 | `vars` | map string → any | The resolved vars this run used; secrets show as `<redacted>`. |
 | `exports` | map string → any | Everything any step exported. |
 | `volatile` | list of string | Volatile patterns in force for the whole run, chain plus config. |

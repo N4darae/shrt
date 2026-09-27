@@ -546,9 +546,6 @@ func (r *Report) reorderedText() string {
 		if len(g.steps) > 1 {
 			on = "those steps"
 		}
-		b.WriteString("  " + g.String() + ": same items in another order: it holds what the safe spot holds, in another order. " +
-			"If the rpc promises no order, declare `unordered: [" + g.path + "]` on " + on +
-			" (or at chain level), and verify compares that list as a multiset, pairing items by content")
 		var failed []string
 		hidden := 0
 		for _, step := range g.steps {
@@ -560,8 +557,12 @@ func (r *Report) reorderedText() string {
 			}
 			hidden += r.hiddenUnder(stepPath{step: step, path: g.path})
 		}
+		b.WriteString("  " + g.String() + ": same items in another order than the safe spot")
 		if len(failed) > 0 {
-			b.WriteString("; the expectation(s) reading it by position failed: " + stepsText(failed, 3))
+			b.WriteString("; the expectation(s) reading it by position, which passed there, failed: " + stepsText(failed, 3))
+		} else {
+			b.WriteString(". Only if the order also varies between runs of one release, declare `unordered: [" + g.path + "]` on " + on +
+				" (or at chain level) to compare it as a multiset")
 		}
 		if hidden > 0 {
 			fmt.Fprintf(&b, "; %d positional change(s) under it are counted above but not listed one by one (-json lists them)", hidden)

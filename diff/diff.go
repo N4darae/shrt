@@ -397,7 +397,8 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		}
 		if errA == nil && errB == nil {
 			collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
-			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, mask: stepMask})
+			sent, _ := decode(got.Request)
+			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, sent: sent, mask: stepMask})
 		}
 	}
 	rep.applyRenaming(idPairs)
@@ -1445,8 +1446,16 @@ func (r *Report) Text() string {
 		renamedAt[fr.missing], renamedTo[fr.unexpected] = fr, true
 	}
 	changedAt := r.valueChangedSteps()
+	idLines, idFolded := r.inconsistentIDGroups()
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
+		if line, ok := idLines[i]; ok {
+			b.WriteString(line)
+			continue
+		}
+		if idFolded[i] {
+			continue
+		}
 		if c.Kind == KindStatus && changedAt[c.Step] {
 			continue
 		}

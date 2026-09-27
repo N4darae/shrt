@@ -59,3 +59,30 @@ func TestAListIsSameItemsInAnotherOrderOnlyWhenNoItemWasAddedOrMissing(t *testin
 		t.Errorf("a list holding an item it should not is a changed set, not a reorder: %v", got)
 	}
 }
+
+func TestAValueUnderAListThatEchoesTheRequestInAnotherOrderIsAReorder(t *testing.T) {
+	request, _ := json.Marshal(map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 2},
+		map[string]any{"id_product": "a", "qty": 3},
+		map[string]any{"id_product": "b", "qty": 1},
+	}})
+	reversed, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "b", "qty": 1, "price_minor": "799"},
+		map[string]any{"id_product": "a", "qty": 3, "price_minor": "1250"},
+		map[string]any{"id_product": "a", "qty": 2, "price_minor": "1250"},
+	}}})
+	qty := chain.ExpectResult{Path: "order.lines.2.qty", Rule: "equals", Want: float64(1), Got: float64(2)}
+	sr := &StepRecord{ID: "create", Status: StatusFailed, Request: request, Response: reversed, Expect: []chain.ExpectResult{qty}}
+	if !ReorderedPaths(sr)["order.lines.2.qty"] {
+		t.Errorf("the lines sent, answered in another order, are a reorder: %v", listChangeKinds(sr))
+	}
+	doubled, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 2},
+		map[string]any{"id_product": "a", "qty": 3},
+		map[string]any{"id_product": "b", "qty": 2},
+	}}})
+	sr.Response = doubled
+	if ReorderedPaths(sr)["order.lines.2.qty"] {
+		t.Errorf("a line answered with another qty is a value change, not a reorder")
+	}
+}

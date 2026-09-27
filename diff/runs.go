@@ -181,6 +181,14 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 	}
 	renames := idRenames(rep.idPairs)
+	if rn := renamer(renames); rn != nil && !rep.FailingAlike && rep.FirstFailureA != "" && rep.FirstFailureA == rep.FirstFailureB && len(rep.FailingA) == len(rep.FailingB) {
+		rep.FailingAlike = true
+		for i := range rep.FailingA {
+			if maskVarValues(a.Vars, rn.Replace(rep.FailingA[i])) != maskVarValues(b.Vars, rep.FailingB[i]) {
+				rep.FailingAlike = false
+			}
+		}
+	}
 	var renamed, echoed []Change
 	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
@@ -568,7 +576,7 @@ func (r *RunReport) Text() string {
 		case r.FailingAlike && strings.Join(r.FailingA, "\n") == strings.Join(r.FailingB, "\n"):
 			how = ", failing the same way in both"
 		case r.FailingAlike:
-			how = ", failing the same way in both: the values differ only by the fixture name each run sent"
+			how = ", failing the same way in both: the values differ only by the ids and fixture names each run generated"
 		default:
 			how = ", failing differently"
 		}

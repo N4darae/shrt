@@ -507,13 +507,12 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
 	}
 	if report.OnlyReordered() {
-		failed := ""
+		next := "Only if the order also varies between runs of one release, declare the list unordered (unordered: [<path>] on the step or the chain); otherwise this is a regression"
 		if list := report.ReorderedExpectations(); len(list) > 0 {
-			failed = "; the expectation(s) reading it by position failed: " + capList(list, 3)
+			next = "The expectation(s) reading it by position, which passed in the safe spot's run, failed: " + capList(list, 3) + "; a regression unless the order was never promised"
 		}
-		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s.\n"+
-			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
-			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.ReorderedLists(), "; "), failed)
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n%s",
+			len(report.Changes), strings.Join(report.ReorderedLists(), "; "), next)
 	}
 	if len(declared) == 0 && len(independent) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
@@ -1165,6 +1164,8 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 			out += "; suspect " + it.Own
 		case it.Own == "" && it.SuspectStep != "":
 			out += fmt.Sprintf(", after write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
+		case it.Why != "":
+			out += "; " + it.Why
 		}
 		out += "\n"
 	}

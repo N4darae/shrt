@@ -2,8 +2,10 @@ package diff
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
 )
 
@@ -128,4 +130,114 @@ func zeroID(s string) bool {
 		}
 	}
 	return true
+}
+
+func starPath(path string) string {
+	segs := strings.Split(path, ".")
+	out := []string{}
+	for _, seg := range segs {
+		if _, err := strconv.Atoi(seg); err == nil && len(out) > 0 {
+			out[len(out)-1] += "[]"
+			continue
+		}
+		out = append(out, seg)
+	}
+	return strings.Join(out, ".")
+}
+
+func (r *Report) inconsistentIDGroups() (map[int]string, map[int]bool) {
+	members, order := map[string][]int{}, []string{}
+	for i, c := range r.Changes {
+		if !strings.HasPrefix(c.Detail, inconsistentID) || outerList(c.Path) == "" || r.folded[c.Step] || r.underReordered(c) {
+			continue
+		}
+		k := starPath(c.Path)
+		if members[k] == nil {
+			order = append(order, k)
+		}
+		members[k] = append(members[k], i)
+	}
+	lines, folded := map[int]string{}, map[int]bool{}
+	for _, k := range order {
+		idx := members[k]
+		if len(idx) < 2 {
+			continue
+		}
+		var steps []string
+		for _, i := range idx {
+			if !containsString(steps, r.Changes[i].Step) {
+				steps = append(steps, r.Changes[i].Step)
+			}
+			folded[i] = true
+		}
+		c := r.Changes[idx[0]]
+		lines[idx[0]] = fmt.Sprintf("  [%s] %-10s %s at %d item(s): %s, so each now points at something else than it did%s; e.g. %s %s\n",
+			stepsText(steps, 3), c.Kind, k, len(idx), inconsistentID, r.oneValue(steps, c.Path), c.Path, c.describeValues())
+	}
+	return lines, folded
+}
+
+func (r *Report) oneValue(steps []string, path string) string {
+	list := outerList(path)
+	rest := strings.TrimPrefix(path, list+".")
+	if _, tail, ok := strings.Cut(rest, "."); ok {
+		rest = tail
+	} else {
+		return ""
+	}
+	from := ""
+	for _, step := range steps {
+		var cs *comparedStep
+		for i := range r.compared {
+			if r.compared[i].id == step {
+				cs = &r.compared[i]
+			}
+		}
+		if cs == nil {
+			return ""
+		}
+		l, _ := chain.Get(cs.got, list)
+		items, _ := l.([]any)
+		if len(items) < 2 {
+			return ""
+		}
+		first, _ := chain.Get(items[0], rest)
+		for _, it := range items[1:] {
+			if v, _ := chain.Get(it, rest); fmt.Sprint(v) != fmt.Sprint(first) {
+				return ""
+			}
+		}
+		at := sentAt(cs.sent, "", first)
+		if at == "" || from != "" && at != from {
+			from = "-"
+		} else if from == "" {
+			from = at
+		}
+	}
+	if from == "" || from == "-" {
+		return "; every item of " + list + " holds one value in each step"
+	}
+	return "; every item of " + list + " holds one value in each step, the request's " + from
+}
+
+func sentAt(v any, path string, want any) string {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(t, nil) {
+			if p := sentAt(t[k], pathmask.Join(path, k), want); p != "" {
+				return p
+			}
+		}
+	case []any:
+		for i, it := range t {
+			if p := sentAt(it, pathmask.Join(path, pathmask.IndexKey(i)), want); p != "" {
+				return p
+			}
+		}
+	default:
+		if path != "" && fmt.Sprint(v) == fmt.Sprint(want) {
+			return path
+		}
+	}
+	return ""
 }

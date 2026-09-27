@@ -485,3 +485,23 @@ func TestAListItemIsTheWritesRecordOnlyWhenItsOwnIDMatches(t *testing.T) {
 		}
 	}
 }
+
+func TestAWriteAnsweringOtherThanALaterReadOfTheRecordShowsBothValues(t *testing.T) {
+	fetched := shopStep("fetch_order", shopFetch, `{"order":{"id_order":"o1","total_minor":"9"}}`, "create_order")
+	fetched.Expect = []chain.ExpectResult{{Path: "order.total_minor", Rule: "equals", Want: "9", Got: "9", Passed: true}}
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","total_minor":"9"}}`),
+		shopStep("confirm_order", shopConfirm, `{"order":{"id_order":"o1","total_minor":"7"}}`, "create_order").failing("order.total_minor", "9", "7"),
+		fetched,
+		shopStep("cancel_order", shopCancel, `{"order":{"id_order":"o1","total_minor":"0"}}`, "create_order"),
+	)
+	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor")
+	want := "ConfirmOrder answered order.total_minor 7, but FetchOrder read 9: it answered other than it stored"
+	if b.write >= 0 || b.own != "" || b.why != want {
+		t.Errorf("got write %d own %q why %q, want the write's own failure with %q", b.write, b.own, b.why, want)
+	}
+	rec.Steps[2], rec.Steps[3] = rec.Steps[3], rec.Steps[2]
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.why != "" {
+		t.Errorf("a read after a later write of the record says nothing about what the first write stored: %q", b.why)
+	}
+}

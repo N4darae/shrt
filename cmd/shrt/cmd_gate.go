@@ -1175,7 +1175,7 @@ func (g *gateChain) suspectLine() string {
 	if g.sent[step] == "" {
 		return ""
 	}
-	if it.SuspectStep != "" && it.Own == "" {
+	if it.Own == "" {
 		return lead + g.sent[step] + whyText(it.Why)
 	}
 	return lead + g.sent[step]
@@ -1429,6 +1429,9 @@ func printGateGroups(chains []*gateChain) {
 			case it.Suspect == "" && !chain.IsReadOnlyCall(it.Call):
 				gr := group(it.ownKey())
 				gr.write = true
+				if it.Why != "" {
+					gr.addPath(&gr.why, it.Why)
+				}
 				own(gr)
 			default:
 				gr := group(shortRPC(it.Call))
@@ -1462,6 +1465,8 @@ func printGateGroups(chains []*gateChain) {
 			switch {
 			case len(gr.own) > 0:
 				tail = "; suspect the read: " + gr.own[0] + otherReasons(len(gr.own)-1)
+			case gr.write && len(gr.why) > 0:
+				tail = "; " + gr.why[0] + otherReasons(len(gr.why)-1)
 			case gr.write:
 			case gr.knockOn:
 				tail = "; a knock-on of " + gr.suspect
