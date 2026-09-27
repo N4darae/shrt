@@ -407,7 +407,7 @@ storing other than it answers looks the same from the API), filed under both rpc
 change belongs to an earlier step when it is that step's answer for the same field of the same
 record, or a number that recomputes from values earlier steps changed (a total over lines); a write
 refused where it passed, and what follows it, to the first earlier write on its record whose own
-answer changed. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
+answer changed; any other changed write to the nearest earlier changed write on its record. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
 rpc, or the write it blames there (`masked by`, `moved with`). Otherwise it is the write
 the read observes (the nearest earlier write on the same record, skipping a refused repeat or
 idempotent replay of an earlier write; when a reference shows several such writes all answered as
