@@ -25,7 +25,7 @@ func init() {
 
 const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
-	"       shrt diff <chain>                   the two latest runs that are not shrt verify replays"
+	"       shrt diff <chain>                   the latest run, skipping a verify replay recorded right after a run, vs the latest earlier one that is not a replay"
 
 func runDiff(ctx context.Context, args []string) error {
 	err := compareRuns(ctx, args)
@@ -132,23 +132,30 @@ func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record,
 	if err != nil {
 		return nil, nil, "", err
 	}
-	picked := []*runner.Record{}
-	replays := []string{}
-	for i := len(ids) - 1; i >= 0 && len(picked) < 2; i-- {
-		rec, err := e.store.LoadRun(chainName, ids[i])
-		if err != nil {
+	recs := make([]*runner.Record, len(ids))
+	for i, id := range ids {
+		if recs[i], err = e.store.LoadRun(chainName, id); err != nil {
 			return nil, nil, "", err
 		}
-		if rec.ReplayOf != "" {
-			replays = append(replays, rec.RunID)
+	}
+	picked := []*runner.Record{}
+	replays := []string{}
+	for i := len(recs) - 1; i >= 0 && len(picked) < 2; i-- {
+		beside := i > 0 && recs[i-1].ReplayOf == ""
+		if recs[i].ReplayOf != "" && (len(picked) > 0 || beside) {
+			replays = append(replays, recs[i].RunID)
 			continue
 		}
-		picked = append(picked, rec)
+		picked = append(picked, recs[i])
 	}
 	if len(picked) < 2 {
 		return nil, nil, "", fmt.Errorf("chain %s has %d recorded run(s) that are not shrt verify replays (%d replay(s) skipped), and a "+
 			"default diff needs two; name the runs to compare: shrt diff %s <run-a> <run-b> (latest and latest~N count replays too)",
 			chainName, len(picked), len(replays), chainName)
+	}
+	if picked[0].ReplayOf != "" {
+		return picked[1], picked[0], fmt.Sprintf("comparing the latest run of %s, verify replay %s, with the latest run that is not a replay, %s",
+			chainName, picked[0].RunID, picked[1].RunID), nil
 	}
 	line := fmt.Sprintf("comparing the two latest runs of %s that are not shrt verify replays: run A %s, run B %s",
 		chainName, picked[1].RunID, picked[0].RunID)

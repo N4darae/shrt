@@ -175,7 +175,7 @@ var notes = map[string]string{
 	"Record.failure":       "Why the run stopped, one line per step that did not pass.",
 	"Record.warning":       "A run-level warning, e.g. no response carried `envelope_ok`.",
 	"Record.seal":          "Checksum written with the record; commands refuse a record whose content no longer matches it.",
-	"Record.replay_of":     "On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips such records.",
+	"Record.replay_of":     "On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips one recorded right after a run.",
 	"Record.keep_going":    "True for a `-keep-going` run.",
 	"Record.kept_red":      "For a chain with `kept_red`: `as_pinned` (exit 0), `not_as_pinned` or `defect_gone` (exit 1).",
 	"Record.kept_red_note": "What `kept_red` found: the pins and what failed or held outside them.",

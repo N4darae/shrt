@@ -461,7 +461,7 @@ is fixed.
 **No safe spot yet: `shrt diff`.**
 
 ```bash
-shrt diff <name>                                 # the two latest runs that are not verify replays
+shrt diff <name>                                 # latest run vs the latest earlier non-replay
 shrt diff <name> <run-a> <run-b>                 # any two; ids, latest, latest~N
 ```
 
