@@ -280,7 +280,8 @@ nothing and stays masked. **Fix.** Treat it as a real change.
 
 ## 45. `order changed`, or `same items in another order`
 
-**Cause.** The list holds the safe spot's items in another order. **Fix.** Declare
+**Cause.** The list holds the safe spot's items in another order (`now by name, was by sku` when
+one item field orders each). **Fix.** Declare
 `unordered: [<list>]` only if its order varies between runs of one release; otherwise, or when a
 positional expectation fails, it is a regression.
 
@@ -401,4 +402,4 @@ step, and run records are machine-local. **Fix.** Run the chain, then query agai
 ## 66. A gate of `lint && run` is green on chains that prove nothing
 
 **Cause.** Plain `chain lint` exits 0 on assertion-quality warnings. **Fix.** Gate on
-`chain lint -strict`, or run the installed gate (`bash .shrt/ci-gate.sh` or `shrt gate`).
+`chain lint -strict`, or run `bash .shrt/ci-gate.sh`, which runs it (`shrt gate` alone does not).

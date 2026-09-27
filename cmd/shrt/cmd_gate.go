@@ -82,6 +82,7 @@ type gateItem struct {
 	Inputs      string `json:"inputs,omitempty"`
 	Failed      bool   `json:"failed,omitempty"`
 	Passes      bool   `json:"passes,omitempty"`
+	Order       string `json:"order,omitempty"`
 
 	or        string
 	with      string
@@ -172,7 +173,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			}
 			found = found || !ex.Passed
 			want, got := gatePair(ex.Want, ex.Got)
-			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got, Passes: ex.Passed})
+			it := a.item(gateItem{Step: st.ID, Call: st.Call, Path: ex.Path, Rule: ex.Rule, Want: want, Got: got, Passes: ex.Passed, Failed: !ex.Passed})
 			if moved {
 				it.Pinned, _ = gatePair(was, ex.Got)
 			}
@@ -596,6 +597,9 @@ func (it gateItem) ownKey() string {
 }
 
 func (it gateItem) shown() (string, string) {
+	if it.Kind == "order" && it.Order != "" {
+		return listOf(it.Path), "same items in another order (" + it.Order + ")"
+	}
 	if it.Kind == "order" {
 		return listOf(it.Path), "same items in another order"
 	}
@@ -695,6 +699,9 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		}
 		it := a.item(gateItem{Step: c.Step, Call: call, Path: path, Rule: rule, Want: want, Got: got, Failed: failed})
 		it.Class = report.Class(c)
+		if it.Kind == "order" {
+			it.Order = orderKey(rec, report.Changes, it.Step, it.Path)
+		}
 		for _, l := range report.Changes {
 			if l.Kind == diff.KindLength && l.Detail != diff.VolatileFailed && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
 				it.Length = fmt.Sprintf("%s length want=%s got=%s", l.Path, compactValue(l.Want), compactValue(l.Got))
@@ -733,7 +740,14 @@ func earlySidecar(e *env, rec *runner.Record) gateSidecar {
 }
 
 func gatePair(want, got any) (string, string) {
-	return capPair(compactValue(want), compactValue(got), 60)
+	return capPair(shownValue(want), shownValue(got), 60)
+}
+
+func shownValue(v any) string {
+	if s, ok := v.(string); ok {
+		return chain.EdgeQuoted(s)
+	}
+	return compactValue(v)
 }
 
 func capPair(want, got string, n int) (string, string) {
@@ -2081,8 +2095,30 @@ func headlineGate(chains []*gateChain) {
 			g.class, g.first = "not as pinned", text
 			continue
 		}
+		lead, ok := g.firstItem()
 		if head != nil && g.pinsHeld {
 			g.class, g.first, g.firstAt = "pins held, new change", fmt.Sprintf("%s (%s) %s", head.Step, shortRPC(head.Call), head.headline()), head.Step+" "+head.Path
+		}
+		if ok && leadRank(lead) > 0 && (head == nil || leadRank(lead) > leadRank(*head)) && len(from) > 0 {
+			n, above := len(steps), reported[rootOf(lead)] || g.pinsHeld && rpc[baseOf(lead)]
+			if steps[lead.Step] {
+				n--
+			}
+			g.first = fmt.Sprintf("%s (%s) %s", lead.Step, shortRPC(lead.Call), lead.headline())
+			if n > 0 {
+				g.first += fmt.Sprintf(" (+%d step(s) from %s, reported above)", n, strings.Join(from, ", "))
+			} else {
+				g.first += ", reported above"
+			}
+			if above {
+				g.reported = true
+			} else {
+				report(lead)
+			}
+			if g.pinsHeld {
+				g.class, g.firstAt = "pins held, new change", lead.Step+" "+lead.Path
+			}
+			continue
 		}
 		if len(from) == 0 {
 			if it, ok := g.firstItem(); ok {
@@ -2105,6 +2141,16 @@ func headlineGate(chains []*gateChain) {
 			report(*head)
 		}
 	}
+}
+
+func leadRank(it gateItem) int {
+	switch {
+	case !it.Failed && !strings.HasPrefix(it.Path, "("):
+		return 0
+	case it.Kind == "order":
+		return 1
+	}
+	return 2
 }
 
 func printDistinct(chains []*gateChain) {

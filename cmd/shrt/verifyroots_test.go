@@ -110,3 +110,26 @@ func TestTheVerifyHeadlineKeepsARefusedWriteOfTheSameRpcAsItsOwnRoot(t *testing.
 		t.Errorf("the refused confirm moved stock, a root apart from the confirm that answered PENDING; got:\n%s", line)
 	}
 }
+
+func TestAFailingStepWithAChangeOtherThanOrderLeadsOverAnOrderOnlyFailure(t *testing.T) {
+	spotRec := shopRecord(
+		shopStep("list", shopList, `{"products":[{"sku":"a"},{"sku":"b"},{"sku":"c"}]}`),
+		shopStep("list_all", shopList, `{"products":[{"sku":"a"},{"sku":"b"}]}`),
+	)
+	rec := shopRecord(
+		shopStep("list", shopList, `{"products":[{"sku":"c"},{"sku":"a"},{"sku":"b"}]}`).failing("products.0.sku", "a", "c"),
+		shopStep("list_all", shopList, `{"products":[]}`).failing("products", "a", "0"),
+	)
+	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: spotRec.Steps}, rec)
+	first, _ := firstChange(report, rec)
+	items := verifyItems(&env{cat: catalogtest.Shop()}, rec, report)
+	if first == nil || first.Step != "list_all" || len(items) == 0 || items[0].Step != "list_all" {
+		t.Errorf("the failure that is not only another order leads: first %+v, items %+v", first, items)
+	}
+}
+
+func TestTheGateQuotesAStringWhoseEdgeSpacesChanged(t *testing.T) {
+	if want, got := gatePair("  Customer a  ", "  Customer a"); want != `"  Customer a  "` || got != `"  Customer a"` {
+		t.Errorf("got want=%s got=%s", want, got)
+	}
+}

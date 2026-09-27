@@ -21,7 +21,7 @@ func TestSupersedeDoesNotCallAnIntendedChangeUnstableAgainstARunFromBeforeIt(t *
 	if strings.Join(unstable, ",") != "create seq: 1 -> 2" {
 		t.Fatalf("only a field that differs between two runs of the same backend state is unstable; a step absent in one run is not, got %v", unstable)
 	}
-	if strings.Join(carried, ",") != "create note:  -> gift wrap" {
+	if strings.Join(carried, ",") != `create note: "" -> gift wrap` {
 		t.Fatalf("a field where the earlier run still holds the replaced safe spot's value is the intended change, got %v", carried)
 	}
 }

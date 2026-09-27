@@ -1228,7 +1228,9 @@ func heldBackDetail(st *runner.StepRecord) string {
 }
 
 func show(v any) string {
-	switch v.(type) {
+	switch t := v.(type) {
+	case string:
+		return chain.EdgeQuoted(t)
 	case map[string]any, []any:
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
