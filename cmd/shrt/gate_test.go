@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 )
 
@@ -103,6 +104,11 @@ func TestTheGateRetriesAnExit3OnceWithAFreshTag(t *testing.T) {
 	}
 	if len(tags) != 2 || tags[0] == tags[1] {
 		t.Fatalf("each attempt gets its own tag: %v", tags)
+	}
+	for _, tag := range tags {
+		if v := strings.TrimPrefix(tag, "tag="); len(v) != len(chain.NewRunTag()) || v[0] != 't' {
+			t.Errorf("the gate's tag has run's shape, so a length limit cannot fail only the gate: %q", tag)
+		}
 	}
 }
 

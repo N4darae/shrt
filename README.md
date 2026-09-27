@@ -117,7 +117,7 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 ### CI gate
 
 `shrt gate` sends every chain in `.shrt/chains` once (by verify when it has a safe spot, by run
-otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt chain hollow` to
+otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 once, and holds `shrt chain hollow` to
 `.shrt/hollow-baseline`. One line per chain:
 
 | line | means |
