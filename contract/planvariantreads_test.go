@@ -69,8 +69,9 @@ func TestPlanAssertsTheStreamsFirstMessageCarriesTheRequestedRecord(t *testing.T
 	st := planStep(t, p, "watch_order")
 	wantExpect(t, st, "messages.0.status.code", "SUCCESS")
 	wantExpect(t, st, "messages.0.order.id_order", "${create_order.order.id_order}")
+	wantExpect(t, st, "messages.0.order.lines.0.qty", "${steps.create_order.request.lines.0.qty}")
 	for _, e := range st.Expect {
-		if e.Path == "order.id_order" {
+		if !strings.HasPrefix(e.Path, "messages.0.") {
 			t.Fatalf("a streaming step's paths start at messages.N:\n%s", text)
 		}
 	}

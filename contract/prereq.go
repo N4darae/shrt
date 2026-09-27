@@ -58,11 +58,24 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 	if i := strings.LastIndex(rpc, "/"); i >= 0 {
 		short = rpc[i+1:]
 	}
+	increased := map[string]bool{}
+	if need, ok := lib.Get(rpc); ok {
+		for field, e := range need.Effects {
+			if e != nil && e.Increase != "" {
+				increased[field] = true
+			}
+		}
+	}
 	out := []string{}
 	for _, other := range lib.RPCs() {
 		c, ok := lib.Get(other)
 		if !ok || other == rpc {
 			continue
+		}
+		for field, e := range c.Effects {
+			if e != nil && e.Increase != "" && increased[field] && !containsString(out, other) {
+				out = append(out, other)
+			}
 		}
 		for name, f := range c.Fields {
 			if f == nil || strings.Contains(name, ".") {

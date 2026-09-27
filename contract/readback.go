@@ -162,16 +162,20 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 		if prod == nil {
 			continue
 		}
+		base := carrier.Name
+		if m.ServerStreaming {
+			base = catalog.StreamMessages + ".0." + base
+		}
 		added := false
 		for _, sf := range carrier.Fields {
 			if sf.Repeated && sf.Kind == "message" && sf.MapKey == "" && len(sf.Fields) > 0 {
-				added = p.assertItemsReadBack(r, prod, ref, carrier.Name, sf) || added
+				added = p.assertItemsReadBack(r, prod, ref, base, sf) || added
 				continue
 			}
 			if sf.Kind == "message" || sf.Repeated || sf.MapKey != "" || IsEntityIDField(sf.Name) {
 				continue
 			}
-			path := carrier.Name + "." + sf.Name
+			path := base + "." + sf.Name
 			if hasExpectOn(r, path) {
 				continue
 			}

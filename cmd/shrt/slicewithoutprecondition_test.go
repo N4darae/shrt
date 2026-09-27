@@ -126,7 +126,7 @@ func TestSliceWithoutVerifyCallsAnUnchangedLeftOutStepAPreconditionAndPointsAtTh
 		"1 of 1 step(s) that failed in source run",
 		"need it, they pass in the run without it: cancel",
 		"confirm passed in source run",
-		"precondition, not the fault: look first at cancel",
+		"so it is a precondition: look first at cancel",
 		"fail only without it, as expected: fetch_confirmed read what confirm wrote",
 	} {
 		if !strings.Contains(out, want) {
