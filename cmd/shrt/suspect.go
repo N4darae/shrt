@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -76,11 +75,6 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	}
 	if at < 0 || isWrite(rec.Steps[at]) {
 		return -1, false
-	}
-	if _, w, ok := strings.Cut(rec.Steps[at].ID, "_after_"); ok {
-		if j, ok := pos[w]; ok && j < at && isWrite(rec.Steps[j]) && !inert(rec, j, bad) {
-			return j, false
-		}
 	}
 	nearest, nearestBad := -1, -1
 	for _, i := range entityWrites(rec, at, bad, pos) {
@@ -215,6 +209,7 @@ type blame struct {
 
 type attribution struct {
 	e         *env
+	ref       bool
 	rec       *runner.Record
 	bad       map[string]bool
 	unchanged func(step, path string) bool
@@ -310,7 +305,7 @@ func (a attribution) of(step, path string) blame {
 		if up := a.behind(b.write); up != b.write {
 			return blame{write: up}
 		}
-		if _, named, _ := strings.Cut(step, "_after_"); !a.bad[w.ID] && named != w.ID {
+		if a.ref && !a.bad[w.ID] {
 			return a.asBefore(a.index(step), b)
 		}
 	}
@@ -327,21 +322,17 @@ func (a attribution) asBefore(at int, b blame) blame {
 			pos[st.ID] = i
 		}
 	}
-	writes := entityWrites(a.rec, at, a.bad, pos)
-	if len(writes) < 2 {
-		return b
-	}
-	slices.Reverse(writes)
-	var names []string
-	for _, i := range writes {
-		if name := methodName(a.rec.Steps[i].Call); !slices.Contains(names, name) {
-			names = append(names, name)
+	var earlier []string
+	for _, i := range entityWrites(a.rec, at, a.bad, pos) {
+		if i != b.write {
+			earlier = append(earlier, a.rec.Steps[i].ID)
 		}
 	}
-	if len(names) > 4 {
-		names = append(names[:3], fmt.Sprintf("%d more", len(names)-3))
+	if len(earlier) == 0 {
+		return b
 	}
-	b.write, b.why = -1, eitherWhy+strings.Join(names, " or ")+" answered as before"
+	w := a.rec.Steps[b.write]
+	b.write, b.why = -1, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
 	return b
 }
 

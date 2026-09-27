@@ -8,6 +8,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -35,7 +36,8 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 	}{
 		{"get_item", "", "fill_item", false},
 		{"get_item", "move_box", "move_box", false},
-		{"get_item_after_move_box", "fill_item", "move_box", false},
+		{"get_item_after_move_box", "fill_item", "fill_item", false},
+		{"get_item_after_move_box", "move_box", "move_box", false},
 		{"list_items", "create_box", "create_box", true},
 		{"list_items", "", "", false},
 		{"fill_item", "", "", false},
@@ -135,11 +137,11 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 			step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 		}, "get", "product.sku", "", "create", ""},
-		{"writes that answered as before are named, none as the suspect", []*runner.StepRecord{
+		{"the write carries no such field, so a wrong value after it stays on the write", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"5"}}`)),
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"6"}}`, "create"), "product.price_minor", "5", "6"),
-		}, "get", "product.price_minor", "", "", "the write or the read: CreateProduct or AddStock answered as before"},
+		}, "get", "product.price_minor", "", "add", ""},
 		{"a list item the write answered is shown with its index", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -492,8 +494,13 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 	if got := candidates(); !slices.Equal(got, []int{2, 1, 0}) {
 		t.Errorf("a first refused write is still one the read observes, got %v", got)
 	}
-	if why := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("get_product", "product.qty_on_hand").why; why != "the write or the read: CreateProduct or CreateOrder or ConfirmOrder answered as before" {
-		t.Errorf("got %q", why)
+	e := &env{cat: catalogtest.Shop()}
+	if b := runAttribution(e, rec).of("get_product", "product.qty_on_hand"); b.write != 2 || b.why != "" {
+		t.Errorf("without a reference the nearest write is named, got %+v", b)
+	}
+	moved := []diff.Change{{Step: "get_product", Path: "product.qty_on_hand", Kind: diff.KindChanged, Want: "15", Got: "14"}}
+	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.write >= 0 || b.why != "the write or the read: confirm_order (ConfirmOrder), or earlier create_order, create_product, answered as before" {
+		t.Errorf("against a reference where every write answered as before, the nearest is named first, got %+v", b)
 	}
 }
 

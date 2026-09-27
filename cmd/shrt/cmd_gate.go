@@ -387,7 +387,7 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			bad[c.Step] = true
 		}
 	}
-	return attribution{e: e, rec: rec, bad: bad,
+	return attribution{e: e, rec: rec, bad: bad, ref: true,
 		unchanged: func(step, path string) bool {
 			for _, c := range changes {
 				if c.Step != step || c.Kind == diff.KindNotReached {
