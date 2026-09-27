@@ -54,7 +54,8 @@ shrt chain new -name invoice-happy-path InvoiceService/CreateInvoice InvoiceServ
 
 `chain new` wires a later step's input to an earlier step's output when a contract says so, or,
 for an id field no contract sets, when `contract init` would guess that producer; it
-names a producer that is not in the list in a note. Then write the contract for what you learned
+names a producer that is not in the list in a note. Reads of one rpc after two creates take them
+in turn, starting over at the first after each write. Then write the contract for what you learned
 (§7): the same work in the overlay composes the next chains.
 
 ## 3. Fill the bodies
