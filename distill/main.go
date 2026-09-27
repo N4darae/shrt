@@ -83,7 +83,7 @@ var notes = map[string]string{
 	"RPCContract.requires_role": "Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial.",
 	"RPCContract.no_producer":   "Why no write in this API creates the rows this read returns (a seed, a migration, a feed). The only thing that spares the no-producer charge.",
 	"RPCContract.required":      "Fields the server rejects without, read from the backend; reads too. `[NONE]`: it rejects nothing. `[UNKNOWN]`: the handler could not be found (a warning, scored as empty).",
-	"RPCContract.needs":         "An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches.",
+	"RPCContract.needs":         "An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it.",
 	"RPCContract.before":        "The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc.",
 	"RPCContract.fields":        "Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry.",
 	"RPCContract.aliases":       "Per-instance overrides, so two aliased steps of one rpc differ.",
