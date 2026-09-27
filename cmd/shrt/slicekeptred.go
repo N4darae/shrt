@@ -186,6 +186,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		if err := load(); err != nil {
 			return err
 		}
+		verify.source = c
 	}
 	for _, id := range drop {
 		if id != "failed" {

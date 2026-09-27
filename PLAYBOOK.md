@@ -558,4 +558,4 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run
 latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
 `-keep <ids of the minimal chain>` instead.
-Suspect write: `chain slice <c> -without <id> -verify` names the failing steps it caused and those still red.
+Suspect write: `chain slice <c> -without <id> -verify` names the failing steps that need it and those still red; it is the cause only if it answered unlike the safe spot, else look first at the first step that needs it.
