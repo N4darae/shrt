@@ -931,16 +931,32 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 	return issues
 }
 
+func (c *Chain) ExportStepClashes() []string {
+	out := []string{}
+	for _, issue := range lintExportNames(c) {
+		if issue.IsError() {
+			out = append(out, fmt.Sprintf("step %q: %s", issue.Step, issue.Message))
+		}
+	}
+	return out
+}
+
 func lintExportNames(c *Chain) []Issue {
 	issues := []Issue{}
 	stepAt := map[string]int{}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		if _, seen := stepAt[s.ID]; !seen {
 			stepAt[s.ID] = i + 1
 		}
 	}
 	writer := map[string]int{}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		names := make([]string, 0, len(s.Export))
 		for name := range s.Export {
 			names = append(names, name)

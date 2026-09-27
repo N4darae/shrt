@@ -46,7 +46,7 @@ var notes = map[string]string{
 	"Step.body":        "The request, validated against the proto request message before anything is sent.",
 	"Step.headers":     "Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it.",
 	"Step.expect":      "Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`.",
-	"Step.export":      "`name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error; one another step also exports is a warning (`export-overwritten`).",
+	"Step.export":      "`name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is refused by lint and run; one another step also exports is a warning (`export-overwritten`).",
 	"Step.auth":        "Auth profile from `.shrt/config.yaml` for this step. `invalid` sends a token the backend never issued and never logs in again: the invalid-token probe. Contradicts `skip_auth`.",
 	"Step.skip_auth":   "Attach no auth header: the missing-token probe. A login step does not need it.",
 	"Step.allow_fail":  "Let the chain go on past a transport refusal on a step with no expectations. It never waives a failed expectation or an `error` step; with expectations it does nothing (`inert-allow-fail`).",
