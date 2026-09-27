@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/chain"
 )
 
 func TestAReadHeldBehindAHeldReadNamesTheWriteThatLostTheField(t *testing.T) {
@@ -18,6 +20,8 @@ func TestAReadHeldBehindAHeldReadNamesTheWriteThatLostTheField(t *testing.T) {
 }
 
 func TestALaterWriteOnARecordAnEarlierChangedWriteTouchedFoldsIntoThatWrite(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
 	const add = "shop.catalog.v1.StockService/AddStock"
 	rec := shopRecord(
 		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`).failing("product.created_at", "t", nil),
@@ -47,5 +51,18 @@ func TestALaterWriteOnARecordAnEarlierChangedWriteTouchedFoldsIntoThatWrite(t *t
 	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
 	if strings.Contains(out, "another change") || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
 		t.Errorf("knock-on changes on the same record fold into the root write:\n%s", out)
+	}
+}
+
+func TestALaterWriteChangingAnotherFieldOfTheRecordKeepsItsOwnBlame(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","total_minor":"7"},`+shopOK+`}`).failing("order.total_minor", "9", "7"),
+		shopStep("cancel", shopCancel, `{"order":{"id_order":"o1","total_minor":"7","status":"ORDER_STATUS_CANCELLED"},`+shopOK+`}`, "create_order").failing("order.total_minor", "9", "7"),
+		shopStep("replay", shopOrder, `{"order":{"id_order":"o1","status":"ORDER_STATUS_PENDING"},`+shopOK+`}`, "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_PENDING"),
+	)
+	if write, _, _ := blameOf(t, rec, "replay", "order.status"); write == "cancel" {
+		t.Errorf("a status change is not a knock-on of an earlier write whose total changed, got write %q", write)
 	}
 }

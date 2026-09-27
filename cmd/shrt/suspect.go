@@ -1001,9 +1001,10 @@ func (a attribution) sameRecordWriteBefore(step string) int {
 		return -1
 	}
 	mine := stepRefs(a.rec, at)
+	fields := leafFields(a.changed(step))
 	for i := at - 1; i >= 0; i-- {
 		w := a.rec.Steps[i]
-		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 {
+		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && !sharesField(fields, leafFields(a.changed(w.ID))) {
 			continue
 		}
 		for ref := range stepRefs(a.rec, i) {
@@ -1014,6 +1015,38 @@ func (a attribution) sameRecordWriteBefore(step string) int {
 		}
 	}
 	return -1
+}
+
+func leafFields(paths []string) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range paths {
+		segs := chain.SplitPath(p)
+		for k := len(segs) - 1; k >= 0; k-- {
+			if _, err := strconv.Atoi(segs[k]); err != nil {
+				out[segs[k]] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+func verdictMoved(paths []string) bool {
+	for _, p := range paths {
+		if envelopeOnly(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func sharesField(a, b map[string]bool) bool {
+	for f := range a {
+		if b[f] {
+			return true
+		}
+	}
+	return false
 }
 
 func fieldOf(carrier string) string {
