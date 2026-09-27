@@ -377,9 +377,10 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 
 **How the gate names a suspect**, one line per distinct change, under the rpc it blames:
 
-- `suspect the read`: a server error; refused, stopped refusing, or another set of items with no
-  refused or item-making write before it; only list order or an item's position (by id) changed;
-  it moved while its write answered as before; or it contradicts two different writes. Fix the read.
+- `suspect the read`: a server error; a failed auth probe; refused, stopped refusing, or another
+  set of items with no refused or item-making write before it; only list order or an item's
+  position (by id) changed; it moved while its write answered as before; or it contradicts two
+  different writes. Fix the read.
 - `suspect the write`: its answer changed, or a read of the record contradicts it (both values
   shown); `... it answered other than it stored`: it answers one value and persists another. Fix it.
 - `suspect the write or the read`: the write answered as before, only the read moved (a write
@@ -393,11 +394,12 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 - `pins held, new change`: a new defect beside the pinned ones; do not re-pin, run its `shrt diff`.
 
 A change goes to an earlier step whose answer for that field of that record, or a total it
-recomputes from, changed; a newly refused write to the first earlier write on its record whose
-answer changed. A read observes the nearest earlier write on its record, skipping refused repeats,
-idempotent replays and, against a reference, a write refused as before or lacking the field whose
-`effects:` do not move it. A list item's id links it to
-the writes naming it; steps unevaluated behind a failure fold under it.
+recomputes from, changed; a newly refused or changed write to the first earlier write on its
+records whose answer or verdict changed, or read changed in a field both `effects:` move. A read
+observes the nearest earlier write on its record, skipping refused repeats, idempotent replays
+and, against a reference, a write refused as before or lacking the field whose `effects:` do not
+move it. A list item's id links it to the writes naming it; steps unevaluated behind a failure
+fold under it.
 
 ## 9. Refactor and test against a safe spot
 

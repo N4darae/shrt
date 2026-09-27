@@ -11,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -268,18 +269,22 @@ func (a attribution) of(step, path string) blame {
 		b.own = fmt.Sprintf("%s fails on its own (%s)", methodName(st.Call), why)
 		return b
 	}
+	if p := profileOf(st); (p == runner.NoAuthProfile || p == chain.InvalidTokenAuth) && chain.IsTransportPath(path) {
+		b.own = fmt.Sprintf("%s fails its own auth probe (auth %s, %s)", methodName(st.Call), p, path)
+		return b
+	}
 	if src, ref := heldBackBy(st); src != "" && src != step {
 		up := a.of(src, ref)
 		if up.own != "" {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, up.cascade
+		b.write, b.cascade, b.lead, b.why = up.write, up.cascade, up.lead, up.why
 		if !strings.HasPrefix(b.cascade, "unevaluated because ") {
 			b.cascade = "unevaluated because " + a.lost(src, ref, up)
 		}
-		if b.write < 0 {
-			b.write = a.index(src)
+		if i := a.index(src); b.write < 0 && b.lead == "" && i >= 0 && isWrite(a.rec.Steps[i]) {
+			b.write = i
 		}
 		return b
 	}
@@ -308,6 +313,9 @@ func (a attribution) of(step, path string) blame {
 			b.write = a.changedWriteBefore(step)
 		} else if b.why == "" {
 			b.write = a.sameRecordWriteBefore(step)
+		}
+		if b.write < 0 && b.why == "" {
+			b.write = a.upstream(step)
 		}
 		return b
 	}
@@ -967,7 +975,49 @@ func (a attribution) behind(w int) int {
 	if up := a.sameRecordWriteBefore(a.rec.Steps[w].ID); up >= 0 {
 		return up
 	}
+	if up := a.upstream(a.rec.Steps[w].ID); a.bad[a.rec.Steps[w].ID] && up >= 0 {
+		return up
+	}
 	return w
+}
+
+func (a attribution) upstream(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	pos := map[string]int{}
+	for i, s := range a.rec.Steps {
+		if _, seen := pos[s.ID]; s != nil && !seen {
+			pos[s.ID] = i
+		}
+	}
+	reach := refReach(a.rec, pos)
+	uses := func(call, path string) bool {
+		eff := a.e.effectsOf(call)[leafOf(path)]
+		return eff != nil && eff.Is != contract.EffectNone
+	}
+	for i := 0; i < at; i++ {
+		o := a.rec.Steps[i]
+		if o == nil || !a.bad[o.ID] || !related(reach, at, i, o.ID) {
+			continue
+		}
+		if isWrite(o) {
+			if verdictMoved(a.changed(o.ID)) {
+				return a.behind(i)
+			}
+			continue
+		}
+		for _, p := range a.changed(o.ID) {
+			if !uses(a.rec.Steps[at].Call, p) {
+				continue
+			}
+			if b := a.of(o.ID, p); b.write >= 0 && !b.knock && b.own == "" && b.cascade == "" && uses(a.rec.Steps[b.write].Call, p) {
+				return b.write
+			}
+		}
+	}
+	return -1
 }
 
 func (a attribution) changedWriteBefore(step string) int {
@@ -1410,7 +1460,7 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 	}
 	lead := step
 	if b.own != "" {
-		lead = fmt.Sprintf("suspect read %s (%s)", step, shortRPC(st.Call))
+		lead = fmt.Sprintf("suspect %s %s (%s)", rw(st.Call), step, shortRPC(st.Call))
 	}
 	if b.write >= 0 {
 		it := gateItem{Call: st.Call, Suspect: rec.Steps[b.write].Call, Why: b.why}
@@ -1424,6 +1474,13 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 		return lead + sent + whyText(b.why)
 	}
 	return ""
+}
+
+func rw(call string) string {
+	if chain.IsReadOnlyCall(call) {
+		return "read"
+	}
+	return "write"
 }
 
 func whyText(why string) string {
