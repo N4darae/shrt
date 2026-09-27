@@ -297,8 +297,9 @@ Declare it where it belongs.
 ## 48. `FINDING: intermittent failure at <rpc>`
 
 **Cause.** A server error on a request the backend answered on its one re-send (reads only, the
-step is judged on that answer), elsewhere in the run or in the previous run. **Fix.** It is a real
-backend defect (exit 1), just not deterministic.
+step is judged on that answer), elsewhere in the run or in the previous run; in the gate, also one
+failing at a fixed cadence (every Nth call), and every chain its errors explain says `FINDING`.
+**Fix.** It is a real backend defect (exit 1), just not deterministic.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 

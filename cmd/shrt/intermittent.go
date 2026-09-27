@@ -337,6 +337,35 @@ func (i *intermittentFailure) line() string {
 		"not a deterministic regression at that step; a re-run may pass and does not clear it%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
 }
 
+func serverErrors(rec *runner.Record) []gateFlaky {
+	if rec == nil {
+		return nil
+	}
+	answered := map[string]bool{}
+	for _, st := range rec.Steps {
+		if st != nil && st.HTTPStatus != 0 && !runner.NotAnsweredByService(st) {
+			answered[st.Call] = true
+		}
+	}
+	steps, order := map[string][]string{}, []string{}
+	for _, st := range rec.Steps {
+		if serverError(st) == "" && !(runner.NotAnsweredByService(st) && answered[st.Call]) {
+			continue
+		}
+		if steps[st.Call] == nil {
+			order = append(order, st.Call)
+		}
+		steps[st.Call] = append(steps[st.Call], st.ID)
+	}
+	var out []gateFlaky
+	for _, call := range order {
+		r := callCounts(rec, call)
+		r.Steps, r.Failed = steps[call], max(r.Failed, len(steps[call]))
+		out = append(out, r)
+	}
+	return out
+}
+
 func callCounts(rec *runner.Record, call string) gateFlaky {
 	var failedAt []int
 	n := 0

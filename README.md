@@ -126,8 +126,8 @@ otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt cha
 | `KEPT RED` | failed exactly as its `kept_red` pins |
 | `FAIL pins held, new change:` | every pin held; a change outside them is a regression (or one reported above), not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
-| `FINDING intermittent:` / `repeated:` | its only failure is an rpc failing on some calls; one `FINDING:` line at the end counts them over every chain |
-| `FAIL intermittent:` | such a call failed and something else did too; a change at another step or a confirmed slowdown leads instead |
+| `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain |
+| `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, or `masked by`/`moved with` the rpc path this gate reports |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
