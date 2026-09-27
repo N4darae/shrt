@@ -73,7 +73,7 @@ of it (`create_account_2`, with its own unique values and its own preparation st
 second item its own data where it matters and assert what depends on both. `plan` also varies the
 count (one item and three) for write targets. `shrt contract status -gaps` lists fields no chain
 sends with two items (`one item`), with two items on one resource only (`same resource`), or never
-with one resource twice (`no repeat`).
+with one resource on two applied items (`no repeat`).
 
 Habits that keep a chain re-runnable:
 
