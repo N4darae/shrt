@@ -60,7 +60,7 @@ func TestALaterWriteChangingAnotherFieldOfTheRecordKeepsItsOwnBlame(t *testing.T
 	rec := shopRecord(
 		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","total_minor":"7"},`+shopOK+`}`).failing("order.total_minor", "9", "7"),
 		shopStep("cancel", shopCancel, `{"order":{"id_order":"o1","total_minor":"7","status":"ORDER_STATUS_CANCELLED"},`+shopOK+`}`, "create_order").failing("order.total_minor", "9", "7"),
-		shopStep("replay", shopOrder, `{"order":{"id_order":"o1","status":"ORDER_STATUS_PENDING"},`+shopOK+`}`, "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_PENDING"),
+		shopStep("replay", shopOrder, `{"order":{"id_order":"o1","total_minor":"7","status":"ORDER_STATUS_PENDING"},`+shopOK+`}`, "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_PENDING").failing("order.total_minor", "9", "7"),
 	)
 	if write, _, _ := blameOf(t, rec, "replay", "order.status"); write == "cancel" {
 		t.Errorf("a status change is not a knock-on of an earlier write whose total changed, got write %q", write)

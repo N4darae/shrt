@@ -307,7 +307,7 @@ func (a attribution) of(step, path string) blame {
 		if a.flipped(st) != "" {
 			b.write = a.changedWriteBefore(step)
 		} else if b.why == "" {
-			b.write = a.sameRecordWriteBefore(step)
+			b.write = a.sameRecordWriteBefore(step, path)
 		}
 		return b
 	}
@@ -963,7 +963,7 @@ func (a attribution) behind(w int) int {
 			return up
 		}
 	}
-	if up := a.sameRecordWriteBefore(a.rec.Steps[w].ID); up >= 0 {
+	if up := a.sameRecordWriteBefore(a.rec.Steps[w].ID, ""); up >= 0 {
 		return up
 	}
 	return w
@@ -995,13 +995,16 @@ func (a attribution) changedWriteBefore(step string) int {
 	return -1
 }
 
-func (a attribution) sameRecordWriteBefore(step string) int {
+func (a attribution) sameRecordWriteBefore(step, path string) int {
 	at := a.index(step)
 	if at < 0 || a.changed == nil {
 		return -1
 	}
 	mine := stepRefs(a.rec, at)
 	fields := leafFields(a.changed(step))
+	if path != "" {
+		fields = leafFields([]string{path})
+	}
 	for i := at - 1; i >= 0; i-- {
 		w := a.rec.Steps[i]
 		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && !sharesField(fields, leafFields(a.changed(w.ID))) {
