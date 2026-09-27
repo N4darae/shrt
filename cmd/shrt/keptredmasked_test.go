@@ -94,3 +94,20 @@ func TestAGateGroupCountsLaterStepsOfItsOwnRpcAsItsOwn(t *testing.T) {
 		t.Errorf("a later CreateOrder failing on the same path is another occurrence, not a step after it:\n%s", out)
 	}
 }
+
+func TestAGateGroupExampleIsARealChangeNotAMaskedPinThatNowPasses(t *testing.T) {
+	chains := []*gateChain{
+		{name: "stock-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{
+			{Step: "get_2", Call: maskGet, Path: "product.qty_on_hand", Want: "1", Got: "1", Pinned: "-1", Passes: true}}},
+		{name: "lifecycle", failed: true, items: []gateItem{
+			{Step: "get", Call: maskGet, Path: "product.qty_on_hand", Want: "5", Got: "4", Own: "GetProduct reads qty_on_hand unlike the writes"}}},
+	}
+	settleGate(chains)
+	out := captureStdout(t, func() { printGateGroups(chains) })
+	if !strings.Contains(out, "e.g. lifecycle get product.qty_on_hand want=5 got=4") {
+		t.Errorf("the example is the step that changed, not the pin that now passes:\n%s", out)
+	}
+	if got := chains[0].items[0].wantGot(); got != "pinned got=-1, now got=1" {
+		t.Errorf("a pin reads as pinned and now: %q", got)
+	}
+}
