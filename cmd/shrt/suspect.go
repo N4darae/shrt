@@ -872,7 +872,7 @@ func heldBackBy(st *runner.StepRecord) (string, string) {
 
 func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, bool) {
 	w := a.rec.Steps[wi]
-	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) {
 		return blame{}, false
 	}
 	rm, err := a.e.cat.Lookup(r.Call)
@@ -907,7 +907,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			return
 		}
 		c, ok := carrierOf(wm, p)
-		if !ok || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
+		if !ok || envelopeOnly(p) || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
@@ -962,8 +962,21 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 
 const eitherWhy = "the write or the read: "
 
+func envelopeOnly(path string) bool {
+	var segs []string
+	for _, seg := range chain.SplitPath(path) {
+		if _, err := strconv.Atoi(seg); err != nil {
+			segs = append(segs, seg)
+		}
+	}
+	p := strings.Join(segs, ".")
+	list, _, _ := strings.Cut(chain.ItemEnvelope(), "[].")
+	item, ok := strings.CutPrefix(p, list+".")
+	return p == "" || p == "code" || p == "message" || strings.HasPrefix(p, "transport.") || chain.IsEnvelopePath(p) || ok && list != "" && chain.IsEnvelopePath(item)
+}
+
 func (a attribution) unstored(w *runner.StepRecord, path string) string {
-	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || a.unchanged(w.ID, path) {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) || a.unchanged(w.ID, path) {
 		return ""
 	}
 	wm, err := a.e.cat.Lookup(w.Call)

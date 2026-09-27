@@ -619,3 +619,21 @@ func TestAGroupWhoseRpcFailedItselfRanksAboveOnesThatPassedThemselves(t *testing
 		t.Errorf("groups that failed themselves come first:\n%s", out)
 	}
 }
+
+func TestAnEnvelopeIsNeverAStoredFieldAWriteAndARecordReadCanDisagreeOn(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	get := shopStep("get_product", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"0"},`+shopOK+`}`, "create_product")
+	get.Expect = []chain.ExpectResult{{Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "SUCCESS", Passed: true}}
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1"},`+shopOK+`}`),
+		shopStep("batch", "shop.catalog.v1.StockService/AddStockBatch", `{"status":{"code":"REJECTED"},"results":[{"id_product":"p1","status":{"code":"REJECTED"}}]}`, "create_product").failing("status.code", "SUCCESS", "REJECTED"),
+		get,
+	)
+	a := runAttribution(&env{cat: catalogtest.Shop()}, rec)
+	for _, path := range []string{"status.code", "results.0.status.code"} {
+		if b := a.of("batch", path); b.why != "" {
+			t.Errorf("%s: got %q", path, b.why)
+		}
+	}
+}
