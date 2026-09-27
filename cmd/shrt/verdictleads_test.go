@@ -14,11 +14,11 @@ func TestTheHeadlineLeadsWithAStepsTransportError(t *testing.T) {
 		{Step: "get", Path: "customer", Kind: diff.KindType, Want: nil, Got: map[string]any{}},
 		{Step: "list", Path: "total", Kind: diff.KindChanged, Want: 1, Got: 2},
 	}}
-	if first, steps := firstChange(report); first == nil || first.Kind != diff.KindStatus || steps != 2 {
+	if first, steps := firstChange(report, nil); first == nil || first.Kind != diff.KindStatus || steps != 2 {
 		t.Fatalf("a transport error leads, got %+v over %d step(s)", first, steps)
 	}
 	report.Changes[0].Got = runner.StatusFailed
-	if first, _ := firstChange(report); first.Path != "customer" {
+	if first, _ := firstChange(report, nil); first.Path != "customer" {
 		t.Fatalf("a plain failure yields to the step's first change, got %+v", first)
 	}
 }
@@ -30,5 +30,20 @@ func TestAReadNoLongerRefusedIsItsOwnSuspect(t *testing.T) {
 	rec := shopRecord(shopStep("get_unknown", get, `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
 	if own := runAttribution(nil, rec).of("get_unknown", "customer").own; own != "GetCustomer answers SUCCESS where it answered REJECTED" {
 		t.Fatalf("got %q", own)
+	}
+}
+
+func TestTheHeadlineLeadsWithTheFirstFailingStepOverAnEarlierDrift(t *testing.T) {
+	report := &diff.Report{Changes: []diff.Change{
+		{Step: "login", Path: "expires_at", Kind: diff.KindChanged, Want: 1, Got: 1000},
+		{Step: "add", Path: "qty_on_hand", Kind: diff.KindChanged, Want: 0, Got: 9},
+		{Step: "add", Path: "status.code", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusFailed},
+	}}
+	rec := &runner.Record{Steps: []*runner.StepRecord{{ID: "login", Status: runner.StatusPassed}, {ID: "add", Status: runner.StatusFailed}}}
+	if first, steps := firstChange(report, rec); first == nil || first.Step != "add" || first.Path != "qty_on_hand" || steps != 2 {
+		t.Fatalf("the failing step leads, got %+v over %d step(s)", first, steps)
+	}
+	if first, _ := firstChange(report, nil); first.Step != "login" {
+		t.Fatalf("without a record the first change leads, got %+v", first)
 	}
 }

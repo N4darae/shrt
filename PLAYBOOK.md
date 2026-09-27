@@ -431,7 +431,8 @@ Reading the report:
 
 - Each change names the step, the path, its kind (`GRAMMAR.md` §7), `want` and `got`. A clean
   verify covers only that chain's steps.
-- The headline names the first change; each change under another suspect adds one `also:` line.
+- The headline names the first change at a failing step (else the first change); each change
+  under another suspect adds one `also:` line.
 - `targets differ:` first means the replay ran against another target.
 - verify runs every step as `-keep-going` does; a step held back behind a failure is `not_reached`.
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
