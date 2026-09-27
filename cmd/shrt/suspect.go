@@ -273,7 +273,7 @@ func (a attribution) of(step, path string) blame {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref)
+		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref, up)
 		if b.write < 0 {
 			b.write = a.index(src)
 		}
@@ -819,7 +819,7 @@ func linesSum(lines []any, known map[string]input, nv, wv float64) int {
 	return -1
 }
 
-func (a attribution) lost(src, path string) string {
+func (a attribution) lost(src, path string, up blame) string {
 	st, ok := a.rec.Step(src)
 	if !ok || st == nil {
 		return ""
@@ -830,6 +830,14 @@ func (a attribution) lost(src, path string) string {
 	var body any
 	if json.Unmarshal(st.Response, &body) == nil {
 		if v, ok := chain.Get(body, path); ok && v != nil {
+			if up.write >= 0 && !up.knock && up.cascade == "" && a.rec.Steps[up.write].ID != src {
+				w, wb := a.rec.Steps[up.write], any(nil)
+				if json.Unmarshal(w.Response, &wb) == nil {
+					if wv, ok := chain.Get(wb, path); ok && fmt.Sprint(wv) == fmt.Sprint(v) {
+						return methodName(w.Call) + " changed " + path
+					}
+				}
+			}
 			return methodName(st.Call) + " changed " + path
 		}
 	}

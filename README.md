@@ -132,7 +132,8 @@ otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt cha
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
 Under a `FAIL` it prints the suspect's request; then one line per suspect rpc (split by auth
-profile and refusal code), with the steps it explains folded beneath. `-v` adds every changed path
+profile and refusal code), with the steps it explains folded beneath and an `another change:` example
+for each other root change in it. `-v` adds every changed path
 and ends with each distinct change once. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 Exit 0 is green; 1 is a failure, a `FINDING` or the ratchet; 3 is no verdict (re-run once the

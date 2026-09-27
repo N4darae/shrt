@@ -527,7 +527,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		first, steps := firstChange(report)
+		first, steps := firstChange(report, rec)
 		at := ""
 		if first != nil {
 			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
@@ -1120,7 +1120,7 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if kind, _, ok := strings.Cut(why, ":"); ok && len(kind) < 40 && !strings.Contains(kind, name) {
 		why = kind
 	}
-	first, steps := firstChange(report)
+	first, steps := firstChange(report, rec)
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
@@ -1206,15 +1206,26 @@ func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Chan
 	return out
 }
 
-func firstChange(report *diff.Report) (*diff.Change, int) {
+func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 	var first *diff.Change
 	steps := map[string]bool{}
+	failing := func(step string) bool {
+		if rec == nil {
+			return false
+		}
+		st, ok := rec.Step(step)
+		return ok && st != nil && (st.Status == runner.StatusFailed || st.Status == runner.StatusError)
+	}
+	lead := false
 	for i, c := range report.Changes {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
 		steps[c.Step] = true
-		if first == nil || c.Step == first.Step && rank(c) > rank(*first) {
+		switch f := failing(c.Step); {
+		case first == nil || f && !lead:
+			first, lead = &report.Changes[i], f
+		case c.Step == first.Step && rank(c) > rank(*first):
 			first = &report.Changes[i]
 		}
 	}

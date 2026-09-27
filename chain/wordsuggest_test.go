@@ -39,3 +39,22 @@ func TestAPathNamingOneWordOfAFieldSuggestsThatField(t *testing.T) {
 		}
 	}
 }
+
+func TestAPathMissingItsParentSuggestsTheFullPath(t *testing.T) {
+	c := &chain.Chain{
+		Name: "parent-suggest",
+		Steps: []*chain.Step{
+			{ID: "create", Call: "ThingService/Create", SkipAuth: true, Body: map[string]any{"name": "n"},
+				Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+			{ID: "fetch", Call: "ThingService/Fetch", SkipAuth: true, Body: map[string]any{"id": "${create.code}"},
+				Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
+		},
+	}
+	if err := c.Normalize(); err != nil {
+		t.Fatal(err)
+	}
+	msgs := lintMessages(t, c)
+	if len(msgs) != 1 || !strings.Contains(msgs[0], `(did you mean "error.code"?)`) {
+		t.Errorf("want the full path suggested, got %v", msgs)
+	}
+}

@@ -225,7 +225,17 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 			names = append(names, f.Name)
 		}
 		if next == nil {
-			near := namecase.Closest(seg, names, 3)
+			near := []string{}
+			for _, f := range fields {
+				for _, sub := range f.Fields {
+					if len(near) < 3 && !f.Truncated && f.MapKey == "" && (sub.Name == seg || sub.JSONName == seg || namecase.Equal(sub.Name, seg)) {
+						near = append(near, f.Name+"."+sub.Name)
+					}
+				}
+			}
+			if len(near) == 0 {
+				near = namecase.Closest(seg, names, 3)
+			}
 			if len(near) == 0 {
 				near = namesWithWord(seg, names, 3)
 			}
