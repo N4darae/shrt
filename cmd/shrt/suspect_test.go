@@ -666,3 +666,16 @@ func TestAnEnvelopeIsNeverAStoredFieldAWriteAndARecordReadCanDisagreeOn(t *testi
 		}
 	}
 }
+
+func TestAStepHeldBackByAReadThatEchoesTheWriteNamesTheWrite(t *testing.T) {
+	order := `{"order":{"id_order":"o1","total_minor":"7"}}`
+	rec := shopRecord(
+		shopStep("create_order", shopOrder, order).failing("order.total_minor", "9", "7"),
+		shopStep("fetch_before", shopFetch, order, "create_order").failing("order.total_minor", "9", "7"),
+		shopStep("fetch_after", shopFetch, order, "create_order").heldBy("fetch_before", "order.total_minor"),
+	)
+	write, own, cascade := blameOf(t, rec, "fetch_after", "order.total_minor")
+	if write != "create_order" || own != "" || cascade != "unevaluated because CreateOrder changed order.total_minor" {
+		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
+	}
+}
