@@ -803,6 +803,33 @@ func (md *effectModel) flush() {
 	md.pending, md.waiting = nil, nil
 }
 
+func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
+	if !md.apply || md.at == nil {
+		return false
+	}
+	for i, e := range st.Expect {
+		text, _ := e.Equals.(string)
+		if src, ok := refSource(text); e.Path != path || !ok || src != md.at.ID || strings.Contains(text, ".request.") {
+			continue
+		}
+		st.Expect[i] = chain.Expectation{Path: path, Equals: v}
+		if !md.echoes(st) {
+			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", leafName(path), md.at.ID, md.at.ID)
+		}
+		return true
+	}
+	return false
+}
+
+func (md *effectModel) echoes(st *chain.Step) bool {
+	for _, e := range st.Expect {
+		if text, _ := e.Equals.(string); strings.Contains(text, "${"+md.at.ID+".") {
+			return true
+		}
+	}
+	return false
+}
+
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
 	return md.apply && assertNumber(st, path, v)
 }
@@ -1032,7 +1059,7 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 		id := stepRefIn(st.Body[key])
 		md.waiting = removeString(md.waiting, id)
 		if s := md.stockOf[id]; s != nil && ref.RPC == s.entityRPC && md.dirty[id] {
-			if carrier := carrierHolding(m, s.moved); carrier != "" && md.set(st, carrier+"."+s.moved, md.level[id]) {
+			if carrier := carrierHolding(m, s.moved); carrier != "" && (md.replaceEcho(st, carrier+"."+s.moved, md.level[id]) || md.set(st, carrier+"."+s.moved, md.level[id])) {
 				mark("read", st.ID)
 			}
 		}
