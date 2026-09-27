@@ -154,7 +154,8 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
   and a case or whitespace variant when the contract says the comparison ignores case or trims
   (`unique: {case: ignore, trim: true}` states it as data);
 - for a quantity or limit failure: a request just past the limit and one exactly at it, on the first
-  and the last item, with reads before and after asserting a refused write changed nothing;
+  and the last item, and one item twice whose quantities fit alone but not together, with reads
+  before and after asserting a refused write changed nothing;
 - a failure whose `when:` names a state, probed from that state; a not-found failure, probed with
   an id nothing created; `invalid_argument` clauses in `when:` (empty, zero, negative, missing `@`)
   turned into malformed requests;

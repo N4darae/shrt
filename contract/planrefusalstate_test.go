@@ -81,3 +81,20 @@ func TestPlanForAnInsufficiencyRefusalProvesTheRefusedWriteChangedNothing(t *tes
 		t.Fatalf("the plan says what the refusal probe proves: %s", notes)
 	}
 }
+
+func TestAShortageSplitOverTwoItemsOfOneResourceIsRefusedWhenOnlyTheSumExceedsTheStock(t *testing.T) {
+	p, text, _ := shopDemoPlan(t, "ConfirmOrder")
+	split := planStep(t, p, "create_order_for_insufficient_stock_split")
+	if a, b := bodyAt(t, split, "lines.0.id_product"), bodyAt(t, split, "lines.1.id_product"); a != b {
+		t.Fatalf("both lines name one product: %s %s\n%s", a, b, text)
+	}
+	stock, _ := strconv.Atoi(bodyAt(t, planStep(t, p, "add_stock"), "qty"))
+	a, _ := strconv.Atoi(bodyAt(t, split, "lines.0.qty"))
+	b, _ := strconv.Atoi(bodyAt(t, split, "lines.1.qty"))
+	if a > stock || b > stock || a+b != stock+1 {
+		t.Fatalf("each line fits the stock of %d and only their sum does not, got %d and %d:\n%s", stock, a, b, text)
+	}
+	refused := planStep(t, p, "confirm_order_insufficient_stock_split")
+	wantExpect(t, refused, "status.details.0.reason", "InsufficientStock")
+	planStep(t, p, "get_product_after_confirm_order_insufficient_stock_split")
+}
