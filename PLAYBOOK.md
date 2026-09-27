@@ -515,7 +515,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    replaces another file; a slice of the same chain and step is replaced in place.
 4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice (3 times by
    default, `-repeat N`) and compares the target step's verdict with the source run's: envelope
-   code, reason and app code, transport refusal, and each expectation's pass, want and got. It
+   code, reason and app code, transport refusal, and each expectation's pass, want and got; when
+   those match and the source run drifted at the target against its safe spot, the slice must
+   drift the same paths. It
    writes the source run's vars into the slice, except fresh vars a kept write interpolates, which
    you must pass (`-var name=<fresh>`). Outcomes:
    - `reproduced` (0): the verdicts match and no dropped write touched an entity a kept step uses.
@@ -529,8 +531,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
      writes; `-keep writes` keeps every earlier write.
    - `intermittent: reproduced k/N` (4): the backend is flaky there; keeping more steps will not
      help.
-   Until a verdict, a slice is a hypothesis, and says so. `-run latest` is the newest run (a
-   `shrt run` over an equally far verify replay, unless only the replay failed the step); it refuses (3) if that run left the target unevaluated.
+   Until a verdict, a slice is a hypothesis, and says so. `-run latest` picks the run `shrt diff`
+   compares: the newest record, but a `shrt run` over a verify replay recorded right after it,
+   unless only the replay failed the step; it refuses (3) if that run left the target unevaluated.
 5. **`-mode pin -run <id>`** drops producers whose only contribution was a value and pins their
    values into `vars:`. It does not re-send writes the source run performed, so a match is
    INCONCLUSIVE; `-verify` refuses a kept write on the run's own entities unless `-resend-writes`.
