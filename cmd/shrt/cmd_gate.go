@@ -88,6 +88,7 @@ type gateItem struct {
 	with      string
 	withAbove bool
 	from      string
+	as        string
 }
 
 type gateOutcome struct {
@@ -1454,6 +1455,36 @@ type gateGroup struct {
 	readPaths     map[string][]string
 	cascades      []string
 	cascade       map[string]map[string]bool
+	sigs          []string
+	sig           map[string]*gateSig
+	pathSteps     map[string]map[string]bool
+}
+
+type gateSig struct {
+	steps, chains, reads map[string]bool
+	example              string
+	sibling              bool
+}
+
+func (gr *gateGroup) sigOf(key string) *gateSig {
+	if gr.sig[key] == nil {
+		gr.sig[key] = &gateSig{steps: map[string]bool{}, chains: map[string]bool{}, reads: map[string]bool{}}
+		gr.sigs = append(gr.sigs, key)
+	}
+	return gr.sig[key]
+}
+
+func (gr *gateGroup) ranked() []*gateSig {
+	out := []*gateSig{}
+	for _, k := range gr.sigs {
+		if s := gr.sig[k]; s.example != "" {
+			out = append(out, s)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return len(out[i].steps)+len(out[i].reads) > len(out[j].steps)+len(out[j].reads)
+	})
+	return out
 }
 
 func (gr *gateGroup) shownRPC() string {
@@ -1476,13 +1507,7 @@ func mergeProfiles(chains []*gateChain) {
 		}
 		return shortRPC(it.Call)
 	}
-	profile := func(v string) string {
-		if as, ok := strings.CutPrefix(v, "as "); ok {
-			p, _, _ := strings.Cut(as, ",")
-			return p
-		}
-		return ""
-	}
+	profile := variantProfile
 	profiles := map[string]map[string]bool{}
 	for _, g := range chains {
 		for _, it := range g.items {
@@ -1498,11 +1523,52 @@ func mergeProfiles(chains []*gateChain) {
 	}
 	for _, g := range chains {
 		for i, it := range g.items {
+			g.items[i].as = profile(it.Variant)
 			if p := profile(it.Variant); p != "" && len(profiles[variantRPC(it)]) > 1 {
 				v := strings.TrimPrefix(strings.TrimPrefix(it.Variant, "as "+p), ", ")
 				g.items[i].Variant = v
 			}
 		}
+	}
+}
+
+func variantProfile(v string) string {
+	if as, ok := strings.CutPrefix(v, "as "); ok {
+		p, _, _ := strings.Cut(as, ",")
+		return p
+	}
+	return ""
+}
+
+func rootSigs(chains []*gateChain) func(g *gateChain, it gateItem) (string, string) {
+	root := func(it gateItem) bool { return it.Suspect == "" || it.Own != "" }
+	prim := map[string]gateItem{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			k := g.name + "\x00" + it.Step
+			if cur, ok := prim[k]; root(it) && (!ok || it.Failed && !cur.Failed) {
+				prim[k] = it
+			}
+		}
+	}
+	return func(g *gateChain, it gateItem) (string, string) {
+		step := it.Step
+		if !root(it) {
+			step = it.SuspectStep
+		}
+		src, ok := prim[g.name+"\x00"+step]
+		if !ok {
+			src = it
+		}
+		path, _ := src.shown()
+		as := src.as
+		if as == "" {
+			as = variantProfile(src.Variant)
+		}
+		if path == chain.EnvelopePath() && as != "" {
+			return path, path + " as " + as
+		}
+		return path, path
 	}
 }
 
@@ -1592,22 +1658,36 @@ func printGateGroups(chains []*gateChain) {
 	group := func(rpc string) *gateGroup {
 		if groups[rpc] == nil {
 			groups[rpc] = &gateGroup{rpc: rpc, steps: map[string]bool{}, chains: map[string]bool{}, reads: map[string]bool{},
-				readPaths: map[string][]string{}, cascade: map[string]map[string]bool{}}
+				readPaths: map[string][]string{}, cascade: map[string]map[string]bool{}, sig: map[string]*gateSig{}, pathSteps: map[string]map[string]bool{}}
 			order = append(order, rpc)
 		}
 		return groups[rpc]
 	}
+	sigOf := rootSigs(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			path, eg := it.shown()
 			step := g.name + " " + it.Step
 			example := fmt.Sprintf("%s %s %s %s", g.name, it.Step, path, eg)
+			_, key := sigOf(g, it)
 			own := func(gr *gateGroup) {
 				gr.steps[step] = true
 				gr.chains[g.name] = true
 				gr.addPath(&gr.paths, path)
+				if gr.pathSteps[path] == nil {
+					gr.pathSteps[path] = map[string]bool{}
+				}
+				gr.pathSteps[path][step] = true
 				if gr.example == "" || gr.sibling {
 					gr.example, gr.sibling = example, it.Pinned != ""
+				}
+				s := gr.sigOf(key)
+				s.steps[step], s.chains[g.name] = true, true
+				if s.example == "" || s.sibling {
+					s.example, s.sibling = example, it.Pinned != ""
+					if _, as, ok := strings.Cut(key, " as "); ok && !strings.Contains(gr.rpc+",", " as "+as+",") {
+						s.example = fmt.Sprintf("%s %s as %s %s %s", g.name, it.Step, as, path, eg)
+					}
 				}
 			}
 			switch {
@@ -1635,11 +1715,14 @@ func printGateGroups(chains []*gateChain) {
 				gr.write = true
 				own(gr)
 				gr.sibling = gr.sibling || gr.example == example
+				s := gr.sigOf(key)
+				s.sibling = s.sibling || strings.HasPrefix(s.example, g.name+" "+it.Step+" ")
 			case it.Suspect != "" && !it.KnockOn:
 				gr := group(it.suspectKey())
 				gr.write = true
 				gr.reads[step] = true
 				gr.chains[g.name] = true
+				gr.sigOf(key).reads[step] = true
 				if it.Why != "" {
 					gr.addPath(&gr.why, it.Why)
 				}
@@ -1690,9 +1773,14 @@ func printGateGroups(chains []*gateChain) {
 	fmt.Println("failures by suspect rpc (the read itself, or the failing or changed write it observes), then the rest:")
 	for _, key := range order {
 		gr := groups[key]
+		ranked := gr.ranked()
 		switch {
 		case len(gr.steps) > 0:
 			tail := ""
+			if len(ranked) > 0 {
+				gr.example = ranked[0].example
+			}
+			sort.SliceStable(gr.paths, func(i, j int) bool { return len(gr.pathSteps[gr.paths[i]]) > len(gr.pathSteps[gr.paths[j]]) })
 			switch {
 			case len(gr.own) > 0:
 				tail = "; suspect the read: " + gr.own[0] + otherReasons(len(gr.own)-1)
@@ -1737,6 +1825,9 @@ func printGateGroups(chains []*gateChain) {
 			}
 			fmt.Printf("    +%d step(s) in %d chain(s) %s\n", steps, in, c)
 		}
+		for _, s := range ranked[min(1, len(ranked)):] {
+			fmt.Printf("    another change: %d step(s) in %d chain(s); e.g. %s\n", len(s.steps), len(s.chains), s.example)
+		}
 	}
 }
 
@@ -1765,14 +1856,14 @@ func baseOf(it gateItem) string {
 }
 
 func headlineGate(chains []*gateChain) {
-	label := map[string]string{}
+	label, leaves, sigOf := map[string]string{}, map[string]bool{}, rootSigs(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			r := rootOf(it)
 			switch {
 			case label[r] == "" && it.Suspect == "":
 				path, _ := it.shown()
-				label[r] = methodName(r) + " " + leafOf(path)
+				label[r], leaves[r] = methodName(r)+" "+leafOf(path), true
 			case label[r] == "" && it.Own == "" && it.orRead() != "":
 				label[r] = methodName(r) + it.orRead()
 			}
@@ -1793,7 +1884,7 @@ func headlineGate(chains []*gateChain) {
 			continue
 		}
 		var head *gateItem
-		steps, from := map[string]bool{}, []string{}
+		steps, from, at := map[string]bool{}, []string{}, map[string]map[string]map[string]bool{}
 		for i, it := range g.items {
 			r := rootOf(it)
 			switch {
@@ -1802,13 +1893,40 @@ func headlineGate(chains []*gateChain) {
 					r = baseOf(it)
 				}
 				steps[it.Step] = true
-				if !containsName(from, name(r)) {
-					from = append(from, name(r))
+				if at[r] == nil {
+					at[r] = map[string]map[string]bool{}
+					from = append(from, r)
 				}
+				path, _ := sigOf(g, it)
+				if at[r][leafOf(path)] == nil {
+					at[r][leafOf(path)] = map[string]bool{}
+				}
+				at[r][leafOf(path)][it.Step] = true
 			case head == nil:
 				head = &g.items[i]
 			}
 		}
+		names := []string{}
+		for _, r := range from {
+			n := name(r)
+			ls := []string{}
+			for l := range at[r] {
+				ls = append(ls, l)
+			}
+			sort.Slice(ls, func(a, b int) bool {
+				if len(at[r][ls[a]]) != len(at[r][ls[b]]) {
+					return len(at[r][ls[a]]) > len(at[r][ls[b]])
+				}
+				return ls[a] < ls[b]
+			})
+			if leaves[r] {
+				n = methodName(r) + " " + strings.Join(ls, " and ")
+			}
+			if !containsName(names, n) {
+				names = append(names, n)
+			}
+		}
+		from = names
 		for i, it := range g.items {
 			if head != nil && head.Kind == "refused" && it.Step == head.Step && it.Path == chain.EnvelopePath() {
 				head = &g.items[i]
