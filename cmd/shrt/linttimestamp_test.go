@@ -10,7 +10,7 @@ func TestChainLintHintsAtATimestampNoExpectationReads(t *testing.T) {
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	var err error
-	out := captureStdout(t, func() { err = chainLint([]string{"cli-thing-flow"}) })
+	out := captureStdout(t, func() { err = chainLint([]string{"-v", "cli-thing-flow"}) })
 	if err != nil {
 		t.Fatalf("a hint is not an error: %v\n%s", err, out)
 	}
@@ -21,13 +21,13 @@ func TestChainLintHintsAtATimestampNoExpectationReads(t *testing.T) {
 	writeFile(t, ".shrt/chains/cli-thing-flow.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-thing-flow.yaml")),
 		"          - path: name\n            equals: widget\n",
 		"          - path: name\n            equals: widget\n          - path: created_at\n            lte: ${nowunix}\n", 1))
-	out = captureStdout(t, func() { err = chainLint([]string{"cli-thing-flow"}) })
+	out = captureStdout(t, func() { err = chainLint([]string{"-v", "cli-thing-flow"}) })
 	if strings.Contains(out, "[fetch] timestamp created_at unasserted") {
 		t.Fatalf("created_at is asserted now, so there is nothing to hint:\n%s", out)
 	}
 }
 
-func TestChainLintExplainsARepeatedWarningOnceAndNamesEachStep(t *testing.T) {
+func TestChainLintFoldsUnassertedTimestampsIntoOneLineUnlessVerbose(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -41,7 +41,11 @@ func TestChainLintExplainsARepeatedWarningOnceAndNamesEachStep(t *testing.T) {
 	if n := strings.Count(out, "verify masks timestamps"); n != 1 {
 		t.Fatalf("the explanation prints once per lint, got %d:\n%s", n, out)
 	}
-	if n := strings.Count(out, "[fetch] timestamp created_at unasserted; expect within:"); n != 2 {
-		t.Fatalf("each chain names its step, field and fix on one line, got %d:\n%s", n, out)
+	if n := strings.Count(out, "timestamp"); n != 2 || !strings.Contains(out, "created_at (cli-thing-copy, cli-thing-flow): expect within:") {
+		t.Fatalf("one line names every chain, field and fix, got %d mentions:\n%s", n, out)
+	}
+	out = captureStdout(t, func() { err = chainLint([]string{"-v"}) })
+	if n := strings.Count(out, "[fetch] timestamp created_at unasserted; expect within:"); n != 2 || strings.Count(out, "verify masks timestamps") != 1 {
+		t.Fatalf("-v names the step under each chain, explained once:\n%s", out)
 	}
 }

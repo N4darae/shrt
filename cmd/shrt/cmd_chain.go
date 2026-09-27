@@ -263,6 +263,7 @@ func descriptionLines(description string) []string {
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
+	verbose := fs.Bool("v", false, "print each chain's unasserted-timestamp warning under it, not one line for the whole lint")
 	strict := fs.Bool("strict", false, "treat the assertion-quality warnings as errors: an assertion that cannot fail (unfailable-assertion), "+
 		"a step asserting nothing (asserts-nothing), an allow_fail that does nothing (inert-allow-fail), an export a later step "+
 		"silently overwrites (export-overwritten), arithmetic such as ${a.qty}+${b.qty} in an equals on a numeric field, compared "+
@@ -361,6 +362,7 @@ func chainLint(args []string) error {
 		}
 	} else {
 		explained := map[string]bool{}
+		stamps := &stampSummary{}
 		for _, r := range reports {
 			said := map[string]bool{}
 			if len(r.Issues) == 0 {
@@ -375,6 +377,9 @@ func chainLint(args []string) error {
 			}
 			fmt.Printf("%-4s %s\n", status, r.Chain)
 			for _, i := range r.Issues {
+				if !*verbose && i.Kind == chain.KindUnassertedTimestamp && stamps.add(r.Chain, i) {
+					continue
+				}
 				where := ""
 				if i.Step != "" {
 					where = " [" + i.Step + "]"
@@ -391,6 +396,7 @@ func chainLint(args []string) error {
 				}
 			}
 		}
+		stamps.print(explained)
 	}
 	if errCount > 0 {
 		return fmt.Errorf("%d lint error(s)", errCount)
@@ -412,6 +418,58 @@ func chainLint(args []string) error {
 		}
 	}
 	return nil
+}
+
+type stampSummary struct {
+	order  []string
+	chains map[string][]string
+	why    string
+}
+
+func (s *stampSummary) add(chainName string, i chain.Issue) bool {
+	rest, ok := strings.CutPrefix(i.Message, "timestamp ")
+	path, _, ok2 := strings.Cut(rest, " unasserted")
+	_, fix, ok3 := strings.Cut(rest, "; expect ")
+	if !ok || !ok2 || !ok3 {
+		return false
+	}
+	if strings.HasPrefix(fix, "equals: ") {
+		fix = "equals: the stamp the step that created it received"
+	}
+	key := path + "\x00" + fix
+	if s.chains == nil {
+		s.chains = map[string][]string{}
+	}
+	if s.chains[key] == nil {
+		s.order = append(s.order, key)
+	}
+	if !slices.Contains(s.chains[key], chainName) {
+		s.chains[key] = append(s.chains[key], chainName)
+	}
+	s.why = i.Why
+	return true
+}
+
+func (s *stampSummary) print(explained map[string]bool) {
+	if len(s.order) == 0 {
+		return
+	}
+	parts := []string{}
+	for _, key := range s.order {
+		names := s.chains[key]
+		shown := names[:min(len(names), 3)]
+		more := ""
+		if len(names) > len(shown) {
+			more = fmt.Sprintf(" and %d more", len(names)-len(shown))
+		}
+		path, fix, _ := strings.Cut(key, "\x00")
+		parts = append(parts, fmt.Sprintf("%s (%s%s): expect %s", path, strings.Join(shown, ", "), more, fix))
+	}
+	fmt.Printf("WARN   timestamps unasserted ('chain lint -v' names each step): %s\n", strings.Join(parts, "; "))
+	if s.why != "" && !explained[s.why] {
+		explained[s.why] = true
+		fmt.Printf("       %s\n", s.why)
+	}
 }
 
 func lintLead(msg string) string {
