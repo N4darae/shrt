@@ -67,7 +67,7 @@ func (a attribution) principal(st *runner.StepRecord, path string) string {
 			continue
 		}
 		v, ok := chain.Get(ob, path)
-		if !ok || compactValue(v) != compactValue(old) || !a.unchanged(o.ID, path) || !sameEntity(rb, path, ob, path) || a.changedBetween(min(at, j), max(at, j)) {
+		if !ok || compactValue(v) != compactValue(old) || !a.unchanged(o.ID, path) || !sameEntity(rb, path, ob, path) && (len(st.Request) == 0 || !sameRequest(st, o)) || a.changedBetween(min(at, j), max(at, j)) {
 			continue
 		}
 		return fmt.Sprintf("%s answers %s differently as %s than as %s", methodName(st.Call), gateIndex.ReplaceAllString(path, "[]$1"), profileOf(st), profileOf(o))

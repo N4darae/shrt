@@ -73,3 +73,25 @@ func TestAListGrownByAChangedWriteIsFiledUnderThatWrite(t *testing.T) {
 		t.Errorf("the added order is the changed replay's, so the list echoes that write: %+v", b)
 	}
 }
+
+func TestARecordEmptiedUnderAnotherProfileIsFiledUnderTheReadAsThatProfile(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	get := func(id, response string) recStep {
+		s := shopStep(id, shopGet, response, "create_product")
+		s.Request = []byte(`{"id_product":"p1"}`)
+		return s
+	}
+	clerk := get("clerk_get", `{"product":{"id_product":"","sku":""},`+shopOK+`}`).failing("product.sku", "s1", "")
+	clerk.AuthProfile = "clerk"
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","sku":"s1"},`+shopOK+`}`),
+		get("admin_get", `{"product":{"id_product":"p1","sku":"s1"},`+shopOK+`}`),
+		clerk,
+	)
+	moved := []diff.Change{{Step: "clerk_get", Path: "product.sku", Kind: diff.KindChanged, Want: "s1", Got: ""}}
+	it := changesAttribution(effectsEnv(t), rec, moved).item(gateItem{Step: "clerk_get", Call: shopGet, Path: "product.sku"})
+	if it.Own != "GetProduct answers product.sku differently as clerk than as default" || it.Suspect != "" {
+		t.Errorf("the clerk's answer lost the record's id too, but both reads sent the same request: %+v", it)
+	}
+}
