@@ -516,8 +516,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 
 1. **Read the reason on every kept step**: `target`, `produces ${x} used by <step>`,
    `contract needs <rpc> (<edge>)`, or `changes the state <rpc> sets on <step>`. It keeps the
-   producers of what kept steps reference, the contracts' prerequisites, and earlier writes that act
-   on an entity the kept steps use.
+   producers of what kept steps reference, the contracts' prerequisites, earlier writes that act
+   on an entity the kept steps use, and earlier writes that send a unique value (id, unique or
+   idempotency field; any field without a contract) the target sends again, compared ignoring case.
 2. **Read `unmet prerequisites` and `WARNING possible under-inclusion`** before trusting the size:
    a dropped earlier write can be state the target needed, and the slice can go green without it.
 3. **`-write [name]`, then `chain lint` it.** `-write` and `-write <name>.yaml` put the file beside
