@@ -429,8 +429,8 @@ Reading the report:
 - It compares what each step SENT first. A changed request (`request differs ...`) or a changed
   chain (`chain differs ...`) gives `drift with different input` or `drift after a chain change`
   when it explains every response change, otherwise `regression`.
-- A list whose order the rpc does not promise: declare `unordered: [<list>]`; otherwise a reorder
-  fails with `order changed`.
+- A list whose order varies between runs of one release: declare `unordered: [<list>]`; otherwise a
+  reorder fails with `order changed`, a regression when the order was promised.
 - A field the descriptor gained and the backend does not send yet is not a change.
 - `LATENCY:` lines flag a step at least 250ms and 3x slower than the safe spot's run, confirmed by
   re-sending a read; they fail only with `latency: {fail: true}` (`GRAMMAR.md` §4).
