@@ -274,7 +274,10 @@ func (a attribution) of(step, path string) blame {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref, up)
+		b.write, b.cascade = up.write, up.cascade
+		if !strings.HasPrefix(b.cascade, "unevaluated because ") {
+			b.cascade = "unevaluated because " + a.lost(src, ref, up)
+		}
 		if b.write < 0 {
 			b.write = a.index(src)
 		}
@@ -303,6 +306,8 @@ func (a attribution) of(step, path string) blame {
 		b.why = a.unstored(st, path)
 		if a.flipped(st) != "" {
 			b.write = a.changedWriteBefore(step)
+		} else if b.why == "" {
+			b.write = a.sameRecordWriteBefore(step)
 		}
 		return b
 	}
@@ -945,6 +950,9 @@ func (a attribution) behind(w int) int {
 			return up
 		}
 	}
+	if up := a.sameRecordWriteBefore(a.rec.Steps[w].ID); up >= 0 {
+		return up
+	}
 	return w
 }
 
@@ -969,6 +977,27 @@ func (a attribution) changedWriteBefore(step string) int {
 			if a.reordered == nil || !a.reordered(w.ID, p) {
 				return i
 			}
+		}
+	}
+	return -1
+}
+
+func (a attribution) sameRecordWriteBefore(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	mine := stepRefs(a.rec, at)
+	for i := at - 1; i >= 0; i-- {
+		w := a.rec.Steps[i]
+		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 {
+			continue
+		}
+		for ref := range stepRefs(a.rec, i) {
+			if !mine[ref] {
+				continue
+			}
+			return a.behind(i)
 		}
 	}
 	return -1

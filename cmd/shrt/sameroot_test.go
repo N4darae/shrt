@@ -1,0 +1,51 @@
+package main
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestAReadHeldBehindAHeldReadNamesTheWriteThatLostTheField(t *testing.T) {
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`).failing("product.created_at", "t", nil),
+		shopStep("get", shopGet, `{"product":{"id_product":"p1","created_at":"t"}}`, "create").heldBy("create", "product.created_at"),
+		shopStep("get_as_clerk", shopGet, `{"product":{"id_product":"p1","created_at":"t"}}`, "create").heldBy("get", "product.created_at"),
+	)
+	write, own, cascade := blameOf(t, rec, "get_as_clerk", "status")
+	if write != "create" || own != "" || cascade != "unevaluated because CreateProduct lost product.created_at" {
+		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
+	}
+}
+
+func TestALaterWriteOnARecordAnEarlierChangedWriteTouchedFoldsIntoThatWrite(t *testing.T) {
+	const add = "shop.catalog.v1.StockService/AddStock"
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`).failing("product.created_at", "t", nil),
+		shopStep("add_negative", add, `{"qty_on_hand":"0",`+shopOK+`}`, "create").failing("status.code", "REJECTED", "SUCCESS"),
+		shopStep("add_large", add, `{"qty_on_hand":"1250",`+shopOK+`}`, "create").failing("qty_on_hand", "1251", "1250"),
+		shopStep("add_larger", add, `{"qty_on_hand":"13595",`+shopOK+`}`, "create").failing("qty_on_hand", "13596", "13595"),
+		shopStep("create_other", shopCreate, `{"product":{"id_product":"p2"}}`),
+		shopStep("add_other", add, `{"qty_on_hand":"3",`+shopOK+`}`, "create_other").failing("qty_on_hand", "4", "3"),
+	)
+	for _, step := range []string{"add_large", "add_larger"} {
+		if write, own, _ := blameOf(t, rec, step, "qty_on_hand"); write != "add_negative" || own != "" {
+			t.Errorf("%s: got write %q own %q, want add_negative", step, write, own)
+		}
+	}
+	if write, _, _ := blameOf(t, rec, "add_other", "qty_on_hand"); write != "" {
+		t.Errorf("a write on another record stays its own, got write %q", write)
+	}
+	a := runAttribution(nil, rec)
+	g := &gateChain{name: "c", failed: true}
+	for _, st := range []string{"add_negative", "add_large", "add_larger"} {
+		path := "qty_on_hand"
+		if st == "add_negative" {
+			path = "status.code"
+		}
+		g.items = append(g.items, a.item(gateItem{Step: st, Call: add, Path: path, Failed: true}))
+	}
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
+	if strings.Contains(out, "another change") || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
+		t.Errorf("knock-on changes on the same record fold into the root write:\n%s", out)
+	}
+}
