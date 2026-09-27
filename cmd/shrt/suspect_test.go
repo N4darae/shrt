@@ -86,6 +86,7 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 	}
 	const create, get, add, list = "shop.catalog.v1.ProductService/CreateProduct", "shop.catalog.v1.ProductService/GetProduct",
 		"shop.catalog.v1.StockService/AddStock", "shop.catalog.v1.ProductService/ListProducts"
+	const batch = "shop.catalog.v1.StockService/AddStockBatch"
 	failing := func(st *runner.StepRecord, path string, want, got any) *runner.StepRecord {
 		st.Status = runner.StatusFailed
 		st.Expect = append(st.Expect, chain.ExpectResult{Path: path, Rule: "equals", Want: want, Got: got})
@@ -107,7 +108,17 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 		{"one read answers a field its write returned otherwise and no other read settles it", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
+		}, "get", "product.sku", "", "create", "the write or the read: create answered product.sku=SKU-A, get reads sku-a"},
+		{"without a reference the read agreed with, the contradiction stays on the write", []*runner.StepRecord{
+			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
+			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-B", "sku-a"),
 		}, "get", "product.sku", "", "create", "create answered product.sku=SKU-A, get reads sku-a"},
+		{"a later read after another write does not settle it", []*runner.StepRecord{
+			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
+			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
+			step("add", add, `{"qty_on_hand":"6"}`, "create"),
+			step("list", list, `{"products":[{"id_product":"p1","sku":"SKU-A"}]}`),
+		}, "get", "product.sku", "", "create", "the write or the read: create answered product.sku=SKU-A, get reads sku-a"},
 		{"two read rpcs agree against what the write answered", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
@@ -128,6 +139,15 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"6"}}`, "create"), "product.price_minor", "5", "6"),
 		}, "get", "product.price_minor", "", "add", ""},
+		{"a list item the write answered is shown with its index", []*runner.StepRecord{
+			step("create", create, `{"product":{"id_product":"p1"}}`),
+			func() *runner.StepRecord {
+				st := step("batch", batch, `{"results":[{"id_product":"p1","qty_on_hand":"0"},{"id_product":"p1","qty_on_hand":"12"}]}`, "create")
+				st.Expect = []chain.ExpectResult{{Path: "results.1.qty_on_hand", Rule: "equals", Want: "12", Got: "12", Passed: true}}
+				return st
+			}(),
+			failing(step("get", get, `{"product":{"id_product":"p1","qty_on_hand":"6"}}`, "create"), "product.qty_on_hand", "12", "6"),
+		}, "get", "product.qty_on_hand", "", "batch", "the write or the read: batch answered results.1.qty_on_hand=12, get reads 6"},
 		{"a server error is the read's own", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -544,5 +564,26 @@ func TestAWriteAnsweringItsListInAnotherOrderThanTheReadSaysSo(t *testing.T) {
 	want := "CreateOrder answered order.lines in another order than FetchOrder read: it answered other than it stored"
 	if b.why != want {
 		t.Errorf("why %q, want %q", b.why, want)
+	}
+	fetched.Expect[0].Passed = false
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("create_order", "order.lines.0.qty"); b.why != "" {
+		t.Errorf("a read that moved too says nothing about what the write stored, got %q", b.why)
+	}
+}
+
+func TestTheGateNamesTheWriteOrTheReadWithTheRootWriteAsExample(t *testing.T) {
+	why := "the write or the read: w answered results.2.qty_on_hand=12, get reads 6"
+	g := &gateChain{name: "one", items: []gateItem{
+		{Step: "later", Call: "x.v1.S/Batch", Path: "results.1.qty_on_hand", Want: "18", Got: "12"},
+		{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Suspect: "x.v1.S/Batch", SuspectStep: "w", Why: why},
+	}}
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
+	if !strings.Contains(out, "; "+why+"; e.g. one w\n") {
+		t.Errorf("the group shows both values and the root write:\n%s", out)
+	}
+	g.items = g.items[1:]
+	out = captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
+	if !strings.Contains(out, "  S/Batch: suspect "+why+"; e.g. one w\n") {
+		t.Errorf("got:\n%s", out)
 	}
 }

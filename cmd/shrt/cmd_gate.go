@@ -1553,6 +1553,9 @@ func printGateGroups(chains []*gateChain) {
 				tail = "; suspect the read: " + gr.own[0] + otherReasons(len(gr.own)-1)
 			case gr.write && len(gr.why) > 0:
 				tail = "; " + gr.why[0] + otherReasons(len(gr.why)-1)
+				if gr.suspect != "" {
+					gr.example = gr.suspect
+				}
 			case gr.write:
 			case gr.knockOn:
 				tail = "; a knock-on of " + gr.suspect
@@ -1561,7 +1564,11 @@ func printGateGroups(chains []*gateChain) {
 			}
 			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.rpc, len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
 		case len(gr.why) > 0:
-			fmt.Printf("  %s: suspect the write: %s%s; e.g. %s\n", gr.rpc, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
+			lead := "suspect the write: "
+			if strings.HasPrefix(gr.why[0], eitherWhy) {
+				lead = "suspect "
+			}
+			fmt.Printf("  %s: %s%s%s; e.g. %s\n", gr.rpc, lead, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:

@@ -865,12 +865,19 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 	if !ok {
 		return blame{}, false
 	}
+	before, agreed := "", false
+	if a.was != nil {
+		if v, ok := a.was(r.ID, path); ok {
+			before, agreed = compactValue(v), true
+		}
+	}
 	wp, wv, found := "", "", false
 	eachLeaf(wb, "", func(p string, v any) {
 		if found {
 			return
 		}
-		if c, ok := carrierOf(wm, p); !ok || c != want {
+		c, ok := carrierOf(wm, p)
+		if !ok || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
@@ -883,7 +890,10 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 	shown := gateIndex.ReplaceAllString(path, "[]$1")
 	agree, confirm := []string{methodName(r.Call)}, false
 	for _, o := range a.rec.Steps[wi+1:] {
-		if o == nil || o == r || isWrite(o) {
+		if isWrite(o) {
+			break
+		}
+		if o == nil || o == r {
 			continue
 		}
 		om, err := a.e.cat.Lookup(o.Call)
@@ -913,8 +923,14 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
 			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
 	}
-	return blame{write: wi, why: fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, shown, capText(wv, 60), r.ID, capText(compactValue(rv), 60))}, true
+	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, capText(wv, 60), r.ID, capText(compactValue(rv), 60))
+	if agreed && before == wv {
+		why = eitherWhy + why
+	}
+	return blame{write: wi, why: why}, true
 }
+
+const eitherWhy = "the write or the read: "
 
 func (a attribution) unstored(w *runner.StepRecord, path string) string {
 	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || a.unchanged(w.ID, path) {
@@ -942,7 +958,7 @@ func (a attribution) unstored(w *runner.StepRecord, path string) string {
 		if err != nil || json.Unmarshal(o.Response, &ob) != nil {
 			continue
 		}
-		if list, ok := reorderedList(wb, ob, path); ok && sameEntity(wb, list, ob, list) {
+		if list, ok := reorderedList(wb, ob, path); ok && sameEntity(wb, list, ob, list) && a.unchanged(o.ID, path) {
 			return fmt.Sprintf("%s answered %s in another order than %s read: it answered other than it stored",
 				methodName(w.Call), list, methodName(o.Call))
 		}
