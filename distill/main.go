@@ -244,7 +244,7 @@ var notes = map[string]string{
 	"Latency.remeasure":              "How many times a slow read is re-sent before it is judged (0..10). Default 2.",
 	"Latency.fail":                   "True: a confirmed slowdown fails `verify`. Default false, a warning; `shrt init` writes `true`.",
 	"Latency.off":                    "True: no latency comparison.",
-	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve.",
+	"Conventions.read_only_prefixes": "Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve, Watch, Subscribe.",
 	"Conventions.envelope_path":      "Where a response reports its verdict. Default `error.code`. A path no response declares fails `run`.",
 	"Conventions.envelope_ok":        "The `envelope_path` value that means success. Default `OK`.",
 	"Conventions.item_envelope_path": "Per-item verdict in a batch response, `<list>[].<path>` (e.g. `results[].error.code`); without it a batch refusing every line passes.",

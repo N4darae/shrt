@@ -307,7 +307,7 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve. |
+| `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve, Watch, Subscribe. |
 | `envelope_path` | string |  | Where a response reports its verdict. Default `error.code`. A path no response declares fails `run`. |
 | `envelope_ok` | string |  | The `envelope_path` value that means success. Default `OK`. |
 | `item_envelope_path` | string |  | Per-item verdict in a batch response, `<list>[].<path>` (e.g. `results[].error.code`); without it a batch refusing every line passes. |
