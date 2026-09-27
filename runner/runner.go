@@ -1341,7 +1341,12 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
-			return fail(sr, err)
+			fail(sr, err)
+			sr.Status, sr.Request = StatusFailed, nil
+			if why := opts.chain.RefTypeMismatches(r.Catalog, i); opts.DryRun && len(why) > 0 {
+				sr.Error = fmt.Sprintf("request does not match %s: %s", method.Input().FullName(), strings.Join(why, "; "))
+			}
+			return sr
 		}
 	}
 	if opts.DryRun {

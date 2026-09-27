@@ -61,6 +61,7 @@ func file() *descriptorpb.FileDescriptorProto {
 				enumField("kind", 2, ".shrt.test.v1.Kind"),
 				str("idempotency_key", 3),
 				msg("meta", 4, ".shrt.test.v1.Meta"),
+				num("qty", 5, descriptorpb.FieldDescriptorProto_TYPE_INT64),
 			),
 			message("CreateResponse",
 				msg("error", 1, ".shrt.test.v1.ErrorMessage"),
