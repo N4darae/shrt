@@ -451,8 +451,12 @@ func (a attribution) item(it gateItem) gateItem {
 	if b.write < 0 && b.own == "" {
 		it.Inputs = a.inputs(it.Step, path)
 	}
-	if b.write >= 0 {
-		w := a.rec.Steps[b.write]
+	wi := b.write
+	if b.lead != "" {
+		wi = a.index(b.lead)
+	}
+	if wi >= 0 {
+		w := a.rec.Steps[wi]
 		it.Suspect, it.SuspectStep, it.KnockOn = w.Call, w.ID, b.knock
 		it.Variant = asOf(w)
 		if !a.root(w.ID) {
@@ -1612,7 +1616,7 @@ func settleKeptRed(chains []*gateChain) {
 	owned := map[string][]place{}
 	for ci, g := range chains {
 		for _, it := range g.items {
-			if it.Pinned == "" && it.Cascade == "" && !it.KnockOn && it.or == "" && (it.Suspect == "" || it.Own != "") {
+			if it.Pinned == "" && it.Cascade == "" && !it.KnockOn && it.or == "" && (it.Suspect == "" || it.Own != "" || it.Why != "") {
 				owned[it.Call] = append(owned[it.Call], place{ci, it})
 			}
 		}
@@ -1630,8 +1634,15 @@ func settleKeptRed(chains []*gateChain) {
 					continue
 				}
 				path, _ := p.it.shown()
-				g.items[i].with, g.items[i].withAbove = methodName(it.Call)+" "+path, p.chain < ci
-				if it.Suspect != "" && it.Own == "" {
+				by := it.Call
+				if p.it.Own == "" && p.it.Suspect != "" {
+					by = p.it.Suspect
+				}
+				g.items[i].with, g.items[i].withAbove = methodName(by)+" "+path, p.chain < ci
+				switch {
+				case by != it.Call && it.Own == "" && methodName(it.Suspect) != methodName(by):
+					g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why, g.items[i].Variant = p.it.Suspect, p.it.SuspectStep, "", p.it.Variant
+				case by == it.Call && it.Suspect != "" && it.Own == "":
 					g.items[i].Own, g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why, g.items[i].Variant = p.it.Own, "", "", "", ""
 				}
 				break
@@ -1723,6 +1734,9 @@ func printGateGroups(chains []*gateChain) {
 				gr.reads[step] = true
 				gr.chains[g.name] = true
 				gr.sigOf(key).reads[step] = true
+				if it.Why != "" && len(gr.why) == 0 {
+					gr.suspect = ""
+				}
 				if it.Why != "" {
 					gr.addPath(&gr.why, it.Why)
 				}
@@ -1856,7 +1870,12 @@ func baseOf(it gateItem) string {
 }
 
 func headlineGate(chains []*gateChain) {
-	label, leaves, sigOf := map[string]string{}, map[string]bool{}, rootSigs(chains)
+	label, leaves, sigOf, firm := map[string]string{}, map[string]bool{}, rootSigs(chains), map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			firm[rootOf(it)] = firm[rootOf(it)] || it.Firm && it.Suspect != ""
+		}
+	}
 	for _, g := range chains {
 		for _, it := range g.items {
 			r := rootOf(it)
@@ -1864,7 +1883,7 @@ func headlineGate(chains []*gateChain) {
 			case label[r] == "" && it.Suspect == "":
 				path, _ := it.shown()
 				label[r], leaves[r] = methodName(r)+" "+leafOf(path), true
-			case label[r] == "" && it.Own == "" && it.orRead() != "":
+			case label[r] == "" && it.Own == "" && it.orRead() != "" && !firm[r]:
 				label[r] = methodName(r) + it.orRead()
 			}
 		}
