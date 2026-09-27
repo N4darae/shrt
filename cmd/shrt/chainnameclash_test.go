@@ -87,3 +87,15 @@ func TestAProposalNamesTheChainFileItsRunRan(t *testing.T) {
 		t.Fatalf("the proposal names the chain file the run ran:\n%s", out)
 	}
 }
+
+func TestPlainLintCountsTheWarningsStrictFails(t *testing.T) {
+	srv := newFakeCLIBackend()
+	defer srv.Close()
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
+	var err error
+	out := captureStdout(t, func() { err = runChain(context.Background(), []string{"lint", "bare"}) })
+	if err != nil || !strings.Contains(out, "exit 0, but 1 warning(s) above are errors under 'shrt chain lint -strict', which .shrt/ci-gate.sh runs\n") {
+		t.Errorf("got %v:\n%s", err, out)
+	}
+}

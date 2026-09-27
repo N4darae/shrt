@@ -411,10 +411,7 @@ func chainLint(args []string) error {
 			}
 		}
 		if quality > 0 {
-			fmt.Printf("\nexit 0, with %d assertion-quality warning(s) above: a step that asserts "+
-				"nothing, or whose assertion cannot fail, is reported but does not fail this command. "+
-				"'shrt chain lint -strict' fails on them, and is what a CI gate should run — "+
-				"'lint && run' without it is green on a chain that proves nothing.\n", quality)
+			fmt.Printf("\nexit 0, but %d warning(s) above are errors under 'shrt chain lint -strict', which .shrt/ci-gate.sh runs\n", quality)
 		}
 	}
 	return nil

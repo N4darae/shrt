@@ -402,4 +402,4 @@ step, and run records are machine-local. **Fix.** Run the chain, then query agai
 ## 66. A gate of `lint && run` is green on chains that prove nothing
 
 **Cause.** Plain `chain lint` exits 0 on assertion-quality warnings. **Fix.** Gate on
-`chain lint -strict`, or run the installed gate (`bash .shrt/ci-gate.sh` or `shrt gate`).
+`chain lint -strict`, or run `bash .shrt/ci-gate.sh`, which runs it (`shrt gate` alone does not).
