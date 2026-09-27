@@ -477,6 +477,7 @@ is fixed.
 ```bash
 shrt diff <name>                                 # latest run vs the latest earlier non-replay
 shrt diff <name> <run-a> <run-b>                 # any two; ids, latest, latest~N
+shrt diff <name> [<run>] -step <id>              # one step's request and response, as recorded
 ```
 
 It reports status changes, where the first failure moved, steps no longer reached, what was sent,
