@@ -25,7 +25,7 @@ import (
 type sliceProgress struct{ verify, sent bool }
 
 const sliceUsage = "usage: shrt chain slice <chain> -step <id> [flags]\n" +
-	"       shrt chain slice <chain> -without <id,...|failed> [-run <id>] [-write [<name>]]"
+	"       shrt chain slice <chain> -without <id,...|failed> [-run <id>] [-write [<name>]] [-verify]"
 
 const sliceExitCodes = "\nexit codes (plain slice):\n" +
 	"  0  the slice was printed or written\n" +
@@ -99,10 +99,16 @@ func sliceChain(ctx context.Context, args []string, p *sliceProgress) error {
 		name = rest[1]
 	}
 	if len(*without) > 0 {
-		if *step != "" || *verify || keptRed.on || len(*keep) > 0 || *mode != chain.SliceModeClosure {
-			return fmt.Errorf("-without writes the chain minus some steps, not a slice: it takes no -step, -verify, -kept-red, -keep or -mode")
+		if *step != "" || keptRed.on || len(*keep) > 0 || *mode != chain.SliceModeClosure {
+			return fmt.Errorf("-without writes the chain minus some steps, not a slice: it takes no -step, -kept-red, -keep or -mode")
 		}
-		return sliceWithout(rest[0], *without, *runID, write, name, *force, *asJSON)
+		var wv *withoutVerify
+		if *verify {
+			wv = &withoutVerify{vars: vars, build: *build}
+		}
+		err := sliceWithout(ctx, rest[0], *without, *runID, write, name, *force, *asJSON, wv)
+		p.sent = p.sent || (wv != nil && wv.sent)
+		return err
 	}
 	if *step == "" {
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")

@@ -160,7 +160,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		return "", "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
 	}
 	withoutOut, err := quietly(func() error {
-		return sliceWithout(ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, false)
+		return sliceWithout(ctx, ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, false, nil)
 	})
 	if err != nil {
 		fmt.Print(withoutOut)

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -145,7 +146,7 @@ func failedSteps(rec *runner.Record) []string {
 	return out
 }
 
-func sliceWithout(chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool) error {
+func sliceWithout(ctx context.Context, chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool, verify *withoutVerify) error {
 	writePath := ""
 	bare := bareSliceFile(name)
 	if bare {
@@ -169,6 +170,23 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	}
 	ids := []string{}
 	fromRun := ""
+	var rec *runner.Record
+	load := func() error {
+		if rec != nil {
+			return nil
+		}
+		if runID == "" || runID == "latest" {
+			rec, err = latestRun(e, c.Name, "")
+		} else {
+			rec, err = e.store.LoadRun(c.Name, runID)
+		}
+		return err
+	}
+	if verify != nil {
+		if err := load(); err != nil {
+			return err
+		}
+	}
 	for _, id := range drop {
 		if id != "failed" {
 			if !containsStr(ids, id) {
@@ -176,15 +194,7 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 			}
 			continue
 		}
-		if runID == "" {
-			runID = "latest"
-		}
-		load := e.store.LoadRun
-		if runID == "latest" {
-			load = func(name, _ string) (*runner.Record, error) { return latestRun(e, name, "") }
-		}
-		rec, err := load(c.Name, runID)
-		if err != nil {
+		if err := load(); err != nil {
 			return err
 		}
 		fromRun = rec.RunID
@@ -220,20 +230,32 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		}
 		written, replaced = path, source
 	}
+	var verdict *withoutVerdict
 	if asJSON {
-		return emitJSON(struct {
+		if verify != nil {
+			if verdict, err = verifyWithout(ctx, e, res, rec, ids, verify, written != "", true); err != nil {
+				return err
+			}
+		}
+		if err := emitJSON(struct {
 			*chain.WithoutResult
-			Run     string `json:"run,omitempty"`
-			Written string `json:"written,omitempty"`
-		}{res, fromRun, written})
+			Run     string          `json:"run,omitempty"`
+			Written string          `json:"written,omitempty"`
+			Verify  *withoutVerdict `json:"verify,omitempty"`
+		}{res, fromRun, written, verdict}); err != nil {
+			return err
+		}
+		return verdict.err()
 	}
-	how := ""
+	how, unrun := "", "; a count of what the file holds, not of steps known to pass: none of them has run in this shape yet"
 	if fromRun != "" {
 		how = fmt.Sprintf(" (failed in run %s)", fromRun)
 	}
-	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out; "+
-		"a count of what the file holds, not of steps known to pass: none of them has run in this shape yet\n\n",
-		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed))
+	if verify != nil {
+		unrun = ""
+	}
+	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out%s\n\n",
+		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed), unrun)
 	idW := 0
 	for _, r := range res.Removed {
 		idW = max(idW, len(r.ID))
@@ -244,14 +266,24 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	for _, k := range res.DroppedPins {
 		fmt.Printf("  kept_red pin on %s %s dropped with its step\n", k.Step, k.Path)
 	}
-	fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
-		"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
+	if verify != nil {
+		if verdict, err = verifyWithout(ctx, e, res, rec, ids, verify, written != "", false); err != nil {
+			return err
+		}
+		fmt.Print("\n" + verdict.text())
+	} else {
+		fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
+			"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
+	}
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
 		if !replaced {
 			fmt.Print(sweepNote(e, written, res.Chain.Name))
 		}
-		return nil
+		return verdict.err()
+	}
+	if verdict != nil {
+		return verdict.err()
 	}
 	raw, err := res.Chain.Marshal()
 	if err != nil {
