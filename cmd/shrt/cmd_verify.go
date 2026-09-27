@@ -313,7 +313,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	} else {
 		body := &strings.Builder{}
 		defer func() {
-			verdict, rest := verifyVerdict(e, name, rec, report, nonBackend != nil, err, body.String())
+			verdict, rest := verifyVerdict(e, name, rec, report, flaky, nonBackend != nil, err, body.String())
 			fmt.Print(verdict + rest)
 		}()
 		if nonBackend != nil {
@@ -1101,7 +1101,7 @@ func intendedChangeNext(name string) string {
 	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
 }
 
-func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
+func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
 	if noVerdict {
 		return "", body
 	}
@@ -1124,11 +1124,12 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
+	a := verifyAttribution(e, rec, report)
 	if why == "regression" || why == "order changed" {
-		why = report.Class(*first) + alsoClasses(report, first)
+		class := flaky.classOf(report, a)
+		why = class(*first) + alsoClasses(report, first, class)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	a := verifyAttribution(e, rec, report)
 	b := a.of(first.Step, first.Path)
 	if in := a.inputs(first.Step, first.Path); b.write < 0 && b.own == "" && in != "" {
 		line += "; " + in
@@ -1176,15 +1177,15 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	return out
 }
 
-func alsoClasses(report *diff.Report, first *diff.Change) string {
-	class := report.Class(*first)
+func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Change) string) string {
+	class := classOf(*first)
 	byStep := map[string]string{}
 	for _, status := range []bool{false, true} {
 		for _, c := range report.Changes {
 			if _, seen := byStep[c.Step]; seen || c.Kind == diff.KindNotReached || c.Step == first.Step || (c.Kind == diff.KindStatus) != status {
 				continue
 			}
-			byStep[c.Step] = report.Class(c)
+			byStep[c.Step] = classOf(c)
 		}
 	}
 	counts := map[string]int{}

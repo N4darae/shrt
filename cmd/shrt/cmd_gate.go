@@ -559,6 +559,9 @@ func (it gateItem) wantGot() string {
 	if strings.HasPrefix(it.Path, "(") {
 		return it.Got
 	}
+	if it.Pinned != "" {
+		return fmt.Sprintf("pinned got=%s, now got=%s", it.Pinned, it.Got)
+	}
 	if it.Class == "latency" {
 		was, _ := strconv.Atoi(strings.TrimSuffix(it.Want, "ms"))
 		now, _ := strconv.Atoi(strings.TrimSuffix(it.Got, "ms"))
@@ -1491,7 +1494,7 @@ func printGateGroups(chains []*gateChain) {
 				gr.chains[g.name] = true
 				gr.addPath(&gr.paths, path)
 				if gr.example == "" || gr.sibling {
-					gr.example, gr.sibling = example, false
+					gr.example, gr.sibling = example, it.Pinned != ""
 				}
 			}
 			switch {

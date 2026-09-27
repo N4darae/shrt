@@ -43,7 +43,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 		{"fill_item", "", "", false},
 		{"get_item_unknown_id", "", "", false},
 	} {
-		i, knock := suspectWrite(rec, c.read, map[string]bool{c.bad: c.bad != ""})
+		i, knock := suspectWrite(rec, c.read, "", map[string]bool{c.bad: c.bad != ""})
 		got := ""
 		if i >= 0 {
 			got = rec.Steps[i].ID
@@ -71,7 +71,7 @@ func TestASuspectWriteIsFoundThroughExportedIDs(t *testing.T) {
 			step("fetch_order", "FetchOrder", "", map[string]string{"id_order": orderRef}),
 			step("stock_a_confirmed", "GetProduct", "", map[string]string{"id_product": "${id_a}"}),
 		}}
-		i, knock := suspectWrite(rec, "stock_a_confirmed", map[string]bool{})
+		i, knock := suspectWrite(rec, "stock_a_confirmed", "", map[string]bool{})
 		if i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
 			t.Errorf("%s: got step %d knock-on %v, want confirm_order", orderRef, i, knock)
 		}
@@ -488,7 +488,7 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 		for i, st := range rec.Steps {
 			pos[st.ID] = i
 		}
-		return entityWrites(rec, len(rec.Steps)-1, map[string]bool{}, pos)
+		return entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, pos)
 	}
 	if got := candidates(); !slices.Equal(got, []int{2, 1, 0}) {
 		t.Errorf("got steps %v, want the writes before it without the repeats", got)

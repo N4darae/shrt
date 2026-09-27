@@ -51,6 +51,7 @@ type flakyServer struct {
 	code   string
 	status int
 	delay  time.Duration
+	name11 string
 }
 
 func (f *flakyServer) set(code string, status int, at ...int) {
@@ -71,7 +72,10 @@ func (f *flakyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.n++
 		fail = f.failAt[f.n]
 	}
-	code, status, delay := f.code, f.status, f.delay
+	code, status, delay, name := f.code, f.status, f.delay, "widget"
+	if body["id"] == "thing-11" && f.name11 != "" {
+		name = f.name11
+	}
 	f.mu.Unlock()
 	time.Sleep(delay)
 	w.Header().Set("Content-Type", "application/json")
@@ -80,7 +84,7 @@ func (f *flakyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"code": code, "message": "pool exhausted"})
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": body["id"], "name": "widget"})
+	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": body["id"], "name": name})
 }
 
 func flakyWorkspace(t *testing.T) (*flakyServer, context.Context) {

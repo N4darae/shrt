@@ -60,7 +60,7 @@ func isWrite(st *runner.StepRecord) bool {
 	return st != nil && !chain.IsReadOnlyCall(st.Call)
 }
 
-func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bool) {
+func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (int, bool) {
 	at, pos := -1, map[string]int{}
 	for i, st := range rec.Steps {
 		if st == nil {
@@ -77,7 +77,7 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 		return -1, false
 	}
 	nearest, nearestBad := -1, -1
-	for _, i := range entityWrites(rec, at, bad, pos) {
+	for _, i := range entityWrites(rec, at, path, bad, pos) {
 		if nearest < 0 {
 			nearest = i
 		}
@@ -99,9 +99,14 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	return -1, false
 }
 
-func entityWrites(rec *runner.Record, at int, bad map[string]bool, pos map[string]int) []int {
+func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int) []int {
 	reach := refReach(rec, pos)
 	entities := stepRefs(rec, at)
+	for _, id := range itemIDs(rec.Steps[at], path) {
+		if src := producer(rec, at, id); src != "" {
+			entities[src] = true
+		}
+	}
 	var out []int
 	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
 		w := rec.Steps[i]
@@ -117,6 +122,39 @@ func entityWrites(rec *runner.Record, at int, bad map[string]bool, pos map[strin
 		}
 	}
 	return out
+}
+
+func itemIDs(st *runner.StepRecord, path string) []string {
+	segs := chain.SplitPath(path)
+	var body any
+	if st == nil || json.Unmarshal(st.Response, &body) != nil {
+		return nil
+	}
+	for k := len(segs) - 1; k > 0; k-- {
+		if _, err := strconv.Atoi(segs[k]); err == nil {
+			item, _ := chain.Get(body, strings.Join(segs[:k+1], "."))
+			return idsOf(item)
+		}
+	}
+	return nil
+}
+
+func producer(rec *runner.Record, at int, id string) string {
+	for _, st := range rec.Steps[:at] {
+		var body any
+		if st == nil || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		found := false
+		eachLeaf(body, "", func(p string, v any) {
+			segs := chain.SplitPath(p)
+			found = found || v == id && diff.IDNamedPath(segs[len(segs)-1])
+		})
+		if found {
+			return st.ID
+		}
+	}
+	return ""
 }
 
 func inert(rec *runner.Record, i int, bad map[string]bool) bool {
@@ -284,7 +322,7 @@ func (a attribution) of(step, path string) blame {
 		b.own = fmt.Sprintf("%s answers the same items in another order", methodName(st.Call))
 		return b
 	}
-	b.write, b.knock = suspectWrite(a.rec, step, a.bad)
+	b.write, b.knock = suspectWrite(a.rec, step, path, a.bad)
 	if b.knock && !a.explains(b.write, st, path) {
 		b.write, b.knock = -1, false
 	}
@@ -306,13 +344,13 @@ func (a attribution) of(step, path string) blame {
 			return blame{write: up}
 		}
 		if a.ref && !a.bad[w.ID] {
-			return a.asBefore(a.index(step), b)
+			return a.asBefore(a.index(step), path, b)
 		}
 	}
 	return b
 }
 
-func (a attribution) asBefore(at int, b blame) blame {
+func (a attribution) asBefore(at int, path string, b blame) blame {
 	pos := map[string]int{}
 	for i, st := range a.rec.Steps {
 		if st == nil {
@@ -323,7 +361,11 @@ func (a attribution) asBefore(at int, b blame) blame {
 		}
 	}
 	var earlier []string
-	for _, i := range entityWrites(a.rec, at, a.bad, pos) {
+	leaf, movers, since := leafOf(path), []int{}, a.seenSince(at, path)
+	for _, i := range entityWrites(a.rec, at, path, a.bad, pos) {
+		if i > since && a.moves(i, leaf) {
+			movers = append(movers, i)
+		}
 		if i != b.write {
 			earlier = append(earlier, a.rec.Steps[i].ID)
 		}
@@ -331,9 +373,101 @@ func (a attribution) asBefore(at int, b blame) blame {
 	if len(earlier) == 0 {
 		return b
 	}
+	if len(movers) == 1 {
+		return blame{write: movers[0], firm: true, why: fmt.Sprintf("its contract moves %s; the other writes on that record answered as before", leaf)}
+	}
 	w := a.rec.Steps[b.write]
 	b.write, b.why = -1, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
 	return b
+}
+
+func (a attribution) moves(i int, leaf string) bool {
+	w := a.rec.Steps[i]
+	eff := a.e.effectsOf(w.Call)[leaf]
+	if eff == nil || eff.Is != "" || refusalOf(w) != "" {
+		return false
+	}
+	return eff.Restore == "" || a.wasIn(i, eff.Restore)
+}
+
+func (a attribution) seenSince(at int, path string) int {
+	st := a.rec.Steps[at]
+	var body any
+	if a.unchanged == nil || json.Unmarshal(st.Response, &body) != nil {
+		return -1
+	}
+	segs := chain.SplitPath(path)
+	if len(segs) < 2 {
+		return -1
+	}
+	holder, _ := chain.Get(body, strings.Join(segs[:len(segs)-1], "."))
+	ids := map[string]bool{}
+	for _, id := range idsOf(holder) {
+		ids[id] = true
+	}
+	leaf := segs[len(segs)-1]
+	for j := at - 1; j >= 0 && len(ids) > 0; j-- {
+		r := a.rec.Steps[j]
+		var rb any
+		if r == nil || isWrite(r) || json.Unmarshal(r.Response, &rb) != nil {
+			continue
+		}
+		seen := false
+		eachLeaf(rb, "", func(p string, _ any) {
+			ps := chain.SplitPath(p)
+			if seen || len(ps) < 2 || ps[len(ps)-1] != leaf {
+				return
+			}
+			parent, _ := chain.Get(rb, strings.Join(ps[:len(ps)-1], "."))
+			for _, id := range idsOf(parent) {
+				seen = seen || ids[id] && a.unchanged(r.ID, p)
+			}
+		})
+		if seen {
+			return j
+		}
+	}
+	return -1
+}
+
+func (a attribution) wasIn(i int, state string) bool {
+	var req map[string]any
+	if json.Unmarshal(a.rec.Steps[i].Request, &req) != nil {
+		return false
+	}
+	ids := map[string]bool{}
+	for _, id := range idsOf(req) {
+		ids[id] = true
+	}
+	found := false
+	for _, st := range a.rec.Steps[:i] {
+		var body any
+		if st == nil || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		eachObject(body, func(m map[string]any) {
+			for _, id := range idsOf(m) {
+				for _, v := range m {
+					found = found || ids[id] && v == state
+				}
+			}
+		})
+	}
+	return found
+}
+
+func eachObject(v any, visit func(map[string]any)) {
+	switch t := v.(type) {
+	case map[string]any:
+		visit(t)
+		for _, x := range t {
+			eachObject(x, visit)
+		}
+	case []any:
+		for _, x := range t {
+			eachObject(x, visit)
+		}
+	}
 }
 
 func (a attribution) index(step string) int {
