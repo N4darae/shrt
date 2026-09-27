@@ -5,9 +5,6 @@ description: "REPLACE_ME: the state this chain reproduces"
 vars:
   thing_name: REPLACE_ME_NAME
 
-volatile:
-  - "**.REPLACE_ME_ID_FIELD"
-
 steps:
   - id: create_thing
     call: REPLACE_ME.package.v1.REPLACE_MEService/CreateThing

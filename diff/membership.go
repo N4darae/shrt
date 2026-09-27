@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -190,7 +191,7 @@ func itemKey(lists ...[]any) string {
 			}
 			here := map[string]bool{}
 			for k, v := range m {
-				if idNamed(k) && idValue(v) {
+				if namecase.IDNamed(k) && idValue(v) {
 					here[k] = true
 				}
 			}
@@ -322,7 +323,7 @@ func producedIDs(rec *runner.Record, before string) map[string]string {
 				visit(x, key, step)
 			}
 		case string:
-			if _, seen := out[t]; !seen && idNamed(key) && idValue(t) {
+			if _, seen := out[t]; !seen && namecase.IDNamed(key) && idValue(t) {
 				out[t] = step
 			}
 		}
