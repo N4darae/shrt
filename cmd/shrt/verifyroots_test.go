@@ -55,3 +55,18 @@ func TestTheVerifyHeadlineShowsTheLinesAChangedTotalIsComputedFrom(t *testing.T)
 		t.Errorf("got:\n%s", line)
 	}
 }
+
+func TestAStatusOnlyChangeIsNamedByTheExpectationThatFailed(t *testing.T) {
+	spotRec := shopRecord(shopStep("list", shopList, `{"products":[{"id_product":"p1"}]}`))
+	spot := &store.SafeSpot{Chain: "shop", RunID: "spot", Volatile: []string{"products"}, Steps: spotRec.Steps}
+	rec := shopRecord(shopStep("list", shopList, `{"products":[{"id_product":"p9"}]}`).failing("products.0.id_product", "p1", "p9"))
+	report := diff.CompareMasking(spot, rec, nil)
+	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, false, errors.New("regression: x"), "")
+	if !strings.Contains(line, "first: list (ProductService/ListProducts) products.0.id_product want=p1 got=p9") {
+		t.Errorf("verify headline got:\n%s", line)
+	}
+	items := verifyItems(&env{cat: catalogtest.Shop()}, rec, report)
+	if len(items) != 1 || items[0].headline() != "products.0.id_product want=p1 got=p9" {
+		t.Errorf("gate item got %+v", items)
+	}
+}

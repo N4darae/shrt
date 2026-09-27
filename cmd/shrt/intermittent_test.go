@@ -6,9 +6,11 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/N4darae/shrt/runner"
 )
@@ -48,6 +50,7 @@ type flakyServer struct {
 	failAt map[int]bool
 	code   string
 	status int
+	delay  time.Duration
 }
 
 func (f *flakyServer) set(code string, status int, at ...int) {
@@ -68,8 +71,9 @@ func (f *flakyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.n++
 		fail = f.failAt[f.n]
 	}
-	code, status := f.code, f.status
+	code, status, delay := f.code, f.status, f.delay
 	f.mu.Unlock()
+	time.Sleep(delay)
 	w.Header().Set("Content-Type", "application/json")
 	if fail {
 		w.WriteHeader(status)
@@ -229,5 +233,22 @@ func TestTheCallRateNamesAPeriodOnlyFromThreeFailures(t *testing.T) {
 	rec.Steps = rec.Steps[:3]
 	if got := callRate(rec, "A/Get"); got != "" {
 		t.Fatalf("one failure is not a rate: %q", got)
+	}
+}
+
+func TestAConfirmedLatencyRegressionLeadsVerifyOverAnIntermittentFinding(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	cfg, err := os.ReadFile(".shrt/config.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, ".shrt/config.yaml", string(cfg)+"latency:\n    floor_ms: 100\n    fail: true\n")
+	f.set("internal", http.StatusInternalServerError, 2, 3)
+	f.mu.Lock()
+	f.delay = 150 * time.Millisecond
+	f.mu.Unlock()
+	out, err := verifyOnce(t, ctx)
+	if err == nil || !strings.Contains(err.Error(), "latency regression") || !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
+		t.Fatalf("the latency regression leads, the finding is still printed: %v\n%s", err, out)
 	}
 }

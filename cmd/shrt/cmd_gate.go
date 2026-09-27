@@ -599,27 +599,27 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		if c.Kind == diff.KindNotReached || c.Kind == diff.KindStatus && changed[c.Step] {
 			continue
 		}
-		call, rule, failed := "", "", false
+		call, rule, path, failed := "", "", c.Path, false
 		want, got := gatePair(c.Want, c.Got)
 		if st, ok := rec.Step(c.Step); ok && st != nil {
 			call = st.Call
 			for _, ex := range st.Expect {
-				if !ex.Passed && ex.Rule != "unevaluated" && namecase.Equal(ex.Path, c.Path) {
-					rule, failed = ex.Rule, true
+				if !ex.Passed && ex.Rule != "unevaluated" && (c.Kind == diff.KindStatus || namecase.Equal(ex.Path, c.Path)) {
+					rule, path, failed = ex.Rule, ex.Path, true
 					want, got = gatePair(ex.Want, ex.Got)
 					break
 				}
 			}
 		}
-		if c.Kind == diff.KindLength || c.Kind == diff.KindMembership {
+		if (c.Kind == diff.KindLength || c.Kind == diff.KindMembership) && !failed {
 			if c.Detail != "" {
 				got = capText(got+" ("+c.Detail+")", 320)
 			}
 		}
-		it := a.item(gateItem{Step: c.Step, Call: call, Path: c.Path, Rule: rule, Want: want, Got: got, Failed: failed})
+		it := a.item(gateItem{Step: c.Step, Call: call, Path: path, Rule: rule, Want: want, Got: got, Failed: failed})
 		it.Class = report.Class(c)
 		for _, l := range report.Changes {
-			if l.Kind == diff.KindLength && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
+			if l.Kind == diff.KindLength && l.Detail != diff.VolatileFailed && l.Step == c.Step && (l.Path == c.Path || strings.HasPrefix(c.Path, l.Path+".")) {
 				it.Length = fmt.Sprintf("%s length want=%s got=%s", l.Path, compactValue(l.Want), compactValue(l.Got))
 				break
 			}
@@ -1078,11 +1078,17 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 		if g.first == "" {
 			if len(out.side.Items) > 0 && out.side.KeptRed != runner.KeptRedGone {
-				it := out.side.Items[0]
+				it, rank := out.side.Items[0], -1
 				for _, f := range out.side.Items {
+					r := 0
 					if f.Failed {
-						it = f
-						break
+						r++
+					}
+					if fl, ok := g.flaky[f.Call]; !ok || !containsName(fl.Steps, f.Step) {
+						r += 2
+					}
+					if r > rank {
+						it, rank = f, r
 					}
 				}
 				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline())

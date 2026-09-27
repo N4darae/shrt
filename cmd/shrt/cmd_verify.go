@@ -443,6 +443,10 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if idem != nil && idem.literal {
 		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
 	}
+	slow := latencyFailure(name, latency, latencyPolicy(e))
+	if flaky.explainsAll(report) && !violation && slow != nil {
+		return slow
+	}
 	if flaky.explainsAll(report) && !violation {
 		flakyOnly = true
 		return fmt.Errorf("%s: %s", name, flaky.short())
@@ -546,14 +550,14 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"in place of the safe spot so a person approves the wider mask: shrt confirm %s -supersede -note \"...\"",
 			strings.Join(report.UnapprovedVolatile, ", "), name)
 	}
-	if flaky.finding() {
+	if flaky.finding() && slow == nil {
 		flakyOnly = true
 		return fmt.Errorf("%s: %s", name, flaky.short())
 	}
-	if !rec.Passed() {
+	if !rec.Passed() && slow == nil {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 	}
-	return latencyFailure(name, latency, latencyPolicy(e))
+	return slow
 }
 
 func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {
@@ -1144,7 +1148,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	items := verifyItems(e, rec, report)
 	seen := map[string]bool{}
 	for _, it := range items {
-		if it.Step == first.Step && it.Path == first.Path {
+		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
 			seen[baseOf(it)] = true
 		}
 	}
@@ -1230,6 +1234,12 @@ func changeAt(rec *runner.Record, c diff.Change) string {
 	rpc := ""
 	if st, ok := rec.Step(c.Step); ok && st != nil {
 		rpc = " (" + shortRPC(st.Call) + ")"
+		for _, ex := range st.Expect {
+			if c.Kind == diff.KindStatus && !ex.Passed && ex.Rule != "unevaluated" {
+				want, got := gatePair(ex.Want, ex.Got)
+				return fmt.Sprintf("%s%s %s %s", c.Step, rpc, ex.Path, chain.WantGot(ex.Rule, want, got))
+			}
+		}
 	}
 	want, got := gatePair(c.Want, c.Got)
 	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, want, got)

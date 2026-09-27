@@ -132,7 +132,7 @@ func previousRecord(e *env, rec *runner.Record) *runner.Record {
 		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
 			break
 		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
+		prev, err := e.store.LoadRun(rec.Chain, ids[i])
 		if err != nil || prev.DryRun || !ranBefore(prev, rec) {
 			continue
 		}
