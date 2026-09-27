@@ -507,6 +507,13 @@ func (it gateItem) suspectKey() string {
 	return shortRPC(it.Suspect) + " " + it.Variant
 }
 
+func (it gateItem) orRead() string {
+	if it.Suspect == "" || !strings.HasPrefix(it.Why, eitherWhy) || methodName(it.Suspect) == methodName(it.Call) {
+		return ""
+	}
+	return " or " + methodName(it.Call)
+}
+
 func (it gateItem) ownKey() string {
 	if it.Variant == "" || it.Suspect != "" {
 		return shortRPC(it.Call)
@@ -1207,6 +1214,9 @@ func (g *gateChain) suspectLine() string {
 		lead = fmt.Sprintf("suspect read %s (%s)", it.Step, shortRPC(it.Call))
 	case it.SuspectStep != "":
 		step, lead = it.SuspectStep, fmt.Sprintf("suspect write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
+		if or := it.orRead(); or != "" {
+			lead = fmt.Sprintf("suspect %s (%s%s)", it.SuspectStep, shortRPC(it.Suspect), or)
+		}
 	}
 	if g.sent[step] == "" {
 		return ""
@@ -1322,6 +1332,13 @@ type gateGroup struct {
 	readPaths     map[string][]string
 	cascades      []string
 	cascade       map[string]map[string]bool
+}
+
+func (gr *gateGroup) shownRPC() string {
+	if gr.write && len(gr.why) > 0 && strings.HasPrefix(gr.why[0], eitherWhy) && len(gr.readRPCs) == 1 && !strings.HasSuffix(gr.rpc, "/"+gr.readRPCs[0]) {
+		return gr.rpc + " or " + gr.readRPCs[0]
+	}
+	return gr.rpc
 }
 
 func (gr *gateGroup) addPath(list *[]string, p string) {
@@ -1568,13 +1585,13 @@ func printGateGroups(chains []*gateChain) {
 			default:
 				tail = "; no suspect write"
 			}
-			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.rpc, len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
+			fmt.Printf("  %s: %d step(s) in %d chain(s), paths %s%s; e.g. %s\n", gr.shownRPC(), len(gr.steps), len(gr.chains), capList(gr.paths, 3), tail, gr.example)
 		case len(gr.why) > 0:
 			lead := "suspect the write: "
 			if strings.HasPrefix(gr.why[0], eitherWhy) {
 				lead = "suspect "
 			}
-			fmt.Printf("  %s: %s%s%s; e.g. %s\n", gr.rpc, lead, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
+			fmt.Printf("  %s: %s%s%s; e.g. %s\n", gr.shownRPC(), lead, gr.why[0], otherReasons(len(gr.why)-1), gr.suspect)
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:
@@ -1629,9 +1646,13 @@ func headlineGate(chains []*gateChain) {
 	label := map[string]string{}
 	for _, g := range chains {
 		for _, it := range g.items {
-			if r := rootOf(it); label[r] == "" && it.Suspect == "" {
+			r := rootOf(it)
+			switch {
+			case label[r] == "" && it.Suspect == "":
 				path, _ := it.shown()
 				label[r] = methodName(r) + " " + leafOf(path)
+			case label[r] == "" && it.Own == "" && it.orRead() != "":
+				label[r] = methodName(r) + it.orRead()
 			}
 		}
 	}

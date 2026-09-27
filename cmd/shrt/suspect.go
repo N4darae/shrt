@@ -1186,8 +1186,12 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 		lead = fmt.Sprintf("suspect read %s (%s)", step, shortRPC(st.Call))
 	}
 	if b.write >= 0 {
+		it := gateItem{Call: st.Call, Suspect: rec.Steps[b.write].Call, Why: b.why}
 		st = rec.Steps[b.write]
 		lead = fmt.Sprintf("suspect write %s (%s)", st.ID, shortRPC(st.Call))
+		if or := it.orRead(); or != "" {
+			lead = fmt.Sprintf("suspect %s (%s%s)", st.ID, shortRPC(st.Call), or)
+		}
 	}
 	if sent := sentText(st); sent != "" {
 		return lead + sent + whyText(b.why)

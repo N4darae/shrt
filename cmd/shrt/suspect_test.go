@@ -601,7 +601,28 @@ func TestTheGateNamesTheWriteOrTheReadWithTheRootWriteAsExample(t *testing.T) {
 	}
 	g.items = g.items[1:]
 	out = captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
-	if !strings.Contains(out, "  S/Batch: suspect "+why+"; e.g. one w\n") {
+	if !strings.Contains(out, "  S/Batch or Get: suspect "+why+"; e.g. one w\n") {
+		t.Errorf("got:\n%s", out)
+	}
+}
+
+func TestTheWriteOrTheReadIsNamedByBothRpcsInEveryGateLine(t *testing.T) {
+	why := "the write or the read: create answered customer.name=Ada, get reads ada@x"
+	g := func(name string) *gateChain {
+		return &gateChain{name: name, failed: true, firstAt: "get customer.name", sent: map[string]string{"create": ` sent {"name":"Ada"}`},
+			items: []gateItem{{Step: "get", Call: "x.v1.S/GetCustomer", Path: "customer.name", Want: "Ada", Got: "ada@x",
+				Suspect: "x.v1.S/CreateCustomer", SuspectStep: "create", Why: why}}}
+	}
+	chains := []*gateChain{g("one"), g("two")}
+	settleGate(chains)
+	headlineGate(chains)
+	if line := chains[0].suspectLine(); line != `suspect create (S/CreateCustomer or GetCustomer) sent {"name":"Ada"}; `+why {
+		t.Errorf("got %q", line)
+	}
+	if want := "1 step(s) from CreateCustomer or GetCustomer, reported above"; chains[1].first != want {
+		t.Errorf("got %q, want %q", chains[1].first, want)
+	}
+	if out := captureStdout(t, func() { printGateGroups(chains) }); !strings.Contains(out, "  S/CreateCustomer or GetCustomer: suspect "+why) {
 		t.Errorf("got:\n%s", out)
 	}
 }
@@ -612,9 +633,9 @@ func TestAGroupWhoseRpcFailedItselfRanksAboveOnesThatPassedThemselves(t *testing
 		chains = append(chains, &gateChain{name: name, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "n", Want: "1", Got: "2", Suspect: "x.v1.S/Make", SuspectStep: "make"}}})
 	}
 	chains = append(chains, &gateChain{name: "four", items: []gateItem{{Step: "add", Call: "x.v1.S/Add", Path: "n", Want: "1", Got: "2"}}},
-		&gateChain{name: "five", items: []gateItem{{Step: "read", Call: "x.v1.S/Read", Path: "n", Want: "1", Got: "2", Why: eitherWhy + "Add or Make answered as before"}}})
+		&gateChain{name: "five", items: []gateItem{{Step: "read", Call: "x.v1.S/Read", Path: "n", Want: "1", Got: "2", Why: eitherWhy + "add (Add), or earlier make, answered as before"}}})
 	out := captureStdout(t, func() { printGateGroups(chains) })
-	add, read, made := strings.Index(out, "  S/Add:"), strings.Index(out, "  S/Read: 1 step(s) in 1 chain(s), paths n; the write or the read: Add or Make answered as before;"), strings.Index(out, "  S/Make: passed itself")
+	add, read, made := strings.Index(out, "  S/Add:"), strings.Index(out, "  S/Read: 1 step(s) in 1 chain(s), paths n; the write or the read: add (Add), or earlier make, answered as before;"), strings.Index(out, "  S/Make: passed itself")
 	if add < 0 || read < 0 || made < add || made < read {
 		t.Errorf("groups that failed themselves come first:\n%s", out)
 	}
