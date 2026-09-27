@@ -147,7 +147,7 @@ with the profile's credentials, or let shrt log in by itself.
 **Cause.** A unique field is a literal, or built from a var left at the value an earlier run used.
 **Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared: each run then gets a
 fresh one. A chain that declares `tag:` under `vars:` needs a fresh `-var tag=...` per run.
-`fixture reused` / `fixture collision` (exit 3) name the run and var; `the chain collides with
+`fixture reused` / `fixture collision` (exit 3) name the run and var; `CHAIN DEFECT: the chain collides with
 itself` (exit 1) names the literal field to rebuild from a var. An idempotency key must be
 `${uuid}` (lint: `literal-idempotency-key`).
 

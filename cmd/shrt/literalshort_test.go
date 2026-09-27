@@ -90,3 +90,22 @@ func TestALiteralAcceptedAgainOnlyAfterABackendResetStillCollidesWithItself(t *t
 			"the literal never was accepted twice in a row, so the chain collides with itself:\n%s", out)
 	}
 }
+
+func TestASelfCollisionIsLabelledForTheGateAndNamedUnderJSON(t *testing.T) {
+	b := &resettableUniqueBackend{}
+	srv := b.server()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-unique.yaml", shortLiteralChain("@"))
+	ctx := context.Background()
+	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=one"}) })
+	out := captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=two"}) })
+	if !strings.Contains(out, "\n  CHAIN DEFECT: the chain collides with itself") {
+		t.Errorf("the line carries the label the gate collects:\n%s", out)
+	}
+	var err error
+	captureStdout(t, func() { err = runRun(ctx, []string{"cli-unique", "-json", "-var", "tag=three"}) })
+	if exitCodeOf(err) != 1 || err == nil || !strings.Contains(err.Error(), "chain defect in cli-unique: the chain collides with itself") {
+		t.Errorf("under -json the error names the collision: %v", err)
+	}
+}
