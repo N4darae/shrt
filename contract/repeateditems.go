@@ -161,11 +161,11 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 						applied = append(applied, item)
 					}
 				}
-				repeat, _ := repeatedResource(c, applied)
-				_, sourced := repeatedResource(c, list)
+				repeat, _ := repeatedResource(c, s, applied)
+				_, sourced := repeatedResource(c, s, list)
 				t.repeat = t.repeat || (repeat && effectOutcome(s) == outcomeSuccess)
 				t.sourced = t.sourced || sourced
-				if shared, ok := sharedResource(c, list); ok {
+				if shared, ok := sharedResource(c, s, list); ok {
 					if t.resource == "" {
 						t.resource = shared
 					}
@@ -206,13 +206,13 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 	return out
 }
 
-func repeatedResource(c *chain.Chain, list []any) (bool, bool) {
+func repeatedResource(c *chain.Chain, at *chain.Step, list []any) (bool, bool) {
 	seen := map[string]bool{}
 	sourced := true
 	repeat := false
 	for _, item := range list {
 		got := map[string]string{}
-		resourceLeaves(c, item, "", "", got)
+		resourceLeaves(c, at, item, "", "", got)
 		if len(got) == 0 {
 			sourced = false
 			continue
@@ -228,12 +228,12 @@ func repeatedResource(c *chain.Chain, list []any) (bool, bool) {
 	return repeat, sourced
 }
 
-func sharedResource(c *chain.Chain, list []any) (string, bool) {
+func sharedResource(c *chain.Chain, at *chain.Step, list []any) (string, bool) {
 	first := ""
 	var want map[string]string
 	for _, item := range list {
 		got := map[string]string{}
-		resourceLeaves(c, item, "", "", got)
+		resourceLeaves(c, at, item, "", "", got)
 		if len(got) == 0 {
 			return "", false
 		}
@@ -257,19 +257,20 @@ func sharedResource(c *chain.Chain, list []any) (string, bool) {
 	return first, true
 }
 
-func resourceLeaves(c *chain.Chain, v any, path, name string, out map[string]string) {
+func resourceLeaves(c *chain.Chain, at *chain.Step, v any, path, name string, out map[string]string) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, x := range t {
-			resourceLeaves(c, x, join(path, k), k, out)
+			resourceLeaves(c, at, x, join(path, k), k, out)
 		}
 	case []any:
 		for i, x := range t {
-			resourceLeaves(c, x, join(path, strconv.Itoa(i)), name, out)
+			resourceLeaves(c, at, x, join(path, strconv.Itoa(i)), name, out)
 		}
 	case string:
+		t = stepReference(c, at, t)
 		if src, ok := refSource(t); ok {
-			if _, isStep := c.Step(src); isStep || strings.HasPrefix(t, "${vars.") {
+			if _, isStep := c.Step(src); isStep || (strings.HasPrefix(t, "${vars.") && idLike(name)) {
 				out[path] = t
 			}
 			return
@@ -278,6 +279,33 @@ func resourceLeaves(c *chain.Chain, v any, path, name string, out map[string]str
 			out[path] = t
 		}
 	}
+}
+
+func stepReference(c *chain.Chain, at *chain.Step, s string) string {
+	if !wholeReference(s) {
+		return s
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(s, "${"), "}")
+	if rest, ok := strings.CutPrefix(inner, "steps."); ok {
+		if id, path, ok := strings.Cut(rest, ".response."); ok && !strings.Contains(id, ".") {
+			return "${" + id + "." + path + "}"
+		}
+		return s
+	}
+	name := strings.TrimPrefix(inner, "exports.")
+	if strings.Contains(name, ".") {
+		return s
+	}
+	found := s
+	for _, st := range c.Steps {
+		if st == at {
+			break
+		}
+		if path, ok := st.Export[name]; ok {
+			found = "${" + st.ID + "." + path + "}"
+		}
+	}
+	return found
 }
 
 func countRepeats(v any, fields []*catalog.Field, path string, record func(path string, list []any, unknown bool)) {
