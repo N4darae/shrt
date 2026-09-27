@@ -1094,18 +1094,22 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 
 func lintVars(c *Chain) []Issue {
 	issues := []Issue{}
-	for _, name := range sortedVarNames(c.Vars) {
-		text, ok := c.Vars[name].(string)
-		if !ok {
-			continue
-		}
-		for _, ref := range collectRefs([]any{text}) {
-			issues = append(issues, Issue{Severity: SeverityError, Message: fmt.Sprintf(
-				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
-				name, ref)})
-		}
+	for _, why := range VarRefProblems(c.Vars) {
+		issues = append(issues, Issue{Severity: SeverityError, Message: why})
 	}
 	return issues
+}
+
+func VarRefProblems(vars map[string]any) []string {
+	out := []string{}
+	for _, name := range sortedVarNames(vars) {
+		for _, ref := range collectRefs(vars[name]) {
+			out = append(out, fmt.Sprintf(
+				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
+				name, ref))
+		}
+	}
+	return out
 }
 
 func sortedVarNames(vars map[string]any) []string {
