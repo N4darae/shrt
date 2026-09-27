@@ -59,10 +59,17 @@ func (a attribution) otherRead(step, list string) string {
 		switch {
 		case n < 0:
 		case n != len(items):
-			return fmt.Sprintf("; %s read the same %s with %d %s", methodName(other.Call), name, n, field)
+			return fmt.Sprintf("; %s read the same %s with %d %s", methodName(other.Call), name, n, countNoun(n, field))
 		case same == "" && methodName(other.Call) != methodName(st.Call):
-			same = fmt.Sprintf("; %s read the same %s with %d %s too", methodName(other.Call), name, n, field)
+			same = fmt.Sprintf("; %s read the same %s with %d %s too", methodName(other.Call), name, n, countNoun(n, field))
 		}
 	}
 	return same
+}
+
+func countNoun(n int, plural string) string {
+	if n == 1 {
+		return strings.TrimSuffix(plural, "s")
+	}
+	return plural
 }

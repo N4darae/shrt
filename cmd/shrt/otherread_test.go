@@ -25,7 +25,7 @@ func TestAReadAnsweringFewerLinesNamesAnotherReadOfTheSameRecord(t *testing.T) {
 		t.Errorf("another read holding the lines clears the write, got %q", own)
 	}
 	_, own, _ = blameOf(t, shopRecord(rec(`{"orders":[`+one+`]}`)...), "fetch_order", "order.lines.1.id_product")
-	if !strings.HasSuffix(own, "; ListOrders read the same order with 1 lines too") {
+	if !strings.HasSuffix(own, "; ListOrders read the same order with 1 line too") {
 		t.Errorf("every read answering the same set points at the write, got %q", own)
 	}
 	_, own, _ = blameOf(t, shopRecord(rec(`{"orders":[]}`)...), "fetch_order", "order.lines.1.id_product")
