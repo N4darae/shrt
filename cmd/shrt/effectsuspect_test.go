@@ -23,6 +23,13 @@ rpcs:
         effects:
             qty_on_hand:
                 increase: qty
+    shop.catalog.v1.StockService/AddStockBatch:
+        fields:
+            lines.id_product:
+                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
+        effects:
+            qty_on_hand:
+                increase: lines.qty
     shop.orders.v1.OrderService/CreateOrder:
         fields:
             lines.id_product:

@@ -1401,7 +1401,7 @@ func (g *gateChain) suspectLine() string {
 	step, lead := it.Step, it.Step
 	switch {
 	case it.Own != "":
-		lead = fmt.Sprintf("suspect read %s (%s)", it.Step, shortRPC(it.Call))
+		lead = fmt.Sprintf("suspect %s %s (%s)", rw(it.Call), it.Step, shortRPC(it.Call))
 	case it.SuspectStep != "":
 		step, lead = it.SuspectStep, fmt.Sprintf("suspect write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
 		if or := it.orRead(); or != "" {
@@ -1519,6 +1519,7 @@ type gateGroup struct {
 	sibling       bool
 	reads         map[string]bool
 	readRPCs      []string
+	readOnly      []string
 	readPaths     map[string][]string
 	cascades      []string
 	cascade       map[string]map[string]bool
@@ -1555,8 +1556,8 @@ func (gr *gateGroup) ranked() []*gateSig {
 }
 
 func (gr *gateGroup) shownRPC() string {
-	if gr.write && len(gr.why) > 0 && strings.HasPrefix(gr.why[0], eitherWhy) && len(gr.readRPCs) == 1 && !strings.HasSuffix(gr.rpc, "/"+gr.readRPCs[0]) {
-		return gr.rpc + " or " + gr.readRPCs[0]
+	if gr.write && len(gr.why) > 0 && strings.HasPrefix(gr.why[0], eitherWhy) && len(gr.readOnly) == 1 && !strings.HasSuffix(gr.rpc, "/"+gr.readOnly[0]) {
+		return gr.rpc + " or " + gr.readOnly[0]
 	}
 	return gr.rpc
 }
@@ -1702,7 +1703,7 @@ func settleKeptRed(chains []*gateChain) {
 			continue
 		}
 		for i, it := range g.items {
-			if it.Cascade != "" || it.KnockOn || it.with != "" {
+			if it.Cascade != "" || it.KnockOn || it.with != "" || it.Own == "" && g.changedAt(it.SuspectStep, it.Step) {
 				continue
 			}
 			for _, p := range owned[it.Call] {
@@ -1725,6 +1726,15 @@ func settleKeptRed(chains []*gateChain) {
 			}
 		}
 	}
+}
+
+func (g *gateChain) changedAt(step, not string) bool {
+	for _, it := range g.items {
+		if step != "" && step != not && it.Step == step && it.Pinned == "" {
+			return true
+		}
+	}
+	return false
 }
 
 func samePlace(a, b string) bool {
@@ -1818,6 +1828,9 @@ func printGateGroups(chains []*gateChain) {
 				}
 				read := methodName(it.Call)
 				gr.addPath(&gr.readRPCs, read)
+				if chain.IsReadOnlyCall(it.Call) {
+					gr.addPath(&gr.readOnly, read)
+				}
 				paths := gr.readPaths[read]
 				gr.addPath(&paths, path)
 				gr.readPaths[read] = paths
