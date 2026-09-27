@@ -29,12 +29,37 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	producers := map[string][]string{}
 	rpcOf := map[string]string{}
 	used := map[string]int{}
+	readRun := map[string]int{}
+	readerOf := map[string]string{}
+	lastWrite := ""
 	for i, m := range methods {
+		read := chain.IsReadOnlyCall(m.FullName)
+		if !read {
+			readRun = map[string]int{}
+		}
+		choose := func(choices []string) string {
+			if read {
+				return choices[readRun[m.FullName]%len(choices)]
+			}
+			return leastUsed(choices, used)
+		}
 		for rpc, ids := range producers {
-			p.stepOf[rpc] = leastUsed(ids, used)
+			p.stepOf[rpc] = choose(ids)
 		}
 		step := p.buildStep(ids[i], "", m, lib)
-		p.rewireProducers(step, producers, rpcOf, used)
+		picked, others := p.rewireProducers(step, producers, rpcOf, used, choose)
+		if read && readRun[m.FullName] == 0 && readerOf[picked] != "" {
+			p.note("step %s reads %s again after %s, as %s did; to read %s instead, reference it", ids[i], picked,
+				lastWrite, readerOf[picked], strings.Join(others, " or "))
+		}
+		if read {
+			readRun[m.FullName]++
+			if picked != "" {
+				readerOf[picked] = ids[i]
+			}
+		} else {
+			lastWrite = ids[i]
+		}
 		if len(producers[m.FullName]) > 0 {
 			distinguishFixtures(step, ids[i], producers[m.FullName][0])
 		}
@@ -52,7 +77,10 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	return p, nil
 }
 
-func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, rpcOf map[string]string, used map[string]int) {
+func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, rpcOf map[string]string, used map[string]int,
+	choose func([]string) string) (string, []string) {
+	var picked string
+	var others []string
 	var walk func(v any, item int) any
 	walk = func(v any, item int) any {
 		switch t := v.(type) {
@@ -78,9 +106,16 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 				used[src]++
 				return t
 			}
-			pick := leastUsed(choices, used)
+			pick := choose(choices)
 			if item >= 0 {
 				pick = choices[item%len(choices)]
+			} else if picked == "" {
+				picked = pick
+				for _, c := range choices {
+					if c != pick {
+						others = append(others, c)
+					}
+				}
 			}
 			used[pick]++
 			return "${" + pick + "." + path + "}"
@@ -88,6 +123,7 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 		return v
 	}
 	walk(step.Body, -1)
+	return picked, others
 }
 
 func leastUsed(choices []string, used map[string]int) string {

@@ -351,7 +351,7 @@ func decodeStrict(raw []byte, into any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into)
+		return yamlkey.Explain(err, into, raw)
 	}
 	var extra yaml.Node
 	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {

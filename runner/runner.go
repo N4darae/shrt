@@ -764,7 +764,7 @@ func producerOf(ref string, exporter map[string]string) string {
 func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Procedure = method.Procedure()
+		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
 	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
 	if producer.Request != nil {
@@ -777,7 +777,7 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Procedure = method.Procedure()
+		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
 	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
 	return sr
@@ -1301,6 +1301,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, err)
 	}
+	sr.Call = method.FullName
 	if wait, err := step.WaitFor(); err != nil {
 		return fail(sr, err)
 	} else if wait > 0 && !opts.DryRun {
