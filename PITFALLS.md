@@ -145,11 +145,11 @@ with the profile's credentials, or let shrt log in by itself.
 ## 23. The second run of a chain is refused as a duplicate
 
 **Cause.** A unique field is a literal, or built from a var left at the value an earlier run used.
-**Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared: each run then gets a
-fresh one. A chain that declares `tag:` under `vars:` needs a fresh `-var tag=...` per run.
-`fixture reused` / `fixture collision` (exit 3) name the run and var; `CHAIN DEFECT: the chain collides with
-itself` (exit 1) names the literal field to rebuild from a var. An idempotency key must be
-`${uuid}` (lint: `literal-idempotency-key`).
+**Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared, so each run gets a
+fresh one; a declared `tag:` needs a fresh `-var tag=...` per run. `fixture reused` / `fixture
+collision` (exit 3): re-run with a fresh var. `CHAIN DEFECT: the chain collides with itself`
+(exit 1): rebuild the literal field it names from a var. An idempotency key must be `${uuid}`
+(lint: `literal-idempotency-key`).
 
 ## 24. A prefix list counts another run's fixtures
 
@@ -280,9 +280,9 @@ nothing and stays masked. **Fix.** Treat it as a real change.
 
 ## 45. `order changed`, or `same items in another order`
 
-**Cause.** The list holds the safe spot's items in another order. **Fix.** Only if its order also
-varies between runs of one release, declare `unordered: [<list>]` on the step or chain; otherwise,
-and whenever an expectation reading it by position fails, it is a regression.
+**Cause.** The list holds the safe spot's items in another order. **Fix.** Declare
+`unordered: [<list>]` only if its order varies between runs of one release; otherwise, or when a
+positional expectation fails, it is a regression.
 
 ## 46. A step-level `volatile` did not mask another step
 
@@ -296,17 +296,16 @@ Declare it where it belongs.
 
 ## 48. `FINDING: intermittent failure at <rpc>`
 
-**Cause.** A server error on a request the backend answered on its one re-send (reads only, the
-step is judged on that answer), elsewhere in the run or in the previous run; in the gate, also one
-failing at a fixed cadence (every Nth call), and every chain its errors explain says `FINDING`.
-**Fix.** It is a real backend defect (exit 1), just not deterministic.
+**Cause.** A server error on a request answered on its one re-send (reads only, judged on that
+answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
+call, reported on every chain it explains. **Fix.** A real backend defect (exit 1), just not
+deterministic.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 
-**Cause.** Sessions may end before their stated expiry, or the backend restarted. **Fix.** Write a
-short chain whose reads carry `wait:` longer than the suspected lifetime and shorter than the stated
-one, twice in a row after the login; against a backend ending sessions early it prints
-`FINDING: token refused ...` (exit 1), otherwise it passes. Keep it out of the per-commit gate.
+**Cause.** Sessions end before their stated expiry, or the backend restarted. **Fix.** A short
+chain whose reads carry `wait:` between the suspected and the stated lifetime, twice after the
+login: early expiry prints `FINDING: token refused ...` (exit 1). Keep it out of the per-commit gate.
 
 ## 50. `drift after a chain change` or `drift with different input`, not `regression`
 
