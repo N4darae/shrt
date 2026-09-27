@@ -35,7 +35,7 @@ func pinnedReference(e *env, c *chain.Chain, rec *runner.Record) *runner.Record 
 	return nil
 }
 
-func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) ([]string, []diff.Change) {
+func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) ([]string, []diff.Change, *diff.RunReport) {
 	pinned := map[string]bool{}
 	for _, k := range c.KeptRed {
 		pinned[k.Step] = true
@@ -54,22 +54,22 @@ func pinnedStepDrift(e *env, c *chain.Chain, ref, rec *runner.Record) ([]string,
 			out = append(out, id+" was answered in run "+ref.RunID+" and not in this run")
 		}
 	}
-	return out, changes
+	return out, changes, rep
 }
 
-func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Record) []diff.Change {
+func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Record) ([]diff.Change, *diff.RunReport) {
 	if rec.KeptRed != runner.KeptRedAsPinned {
-		return nil
+		return nil, nil
 	}
 	if ref == nil {
 		rec.KeptRedNote += "; no earlier run of this chain file failed as pinned against this target, so what the pinned steps " +
 			"return beyond the pinned paths was not compared: this run is the reference for the next one"
-		return nil
+		return nil, nil
 	}
-	drift, changes := pinnedStepDrift(e, c, ref, rec)
+	drift, changes, report := pinnedStepDrift(e, c, ref, rec)
 	if len(drift) == 0 {
 		rec.KeptRedNote += "; the pinned steps return what they returned in run " + ref.RunID + ", the last run that failed as pinned"
-		return nil
+		return nil, nil
 	}
 	shown := drift
 	if len(shown) > 5 {
@@ -80,7 +80,7 @@ func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Re
 		"than in run %s, the last run that failed as pinned (a = that run, b = this one):\n%s\n"+
 		"compare: shrt diff %s %s %s; the pins held, so this is a new change outside them, not a reason to re-pin",
 		runner.PinCount(len(c.KeptRed)), ref.RunID, strings.Join(shown, "\n"), rec.Chain, ref.RunID, rec.RunID)
-	return changes
+	return changes, report
 }
 
 func pinPathsOf(pins []chain.Pin) string {

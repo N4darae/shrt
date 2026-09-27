@@ -30,3 +30,14 @@ func TestPinChangesNamesAPinWhoseGotMovedAndHoldsThroughUnevaluatedPins(t *testi
 		t.Error("a pinned path that no longer fails does not hold")
 	}
 }
+
+func TestPinChangesNamesAPinThatNowPassesWithWhatItGotEvenWhenEveryStepPassed(t *testing.T) {
+	got := func(s string) *string { return &s }
+	c := &chain.Chain{Name: "k", Steps: []*chain.Step{{ID: "read"}}, KeptRed: []chain.Pin{{Step: "read", Path: "orders.1", Got: got("true")}}}
+	rec := &runner.Record{KeptRed: runner.KeptRedGone, Steps: []*runner.StepRecord{
+		{ID: "read", Status: runner.StatusPassed, Expect: []chain.ExpectResult{{Path: "orders.1", Rule: "exists", Want: false, Got: false, Passed: true}}},
+	}}
+	if changed, held := runner.PinChanges(c, rec); changed["read orders.1"] != "true" || held {
+		t.Errorf("a pin that passes moved from its pinned got, got %v %v", changed, held)
+	}
+}
