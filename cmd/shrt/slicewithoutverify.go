@@ -6,13 +6,15 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 )
 
 type withoutVerify struct {
-	vars  varFlags
-	build string
-	sent  bool
+	vars   varFlags
+	build  string
+	sent   bool
+	source *chain.Chain
 }
 
 type withoutVerdict struct {
@@ -24,8 +26,11 @@ type withoutVerdict struct {
 	NotCounted  []string `json:"not_counted,omitempty"`
 	NotRun      []string `json:"not_run,omitempty"`
 	NewFail     []string `json:"fail_only_without,omitempty"`
+	Needed      []string `json:"fail_reading_left_out,omitempty"`
 	OtherTarget string   `json:"other_target,omitempty"`
+	LikelyFault string   `json:"likely_fault,omitempty"`
 	writers     []string
+	asBefore    string
 }
 
 func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *runner.Record, named []string, a *withoutVerify, persist, quiet bool) (*withoutVerdict, error) {
@@ -62,7 +67,10 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 		now, ran := run.Step(st.ID)
 		failedNow := ran && (now.Status == runner.StatusFailed || now.Status == runner.StatusError)
 		if !reached || !failing(src) {
-			if failedNow {
+			switch {
+			case failedNow && v.touchesLeftOut(rec, run, st.ID):
+				v.Needed = append(v.Needed, st.ID)
+			case failedNow:
 				v.NewFail = append(v.NewFail, st.ID)
 			}
 			continue
@@ -78,7 +86,50 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 			v.StillFail = append(v.StillFail, st.ID)
 		}
 	}
+	if len(v.Cleared) > 0 {
+		if v.asBefore = leftOutAsBefore(e, res, rec, a.source); v.asBefore != "" {
+			v.LikelyFault = v.Cleared[0]
+		}
+	}
 	return v, nil
+}
+
+func leftOutAsBefore(e *env, res *chain.WithoutResult, rec *runner.Record, source *chain.Chain) string {
+	ref := sliceReference(e, rec)
+	var rep *diff.RunReport
+	if ref != nil {
+		rep = diff.CompareRunsSkipping(ref, rec, currentVolatile(e, ref.Chain), requestFixtures(source))
+		rep.DropUnsentDefaults(ref, rec, unsentDefault(e))
+	}
+	for _, r := range res.Removed {
+		sr, ok := rec.Step(r.ID)
+		if !ok {
+			continue
+		}
+		if failing(sr) {
+			return ""
+		}
+		if rep == nil {
+			continue
+		}
+		if _, inRef := ref.Step(r.ID); !inRef {
+			continue
+		}
+		for _, ch := range rep.Changes {
+			if ch.Step == r.ID {
+				return ""
+			}
+		}
+		for _, st := range append(rep.StatusChanges, rep.ErrorChanges...) {
+			if st.Step == r.ID {
+				return ""
+			}
+		}
+	}
+	if rep != nil {
+		return "answered as in run " + ref.RunID
+	}
+	return "passed in source run " + rec.RunID
 }
 
 func failing(sr *runner.StepRecord) bool {
@@ -90,6 +141,21 @@ func (v *withoutVerdict) readsLeftOutWrite(rec *runner.Record, id string) bool {
 	for _, w := range v.writers {
 		for ent := range entityFactsOf(rec, w).acts {
 			if mentions[ent] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (v *withoutVerdict) touchesLeftOut(rec, run *runner.Record, id string) bool {
+	facts := entityFactsOf(rec, id)
+	if _, ok := rec.Step(id); !ok {
+		facts = entityFactsOf(run, id)
+	}
+	for _, w := range v.writers {
+		for ent := range entityFactsWith(rec, w, true).acts {
+			if facts.mentions[ent] {
 				return true
 			}
 		}
@@ -128,6 +194,13 @@ func (v *withoutVerdict) text() string {
 	case len(v.Cleared) == 0:
 		fmt.Fprintf(&b, "verify NOT REPRODUCED without %s: the %d step(s) that failed in source run %s still fail in %s: %s\n",
 			without, counted, v.SourceRun, in, capList(v.StillFail, 5))
+	case v.LikelyFault != "":
+		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s need it, they pass in %s: %s\n",
+			without, len(v.Cleared), counted, v.SourceRun, in, capList(v.Cleared, 5))
+		fmt.Fprintf(&b, "  %s %s, so it is a precondition, not the fault: look first at %s\n", without, v.asBefore, v.LikelyFault)
+		if len(v.StillFail) > 0 {
+			fmt.Fprintf(&b, "  still fail, so another cause: %s\n", capList(v.StillFail, 5))
+		}
 	default:
 		fmt.Fprintf(&b, "verify without %s: cause confirmed for %d of %d step(s) that failed in source run %s, they pass in %s: %s\n",
 			without, len(v.Cleared), counted, v.SourceRun, in, capList(v.Cleared, 5))
@@ -144,6 +217,9 @@ func (v *withoutVerdict) text() string {
 	}
 	if len(v.NewFail) > 0 {
 		fmt.Fprintf(&b, "  fail only without it: %s, so they need what the left-out steps did\n", capList(v.NewFail, 5))
+	}
+	if len(v.Needed) > 0 {
+		fmt.Fprintf(&b, "  fail only without it, as expected: %s read what %s wrote\n", capList(v.Needed, 5), capList(v.writers, 3))
 	}
 	if v.OtherTarget != "" {
 		fmt.Fprintf(&b, "  %s\n", v.OtherTarget)
