@@ -411,8 +411,8 @@ refused where it passed, and what follows it, to the first earlier write on its 
 answer changed; any other changed write to the nearest earlier changed write on its record. A kept-red pin or drift on an rpc and path the gate reports elsewhere follows that
 rpc, or the write it blames there (`masked by`, `moved with`). Otherwise it is the write
 the read observes (the nearest earlier write on the same record, skipping a refused repeat or
-idempotent replay of an earlier write and, against a reference, a write refused as before or one whose
-response lacks the field and whose contract declares `effects:` not moving it; when a reference shows several such writes all answered as
+idempotent replay of an earlier write and, against a reference, a write refused as before whose contract
+`effects:` do not move the field, or one whose response lacks the field and whose contract declares `effects:` not moving it; when a reference shows several such writes all answered as
 before, `the write or the read` names them, nearest first and filed under it, unless exactly one of them since the
 last unchanged read of that record has contract `effects:` moving the field: that one is named); a list
 item's id links it to the writes naming that id; steps left unevaluated

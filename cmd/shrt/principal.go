@@ -15,7 +15,8 @@ func (a attribution) bears(i int, path string) bool {
 		return true
 	}
 	if refusalOf(w) != "" {
-		return !a.ref
+		eff := a.e.effectsOf(w.Call)[leafOf(path)]
+		return !a.ref || path != "" && eff != nil && eff.Is != contract.EffectNone
 	}
 	if a.e == nil || a.e.cat == nil || path == "" {
 		return true

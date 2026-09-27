@@ -7,7 +7,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -907,7 +906,6 @@ func runGate(ctx context.Context, args []string) error {
 	if len(chains) == 0 {
 		return fmt.Errorf("no chains in %s and no safe spots in %s", rel(e.cfg.Root, e.chainsDir()), rel(e.cfg.Root, e.store.SafeSpotsDir))
 	}
-	tag := fmt.Sprintf("ci%d%d", time.Now().Unix(), rand.IntN(100000))
 	width := 0
 	for _, g := range chains {
 		width = max(width, len(g.name))
@@ -923,10 +921,10 @@ func runGate(ctx context.Context, args []string) error {
 		}
 		outs := map[string]gateOutcome{}
 		if g.spot {
-			outs["verify"] = gateAttempt(ctx, "verify", g.name, tag, readsTag, *wait)
+			outs["verify"] = gateAttempt(ctx, "verify", g.name, readsTag, *wait)
 		}
 		if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
-			outs["run"] = gateAttempt(ctx, "run", g.name, tag, readsTag, *wait)
+			outs["run"] = gateAttempt(ctx, "run", g.name, readsTag, *wait)
 		}
 		for _, what := range []string{"run", "verify"} {
 			out, ok := outs[what]
@@ -1101,16 +1099,12 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	return out, nil
 }
 
-func gateAttempt(ctx context.Context, what, name, tag string, readsTag bool, wait time.Duration) gateOutcome {
-	prefix := ""
-	if what == "verify" {
-		prefix = "v-"
-	}
+func gateAttempt(ctx context.Context, what, name string, readsTag bool, wait time.Duration) gateOutcome {
 	var out gateOutcome
 	for try := 1; try <= 2; try++ {
 		args := []string{what, name, "-quiet"}
 		if readsTag {
-			args = append(args, "-var", fmt.Sprintf("tag=%s-%s%s-%d", tag, prefix, name, try))
+			args = append(args, "-var", chain.RunTagVar+"="+chain.NewRunTag())
 		}
 		out = gateExec(ctx, args)
 		if out.code != 3 || try == 2 || ctx.Err() != nil {

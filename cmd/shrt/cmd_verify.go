@@ -1150,7 +1150,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
-			seen[baseOf(it)] = true
+			seen[rootOf(it)] = true
 		}
 	}
 	if len(seen) == 0 {
@@ -1158,7 +1158,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	}
 	out := ""
 	for _, it := range items {
-		r := baseOf(it)
+		r := rootOf(it)
 		if seen[r] {
 			continue
 		}
