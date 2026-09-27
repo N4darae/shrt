@@ -324,6 +324,7 @@ func (a attribution) of(step, path string) blame {
 			if !a.writeChangedBefore(step) {
 				b.own += ", and the writes before it answered as before"
 			}
+			b.own += a.otherRead(step, list)
 			return b
 		}
 	}

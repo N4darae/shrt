@@ -1567,6 +1567,19 @@ func (gr *gateGroup) addPath(list *[]string, p string) {
 	}
 }
 
+func (gr *gateGroup) addOwn(why string) {
+	for i, o := range gr.own {
+		if strings.HasPrefix(o, why+"; ") {
+			return
+		}
+		if strings.HasPrefix(why, o+"; ") {
+			gr.own[i] = why
+			return
+		}
+	}
+	gr.addPath(&gr.own, why)
+}
+
 func mergeProfiles(chains []*gateChain) {
 	variantRPC := func(it gateItem) string {
 		if it.Suspect != "" {
@@ -1769,7 +1782,7 @@ func printGateGroups(chains []*gateChain) {
 				continue
 			case it.Own != "":
 				gr := group(it.ownKey())
-				gr.addPath(&gr.own, it.Own)
+				gr.addOwn(it.Own)
 				own(gr)
 			case it.Suspect != "" && it.Cascade != "":
 				gr := group(it.suspectKey())
