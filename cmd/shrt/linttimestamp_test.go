@@ -41,8 +41,8 @@ func TestChainLintFoldsUnassertedTimestampsIntoOneLineUnlessVerbose(t *testing.T
 	if n := strings.Count(out, "verify masks timestamps"); n != 1 {
 		t.Fatalf("the explanation prints once per lint, got %d:\n%s", n, out)
 	}
-	if n := strings.Count(out, "timestamp"); n != 2 || !strings.Contains(out, "created_at (cli-thing-copy, cli-thing-flow): expect within:") {
-		t.Fatalf("one line names every chain, field and fix, got %d mentions:\n%s", n, out)
+	if n := strings.Count(out, "timestamp"); n != 2 || !strings.Contains(out, "WARN   timestamps unasserted in 2 chain(s), created_at (") {
+		t.Fatalf("one line counts the chains and names the fields, got %d mentions:\n%s", n, out)
 	}
 	out = captureStdout(t, func() { err = chainLint([]string{"-v"}) })
 	if n := strings.Count(out, "[fetch] timestamp created_at unasserted; expect within:"); n != 2 || strings.Count(out, "verify masks timestamps") != 1 {

@@ -418,55 +418,37 @@ func chainLint(args []string) error {
 }
 
 type stampSummary struct {
-	order  []string
-	chains map[string][]string
-	why    string
+	paths, chains []string
+	why           string
 }
 
 func (s *stampSummary) add(chainName string, i chain.Issue) bool {
 	rest, ok := strings.CutPrefix(i.Message, "timestamp ")
 	path, _, ok2 := strings.Cut(rest, " unasserted")
-	_, fix, ok3 := strings.Cut(rest, "; expect ")
-	if !ok || !ok2 || !ok3 {
+	if !ok || !ok2 {
 		return false
 	}
-	if strings.HasPrefix(fix, "equals: ") {
-		fix = "equals: the stamp the step that created it received"
+	if !slices.Contains(s.paths, path) {
+		s.paths = append(s.paths, path)
 	}
-	key := path + "\x00" + fix
-	if s.chains == nil {
-		s.chains = map[string][]string{}
-	}
-	if s.chains[key] == nil {
-		s.order = append(s.order, key)
-	}
-	if !slices.Contains(s.chains[key], chainName) {
-		s.chains[key] = append(s.chains[key], chainName)
+	if !slices.Contains(s.chains, chainName) {
+		s.chains = append(s.chains, chainName)
 	}
 	s.why = i.Why
 	return true
 }
 
 func (s *stampSummary) print(explained map[string]bool) {
-	if len(s.order) == 0 {
+	if len(s.paths) == 0 {
 		return
 	}
-	parts := []string{}
-	for _, key := range s.order {
-		names := s.chains[key]
-		shown := names[:min(len(names), 3)]
-		more := ""
-		if len(names) > len(shown) {
-			more = fmt.Sprintf(" and %d more", len(names)-len(shown))
-		}
-		path, fix, _ := strings.Cut(key, "\x00")
-		parts = append(parts, fmt.Sprintf("%s (%s%s): expect %s", path, strings.Join(shown, ", "), more, fix))
-	}
-	fmt.Printf("WARN   timestamps unasserted ('chain lint -v' names each step): %s\n", strings.Join(parts, "; "))
+	why := ""
 	if s.why != "" && !explained[s.why] {
 		explained[s.why] = true
-		fmt.Printf("       %s\n", s.why)
+		why = ": " + s.why
 	}
+	fmt.Printf("WARN   timestamps unasserted in %d chain(s), %s ('chain lint -v' names each step and its expect)%s\n",
+		len(s.chains), capList(s.paths, 4), why)
 }
 
 func lintLead(msg string) string {
