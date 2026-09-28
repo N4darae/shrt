@@ -86,12 +86,13 @@ func (it gateItem) rpc() string {
 }
 
 func (it gateItem) root() string {
-	path := it.Path
-	switch it.Reason.Kind {
-	case reasonOrder, reasonStoredOrder, reasonSet:
-		path = listOf(path)
+	switch {
+	case it.Reason.Kind == reasonStoredOrder:
+		return it.rpc() + " " + leafOf(listOf(it.Path))
+	case it.Reason.Kind != "" && !it.Reason.blames():
+		return it.rpc() + " " + it.Reason.Kind
 	}
-	return it.rpc() + " " + leafOf(path)
+	return it.rpc() + " " + leafOf(it.Path)
 }
 
 type gateOutcome struct {
@@ -248,10 +249,7 @@ func firstSent(e *env, rec *runner.Record, items []gateItem) map[string]string {
 		roots[it.root()] = true
 		for _, step := range []string{it.Step, it.Reason.Step, it.Reason.Read} {
 			if st, ok := rec.Step(step); ok && st != nil {
-				if sent := sentText(st); sent != "" {
-					if asOf(e, st) == "" {
-						sent = strings.TrimPrefix(sent, " as "+st.AuthProfile)
-					}
+				if sent := sentText(e, st); sent != "" {
 					out[step] = sent
 				}
 			}

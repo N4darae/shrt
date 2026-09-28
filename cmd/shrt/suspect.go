@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -1241,16 +1240,4 @@ func sameEntity(a any, pa string, b any, pb string) bool {
 		}
 	}
 	return !sawID
-}
-
-func sentText(st *runner.StepRecord) string {
-	var buf bytes.Buffer
-	if len(st.Request) == 0 || json.Compact(&buf, st.Request) != nil {
-		return ""
-	}
-	as := ""
-	if st.AuthProfile != "" && st.AuthProfile != "default" {
-		as = " as " + st.AuthProfile
-	}
-	return as + " sent " + capText(buf.String(), 300)
 }

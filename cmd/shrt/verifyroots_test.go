@@ -89,7 +89,7 @@ func TestTheVerifyHeadlineKeepsARefusedWriteOfTheSameRpcAsItsOwnRoot(t *testing.
 	rec := steps("PENDING", "-10")
 	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("CONFIRMED", "10").Steps}, rec)
 	line, _ := verifyVerdict(effectsEnv(t), "shop", rec, report, nil, false, errors.New("regression: x"), "")
-	if !strings.Contains(line, "  also: get_product_2 (ProductService/GetProduct) product.qty_on_hand want=10 got=-10; unclear: write confirm_short (OrderService/ConfirmOrder) or read get_product_2 (ProductService/GetProduct)") {
+	if !strings.Contains(line, "  also: get_product_2 (ProductService/GetProduct) product.qty_on_hand want=10 got=-10; unclear: write confirm_short (OrderService/ConfirmOrder) or the read (GetProduct)") {
 		t.Errorf("the refused confirm moved stock, a root apart from the confirm that answered PENDING; got:\n%s", line)
 	}
 }

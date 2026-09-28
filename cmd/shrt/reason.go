@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 
 	"github.com/N4darae/shrt/chain"
@@ -82,9 +84,9 @@ func (r reason) String() string {
 		return fmt.Sprintf("suspect %s%s: answered %s in another order than %s read", who(r.Step, r.RPC), as, shown, r.ReadRPC)
 	case reasonUnclear:
 		if r.Path == "" {
-			return fmt.Sprintf("unclear: %s or %s%s", who(r.Step, r.RPC), who(r.Read, r.ReadRPC), as)
+			return fmt.Sprintf("unclear: %s or the read (%s%s)", who(r.Step, r.RPC), methodName(r.ReadRPC), as)
 		}
-		return fmt.Sprintf("unclear: %s answered %s=%s, %s%s got %s", who(r.Step, r.RPC), shown, valueText(r.Want), who(r.Read, r.ReadRPC), as, valueText(r.Got))
+		return fmt.Sprintf("unclear: %s or the read: answered %s=%s, but %s%s read %s", who(r.Step, r.RPC), shown, valueText(r.Want), methodName(r.ReadRPC), as, valueText(r.Got))
 	case reasonKnockOn:
 		if r.Step == "" {
 			return "knock-on of " + who(r.Read, r.ReadRPC)
@@ -136,13 +138,24 @@ func suspectLine(r reason, step string, sent func(string) string) string {
 	return req
 }
 
-func recordSent(rec *runner.Record) func(string) string {
+func recordSent(e *env, rec *runner.Record) func(string) string {
 	return func(step string) string {
 		if st, ok := rec.Step(step); ok && st != nil {
-			return sentText(st)
+			return sentText(e, st)
 		}
 		return ""
 	}
+}
+
+func sentText(e *env, st *runner.StepRecord) string {
+	var buf bytes.Buffer
+	if len(st.Request) == 0 || json.Compact(&buf, st.Request) != nil {
+		return ""
+	}
+	if as := asOf(e, st); as != "" {
+		return " " + as + " sent " + capText(buf.String(), 300)
+	}
+	return " sent " + capText(buf.String(), 300)
 }
 
 const sameFault = "same fault as "

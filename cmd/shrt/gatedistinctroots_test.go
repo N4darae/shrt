@@ -24,3 +24,14 @@ func TestAChainHeadlinesAFaultNoEarlierChainShowedOrNamesTheChainThatDid(t *test
 		}
 	}
 }
+
+func TestAReadsOwnFaultIsOneRootWhateverPathShowsIt(t *testing.T) {
+	const get, create = "x.v1.S/Get", "x.v1.S/Create"
+	refused := reason{Kind: reasonRefused, Step: "get", RPC: get, Got: "1102"}
+	a := gateItem{Step: "get", Call: get, Path: "status.code", Reason: refused}
+	b := gateItem{Step: "get", Call: get, Path: "customer.name", Reason: refused}
+	w := gateItem{Step: "get", Call: get, Path: "customer.name", Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
+	if a.root() != b.root() || a.root() == w.root() || w.root() != "S/Create name" {
+		t.Errorf("got %q, %q, %q", a.root(), b.root(), w.root())
+	}
+}

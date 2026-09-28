@@ -1134,7 +1134,7 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if s := r.String(); s != "" {
 		line += "; " + s
 	}
-	if req := requestLine(r, first.Step, recordSent(rec)); req != "" && strings.HasPrefix(why, "regression") {
+	if req := requestLine(r, first.Step, recordSent(e, rec)); req != "" && strings.HasPrefix(why, "regression") {
 		line += "\n  " + req
 	}
 	return line + "\n" + otherRoots(e, rec, report, first), body

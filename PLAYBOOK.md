@@ -387,7 +387,7 @@ vocabulary:
   <p>` when another profile passes), another set or order of items, a code it did not answer
   before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or
   `unlike what <write> returned`. Fix the read.
-- `unclear: write ... or read ...`: the write answered as before and only the read moved (a
+- `unclear: write ... or the read`: the write answered as before and only the read moved (a
   write storing other than it answers looks the same); check what the write persisted.
 - `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
 - `same fault as <chain>`: the suspect and field an earlier gate line named.

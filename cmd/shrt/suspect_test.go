@@ -568,7 +568,7 @@ func TestTheGateSummaryPrefersAnExampleWithAReason(t *testing.T) {
 		{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Reason: unclear},
 	}}
 	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}, false) })
-	want := "  S/Batch: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w (S/Batch) answered results[].qty_on_hand=12, read get (S/Get) got 6\n"
+	want := "  S/Batch: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w (S/Batch) or the read: answered results[].qty_on_hand=12, but Get read 6\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("want %q in:\n%s", want, out)
 	}

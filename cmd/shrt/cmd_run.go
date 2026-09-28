@@ -672,7 +672,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 			order = append(order, key)
 		}
 		if lines[key] == "" || !named[key] && f.r.Kind != "" {
-			lines[key], named[key] = suspectLine(f.r, f.st.ID, recordSent(rec)), f.r.Kind != ""
+			lines[key], named[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != ""
 		}
 		count[key]++
 	}
