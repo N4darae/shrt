@@ -96,40 +96,13 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 		added = append(added, other)
 	}
 
-	c, _ := lib.Get(st.Call)
-	required := false
-	if c != nil {
-		for _, r := range c.Required {
-			if namecase.Fold(r) == namecase.Fold(key) {
-				required = true
-			}
-		}
-	}
-	pair := ""
-	if !required {
-		a := copyStep(st, p.freeStepID(st.ID+"_no_key"))
-		a.Export = nil
-		p.freshen(lib, a)
-		a.Body[key] = ""
-		renameStepRefs(a, st.ID, a.ID)
-		a.Description = fmt.Sprintf("no %s: a new %s.", key, carrier)
-		a.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, NotEqual: first})
-		b := copyStep(a, p.freeStepID(st.ID+"_no_key_2"))
-		p.freshen(lib, b)
-		b.Body[key] = ""
-		renameStepRefs(b, a.ID, b.ID)
-		b.Description = fmt.Sprintf("the same request again with no %s is another new %s, not a replay of %s.", key, carrier, a.ID)
-		b.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, NotEqual: "${" + a.ID + "." + idPath + "}"})
-		added = append(added, a, b)
-		pair = fmt.Sprintf(", and %s, %s send none and must create two", a.ID, b.ID)
-	}
 	p.Chain.Steps = append(p.Chain.Steps, added...)
 	what := "must return the first " + carrier
 	if conflict != "" {
 		what = "is refused with " + conflict + " when the body differs"
 	}
 	p.note("step %s: %s is an idempotency key; %s replays it with the same body and must return %s's %s, %s replays it with "+
-		"another body and %s%s", st.ID, key, replay.ID, st.ID, idField, other.ID, what, pair)
+		"another body and %s", st.ID, key, replay.ID, st.ID, idField, other.ID, what)
 	p.replayAfterTransitions(lib, st, m, key, carrier, idField)
 }
 
@@ -216,15 +189,10 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		}
 		added = append(added, fixture, move, fetch, replay)
 		ids = append(ids, replay.ID)
-		if after := p.readBackStep(lib, replay, idPath); after != nil {
-			after.Description = fmt.Sprintf("the %s after %s: still %s, as the replay must have answered.", read.carrier, replay.ID, short[tr.value])
-			after.Expect = append(after.Expect, chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value})
-			added = append(added, after)
-		}
 	}
 	p.Chain.Steps = append(p.Chain.Steps, added...)
 	p.note("step %s: a replay can be answered from a copy taken at creation, so %s %s %s after moving a fresh %s with each write "+
-		"that changes its %s, and assert the replayed %s equals what the reads just before and after return, %s included",
+		"that changes its %s, and assert the replayed %s equals what the read just before returns, %s included",
 		st.ID, strings.Join(ids, " and "), pluralVerb(len(ids), "replays", "replay"), key, carrier, stateField.Name, carrier, stateField.Name)
 }
 

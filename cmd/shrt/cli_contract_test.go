@@ -310,6 +310,12 @@ rpcs:
         status: draft
     shop.catalog.v1.ProductService/GetProduct:
         summary: reads a product
+        fields:
+            id_product: {from: shop.catalog.v1.ProductService/CreateProduct->product.id_product}
+        failures:
+            - code: 1204
+              reason: ProductNotFound
+              when: no product has this id
         status: draft
     shop.orders.v1.OrderService/WatchOrder:
         summary: streams an order
@@ -378,10 +384,10 @@ func TestContractPlanPrintsEachGapInFullBeforeOneLinePerProbeGroup(t *testing.T)
 	if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
 		t.Fatalf("plan: %v %v %v %v", err1, err2, err3, err4)
 	}
-	if want := gaps(one, ""); !strings.Contains(want, "gap: step confirm_order: its contract declares 1305") || gaps(all, "orders-confirmorder") != want {
+	if want := gaps(one, ""); !strings.Contains(want, "gap: step confirm_order: no write in the chain adds a known quantity") || gaps(all, "orders-confirmorder") != want {
 		t.Fatalf("plan ConfirmOrder names the exact-stock gap and -all prints the same gaps:\n%s\n---\n%s", all, one)
 	}
-	if !strings.Contains(notes, "\ngap: step confirm_order: its contract declares 1305") || strings.Contains(notes, "step ids: ") ||
+	if !strings.Contains(notes, "\ngap: step confirm_order: no write in the chain adds a known quantity") || strings.Contains(notes, "step ids: ") ||
 		strings.Contains(notes, "\nnote: ") || len(notes) >= len(full) || !strings.Contains(notes, "-notes -v") {
 		t.Fatalf("-notes labels gaps and prints no step ids or full notes, pointing at -notes -v:\n%s", notes)
 	}
@@ -405,9 +411,8 @@ func TestContractPlanPrintsEachGapInFullBeforeOneLinePerProbeGroup(t *testing.T)
 	if !seenGroup {
 		t.Fatalf("-notes prints one line per probe group:\n%s", notes)
 	}
-	long := "step list: the contracts do not say sku is compared case-sensitively, so no fixture with the prefix in another letter case was planned; " + strings.Repeat("say what the filter does with another letter case, ", 3) + "END"
-	if out := captureStdout(t, func() { printFillAndGaps(&contract.Plan{Notes: []string{long}}, "  ") }); !strings.Contains(out, "END\n") || strings.Contains(out, "...") {
-		t.Errorf("a gap says how to close it, so it is never clipped:\n%s", out)
+	if !strings.Contains(one, "plan the rpc that adds it (needs:)\n") {
+		t.Errorf("a gap says how to close it, so it is never clipped:\n%s", one)
 	}
 }
 

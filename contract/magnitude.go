@@ -619,7 +619,7 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 			qty = max
 		}
 		if price*qty <= wideLimit {
-			p.note("step %s: %s is a 64-bit number, but the bounds its contract states on %s and %s keep %s × %s at or below 2^31, "+
+			p.gap("step %s: %s is a 64-bit number, but the bounds its contract states on %s and %s keep %s × %s at or below 2^31, "+
 				"so no probe checks the sum past 32 bits", st.ID, join(t.carrier, t.field), t.price, t.itemQty, t.price, t.itemQty)
 			continue
 		}

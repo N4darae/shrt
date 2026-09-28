@@ -143,7 +143,7 @@ func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			field := p.uniqueField(st, c, f, noun)
 			if field == "" {
-				p.note("step %s: the contract declares %s, a uniqueness refusal, but names no field it is about "+
+				p.gap("step %s: the contract declares %s, a uniqueness refusal, but names no field it is about "+
 					"(set field: on the failure), so no duplicate attempt was planned", st.ID, f.Label())
 				continue
 			}
@@ -200,7 +200,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 			"ignores case when comparing it, set unique: {case: ignore} on the failure (or say \"ignoring case\" in its when:) and the plan adds "+
 			"a case variant too — a backend that compares case-sensitively passes an exact duplicate", st.ID, field, f.Label())
 	case !isText || swapLiteralCase(stableAcrossSteps(value)) == stableAcrossSteps(value):
-		p.note("step %s: the contract says %s is compared ignoring case, but its value %v has no letters outside "+
+		p.gap("step %s: the contract says %s is compared ignoring case, but its value %v has no letters outside "+
 			"references, so no case variant could be built: write one by hand", st.ID, field, current)
 	default:
 		stable := stableAcrossSteps(value)
@@ -223,7 +223,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 			"once trimmed, so it is refused with %s too.", leaf, leaf, f.Label()), " "+ref+" "))
 	}
 	if !pinned {
-		p.note("step %s: the duplicate attempts assert only that the call was refused; the response declares no "+
+		p.gap("step %s: the duplicate attempts assert only that the call was refused; the response declares no "+
 			"code field (conventions.code_fields) to pin %s on, so pin it yourself where the refusal carries it", st.ID, f.Label())
 	}
 	at := 0

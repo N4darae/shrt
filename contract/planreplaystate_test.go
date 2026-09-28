@@ -30,14 +30,6 @@ func TestPlanReplaysAnIdempotencyKeyAfterEachStateTransition(t *testing.T) {
 			stepIndex(p.Chain, read.ID) < stepIndex(p.Chain, replay.ID)) {
 			t.Fatalf("fixture, move, read, replay in that order: %s", strings.Join(ids, ", "))
 		}
-		after := planStep(t, p, "fetch_order_after_"+replay.ID)
-		if got := bodyAt(t, after, "id_order"); got != "${"+replay.ID+".order.id_order}" {
-			t.Fatalf("%s reads what %s answered, got %s:\n%s", after.ID, replay.ID, got, text)
-		}
-		wantExpect(t, after, "order.status", tr.state)
-		if stepIndex(p.Chain, after.ID) != stepIndex(p.Chain, replay.ID)+1 {
-			t.Fatalf("the record is read right after the replay: %s", strings.Join(ids, ", "))
-		}
 	}
 	if !strings.Contains(notes, "create_order_replay_after_confirm_order") {
 		t.Fatalf("a note names the replays after a transition: %s", notes)

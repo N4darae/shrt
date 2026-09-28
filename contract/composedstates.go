@@ -39,17 +39,12 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 		if err != nil {
 			continue
 		}
-		read := map[string]bool{}
-		arrived := map[string]stateEntity{}
 		for _, e := range p.entityStates(lib, st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
 			initial := ""
 			if pc, ok := lib.Get(e.producer.Call); ok {
 				initial = stateIn([]string{pc.Exports[e.carrier], pc.Summary}, values, short)
-			}
-			if initial != "" {
-				arrived[short[initial]] = e
 			}
 			result := stateIn([]string{c.Exports[e.carrier], c.Summary}, values, short)
 			if result == "" {
@@ -62,52 +57,19 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 				}
 			}
 			t := &listTarget{step: st, itemMsg: e.itemMsg, itemID: e.idField, carrier: e.carrier}
-			moves, blocked := p.transitionsFor(lib, t, e.producer, values, short, initial)
-			for v := range blocked {
-				read[short[v]] = true
-			}
+			moves, _ := p.transitionsFor(lib, t, e.producer, values, short, initial)
 			for _, tr := range moves {
 				if tr.method.FullName == m.FullName || tr.value == result || refused[tr.value] {
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				if p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
-					read[short[tr.value]] = true
-				}
+				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value]))
 			}
 		}
-		p.noteUnreadRestores(lib, st, c, read, arrived)
 	}
 }
 
-func (p *Plan) noteUnreadRestores(lib *Library, st *chain.Step, c *RPCContract, read map[string]bool, arrived map[string]stateEntity) {
-	for _, field := range sortedRuleKeys(c.Effects) {
-		state := c.Effects[field].Restore
-		covered := false
-		for s := range read {
-			covered = covered || sameState(s, state)
-		}
-		if state == "" || covered {
-			continue
-		}
-		wiring := fmt.Sprintf("no rpc in this plan moves a fresh one to %s before %s: plan %s with the rpc that does", state, st.ID, shortRPC(st.Call))
-		for s, e := range arrived {
-			if !sameState(s, state) {
-				continue
-			}
-			pc, _ := lib.Get(e.producer.Call)
-			for name, ref := range topFrom(pc, p.cat) {
-				if !strings.Contains(name, ".") && ref.Path == e.idPath {
-					wiring = fmt.Sprintf("%s comes from %s, which already leaves the %s %s: set its from: to %s->%s with needs: [%s] to plan one",
-						e.field, shortRPC(e.producer.Call), e.carrier, s, ref.RPC, ref.Path, canonicalCall(p.cat, e.producer.Call))
-				}
-			}
-		}
-		p.note("step %s: no probe reads the %s it gives back from %s, so a %s that keeps it passes; %s", st.ID, field, state, shortRPC(st.Call), wiring)
-	}
-}
-
-func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
+func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) {
 	label := strings.ToLower(short[tr.value])
 	id := p.freeStepID(st.ID + "_after_" + label)
 	fixture := copyStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+id))
@@ -181,7 +143,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	p.Chain.Steps = append(p.Chain.Steps, before...)
 	p.Chain.Steps = append(p.Chain.Steps, moved, act)
 	p.Chain.Steps = append(p.Chain.Steps, after...)
-	what := fmt.Sprintf("the %s read after it is %s", e.carrier, short[result])
+	what, gap := fmt.Sprintf("the %s read after it is %s", e.carrier, short[result]), ""
 	if len(held) > 0 {
 		what += fmt.Sprintf(", and %s assert what it holds is back to the reads taken before %s, as the contract says for %s",
 			strings.Join(held, ", "), moved.ID, withArticle(short[tr.value]+" "+e.carrier))
@@ -190,11 +152,16 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 		if r := p.effectRules(lib); len(r.byEntity) > 0 {
 			number = r.byEntity[sortedRuleKeys(r.byEntity)[0]].moved
 		}
-		what += fmt.Sprintf("; %s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
+		gap = fmt.Sprintf("%s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
 			shortRPC(st.Call), short[tr.value], number, short[tr.value])
+		what += "; " + gap
 	}
-	p.note("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
-	return len(held) > 0
+	note := fmt.Sprintf("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
+	if gap == "" {
+		p.note("%s", note)
+		return
+	}
+	p.gapIn(note, "step "+st.ID+": "+gap)
 }
 
 func retargetExpect(expect []chain.Expectation, from, to string) []chain.Expectation {

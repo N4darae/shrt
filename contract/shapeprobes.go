@@ -25,7 +25,6 @@ type shapeCase struct {
 	field string
 	kind  string
 	value any
-	first bool
 }
 
 func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
@@ -54,16 +53,14 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			cases, unread := shapeCases(st.Body, fields, f)
 			if len(cases) == 0 {
-				p.note("step %s: its contract declares %s (%s), but that when: names no field and value the plan can "+
-					"build, so no malformed request was planned for it: write one, or name the field and say it in words the "+
-					"plan reads (%s)", st.ID, f.Label(), strings.TrimSpace(f.When), shapeWording)
+				p.gap("step %s: %s's when: names no field and value the plan can build, so no malformed request was "+
+					"planned for it: write one, or reword it (%s)", st.ID, f.Label(), shapeWording)
 				continue
 			}
 			p.addShapeProbes(lib, st, m, c, f, cases)
 			if len(unread) > 0 {
-				p.note("step %s: in %s (%s) the plan read no field and malformed value in %q, so no probe sends that case: "+
-					"write one, or say it in words the plan reads (%s)", st.ID, f.Label(), strings.TrimSpace(f.When),
-					strings.Join(unread, `", "`), shapeWording)
+				p.gap("step %s: %s: %q names no field and value the plan can build, so no probe sends that case: "+
+					"write one, or reword it (%s)", st.ID, f.Label(), strings.Join(unread, `", "`), shapeWording)
 			}
 		}
 		required := []string{}
@@ -77,20 +74,19 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 		}
 		if len(required) > 0 {
-			p.note("step %s: %s %s required, but no failure with connect_code: invalid_argument and field: naming %s "+
-				"says how a request without %s is refused, so no probe sends one: declare that failure and plan again",
-				st.ID, strings.Join(required, ", "), pluralIs(len(required)), pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
+			p.gap("step %s: %s %s required, but no invalid_argument failure has field: naming %s, so no probe sends a "+
+				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralIs(len(required)),
+				pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
 		}
 		if !declared && !c.IsUnfilled("required") && len(c.Required) == 0 {
-			p.note("step %s: nothing in its contract declares a required field or a format (required:, or a failure with "+
+			p.gap("step %s: nothing in its contract declares a required field or a format (required:, or a failure with "+
 				"connect_code: invalid_argument), so no malformed request was planned: the plan does not guess what the "+
 				"handler validates", st.ID)
 		}
 	}
 }
 
-const shapeWording = "empty, missing, blank, absent, unset, omitted, not set, required or none for an empty value; whitespace or " +
-	"spaces for a blank one; zero or 0; negative, below zero or less than zero; @, an at sign or at symbol for an email without one"
+const shapeWording = "empty, missing, blank, whitespace, zero, negative, an at sign"
 
 func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shapeCase, []string) {
 	out := []shapeCase{}
@@ -125,20 +121,8 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shap
 		}
 		seen[path+"|"+kind] = true
 		out = append(out, shapeCase{path: path, field: field, kind: kind, value: value})
-		if firstPath := firstItemPath(path); firstPath != "" && !seen[firstPath+"|"+kind] {
-			seen[firstPath+"|"+kind] = true
-			out = append(out, shapeCase{path: firstPath, field: field, kind: kind, value: value, first: true})
-		}
 	}
 	return out, unread
-}
-
-func firstItemPath(path string) string {
-	segs := chain.SplitPath(path)
-	if len(segs) != 3 || !isIndexSegment(segs[1]) || segs[1] == "0" {
-		return ""
-	}
-	return segs[0] + ".0." + segs[2]
 }
 
 func fieldWord(name string) *regexp.Regexp {
@@ -225,13 +209,8 @@ func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, cases []shapeCase) {
 	expect := refusalFor(m, f)
 	ids := []string{}
-	ordering := []string{}
 	for _, sc := range cases {
-		name := st.ID + "_" + leafName(sc.field) + "_" + sc.kind
-		if sc.first {
-			name += "_first_item"
-		}
-		probe := copyStep(st, p.freeStepID(name))
+		probe := copyStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
 		probe.Export = nil
 		if !chain.IsReadOnlyCall(st.Call) {
 			p.freshen(lib, probe)
@@ -241,28 +220,10 @@ func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c
 		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, shapeWords(sc.kind), f.Label())
 		p.addShape(lib, st, probe)
 		ids = append(ids, probe.ID)
-		lookups := p.otherLookups(c, probe, sc.path)
-		if len(lookups) == 0 {
-			continue
-		}
-		early := copyStep(probe, p.freeStepID(probe.ID+"_unknown_refs"))
-		for _, path := range lookups {
-			setBodyPath(early.Body, path, "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"))
-		}
-		early.Description = fmt.Sprintf("as %s, and %s name nothing that exists: still answered %s, since a malformed request "+
-			"is refused before any lookup.", probe.ID, strings.Join(lookups, ", "), f.Label())
-		p.addShape(lib, st, early)
-		ordering = append(ordering, early.ID)
 	}
-	also := ""
-	if len(ordering) > 0 {
-		also = fmt.Sprintf("; %s %s the same with every reference pointed at an id nothing created and still %s %s, not a "+
-			"not-found code, since a malformed request is refused before any business rule", strings.Join(ordering, ", "),
-			pluralVerb(len(ordering), "sends", "send"), pluralVerb(len(ordering), "expects", "expect"), f.Label())
-	}
-	p.note("step %s: its contract declares %s (%s), so %s %s a malformed request and %s %s%s", st.ID, f.Label(),
+	p.note("step %s: its contract declares %s (%s), so %s %s a malformed request and %s %s", st.ID, f.Label(),
 		strings.TrimSpace(f.When), strings.Join(ids, ", "), pluralVerb(len(ids), "sends", "send"), pluralVerb(len(ids), "expects", "expect"),
-		f.Label(), also)
+		f.Label())
 }
 
 func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
@@ -271,40 +232,6 @@ func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
 		return
 	}
 	p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{probe}, probe.ID)...)
-}
-
-func (p *Plan) otherLookups(c *RPCContract, probe *chain.Step, malformed string) []string {
-	out := []string{}
-	for _, name := range sortedFieldNames(c.Fields) {
-		fc := c.Fields[name]
-		if fc == nil || fc.From == "" {
-			continue
-		}
-		segs := chain.SplitPath(name)
-		paths := []string{name}
-		if len(segs) == 2 {
-			key, ok := namecase.LookupKey(probe.Body, segs[0])
-			list, isList := probe.Body[key].([]any)
-			if !ok || !isList {
-				continue
-			}
-			paths = paths[:0]
-			for i := range list {
-				paths = append(paths, fmt.Sprintf("%s.%d.%s", key, i, segs[1]))
-			}
-		}
-		for _, path := range paths {
-			if path == malformed || strings.HasPrefix(malformed+".", path+".") {
-				continue
-			}
-			if v, ok := bodyValue(probe.Body, path); ok {
-				if text, isText := v.(string); isText && strings.Contains(text, "${") {
-					out = append(out, path)
-				}
-			}
-		}
-	}
-	return out
 }
 
 func shapeWords(kind string) string {

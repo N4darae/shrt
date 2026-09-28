@@ -12,19 +12,6 @@ func clerkOptions() contract.PlanOptions {
 	return contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}
 }
 
-func TestAShapeProbeOnARepeatedItemSendsTheBadValueOnTheFirstItemToo(t *testing.T) {
-	p, text, _ := shopDemoPlan(t, "CreateOrder")
-	last := planStep(t, p, "create_order_qty_zero")
-	if bodyAt(t, last, "lines.1.qty") != "0" {
-		t.Fatalf("the last line carries qty 0:\n%s", text)
-	}
-	first := planStep(t, p, "create_order_qty_zero_first_item")
-	if bodyAt(t, first, "lines.0.qty") != "0" || bodyAt(t, first, "lines.1.qty") == "0" {
-		t.Fatalf("the first line alone carries qty 0:\n%s", text)
-	}
-	wantExpect(t, first, "transport.code", "invalid_argument")
-}
-
 func TestAListEveryRoleMayCallIsReadAsTheOtherProfileItemByItem(t *testing.T) {
 	for _, target := range []string{"ListProducts", "ListOrders"} {
 		p, text, _ := shopDemoPlanWith(t, clerkOptions(), target)

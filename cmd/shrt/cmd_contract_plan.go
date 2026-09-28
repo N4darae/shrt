@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
@@ -206,34 +204,17 @@ func printPlanNotes(plan *contract.Plan, again string, notes, full bool) {
 	case notes && full:
 		for _, n := range plan.Notes {
 			label := "note"
-			if _, gap := contract.GapOf(n); gap {
+			if plan.IsGap(n) {
 				label = "gap"
 			}
 			fmt.Printf("%s: %s\n", label, n)
 		}
 	case notes:
-		for _, n := range plan.GapNotes() {
-			fmt.Printf("gap: %s\n", n)
-		}
-		for _, n := range plan.FillNotes() {
-			fmt.Printf("fill: %s\n", n)
-		}
-		for _, g := range plan.NoteGroups() {
-			if len(g.Notes) == 0 {
-				continue
+		printFillAndGaps(plan, "")
+		for _, g := range plan.StepGroups() {
+			if why := contract.ProbeWhy(g.Label); why != "" {
+				fmt.Printf("%s (%d %s): %s\n", g.Label, g.Steps, pluralWord(g.Steps, "step", "steps"), why)
 			}
-			line := g.Label
-			switch {
-			case g.Steps == 1:
-				line += " (1 step)"
-			case g.Steps > 1:
-				line += fmt.Sprintf(" (%d steps)", g.Steps)
-			}
-			if len(g.Notes) > 1 {
-				line += fmt.Sprintf(", %d notes", len(g.Notes))
-			}
-			line += ": " + contract.FirstSentence(stepPrefix.ReplaceAllString(g.Notes[0], ""))
-			fmt.Printf("%s\n", clipText(line, planGapWidth))
 		}
 	default:
 		printFillAndGaps(plan, "")
@@ -249,21 +230,6 @@ func printPlanNotes(plan *contract.Plan, again string, notes, full bool) {
 	case n > 0 && !full:
 		fmt.Printf("every note in full, and every step id: %s -notes -v\n", again)
 	}
-}
-
-const planGapWidth = 160
-
-var stepPrefix = regexp.MustCompile(`^steps? [a-z0-9_]+: `)
-
-func clipText(text string, width int) string {
-	if len(text) <= width {
-		return text
-	}
-	cut := width - 3
-	for cut > 0 && !utf8.RuneStart(text[cut]) {
-		cut--
-	}
-	return text[:cut] + "..."
 }
 
 func planChainName(targets []string, lib *contract.Library, e *env) (string, error) {

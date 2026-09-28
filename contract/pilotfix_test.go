@@ -349,7 +349,7 @@ rpcs:
 		t.Fatalf("nested value not written, got %#v", meta)
 	}
 	for _, n := range plan.Notes {
-		if strings.Contains(n, "meta.source") && !strings.Contains(n, "connect_code: invalid_argument") {
+		if strings.Contains(n, "meta.source") && !strings.Contains(n, "no invalid_argument failure") {
 			t.Fatalf("a filled nested field must not be reported as remaining work: %s", n)
 		}
 	}

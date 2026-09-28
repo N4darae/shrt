@@ -93,11 +93,3 @@ func contractShowJSON(m *catalog.Method, lib *contract.Library, cat *catalog.Cat
 		"required_by":        lib.RequiredBy(m.FullName),
 	}
 }
-
-func oneofChoices(lib *contract.Library, rpc string) []string {
-	if lib == nil {
-		return nil
-	}
-	c, _ := lib.Get(rpc)
-	return contract.ArmedOneofMembers(c, "")
-}

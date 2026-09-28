@@ -37,7 +37,7 @@ func TestPlanReadsBackACreatesVariantsButNotItsReplays(t *testing.T) {
 	p, text, _ := shopDemoPlan(t, "CreateOrder")
 	wantExpect(t, planStep(t, p, "fetch_order_after_create_order"), "order.status", "ORDER_STATUS_PENDING")
 	wantExpect(t, planStep(t, p, "fetch_order_after_create_order_3_lines"), "order.status", "ORDER_STATUS_PENDING")
-	for _, id := range []string{"fetch_order_after_create_order_replay", "fetch_order_after_create_order_no_key"} {
+	for _, id := range []string{"fetch_order_after_create_order_replay"} {
 		if _, ok := p.Chain.Step(id); ok {
 			t.Fatalf("an idempotency replay is not read back again, found %s:\n%s", id, text)
 		}
