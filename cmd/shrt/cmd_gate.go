@@ -83,6 +83,7 @@ type gateItem struct {
 	Failed      bool   `json:"failed,omitempty"`
 	Passes      bool   `json:"passes,omitempty"`
 	Order       string `json:"order,omitempty"`
+	ReadAs      string `json:"read_as,omitempty"`
 
 	or        string
 	with      string
@@ -529,6 +530,9 @@ func (a attribution) item(it gateItem) gateItem {
 		}
 	}
 	if st, ok := a.rec.Step(it.Step); ok && st != nil {
+		if strings.HasPrefix(b.why, eitherWhy) {
+			it.ReadAs = profileOf(st)
+		}
 		if b.write < 0 && (b.own == "" && isWrite(st) || b.own != "" && b.own == a.principal(st, path)) {
 			it.Variant = asOf(a.e, st)
 		}
@@ -1669,6 +1673,7 @@ func rootSigs(chains []*gateChain) func(g *gateChain, it gateItem) (string, stri
 
 func settleGate(chains []*gateChain) {
 	settleKeptRed(chains)
+	settlePrincipal(chains)
 	readAfter, contradicted := map[string][]string{}, map[string][]string{}
 	for _, g := range chains {
 		for _, it := range g.items {
@@ -1694,6 +1699,32 @@ func settleGate(chains []*gateChain) {
 			if writes := contradicted[methodName(it.Call)+" "+path]; len(writes) > 1 && it.contradicted() && !it.KnockOn && it.Own == "" && it.Cascade == "" && it.Pinned == "" {
 				g.items[i].Own = fmt.Sprintf("%s reads %s unlike what %d different writes answered (%s)", methodName(it.Call), path, len(writes), capList(writes, 3))
 				g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why = "", "", ""
+			}
+		}
+	}
+}
+
+func settlePrincipal(chains []*gateChain) {
+	var proved []gateItem
+	for _, g := range chains {
+		for _, it := range g.items {
+			if it.Suspect == "" && it.Own != "" && it.Pinned == "" {
+				proved = append(proved, it)
+			}
+		}
+	}
+	for _, g := range chains {
+		for i, it := range g.items {
+			if it.ReadAs == "" || it.Own != "" || it.Cascade != "" || it.KnockOn || it.Pinned != "" || !strings.HasPrefix(it.Why, eitherWhy) {
+				continue
+			}
+			for _, p := range proved {
+				verdict := fmt.Sprintf("%s answers %s differently as %s than as ", methodName(it.Call), gateIndex.ReplaceAllString(it.Path, "[]$1"), it.ReadAs)
+				if p.Call == it.Call && samePlace(p.Path, it.Path) && strings.HasPrefix(p.Own, verdict) {
+					g.items[i].Own, g.items[i].Suspect, g.items[i].SuspectStep, g.items[i].Why = p.Own, "", "", ""
+					g.items[i].Variant, g.items[i].as = p.Variant, p.as
+					break
+				}
 			}
 		}
 	}
@@ -1922,7 +1953,7 @@ func printGateGroups(chains []*gateChain) {
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:
-			fmt.Printf("  %s: passed itself, but steps reading it went unevaluated; e.g. %s\n", gr.rpc, gr.suspect)
+			fmt.Printf("  %s: passed itself, but steps reading it left an expectation unjudged; e.g. %s\n", gr.rpc, gr.suspect)
 		}
 		if len(gr.reads) > 0 {
 			parts := []string{}

@@ -389,7 +389,7 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
   check what the write persisted.
 - `its contract moves <field>`: of several such writes, the one whose `effects:` move it. Start there.
 - `<rpc> answers <path> differently as <p> than as <q>`: filed under the rpc as that profile; a
-  role-scoped view leaks or hides the field.
+  role-scoped view leaks or hides the field. In a gate, other chains' hedges on that read follow it.
 - `masked by` / `moved with <rpc> <path>`: a pin or drift that follows a change reported
   elsewhere. Fix that one first. `a knock-on of <suspect>`: recomputed from an earlier change.
 - `pins held, new change`: a new defect beside the pinned ones; do not re-pin, run its `shrt diff`.
@@ -399,8 +399,8 @@ recomputes from, changed; a newly refused or changed write to the first earlier 
 records whose answer or verdict changed, or read changed in a field both `effects:` move. A read
 observes the nearest earlier write on its record, skipping refused repeats, idempotent replays
 and, against a reference, a write refused as before or lacking the field whose `effects:` do not
-move it. A list item's id links it to the writes naming it; steps unevaluated behind a failure
-fold under it.
+move it. A list item's id links it to the writes naming it; steps with an expectation left
+unjudged behind a failure fold under it.
 
 ## 9. Refactor and test against a safe spot
 
