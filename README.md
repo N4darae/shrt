@@ -132,7 +132,8 @@ otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 onc
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
 Each `FAIL` line ends with its suspect, or `same fault as <chain>` when an earlier line named
-it; then one line per suspect rpc. `-v` adds the suspect's request, every changed path and the
+it; a slice failing at its parent's first change has no line of its own, the parent's says `(+N
+slice(s) fail the same: ...)`. Then one line per suspect rpc. `-v` adds the suspect's request, every changed path and the
 knock-on counts. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 Exit 0 is green; 1 is a failure, a `FINDING` or the ratchet; 3 is no verdict (re-run once the

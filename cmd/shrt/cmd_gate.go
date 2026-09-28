@@ -726,6 +726,8 @@ type gateChain struct {
 	flakyKind map[string]string
 	errors    map[string]gateFlaky
 	errored   map[string]string
+	echoOf    string
+	slices    []string
 }
 
 func (g *gateChain) findingOnly() bool {
@@ -947,6 +949,9 @@ func runGate(ctx context.Context, args []string) error {
 	flakyFindings := settleFlaky(chains)
 	shown := map[string]bool{}
 	for _, g := range chains {
+		if g.echoOf != "" {
+			continue
+		}
 		fmt.Println(g.line(width))
 		if note := g.flakyNote(); note != "" {
 			fmt.Println("  " + note)
@@ -1358,6 +1363,9 @@ func (g *gateChain) line(width int) string {
 		}
 		line += g.first
 	}
+	if len(g.slices) > 0 {
+		line += fmt.Sprintf(" (+%d slice(s) fail the same: %s)", len(g.slices), strings.Join(g.slices, ", "))
+	}
 	return strings.TrimRight(line, " ")
 }
 
@@ -1414,6 +1422,29 @@ func settleGate(chains []*gateChain) {
 			g.class = "pins held, new change"
 		case it.Class != "" && g.class != "not as pinned":
 			g.class = it.Class
+		}
+	}
+	foldSlices(chains)
+}
+
+func foldSlices(chains []*gateChain) {
+	byName := map[string]*gateChain{}
+	for _, g := range chains {
+		byName[g.name] = g
+	}
+	for _, g := range chains {
+		i := strings.LastIndex(g.name, "-slice-")
+		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" {
+			continue
+		}
+		p := byName[g.name[:i]]
+		if p == nil || !p.failed || p.findingOnly() || p.echoOf != "" {
+			continue
+		}
+		a, okA := g.firstItem()
+		b, okB := p.firstItem()
+		if okA && okB && a.Call == b.Call && a.Path == b.Path {
+			g.echoOf, p.slices = p.name, append(p.slices, g.name)
 		}
 	}
 }

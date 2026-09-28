@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestAChainHeadlinesAFaultNoEarlierChainShowedOrNamesTheChainThatDid(t *testing.T) {
 	const create = "x.v1.OrderService/CreateOrder"
@@ -33,5 +36,24 @@ func TestAReadsOwnFaultIsOneRootWhateverPathShowsIt(t *testing.T) {
 	w := gateItem{Step: "get", Call: get, Path: "customer.name", Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
 	if a.root() != b.root() || a.root() == w.root() || w.root() != "S/Create name" {
 		t.Errorf("got %q, %q, %q", a.root(), b.root(), w.root())
+	}
+}
+
+func TestASliceFailingAsItsParentFoldsIntoTheParentsLine(t *testing.T) {
+	const confirm = "x.v1.OrderService/ConfirmOrder"
+	status := gateItem{Step: "confirm", Call: confirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: confirm}}
+	other := gateItem{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}
+	chains := []*gateChain{
+		{name: "orders", failed: true, items: []gateItem{status}},
+		{name: "orders-slice-list", failed: true, pinsHeld: true, items: []gateItem{status}},
+		{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{other}},
+		{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
+	}
+	settleGate(chains)
+	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" {
+		t.Errorf("only the slice whose first change is its parent's folds: %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf)
+	}
+	if line := chains[0].line(0); !strings.HasSuffix(line, "; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)") {
+		t.Errorf("got %q", line)
 	}
 }
