@@ -497,6 +497,7 @@ type effectModel struct {
 	unread  map[string][]string
 	at      *chain.Step
 	below   map[string]string
+	met     map[[2]string]bool
 }
 
 const (
@@ -595,6 +596,30 @@ func (p *Plan) assertEffects(lib *Library) {
 	p.noteEffects(r, asserted, silent)
 }
 
+func (p *Plan) noteUnmetEffects(lib *Library) {
+	for _, st := range p.Chain.Steps {
+		c, ok := lib.Get(st.Call)
+		if !ok || !p.isTargetStep(st.ID) {
+			continue
+		}
+		for _, field := range sortedRuleKeys(c.Effects) {
+			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
+				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(lib, st, c, field, e))
+			}
+		}
+	}
+}
+
+func (p *Plan) effectWiring(lib *Library, st *chain.Step, c *RPCContract, field string, e *Effect) string {
+	for _, en := range p.entityStates(lib, st, c) {
+		if e.Restore != "" {
+			return fmt.Sprintf("no probe moves a fresh %s to %s before %s acts on it: take %s from: the rpc that creates the %s, with needs: [the rpc that moves it to %s]",
+				en.carrier, e.Restore, st.ID, en.field, en.carrier, e.Restore)
+		}
+	}
+	return fmt.Sprintf("a level is asserted only on a record that starts known (effects: {%s: zero} on the rpc that creates it) and moves by literal quantities", field)
+}
+
 func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		at := st.ID
@@ -640,7 +665,7 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 
 func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string][]string, map[string]string, map[string][]string) {
 	md := &effectModel{level: map[string]int64{}, known: map[string]bool{}, stockOf: map[string]*stockRule{}, orders: map[string]*modelOrder{},
-		alias: map[string]string{}, dirty: map[string]bool{}, apply: apply, unread: map[string][]string{}, below: map[string]string{}}
+		alias: map[string]string{}, dirty: map[string]bool{}, apply: apply, unread: map[string][]string{}, below: map[string]string{}, met: p.met}
 	asserted := map[string][]string{}
 	silent := map[string]string{}
 	mark := func(kind, id string) {
@@ -701,6 +726,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 				q, lit := numericValue(item[b.stock.qtyField])
 				p.moveStock(md, e, b.stock.sign*q, lit && out == outcomeSuccess)
 				if b.results != "" && md.known[e] && md.set(st, fmt.Sprintf("%s.%d.%s", b.results, i, b.stock.moved), md.level[e]) {
+					md.met[[2]string{st.Call, b.list}] = true
 					mark("batch", st.ID)
 				}
 			}
@@ -813,6 +839,7 @@ func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
 			continue
 		}
 		st.Expect[i] = chain.Expectation{Path: path, Equals: v}
+		md.met[[2]string{md.at.Call, leafName(path)}] = true
 		if !md.echoes(st) {
 			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", leafName(path), md.at.ID, md.at.ID)
 		}
@@ -831,6 +858,9 @@ func (md *effectModel) echoes(st *chain.Step) bool {
 }
 
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
+	if md.apply {
+		md.met[[2]string{md.at.Call, leafName(path)}] = true
+	}
 	return md.apply && assertNumber(st, path, v)
 }
 

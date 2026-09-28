@@ -305,7 +305,8 @@ has no term. Fill in this order; each step pays for the next:
    for a shape error. `reason:` is the backend's string verbatim for a coded failure, and a label
    you invent for a shape or auth failure.
 5. **`effects`**, for a write that moves a number a record holds. `summary` is prose for people;
-   `plan` asserts levels and totals from this key, and a `gap:` prints the one to add:
+   `plan` asserts levels and totals from this key; a `gap:` prints the one to add, or the wiring
+   a declared one lacks:
    `{balance: {increase: amount}}` (`decrease`; `lines.amount` moves once per line),
    `{balance: {decrease: lines.amount, of: id_invoice}}` (per line of the record `id_invoice` names),
    `{balance: {restore: POSTED}}` (gives back what that took, from a POSTED record),
