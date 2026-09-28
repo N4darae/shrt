@@ -280,6 +280,9 @@ func (a attribution) of(step, path string) reason {
 		r.Path = path
 		return r
 	}
+	if other := a.heldApart(st, path); other != "" {
+		return a.profiled(st, path, other)
+	}
 	if src, ref := heldBackBy(st); src != "" && src != step {
 		up, i := a.of(src, ref), -1
 		if up.blames() {
@@ -353,9 +356,7 @@ func (a attribution) of(step, path string) reason {
 		return r
 	}
 	if other := a.principal(st, path); other != "" {
-		r := a.own(reasonProfile, st)
-		r.Profile, r.Path, r.Other = profileOf(st), path, other
-		return r
+		return a.profiled(st, path, other)
 	}
 	w, knock := suspectWrite(a.rec, step, path, a.bad)
 	switch {
@@ -387,6 +388,12 @@ func (a attribution) of(step, path string) reason {
 		return a.asBefore(a.index(step), path, w)
 	}
 	return a.write(w)
+}
+
+func (a attribution) profiled(st *runner.StepRecord, path, other string) reason {
+	r := a.own(reasonProfile, st)
+	r.Profile, r.Path, r.Other = profileOf(st), path, other
+	return r
 }
 
 func (a attribution) asBefore(at int, path string, w int) reason {

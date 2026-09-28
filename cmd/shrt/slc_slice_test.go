@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 
@@ -665,10 +667,34 @@ func TestSliceCases(t *testing.T) {
 				captureStdout(t, func() { _ = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"}) })
 			}
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"},
-			want: []string{"(a shrt verify replay)", "as shrt diff picks it"},
+			want: []string{"(a shrt verify replay)", "a `shrt verify` replay in which fetch drifted", "drifted: total source got=1, slice got=1", "verify reproduced"},
 			check: func(t *testing.T, _ string) {
 				total = 2
 				if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"); code != 1 || !strings.Contains(out, "NOT REPRODUCED") || !strings.Contains(out, "total (") || !strings.Contains(out, "the slice run did not") {
+					t.Fatalf("exit %d:\n%s", code, out)
+				}
+			}},
+		{name: "a passing target that drifts in the slice only is not reproduced", setup: func(t *testing.T) {
+			total = 2
+			srv := newTotallingBackend(&total)
+			t.Cleanup(srv.Close)
+			chdirToFreshCLIWorkspace(t, srv.URL)
+			slcMustRun(t, "cli-thing-flow")
+			captureStdout(t, func() {
+				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "baseline"})
+				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"})
+			})
+			slcMustRun(t, "cli-thing-flow")
+			total = 1
+		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"}, code: 1,
+			want: []string{"NOT REPRODUCED", "the slice run changed total (changed)"},
+			check: func(t *testing.T, _ string) {
+				runs, _ := filepath.Glob(".shrt/runs/cli-thing-flow/*.json")
+				sort.Strings(runs)
+				if err := os.Remove(runs[0]); err != nil {
+					t.Fatal(err)
+				}
+				if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"); code != 3 || !strings.Contains(out, "verify INCONCLUSIVE") || !strings.Contains(out, "cannot be loaded") {
 					t.Fatalf("exit %d:\n%s", code, out)
 				}
 			}},

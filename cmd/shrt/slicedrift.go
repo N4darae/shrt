@@ -8,7 +8,7 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-func sliceReference(e *env, rec *runner.Record) *runner.Record {
+func sliceReference(e *env, rec *runner.Record) (*runner.Record, bool) {
 	id := rec.ReplayOf
 	if id == "" {
 		if spot, err := e.store.LoadSafeSpot(rec.Chain); err == nil {
@@ -16,41 +16,54 @@ func sliceReference(e *env, rec *runner.Record) *runner.Record {
 		}
 	}
 	if id == "" || id == rec.RunID {
-		return nil
+		return nil, true
 	}
 	ref, err := e.store.LoadRun(rec.Chain, id)
-	if err != nil {
-		return nil
-	}
-	return ref
+	return ref, err == nil
 }
 
-func targetChanges(e *env, res *chain.SliceResult, ref, rec *runner.Record) map[string]string {
-	rep := diff.CompareRunsSkipping(ref, rec, currentVolatile(e, ref.Chain), requestFixtures(res.Chain))
+func targetChanges(e *env, c *chain.Chain, step string, ref, rec *runner.Record) map[string]diff.Change {
+	rep := diff.CompareRunsSkipping(ref, rec, currentVolatile(e, ref.Chain), requestFixtures(c))
 	rep.DropUnsentDefaults(ref, rec, unsentDefault(e))
-	out := map[string]string{}
+	out := map[string]diff.Change{}
 	for _, ch := range rep.Changes {
-		if ch.Step == res.Target {
-			out[ch.Path+" ("+ch.Kind+")"] = ch.DescribeRuns()
+		if ch.Step == step {
+			out[ch.Path+" ("+ch.Kind+")"] = ch
 		}
 	}
 	return out
 }
 
-func sliceDrift(e *env, res *chain.SliceResult, rec, sliceRec *runner.Record) (missing []string) {
-	ref := sliceReference(e, rec)
+func sliceDrift(e *env, res *chain.SliceResult, rec, sliceRec *runner.Record, passed bool) (missing, drifted []string, compared bool) {
+	ref, compared := sliceReference(e, rec)
 	if ref == nil {
-		return nil
+		return nil, nil, compared
 	}
-	want := targetChanges(e, res, ref, rec)
-	if len(want) == 0 {
-		return nil
-	}
-	got := targetChanges(e, res, ref, sliceRec)
+	want := targetChanges(e, res.Chain, res.Target, ref, rec)
+	got := targetChanges(e, res.Chain, res.Target, ref, sliceRec)
 	for _, k := range sortedKeys(want) {
-		if _, ok := got[k]; !ok {
-			missing = append(missing, fmt.Sprintf("source run %s changed %s against run %s, %s; the slice run did not", rec.RunID, k, ref.RunID, want[k]))
+		if g, ok := got[k]; !ok {
+			missing = append(missing, fmt.Sprintf("source run %s changed %s against run %s, %s; the slice run did not", rec.RunID, k, ref.RunID, want[k].DescribeRuns()))
+		} else if passed {
+			drifted = append(drifted, fmt.Sprintf("drifted: %s source got=%s, slice got=%s", g.Path, quoted(want[k].Got), quoted(g.Got)))
 		}
 	}
-	return missing
+	for _, k := range sortedKeys(got) {
+		if _, ok := want[k]; !ok && passed {
+			missing = append(missing, fmt.Sprintf("the slice run changed %s against run %s, %s; source run %s did not", k, ref.RunID, got[k].DescribeRuns(), rec.RunID))
+		}
+	}
+	return missing, drifted, compared
+}
+
+func movedStatus(e *env, rec *runner.Record, step string) string {
+	s := stepStatus(rec, step)
+	if s != runner.StatusPassed {
+		return s
+	}
+	c, err := chain.Resolve(e.chainsDir(), rec.Chain)
+	if ref, _ := sliceReference(e, rec); ref != nil && err == nil && len(targetChanges(e, c, step, ref, rec)) > 0 {
+		return "drifted"
+	}
+	return s
 }

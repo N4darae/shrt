@@ -5,6 +5,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -44,8 +45,24 @@ func (a attribution) principal(st *runner.StepRecord, path string) string {
 		return ""
 	}
 	old, ok := a.was(st.ID, path)
+	if !ok {
+		return ""
+	}
+	return a.answeredAs(st, path, compactValue(old), true)
+}
+
+func (a attribution) heldApart(st *runner.StepRecord, path string) string {
+	for _, ex := range st.Expect {
+		if ex.Rule == "unevaluated" && path != "" && namecase.Equal(ex.Path, path) && compactValue(ex.Want) != compactValue(ex.Got) {
+			return a.answeredAs(st, path, compactValue(ex.Want), false)
+		}
+	}
+	return ""
+}
+
+func (a attribution) answeredAs(st *runner.StepRecord, path, want string, held bool) string {
 	var rb any
-	if !ok || json.Unmarshal(st.Response, &rb) != nil {
+	if json.Unmarshal(st.Response, &rb) != nil {
 		return ""
 	}
 	if _, ok := chain.Get(rb, path); !ok {
@@ -58,7 +75,7 @@ func (a attribution) principal(st *runner.StepRecord, path string) string {
 			continue
 		}
 		v, ok := chain.Get(ob, path)
-		if !ok || compactValue(v) != compactValue(old) || !a.unchanged(o.ID, path) || !sameEntity(rb, path, ob, path) && (len(st.Request) == 0 || !sameRequest(st, o)) || a.changedBetween(min(at, j), max(at, j)) {
+		if !ok || compactValue(v) != want || held && !a.unchanged(o.ID, path) || !sameEntity(rb, path, ob, path) && (len(st.Request) == 0 || !sameRequest(st, o)) || a.changedBetween(min(at, j), max(at, j)) {
 			continue
 		}
 		return profileOf(o)

@@ -407,7 +407,7 @@ func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 		{name: "a newer replay that did not reach the step is refused", replays: []string{"29990101T000000Z-replay02"}, fetch: runner.StatusSkipped,
 			err: []string{"run 29990101T000000Z-replay02, which did not evaluate step fetch", "-run BASE"}},
 		{name: "the newer replay in which only it failed the step", replays: []string{"29990101T000000Z-replay03"}, fetch: runner.StatusFailed, picked: "29990101T000000Z-replay03",
-			note: []string{"run 29990101T000000Z-replay03, the newest record, a `shrt verify` replay in which fetch failed", "BASE, passed it"}},
+			note: []string{"run 29990101T000000Z-replay03, the newest record, a `shrt verify` replay in which fetch failed", "BASE, it passed"}},
 		{name: "the newest replay when no run was recorded beside it", replays: []string{"29990101T000000Z-replay04", "29990101T000001Z-replay05"}, picked: "29990101T000001Z-replay05",
 			note: []string{"as shrt diff picks it", "-run BASE"}},
 		{name: "-without picks the newer replay in which steps failed", replays: []string{"29990101T000000Z-replay06"}, fetch: runner.StatusFailed, without: true, picked: "29990101T000000Z-replay06",

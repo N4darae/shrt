@@ -17,7 +17,7 @@ func TestTheGateHeadlinesAChainByAFaultNoEarlierChainShowed(t *testing.T) {
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249; suspect write create (ThingService/Create)\n",
+		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249; suspect write create (ThingService/Create); also suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",
 		"FAIL       cli-unique      pins held, new change: create (ThingService/Create) thing.price want=250 got=249; same fault as cli-thing-flow\n",
 		"  ThingService/Create: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create; suspect write create (ThingService/Create)\n",
 		"  ThingService/Fetch: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other; suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",

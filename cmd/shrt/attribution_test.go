@@ -225,6 +225,18 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 			shopStep("get_product_after_cancel_order", shopGet, product, "create_product").failing("product.price_minor", "5", "6"),
 		)
 	}
+	clerkHeld := func(clerk string) func() *runner.Record {
+		product := func(price string) string {
+			return `{"product":{"id_product":"p1","price_minor":"` + price + `"},` + shopOK + `}`
+		}
+		return func() *runner.Record {
+			return shopRecord(shopStep("create", shopCreate, product("1249")).failing("product.price_minor", "1250", "1249"),
+				shopStep("get", shopGet, product("1249"), "create").failing("product.price_minor", "1250", "1249"),
+				shopStep("get_as_clerk", shopGet, product(clerk), "create").as("clerk").heldBy("get", "product.price_minor").with(func(st *runner.StepRecord) {
+					st.Expect[0].Want, st.Expect[0].Got = "1249", clerk
+				}))
+		}
+	}
 	otherItems := func(writeFailed bool) func() *runner.Record {
 		return func() *runner.Record {
 			rec := shopRecord(
@@ -525,6 +537,11 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 				shopStep("get", shopGet, `{"product":{"id_product":"p1","created_at":"t"}}`, "create").heldBy("create", "product.created_at"),
 				shopStep("get_as_clerk", shopGet, `{"product":{"id_product":"p1","created_at":"t"}}`, "create").heldBy("get", "product.created_at"))
 		}, step: "get_as_clerk", path: "status", kind: reasonKnockOn, blamed: "create"},
+		{name: "a read held back that answers what the read it copies answered is a knock-on", env: "shop", rec: clerkHeld("1249"),
+			step: "get_as_clerk", path: "product.price_minor", kind: reasonKnockOn, blamed: "create"},
+		{name: "a read held back that answers otherwise than the same read as another profile is filed under the read as its profile", env: "shop", rec: clerkHeld("0"),
+			step: "get_as_clerk", path: "product.price_minor", kind: reasonProfile, blamed: "",
+			check: func(r reason) bool { return r.Profile == "clerk" && r.Other == "default" }},
 		{name: "a change the write itself answered is the write's: confirm", env: "shop", rec: fiveOrders, step: "confirm_order", path: "order.total_minor", kind: reasonWrite, blamed: "create_order"},
 		{name: "a change the write itself answered is the write's: fetch", env: "shop", rec: fiveOrders, step: "fetch_after_confirm", path: "order.total_minor", kind: reasonWrite, blamed: "create_order"},
 		{name: "a change the write itself answered is the write's: cancel", env: "shop", rec: fiveOrders, step: "cancel_order", path: "order.total_minor", kind: reasonWrite, blamed: "create_order"},
