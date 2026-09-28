@@ -280,8 +280,8 @@ func (a attribution) of(step, path string) blame {
 			return b
 		}
 		b.write, b.cascade, b.lead, b.why = up.write, up.cascade, up.lead, up.why
-		if !strings.HasPrefix(b.cascade, "unevaluated because ") {
-			b.cascade = "unevaluated because " + a.lost(src, ref, up)
+		if !strings.HasPrefix(b.cascade, "left an expectation unjudged because ") {
+			b.cascade = "left an expectation unjudged because " + a.lost(src, ref, up)
 		}
 		if i := a.index(src); b.write < 0 && b.lead == "" && i >= 0 && isWrite(a.rec.Steps[i]) {
 			b.write = i

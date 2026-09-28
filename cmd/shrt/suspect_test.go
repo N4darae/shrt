@@ -281,7 +281,7 @@ func TestAStepUnevaluatedBehindAFailedWriteIsFiledUnderThatWrite(t *testing.T) {
 		shopStep("get_after_add", shopGet, `{"product":{"id_product":"p1"}}`, "create").heldBy("create", "product.sku"),
 	)
 	write, own, cascade := blameOf(t, rec, "get_after_add", "status")
-	if write != "create" || own != "" || cascade != "unevaluated because CreateProduct lost product.sku" {
+	if write != "create" || own != "" || cascade != "left an expectation unjudged because CreateProduct lost product.sku" {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }
@@ -347,8 +347,8 @@ func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testin
 		gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Own: "List answers the same items in another order"},
 		gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Own: "Find fails on its own (internal)"},
 		gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2"},
-		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "unevaluated because Make lost n"},
-		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "unevaluated because Make lost n"},
+		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "left an expectation unjudged because Make lost n"},
+		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "left an expectation unjudged because Make lost n"},
 	)
 	out := captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}) })
 	if n := strings.Count(out, "  S/List:"); n != 1 || !strings.Contains(out, "(+1 other reason(s))") {
@@ -357,7 +357,7 @@ func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testin
 	if !strings.Contains(out, "  S/Find:") || strings.Contains(out, "more\n") {
 		t.Errorf("a distinct suspect rpc is never cut:\n%s", out)
 	}
-	if !strings.Contains(out, "    +2 step(s) in 1 chain(s) unevaluated because Make lost n\n") || strings.Contains(out, "S/Get:") {
+	if !strings.Contains(out, "    +2 step(s) in 1 chain(s) left an expectation unjudged because Make lost n\n") || strings.Contains(out, "S/Get:") {
 		t.Errorf("unevaluated steps fold into one line under the producing write:\n%s", out)
 	}
 }
@@ -386,7 +386,7 @@ func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "list", Path: "things.3.n", Want: "1", Got: "2"},
-		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "unevaluated because Make lost thing.n"},
+		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "left an expectation unjudged because Make lost thing.n"},
 		{Step: "put", Path: "(error)", Got: "unavailable: busy"},
 		{Step: "put", Path: "code", Want: "<none>", Got: "unavailable"},
 		{Step: "put_2", Path: "(error)", Got: "unavailable: busy"},
@@ -396,7 +396,7 @@ func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
 	for _, want := range []string{
 		"    thing.n at 2 step(s) (make, get); e.g. want=1 got=2\n",
 		"    things[].n at 1 step(s) (list); e.g. want=1 got=2\n",
-		"    1 step(s) unevaluated because Make lost thing.n\n",
+		"    1 step(s) left an expectation unjudged because Make lost thing.n\n",
 		"    (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -678,7 +678,7 @@ func TestAStepHeldBackByAReadThatEchoesTheWriteNamesTheWrite(t *testing.T) {
 		shopStep("fetch_after", shopFetch, order, "create_order").heldBy("fetch_before", "order.total_minor"),
 	)
 	write, own, cascade := blameOf(t, rec, "fetch_after", "order.total_minor")
-	if write != "create_order" || own != "" || cascade != "unevaluated because CreateOrder changed order.total_minor" {
+	if write != "create_order" || own != "" || cascade != "left an expectation unjudged because CreateOrder changed order.total_minor" {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }

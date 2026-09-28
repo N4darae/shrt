@@ -37,7 +37,7 @@ func TestAStepHeldBackByAReadIsNeverFiledUnderThatReadAsAWrite(t *testing.T) {
 	)
 	moved := []diff.Change{{Step: "get", Path: "product.qty_on_hand", Kind: diff.KindChanged, Want: "8", Got: "7"}}
 	b = changesAttribution(effectsEnv(t), rec, moved).of("get_again", "product.qty_on_hand")
-	if b.write >= 0 || b.lead != "confirm_order" || !strings.HasPrefix(b.cascade, "unevaluated because ") {
+	if b.write >= 0 || b.lead != "confirm_order" || !strings.HasPrefix(b.cascade, "left an expectation unjudged because ") {
 		t.Errorf("the step waits on the write the read observes: %+v", b)
 	}
 }

@@ -1922,7 +1922,7 @@ func printGateGroups(chains []*gateChain) {
 		case len(gr.reads) > 0:
 			fmt.Printf("  %s: passed itself, but steps after it failed or changed; e.g. %s\n", gr.rpc, gr.suspect)
 		default:
-			fmt.Printf("  %s: passed itself, but steps reading it went unevaluated; e.g. %s\n", gr.rpc, gr.suspect)
+			fmt.Printf("  %s: passed itself, but steps reading it left an expectation unjudged; e.g. %s\n", gr.rpc, gr.suspect)
 		}
 		if len(gr.reads) > 0 {
 			parts := []string{}
