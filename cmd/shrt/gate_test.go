@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -270,5 +271,23 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 	}
 	if !strings.Contains(out, "list (ThingService/List) latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
 		t.Errorf("a latency change reads as the safe spot's and this run's time, not a threshold:\n%s", out)
+	}
+}
+
+func TestRunHandsItsNotesAndErrorToTheGateInTheSidecar(t *testing.T) {
+	b := &resettableUniqueBackend{}
+	srv := b.server()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-unique.yaml", shortLiteralChain("@"))
+	ctx := context.Background()
+	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=one"}) })
+	path := t.TempDir() + "/side.json"
+	t.Setenv(gateReportEnv, path)
+	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=two"}) })
+	var side gateSidecar
+	raw, _ := os.ReadFile(path)
+	if json.Unmarshal(raw, &side) != nil || len(side.Notes) != 1 || !strings.HasPrefix(side.Notes[0], "CHAIN DEFECT: the chain collides with itself") || side.Error == "" {
+		t.Fatalf("the CHAIN DEFECT line and the error reach the gate in the sidecar: %s", raw)
 	}
 }
