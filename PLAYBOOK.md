@@ -377,23 +377,22 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 2. Deploy the merged backend and run `shrt doctor -strict` and `shrt verify <chain>`.
 3. If it drifts, run, propose with `-supersede` and have a person approve.
 
-**How the gate names a suspect**, one line per distinct change, under the rpc it blames:
+**How the gate names a suspect**: gate lines, the gate summary, `verify` and `run` use one
+vocabulary:
 
-- `suspect the read`: a server error; a failed auth probe; refused, stopped refusing, or another
-  set of items with no refused or item-making write before it; only list order or an item's
-  position (by id) changed; it moved while its write answered as before; or it contradicts two
-  different writes. Fix the read.
-- `suspect the write`: its answer changed, or a read of the record contradicts it (both values
-  shown); `... it answered other than it stored`: it answers one value and persists another. Fix it.
-- `suspect the write or the read`: the write answered as before, only the read moved (a write
-  storing other than it answers looks the same). Filed under both, several writes nearest first;
-  check what the write persisted.
-- `its contract moves <field>`: of several such writes, the one whose `effects:` move it. Start there.
-- `<rpc> answers <path> differently as <p> than as <q>`: filed under the rpc as that profile; a
-  role-scoped view leaks or hides the field. In a gate, other chains' hedges on that read follow it.
-- `masked by` / `moved with <rpc> <path>`: a pin or drift that follows a change reported
-  elsewhere. Fix that one first. `a knock-on of <suspect>`: recomputed from an earlier change.
-- `pins held, new change`: a new defect beside the pinned ones; do not re-pin, run its `shrt diff`.
+- `suspect write <step> (<rpc>)`: its answer changed, or a read of the record observes it. `...:
+  answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it
+  answers. Fix the write.
+- `suspect read <step> (<rpc>): <what>`: a server error, a failed auth probe, refused (`passes as
+  <p>` when another profile passes), another set or order of items, a code it did not answer
+  before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or
+  `unlike what <write> returned`. Fix the read.
+- `unclear: write ... or read ...`: the write answered as before and only the read moved (a
+  write storing other than it answers looks the same); check what the write persisted.
+- `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
+- `same fault as <chain>`: the suspect and field an earlier gate line named.
+- `not as pinned` / `pins held, new change`: a kept-red chain's pin moved, or a new defect beside
+  the pinned ones; do not re-pin, run its `shrt diff`.
 
 A change goes to an earlier step whose answer for that field of that record, or a total it
 recomputes from, changed; a newly refused or changed write to the first earlier write on its
@@ -401,7 +400,7 @@ records whose answer or verdict changed, or read changed in a field both `effect
 observes the nearest earlier write on its record, skipping refused repeats, idempotent replays
 and, against a reference, a write refused as before or lacking the field whose `effects:` do not
 move it. A list item's id links it to the writes naming it; steps with an expectation left
-unjudged behind a failure fold under it.
+unjudged behind a failure are its knock-ons.
 
 ## 9. Refactor and test against a safe spot
 

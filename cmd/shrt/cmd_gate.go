@@ -518,7 +518,6 @@ func (a attribution) item(it gateItem) gateItem {
 	if st, ok := a.rec.Step(it.Step); ok && st != nil {
 		switch {
 		case a.flipped(st) != "":
-			it.Kind = "refused"
 		case path != "" && a.reordered != nil && a.reordered(it.Step, path):
 			it.Kind = "order"
 		case path != "" && a.resized != nil && a.resized(it.Step, path) != "":
