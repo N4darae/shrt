@@ -19,13 +19,14 @@ import (
 )
 
 func TestFixtureNamesAreVarsThatIsolateTheRun(t *testing.T) {
-	c := &chain.Chain{Name: "fx", Vars: map[string]any{"tag": "t", "qty": 1, "both": "b", "h": "x"}, Steps: []*chain.Step{
+	c := &chain.Chain{Name: "fx", Vars: map[string]any{"tag": "t", "qty": 1, "both": "b", "h": "x", "idem": "idem-key"}, Steps: []*chain.Step{
 		{ID: "cp", Call: "CreateProduct", Body: map[string]any{"sku": "fx-${vars.tag}", "name": "Widget ${vars.both}", "qty": "${vars.qty}"}},
 		{ID: "find", Call: "S/Find", Body: map[string]any{"sku": "${vars.both}"}},
 		{ID: "add", Call: "AddStock", Body: map[string]any{"id_product": "${cp.product.id_product}", "qty": "${vars.q}0"}},
 		{ID: "get", Call: "GetCustomer", Body: map[string]any{"id_customer": "cus-${vars.n}"}},
 		{ID: "order", Call: "CreateOrder", Body: map[string]any{"idempotency_key": "k1-${vars.tag}", "lines": []any{map[string]any{"note": "for ${vars.q}0"}}}},
 		{ID: "list", Call: "ThingService/Fetch", Headers: map[string]string{"X-Tag": "t-${vars.h}"}, Body: map[string]any{"id": "thing-1"}},
+		{ID: "replay", Call: "CreateOrder", Body: map[string]any{"idempotency_key": "${vars.idem}-${vars.tag}"}},
 	}}
 	path := fixtureRequestPath(c)
 	for _, tc := range []struct {
@@ -34,6 +35,7 @@ func TestFixtureNamesAreVarsThatIsolateTheRun(t *testing.T) {
 	}{
 		{"cp", "sku", true}, {"order", "idempotency_key", true}, {"list", "headers.X-Tag", true},
 		{"add", "qty", false}, {"get", "id_customer", false}, {"order", "lines.0.note", false},
+		{"replay", "idempotency_key", true},
 	} {
 		if got := path(tc.step, tc.path); got != tc.want {
 			t.Errorf("fixtureRequestPath %s %s = %v, want %v", tc.step, tc.path, got, tc.want)

@@ -776,27 +776,11 @@ func requestTemplate(c *chain.Chain, step, path string) (any, bool) {
 }
 
 func fixtureRequestPath(c *chain.Chain) func(step, path string) bool {
-	isolating := isolationVars(c)
+	fixture := fixtureTemplate(c)
 	return func(step, path string) bool {
 		v, ok := requestTemplate(c, step, path)
-		if !ok {
-			return false
-		}
-		text, ok := v.(string)
-		if !ok {
-			return false
-		}
-		refs := requestRef.FindAllStringSubmatch(text, -1)
-		if len(refs) == 0 || !namedAround(text) {
-			return false
-		}
-		for _, m := range refs {
-			n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
-			if n == nil || !isolating[n[1]] {
-				return false
-			}
-		}
-		return true
+		text, isText := v.(string)
+		return ok && isText && fixture(text)
 	}
 }
 
@@ -807,19 +791,24 @@ func fixtureTemplate(c *chain.Chain) func(string) bool {
 		if len(refs) == 0 || !namedAround(text) {
 			return false
 		}
+		fed := false
 		for _, m := range refs {
 			n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
-			if n == nil || !isolating[n[1]] {
+			if n == nil {
 				return false
 			}
+			if _, declared := c.Vars[n[1]]; !isolating[n[1]] && (!declared || n[1] == "tag") {
+				return false
+			}
+			fed = fed || isolating[n[1]]
 		}
-		return true
+		return fed
 	}
 }
 
 func namedAround(text string) bool {
 	rest := strings.TrimSpace(requestRef.ReplaceAllString(text, ""))
-	return strings.Trim(rest, "0123456789.+-") != ""
+	return strings.Trim(rest, "0123456789.+-") != "" || len(requestRef.FindAllString(text, 2)) > 1
 }
 
 func isolationVars(c *chain.Chain) map[string]bool {

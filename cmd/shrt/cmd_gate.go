@@ -1058,7 +1058,7 @@ func gateAlso(unverified, findings int) string {
 		out += fmt.Sprintf(", %d no verdict", unverified)
 	}
 	if findings > 0 {
-		out += fmt.Sprintf(", %d finding(s) (the FINDING lines above)", findings)
+		out += fmt.Sprintf(", %d finding(s) listed above", findings)
 	}
 	return out
 }
