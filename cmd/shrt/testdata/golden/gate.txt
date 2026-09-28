@@ -51,10 +51,11 @@ failures by suspect rpc:
 
 # a later chain showing the same fault names the chain that showed it
 FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay (OrderService/CreateOrder)
-FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)
-FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders
+FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; same fault as replay
+FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)
 failures by suspect rpc:
-  OrderService/CreateOrder: 4 step(s) in 3 chain(s); e.g. replay replay; suspect write replay (OrderService/CreateOrder)
+  OrderService/CreateOrder: 2 step(s) in 2 chain(s); e.g. replay replay; suspect write replay (OrderService/CreateOrder)
+  OrderService/CreateOrder: 2 step(s) in 2 chain(s); e.g. orders create; suspect write create (OrderService/CreateOrder)
 
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)
@@ -95,6 +96,7 @@ FAIL       one  later status want=passed got=failed; knock-on of write make (S/M
     1 step(s) knock-on of write make (S/Make) (later)
     (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy
 failures by suspect rpc:
-  (no rpc): 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
-  S/Make: 1 step(s) in 1 chain(s); e.g. one later; knock-on of write make (S/Make)
+  (no rpc): 2 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2 (+1 knock-on step(s))
+  (no rpc): 2 step(s) in 1 chain(s); e.g. one put (error) unavailable: busy
+  (no rpc): 1 step(s) in 1 chain(s); e.g. one list things[].n want=1 got=2
 
