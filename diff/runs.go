@@ -760,7 +760,13 @@ func (r *RunReport) describe(c Change) string {
 	if c.Kind == KindLength || c.Kind == KindType {
 		return c.describeRuns()
 	}
-	return fmt.Sprintf("a=%s b=%s", runValue(c.Want, r.varsA), runValue(c.Got, r.varsB))
+	a, b := map[string]any{}, map[string]any{}
+	for name, v := range r.varsA {
+		if w, ok := r.varsB[name]; ok && fmt.Sprint(v) != fmt.Sprint(w) {
+			a[name], b[name] = v, w
+		}
+	}
+	return fmt.Sprintf("a=%s b=%s", runValue(c.Want, a), runValue(c.Got, b))
 }
 
 func runValue(v any, vars map[string]any) string {
