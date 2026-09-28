@@ -177,6 +177,21 @@ func cancelRestockChain() *chain.Chain {
 			chain.Expectation{Path: "product.qty_on_hand", Equals: "${add_stock_2.qty_on_hand}"}))
 }
 
+func batchLevelChain() *chain.Chain {
+	line := func(p, qty string) map[string]any {
+		return map[string]any{"id_product": "${" + p + ".product.id_product}", "qty": qty}
+	}
+	return steps("batch-level",
+		st("create_a", "shop.v1.ProductService/CreateProduct", map[string]any{"sku": "a"}),
+		st("create_b", "shop.v1.ProductService/CreateProduct", map[string]any{"sku": "b"}),
+		st("batch_1", "shop.v1.StockService/AddStockBatch", map[string]any{"lines": []any{line("create_a", "4")}}),
+		st("batch_3", "shop.v1.StockService/AddStockBatch", map[string]any{"lines": []any{line("create_a", "4")}}),
+		st("batch_12", "shop.v1.StockService/AddStockBatch", map[string]any{"lines": []any{line("create_a", "4"), line("create_b", "5")}},
+			chain.Expectation{Path: "results.0.qty_on_hand", Equals: 12}),
+		st("get_b", "shop.v1.ProductService/GetProduct", map[string]any{"id_product": "${create_b.product.id_product}"},
+			chain.Expectation{Path: "product.qty_on_hand", Equals: 5}))
+}
+
 func productChainReading(name string) *chain.Chain {
 	return steps("stock",
 		st("create_product_first", "ProductService/CreateProduct", map[string]any{"sku": "${vars." + name + "}-A"}),
@@ -380,6 +395,15 @@ func TestSlice(t *testing.T) {
 					t.Errorf("the reason names the entity and its reader: %+v", k)
 				}
 			}},
+		{name: "a kept write asserting a level keeps the earlier writes setting it", c: batchLevelChain(), target: "get_b",
+			opts: chain.SliceOptions{AssertsWrite: func(w, r string) bool { return true }},
+			kept: "create_a,create_b,batch_1,batch_3,batch_12,get_b", check: func(t *testing.T, res *chain.SliceResult) {
+				if k := keptByID(res)["batch_1"]; k.Kind != chain.KeepSideEffect || !strings.Contains(k.Reason, "batch_12 reads") {
+					t.Errorf("the reason names the asserting write: %+v", k)
+				}
+			}},
+		{name: "a kept write asserting no field an earlier write sets keeps none", c: batchLevelChain(), target: "get_b",
+			opts: chain.SliceOptions{AssertsWrite: func(w, r string) bool { return false }}, kept: "create_a,create_b,batch_12,get_b"},
 		{name: "a write the prerequisite names as via", c: steps("via",
 			st("make", "Svc/Make", nil, chain.Expectation{Path: "id", NotEmpty: true}),
 			st("batch", "Svc/StockBatch", map[string]any{"lines": []any{map[string]any{"id": "${make.id}"}}}, chain.Expectation{Path: "ok", Equals: true}),

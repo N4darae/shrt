@@ -92,6 +92,7 @@ type SliceOptions struct {
 	IsLogin           func(*Step) bool
 	Relax             func(stepID string) []ExpectResult
 	StateIrrelevant   func(writerID, readerID string) bool
+	AssertsWrite      func(writerID, readerID string) bool
 	KeyField          func(rpc, field string) (key, known bool)
 }
 
@@ -892,9 +893,13 @@ func (x *stepIndex) actsOn(i int, seen map[int]bool) map[int]bool {
 
 func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) []sideEffectWrite {
 	readers := []int{}
+	asserts := map[int]bool{}
 	for i, k := range keeps {
 		if i == at || k.Kind == KeepAsked || IsReadOnlyCall(x.c.Steps[i].Call) {
 			readers = append(readers, i)
+		} else if opts.AssertsWrite != nil {
+			readers = append(readers, i)
+			asserts[i] = true
 		}
 	}
 	sort.Ints(readers)
@@ -912,7 +917,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 			if w >= r {
 				continue
 			}
-			if opts.StateIrrelevant != nil && opts.StateIrrelevant(s.ID, x.c.Steps[r].ID) {
+			if opts.StateIrrelevant != nil && opts.StateIrrelevant(s.ID, x.c.Steps[r].ID) || asserts[r] && !opts.AssertsWrite(s.ID, x.c.Steps[r].ID) {
 				continue
 			}
 			shared := ""

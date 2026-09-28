@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -22,6 +23,7 @@ type withoutVerdict struct {
 	StillFail []string `json:"still_fail"`
 	NewFail   []string `json:"fail_only_without,omitempty"`
 	newer     string
+	readsOut  bool
 }
 
 func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *runner.Record, named []string, a *withoutVerify, persist, quiet bool) (*withoutVerdict, error) {
@@ -58,7 +60,59 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 			v.StillFail = append(v.StillFail, st.ID)
 		}
 	}
+	v.readsOut = len(v.StillFail) > 0 && !slices.ContainsFunc(v.StillFail, func(id string) bool { return !readsLeftOut(rec, res, id) })
 	return v, nil
+}
+
+func readsLeftOut(rec *runner.Record, res *chain.WithoutResult, step string) bool {
+	mentions := entityFactsOf(rec, step).mentions
+	for _, r := range res.Removed {
+		for id := range entityFactsOf(rec, r.ID).acts {
+			if mentions[id] && assertsWritten(rec, r.ID, step, nil) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func assertsWritten(rec *runner.Record, writer, reader string, ids map[string]bool) bool {
+	w, wrote := rec.Step(writer)
+	r, read := rec.Step(reader)
+	if !wrote || !read {
+		return false
+	}
+	_, response := decodedRecordStep(w)
+	for _, e := range r.Expect {
+		segs := chain.SplitPath(e.Path)
+		asserts := e.Rule == "equals" && ids != nil || !e.Passed && ids == nil
+		if asserts && len(segs) > 0 && segs[0] != "transport" && ownsField(response, "", segs[len(segs)-1], ids) {
+			return true
+		}
+	}
+	return false
+}
+
+func ownsField(v any, parent, field string, ids map[string]bool) bool {
+	items, _ := v.([]any)
+	if t, ok := v.(map[string]any); ok {
+		if item := t[field]; item != nil && item != "" && item != "0" && item != false && item != float64(0) {
+			if key := primaryIDKey(parent, t); ids == nil || key != "" && ids[t[key].(string)] {
+				return true
+			}
+		}
+		for k, item := range t {
+			if k != envelopeParent() && ownsField(item, k, field, ids) {
+				return true
+			}
+		}
+	}
+	for _, item := range items {
+		if ownsField(item, parent, field, ids) {
+			return true
+		}
+	}
+	return false
 }
 
 func failing(sr *runner.StepRecord) bool {
@@ -72,14 +126,20 @@ func (v *withoutVerdict) text() string {
 	switch {
 	case counted == 0:
 		fmt.Fprintf(&b, "verify without %s: no step left in failed in source run %s%s\n", without, v.SourceRun, v.newer)
+	case len(v.Cleared) == 0 && v.readsOut:
+		fmt.Fprintf(&b, "verify INCONCLUSIVE without %s: the %d step(s) that failed in source run %s still fail, but they read what the left-out steps write: %s\n",
+			without, counted, v.SourceRun, capList(v.StillFail, 5))
 	case len(v.Cleared) == 0:
 		fmt.Fprintf(&b, "verify NOT REPRODUCED without %s: the %d step(s) that failed in source run %s still fail: %s\n",
 			without, counted, v.SourceRun, capList(v.StillFail, 5))
 	default:
 		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s\n",
 			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5))
-		if len(v.StillFail) > 0 {
-			fmt.Fprintf(&b, "  still fail, so another cause: %s\n", capList(v.StillFail, 5))
+		if why := "so another cause"; len(v.StillFail) > 0 {
+			if v.readsOut {
+				why = "they read what the left-out steps write"
+			}
+			fmt.Fprintf(&b, "  still fail, %s: %s\n", why, capList(v.StillFail, 5))
 		}
 	}
 	if len(v.NewFail) > 0 {
@@ -94,6 +154,10 @@ func (v *withoutVerdict) err() error {
 	}
 	without := capList(v.Without, 3)
 	switch {
+	case v.readsOut && len(v.Cleared) == 0:
+		return exitWith(3, "INCONCLUSIVE without %s", without)
+	case v.readsOut:
+		return nil
 	case len(v.StillFail) > 0 && len(v.Cleared) == 0:
 		return exitWith(1, "NOT REPRODUCED without %s", without)
 	case len(v.StillFail) > 0:
