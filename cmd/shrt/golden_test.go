@@ -119,6 +119,9 @@ func TestGoldenOutput(t *testing.T) {
 	step("chain", "slice", "probe-orders", "-without", "confirm_single", "-run", "latest", "-verify")
 	step("chain", "pin", "probe-orders")
 	step("gate", "-no-session-check", "-hollow-baseline", "")
+	for _, c := range gateCases() {
+		golden["gate"].WriteString(renderGateCase(t, c) + "\n")
+	}
 	for name, b := range golden {
 		checkGolden(t, name+".txt", b.String())
 	}

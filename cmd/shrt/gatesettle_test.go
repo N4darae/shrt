@@ -1,0 +1,230 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/runner"
+)
+
+type gateCase struct {
+	name    string
+	chains  func() []*gateChain
+	verbose bool
+}
+
+func gateCases() []gateCase {
+	const create, confirm = "x.v1.OrderService/CreateOrder", "x.v1.OrderService/ConfirmOrder"
+	status := func(step string) gateItem {
+		return gateItem{Step: step, Call: create, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: create}}
+	}
+	total := gateItem{Step: "create", Call: create, Path: "order.total_minor", Want: "600", Got: "400", Failed: true, Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
+	confirmed := gateItem{Step: "confirm", Call: confirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: confirm}}
+	listItems := func() []gateItem {
+		set := reason{Kind: reasonSet, Step: "list", RPC: "x.v1.S/List", Path: "list"}
+		var items []gateItem
+		for _, p := range []string{"list.0.a", "list.0.b", "list"} {
+			items = append(items, gateItem{Step: "list", Call: "x.v1.S/List", Path: p, Want: "1", Got: "2", Reason: set})
+		}
+		knock := reason{Kind: reasonKnockOn, Step: "make", RPC: "x.v1.S/Make"}
+		return append(items,
+			gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Reason: reason{Kind: reasonOrder, Step: "list_2", RPC: "x.v1.S/List"}},
+			gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Reason: reason{Kind: reasonError, Step: "find", RPC: "x.v1.S/Find", Got: "internal"}},
+			gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2", Reason: reason{Kind: reasonWrite, Step: "make", RPC: "x.v1.S/Make"}},
+			gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Reason: knock},
+			gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Reason: knock},
+		)
+	}
+	stored := func(name string) *gateChain {
+		return &gateChain{name: name, failed: true, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "DONE", Got: "OPEN", Failed: true,
+			Reason: reason{Kind: reasonStored, Step: "w", RPC: "x.v1.S/Confirm", Path: "thing.state", Want: "DONE", Got: "OPEN", ReadRPC: "Get"}}}}
+	}
+	sent := func(name string) *gateChain {
+		return &gateChain{name: name, failed: true, sent: map[string]string{"get": " sent {}", "w": " sent {\"w\":1}"},
+			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Failed: true, Reason: reason{Kind: reasonWrite, Step: "w", RPC: "x.v1.S/Move"}}}}
+	}
+	const add, thingCreate, get = "shrt.test.v1.ThingService/Add", "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Get"
+	failedAdd := func(step string) gateItem {
+		return gateItem{Step: step, Call: add, Path: "status.code", Want: "REJECTED", Got: "SUCCESS", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: add}}
+	}
+	laterWrites := func() []*gateChain {
+		chain.SetEnvelope("status.code", "SUCCESS")
+		defer chain.SetEnvelope("", "")
+		chainRec := shopRecord(
+			shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`).failing("product.created_at", "t", nil),
+			shopStep("add_negative", shopAdd, `{"qty_on_hand":"0",`+shopOK+`}`, "create").failing("status.code", "REJECTED", "SUCCESS"),
+			shopStep("add_large", shopAdd, `{"qty_on_hand":"1250",`+shopOK+`}`, "create").failing("qty_on_hand", "1251", "1250"),
+			shopStep("add_larger", shopAdd, `{"qty_on_hand":"13595",`+shopOK+`}`, "create").failing("qty_on_hand", "13596", "13595"),
+		)
+		a := runAttribution(nil, chainRec)
+		g := &gateChain{name: "c", failed: true}
+		for _, st := range []string{"add_negative", "add_large", "add_larger"} {
+			path := "qty_on_hand"
+			if st == "add_negative" {
+				path = "status.code"
+			}
+			g.items = append(g.items, a.item(gateItem{Step: st, Call: shopAdd, Path: path, Failed: true}))
+		}
+		return []*gateChain{g}
+	}
+	return []gateCase{
+		{name: "one line per suspect rpc, knock-ons folded under the write", chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
+		{name: "-v counts the knock-on steps", verbose: true, chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
+		{name: "the example carries its reason", chains: func() []*gateChain { return []*gateChain{stored("one"), stored("two")} }},
+		{name: "the example with a reason is preferred", chains: func() []*gateChain {
+			unclear := reason{Kind: reasonUnclear, Step: "w", RPC: "x.v1.S/Batch", Read: "get", ReadRPC: "x.v1.S/Get", Path: "results.2.qty_on_hand", Want: "12", Got: "6"}
+			return []*gateChain{{name: "one", items: []gateItem{
+				{Step: "later", Call: "x.v1.S/Batch", Path: "results.1.qty_on_hand", Want: "18", Got: "12"},
+				{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Reason: unclear},
+			}}}
+		}},
+		{name: "knock-on changes on the same record fold into the root write", chains: laterWrites},
+		{name: "a later chain showing the same fault names the chain that showed it", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "replay", failed: true, items: []gateItem{status("replay")}},
+				{name: "orders", failed: true, items: []gateItem{status("replay_2"), total}},
+				{name: "lists", failed: true, items: []gateItem{total}},
+			}
+		}},
+		{name: "a slice failing as its parent folds into the parent's line", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "orders", failed: true, items: []gateItem{confirmed}},
+				{name: "orders-slice-list", failed: true, pinsHeld: true, items: []gateItem{confirmed}},
+				{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}}},
+				{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
+			}
+		}},
+		{name: "a failed first change leads over a drift", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "a", failed: true, items: []gateItem{failedAdd("add")}},
+				{name: "b", failed: true, items: []gateItem{failedAdd("add_as_clerk"), failedAdd("add_again"), {Step: "create", Call: thingCreate, Path: "thing.name", Want: "long name", Got: "long"}}},
+			}
+		}},
+		{name: "a moved pin with no suspect does not point above", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "a", failed: true, items: []gateItem{{Step: "get", Call: get, Path: "thing.level", Want: "5", Got: "8"}}},
+				{name: "b", failed: true, items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "4", Got: "2", Pinned: "-1"}}},
+			}
+		}},
+		{name: "-v shows the suspect's request and the same fault in a later chain", verbose: true, chains: func() []*gateChain { return []*gateChain{sent("one"), sent("two")} }},
+		{name: "-v lists each changed path once", verbose: true, chains: func() []*gateChain {
+			return []*gateChain{{name: "one", failed: true, items: []gateItem{
+				{Step: "make", Path: "thing.n", Want: "1", Got: "2"},
+				{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
+				{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
+				{Step: "list", Path: "things.3.n", Want: "1", Got: "2"},
+				{Step: "later", Path: "status", Want: "passed", Got: "failed", Reason: reason{Kind: reasonKnockOn, Step: "make", RPC: "x.v1.S/Make"}},
+				{Step: "put", Path: "(error)", Got: "unavailable: busy"},
+				{Step: "put", Path: "code", Want: "<none>", Got: "unavailable"},
+				{Step: "put_2", Path: "(error)", Got: "unavailable: busy"},
+				{Step: "put_2", Path: "code", Want: "<none>", Got: "unavailable"},
+			}}}
+		}},
+	}
+}
+
+func renderGateCase(t *testing.T, c gateCase) string {
+	t.Helper()
+	chains := c.chains()
+	settleGate(chains)
+	return captureStdout(t, func() {
+		fmt.Printf("# %s\n", c.name)
+		for _, g := range chains {
+			fmt.Println(g.line(0))
+			if c.verbose {
+				g.printChanges()
+			}
+		}
+		printGateGroups(chains, c.verbose)
+	})
+}
+
+func TestTheGateSettlesEachChainsLead(t *testing.T) {
+	cases := map[string]gateCase{}
+	for _, c := range gateCases() {
+		cases[c.name] = c
+	}
+	settled := func(name string) []*gateChain {
+		chains := cases[name].chains()
+		settleGate(chains)
+		return chains
+	}
+	sameAs := func(g *gateChain) string {
+		if _, as, ok := strings.Cut(g.first, "; "+sameFault); ok {
+			return as
+		}
+		return ""
+	}
+	for _, c := range []struct {
+		name          string
+		firstAt, same []string
+	}{
+		{"a later chain showing the same fault names the chain that showed it", []string{"replay order.status", "create order.total_minor", "create order.total_minor"}, []string{"", "", "orders"}},
+		{"a failed first change leads over a drift", []string{"add status.code", "add_as_clerk status.code"}, []string{"", "a"}},
+		{"-v shows the suspect's request and the same fault in a later chain", []string{"get thing.state", "get thing.state"}, []string{"", "one"}},
+	} {
+		chains := settled(c.name)
+		for i, g := range chains {
+			if g.firstAt != c.firstAt[i] || sameAs(g) != c.same[i] {
+				t.Errorf("%s: %s leads with %q same as %q, want %q same as %q", c.name, g.name, g.firstAt, sameAs(g), c.firstAt[i], c.same[i])
+			}
+		}
+	}
+	chains := settled("a slice failing as its parent folds into the parent's line")
+	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" {
+		t.Errorf("only the slice whose first change is its parent's folds: %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf)
+	}
+	chains = settled("a moved pin with no suspect does not point above")
+	if chains[1].class != "not as pinned" || sameAs(chains[1]) != "" {
+		t.Errorf("a moved pin is not as pinned and names no other chain: %q %q", chains[1].class, chains[1].first)
+	}
+	out := renderGateCase(t, cases["knock-on changes on the same record fold into the root write"])
+	if strings.Count(out, "\n  ") != 1 || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
+		t.Errorf("knock-on changes on the same record fold into the root write:\n%s", out)
+	}
+	out = renderGateCase(t, cases["one line per suspect rpc, knock-ons folded under the write"])
+	if strings.Count(out, "  S/List:") != 1 || strings.Contains(out, "S/Get:") {
+		t.Errorf("one line per suspect rpc, knock-on steps under the write:\n%s", out)
+	}
+}
+
+func TestTheHeadlineLeadsWithTheFirstFailingChange(t *testing.T) {
+	transport := &diff.Report{Changes: []diff.Change{
+		{Step: "get", Path: "status", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusError},
+		{Step: "get", Path: "customer", Kind: diff.KindType, Want: nil, Got: map[string]any{}},
+		{Step: "list", Path: "total", Kind: diff.KindChanged, Want: 1, Got: 2},
+	}}
+	if first, steps := firstChange(transport, nil); first == nil || first.Kind != diff.KindStatus || steps != 2 {
+		t.Errorf("a transport error leads, got %+v over %d step(s)", first, steps)
+	}
+	transport.Changes[0].Got = runner.StatusFailed
+	if first, _ := firstChange(transport, nil); first.Path != "customer" {
+		t.Errorf("a plain failure yields to the step's first change, got %+v", first)
+	}
+	drift := &diff.Report{Changes: []diff.Change{
+		{Step: "login", Path: "expires_at", Kind: diff.KindChanged, Want: 1, Got: 1000},
+		{Step: "add", Path: "qty_on_hand", Kind: diff.KindChanged, Want: 0, Got: 9},
+		{Step: "add", Path: "status.code", Kind: diff.KindStatus, Want: runner.StatusPassed, Got: runner.StatusFailed},
+	}}
+	rec := &runner.Record{Steps: []*runner.StepRecord{{ID: "login", Status: runner.StatusPassed}, {ID: "add", Status: runner.StatusFailed}}}
+	if first, steps := firstChange(drift, rec); first == nil || first.Step != "add" || first.Path != "qty_on_hand" || steps != 2 {
+		t.Errorf("the failing step leads over an earlier drift, got %+v over %d step(s)", first, steps)
+	}
+	if first, _ := firstChange(drift, nil); first.Step != "login" {
+		t.Errorf("without a record the first change leads, got %+v", first)
+	}
+	observed := shopRecord(
+		shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","total_minor":"7"}}`),
+		shopStep("fetch_order", shopFetch, `{"order":{"id_order":"o1","total_minor":"7"}}`, "create_order").failing("order.total_minor", "9", "7"),
+	)
+	write := &diff.Report{Changes: []diff.Change{
+		{Step: "create_order", Path: "order.total_minor", Kind: diff.KindChanged, Want: "9", Got: "7"},
+		{Step: "fetch_order", Path: "order.total_minor", Kind: diff.KindChanged, Want: "9", Got: "7"},
+	}}
+	if c, _ := firstChange(write, observed); c == nil || c.Step != "create_order" {
+		t.Errorf("the changed write a failing read observes leads, got %+v", c)
+	}
+}

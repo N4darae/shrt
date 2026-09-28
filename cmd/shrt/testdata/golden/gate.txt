@@ -15,3 +15,86 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 
+# one line per suspect rpc, knock-ons folded under the write
+PASS       one
+failures by suspect rpc:
+  S/List: 2 step(s) in 1 chain(s); e.g. one list; suspect read list (S/List): answers another set of list
+  S/Find: 1 step(s) in 1 chain(s); e.g. one find; suspect read find (S/Find): fails on its own (internal)
+  S/Make: 1 step(s) in 1 chain(s); e.g. one make; suspect write make (S/Make)
+
+# -v counts the knock-on steps
+PASS       one
+    list[].a, list[].b at 1 step(s) (list); e.g. list[].a want=1 got=2
+    list at 2 step(s) (list, list_2); e.g. want=1 got=2
+    n at 2 step(s) (find, make); e.g. want=1 got=2
+    2 step(s) knock-on of write make (S/Make) (get, get_2)
+failures by suspect rpc:
+  S/List: 2 step(s) in 1 chain(s); e.g. one list; suspect read list (S/List): answers another set of list
+  S/Find: 1 step(s) in 1 chain(s); e.g. one find; suspect read find (S/Find): fails on its own (internal)
+  S/Make: 1 step(s) in 1 chain(s); e.g. one make; suspect write make (S/Make) (+2 knock-on step(s))
+
+# the example carries its reason
+FAIL       one  get (S/Get) thing.state want=DONE got=OPEN; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
+FAIL       two  get (S/Get) thing.state want=DONE got=OPEN; same fault as one
+failures by suspect rpc:
+  S/Confirm: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
+
+# the example with a reason is preferred
+PASS       one
+failures by suspect rpc:
+  S/Batch: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w (S/Batch) or the read: answered results[].qty_on_hand=12, but Get read 6
+
+# knock-on changes on the same record fold into the root write
+FAIL       c  add_negative (StockService/AddStock) status.code want= got=; suspect write add_negative (StockService/AddStock)
+failures by suspect rpc:
+  StockService/AddStock: 3 step(s) in 1 chain(s); e.g. c add_negative; suspect write add_negative (StockService/AddStock)
+
+# a later chain showing the same fault names the chain that showed it
+FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay (OrderService/CreateOrder)
+FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)
+FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders
+failures by suspect rpc:
+  OrderService/CreateOrder: 4 step(s) in 3 chain(s); e.g. replay replay; suspect write replay (OrderService/CreateOrder)
+
+# a slice failing as its parent folds into the parent's line
+FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)
+FAIL       orders-slice-list  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
+FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
+FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders
+failures by suspect rpc:
+  OrderService/ConfirmOrder: 3 step(s) in 3 chain(s); e.g. orders confirm; suspect write confirm (OrderService/ConfirmOrder)
+  OrderService/ListOrders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
+
+# a failed first change leads over a drift
+FAIL       a  add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect write add (ThingService/Add)
+FAIL       b  add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a
+failures by suspect rpc:
+  ThingService/Add: 3 step(s) in 2 chain(s); e.g. a add; suspect write add (ThingService/Add)
+  ThingService/Create: 1 step(s) in 1 chain(s); e.g. b create thing.name want=long name got=long
+
+# a moved pin with no suspect does not point above
+FAIL       a  get (ThingService/Get) thing.level want=5 got=8
+FAIL       b  not as pinned: get_pinned (ThingService/Get) thing.level pinned got=-1, now got=2
+failures by suspect rpc:
+  ThingService/Get: 2 step(s) in 2 chain(s); e.g. a get thing.level want=5 got=8
+
+# -v shows the suspect's request and the same fault in a later chain
+FAIL       one  get (S/Get) thing.state want=a got=b; suspect write w (S/Move)
+  w sent {"w":1}
+    thing.state at 1 step(s) (get); e.g. want=a got=b
+FAIL       two  get (S/Get) thing.state want=a got=b; same fault as one
+  w sent {"w":1}
+    thing.state at 1 step(s) (get); e.g. want=a got=b
+failures by suspect rpc:
+  S/Move: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Move)
+
+# -v lists each changed path once
+FAIL       one  later () status want=passed got=failed; knock-on of write make (S/Make)
+    thing.n at 2 step(s) (make, get); e.g. want=1 got=2
+    things[].n at 1 step(s) (list); e.g. want=1 got=2
+    1 step(s) knock-on of write make (S/Make) (later)
+    (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy
+failures by suspect rpc:
+  : 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
+  S/Make: 1 step(s) in 1 chain(s); e.g. one later; knock-on of write make (S/Make)
+
