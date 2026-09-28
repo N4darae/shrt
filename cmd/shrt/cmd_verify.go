@@ -35,47 +35,34 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  1  drift, a failed replay, no safe spot, a FINDING, REGRESSION or CHAIN DEFECT, a confirmed slowdown\n" +
 	"  3  could not verify: a step unanswered, a restart, auth refused, a fixture reused, a stale descriptor\n"
 
-type verifyFlags struct {
-	vars                                                  varFlags
-	useRun, build                                         string
-	asJSON, quiet, save, verbose, showLatency, listMasked bool
-}
-
 type verification struct {
-	e          *env
-	name, arg  string
-	o          verifyFlags
-	spot       *store.SafeSpot
-	olderSpot  string
-	rec        *runner.Record
-	c          *chain.Chain
-	report     *diff.Report
-	latency    []diff.LatencyFlag
-	varDrift   string
-	edits      []string
-	unsupplied []string
-
-	unansweredStep, unansweredWhy string
-	unanswered                    bool
-	life                          *tokenLifetime
-	loss                          *sessionLoss
-	fresh                         *freshRefusal
-	dropped                       *unansweredRepeat
-	flaky                         *intermittentFailure
-	reuse                         *fixtureReuse
-	literal                       *literalCollision
-	idem, lateIdem                *idempotentReplay
-	driftStep, driftWhy           string
-	driftAt                       int
-	declared, independent         []diff.Change
-	violation                     bool
-	nonBackend                    error
-	headline, notVerdict          string
-	runToo, flakyOnly             bool
+	e                                                              *env
+	vars                                                           varFlags
+	name, arg, useRun, build, olderSpot, varDrift, headline        string
+	unansweredStep, unansweredWhy, driftStep, driftWhy, notVerdict string
+	asJSON, quiet, save, verbose, showLatency, listMasked          bool
+	unanswered, violation, runToo, flakyOnly                       bool
+	driftAt                                                        int
+	edits, unsupplied                                              []string
+	spot                                                           *store.SafeSpot
+	rec                                                            *runner.Record
+	c                                                              *chain.Chain
+	report                                                         *diff.Report
+	latency                                                        []diff.LatencyFlag
+	declared, independent                                          []diff.Change
+	nonBackend                                                     error
+	life                                                           *tokenLifetime
+	loss                                                           *sessionLoss
+	fresh                                                          *freshRefusal
+	dropped                                                        *unansweredRepeat
+	flaky                                                          *intermittentFailure
+	reuse                                                          *fixtureReuse
+	literal                                                        *literalCollision
+	idem, lateIdem                                                 *idempotentReplay
 }
 
 func runVerify(ctx context.Context, args []string) (err error) {
-	v := &verification{o: verifyFlags{vars: varFlags{}}}
+	v := &verification{vars: varFlags{}}
 	if err := v.parse(args); err != nil {
 		return err
 	}
@@ -87,7 +74,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	v.explainInput()
 	v.examine(ctx)
 	v.notJudged(ctx)
-	if v.o.asJSON {
+	if v.asJSON {
 		if v.olderSpot != "" {
 			fmt.Fprintln(os.Stderr, "verify: "+v.olderSpot)
 		}
@@ -110,16 +97,15 @@ func runVerify(ctx context.Context, args []string) (err error) {
 
 func (v *verification) parse(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	o := &v.o
-	fs.Var(o.vars, "var", "set a chain var as `key=value`, repeatable")
-	fs.StringVar(&o.useRun, "run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
-	fs.BoolVar(&o.asJSON, "json", false, "print the diff report as JSON")
-	fs.BoolVar(&o.quiet, "quiet", false, "a clean replay prints its verdict line only")
-	fs.BoolVar(&o.save, "save", true, "persist the replay record")
-	fs.StringVar(&o.build, "build", "", buildFlagUsage)
-	fs.BoolVar(&o.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
-	fs.BoolVar(&o.showLatency, "latency", false, "list each step's latency against the safe spot's run")
-	fs.BoolVar(&o.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
+	fs.Var(v.vars, "var", "set a chain var as `key=value`, repeatable")
+	fs.StringVar(&v.useRun, "run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
+	fs.BoolVar(&v.asJSON, "json", false, "print the diff report as JSON")
+	fs.BoolVar(&v.quiet, "quiet", false, "a clean replay prints its verdict line only")
+	fs.BoolVar(&v.save, "save", true, "persist the replay record")
+	fs.StringVar(&v.build, "build", "", buildFlagUsage)
+	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
+	fs.BoolVar(&v.showLatency, "latency", false, "list each step's latency against the safe spot's run")
+	fs.BoolVar(&v.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -147,7 +133,7 @@ func (v *verification) load(ctx context.Context) error {
 	if v.spot, v.olderSpot, err = loadVerifySpot(e, v.name); err != nil {
 		return err
 	}
-	if v.o.useRun != "" {
+	if v.useRun != "" {
 		return v.loadRun()
 	}
 	return v.replay(ctx)
@@ -176,38 +162,30 @@ func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 			"propose it with 'shrt confirm %s -supersede -note \"...\"', and a person approves it",
 			rel(e.cfg.Root, e.store.SafeSpotPath(name)), spot.Digest, rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "archive")), name)
 	}
-	kind := spot.DigestKind()
-	if kind == store.DigestCurrent {
+	if spot.DigestKind() == store.DigestCurrent {
 		return spot, "", nil
 	}
-	covers := "the chain, run, target, build, volatile patterns and step records"
-	if kind == store.DigestLegacy {
-		covers = "step ids, calls and responses only"
-	}
-	return spot, fmt.Sprintf("safe spot %s is of the older kind: its digest covers %s, not who approved it (confirmed_by, confirmed_at, note), "+
-		"so a hand edit of those is not caught. To seal the approval, propose a passing run in its place with 'shrt confirm %s -supersede -note \"...\"' and have a person approve it",
-		rel(e.cfg.Root, e.store.SafeSpotPath(name)), covers, name), nil
+	return spot, fmt.Sprintf("safe spot %s is of the older kind: its digest does not cover who approved it (confirmed_by, confirmed_at, note); "+
+		"to seal the approval, propose a passing run in its place (shrt confirm %s -supersede) and have a person approve it",
+		rel(e.cfg.Root, e.store.SafeSpotPath(name)), name), nil
 }
 
 func (v *verification) loadRun() error {
 	e, name := v.e, v.name
-	v.o.useRun = store.RunID(v.o.useRun)
-	asked := v.o.useRun
-	rec, err := e.store.LoadRun(name, v.o.useRun)
+	v.useRun = store.RunID(v.useRun)
+	asked := v.useRun
+	rec, err := e.store.LoadRun(name, v.useRun)
 	if err != nil {
 		return err
 	}
 	if rec.RunID != asked {
-		v.o.useRun = rec.RunID
+		v.useRun = rec.RunID
 		fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
 			asked, rec.RunID, name)
 	}
-	if v.o.useRun == v.spot.RunID {
-		fmt.Fprintf(os.Stderr,
-			"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+
-				"itself. It is a clean control for the differ, and it is NOT evidence about the backend: "+
-				"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
-				"replay live.\n", v.o.useRun)
+	if v.useRun == v.spot.RunID {
+		fmt.Fprintf(os.Stderr, "verify: run %s IS the safe spot's own run, so this is a control for the differ, NOT evidence about "+
+			"the backend; pass a later run id, or drop -run to replay live\n", v.useRun)
 	}
 	if resolved, resolveErr := e.resolveChainNamed(v.arg, name); resolveErr == nil {
 		v.c = resolved
@@ -227,13 +205,13 @@ func (v *verification) replay(ctx context.Context) error {
 		}
 		return err
 	}
-	opts := runner.Options{Vars: c.CoerceVars(v.o.vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: v.o.build, KeepGoing: true}
+	opts := runner.Options{Vars: c.CoerceVars(v.vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: v.build, KeepGoing: true}
 	rec, err := executeChain(ctx, e, c, withLatency(opts, latencyPolicy(e), v.spot), true)
 	if err != nil {
 		return err
 	}
 	rec.ReplayOf = v.spot.RunID
-	if v.o.save {
+	if v.save {
 		if _, err := e.store.SaveRun(rec); err != nil {
 			return err
 		}
@@ -277,17 +255,17 @@ func (v *verification) explainInput() {
 	if len(report.RequestChanges) == 0 {
 		return
 	}
-	only := map[string]any(v.o.vars)
-	if v.o.useRun != "" {
+	only := map[string]any(v.vars)
+	if v.useRun != "" {
 		only = nil
 	}
 	fedAll := inputVars(c, report.RequestChanges)
 	v.varDrift = varsDifferFromConfirmed(e, spotRun, c, rec, only, fedAll)
 	defaulted := func(fed map[string]bool) []string {
-		if v.o.useRun != "" {
+		if v.useRun != "" {
 			return nil
 		}
-		return varsConfirmedOtherwise(e, spotRun, rec, v.o.vars, fed)
+		return varsConfirmedOtherwise(e, spotRun, rec, v.vars, fed)
 	}
 	if v.varDrift == "" {
 		v.unsupplied = defaulted(fedAll)
@@ -306,7 +284,7 @@ func (v *verification) explainInput() {
 		return
 	}
 	how := "set by -var; the chain file is not what differs"
-	if v.o.useRun != "" {
+	if v.useRun != "" {
 		how = "as run " + rec.RunID + " was recorded"
 	}
 	if len(v.unsupplied) > 0 {
@@ -419,7 +397,7 @@ func (v *verification) unansweredHeadline() {
 }
 
 func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
-	name, rec, report, spot, quiet := v.name, v.rec, v.report, v.spot, v.o.quiet
+	name, rec, report, spot, quiet := v.name, v.rec, v.report, v.spot, v.quiet
 	life, loss := v.life, v.loss
 	if v.nonBackend != nil {
 		fmt.Fprintf(body, "could not verify %s: %s; %s (why below)\n", name, v.headline, v.notVerdict)
@@ -471,20 +449,20 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 	name, rec, report, spot := v.name, v.rec, v.report, v.spot
 	driftStep, driftWhy := v.driftStep, v.driftWhy
-	if !v.o.verbose && !v.violation && len(v.declared) == 0 && driftStep != "" {
+	if !v.verbose && !v.violation && len(v.declared) == 0 && driftStep != "" {
 		report.FoldSteps(unjudgedSteps(rec, v.independent, v.driftAt), fmt.Sprintf("its response, or one it reads, does not "+
 			"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 			"or add -v to list them", driftWhy))
 	}
-	if v.o.quiet {
+	if v.quiet {
 		fmt.Fprintln(body, report.QuietText())
 	} else {
 		fmt.Fprintln(body, report.Text())
 	}
-	if list := report.MaskedList(); v.o.listMasked && list != "" {
+	if list := report.MaskedList(); v.listMasked && list != "" {
 		fmt.Fprintln(body, list)
 	}
-	if v.o.showLatency {
+	if v.showLatency {
 		fmt.Fprintln(body, diff.LatencyTable(spot.Steps, rec, latencyPolicy(v.e)))
 	}
 	for _, f := range v.latency {
@@ -522,9 +500,8 @@ func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 			driftStep, driftWhy, driftRemedy(ctx, v.e, driftWhy))
 	}
 	if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
-		fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
-			"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
-			"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
+		fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not approved; it hides only a change of order, so it does not "+
+			"fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
 	}
 }
 
@@ -587,27 +564,15 @@ func (v *verification) inputDrift() error {
 	name, report := v.name, v.report
 	const propose = "and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\""
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
-		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
-			return fmt.Errorf("regression: %d change(s) vs safe spot; the expectation change since it was confirmed explains none of them", n)
-		}
-		if report.OnlyExpectationsEdited() {
-			return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the expectation change since it was confirmed "+
-				"(%d more are: the changed step's status or the steps not reached after it, where the changed expectation failed)", n, len(report.Changes)-n)
-		}
-		if report.OnlyChainChanged() {
-			return fmt.Errorf("regression: %d change(s) vs safe spot are at steps the chain change since it was confirmed cannot affect "+
-				"(not a changed, added or removed step, after no added or removed write, and reading none of those steps), so it does not "+
-				"explain them (%d more it explains)", n, len(report.Changes)-n)
-		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ, that read no value the different "+
-			"input changed and follow no write whose answer changed with it, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
+		return fmt.Errorf("regression: %d change(s) vs safe spot are not explained by the input or chain change since it was confirmed (%d more are)",
+			n, len(report.Changes)-n)
 	}
 	if !report.Clean() && v.varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
 		if len(v.unsupplied) > 0 {
 			fix = "Verify with " + strings.Join(v.unsupplied, " ") + " to compare like with like"
 		}
-		if v.o.useRun != "" {
+		if v.useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
 		}
 		if len(v.edits) > 0 {
@@ -1457,10 +1422,6 @@ func refusedFreshAt(rec *runner.Record, step string) bool {
 	return ok && runner.RefusedFreshToken(st)
 }
 
-func couldNotVerify(name, step, why string, rec *runner.Record) error {
-	return couldNotVerifyAfter(name, step, why, rec, nil)
-}
-
 func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error {
 	after, answered := false, 0
 	for _, st := range rec.Steps {
@@ -1475,20 +1436,17 @@ func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error
 			"not judged, since the unanswered call may explain it", answered)
 	}
 	for _, st := range rec.Steps {
-		if st.ID == step && runner.RefusedFreshToken(st) && st.AuthRetry != runner.AuthRetryResent {
-			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
-				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
-				"not a problem with the credentials. Nothing before it drifted, and %s. It was not re-sent (not a read), so a "+
-				"restart between the login and this call explains it as well, and a repeat is not reported as a finding: only a "+
-				"call re-sent after a fresh login and refused again is. The step record says what was tried (auth_retry, error); "+
-				"re-run verify", name, step, why, past)
+		if st.ID != step || !runner.RefusedFreshToken(st) {
+			continue
 		}
-		if st.ID == step && runner.RefusedFreshToken(st) {
-			return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a successful "+
-				"login in this run had just issued, so the credentials work: this may be an auth regression in the backend, "+
-				"not a problem with the credentials. Nothing before it drifted, and %s. The step record says what was tried "+
-				"(auth_retry, error); re-run verify to confirm: a repeat at the same step is reported as a finding", name, step, why, past)
+		tail := "re-run verify to confirm: a repeat at the same step is reported as a finding"
+		if st.AuthRetry != runner.AuthRetryResent {
+			tail = "it was not re-sent (not a read), so a restart between the login and this call explains it as well, and a repeat " +
+				"is not a finding; re-run verify"
 		}
+		return exitWith(3, "could not verify %s: step %q was refused at authentication (%s) with a token a login in this run had just "+
+			"issued, so the credentials work: this may be an auth regression in the backend. Nothing before it drifted, and %s. "+
+			"The step record says what was tried (auth_retry, error); %s", name, step, why, past, tail)
 	}
 	remedy := unansweredRemedy(why)
 	for _, st := range rec.Steps {

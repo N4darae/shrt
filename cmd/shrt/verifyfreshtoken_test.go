@@ -14,7 +14,7 @@ func TestCouldNotVerifySaysAFreshTokenRefusedMayBeAnAuthRegression(t *testing.T)
 			Error: "unauthenticated: token rejected\n       the backend refused a token that a login in this run had just issued: " +
 				"the credentials work and the token is current, so this may be an auth regression in the backend"},
 	}}
-	err := couldNotVerify("order", "add", "the backend refused authentication: unauthenticated: token rejected", rec)
+	err := couldNotVerifyAfter("order", "add", "the backend refused authentication: unauthenticated: token rejected", rec, nil)
 	if exitCodeOf(err) != 3 {
 		t.Fatalf("still exit 3, got %d", exitCodeOf(err))
 	}

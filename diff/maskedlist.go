@@ -54,14 +54,9 @@ func (r *RunReport) MaskedList() string {
 	if r.FixtureRequests > 0 {
 		fmt.Fprintf(&b, "%d request value(s) differ only in a fixture name, a ${uuid} or the clock\n", r.FixtureRequests)
 	}
-	for _, g := range []struct {
-		what  string
-		paths []string
-	}{{"declared in one record, left at the proto3 default on the wire", r.UnsentDefaults},
-		{"declared in one record, on the wire undeclared with the same value in the other", r.UndeclaredSame}} {
-		if len(g.paths) > 0 {
-			fmt.Fprintf(&b, "response fields %s: %s\n", g.what, strings.Join(g.paths, ", "))
-		}
+	if len(r.UnsentDefaults)+len(r.UndeclaredSame) > 0 {
+		fmt.Fprintf(&b, "response fields declared in one record only, unsent or sent undeclared alike: %s\n",
+			strings.Join(append(append([]string{}, r.UnsentDefaults...), r.UndeclaredSame...), ", "))
 	}
 	fmt.Fprintf(&b, "%d masked difference(s), run A -> run B:\n", len(r.MaskedChanges))
 	for _, c := range r.MaskedChanges {

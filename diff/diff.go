@@ -1395,20 +1395,9 @@ func (r *Report) Text() string {
 	mixed := len(r.RequestChanges) > 0 && unexplained > 0
 	expectOnly := r.OnlyExpectationsEdited()
 	switch {
-	case mixed && expectOnly && unexplained == len(r.Changes):
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: the expectation change explains none of them, since it explains only a failure of the "+
-			"changed expectation itself, so they are evidence of a backend regression\n", len(r.Changes), r.SafeSpotID)
-	case mixed && expectOnly:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: %d are not explained by the expectation change, which explains only its own step's "+
-			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
-			"%d are\n", len(r.Changes), r.SafeSpotID, unexplained, len(r.Changes)-unexplained)
-	case mixed && r.OnlyChainChanged():
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: %d are at steps the chain change cannot affect (not a changed, added or removed step, "+
-			"after no added or removed write, and reading none of those steps), so it does not explain them and they are evidence of a "+
-			"backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, unexplained, len(r.Changes)-unexplained)
 	case mixed:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: %d are at steps whose input did not differ, that read no value the different input "+
-			"changed and follow no write whose answer changed with it, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, unexplained, len(r.Changes)-unexplained)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: %d are not explained by the input or chain change since it was confirmed, "+
+			"so they are evidence of a backend regression; %d are\n", len(r.Changes), r.SafeSpotID, unexplained, len(r.Changes)-unexplained)
 	case r.OnlyChainChanged():
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID)
 	case len(r.RequestChanges) > 0:

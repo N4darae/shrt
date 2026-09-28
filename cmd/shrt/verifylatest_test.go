@@ -37,7 +37,7 @@ func TestVerifyRunLatestNamesTheRunItDiffed(t *testing.T) {
 	if !strings.Contains(stderr, "-run latest is run "+spot.RunID) {
 		t.Fatalf("verify -run latest must name the run it picked (%s):\n%s", spot.RunID, stderr)
 	}
-	if !strings.Contains(stderr, "IS the run this safe spot was made from") {
+	if !strings.Contains(stderr, "IS the safe spot's own run") {
 		t.Fatalf("latest resolving to the safe spot's own run is a self-comparison and must say so:\n%s", stderr)
 	}
 
@@ -59,7 +59,7 @@ func TestVerifyRunLatestNamesTheRunItDiffed(t *testing.T) {
 	if !strings.Contains(stderr, "-run latest is run "+latest.RunID) {
 		t.Fatalf("verify -run latest must name %s:\n%s", latest.RunID, stderr)
 	}
-	if strings.Contains(stderr, "IS the run this safe spot") {
+	if strings.Contains(stderr, "IS the safe spot's own run") {
 		t.Fatalf("a later run is not a self-comparison:\n%s", stderr)
 	}
 	if !strings.Contains(helpOf(t, "verify"), "latest") {

@@ -270,11 +270,6 @@ func unstableFields(e *env, rec *runner.Record) (string, []string, []string) {
 	return "", nil, nil
 }
 
-func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain, unsent func(procedure, path string, v any) bool) []string {
-	unstable, _ := unstableAgainstSpot(prev, rec, nil, volatile, c, unsent)
-	return unstable
-}
-
 func unstableAgainstSpot(prev, rec *runner.Record, spot *store.SafeSpot, volatile []string, c *chain.Chain,
 	unsent func(procedure, path string, v any) bool) ([]string, []string) {
 	base := &store.SafeSpot{Chain: prev.Chain, RunID: prev.RunID, Volatile: prev.Volatile, Steps: prev.Steps}

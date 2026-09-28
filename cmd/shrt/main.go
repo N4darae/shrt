@@ -108,11 +108,3 @@ func usage() {
 	fmt.Println()
 	fmt.Println("run 'shrt <command> -h' for command flags")
 }
-
-func indent(s, prefix string) string {
-	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
-	for i, l := range lines {
-		lines[i] = prefix + l
-	}
-	return strings.Join(lines, "\n")
-}
