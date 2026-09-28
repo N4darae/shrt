@@ -10,6 +10,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/transport"
 )
 
 func TestSliceVerdictSaysAClockBoundWasComparedByDistance(t *testing.T) {
@@ -464,5 +465,26 @@ func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRefusedFailureNeedsARefusedStepThatDidNotPass(t *testing.T) {
+	refused := []transport.TokenRefusal{{Token: "t", Cached: true}}
+	for _, tc := range []struct {
+		name  string
+		steps []*runner.StepRecord
+		want  bool
+	}{
+		{"refusal recovered on a passed step, assertion failure elsewhere", []*runner.StepRecord{
+			{ID: "prod_a", Status: runner.StatusPassed, TokenRefused: refused},
+			{ID: "confirm", Status: runner.StatusFailed},
+		}, false},
+		{"the failing step was refused", []*runner.StepRecord{
+			{ID: "read", Status: runner.StatusFailed, TokenRefused: refused},
+		}, true},
+	} {
+		if got := refusedFailure(&runner.Record{Steps: tc.steps}); got != tc.want {
+			t.Errorf("%s: refusedFailure = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

@@ -258,19 +258,30 @@ func pinBlocker(e *env, c *chain.Chain, rec *runner.Record) string {
 	if reuse := detectFixtureReuse(e, c, rec); reuse != nil {
 		return reuse.line()
 	}
-	if life := examineTokenLifetime(e, rec); life != nil {
-		return life.line()
-	}
-	if loss := examineSessionLoss(e, rec); loss != nil {
-		return loss.line()
-	}
-	if fresh := repeatedFreshRefusal(e, rec); fresh != nil {
-		return fresh.line()
+	if refusedFailure(rec) {
+		if life := examineTokenLifetime(e, rec); life != nil {
+			return life.line()
+		}
+		if loss := examineSessionLoss(e, rec); loss != nil {
+			return loss.line()
+		}
+		if fresh := repeatedFreshRefusal(e, rec); fresh != nil {
+			return fresh.line()
+		}
 	}
 	if flaky := detectIntermittent(e, rec); flaky != nil {
 		return flaky.line()
 	}
 	return ""
+}
+
+func refusedFailure(rec *runner.Record) bool {
+	for _, st := range rec.Steps {
+		if st.Status != runner.StatusPassed && len(st.TokenRefused) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func quietly(fn func() error) (string, error) {
