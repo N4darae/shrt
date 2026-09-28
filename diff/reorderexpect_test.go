@@ -32,7 +32,7 @@ func TestAReorderWithAnOrderSensitiveExpectationIsAnOrderChange(t *testing.T) {
 	if !strings.Contains(text, "products.0.sku want=sku-g got=sku-w") {
 		t.Fatalf("the failed expectation is named:\n%s", text)
 	}
-	if !strings.Contains(text, "first failing step: step 0 list (failed): expectation failed: products.0.sku want=sku-g got=sku-w") {
+	if rep.FirstFailure != "step 0 list (failed): expectation failed: products.0.sku want=sku-g got=sku-w" {
 		t.Fatalf("the first failing step names the expectation that failed, not only its status:\n%s", text)
 	}
 }
