@@ -112,6 +112,7 @@ rpcs:
         fields:
             id_order:
                 from: shop.orders.v1.OrderService/CreateOrder->order.id_order
+        needs: [shop.catalog.v1.StockService/AddStock]
         effects:
             qty_on_hand:
                 decrease: lines.qty
@@ -297,6 +298,17 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 			shopStep("confirm_exact", shopConfirm, `{"status":{"code":"REJECTED","details":[{"app_code":1305}]}}`, "create_order").failing("status.code", "SUCCESS", "REJECTED"),
 			shopStep("fetch_order_after_confirm_exact", shopFetch, order, "create_order").failing("order.status", "ORDER_STATUS_CONFIRMED", "ORDER_STATUS_PENDING"),
 		)
+	}
+	ownFlip := func(write, call, request string) func() *runner.Record {
+		return func() *runner.Record {
+			order := `{"order":{"id_order":"o1","total_minor":"747"},` + shopOK + `}`
+			return shopRecord(
+				shopStep("create_product", write, `{"product":{"id_product":"p1","price_minor":"249"},`+shopOK+`}`).failing("product.price_minor", "250", "249"),
+				shopStep("create_order", shopOrder, order, "create_product").failing("order.total_minor", "750", "747"),
+				shopStep("flip", call, `{"status":{"code":"REJECTED","details":[{"app_code":1304,"reason":"OrderCancelled"}]}}`, "create_order").
+					failing("status.code", "SUCCESS", "REJECTED").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(request) }),
+			)
+		}
 	}
 	listOrder := func(readMoved bool) func() *runner.Record {
 		return func() *runner.Record {
@@ -536,6 +548,11 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 		{name: "an earlier write that changed the same field is the suspect of a later read", envelope: true, env: "shop", rec: earlierField, step: "get_product_after_confirm_order", path: "product.qty_on_hand", kind: reasonWrite, blamed: "add_stock"},
 		{name: "an earlier write that changed the same field is the suspect of a refusal", envelope: true, env: "shop", rec: earlierField, step: "confirm_exact", path: "status.code", kind: reasonWrite, blamed: "add_stock"},
 		{name: "an earlier write that changed the same field is the suspect of a later status", envelope: true, env: "shop", rec: earlierField, step: "fetch_order_after_confirm_exact", path: "order.status", kind: reasonWrite, blamed: "add_stock"},
+		{name: "a stock write the refused rpc's contract moves is the suspect of its refusal", envelope: true, env: "effects", rec: earlierField, step: "confirm_exact", path: "status.code", kind: reasonWrite, blamed: "add_stock"},
+		{name: "a refusal nothing the earlier changed write answered reaches is the write's own", envelope: true, env: "effects", rec: ownFlip(shopCreate, shopCancel, `{"id_order":"o1"}`), step: "flip", path: "status.code", kind: reasonWrite, blamed: ""},
+		{name: "a refusal of a write that sends the changed value is filed under the earlier write", envelope: true, env: "effects", rec: ownFlip(shopCreate, shopCancel, `{"id_order":"o1","price_minor":"249"}`), step: "flip", path: "status.code", kind: reasonWrite, blamed: "create_product"},
+		{name: "a refusal of a write whose contract needs the earlier rpc is filed under it", envelope: true, env: "effects", rec: ownFlip(shopAdd, shopConfirm, `{"id_order":"o1"}`), step: "flip", path: "status.code", kind: reasonWrite, blamed: "create_product"},
+		{name: "without that need the same refusal is the write's own", envelope: true, env: "effects", rec: ownFlip(shopBatch, shopConfirm, `{"id_order":"o1"}`), step: "flip", path: "status.code", kind: reasonWrite, blamed: ""},
 		{name: "a write answering its list in another order than the read says so", env: "shop", rec: listOrder(false), step: "create_order", path: "order.lines.0.qty", kind: reasonStoredOrder, blamed: "",
 			check: func(r reason) bool { return r.Path == "order.lines" && r.ReadRPC == "FetchOrder" }},
 		{name: "a read that moved too says nothing about the order the write stored", env: "shop", rec: listOrder(true), step: "create_order", path: "order.lines.0.qty", kind: "!" + reasonStoredOrder, blamed: "?"},

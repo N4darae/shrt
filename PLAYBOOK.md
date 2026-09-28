@@ -389,13 +389,16 @@ vocabulary:
 - `unclear: write ... or the read`: the write answered as before and only the read moved (a
   write storing other than it answers looks the same); check what the write persisted.
 - `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
-- `same fault as <chain>`: the suspect and field an earlier gate line named.
+- `same fault as <chain>`: the suspect and field an earlier gate line named, and no suspect that
+  chain lacks; otherwise the line names its own suspect and `also` the first other one.
 - `not as pinned` / `pins held, new change`: a kept-red chain's pin moved, or a new defect beside
   the pinned ones; do not re-pin, run its `shrt diff`.
 
 A change goes to an earlier step whose answer for that field of that record, or a total it
 recomputes from, changed; a newly refused or changed write to the first earlier write on its
-records whose answer or verdict changed, or read changed in a field both `effects:` move. A read
+records whose answer or verdict changed, or read changed in a field both `effects:` move (a newly
+refused write with a contract only when its request carries a changed value, or its contract
+`needs:` that rpc or has `effects:` on the changed field; else it is its own suspect). A read
 observes the nearest earlier write on its record, skipping refused repeats, idempotent replays
 and, against a reference, a write refused as before or lacking the field whose `effects:` do not
 move it. A list item's id links it to the writes naming it; steps with an expectation left

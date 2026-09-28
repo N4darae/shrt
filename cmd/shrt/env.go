@@ -66,6 +66,13 @@ func configLoadError(wd string, err error) error {
 }
 
 func (e *env) effectsOf(call string) contract.Effects {
+	if c := e.contractOf(call); c != nil {
+		return c.Effects
+	}
+	return nil
+}
+
+func (e *env) contractOf(call string) *contract.RPCContract {
 	if e == nil || e.cat == nil || !e.libOK && e.cfg == nil {
 		return nil
 	}
@@ -77,11 +84,8 @@ func (e *env) effectsOf(call string) contract.Effects {
 	if err != nil {
 		return nil
 	}
-	c, ok := e.lib.Get(m.FullName)
-	if !ok {
-		return nil
-	}
-	return c.Effects
+	c, _ := e.lib.Get(m.FullName)
+	return c
 }
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }

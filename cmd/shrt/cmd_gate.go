@@ -1324,7 +1324,25 @@ var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 
 func settleGate(chains []*gateChain) []string {
 	foldFlaky(chains)
-	seen := map[string]string{}
+	seen, keyOf, byName := map[string]string{}, groupKeys(chains), map[string]*gateChain{}
+	for _, g := range chains {
+		byName[g.name] = g
+	}
+	lacks := func(x string, g *gateChain) (gateItem, bool) {
+		if byName[x] == nil || x == g.name {
+			return gateItem{}, false
+		}
+		has := map[string]bool{}
+		for _, it := range byName[x].items {
+			has[keyOf(x, it)] = true
+		}
+		for _, it := range g.items {
+			if !it.Passes && it.Reason.Kind != "" && !has[keyOf(g.name, it)] {
+				return it, true
+			}
+		}
+		return gateItem{}, false
+	}
 	for _, g := range chains {
 		if !g.failed || g.findingOnly() || len(g.items) == 0 {
 			continue
@@ -1357,11 +1375,15 @@ func settleGate(chains []*gateChain) []string {
 			continue
 		}
 		g.first, g.firstAt = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline()), it.Step+" "+it.Path
+		other, more := lacks(seen[it.root()], g)
 		switch first := seen[it.root()]; {
-		case first != "" && first != g.name:
+		case first != "" && first != g.name && !more:
 			g.first += "; " + sameFault + first
 		case it.Reason.Kind != "":
 			g.first += "; " + it.Reason.String()
+		}
+		if more {
+			g.first += "; also " + other.Reason.String()
 		}
 		if seen[it.root()] == "" && it.Reason.Kind != "" {
 			seen[it.root()] = g.name
@@ -1386,7 +1408,7 @@ func foldSlices(chains []*gateChain) {
 	}
 	for _, g := range chains {
 		i := strings.LastIndex(g.name, "-slice-")
-		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" {
+		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" || g.pinsHeld {
 			continue
 		}
 		p := byName[g.name[:i]]
@@ -1401,15 +1423,8 @@ func foldSlices(chains []*gateChain) {
 	}
 }
 
-func printGateGroups(chains []*gateChain, verbose bool) {
-	type group struct {
-		rpc, path            string
-		steps, knock, chains map[string]bool
-		example              gateItem
-		in                   string
-		rank                 int
-	}
-	groups, order, keys := map[string]*group{}, []*group{}, map[string]string{}
+func groupKeys(chains []*gateChain) func(string, gateItem) string {
+	keys := map[string]string{}
 	keyOf := func(it gateItem, path string) string {
 		if chain.IsEnvelopePath(path) {
 			path = chain.EnvelopeField()
@@ -1427,12 +1442,26 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			}
 		}
 	}
+	return func(name string, it gateItem) string {
+		return cmp.Or(keys[name+" "+cmp.Or(it.suspect(), it.Step)], keyOf(it, it.Path))
+	}
+}
+
+func printGateGroups(chains []*gateChain, verbose bool) {
+	type group struct {
+		rpc, path            string
+		steps, knock, chains map[string]bool
+		example              gateItem
+		in                   string
+		rank                 int
+	}
+	groups, order, keyOf := map[string]*group{}, []*group{}, groupKeys(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
-			key := cmp.Or(keys[g.name+" "+cmp.Or(it.suspect(), it.Step)], keyOf(it, it.Path))
+			key := keyOf(g.name, it)
 			gr := groups[key]
 			if gr == nil {
 				gr = &group{rpc: it.rpc(), path: strings.TrimPrefix(key, it.rpc()+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}

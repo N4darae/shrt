@@ -49,9 +49,9 @@ FAIL       c  add_negative (StockService/AddStock) status.code want= got=; suspe
 failures by suspect rpc:
   StockService/AddStock: 3 step(s) in 1 chain(s); e.g. c add_negative; suspect write add_negative (StockService/AddStock)
 
-# a later chain showing the same fault names the chain that showed it
+# a chain with a root the earlier chain lacks names that root, not the same fault
 FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay (OrderService/CreateOrder)
-FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; same fault as replay
+FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay_2 (OrderService/CreateOrder); also suspect write create (OrderService/CreateOrder)
 FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)
 failures by suspect rpc:
   OrderService/CreateOrder order.status: 2 step(s) in 2 chain(s); e.g. replay replay; suspect write replay (OrderService/CreateOrder)
@@ -59,11 +59,12 @@ failures by suspect rpc:
 
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)
-FAIL       orders-slice-list  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
+FAIL       orders-slice-list  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
+FAIL       orders-slice-held  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
 FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders
 failures by suspect rpc:
-  OrderService/ConfirmOrder: 3 step(s) in 3 chain(s); e.g. orders confirm; suspect write confirm (OrderService/ConfirmOrder)
+  OrderService/ConfirmOrder: 4 step(s) in 4 chain(s); e.g. orders confirm; suspect write confirm (OrderService/ConfirmOrder)
   OrderService/ListOrders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
 
 # a failed first change leads over a drift
