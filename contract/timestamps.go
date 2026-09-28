@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -117,8 +118,9 @@ func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPC
 				continue
 			}
 			out = append(out, chain.Expectation{Path: path, Gte: "${nowunix}"})
-			p.note("step %s: %s is asserted gte ${nowunix}, not yet expired; the contract names no lifetime (\"valid for one hour\" in "+
-				"its summary or in terminal:/exports: for %s), so a tighter within: range could not be scaffolded", id, path, last)
+			gap := fmt.Sprintf("the contract names no lifetime (\"valid for one hour\" in its summary or in terminal:/exports: "+
+				"for %s), so a tighter within: range could not be scaffolded", last)
+			p.gapIn(fmt.Sprintf("step %s: %s is asserted gte ${nowunix}, not yet expired; %s", id, path, gap), "step "+id+": "+gap)
 		case chain.IsCreationStampName(last) && chain.StampSource(step, path, p.earlierMethods()) != "":
 			src := chain.StampSource(step, path, p.earlierMethods())
 			out = append(out, chain.Expectation{Path: path, Equals: "${" + src + "." + path + "}"})

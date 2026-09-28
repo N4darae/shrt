@@ -254,7 +254,7 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 		}
 		at, ok := exactText(tf.max, unique[tf.name])
 		if !ok || tf.email {
-			p.note("step %s: %s has a stated maximum of %d characters, but a value of exactly that length cannot be built here "+
+			p.gap("step %s: %s has a stated maximum of %d characters, but a value of exactly that length cannot be built here "+
 				"(it must be unique and shorter than a ${uuid}, or it is an email): probe it at %d and %d by hand", st.ID, tf.name, tf.max, tf.max, tf.max+1)
 			continue
 		}

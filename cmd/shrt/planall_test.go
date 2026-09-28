@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestContractPlanAllPlansOneChainPerRPCWithAContract(t *testing.T) {
@@ -101,20 +99,13 @@ func TestContractPlanAllPrintsTheGapsPlanRPCAndNotesPrint(t *testing.T) {
 	if len(want) == 0 || !strings.Contains(strings.Join(want, "\n"), "gap: step confirm_order: no write in the chain adds a known quantity") {
 		t.Fatalf("plan ConfirmOrder names the exact-stock gap:\n%s", one)
 	}
+	if !strings.Contains(one, "plan the rpc that adds it (needs:)\n") {
+		t.Fatalf("a gap says how to close it, so it is never clipped:\n%s", one)
+	}
 	if got := gaps(all, "orders-confirmorder"); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("-all prints the gaps plan ConfirmOrder prints:\n%s\n---\n%s", all, one)
 	}
 	if !strings.Contains(notes, "\ngap: step confirm_order: no write in the chain adds a known quantity") {
 		t.Fatalf("-notes labels a gap as a gap:\n%s", notes)
-	}
-}
-
-func TestAPlanGapLineIsPrintedInFull(t *testing.T) {
-	long := "step list: the contracts do not say sku is compared case-sensitively, so no fixture with the prefix in another letter case was planned; " +
-		strings.Repeat("say what the filter does with another letter case, ", 3) + "END"
-	plan := &contract.Plan{Notes: []string{long}}
-	out := captureStdout(t, func() { printFillAndGaps(plan, "  ") })
-	if !strings.Contains(out, "END\n") || strings.Contains(out, "...") {
-		t.Errorf("a gap says how to close it, so it is never clipped:\n%s", out)
 	}
 }

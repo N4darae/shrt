@@ -41,6 +41,7 @@ type Plan struct {
 	rules    *effectRules
 	rulesOf  *Library
 	middles  map[*chain.Step]string
+	gaps     map[string]string
 }
 
 type PlanOptions struct {
@@ -573,45 +574,32 @@ func (p *Plan) StepGroups() []StepGroup {
 	return out
 }
 
-var gapMarkers = []string{
-	"server-streaming;", "says nothing", "says neither", "was planned", "by hand", "could not", "cannot be built", "cannot say",
-	"nothing proves", "no probe", "no level is asserted", "assert only that", "assert only whether",
-}
-
 func (p *Plan) GapNotes() []string {
 	out := []string{}
 	for _, note := range p.Notes {
-		if gap, ok := GapOf(note); ok {
+		if gap, ok := p.gaps[note]; ok {
 			out = append(out, gap)
 		}
 	}
 	return out
 }
 
-func GapOf(note string) (string, bool) {
-	if strings.Contains(note, "has no usable value") || strings.Contains(note, "must send the same value") {
-		return "", false
+func (p *Plan) IsGap(note string) bool {
+	_, ok := p.gaps[note]
+	return ok
+}
+
+func (p *Plan) gap(format string, args ...any) {
+	text := fmt.Sprintf(format, args...)
+	p.gapIn(text, text)
+}
+
+func (p *Plan) gapIn(note, gap string) {
+	p.note("%s", note)
+	if p.gaps == nil {
+		p.gaps = map[string]string{}
 	}
-	at := -1
-	for _, m := range gapMarkers {
-		if i := strings.Index(note, m); i >= 0 && (at < 0 || i < at) {
-			at = i
-		}
-	}
-	if at < 0 {
-		return "", false
-	}
-	prefix := ""
-	body := note
-	if strings.HasPrefix(note, "step ") {
-		if i := strings.Index(note, ": "); i >= 0 && i < at {
-			prefix, body, at = note[:i+2], note[i+2:], at-i-2
-		}
-	}
-	if i := strings.LastIndex(body[:at], "; "); i >= 0 {
-		body = body[i+2:]
-	}
-	return prefix + body, true
+	p.gaps[note] = gap
 }
 
 func (p *Plan) note(format string, args ...any) {
@@ -647,7 +635,7 @@ func (p *Plan) NoteGroups() []NoteGroup {
 	}
 	fills := p.FillNotes()
 	for _, note := range p.Notes {
-		if _, gap := GapOf(note); gap || containsString(fills, note) {
+		if p.IsGap(note) || containsString(fills, note) {
 			continue
 		}
 		label := p.noteOf[note]
@@ -1098,7 +1086,7 @@ func (p *Plan) noteStreamingTargets() {
 	for _, node := range p.Targets {
 		rpc, _ := SplitNode(node)
 		if m, err := p.cat.Lookup(rpc); err == nil && m.ServerStreaming {
-			p.note("%s", StreamingGap(m.FullName))
+			p.gap("%s", StreamingGap(m.FullName))
 		}
 	}
 }
@@ -1107,7 +1095,7 @@ func (p *Plan) noteRequirements() {
 	for _, pc := range p.pending {
 		id := pc.step.ID
 		if pc.contract.IsUnfilled("required") {
-			p.note("step %s: required is an unfilled TODO, so this plan cannot say what the server rejects without — treat the body as unverified", id)
+			p.gap("step %s: required is an unfilled TODO, so this plan cannot say what the server rejects without — treat the body as unverified", id)
 		}
 		for _, name := range pc.contract.Required {
 			if IsRequiredNone(name) {

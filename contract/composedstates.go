@@ -143,7 +143,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	p.Chain.Steps = append(p.Chain.Steps, before...)
 	p.Chain.Steps = append(p.Chain.Steps, moved, act)
 	p.Chain.Steps = append(p.Chain.Steps, after...)
-	what := fmt.Sprintf("the %s read after it is %s", e.carrier, short[result])
+	what, gap := fmt.Sprintf("the %s read after it is %s", e.carrier, short[result]), ""
 	if len(held) > 0 {
 		what += fmt.Sprintf(", and %s assert what it holds is back to the reads taken before %s, as the contract says for %s",
 			strings.Join(held, ", "), moved.ID, withArticle(short[tr.value]+" "+e.carrier))
@@ -152,10 +152,16 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 		if r := p.effectRules(lib); len(r.byEntity) > 0 {
 			number = r.byEntity[sortedRuleKeys(r.byEntity)[0]].moved
 		}
-		what += fmt.Sprintf("; %s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
+		gap = fmt.Sprintf("%s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
 			shortRPC(st.Call), short[tr.value], number, short[tr.value])
+		what += "; " + gap
 	}
-	p.note("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
+	note := fmt.Sprintf("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
+	if gap == "" {
+		p.note("%s", note)
+		return
+	}
+	p.gapIn(note, "step "+st.ID+": "+gap)
 }
 
 func retargetExpect(expect []chain.Expectation, from, to string) []chain.Expectation {

@@ -108,7 +108,7 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 			return
 		}
 	}
-	p.note("step %s: no numeric field of a repeated request item has a minimum in a failure's when:, so no batch "+
+	p.gap("step %s: no numeric field of a repeated request item has a minimum in a failure's when:, so no batch "+
 		"with a refused middle item was planned: write one by hand", st.ID)
 }
 

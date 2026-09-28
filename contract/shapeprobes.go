@@ -53,13 +53,13 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			cases, unread := shapeCases(st.Body, fields, f)
 			if len(cases) == 0 {
-				p.note("step %s: %s's when: names no field and value the plan can build, so no malformed request was "+
+				p.gap("step %s: %s's when: names no field and value the plan can build, so no malformed request was "+
 					"planned for it: write one, or reword it (%s)", st.ID, f.Label(), shapeWording)
 				continue
 			}
 			p.addShapeProbes(lib, st, m, c, f, cases)
 			if len(unread) > 0 {
-				p.note("step %s: %s: %q names no field and value the plan can build, so no probe sends that case: "+
+				p.gap("step %s: %s: %q names no field and value the plan can build, so no probe sends that case: "+
 					"write one, or reword it (%s)", st.ID, f.Label(), strings.Join(unread, `", "`), shapeWording)
 			}
 		}
@@ -74,12 +74,12 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 		}
 		if len(required) > 0 {
-			p.note("step %s: %s %s required, but no invalid_argument failure has field: naming %s, so no probe sends a "+
+			p.gap("step %s: %s %s required, but no invalid_argument failure has field: naming %s, so no probe sends a "+
 				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralIs(len(required)),
 				pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
 		}
 		if !declared && !c.IsUnfilled("required") && len(c.Required) == 0 {
-			p.note("step %s: nothing in its contract declares a required field or a format (required:, or a failure with "+
+			p.gap("step %s: nothing in its contract declares a required field or a format (required:, or a failure with "+
 				"connect_code: invalid_argument), so no malformed request was planned: the plan does not guess what the "+
 				"handler validates", st.ID)
 		}

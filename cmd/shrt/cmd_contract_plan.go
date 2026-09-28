@@ -206,7 +206,7 @@ func printPlanNotes(plan *contract.Plan, again string, notes, full bool) {
 	case notes && full:
 		for _, n := range plan.Notes {
 			label := "note"
-			if _, gap := contract.GapOf(n); gap {
+			if plan.IsGap(n) {
 				label = "gap"
 			}
 			fmt.Printf("%s: %s\n", label, n)

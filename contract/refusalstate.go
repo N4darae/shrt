@@ -96,7 +96,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 	expect := withoutAbsentCarrier(refusalExpectations(m, f))
 	source, paths := p.shortagePaths(st, m)
 	if len(paths) == 0 {
-		p.note("step %s: the contract declares %s, but no quantity field (qty, quantity, count, amount) was found in its "+
+		p.gap("step %s: the contract declares %s, but no quantity field (qty, quantity, count, amount) was found in its "+
 			"body or in a step it reads, so no refused attempt was planned: write one that asks for more than there is, "+
 			"and read the state it would have changed before and after it", st.ID, f.Label())
 		return
@@ -416,7 +416,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 				"is added; the expected failure is its check", refused[0].ID, strings.Join(readers, ", "))
 			return refused
 		}
-		p.note("step %s: no read rpc in the contracts takes the id of anything it touches, so nothing proves the "+
+		p.gap("step %s: no read rpc in the contracts takes the id of anything it touches, so nothing proves the "+
 			"refusal changed nothing: read the state it would have written after it", refused[0].ID)
 		return refused
 	}

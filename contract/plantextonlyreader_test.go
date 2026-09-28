@@ -13,7 +13,7 @@ func TestARefusalWhoseOnlyReaderAnswersTextIsANoteNotAGap(t *testing.T) {
 	for _, n := range p.Notes {
 		if strings.Contains(n, "GetCustomer reads what it touches but answers only text") {
 			found = true
-			if _, gap := contract.GapOf(n); gap {
+			if p.IsGap(n) {
 				t.Fatalf("a refusal no contract edit can guard is a note, not a gap: %s", n)
 			}
 		}

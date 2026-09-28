@@ -776,7 +776,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		if len(adders) > 0 {
 			need = strings.Join(adders, ", ")
 		}
-		p.note("step %s: it takes %s of %s below zero, since nothing before it adds any, so no level is asserted after it; "+
+		p.gap("step %s: it takes %s of %s below zero, since nothing before it adds any, so no level is asserted after it; "+
 			"add needs: [%s] to the contract of %s", st.ID, s.moved, e, need, shortRPC(rpc))
 		delete(md.below, st.ID)
 		for id, other := range md.below {
@@ -1138,7 +1138,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			strings.Join(shown, ", "), more, strings.Join(said, "; "))
 	}
 	for _, rpc := range sortedRuleKeys(silent) {
-		p.note("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
+		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
 	}
 }
 
