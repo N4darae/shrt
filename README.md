@@ -123,17 +123,17 @@ otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 onc
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
 | `KEPT RED` | failed exactly as its `kept_red` pins |
-| `FAIL pins held, new change:` | every pin held; a change outside them is a regression (or one reported above), not a reason to re-pin |
+| `FAIL pins held, new change:` | every pin held; a change outside them is a regression, not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
 | `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain |
 | `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
-| `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, or `masked by`/`moved with` the rpc path this gate reports |
+| `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
-Under a `FAIL` it prints the suspect's request; then one line per suspect rpc (split by auth
-profile and refusal code), with the steps it explains folded beneath and an `another change:` example
-for each other root change in it. `-v` adds every changed path
-and ends with each distinct change once. How a suspect is chosen: `PLAYBOOK.md` §8.
+Each `FAIL` line ends with its suspect, or `same fault as <chain>` when an earlier line named
+it; a slice failing at its parent's first change has no line of its own, the parent's says `(+N
+slice(s) fail the same: ...)`. Then one line per suspect rpc. `-v` adds the suspect's request, every changed path and the
+knock-on counts. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 Exit 0 is green; 1 is a failure, a `FINDING` or the ratchet; 3 is no verdict (re-run once the
 backend is up, count it neither red nor green). A token refused early once makes the gate hold a

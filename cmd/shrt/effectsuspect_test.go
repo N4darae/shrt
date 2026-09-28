@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -64,7 +63,7 @@ func effectsEnv(t *testing.T) *env {
 	return &env{cat: cat, lib: lib, libOK: true}
 }
 
-func TestTheOneWriteWhoseContractMovesTheFieldSinceItWasLastReadIsTheSuspect(t *testing.T) {
+func TestAReadMovingAfterAWriteThatAnsweredAsBeforeIsUnclear(t *testing.T) {
 	const add = "shop.catalog.v1.StockService/AddStock"
 	order := func(id, status string) string {
 		return `{"order":{"id_order":"` + id + `","status":"` + status + `","lines":[{"id_product":"p1","qty":"2"}]}}`
@@ -100,12 +99,9 @@ func TestTheOneWriteWhoseContractMovesTheFieldSinceItWasLastReadIsTheSuspect(t *
 		t.Run(c.name, func(t *testing.T) {
 			rec := build(c.between, c.last)
 			moved := []diff.Change{{Step: c.step, Path: c.path, Kind: diff.KindChanged, Want: "8", Got: "7"}}
-			b := changesAttribution(effectsEnv(t), rec, moved).of(c.step, c.path)
-			switch {
-			case c.named && (b.write < 0 || rec.Steps[b.write].ID != "confirm_order" || b.why != "its contract moves qty_on_hand; the other writes on that record answered as before"):
-				t.Errorf("confirm_order is the only write since the last read whose contract moves qty_on_hand and that applied: %+v", b)
-			case !c.named && (b.write >= 0 || !strings.HasPrefix(b.why, "the write or the read: confirm_order (ConfirmOrder), or earlier ")):
-				t.Errorf("confirm_order and add_stock both move qty_on_hand, so the list stays: %+v", b)
+			r := changesAttribution(effectsEnv(t), rec, moved).of(c.step, c.path)
+			if r.Kind != reasonUnclear || r.Step != "confirm_order" || r.Read != c.step {
+				t.Errorf("confirm_order answered as before and other writes on the record bear the field, so the write or the read: %+v", r)
 			}
 		})
 	}

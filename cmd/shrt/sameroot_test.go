@@ -14,7 +14,7 @@ func TestAReadHeldBehindAHeldReadNamesTheWriteThatLostTheField(t *testing.T) {
 		shopStep("get_as_clerk", shopGet, `{"product":{"id_product":"p1","created_at":"t"}}`, "create").heldBy("get", "product.created_at"),
 	)
 	write, own, cascade := blameOf(t, rec, "get_as_clerk", "status")
-	if write != "create" || own != "" || cascade != "left an expectation unjudged because CreateProduct lost product.created_at" {
+	if write != "create" || own != "" || cascade != reasonKnockOn {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }
@@ -48,8 +48,8 @@ func TestALaterWriteOnARecordAnEarlierChangedWriteTouchedFoldsIntoThatWrite(t *t
 		}
 		g.items = append(g.items, a.item(gateItem{Step: st, Call: add, Path: path, Failed: true}))
 	}
-	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
-	if strings.Contains(out, "another change") || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}, false) })
+	if strings.Count(out, "\n  ") != 1 || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
 		t.Errorf("knock-on changes on the same record fold into the root write:\n%s", out)
 	}
 }

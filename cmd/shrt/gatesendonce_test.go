@@ -43,7 +43,7 @@ func TestAChainWithASafeSpotIsSentOnceByTheGateAndFailsWithTheRunsHeadline(t *te
 	mu.Unlock()
 	inProcessGate(t)
 	out, code := runGateOut(t, "cli-thing-flow")
-	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget\n") {
+	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget; suspect write create (ThingService/Create)\n") {
 		t.Fatalf("a failing expectation still fails the gate with the expectation as its headline, got %d:\n%s", code, out)
 	}
 	if creates != 1 {

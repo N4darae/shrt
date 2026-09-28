@@ -59,7 +59,7 @@ steps:
 		t.Fatalf("pins held: %v %s", err, raw)
 	}
 	if len(got.Items) != 2 || got.Items[0].Step != "create_p1" || got.Items[0].Path != "product.price_minor" || got.Items[0].Want != "1000" || got.Items[0].Got != "999" ||
-		got.Items[1].Step != "create_order" || got.Items[1].SuspectStep != "create_p1" {
+		got.Items[1].Step != "create_order" || got.Items[1].suspect() != "create_p1" {
 		t.Errorf("the price create_p1 answered unlike the reference run leads, and the total is filed under it: %+v", got.Items)
 	}
 }
@@ -69,16 +69,15 @@ func TestAnUnattributedItemElsewhereDoesNotClearAKeptRedItemsSuspect(t *testing.
 	chains := []*gateChain{
 		{name: "slice-a", failed: true, keptRed: runner.KeptRedNotAsPinned, pinsHeld: true, items: []gateItem{
 			{Step: "create_p1", Call: shopCreate, Path: "product.price_minor", Want: "1250", Got: "1249", Failed: true},
-			{Step: "create_order", Call: shopOrder, Path: total, Want: "6649", Got: "6644", Suspect: shopCreate, SuspectStep: "create_p1", Failed: true}}},
+			{Step: "create_order", Call: shopOrder, Path: total, Want: "6649", Got: "6644", Reason: reason{Kind: reasonWrite, Step: "create_p1", RPC: shopCreate}, Failed: true}}},
 		{name: "slice-b", failed: true, keptRed: runner.KeptRedNotAsPinned, pinsHeld: true, items: []gateItem{
 			{Step: "order_too_big", Call: shopOrder, Path: total, Want: "4250", Got: "4246", Failed: true}}},
 	}
 	settleGate(chains)
-	if it := chains[0].items[1]; it.SuspectStep != "create_p1" {
+	if it := chains[0].items[1]; it.suspect() != "create_p1" {
 		t.Errorf("a total recomputed from a changed price stays under the price: %+v", it)
 	}
-	headlineGate(chains)
-	if want := "create_p1 (ProductService/CreateProduct) product.price_minor want=1250 got=1249"; chains[0].first != want {
+	if want := "create_order (OrderService/CreateOrder) order.total_minor want=6649 got=6644; suspect write create_p1 (ProductService/CreateProduct)"; chains[0].first != want {
 		t.Errorf("got %q, want %q", chains[0].first, want)
 	}
 }

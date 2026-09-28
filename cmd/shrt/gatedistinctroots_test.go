@@ -5,62 +5,55 @@ import (
 	"testing"
 )
 
-func TestAGateGroupLeadsWithItsLargestChangeAndShowsEachOtherRootChange(t *testing.T) {
-	const create, fetch = "x.v1.OrderService/CreateOrder", "x.v1.OrderService/FetchOrder"
-	total := func(step string) gateItem {
-		return gateItem{Step: step, Call: create, Path: "order.total_minor", Want: "600", Got: "400", Failed: true}
+func TestAChainHeadlinesAFaultNoEarlierChainShowedOrNamesTheChainThatDid(t *testing.T) {
+	const create = "x.v1.OrderService/CreateOrder"
+	status := func(step string) gateItem {
+		return gateItem{Step: step, Call: create, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: create}}
 	}
-	read := func(step, root string) gateItem {
-		return gateItem{Step: step, Call: fetch, Path: "order.total_minor", Want: "600", Got: "400", Suspect: create, SuspectStep: root}
-	}
+	total := gateItem{Step: "create", Call: create, Path: "order.total_minor", Want: "600", Got: "400", Failed: true, Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
 	chains := []*gateChain{
-		{name: "replay", failed: true, firstAt: "replay order.status", items: []gateItem{
-			{Step: "replay", Call: create, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true}}},
-		{name: "orders", failed: true, items: []gateItem{total("create"), read("fetch", "create"), total("create_2"), read("fetch_2", "create_2"),
-			{Step: "replay_2", Call: create, Path: "order.status", Want: "CANCELLED", Got: "PENDING", Failed: true},
-			{Step: "replay_2", Call: create, Path: "order.total_minor", Want: "600", Got: "400", Suspect: create, SuspectStep: "create"}}},
-		{name: "lists", failed: true, items: []gateItem{total("create"), read("fetch", "create")}},
+		{name: "replay", failed: true, items: []gateItem{status("replay")}},
+		{name: "orders", failed: true, items: []gateItem{status("replay_2"), total}},
+		{name: "lists", failed: true, items: []gateItem{total}},
 	}
 	settleGate(chains)
-	headlineGate(chains)
-	if want := "5 step(s) from CreateOrder total_minor and status, reported above"; chains[1].first != want {
-		t.Errorf("got %q, want %q", chains[1].first, want)
-	}
-	if want := "2 step(s) from CreateOrder total_minor, reported above"; chains[2].first != want {
-		t.Errorf("got %q, want %q", chains[2].first, want)
-	}
-	out := captureStdout(t, func() { printGateGroups(chains) })
-	for _, want := range []string{
-		"  OrderService/CreateOrder: 5 step(s) in 3 chain(s), paths order.total_minor, order.status; e.g. orders create order.total_minor want=600 got=400\n",
-		"    another change: 2 step(s) in 2 chain(s); e.g. replay replay order.status want=CONFIRMED got=PENDING\n",
+	for i, want := range []string{
+		"replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay (OrderService/CreateOrder)",
+		"create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)",
+		"create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders",
 	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("want %q in:\n%s", want, out)
+		if chains[i].first != want {
+			t.Errorf("%s: got %q, want %q", chains[i].name, chains[i].first, want)
 		}
 	}
 }
 
-func TestAGateGroupSplitsOneRefusalPathByTheProfileOfItsRootSteps(t *testing.T) {
-	const add, get = "x.v1.StockService/AddStock", "x.v1.ProductService/GetProduct"
-	accepted := func(step, variant string) []gateItem {
-		return []gateItem{
-			{Step: step, Call: add, Path: "error.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS", Variant: variant, Failed: true},
-			{Step: step, Call: add, Path: "qty_on_hand", Want: "0", Got: "10", Variant: variant},
-		}
+func TestAReadsOwnFaultIsOneRootWhateverPathShowsIt(t *testing.T) {
+	const get, create = "x.v1.S/Get", "x.v1.S/Create"
+	refused := reason{Kind: reasonRefused, Step: "get", RPC: get, Got: "1102"}
+	a := gateItem{Step: "get", Call: get, Path: "status.code", Reason: refused}
+	b := gateItem{Step: "get", Call: get, Path: "customer.name", Reason: refused}
+	w := gateItem{Step: "get", Call: get, Path: "customer.name", Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
+	if a.root() != b.root() || a.root() == w.root() || w.root() != "S/Create name" {
+		t.Errorf("got %q, %q, %q", a.root(), b.root(), w.root())
 	}
+}
+
+func TestASliceFailingAsItsParentFoldsIntoTheParentsLine(t *testing.T) {
+	const confirm = "x.v1.OrderService/ConfirmOrder"
+	status := gateItem{Step: "confirm", Call: confirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: confirm}}
+	other := gateItem{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}
 	chains := []*gateChain{
-		{name: "catalog", failed: true, items: append(accepted("add_zero", ""), accepted("add_as_clerk", "as clerk")...)},
-		{name: "roles", failed: true, items: append(accepted("clerk_add", "as clerk"),
-			gateItem{Step: "clerk_get", Call: get, Path: "product.qty_on_hand", Want: "6", Got: "15", Suspect: add, SuspectStep: "clerk_add", Variant: "as clerk"})},
+		{name: "orders", failed: true, items: []gateItem{status}},
+		{name: "orders-slice-list", failed: true, pinsHeld: true, items: []gateItem{status}},
+		{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{other}},
+		{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
 	}
-	mergeProfiles(chains)
-	out := captureStdout(t, func() { printGateGroups(chains) })
-	for _, want := range []string{
-		"  StockService/AddStock: 3 step(s) in 2 chain(s), paths error.code, qty_on_hand; e.g. catalog add_as_clerk as clerk error.code want≠SUCCESS got=SUCCESS\n",
-		"    another change: 1 step(s) in 1 chain(s); e.g. catalog add_zero error.code want≠SUCCESS got=SUCCESS\n",
-	} {
-		if !strings.Contains(out, want) {
-			t.Errorf("want %q in:\n%s", want, out)
-		}
+	settleGate(chains)
+	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" {
+		t.Errorf("only the slice whose first change is its parent's folds: %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf)
+	}
+	if line := chains[0].line(0); !strings.HasSuffix(line, "; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)") {
+		t.Errorf("got %q", line)
 	}
 }

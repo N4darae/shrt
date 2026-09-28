@@ -103,10 +103,9 @@ func TestTheGateLabelsAChainFailingOnlyByAnIntermittentFindingAndStatesItOnce(t 
 func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 	call, stock := "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Fetch"
 	create := gateItem{Step: "create", Call: call, Path: "code", Want: "<none>", Got: "unavailable", Class: "regression"}
-	after := gateItem{Step: "confirm", Call: stock, Path: "status", Want: "OK", Got: "REJECTED", Suspect: call, SuspectStep: "create",
-		Cascade: "after Create failed on the same record", Class: "regression"}
-	read := gateItem{Step: "read", Call: stock, Path: "qty", Want: "1", Got: "2", Suspect: stock, SuspectStep: "confirm", Pinned: "1", Passes: true}
-	own := gateItem{Step: "list", Call: stock, Path: "items", Want: "3", Got: "2", Own: "Fetch answers another set", Class: "regression", Failed: true}
+	after := gateItem{Step: "confirm", Call: stock, Path: "status", Want: "OK", Got: "REJECTED", Reason: reason{Kind: reasonKnockOn, Step: "create", RPC: call}, Class: "regression"}
+	read := gateItem{Step: "read", Call: stock, Path: "qty", Want: "1", Got: "2", Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: stock}, Pinned: "1", Passes: true}
+	own := gateItem{Step: "list", Call: stock, Path: "items", Want: "3", Got: "2", Reason: reason{Kind: reasonSet, Step: "list", RPC: stock, Path: "items"}, Class: "regression", Failed: true}
 	errs := []gateFlaky{{Call: call, Failed: 1, Calls: 5, Steps: []string{"create"}}}
 	gateWorkspace(t, map[string][]gateOutcome{
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{create}, Errors: errs,
@@ -119,7 +118,7 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 	for _, want := range []string{
 		"FINDING    cli-thing-flow  intermittent: ThingService/Create failed 1 of 5 calls\n",
 		"FINDING    cli-unique      intermittent: ThingService/Create failed 1 of 5 calls\n",
-		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2\n",
+		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2; suspect read list (ThingService/Fetch): answers another set of items\n",
 		"  FINDING: intermittent failure at ThingService/Create, below\n",
 		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls) in 3 chain(s)\n",
 	} {
@@ -135,9 +134,8 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 func TestTheGateKeepsAListChangeAnotherChainShowsWithoutTheFinding(t *testing.T) {
 	call, list := "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/List"
 	create := gateItem{Step: "create", Call: call, Path: "(failed)", Got: "unavailable: busy"}
-	after := gateItem{Step: "list", Call: list, Path: "items", Want: "3", Got: "2", Suspect: call, SuspectStep: "create",
-		Cascade: "after Create failed on the same record", Kind: "membership", Class: "regression"}
-	alone := gateItem{Step: "list_all", Call: list, Path: "items", Want: "3", Got: "2", Own: "List answers another set", Kind: "membership"}
+	after := gateItem{Step: "list", Call: list, Path: "items", Want: "3", Got: "2", Reason: reason{Kind: reasonKnockOn, Step: "create", RPC: call}, Kind: "membership", Class: "regression"}
+	alone := gateItem{Step: "list_all", Call: list, Path: "items", Want: "3", Got: "2", Reason: reason{Kind: reasonSet, Step: "list_all", RPC: list, Path: "items"}, Kind: "membership"}
 	errs := []gateFlaky{{Call: call, Failed: 1, Calls: 5, Steps: []string{"create"}}}
 	gateWorkspace(t, map[string][]gateOutcome{
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{create, after}, Errors: errs, Flaky: errs}}},
@@ -153,9 +151,8 @@ func TestTheGateExplainsAChangeOnlyByAFailureInTheSameRecord(t *testing.T) {
 	call, fetch := "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Fetch"
 	errs := []gateFlaky{{Call: call, Failed: 1, Calls: 5, Steps: []string{"create"}}}
 	create := gateItem{Step: "create", Call: call, Path: "(failed)", Got: "unavailable: busy"}
-	confirm := gateItem{Step: "confirm", Call: fetch, Path: "status", Want: "OK", Got: "REJECTED", Suspect: call, SuspectStep: "create",
-		Cascade: "after Create failed on the same record"}
-	read := gateItem{Step: "read", Call: fetch, Path: "qty", Want: "5", Got: "4", Suspect: fetch, SuspectStep: "confirm", Class: "regression", Failed: true}
+	confirm := gateItem{Step: "confirm", Call: fetch, Path: "status", Want: "OK", Got: "REJECTED", Reason: reason{Kind: reasonKnockOn, Step: "create", RPC: call}}
+	read := gateItem{Step: "read", Call: fetch, Path: "qty", Want: "5", Got: "4", Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: fetch}, Class: "regression", Failed: true}
 	gateWorkspace(t, map[string][]gateOutcome{
 		"verify cli-unique": {{code: 1, side: gateSidecar{RunToo: true, Items: []gateItem{read}}}},
 		"run cli-unique":    {{code: 1, side: gateSidecar{Items: []gateItem{create, confirm}, Errors: errs, Flaky: errs}}},

@@ -127,7 +127,7 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 	f := gateWorkspace(t, map[string][]gateOutcome{
 		"run cli-unique": {{code: 1, side: gateSidecar{Sent: map[string]string{"create": " sent {\"name\":\"x\"}"}, Items: []gateItem{item("create"),
 			{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "name", Want: "a", Got: "b"},
-			{Step: "fetch_2", Call: "shrt.test.v1.ThingService/Fetch", Path: "count", Rule: "not_equal", Want: "0", Got: "0", Suspect: "shrt.test.v1.ThingService/Create", SuspectStep: "create"}}}}},
+			{Step: "fetch_2", Call: "shrt.test.v1.ThingService/Fetch", Path: "count", Rule: "not_equal", Want: "0", Got: "0", Reason: reason{Kind: reasonWrite, Step: "create", RPC: "shrt.test.v1.ThingService/Create"}}}}}},
 		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: DRIFT\nREGRESSION: something\n",
 			side: gateSidecar{Items: []gateItem{item("create"), item("create_2")}}}},
 	})
@@ -138,10 +138,9 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 	for _, want := range []string{
 		"FAIL       cli-thing-flow  create (ThingService/Create) items.0.price want=250 got=249",
 		"  REGRESSION: something",
-		"FAIL       cli-unique      fetch (ThingService/Fetch) name want=a got=b (+2 step(s) from Create price, reported above)\n",
-		"  ThingService/Create: 3 step(s) in 2 chain(s), paths items[].price; e.g. cli-thing-flow create items[].price want=250 got=249\n" +
-			"    +1 step(s) after it: Fetch count\n",
-		"  ThingService/Fetch: 1 step(s) in 1 chain(s), paths name; no suspect write; e.g. cli-unique fetch name want=a got=b",
+		"FAIL       cli-unique      fetch_2 (ThingService/Fetch) count want≠0 got=0; suspect write create (ThingService/Create)\n",
+		"  ThingService/Create: 4 step(s) in 2 chain(s); e.g. cli-unique fetch_2; suspect write create (ThingService/Create)\n",
+		"  ThingService/Fetch: 1 step(s) in 1 chain(s); e.g. cli-unique fetch name want=a got=b\n",
 		"FAIL: 2 of 2 chain(s) failed",
 	} {
 		if !strings.Contains(out, want) {
@@ -231,8 +230,8 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	name = "gadget"
 	out, code = runGateOut(t)
 	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget") ||
-		!strings.Contains(out, "  suspect write create (ThingService/Create) sent {") ||
-		!strings.Contains(out, "ThingService/Create: passed itself, but steps after it failed or changed; e.g. cli-thing-flow create\n    +1 step(s) after it: Fetch name\n") {
+		!strings.Contains(out, "got=gadget; suspect write create (ThingService/Create)\n") ||
+		!strings.Contains(out, "  ThingService/Create: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch; suspect write create (ThingService/Create)\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)
 	}
 }
@@ -283,10 +282,10 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: latency regression\n", side: gateSidecar{Items: items}}},
 	})
 	out, code := runGateOut(t)
-	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s), paths latency; suspect the read: List is slower than in the safe spot's run") {
+	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s); e.g. cli-thing-flow list; suspect read list (ThingService/List): slower than in the safe spot's run") {
 		t.Fatalf("a latency regression is grouped under the slow rpc itself, got %d:\n%s", code, out)
 	}
-	if !strings.Contains(out, "list latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
+	if !strings.Contains(out, "list (ThingService/List) latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {
 		t.Errorf("a latency change reads as the safe spot's and this run's time, not a threshold:\n%s", out)
 	}
 }
