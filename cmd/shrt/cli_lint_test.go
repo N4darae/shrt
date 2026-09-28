@@ -54,7 +54,11 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 		{name: "an auth body reading a var the login cannot resolve", failing: true,
 			setup: func(t *testing.T) { appendAuth(t, "${vars.widget_user}") }},
 		{name: "an auth body reading only the environment",
-			setup: func(t *testing.T) { appendAuth(t, "${env.WIDGET_USER}"); t.Setenv("WIDGET_USER", "u"); t.Setenv("WIDGET_PASSWORD", "p") }},
+			setup: func(t *testing.T) {
+				appendAuth(t, "${env.WIDGET_USER}")
+				t.Setenv("WIDGET_USER", "u")
+				t.Setenv("WIDGET_PASSWORD", "p")
+			}},
 		{name: "an auth profile the config does not define", args: []string{"-strict"}, failing: true, want: []string{`"nosuch"`, "have: default"},
 			setup: func(t *testing.T) {
 				appendAuth(t, "${env.WIDGET_USER}")

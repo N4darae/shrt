@@ -80,9 +80,13 @@ func TestDoctorFailsOnDriftedDocsOrKitAndOnWarningsOnlyUnderStrict(t *testing.T)
 				installed := filepath.Join(root, config.DocsDir, coredistillation.DocNames[0])
 				writeFile(t, installed, string(mustRead(t, installed))+"\na rule from an older binary\n")
 			}},
-		{name: "a warning", setup: func(t *testing.T, root string) { writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n") }},
+		{name: "a warning", setup: func(t *testing.T, root string) {
+			writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n")
+		}},
 		{name: "a warning under -strict", args: []string{"-strict"}, code: 1,
-			setup: func(t *testing.T, root string) { writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n") }},
+			setup: func(t *testing.T, root string) {
+				writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n")
+			}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			root := adoptedRepo(t)
