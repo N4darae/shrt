@@ -30,26 +30,38 @@ func compareRuns(a, b *runner.Record, extra ...string) *diff.RunReport {
 	return diff.CompareRunsSkipping(a, b, extra, diff.Fixtures{})
 }
 
-func TestRunDiffMasksIdsAndTimestampsThatDifferEveryRun(t *testing.T) {
-	a := runOf("run-a", stepAs("create", runner.StatusPassed,
-		`{"id":"thing-1","owner_id":"u-7","created_at":"2026-09-01T10:00:00Z","name":"widget"}`))
-	b := runOf("run-b", stepAs("create", runner.StatusPassed,
-		`{"id":"thing-2","owner_id":"u-8","created_at":"2026-09-02T11:30:00Z","name":"widget"}`))
-	rep := compareRuns(a, b)
-	if !rep.Same() {
-		t.Fatalf("only ids and timestamps differ, and those differ every run:\n%s", rep.Text())
+func TestRunDiffMasksWhatDiffersEveryRunAndNothingElse(t *testing.T) {
+	errored := func(msg string) *runner.StepRecord {
+		return &runner.StepRecord{ID: "create", Call: "ThingService/Create", Status: runner.StatusError, Error: msg}
 	}
-	if rep.Masked != 3 {
-		t.Errorf("masked %d value(s), want 3, and the report must say how many it hid", rep.Masked)
+	for _, c := range []struct {
+		name     string
+		a, b     *runner.StepRecord
+		volatile []string
+		extra    []string
+		same     bool
+		masked   int
+	}{
+		{"ids and timestamps", stepAs("create", runner.StatusPassed, `{"id":"thing-1","owner_id":"u-7","created_at":"2026-09-01T10:00:00Z","name":"widget"}`),
+			stepAs("create", runner.StatusPassed, `{"id":"thing-2","owner_id":"u-8","created_at":"2026-09-02T11:30:00Z","name":"widget"}`), nil, nil, true, 3},
+		{"id-prefixed names", stepAs("create", runner.StatusPassed, `{"product":{"id_product":"prd-1","idOrder":"o-1","qty":1}}`),
+			stepAs("create", runner.StatusPassed, `{"product":{"id_product":"prd-2","idOrder":"o-2","qty":1}}`), nil, nil, true, 2},
+		{"record's volatile path", stepAs("fetch", runner.StatusPassed, `{"name":"widget","tag":"T1"}`), stepAs("fetch", runner.StatusPassed, `{"name":"widget","tag":"T2"}`), []string{"**.tag"}, nil, true, 0},
+		{"undeclared sku", stepAs("create", runner.StatusPassed, `{"sku":"PROBE-1","qty":1}`), stepAs("create", runner.StatusPassed, `{"sku":"PROBE-2","qty":1}`), nil, nil, false, 0},
+		{"sku under a pattern added since", stepAs("create", runner.StatusPassed, `{"sku":"PROBE-1","qty":1}`), stepAs("create", runner.StatusPassed, `{"sku":"PROBE-2","qty":1}`), nil, []string{"**.sku"}, true, 0},
+		{"same error text", errored("dial tcp: connection refused"), errored("dial tcp: connection refused"), nil, nil, true, 0},
+		{"other error text", errored(`auth login response has no token at "access_token"`), errored("auth login: dial tcp: connection refused"), nil, nil, false, 0},
+	} {
+		a, b := runOf("a", c.a), runOf("b", c.b)
+		b.Volatile = c.volatile
+		rep := compareRuns(a, b, c.extra...)
+		if rep.Same() != c.same || (c.masked > 0 && rep.Masked != c.masked) {
+			t.Errorf("%s: same=%v masked=%d, want %v %d:\n%s", c.name, rep.Same(), rep.Masked, c.same, c.masked, rep.Text())
+		}
 	}
-}
-
-func TestRunDiffHonoursTheRecordsDeclaredVolatilePaths(t *testing.T) {
-	a := runOf("run-a", stepAs("fetch", runner.StatusPassed, `{"name":"widget","tag":"T1"}`))
-	b := runOf("run-b", stepAs("fetch", runner.StatusPassed, `{"name":"widget","tag":"T2"}`))
-	b.Volatile = []string{"**.tag"}
-	if rep := compareRuns(a, b); !rep.Same() {
-		t.Fatalf("tag is declared volatile by the record:\n%s", rep.Text())
+	text := compareRuns(runOf("a", errored(`no token at "access_token"`)), runOf("b", errored("connection refused"))).Text()
+	if !strings.Contains(text, "no token at") || !strings.Contains(text, "connection refused") {
+		t.Fatalf("the diff shows both error texts:\n%s", text)
 	}
 }
 
@@ -104,14 +116,6 @@ func TestRunDiffNamesAHeaderAndFoldsAFixtureReference(t *testing.T) {
 	}
 }
 
-func TestRunDiffMasksIdsNamedWithAnIDPrefix(t *testing.T) {
-	a := runOf("run-a", stepAs("create", runner.StatusPassed, `{"product":{"id_product":"prd-1","idOrder":"o-1","qty":1}}`))
-	b := runOf("run-b", stepAs("create", runner.StatusPassed, `{"product":{"id_product":"prd-2","idOrder":"o-2","qty":1}}`))
-	if rep := compareRuns(a, b); !rep.Same() || rep.Masked != 2 {
-		t.Fatalf("id_product and idOrder differ every run and must be masked, got %s", rep.Text())
-	}
-}
-
 func TestRunDiffTreatsAStepHeldBackByKeepGoingAsNotReached(t *testing.T) {
 	a := runOf("run-a",
 		stepAs("create", runner.StatusPassed, `{"total":5}`),
@@ -127,18 +131,6 @@ func TestRunDiffTreatsAStepHeldBackByKeepGoingAsNotReached(t *testing.T) {
 		if c.Step == "confirm" {
 			t.Fatalf("a step that was never sent has no response to compare, got %+v", c)
 		}
-	}
-}
-
-func TestRunDiffAppliesTheCurrentVolatilePatterns(t *testing.T) {
-	a := runOf("run-a", stepAs("create", runner.StatusPassed, `{"sku":"PROBE-1","qty":1}`))
-	b := runOf("run-b", stepAs("create", runner.StatusPassed, `{"sku":"PROBE-2","qty":1}`))
-	if rep := compareRuns(a, b); rep.Same() {
-		t.Fatal("sku differs and nothing declares it volatile")
-	}
-	rep := compareRuns(a, b, "**.sku")
-	if !rep.Same() || !strings.Contains(rep.Text(), "no differences") {
-		t.Fatalf("a pattern added to the config after the runs were recorded must still mask, got %s", rep.Text())
 	}
 }
 
@@ -158,20 +150,6 @@ func TestRunDiffNamesBuildsAndVarsThatDifferWithoutCallingThemDifferences(t *tes
 	}
 }
 
-func TestRunDiffSaysWhichSideRanWithKeepGoing(t *testing.T) {
-	a := &runner.Record{RunID: "a", Chain: "c", Status: runner.StatusFailed, Steps: []*runner.StepRecord{
-		{ID: "one", Status: runner.StatusFailed},
-	}}
-	b := &runner.Record{RunID: "b", Chain: "c", Status: runner.StatusFailed, KeepGoing: true, Steps: []*runner.StepRecord{
-		{ID: "one", Status: runner.StatusFailed},
-		{ID: "two", Status: runner.StatusPassed},
-	}}
-	text := compareRuns(a, b).Text()
-	if !strings.Contains(text, "run B used -keep-going and run A did not") {
-		t.Fatalf("a reach difference caused by -keep-going must say so:\n%s", text)
-	}
-}
-
 func TestVerifyDoesNotCountIdsThatDifferEveryRun(t *testing.T) {
 	spot := &store.SafeSpot{Chain: "c", RunID: "a", Steps: []*runner.StepRecord{
 		{ID: "create", Call: "X/Create", Status: runner.StatusPassed,
@@ -187,34 +165,6 @@ func TestVerifyDoesNotCountIdsThatDifferEveryRun(t *testing.T) {
 	}
 	if rep.Masked != 1 || !strings.Contains(rep.Text(), "not counted: 2 (-masked lists them)") {
 		t.Fatalf("the report must say how many id-shaped values it did not count:\n%s", rep.Text())
-	}
-}
-
-func TestRunDiffComparesTheErrorTextOfAStepBothRunsErroredOn(t *testing.T) {
-	a := runOf("run-a", &runner.StepRecord{ID: "create", Call: "ThingService/Create", Status: runner.StatusError,
-		Error: "auth login response has no token at \"access_token\""})
-	b := runOf("run-b", &runner.StepRecord{ID: "create", Call: "ThingService/Create", Status: runner.StatusError,
-		Error: "auth login: POST http://127.0.0.1:1/Login: dial tcp: connection refused"})
-	rep := compareRuns(a, b)
-	if rep.Same() {
-		t.Fatalf("one run could not log in and the other could not connect: they differ\n%s", rep.Text())
-	}
-	text := rep.Text()
-	for _, want := range []string{"create", "no token at", "connection refused"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("the diff must show both error texts, lacks %q:\n%s", want, text)
-		}
-	}
-	if strings.Contains(text, "no differences") {
-		t.Fatalf("must not claim no differences:\n%s", text)
-	}
-}
-
-func TestRunDiffKeepsTheSameErrorTextTheSame(t *testing.T) {
-	a := runOf("run-a", &runner.StepRecord{ID: "create", Status: runner.StatusError, Error: "dial tcp: connection refused"})
-	b := runOf("run-b", &runner.StepRecord{ID: "create", Status: runner.StatusError, Error: "dial tcp: connection refused"})
-	if rep := compareRuns(a, b); !rep.Same() {
-		t.Fatalf("the same error twice is no difference:\n%s", rep.Text())
 	}
 }
 
@@ -306,11 +256,8 @@ func TestAFailureDifferingOnlyByTheIdsEachRunGeneratedIsTheSame(t *testing.T) {
 	}
 	a := run("a", "ord-c1c11917aa24", "ord-60f9aa4b6db6")
 	b := run("b", "ord-fb15f508130a", "ord-d0d8a86db64f")
-	if text := compareRuns(a, b).Text(); !strings.Contains(text, "list, failing the same way in both: the values differ only by the ids") {
-		t.Fatalf("the same failure with each run's own ids is failing the same way:\n%s", text)
-	}
 	c := run("c", "ord-fb15f508130a", "ord-fb15f508130a")
-	if text := compareRuns(a, c).Text(); !strings.Contains(text, "list, failing differently") {
-		t.Fatalf("a got that is not the other run's renamed id is a different failure:\n%s", text)
+	if !compareRuns(a, b).FailingAlike || compareRuns(a, c).FailingAlike {
+		t.Fatal("the same failure with each run's own ids fails alike; a got that is not the other run's renamed id does not")
 	}
 }

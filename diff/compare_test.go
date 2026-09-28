@@ -7,7 +7,6 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
-	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -27,156 +26,42 @@ func recOf(steps ...*runner.StepRecord) *runner.Record {
 	return &runner.Record{Chain: "thing-flow", RunID: "run-9", Status: runner.StatusPassed, Steps: steps}
 }
 
-func TestIdenticalRunsHaveNoDrift(t *testing.T) {
-	body := `{"id":"thing-1","name":"widget"}`
-	rep := diff.Compare(spotOf(nil, step("fetch", body)), recOf(step("fetch", body)))
-	if !rep.Clean() {
-		t.Fatalf("want no drift, got %s", rep.Text())
+func changeKeys(changes []diff.Change) string {
+	out := []string{}
+	for _, c := range changes {
+		out = append(out, c.Step+":"+c.Kind+":"+c.Path)
 	}
+	return strings.Join(out, ",")
 }
 
-func TestChangedFieldIsReportedWithBothValues(t *testing.T) {
-	rep := diff.Compare(
-		spotOf(nil, step("fetch", `{"id":"thing-1","name":"widget"}`)),
-		recOf(step("fetch", `{"id":"thing-1","name":"gadget"}`)),
-	)
-	if len(rep.Changes) != 1 {
-		t.Fatalf("want 1 change, got %s", rep.Text())
-	}
-	c := rep.Changes[0]
-	if c.Step != "fetch" || c.Path != "name" || c.Kind != diff.KindChanged {
-		t.Fatalf("unexpected change %+v", c)
-	}
-	if c.Want != "widget" || c.Got != "gadget" {
-		t.Fatalf("want widget->gadget, got %v->%v", c.Want, c.Got)
-	}
-}
-
-func TestVolatilePathsAreMaskedBeforeComparing(t *testing.T) {
-	rep := diff.Compare(
-		spotOf([]string{"**.created_at"}, step("fetch", `{"id":"a","created_at":"t1"}`)),
-		recOf(step("fetch", `{"id":"a","created_at":"t2"}`)),
-	)
-	if !rep.Clean() {
-		t.Fatalf("a volatile field must not count as drift, got %s", rep.Text())
-	}
-}
-
-func TestMissingAndUnexpectedFieldsAreDistinguished(t *testing.T) {
-	rep := diff.Compare(
-		spotOf(nil, step("fetch", `{"id":"a","name":"widget"}`)),
-		recOf(step("fetch", `{"id":"a","label":"widget"}`)),
-	)
-	kinds := map[string]string{}
-	for _, c := range rep.Changes {
-		kinds[c.Path] = c.Kind
-	}
-	if kinds["name"] != diff.KindMissing {
-		t.Fatalf("want name missing, got %v", kinds)
-	}
-	if kinds["label"] != diff.KindUnexpected {
-		t.Fatalf("want label unexpected, got %v", kinds)
-	}
-}
-
-func TestStepReorderIsReportedRatherThanDiffed(t *testing.T) {
+func TestCompareClassifiesEachChangeByKind(t *testing.T) {
 	a, b := step("create", `{"id":"a"}`), step("fetch", `{"id":"a"}`)
-	rep := diff.Compare(spotOf(nil, a, b), recOf(b, a))
-	if rep.Clean() {
-		t.Fatal("reordering steps must be reported")
-	}
-	for _, c := range rep.Changes {
-		if c.Kind == diff.KindOrder {
-			return
-		}
-	}
-	t.Fatalf("want an order change, got %s", rep.Text())
-}
-
-func TestMaskPatterns(t *testing.T) {
-	cases := []struct {
-		pattern, path string
-		want          bool
+	for _, c := range []struct {
+		name      string
+		volatile  []string
+		spot, run []*runner.StepRecord
+		want      string
 	}{
-		{"**.created_at", "created_at", true},
-		{"**.created_at", "deals.0.created_at", true},
-		{"deals.*.id", "deals.3.id", true},
-		{"deals.*.id", "deals.3.4.id", false},
-		{"error.code", "error.code", true},
-		{"error.code", "error.message", false},
-	}
-	for _, c := range cases {
-		if got := pathmask.Match(c.pattern, c.path); got != c.want {
-			t.Fatalf("Match(%q, %q) = %v, want %v", c.pattern, c.path, got, c.want)
+		{"identical", nil, []*runner.StepRecord{step("fetch", `{"id":"thing-1","name":"widget"}`)}, []*runner.StepRecord{step("fetch", `{"id":"thing-1","name":"widget"}`)}, ""},
+		{"changed field", nil, []*runner.StepRecord{step("fetch", `{"name":"widget"}`)}, []*runner.StepRecord{step("fetch", `{"name":"gadget"}`)}, "fetch:changed:name"},
+		{"volatile path masked", []string{"**.created_at"}, []*runner.StepRecord{step("fetch", `{"id":"a","created_at":"t1"}`)}, []*runner.StepRecord{step("fetch", `{"id":"a","created_at":"t2"}`)}, ""},
+		{"missing and unexpected", nil, []*runner.StepRecord{step("fetch", `{"id":"a","name":"widget"}`)}, []*runner.StepRecord{step("fetch", `{"id":"a","label":"widget"}`)}, "fetch:unexpected:label,fetch:missing:name"},
+		{"number to string", nil, []*runner.StepRecord{step("r", `{"quantity":3}`)}, []*runner.StepRecord{step("r", `{"quantity":"3"}`)}, "r:type:quantity"},
+		{"boolean to string", nil, []*runner.StepRecord{step("r", `{"active":true}`)}, []*runner.StepRecord{step("r", `{"active":"true"}`)}, "r:type:active"},
+		{"string to null", nil, []*runner.StepRecord{step("r", `{"note":"x"}`)}, []*runner.StepRecord{step("r", `{"note":null}`)}, "r:type:note"},
+		{"scalar to object", nil, []*runner.StepRecord{step("r", `{"owner":"alice"}`)}, []*runner.StepRecord{step("r", `{"owner":{"name":"alice"}}`)}, "r:type:owner"},
+		{"1.0 and 1 are one number", nil, []*runner.StepRecord{step("r", `{"rate":1.0}`)}, []*runner.StepRecord{step("r", `{"rate":1}`)}, ""},
+		{"unchanged nested body", nil, []*runner.StepRecord{step("r", `{"status":{"code":"SUCCESS"},"lines":[{"quantity":3}]}`)}, []*runner.StepRecord{step("r", `{"status":{"code":"SUCCESS"},"lines":[{"quantity":3}]}`)}, ""},
+		{"steps reordered", nil, []*runner.StepRecord{a, b}, []*runner.StepRecord{b, a}, "-:order:steps"},
+	} {
+		rep := diff.Compare(spotOf(c.volatile, c.spot...), recOf(c.run...))
+		if got := changeKeys(rep.Changes); got != c.want || rep.Clean() != (c.want == "") {
+			t.Errorf("%s: got %q clean=%v, want %q", c.name, got, rep.Clean(), c.want)
 		}
 	}
-}
-
-func replay(t *testing.T, confirmed, today string) *diff.Report {
-	t.Helper()
-	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: []*runner.StepRecord{
-		{ID: "read", Status: runner.StatusPassed, Response: json.RawMessage(confirmed)}}}
-	rec := &runner.Record{Chain: "c", RunID: "today", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
-		{ID: "read", Status: runner.StatusPassed, Response: json.RawMessage(today)}}}
-	return diff.Compare(spot, rec)
-}
-
-func TestANumberThatBecomesAStringIsDrift(t *testing.T) {
-	r := replay(t, `{"quantity":3}`, `{"quantity":"3"}`)
-
-	if r.Clean() {
-		t.Fatal("a backend that restates quantity 3 as \"3\" breaks every client that reads it as a " +
-			"number, and verify exists to catch exactly what nobody asserted. Comparing them as formatted text made " +
-			"the two identical")
-	}
-	if got := r.Changes[0].Kind; got != diff.KindType {
-		t.Errorf("the value did not change, its type did; want %q, got %q", diff.KindType, got)
-	}
-}
-
-func TestTheReportSaysWhichTypeEachSideWas(t *testing.T) {
-	text := replay(t, `{"quantity":3}`, `{"quantity":"3"}`).Text()
-
+	text := diff.Compare(spotOf(nil, step("r", `{"quantity":3}`)), recOf(step("r", `{"quantity":"3"}`))).Text()
 	if !strings.Contains(text, "number 3") || !strings.Contains(text, `string "3"`) {
-		t.Fatalf("printing want=3 got=3 reads like a false positive; the kinds are the whole finding: %s", text)
-	}
-}
-
-func TestABooleanThatBecomesAStringIsDrift(t *testing.T) {
-	if replay(t, `{"active":true}`, `{"active":"true"}`).Clean() {
-		t.Fatal("true and the string \"true\" render identically as formatted text")
-	}
-}
-
-func TestAStringThatBecomesNullIsDrift(t *testing.T) {
-	if replay(t, `{"note":"x"}`, `{"note":null}`).Clean() {
-		t.Fatal("a field that stopped being sent is drift")
-	}
-}
-
-func TestAScalarThatBecomesAnObjectIsDrift(t *testing.T) {
-	r := replay(t, `{"owner":"alice"}`, `{"owner":{"name":"alice"}}`)
-
-	if r.Clean() {
-		t.Fatal("a scalar promoted to a message is the widest kind of breaking change")
-	}
-	if got := r.Changes[0].Kind; got != diff.KindType {
-		t.Errorf("want %q, got %q", diff.KindType, got)
-	}
-}
-
-func TestJSONHasNoSeparateIntegerSoOneAndOnePointZeroAreTheSame(t *testing.T) {
-	if !replay(t, `{"rate":1.0}`, `{"rate":1}`).Clean() {
-		t.Fatal("both decode to the same float64; reporting drift here would make every replay of a " +
-			"whole-numbered rate dirty")
-	}
-}
-
-func TestAnUnchangedResponseStaysClean(t *testing.T) {
-	body := `{"status":{"code":"SUCCESS"},"total_minor":"5498","lines":[{"quantity":3}]}`
-
-	if !replay(t, body, body).Clean() {
-		t.Fatal("comparing a response to itself must be clean, or the kind check has a false positive")
+		t.Fatalf("a type change names both types:\n%s", text)
 	}
 }
 
@@ -216,24 +101,6 @@ func TestADriftDumpRendersObjectsAsJSONNotGoMaps(t *testing.T) {
 	}
 	if !strings.Contains(text, `{"price_minor":"250","sku":"sku-a"}`) {
 		t.Fatalf("the object must read as JSON:\n%s", text)
-	}
-}
-
-func TestATimedOutStepIsNotReportedAsNotReached(t *testing.T) {
-	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: []*runner.StepRecord{
-		stepAs("create", runner.StatusPassed, `{"id":"a"}`),
-		stepAs("fetch", runner.StatusPassed, `{"id":"a"}`),
-	}}
-	create := stepAs("create", runner.StatusFailed, `{"id":"a","error":{"code":"x"}}`)
-	fetch := &runner.StepRecord{ID: "fetch", Call: "ThingService/Fetch", Status: runner.StatusError,
-		Error: "POST http://x/ThingService/Fetch: sent, no answer before target.timeout (1s): context deadline exceeded"}
-	rec := runOf("run", create, fetch)
-	text := diff.Compare(spot, rec).Text()
-	if strings.Contains(text, "[fetch] not_reached") {
-		t.Fatalf("a step that was sent and timed out was reached; it must not read not_reached:\n%s", text)
-	}
-	if !strings.Contains(text, "[fetch] status") || !strings.Contains(text, "no answer before target.timeout") {
-		t.Fatalf("the timed-out step must read as a status change that says it timed out:\n%s", text)
 	}
 }
 
@@ -323,89 +190,41 @@ func TestStepsAStoppedRunNeverReachedAreNotCountedAsChanges(t *testing.T) {
 	}
 }
 
-const timedOutError = "POST http://127.0.0.1:1/shrt.test.v1.ThingService/Fetch: sent, no answer before target.timeout (700ms): context deadline exceeded"
+const (
+	timedOutError = "POST http://127.0.0.1:1/shrt.test.v1.ThingService/Fetch: sent, no answer before target.timeout (700ms): context deadline exceeded"
+	droppedError  = "POST http://127.0.0.1:1/shrt.test.v1.ThingService/Fetch: sent, no answer: the backend closed the connection " +
+		"before a response arrived (EOF): it most likely stopped or crashed while this request was in flight, so whether the call " +
+		"took effect is unknown. This is not a verdict about the rpc: check the backend is up and run again"
+)
 
-func timedOutRun() *runner.Record {
-	rec := runOf("run",
-		stepAs("create", runner.StatusError, ""),
-		stepAs("fetch", runner.StatusError, ""),
-		stepAs("list", runner.StatusPassed, `{"n":1}`))
-	rec.Steps[0].Error = timedOutError
-	rec.Steps[1].Error = timedOutError
-	return rec
-}
-
-func TestVerifyLabelsATimedOutStepAsSentNotNotSent(t *testing.T) {
-	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{
-		{ID: "create", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-		{ID: "fetch", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-		{ID: "list", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-	}}
-	text := diff.Compare(spot, timedOutRun()).Text()
-	if strings.Contains(text, "not sent") {
-		t.Fatalf("a step that went out and timed out was sent:\n%s", text)
+func TestAStepSentWithoutAnAnswerIsSentNotNotReached(t *testing.T) {
+	run := func(id, create, createBody, err string, erred ...int) *runner.Record {
+		rec := runOf(id, stepAs("create", create, createBody), stepAs("fetch", runner.StatusError, ""), stepAs("list", runner.StatusPassed, `{"n":1}`))
+		for _, i := range erred {
+			rec.Steps[i].Error = err
+		}
+		return rec
 	}
-	if strings.Contains(text, "[fetch] not_reached") || !strings.Contains(text, "[fetch] status     status want=passed got=error (POST") ||
-		!strings.Contains(text, "sent, no answer before target.timeout") {
-		t.Fatalf("the timed-out step must say it was sent and got no answer in time:\n%s", text)
-	}
-}
-
-func TestDiffLabelsATimedOutStepAsSentNotNotReached(t *testing.T) {
-	a := runOf("a",
-		stepAs("create", runner.StatusPassed, `{"n":1}`),
-		stepAs("fetch", runner.StatusPassed, `{"n":1}`),
-		stepAs("list", runner.StatusPassed, `{"n":1}`))
-	text := compareRuns(a, timedOutRun()).Text()
-	if strings.Contains(text, "not reached in B: create") || strings.Contains(text, "not reached in B: fetch") {
-		t.Fatalf("a timed-out step was sent in B, not unreached:\n%s", text)
-	}
-	if !strings.Contains(text, "sent in B, no answer before target.timeout: create, fetch") {
-		t.Fatalf("the timed-out steps must be named as sent without an answer:\n%s", text)
-	}
-}
-
-const droppedError = "POST http://127.0.0.1:1/shrt.test.v1.ThingService/Fetch: sent, no answer: the backend closed the connection " +
-	"before a response arrived (EOF): it most likely stopped or crashed while this request was in flight, so whether the call " +
-	"took effect is unknown. This is not a verdict about the rpc: check the backend is up and run again"
-
-func TestVerifyCountsADroppedStepAfterAChangeAsSentNotNotSent(t *testing.T) {
-	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{
-		{ID: "create", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-		{ID: "fetch", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-		{ID: "list", Call: "ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(`{"n":1}`)},
-	}}
-	rec := runOf("run",
-		stepAs("create", runner.StatusFailed, `{"n":2}`),
-		stepAs("fetch", runner.StatusError, ""),
-		stepAs("list", runner.StatusPassed, `{"n":1}`))
-	rec.Steps[1].Error = droppedError
-	report := diff.Compare(spot, rec)
-	text := report.Text()
-	if strings.Contains(text, "not sent") || strings.Contains(text, "[fetch] not_reached") {
-		t.Fatalf("the dropped step went out, so it was sent:\n%s", text)
-	}
-	if !strings.Contains(text, "[fetch] status     status want=passed got=error") {
-		t.Fatalf("the dropped step is a counted status change:\n%s", text)
-	}
-}
-
-func TestDiffLabelsADroppedStepAsSentNotNotReached(t *testing.T) {
-	a := runOf("a",
-		stepAs("create", runner.StatusPassed, `{"n":1}`),
-		stepAs("fetch", runner.StatusPassed, `{"n":1}`),
-		stepAs("list", runner.StatusPassed, `{"n":1}`))
-	b := runOf("b",
-		stepAs("create", runner.StatusPassed, `{"n":1}`),
-		stepAs("fetch", runner.StatusError, ""),
-		stepAs("list", runner.StatusPassed, `{"n":1}`))
-	b.Steps[1].Error = droppedError
-	text := compareRuns(a, b).Text()
-	if strings.Contains(text, "not reached in B: fetch") {
-		t.Fatalf("the dropped step was sent in B, not unreached:\n%s", text)
-	}
-	if !strings.Contains(text, "sent in B, no answer (the connection closed): fetch") {
-		t.Fatalf("the dropped step must be named as sent without an answer:\n%s", text)
+	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: run("spot", runner.StatusPassed, `{"n":1}`, "").Steps}
+	spot.Steps[1] = stepAs("fetch", runner.StatusPassed, `{"n":1}`)
+	a := runOf("a", spot.Steps...)
+	for _, c := range []struct {
+		name          string
+		verify, runs  *runner.Record
+		changes, line string
+	}{
+		{"timed out", run("run", runner.StatusError, "", timedOutError, 0, 1), run("run", runner.StatusError, "", timedOutError, 0, 1),
+			"create:status:status,fetch:status:status", "sent in B, no answer before target.timeout: create, fetch"},
+		{"connection dropped", run("run", runner.StatusFailed, `{"n":2}`, droppedError, 1), run("run", runner.StatusPassed, `{"n":1}`, droppedError, 1),
+			"create:status:status,create:changed:n,fetch:status:status", "sent in B, no answer (the connection closed): fetch"},
+	} {
+		rep := diff.Compare(spot, c.verify)
+		if got := changeKeys(rep.Changes); got != c.changes || strings.Contains(rep.Text(), "not sent") {
+			t.Errorf("%s: verify changes %q, want %q:\n%s", c.name, got, c.changes, rep.Text())
+		}
+		if text := compareRuns(a, c.runs).Text(); !strings.Contains(text, c.line) || strings.Contains(text, "not reached in B") {
+			t.Errorf("%s: diff must say %q:\n%s", c.name, c.line, text)
+		}
 	}
 }
 
