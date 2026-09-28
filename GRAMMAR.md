@@ -369,7 +369,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `auth_principal` | string | Digest of the account the profile logged in as, no secret in it; `verify` compares it. |
 | `auth_retry` | string | `resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent. |
 | `first_attempt` | attempt | A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING. |
-| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal is a `FINDING`. |
+| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use is re-minted without a line; repeated early refusal is a `FINDING`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass). |
 | `http_status` | int | Transport status. 200 with a non-OK envelope code is an in-band refusal. |
 | `latency_ms` | int | Wall time of the call. |

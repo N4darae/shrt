@@ -179,7 +179,7 @@ func TestVerifyReportsATokenLifetimeFindingAndNeverCallsItARestart(t *testing.T)
 	}
 }
 
-func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
+func TestACachedTokenRefusedOnItsFirstUseIsReMintedWithoutALine(t *testing.T) {
 	b := &shortSessionBackend{uses: 100}
 	shortSessionWorkspace(t, b, lifetimeWrites)
 	ctx := context.Background()
@@ -191,17 +191,8 @@ func TestACachedTokenRefusedOnItsFirstUseSaysPossiblyARestart(t *testing.T) {
 	b.mu.Unlock()
 	var err error
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	if !strings.Contains(out, "note: cached token refused") || strings.Contains(out, "WARNING") {
-		t.Fatalf("the cached token was refused early on its first use: %v\n%s", err, out)
-	}
-	if strings.Contains(out, "nothing in this run shows a restart") {
-		t.Fatalf("a restart since the token was cached leaves no trace in this run, so the run must not say none happened:\n%s", out)
-	}
-	if !strings.Contains(out, "possibly a restart since the token was cached") || strings.Contains(out, "FINDING") {
-		t.Fatalf("the warning names a restart since the token was cached as a cause, and is no finding:\n%s", out)
-	}
-	if lines := nonEmptyLines(out); len(lines) != 2 || len(lines[1]) > 200 {
-		t.Fatalf("a cached token refused on its first use is one short line under the verdict:\n%s", out)
+	if lines := nonEmptyLines(out); err != nil || len(lines) != 1 {
+		t.Fatalf("a cached token refused on its first use is re-minted, and the run prints its verdict only: %v\n%s", err, out)
 	}
 }
 
@@ -219,7 +210,7 @@ func TestCachedTokensRefusedAfterEachOfSeveralRestartsStayNotes(t *testing.T) {
 		b.left = map[string]int{}
 		b.mu.Unlock()
 		out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-		if err != nil || strings.Contains(out, "FINDING") || !strings.Contains(out, "possibly a restart since the token was cached") {
+		if err != nil || strings.Contains(out, "FINDING") || strings.Contains(out, "WARNING") {
 			t.Fatalf("after restart %d a cached token refused on first use is a restart's note, never a finding: %v\n%s", i, err, out)
 		}
 	}
@@ -245,7 +236,7 @@ func TestAReloginTokenAcceptedFromTheCacheIsAnOrdinaryCachedTokenAgain(t *testin
 	}
 	restart()
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
-	if err != nil || strings.Contains(out, "FINDING") || !strings.Contains(out, "note: cached token refused") {
+	if err != nil || strings.Contains(out, "FINDING") || strings.Contains(out, "WARNING") {
 		t.Fatalf("a token accepted in a later run and then refused is explained by a restart since: %v\n%s", err, out)
 	}
 }
