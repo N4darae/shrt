@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -661,7 +662,8 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		items = append(items, it)
 	}
 	if first, _ := firstChange(report, rec); first != nil {
-		sort.SliceStable(items, func(i, j int) bool { return items[i].Step == first.Step && items[j].Step != first.Step })
+		at := func(it gateItem) bool { return it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) }
+		sort.SliceStable(items, func(i, j int) bool { return at(items[i]) && !at(items[j]) || items[i].Step == first.Step && items[j].Step != first.Step })
 	}
 	return items
 }
@@ -1174,26 +1176,8 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if what == "run" && out.side.KeptRed != "" {
 			g.keptRed = out.side.KeptRed
 		}
-		if g.first == "" {
-			if len(out.side.Items) > 0 && out.side.KeptRed != runner.KeptRedGone {
-				it, rank := out.side.Items[0], -1
-				for _, f := range out.side.Items {
-					r := 0
-					if f.Failed {
-						r++
-					}
-					if fl, ok := g.flaky[f.Call]; !ok || !containsName(fl.Steps, f.Step) {
-						r += 2
-					}
-					if r > rank {
-						it, rank = f, r
-					}
-				}
-				g.first = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline())
-				g.firstAt = it.Step + " " + it.Path
-			} else {
-				g.first = capText(what+": "+strings.TrimPrefix(why, "kept red, but it did not fail as pinned: "), 200)
-			}
+		if g.first == "" && (len(out.side.Items) == 0 || out.side.KeptRed == runner.KeptRedGone) {
+			g.first = capText(what+": "+strings.TrimPrefix(why, "kept red, but it did not fail as pinned: "), 200)
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedNotAsPinned {
 			g.class, g.pinsHeld = "not as pinned", out.side.PinsHeld
@@ -1212,12 +1196,6 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 		if what == "verify" && g.class == "" && len(out.side.Items) > 0 {
 			g.class = out.side.Items[0].Class
-			for _, it := range out.side.Items {
-				if it.Step+" "+it.Path == g.firstAt {
-					g.class = it.Class
-					break
-				}
-			}
 		}
 	}
 }
@@ -1351,7 +1329,7 @@ func settleGate(chains []*gateChain) []string {
 		if !g.failed || g.findingOnly() || len(g.items) == 0 {
 			continue
 		}
-		lead, rank := -1, -1
+		lead, rank, verified := -1, -1, false
 		for i, it := range g.items {
 			r := 0
 			if it.Pinned != "" {
@@ -1360,10 +1338,10 @@ func settleGate(chains []*gateChain) []string {
 			if fl, ok := g.flaky[it.Call]; !ok || !containsName(fl.Steps, it.Step) {
 				r += 16
 			}
-			if it.Failed {
-				r += 8
+			if it.from == "verify" && !verified {
+				r, verified = r+8, true
 			}
-			if seen[it.root()] == "" {
+			if it.Failed {
 				r += 4
 			}
 			if it.Reason.Kind != "" {
@@ -1431,16 +1409,34 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		in                   string
 		rank                 int
 	}
-	groups, order := map[string]*group{}, []*group{}
+	groups, order, keys := map[string]*group{}, []*group{}, map[string]string{}
+	keyOf := func(it gateItem, path string) string {
+		if chain.IsEnvelopePath(path) {
+			path = chain.EnvelopeField()
+		}
+		return it.rpc() + " " + listOf(path)
+	}
+	for _, g := range chains {
+		for _, it := range g.items {
+			at, path := it.Step, it.Path
+			if s := it.suspect(); s != "" {
+				at, path = s, it.Reason.Path
+			}
+			if !it.Passes && path != "" && keys[g.name+" "+at] == "" {
+				keys[g.name+" "+at] = keyOf(it, path)
+			}
+		}
+	}
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
-			gr := groups[it.rpc()]
+			key := cmp.Or(keys[g.name+" "+cmp.Or(it.suspect(), it.Step)], keyOf(it, it.Path))
+			gr := groups[key]
 			if gr == nil {
 				gr = &group{rpc: it.rpc(), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
-				groups[it.rpc()] = gr
+				groups[key] = gr
 				order = append(order, gr)
 			}
 			if it.Reason.Kind == reasonKnockOn {

@@ -162,7 +162,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		name          string
 		firstAt, same []string
 	}{
-		{"a later chain showing the same fault names the chain that showed it", []string{"replay order.status", "create order.total_minor", "create order.total_minor"}, []string{"", "", "orders"}},
+		{"a later chain showing the same fault names the chain that showed it", []string{"replay order.status", "replay_2 order.status", "create order.total_minor"}, []string{"", "replay", ""}},
 		{"a failed first change leads over a drift", []string{"add status.code", "add_as_clerk status.code"}, []string{"", "a"}},
 		{"-v shows the suspect's request and the same fault in a later chain", []string{"get thing.state", "get thing.state"}, []string{"", "one"}},
 	} {
