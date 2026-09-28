@@ -662,8 +662,12 @@ func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 		items = append(items, it)
 	}
 	if first, _ := firstChange(report, rec); first != nil {
-		at := func(it gateItem) bool { return it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) }
-		sort.SliceStable(items, func(i, j int) bool { return at(items[i]) && !at(items[j]) || items[i].Step == first.Step && items[j].Step != first.Step })
+		at := func(it gateItem) bool {
+			return it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus)
+		}
+		sort.SliceStable(items, func(i, j int) bool {
+			return at(items[i]) && !at(items[j]) || items[i].Step == first.Step && items[j].Step != first.Step
+		})
 	}
 	return items
 }

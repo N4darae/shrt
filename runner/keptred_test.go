@@ -99,6 +99,8 @@ func TestKeptRedHoldsOnlyWhenTheChainFailsExactlyAsPinned(t *testing.T) {
 		{name: "pinned path held", c: keptRedChain(5, 7, pin("second", "status.code")), verdict: runner.KeptRedNotAsPinned, note: []string{"failed where nothing is pinned"}},
 		{name: "a pinned path now passes", c: keptRedChain(5, 7, pinGot("first", "qty_on_hand", "4"), pin("second", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned, note: []string{"first qty_on_hand: pinned got=4, now got=5, which passes"}},
 		{name: "a pinned step that passed reads with one but", c: keptRedChain(5, 7, pin("first", "qty_on_hand"), pin("second", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned, note: []string{"first qty_on_hand: pinned failing, now passes"}, once: ", but "},
+		{name: "a pin that passes after an unpinned failure may be masked", c: threeStepKeptRed(5, 7, plain, pin("second", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned,
+			note: []string{`the pins that now pass come after "first" failed, so they may be masked`}},
 		{name: "a later regression is seen", c: threeStepKeptRed(5, 7, plain, pin("first", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned, note: []string{`step "third" failed where nothing is pinned`}},
 		{name: "a step left unexercised", c: threeStepKeptRed(5, 5, reads, pin("first", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned, note: []string{`step "third" was not sent`}},
 		{name: "the pin after an unpinned failure is evaluated", c: threeStepKeptRed(7, 5, plain, pin("second", "qty_on_hand")), verdict: runner.KeptRedNotAsPinned,

@@ -348,7 +348,9 @@ func (a attribution) of(step, path string) reason {
 		}
 	}
 	if a.reordered != nil && path != "" && a.reordered(step, path) {
-		return a.own(reasonOrder, st)
+		r := a.own(reasonOrder, st)
+		r.Other = a.orderKey(st, path)
+		return r
 	}
 	if other := a.principal(st, path); other != "" {
 		r := a.own(reasonProfile, st)

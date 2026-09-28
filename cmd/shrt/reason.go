@@ -104,6 +104,9 @@ func (r reason) String() string {
 		reasonDiffers: "answers " + shown + " unlike what " + r.Other + " returned",
 		reasonSlow:    "slower than in the safe spot's run",
 	}[r.Kind]
+	if r.Kind == reasonOrder && r.Other != "" {
+		detail += " (" + r.Other + ")"
+	}
 	if r.Kind == reasonRefused && r.Other != "" {
 		detail += ", passes as " + r.Other
 	}

@@ -33,6 +33,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	}
 	problems, found := []string{}, []string{}
 	unsentPinned, unsentOther, unpinnedFail := []string{}, []string{}, []string{}
+	maskedBy := ""
 	for _, step := range c.Steps {
 		want := pins[step.ID]
 		sr, ok := rec.Step(step.ID)
@@ -50,6 +51,9 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 		if sr.Status == StatusPassed {
 			for _, k := range resolvedPins(want, scope) {
 				problems = append(problems, passedPin(step.ID, sr, k))
+				if len(unpinnedFail) > 0 && maskedBy == "" {
+					maskedBy = unpinnedFail[0]
+				}
 			}
 			continue
 		}
@@ -65,6 +69,9 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	}
 	if len(unpinnedFail) > 0 {
 		problems = append(problems, fmt.Sprintf("%s failed where nothing is pinned (%s)", stepList(unpinnedFail), inNewFailure))
+	}
+	if maskedBy != "" {
+		problems = append(problems, fmt.Sprintf("the pins that now pass come after %q failed, so they may be masked by that failure rather than fixed", maskedBy))
 	}
 	switch len(unsentPinned) {
 	case 0:
@@ -252,7 +259,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 func passedPin(id string, sr *StepRecord, k chain.Pin) string {
 	for _, ex := range sr.Expect {
 		if ex.Passed && k.Got != nil && namecase.Equal(k.Path, ex.Path) {
-			return fmt.Sprintf("%s %s: pinned got=%s, now got=%s, which passes", id, k.Path, *k.Got, gotText(ex.Got))
+			return fmt.Sprintf("%s %s: pinned got=%s, now got=%s, which passes", id, k.Path, chain.EdgeQuoted(*k.Got), chain.EdgeQuoted(gotText(ex.Got)))
 		}
 	}
 	return fmt.Sprintf("%s %s: pinned failing, now passes", id, k.Path)
