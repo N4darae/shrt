@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
@@ -350,14 +349,6 @@ func sliceCollisionNote(e *env, res *chain.SliceResult, replay *runner.Record) s
 		return reuse.line() + ". A plain re-run of the slice generates a fresh value."
 	}
 	return reuse.line() + ".\nRe-run the slice with a fresh value: " + reuse.fresh()
-}
-
-func otherEntitiesNote(other []string) string {
-	if len(other) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("dropped write step(s) %s change no entity a kept step uses: the ids they act on appear in no kept step's "+
-		"request or response in the source run, or they answered as an earlier call of the same rpc did", capList(other, 5))
 }
 
 func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResult) bool {

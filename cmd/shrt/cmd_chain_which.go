@@ -64,7 +64,6 @@ func chainWhich(args []string) error {
 	}
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
-	keepRelatedWritesInPinnedRepro(e, lib, chains, hits)
 	preferClosureRepro(e, lib, chains, hits)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
@@ -111,7 +110,7 @@ func describeWhichQuery(q chain.WhichQuery) string {
 }
 
 func sliceSizeOf(e *env, lib *contract.Library) func(*chain.Chain, string) (int, bool) {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
+	opts := chain.SliceOptions{RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 	return func(c *chain.Chain, step string) (int, bool) {
 		res, err := chain.Slice(c, step, opts)
 		if err != nil {
@@ -182,53 +181,6 @@ func observedResponse(s *runner.StepRecord) any {
 	return merged
 }
 
-func keepRelatedWritesInPinnedRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
-	byName := map[string]*chain.Chain{}
-	for _, c := range chains {
-		byName[c.Name] = c
-	}
-	for i := range hits {
-		h := &hits[i]
-		c := byName[h.Chain]
-		var best *chain.WhichStep
-		for j := range h.Matches {
-			if h.Matches[j].Step == h.Best {
-				best = &h.Matches[j]
-				break
-			}
-		}
-		if c == nil || best == nil || best.Observed == nil || !strings.Contains(h.Command, " -mode pin -run ") {
-			continue
-		}
-		run := best.Observed.Run
-		rec, err := e.store.LoadRun(c.Name, run)
-		if err != nil {
-			continue
-		}
-		o := chain.SliceOptions{Mode: chain.SliceModePin, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib), RunID: rec.RunID,
-			Value: recordValues(rec), RunVars: recordVars(rec), Refused: refusedIn(rec), Performed: performedIn(rec)}
-		res, err := chain.Slice(c, h.Best, o)
-		if err != nil {
-			continue
-		}
-		if related, _ := relatedDroppedWrites(res, rec); len(related) == 0 {
-			continue
-		}
-		o.Keep = []string{chain.SliceKeepWrites}
-		kept, err := chain.Slice(c, h.Best, o)
-		if err != nil {
-			continue
-		}
-		cmd := "shrt chain slice " + c.Name + " -step " + h.Best + " -mode pin -run " + run + " -keep " + chain.SliceKeepWrites
-		names := append([]string{}, kept.FreshVars...)
-		sort.Strings(names)
-		for _, name := range names {
-			cmd += " -var " + name + "=<fresh>"
-		}
-		h.Command = cmd
-	}
-}
-
 func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
 	byName := map[string]*chain.Chain{}
 	for _, c := range chains {
@@ -238,7 +190,7 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 	for i := range hits {
 		h := &hits[i]
 		c := byName[h.Chain]
-		if c == nil || !strings.Contains(h.Command, keepFlag) || strings.Contains(h.Command, " -mode pin ") {
+		if c == nil || !strings.Contains(h.Command, keepFlag) {
 			continue
 		}
 		var best *chain.WhichStep
@@ -254,7 +206,7 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 		if err != nil {
 			continue
 		}
-		o := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
+		o := chain.SliceOptions{RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 		plain, err := chain.Slice(c, h.Best, o)
 		if err != nil {
 			continue
@@ -284,21 +236,13 @@ func freshVarFlags(fresh []string) string {
 	return out
 }
 
-func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string, string) []string {
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
+func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string) []string {
+	opts := chain.SliceOptions{RPCOf: rpcOf(e), Prereqs: contract.PrereqsFor(lib), KeyField: contract.KeyFieldFor(lib)}
 	login := isLoginStep(e)
-	return func(c *chain.Chain, step, run string) []string {
+	return func(c *chain.Chain, step string) []string {
 		o := opts
-		if s, ok := c.Step(step); ok && run == "" && !chain.IsReadOnlyCall(s.Call) && !login(s) && !chain.IsAuthProbe(s) {
+		if s, ok := c.Step(step); ok && !chain.IsReadOnlyCall(s.Call) && !login(s) && !chain.IsAuthProbe(s) {
 			o.Keep = []string{chain.SliceKeepWrites}
-		}
-		if run != "" {
-			rec, err := e.store.LoadRun(c.Name, run)
-			if err != nil {
-				return nil
-			}
-			o.Mode, o.RunID, o.Value, o.RunVars = chain.SliceModePin, rec.RunID, recordValues(rec), recordVars(rec)
-			o.Refused, o.Performed = refusedIn(rec), performedIn(rec)
 		}
 		res, err := chain.Slice(c, step, o)
 		if err != nil {
@@ -386,10 +330,7 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 		"though its reproduce: line slices a step that FAILED when the chain has one.\n"+
 		"Run records are machine-local, and only those recorded against this target (%s) are cited.\n",
 		whichMarkClaim, whichMarkSeen, target)
-	fmt.Println("slice k/n is the closure slice, the mode-independent cost; -mode pin can only be smaller.")
-	fmt.Println("A write step is reproduced in closure mode, which creates what it needs afresh: -mode pin would re-send the write\n" +
-		"against the entities the recorded run created, which that run already changed (a confirm answers AlreadyConfirmed).\n" +
-		"The plain closure keeps the writes that act on the entities the step uses, as far as the cited run shows; when that run\n" +
+	fmt.Println("The plain closure keeps the writes that act on the entities the step uses, as far as the cited run shows; when that run\n" +
 		"shows none left out, it is the reproduce: line, with -keep writes, which keeps every earlier write its state may depend\n" +
 		"on, as the fallback; otherwise -keep writes is the reproduce: line. A step marked auth probe (skip_auth, auth: invalid, or a\n" +
 		"transport refusal such as unauthenticated) is refused before it writes anything, so it is sliced plainly: earlier\n" +

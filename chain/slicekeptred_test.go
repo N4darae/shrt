@@ -25,7 +25,7 @@ func TestASliceCarriesTheKeptRedPinsOfTheStepsItKeeps(t *testing.T) {
 	if err := c.Normalize(); err != nil {
 		t.Fatal(err)
 	}
-	res, err := chain.Slice(c, "confirm", chain.SliceOptions{Mode: chain.SliceModeClosure})
+	res, err := chain.Slice(c, "confirm", chain.SliceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestAKeptRedStepAfterTheTargetIsKeptInTheSlice(t *testing.T) {
 	if err := c.Normalize(); err != nil {
 		t.Fatal(err)
 	}
-	res, err := chain.Slice(c, "confirm", chain.SliceOptions{Mode: chain.SliceModeClosure,
+	res, err := chain.Slice(c, "confirm", chain.SliceOptions{
 		Keep: []string{"fetch_after_confirm"}, Pinned: []string{"fetch_after_confirm"}})
 	if err != nil {
 		t.Fatalf("a later step pinned as part of the same defect must be allowed: %v", err)
@@ -74,7 +74,7 @@ func TestAKeptRedStepAfterTheTargetIsKeptInTheSlice(t *testing.T) {
 	if len(ids) != 3 || ids[0] != "create" || ids[1] != "confirm" || ids[2] != "fetch_after_confirm" {
 		t.Fatalf("the slice keeps the later pinned step after the target, and its producer: %v", ids)
 	}
-	if _, err := chain.Slice(c, "confirm", chain.SliceOptions{Mode: chain.SliceModeClosure, Keep: []string{"fetch_after_confirm"}}); err == nil {
+	if _, err := chain.Slice(c, "confirm", chain.SliceOptions{Keep: []string{"fetch_after_confirm"}}); err == nil {
 		t.Fatal("a plain -keep of a later step still cannot change the target's verdict and is refused")
 	}
 }

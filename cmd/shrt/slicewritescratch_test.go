@@ -75,7 +75,7 @@ func TestSliceWriteMayReplaceTheSourceWhenItIsNamedExplicitly(t *testing.T) {
 	var err error
 	out := captureStdout(t, func() {
 		err = chainSlice(context.Background(), []string{".shrt/scratch/min-stock.yaml", "-step", "get_after", "-run", "latest",
-			"-keep", "writes", "-verify", "-repeat", "1", "-var", "tag=v1", "-write", ".shrt/scratch/min-stock.yaml"})
+			"-keep", "writes", "-verify", "-var", "tag=v1", "-write", ".shrt/scratch/min-stock.yaml"})
 	})
 	if strings.Contains(out+errText(err), "already exists and is not a slice") {
 		t.Fatalf("the source file itself was named with -write, so replacing it is what was asked:\n%s\n%v", out, err)
@@ -100,8 +100,8 @@ func TestSliceWriteRefusalIsNeverExitZero(t *testing.T) {
 	if !strings.Contains(errText(err), "already exists and is not a slice") {
 		t.Fatalf("an unrelated file is not overwritten: %v\n%s", err, out)
 	}
-	if exitCodeOf(err) != 2 {
-		t.Fatalf("under -verify a refusal before anything was sent exits 2, got %d", exitCodeOf(err))
+	if exitCodeOf(err) != 1 {
+		t.Fatalf("under -verify a refusal before anything was sent exits 1, got %d", exitCodeOf(err))
 	}
 	err = chainSlice(context.Background(), []string{".shrt/scratch/min-stock.yaml", "-step", "get_after", "-keep", "writes", "-write", ".shrt/scratch/other.yaml"})
 	if exitCodeOf(err) != 1 {

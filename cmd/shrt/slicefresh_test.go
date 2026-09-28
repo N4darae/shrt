@@ -9,7 +9,7 @@ import (
 
 func TestTheNextCommandAsksForAFreshValueOfAnInterpolatedVar(t *testing.T) {
 	res := &chain.SliceResult{
-		Source: "orders", Target: "create_order", Mode: chain.SliceModeClosure,
+		Source: "orders", Target: "create_order",
 		Chain: &chain.Chain{
 			Vars: map[string]any{"tag": "T0", "qty": 2},
 			Steps: []*chain.Step{
@@ -17,7 +17,7 @@ func TestTheNextCommandAsksForAFreshValueOfAnInterpolatedVar(t *testing.T) {
 			},
 		},
 	}
-	got := keepWritesCommand(res, "r1", sliceVerifyArgs{vars: map[string]any{"qty": 3}}, []string{"add_stock"}, false)
+	got := sliceVerifyCommand(res, "r1", sliceVerifyArgs{vars: map[string]any{"qty": 3}}, []string{"add_stock"})
 	if !strings.Contains(got, "-var tag=<fresh>") {
 		t.Fatalf("tag makes created names unique and the source run used it, so pasting it again collides: %s", got)
 	}

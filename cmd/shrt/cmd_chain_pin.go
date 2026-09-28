@@ -134,11 +134,12 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 	var err error
 	for attempt := 1; ; attempt++ {
 		before, _ := os.ReadFile(slicePath)
-		args := []string{ref, "-step", steps[0], "-kept-red=" + strings.Join(steps, ","), "-verify", "-write", "-run", rec.RunID}
+		args := []string{ref, "-step", steps[0], "-verify", "-write", "-run", rec.RunID}
 		if keep != "" {
 			args = append(args, "-keep", keep)
 		}
-		sliceOut, err = quietly(func() error { return chainSlice(ctx, args) })
+		red := &sliceKeptRed{on: true, steps: steps}
+		sliceOut, err = quietly(func() error { return sliceChain(ctx, args, red) })
 		after, _ := os.ReadFile(slicePath)
 		loaded, loadErr := chain.LoadFile(slicePath)
 		if err == nil && loadErr == nil && len(loaded.KeptRed) > 0 && string(after) != string(before) {
@@ -148,7 +149,10 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		if err == nil {
 			err = fmt.Errorf("the slice of %s was not written kept red", steps[0])
 		}
-		next := suggestedKeep(sliceOut)
+		next := ""
+		if v := red.verdict; v != nil && !strings.Contains(v.Next, "<fresh>") {
+			next = strings.Join(v.nextKeep, ",")
+		}
 		if next == "" || next == keep || attempt == 3 {
 			break
 		}
@@ -160,7 +164,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		return "", "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
 	}
 	withoutOut, err := quietly(func() error {
-		return sliceWithout(ctx, ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, false, nil)
+		return sliceWithout(ctx, ref, steps, "", &optionalString{set: true}, sourceFileArg(c), false, nil)
 	})
 	if err != nil {
 		fmt.Print(withoutOut)
@@ -210,22 +214,6 @@ func failureShape(rec *runner.Record, id string) string {
 		}
 	}
 	return strings.Join(paths, "\x00")
-}
-
-func suggestedKeep(out string) string {
-	for _, line := range strings.Split(out, "\n") {
-		_, cmd, ok := strings.Cut(line, "next: shrt chain slice ")
-		if !ok || strings.Contains(cmd, "<fresh>") {
-			continue
-		}
-		fields := strings.Fields(cmd)
-		for i, f := range fields {
-			if f == "-keep" && i+1 < len(fields) {
-				return fields[i+1]
-			}
-		}
-	}
-	return ""
 }
 
 func ranEveryStep(c *chain.Chain, rec *runner.Record) bool {

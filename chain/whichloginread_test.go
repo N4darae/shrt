@@ -25,7 +25,7 @@ func TestWhichReproducesALoginAsARead(t *testing.T) {
 		Observations: obs,
 		ReadsOnly:    func(s *chain.Step) bool { return s.Call == "pkg.AuthService/Login" },
 	})
-	if strings.Contains(hits[0].Command, "-keep writes") || !strings.Contains(hits[0].Command, "-mode pin -run r1") {
+	if strings.Contains(hits[0].Command, "-keep writes") || hits[0].Command != "shrt chain slice auth -step login_admin" {
 		t.Fatalf("the auth login changes nothing a slice depends on, so it is reproduced as a read: %q", hits[0].Command)
 	}
 }

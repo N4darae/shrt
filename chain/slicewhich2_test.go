@@ -65,27 +65,6 @@ func TestSliceSkipsAPrerequisiteScopedToAnotherAlias(t *testing.T) {
 	}
 }
 
-func TestPinSliceTakesAnUndeclaredVarFromTheSourceRun(t *testing.T) {
-	c := productChainReading("batch")
-	res, err := chain.Slice(c, "create_product_second", chain.SliceOptions{
-		Mode: chain.SliceModePin, RunID: "r1",
-		Value:   func(string) (any, bool) { return nil, false },
-		RunVars: map[string]any{"batch": "T1"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Chain.Vars["batch"] != "T1" || len(res.MissingVars) != 0 {
-		t.Fatalf("pin mode reuses the value the run used, got vars %v missing %v", res.Chain.Vars, res.MissingVars)
-	}
-	if len(res.FilledVars) != 1 || res.FilledVars[0].From != chain.VarFromRun {
-		t.Fatalf("the filled var must say it came from the run: %+v", res.FilledVars)
-	}
-	if !strings.Contains(res.Chain.Description, "Var batch is not declared") {
-		t.Fatalf("the description must say where batch came from:\n%s", res.Chain.Description)
-	}
-}
-
 func TestClosureSliceNeverReusesTheRunsVarAndReportsItMissing(t *testing.T) {
 	res, err := chain.Slice(productChainReading("batch"), "create_product_second", chain.SliceOptions{
 		RunID: "r1", RunVars: map[string]any{"batch": "T1"},
@@ -106,18 +85,15 @@ func TestClosureSliceNeverReusesTheRunsVarAndReportsItMissing(t *testing.T) {
 }
 
 func TestSliceLeavesAnUndeclaredTagToTheRunsFreshOne(t *testing.T) {
-	for _, mode := range []string{chain.SliceModeClosure, chain.SliceModePin} {
-		res, err := chain.Slice(twoProductChain(), "create_product_second", chain.SliceOptions{
-			Mode: mode, RunID: "r1", RunVars: map[string]any{"tag": "T1"},
-			Value: func(string) (any, bool) { return nil, false },
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if res.Chain.Vars["tag"] != nil || len(res.MissingVars) != 0 || len(res.FreshVars) != 0 {
-			t.Fatalf("%s: a run of the slice gets a fresh tag of its own, so none is copied, missing or asked for: vars %v missing %v fresh %v",
-				mode, res.Chain.Vars, res.MissingVars, res.FreshVars)
-		}
+	res, err := chain.Slice(twoProductChain(), "create_product_second", chain.SliceOptions{
+		RunID: "r1", RunVars: map[string]any{"tag": "T1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Chain.Vars["tag"] != nil || len(res.MissingVars) != 0 || len(res.FreshVars) != 0 {
+		t.Fatalf("a run of the slice gets a fresh tag of its own, so none is copied, missing or asked for: vars %v missing %v fresh %v",
+			res.Chain.Vars, res.MissingVars, res.FreshVars)
 	}
 }
 
@@ -262,7 +238,7 @@ func TestWhichRPCRanksAFailedStepBeforeAPassingOne(t *testing.T) {
 
 func TestWhichReproduceCommandAsksForFreshVars(t *testing.T) {
 	hits := chain.Which(transportChains(), chain.WhichQuery{Code: "invalid_argument"}, chain.WhichOptions{
-		FreshVars: func(c *chain.Chain, step, run string) []string { return []string{"tag", "email"} },
+		FreshVars: func(c *chain.Chain, step string) []string { return []string{"tag", "email"} },
 	})
 	if want := "shrt chain slice refusals -step add_stock_batch_empty -var email=<fresh> -var tag=<fresh>"; hits[0].Command != want {
 		t.Fatalf("want %q\ngot  %q", want, hits[0].Command)

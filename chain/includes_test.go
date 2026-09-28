@@ -56,7 +56,7 @@ func TestASliceTakesAWriteThePrerequisiteNamesAsVia(t *testing.T) {
 		{ID: "batch", Call: "Svc/StockBatch", Body: map[string]any{"lines": []any{map[string]any{"id": "${make.id}"}}}, Expect: []chain.Expectation{{Path: "ok", Equals: true}}},
 		{ID: "confirm", Call: "Svc/Confirm", Body: map[string]any{"id": "${make.id}"}, Expect: []chain.Expectation{{Path: "ok", Equals: true}}},
 	}}
-	opts := chain.SliceOptions{Mode: chain.SliceModeClosure, Prereqs: func(rpc string) []chain.Prereq {
+	opts := chain.SliceOptions{Prereqs: func(rpc string) []chain.Prereq {
 		if rpc == "Svc/Confirm" {
 			return []chain.Prereq{{RPC: "Svc/Stock", Edge: "needs", Via: []string{"Svc/StockBatch"}}}
 		}

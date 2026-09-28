@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"strings"
 
@@ -33,19 +32,6 @@ func repeatVars(vars varFlags, res *chain.SliceResult, n int) varFlags {
 	return out
 }
 
-func repeatCount(fs *flag.FlagSet, n int, res *chain.SliceResult) int {
-	explicit := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "repeat" {
-			explicit = true
-		}
-	})
-	if !explicit && len(pinnedWrites(res)) > 0 {
-		return 1
-	}
-	return n
-}
-
 func runSliceVerifyRepeated(ctx context.Context, e *env, res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, n int) (*sliceVerdict, error) {
 	if n < 1 {
 		n = 1
@@ -66,7 +52,7 @@ func runSliceVerifyRepeated(ctx context.Context, e *env, res *chain.SliceResult,
 			fmt.Println(v.repeatLine(i, n))
 		}
 		verdicts = append(verdicts, v)
-		if v.Outcome == sliceDidNotRun && v.SliceRun == "" {
+		if v.Outcome == sliceDidNotRun {
 			break
 		}
 	}
@@ -108,11 +94,8 @@ func combineSliceVerdicts(verdicts []*sliceVerdict) (*sliceVerdict, error) {
 		out.Outcome = sliceIntermittent
 		out.Reproduced = false
 		out.Next = ""
-		out.Reason = fmt.Sprintf("the slice gave step %s the verdict of source run %s in %d of %d runs of the same slice.\n"+
-			"The backend answers this step differently to the same input (a flaky dependency, a counter, a race), so\n"+
-			"one run proves nothing either way: the differences above are those of a run that did not reproduce it.\n"+
-			"Run the source chain again the same way to see how often it fails there, and keep -repeat on every check.",
-			out.Step, out.SourceRun, reproduced, len(verdicts))
+		out.Reason = fmt.Sprintf("step %s got the verdict of source run %s in %d of %d runs of the same slice: the backend answers it "+
+			"differently to the same input, the differences above are from a run that did not reproduce it", out.Step, out.SourceRun, reproduced, len(verdicts))
 	}
 	return &out, out.err()
 }

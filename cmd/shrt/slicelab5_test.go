@@ -96,7 +96,7 @@ steps:
 
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-mode", "pin", "-run", "latest"})
+		err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-run", "latest", "-verify"})
 	})
 	if exitCodeOf(err) != 3 || strings.Contains(out, "run "+reaching) {
 		t.Fatalf("-run latest is the newest run, which never reached fetch: refuse with exit 3, never fall back to an older run: %v\n%s", err, out)
@@ -111,7 +111,7 @@ steps:
 	}
 
 	captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-mode", "pin", "-run", stopped})
+		err = chainSlice(context.Background(), []string{"cli-env-flow", "-step", "fetch", "-run", stopped, "-verify"})
 	})
 	if err == nil {
 		t.Fatal("an explicit run that never reached the step has nothing to pin and must be refused")

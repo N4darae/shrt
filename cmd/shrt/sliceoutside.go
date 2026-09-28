@@ -132,9 +132,6 @@ func lookupPath(v any, path string) any {
 }
 
 func outsideStateCaveat(step string, values []string) string {
-	return fmt.Sprintf("caveat: step %s's failure depends on server state not created by the slice: %s came from outside the slice "+
-		"(no step of the slice sent or received it, so an earlier run or another client created it). The slice reproduces the "+
-		"failure only while such data is on the server; on a fresh backend it may pass, and a backend that shows other "+
-		"clients' data to this step (a list leaking another customer's items) is itself the defect to name",
+	return fmt.Sprintf("caveat: step %s fails on server state the slice did not create (%s), so a fresh backend may pass it",
 		step, strings.Join(values, ", "))
 }

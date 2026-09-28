@@ -105,10 +105,7 @@ func blockedReason(sourceRun string, blocked []blockedRead) string {
 			upstream = append(upstream, b.upstream)
 		}
 	}
-	return strings.Join(lines, "\n") + fmt.Sprintf("\nThe source run has no verdict on them to reproduce: an upstream break (%s) held them back. "+
-		"This slice got past %s (relaxed, or its value pinned) and evaluated them against what it answered, which is their "+
-		"verdict; the source chain evaluates them only once %s passes. Keep this evaluation as a chain with -write <name> and run it.",
-		strings.Join(upstream, ", "), strings.Join(upstream, ", "), strings.Join(upstream, ", "))
+	return strings.Join(lines, "\n") + fmt.Sprintf("\nthe source run has no verdict on them to reproduce: %s held them back", strings.Join(upstream, ", "))
 }
 
 func blockedNote(chainRef, step, run string, f chain.ExpectResult) (string, bool) {

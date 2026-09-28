@@ -10,7 +10,7 @@ import (
 
 func TestTheNextCommandLeavesOutAKeptStepThatFailedInTheSourceRun(t *testing.T) {
 	res := &chain.SliceResult{
-		Source: "confirm-all-lines", Target: "stock_b", Mode: chain.SliceModeClosure,
+		Source: "confirm-all-lines", Target: "stock_b",
 		DroppedWrites: []chain.Dropped{{Index: 3, ID: "stock", Call: "StockService/AddStockBatch"}},
 		UnderIncluded: true,
 		Chain: &chain.Chain{Steps: []*chain.Step{
@@ -41,7 +41,7 @@ func TestTheNextCommandLeavesOutAKeptStepThatFailedInTheSourceRun(t *testing.T) 
 
 func TestAnInconclusiveSliceNamesTheWithoutCommandForTheNearestDroppedWrite(t *testing.T) {
 	res := &chain.SliceResult{
-		Source: "confirm-all-lines", Target: "stock_b", Mode: chain.SliceModeClosure,
+		Source: "confirm-all-lines", Target: "stock_b",
 		DroppedWrites: []chain.Dropped{{Index: 2, ID: "stock", Call: "StockService/AddStock"}, {Index: 4, ID: "cancel", Call: "OrderService/CancelOrder"}},
 		UnderIncluded: true,
 		Chain:         &chain.Chain{Steps: []*chain.Step{{ID: "stock_b", Call: "ProductService/GetProduct"}}},

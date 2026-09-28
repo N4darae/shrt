@@ -69,7 +69,7 @@ func twoLineSlice(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), append([]string{"cli-two-lines"}, args...))
+		err = keptRedSlice(context.Background(), append([]string{"cli-two-lines"}, args...))
 	})
 	return out, err
 }

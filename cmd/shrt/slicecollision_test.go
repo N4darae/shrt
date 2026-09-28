@@ -43,9 +43,9 @@ func TestSliceVerifyDiagnosesAFixtureAnotherChainCreated(t *testing.T) {
 	var err error
 	out := captureStdout(t, func() {
 		err = chainSlice(context.Background(), []string{".shrt/scratch/customers.yaml", "-step", "create_order", "-run", "latest",
-			"-verify", "-repeat", "1", "-var", "tag=taken"})
+			"-verify", "-var", "tag=taken"})
 	})
-	if exitCodeOf(err) != 2 {
+	if exitCodeOf(err) != 3 {
 		t.Fatalf("the create was refused before the target, so the slice did not run it (exit %d):\n%s", exitCodeOf(err), out)
 	}
 	if !strings.Contains(out, "fixture reused") || !strings.Contains(out, "chain other") {

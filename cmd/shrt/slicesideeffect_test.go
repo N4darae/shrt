@@ -42,24 +42,21 @@ func TestAWriteOnAnOrderActsOnTheProductsItsLinesName(t *testing.T) {
 	if !slices.Contains(related, "confirm_order") {
 		t.Fatalf("confirm_order changes an existing order and, as its contract needs AddStock, the stock of the product on its line, which the target reads: related %v, other %v", related, other)
 	}
-	if note := otherEntitiesNote(other); strings.Contains(note, "confirm_order") {
-		t.Fatalf("never say the confirm changes no entity a kept step uses: %s", note)
-	}
 }
 
 func TestDroppedWriteListsAreCappedAtFiveIDs(t *testing.T) {
 	ids := []string{"w1", "w2", "w3", "w4", "w5", "w6", "w7"}
-	note := otherEntitiesNote(ids)
-	if !strings.Contains(note, "w1, w2, w3, w4, w5 and 2 more") || strings.Contains(note, "w6") {
-		t.Fatalf("a long list of dropped writes names five and counts the rest: %s", note)
-	}
 	res := &chain.SliceResult{Target: "t", Total: 9, Reach: 8, UnderIncluded: true}
 	for i, id := range ids {
 		res.DroppedWrites = append(res.DroppedWrites, chain.Dropped{Index: i + 1, ID: id})
 	}
-	v := &sliceVerdict{Outcome: sliceReproduced, OtherDropped: ids, Reason: "info: " + note}
+	v := &sliceVerdict{Outcome: sliceReproduced, OtherDropped: ids}
 	out := captureStdout(t, func() { printSlice(res, "", v, false) })
-	if strings.Count(out, "w5 and 2 more") != 1 || strings.Contains(out, "w7") || strings.Contains(out, "WARNING") {
-		t.Fatalf("a reproduced slice names the unrelated dropped writes once, capped:\n%s", out)
+	if strings.Contains(out, "w7") || strings.Contains(out, "WARNING") {
+		t.Fatalf("a reproduced slice does not list unrelated dropped writes:\n%s", out)
+	}
+	out = captureStdout(t, func() { printSlice(res, "", nil, false) })
+	if !strings.Contains(out, "w1, w2, w3 and 4 more") || !strings.Contains(out, "WARNING") {
+		t.Fatalf("an unverified slice names three dropped writes and counts the rest:\n%s", out)
 	}
 }

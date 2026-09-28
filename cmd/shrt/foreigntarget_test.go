@@ -71,31 +71,6 @@ steps:
 	return first.URL, second.URL
 }
 
-func TestCLISlicePinRefusesASourceRunFromAnotherTarget(t *testing.T) {
-	was, now := chdirToForeignRunWorkspace(t, false)
-	want := "the source run was recorded against " + was + ", this target is " + now
-	for _, verify := range []bool{false, true} {
-		args := []string{"cli-pair", "-step", "fetch", "-mode", "pin", "-run", "latest"}
-		if verify {
-			args = append(args, "-verify")
-		}
-		var err error
-		out := captureStdout(t, func() { err = chainSlice(context.Background(), args) })
-		if err == nil {
-			t.Fatalf("verify=%v: pinning an id minted on another target must be refused:\n%s", verify, out)
-		}
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("verify=%v: the refusal must name both targets, got %v", verify, err)
-		}
-		if verify && exitCodeOf(err) != 3 {
-			t.Fatalf("under -verify a foreign source run is inconclusive (exit 3), got %d: %v", exitCodeOf(err), err)
-		}
-		if strings.Contains(out, "NOT REPRODUCED") {
-			t.Fatalf("nothing was compared, so there is no NOT REPRODUCED:\n%s", out)
-		}
-	}
-}
-
 func TestCLISliceClosureVerifyAgainstAForeignRunIsInconclusive(t *testing.T) {
 	was, now := chdirToForeignRunWorkspace(t, true)
 	var err error

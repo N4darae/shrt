@@ -38,16 +38,13 @@ func TestCLISliceWriteRecordsNotReproducedInsteadOfTheHypothesis(t *testing.T) {
 func TestCLISliceOfEveryStepSaysItReranTheChainItself(t *testing.T) {
 	newSliceBackend(t, &sliceBackend{fetch: okFetch})
 	captureStdout(t, func() { _ = runRun(context.Background(), []string{"cli-pair", "-quiet"}) })
-	out, err := sliceCmd(t, "cli-pair", "-step", "fetch", "-run", "latest", "-verify", "-write", "-build", "b42")
+	out, err := sliceCmd(t, "cli-pair", "-step", "fetch", "-run", "latest", "-verify", "-write")
 	if err != nil {
 		t.Fatalf("%v:\n%s", err, out)
 	}
 	desc := string(mustRead(t, ".shrt/chains/cli-pair.yaml"))
 	if strings.Contains(desc, "in source run") || !strings.Contains(desc, "own run") {
 		t.Fatalf("the slice is the chain itself, so its verdict is against the chain's own run, not a source:\n%s", desc)
-	}
-	if !strings.Contains(desc, "build b42") {
-		t.Fatalf("the verdict must record the build it held on:\n%s", desc)
 	}
 }
 

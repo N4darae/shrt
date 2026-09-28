@@ -9,11 +9,6 @@ import (
 )
 
 const (
-	SliceModeClosure = "closure"
-	SliceModePin     = "pin"
-)
-
-const (
 	KeepTarget   = "target"
 	KeepProduces = "produces"
 	KeepContract = "contract"
@@ -83,12 +78,10 @@ func (p Prereq) Node() string {
 }
 
 type SliceOptions struct {
-	Mode    string
 	RunID   string
 	Name    string
 	RPCOf   func(*Step) string
 	Prereqs func(rpc string) []Prereq
-	Value   func(ref string) (any, bool)
 	Keep    []string
 	Pinned  []string
 	Vars    map[string]any
@@ -96,7 +89,6 @@ type SliceOptions struct {
 	Refused func(stepID string) (string, bool)
 
 	RunVarsAsDefaults bool
-	Performed         func(stepID string) bool
 	IsLogin           func(*Step) bool
 	Relax             func(stepID string) []ExpectResult
 	StateIrrelevant   func(writerID, readerID string) bool
@@ -109,21 +101,6 @@ type Keep struct {
 	Call   string `json:"call"`
 	Kind   string `json:"kind"`
 	Reason string `json:"reason"`
-}
-
-type Pinned struct {
-	Var      string `json:"var"`
-	Ref      string `json:"ref"`
-	Producer string `json:"producer"`
-	Value    any    `json:"value"`
-}
-
-type Satisfied struct {
-	Index int    `json:"index"`
-	ID    string `json:"id"`
-	RPC   string `json:"rpc"`
-	Edge  string `json:"edge"`
-	For   string `json:"for"`
 }
 
 type Unmet struct {
@@ -163,14 +140,11 @@ type FilledVar struct {
 type SliceResult struct {
 	Source        string          `json:"source"`
 	Target        string          `json:"target"`
-	Mode          string          `json:"mode"`
 	Run           string          `json:"run,omitempty"`
 	Total         int             `json:"total"`
 	Reach         int             `json:"reach"`
 	Kept          []Keep          `json:"kept"`
-	Pins          []Pinned        `json:"pins,omitempty"`
 	Unmet         []Unmet         `json:"unmet,omitempty"`
-	Satisfied     []Satisfied     `json:"satisfied_by_run,omitempty"`
 	DroppedWrites []Dropped       `json:"dropped_writes,omitempty"`
 	RefusedWrites []Dropped       `json:"dropped_refused_writes,omitempty"`
 	UnderIncluded bool            `json:"under_included"`
@@ -191,16 +165,6 @@ type SliceResult struct {
 }
 
 func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
-	mode := opts.Mode
-	if mode == "" {
-		mode = SliceModeClosure
-	}
-	if mode != SliceModeClosure && mode != SliceModePin {
-		return nil, fmt.Errorf("unknown slice mode %q, want %q or %q", mode, SliceModeClosure, SliceModePin)
-	}
-	if mode == SliceModePin && opts.Value == nil {
-		return nil, fmt.Errorf("slice mode %q needs a run record to pin values from", SliceModePin)
-	}
 	idx := newStepIndex(c)
 	at, ok := idx.byID[target]
 	if !ok {
@@ -241,36 +205,20 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	unmet := []Unmet{}
-	satisfied := map[int]Satisfied{}
 	seenUnmet := map[string]bool{}
 	boundAlias := map[int]string{}
-	pinnable := func(ref string) bool {
-		if mode != SliceModePin {
-			return false
-		}
-		v, ok := opts.Value(ref)
-		return ok && !valueCarriesRef(v)
-	}
 	for {
 		for len(queue) > 0 {
 			i := queue[0]
 			queue = queue[1:]
 			s := c.Steps[i]
 			referenced := map[int]bool{}
-			pinnedOnly := map[int]bool{}
 			for _, ref := range stepRefs(s) {
 				j, kind := idx.producerOf(ref, i)
 				if kind != refStep {
 					continue
 				}
 				referenced[j] = true
-				if pinnable(ref) {
-					if _, seen := keeps[j]; !seen {
-						pinnedOnly[j] = true
-					}
-					continue
-				}
-				delete(pinnedOnly, j)
 				add(j, KeepProduces, fmt.Sprintf("produces ${%s} used by %s", ref, s.ID))
 			}
 			for _, p := range idx.prereqsOf(s, opts) {
@@ -283,12 +231,6 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 				if !valueEdge(p.Edge) && p.Alias == "" {
 					if calls := idx.callsSharingProducers(p, i, idx.reach(i), opts); len(calls) > 0 {
 						for _, j := range calls {
-							if leftToRun(mode, p, c.Steps[j], opts) {
-								if _, done := satisfied[j]; !done {
-									satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
-								}
-								continue
-							}
 							add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
 						}
 						continue
@@ -310,28 +252,19 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 					}
 					continue
 				}
-				if pinnedOnly[j] && valueEdge(p.Edge) {
-					continue
-				}
-				if leftToRun(mode, p, c.Steps[j], opts) {
-					if _, done := satisfied[j]; !done {
-						satisfied[j] = Satisfied{Index: j + 1, ID: c.Steps[j].ID, RPC: p.Node(), Edge: p.Edge, For: s.ID}
-					}
-					continue
-				}
 				add(j, KeepContract, fmt.Sprintf("contract needs %s (%s)", p.Node(), p.Edge))
 			}
 		}
 		added := false
-		for _, w := range idx.sideEffectWrites(at, keeps, mode, opts) {
+		for _, w := range idx.sideEffectWrites(at, keeps, opts) {
 			add(w.index, KeepSideEffect, w.reason)
 			added = true
 		}
-		for _, w := range idx.stateWrites(at, keeps, mode, opts) {
+		for _, w := range idx.stateWrites(at, keeps, opts) {
 			add(w.index, KeepSideEffect, w.reason)
 			added = true
 		}
-		for _, w := range idx.sameValueWrites(at, keeps, mode, opts) {
+		for _, w := range idx.sameValueWrites(at, keeps, opts) {
 			add(w.index, KeepSideEffect, w.reason)
 			added = true
 		}
@@ -344,7 +277,6 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	res := &SliceResult{
 		Source: c.Name,
 		Target: target,
-		Mode:   mode,
 		Run:    opts.RunID,
 		Total:  len(c.Steps),
 		Reach:  at + 1,
@@ -362,46 +294,14 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		}
 	}
 	res.Unmet = unmet
-	for j, sat := range satisfied {
-		if _, kept := keeps[j]; !kept {
-			res.Satisfied = append(res.Satisfied, sat)
-		}
-	}
-	sort.Slice(res.Satisfied, func(a, b int) bool { return res.Satisfied[a].Index < res.Satisfied[b].Index })
-
-	pins := map[string]string{}
 	usedVars := map[string]bool{}
-	taken := map[string]bool{}
-	for name := range c.Vars {
-		taken[name] = true
-	}
 	for _, i := range order {
-		s := c.Steps[i]
-		for _, ref := range stepRefs(s) {
-			j, kind := idx.producerOf(ref, i)
-			switch kind {
-			case refVar:
+		for _, ref := range stepRefs(c.Steps[i]) {
+			if _, kind := idx.producerOf(ref, i); kind == refVar {
 				usedVars[varNameOf(ref)] = true
-			case refStep:
-				if _, seen := keeps[j]; seen {
-					continue
-				}
-				if _, done := pins[ref]; done || opts.Value == nil {
-					continue
-				}
-				v, ok := opts.Value(ref)
-				if !ok {
-					continue
-				}
-				name := uniqueVarName(pinVarName(ref), taken)
-				taken[name] = true
-				usedVars[name] = true
-				pins[ref] = name
-				res.Pins = append(res.Pins, Pinned{Var: name, Ref: ref, Producer: c.Steps[j].ID, Value: v})
 			}
 		}
 	}
-	sort.Slice(res.Pins, func(a, b int) bool { return res.Pins[a].Var < res.Pins[b].Var })
 
 	for i, s := range c.Steps[:at] {
 		if _, seen := keeps[i]; seen {
@@ -438,7 +338,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	kept := map[string]bool{}
 	for _, i := range order {
-		st := rewriteStep(c.Steps[i], pins)
+		st := copyStep(c.Steps[i])
 		if st.ID != target && opts.Relax != nil {
 			res.Relaxed = append(res.Relaxed, relaxStep(st, opts.Relax(st.ID))...)
 		}
@@ -453,24 +353,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			res.DroppedPins = append(res.DroppedPins, k)
 		}
 	}
-	existing := []*Step{}
-	if mode == SliceModePin {
-		for i, s := range c.Steps[:at] {
-			if _, seen := keeps[i]; !seen {
-				existing = append(existing, s)
-			}
-		}
-	}
-	pinned := map[string]bool{}
-	for _, p := range res.Pins {
-		pinned[p.Var] = true
-	}
-	res.FreshVars = []string{}
-	for _, name := range FreshVars(out.Steps, opts.IsLogin, existing) {
-		if !pinned[name] {
-			res.FreshVars = append(res.FreshVars, name)
-		}
-	}
+	res.FreshVars = append([]string{}, FreshVars(out.Steps, opts.IsLogin, nil)...)
 	fresh := map[string]bool{}
 	for _, name := range res.FreshVars {
 		fresh[name] = true
@@ -492,7 +375,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			}
 			continue
 		}
-		if mode != SliceModePin && !opts.RunVarsAsDefaults {
+		if !opts.RunVarsAsDefaults {
 			continue
 		}
 		v, ok := opts.RunVars[name]
@@ -502,13 +385,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		vars[name] = v
 		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
-	for _, p := range res.Pins {
-		vars[p.Var] = p.Value
-	}
 	undeclared := []string{}
 	for name := range usedVars {
 		if _, declared := c.Vars[name]; !declared {
-			if _, pinned := vars[name]; !pinned {
+			if _, set := vars[name]; !set {
 				undeclared = append(undeclared, name)
 			}
 		}
@@ -518,11 +398,6 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		if v, ok := opts.Vars[name]; ok {
 			vars[name] = v
 			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag})
-			continue
-		}
-		if v, ok := opts.RunVars[name]; ok && mode == SliceModePin && !(name == RunTagVar && fresh[name]) {
-			vars[name] = v
-			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun})
 			continue
 		}
 		if name == RunTagVar {
@@ -710,11 +585,7 @@ func SliceDescriptionPrefix(source, target string) string {
 
 func sliceDescription(res *SliceResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %d of %d steps, mode %s", SliceDescriptionPrefix(res.Source, res.Target), len(res.Kept), res.Total, res.Mode)
-	if res.Mode == SliceModePin {
-		fmt.Fprintf(&b, ", values pinned from run %s", res.Run)
-	}
-	b.WriteString(".\n\n")
+	fmt.Fprintf(&b, "%s %d of %d steps.\n\n", SliceDescriptionPrefix(res.Source, res.Target), len(res.Kept), res.Total)
 	b.WriteString("Computed by 'shrt chain slice': the target step, every earlier step whose output a kept\n")
 	b.WriteString("step references, every ordering prerequisite the contracts declare for a kept rpc, and every\n")
 	b.WriteString("earlier write on an entity the target or a kept read sends, refused or not, or sending a unique\n")
@@ -727,9 +598,6 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if len(asked) > 0 {
 		fmt.Fprintf(&b, "Kept on request: %s.\n", listSome(asked, 8))
-	}
-	if len(res.Pins) > 0 {
-		fmt.Fprintf(&b, "%d value(s) that earlier steps produced are pinned into vars, so their producers are gone.\n", len(res.Pins))
 	}
 	if len(res.Relaxed) > 0 {
 		fmt.Fprintf(&b, "Relaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took\n"+
@@ -745,13 +613,6 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if len(res.FreshVars) > 0 {
 		fmt.Fprintf(&b, "Kept writes interpolate var(s) %s into what they create: run it with a value the backend has\nnot seen, -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
-	}
-	if len(res.Satisfied) > 0 {
-		parts := make([]string, 0, len(res.Satisfied))
-		for _, sat := range res.Satisfied {
-			parts = append(parts, fmt.Sprintf("%s (%s %s for %s)", sat.ID, sat.Edge, sat.RPC, sat.For))
-		}
-		fmt.Fprintf(&b, "Contract prerequisite write(s) run %s already performed are left to that run, not re-sent: %s.\n", res.Run, listSome(parts, 8))
 	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))
@@ -915,7 +776,7 @@ type sideEffectWrite struct {
 	reason string
 }
 
-func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, mode string, opts SliceOptions) []sideEffectWrite {
+func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, opts SliceOptions) []sideEffectWrite {
 	type state struct {
 		rpc      string
 		kept     string
@@ -961,9 +822,6 @@ func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, mode string, o
 		}
 		s := x.c.Steps[w]
 		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
-			continue
-		}
-		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
 			continue
 		}
 		rpc := x.rpcOf(w, opts)
@@ -1035,7 +893,7 @@ func (x *stepIndex) actsOn(i int, seen map[int]bool) map[int]bool {
 	return out
 }
 
-func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, mode string, opts SliceOptions) []sideEffectWrite {
+func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) []sideEffectWrite {
 	readers := []int{}
 	for i, k := range keeps {
 		if i == at || k.Kind == KeepAsked || IsReadOnlyCall(x.c.Steps[i].Call) {
@@ -1050,9 +908,6 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, mode string, opts S
 		}
 		s := x.c.Steps[w]
 		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
-			continue
-		}
-		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
 			continue
 		}
 		reach := x.actsOn(w, map[int]bool{})
@@ -1152,13 +1007,6 @@ func ExpectsRefusal(s *Step) bool {
 	return false
 }
 
-func leftToRun(mode string, p Prereq, s *Step, opts SliceOptions) bool {
-	if mode != SliceModePin || valueEdge(p.Edge) || opts.Performed == nil || !isWriteCall(s.Call) {
-		return false
-	}
-	return opts.Performed(s.ID)
-}
-
 func valueEdge(edge string) bool {
 	return edge == "from" || edge == "same_as"
 }
@@ -1245,59 +1093,20 @@ func isWriteCall(call string) bool {
 	return !IsReadOnlyCall(call)
 }
 
-func valueCarriesRef(v any) bool {
-	s, ok := v.(string)
-	return ok && refPattern.MatchString(s)
-}
-
-func pinVarName(ref string) string {
-	var b strings.Builder
-	b.WriteString("pin_")
-	prev := false
-	for _, r := range strings.TrimSpace(ref) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			prev = false
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r + 32)
-			prev = false
-		default:
-			if !prev {
-				b.WriteByte('_')
-				prev = true
-			}
-		}
-	}
-	return strings.Trim(b.String(), "_")
-}
-
-func uniqueVarName(base string, taken map[string]bool) string {
-	if !taken[base] {
-		return base
-	}
-	for i := 2; ; i++ {
-		name := fmt.Sprintf("%s_%d", base, i)
-		if !taken[name] {
-			return name
-		}
-	}
-}
-
-func rewriteStep(s *Step, pins map[string]string) *Step {
+func copyStep(s *Step) *Step {
 	out := *s
-	out.Body, _ = rewriteValue(s.Body, pins).(map[string]any)
+	out.Body, _ = copyValue(s.Body).(map[string]any)
 	if len(s.Headers) > 0 {
 		headers := make(map[string]string, len(s.Headers))
 		for k, v := range s.Headers {
-			headers[k] = rewriteString(v, pins)
+			headers[k] = v
 		}
 		out.Headers = headers
 	}
 	if len(s.Expect) > 0 {
 		expect := make([]Expectation, 0, len(s.Expect))
 		for _, e := range s.Expect {
-			expect = append(expect, e.MapOperands(func(v any) any { return rewriteValue(v, pins) }))
+			expect = append(expect, e.MapOperands(copyValue))
 		}
 		out.Expect = expect
 	}
@@ -1314,38 +1123,23 @@ func rewriteStep(s *Step, pins map[string]string) *Step {
 	return &out
 }
 
-func rewriteValue(v any, pins map[string]string) any {
+func copyValue(v any) any {
 	switch t := v.(type) {
-	case string:
-		return rewriteString(t, pins)
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
-			out[k] = rewriteValue(item, pins)
+			out[k] = copyValue(item)
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(t))
 		for _, item := range t {
-			out = append(out, rewriteValue(item, pins))
+			out = append(out, copyValue(item))
 		}
 		return out
 	default:
 		return v
 	}
-}
-
-func rewriteString(in string, pins map[string]string) string {
-	if in == "" || len(pins) == 0 {
-		return in
-	}
-	return refPattern.ReplaceAllStringFunc(in, func(m string) string {
-		ref := strings.TrimSpace(m[2 : len(m)-1])
-		if name, ok := pins[ref]; ok {
-			return "${vars." + name + "}"
-		}
-		return m
-	})
 }
 
 type Verdict struct {

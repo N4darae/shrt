@@ -104,8 +104,7 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 | `run` | passed; dry run valid; kept red as pinned | failed, or refused before sending | — | error: no verdict, re-run |
 | `verify` | no drift, replay passed | drift, replay failed, no safe spot, a `FINDING` | — | could not verify, re-run |
 | `confirm` | proposed, approved, rejected, listed, renamed | refused | — | — |
-| `chain slice` (no `-verify`) | printed or written | refused | — | `-run latest` did not evaluate the step |
-| `chain slice -verify` | reproduced | NOT REPRODUCED | DID NOT RUN, or refused before sending | INCONCLUSIVE; 4 intermittent |
+| `chain slice` | printed or written; `-verify`: reproduced | refused; NOT REPRODUCED, intermittent | — | `-run latest` did not evaluate the step; DID NOT RUN, INCONCLUSIVE |
 | `diff` | runs do not differ | they differ | could not compare | — |
 | `chain hollow` | nothing unexplained; `-gate` at baseline | hollow reads; `-gate` off baseline | no run records | — |
 | `chain which` | matched | nothing matched | — | — |

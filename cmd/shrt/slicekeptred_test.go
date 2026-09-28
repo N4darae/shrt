@@ -58,11 +58,30 @@ func oneDefectWorkspace(t *testing.T) {
 	}
 }
 
+func keptRedSlice(ctx context.Context, args []string) error {
+	red := &sliceKeptRed{}
+	rest := []string{}
+	for _, a := range args {
+		name, steps, _ := strings.Cut(a, "=")
+		if name != "-kept-red" {
+			rest = append(rest, a)
+			continue
+		}
+		red.on = true
+		for _, id := range strings.Split(steps, ",") {
+			if id != "" && !containsStr(red.steps, id) {
+				red.steps = append(red.steps, id)
+			}
+		}
+	}
+	return sliceChain(ctx, rest, red)
+}
+
 func oneDefectSlice(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(context.Background(), append([]string{"cli-one-defect"}, args...))
+		err = keptRedSlice(context.Background(), append([]string{"cli-one-defect"}, args...))
 	})
 	return out, err
 }
@@ -82,9 +101,6 @@ func TestSliceKeptRedWritesAMinimalChainPinnedOnTheStepsFailingExpectations(t *t
 	}
 	if _, kept := c.Step("other"); kept {
 		t.Fatalf("the slice keeps only what fetch needs")
-	}
-	if !strings.Contains(out, "kept_red") {
-		t.Fatalf("the output says the slice is kept red:\n%s", out)
 	}
 	if err := runRun(context.Background(), []string{"one-defect-red", "-quiet", "-var", "tag=T10"}); err != nil {
 		t.Fatalf("the kept-red slice fails exactly as pinned, so its run exits 0: %v", err)
@@ -171,7 +187,7 @@ func TestSliceWithoutFailedWritesTheRestOfTheChainThatStillRuns(t *testing.T) {
 	if strings.Join(ids, ",") != "create,other" {
 		t.Fatalf("fetch failed and fetch_again reads it, so both go: %v", ids)
 	}
-	for _, want := range []string{"fetch", "fetch_again", "reads fetch", "the new chain holds 2 of the 4 steps, the 2 below left out", "not of steps known to pass"} {
+	for _, want := range []string{"fetch", "fetch_again", "reads fetch", "the new chain holds 2 of the 4 steps, the 2 below left out"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("want %q in:\n%s", want, out)
 		}
@@ -181,18 +197,5 @@ func TestSliceWithoutFailedWritesTheRestOfTheChainThatStillRuns(t *testing.T) {
 	}
 	if _, err := os.Stat(".shrt/chains/cli-one-defect.yaml"); err != nil {
 		t.Fatalf("the source chain is left alone: %v", err)
-	}
-}
-
-func TestSliceKeptRedNamesTheSourceChainAsWhereTheRestGoes(t *testing.T) {
-	oneDefectWorkspace(t)
-	out, err := oneDefectSlice(t, "-step", "fetch", "-kept-red", "-verify", "-var", "tag=T31", "-write", ".shrt/chains/one-defect-red.yaml")
-	if err != nil {
-		t.Fatalf("slice -kept-red -verify: %v\n%s", err, out)
-	}
-	for _, want := range []string{"-without failed -run ", "-write .shrt/chains/cli-one-defect.yaml\n", "out of cli-one-defect in place"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in:\n%s", want, out)
-		}
 	}
 }

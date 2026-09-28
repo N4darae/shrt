@@ -173,7 +173,7 @@ func TestSliceWithoutVerifyRunLatestComparesTheReplayThatFailed(t *testing.T) {
 		t.Fatalf("-run latest compares the replay in which steps failed:\n%s", out)
 	}
 	out, _ = stockWithout(t, "-without", "stray_add", "-verify", "-run", own.RunID)
-	want := "no step left in failed in source run " + own.RunID + " (a `shrt run` record) to compare; in the newer record " + replay.RunID + ", a `shrt verify` replay, 3 steps failed: pass -run " + replay.RunID
+	want := "no step left in failed in source run " + own.RunID + "; newer record " + replay.RunID + ": 3 steps failed, pass -run " + replay.RunID
 	if !strings.Contains(out, want) {
 		t.Fatalf("missing %q in:\n%s", want, out)
 	}

@@ -38,9 +38,6 @@ rpcs:
 	if exitCodeOf(err) != 0 || !strings.Contains(out, "verify reproduced") {
 		t.Fatalf("CreateOrder's messages carry no qty_on_hand and its contract neither needs StockService nor names stock in a failure, so add_stock is not evidence against the match (exit %d):\n%s", exitCodeOf(err), out)
 	}
-	if !strings.Contains(out, "info: dropped write step add_stock changes qty_on_hand") {
-		t.Fatalf("the verdict must say why add_stock was not kept:\n%s", out)
-	}
 
 	writeFile(t, ".shrt/contracts/orders.yaml", `apiVersion: shrt/contract/v1
 domain: orders
