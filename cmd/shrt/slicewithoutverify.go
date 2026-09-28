@@ -36,6 +36,7 @@ type withoutVerdict struct {
 	NoEffect    []noEffect `json:"left_out_had_no_effect,omitempty"`
 	writers     []string
 	asBefore    string
+	newer       string
 }
 
 func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *runner.Record, named []string, a *withoutVerify, persist, quiet bool) (*withoutVerdict, error) {
@@ -50,6 +51,12 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 	}
 	a.sent = true
 	v := &withoutVerdict{Without: named, SourceRun: rec.RunID, Cleared: []string{}, StillFail: []string{}, OtherTarget: sourceTargetDiffers(e, rec)}
+	v.newer = "(" + recordKind(rec) + ")"
+	if other := newerFailing(e, rec); other != nil {
+		v.newer += fmt.Sprintf(" to compare; in the newer record %s, %s, %s: pass -run %s", other.RunID, recordKind(other), failedCount(other), other.RunID)
+	} else {
+		v.newer += " to compare"
+	}
 	if persist {
 		if _, err := e.store.SaveRun(run); err == nil {
 			v.Run = run.RunID
@@ -307,7 +314,7 @@ func (v *withoutVerdict) text() string {
 	counted := len(v.Cleared) + len(v.StillFail)
 	switch {
 	case counted == 0:
-		fmt.Fprintf(&b, "verify without %s: no step left in failed in source run %s to compare\n", without, v.SourceRun)
+		fmt.Fprintf(&b, "verify without %s: no step left in failed in source run %s %s\n", without, v.SourceRun, v.newer)
 	case len(v.Cleared) == 0 && len(v.NoEffect) > 0:
 		read := map[string]bool{}
 		for i, ne := range v.NoEffect {

@@ -140,7 +140,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	issues = append(issues, lintOneOf(domain, rpc, c)...)
 
 	for _, name := range sortedKeys(c.Exports) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) {
+		if !catalog.HasPath(out, chain.SplitPath(name)) && !catalog.HasPath(m.Response().Fields, chain.SplitPath(name)) {
 			add(SeverityError, name, "exports names %q which is not a field of %s", name, m.Output().FullName())
 		}
 	}

@@ -7,6 +7,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 )
 
 func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *catalog.Catalog) (*Plan, error) {
@@ -227,6 +228,9 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		return nil, nil, err
 	}
 	p.Chain.Description = description
+	for _, st := range p.Chain.Steps {
+		dropPlaceholderEnums(st, lib, cat)
+	}
 	p.discriminateListOrder(lib, nil)
 	p.noteRequirements()
 	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
@@ -241,4 +245,22 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		steps[st.ID] = true
 	}
 	return raw, groupStepNotes(p.Notes, steps), nil
+}
+
+func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {
+	m, err := cat.Lookup(st.Call)
+	if err != nil {
+		return
+	}
+	rc, _ := lib.Get(m.FullName)
+	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
+		key, ok := namecase.LookupKey(st.Body, f.Name)
+		if !ok || len(f.EnumValues) == 0 || st.Body[key] != f.EnumValues[0] || !IsPlaceholderEnumValue(f.EnumValues[0]) || contractRequiresField(rc, f.Name) {
+			continue
+		}
+		if rc != nil && rc.Fields[f.Name] != nil && rc.Fields[f.Name].Value != "" {
+			continue
+		}
+		delete(st.Body, key)
+	}
 }

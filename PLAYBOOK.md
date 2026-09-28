@@ -52,6 +52,7 @@ shrt chain new -name invoice-happy-path InvoiceService/CreateInvoice InvoiceServ
 `chain new` wires a step's input to an earlier step's output when a contract says so, or, for an
 id no contract sets, when `contract init` would guess that producer; a producer not in the list is
 named in a note. Reads of one rpc after two creates take them in turn, restarting after each write.
+An optional enum field left at `*_UNSPECIFIED` is left out of the body.
 Then write the contract (§7) so the next chains compose themselves.
 
 ## 3. Fill the bodies
@@ -516,7 +517,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `intermittent: reproduced k/N` (4): flaky there; keeping more steps will not help.
    Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff`
    compares: the newest record, but a `shrt run` over a verify replay recorded right after it,
-   unless only the replay failed the step; it refuses (3) if that run left the target unevaluated.
+   unless only the replay failed the step (for `-without`: unless their failed steps differ);
+   it refuses (3) if that run left the target unevaluated.
 5. **`-mode pin -run <id>`** drops producers whose only contribution was a value and pins their
    values into `vars:`. It does not re-send writes the source run performed, so a match is
    INCONCLUSIVE; `-verify` refuses a kept write on the run's own entities unless `-resend-writes`.

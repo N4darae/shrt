@@ -7,6 +7,7 @@ import (
 	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
+	"gopkg.in/yaml.v3"
 )
 
 func libraryRequiring(fields ...string) *contract.Library {
@@ -167,5 +168,29 @@ func TestChainBodyLint_AMeaningfulZeroEnumIsNotAPlaceholder(t *testing.T) {
 		t.Errorf("KIND_A is a real value that happens to sit at enum position 0 — proto3 requires a zero "+
 			"member, not that it be a placeholder. Reporting it tells an author to 'fill' a field they "+
 			"deliberately set. Got: %+v", got)
+	}
+}
+
+func TestChainNewLeavesAnOptionalPlaceholderEnumOutOfTheBody(t *testing.T) {
+	lib := contract.NewLibrary([]*contract.Overlay{{
+		APIVersion: "shrt/v1", Domain: "test",
+		RPCs: map[string]*contract.RPCContract{"shrt.test.v1.ThingService/Create": {Summary: "creates a thing"}},
+	}})
+	raw, _, err := contract.ScaffoldChain("things", "", []string{"shrt.test.v1.ThingService/Create"}, []string{"create"}, lib, catalogtest.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "KIND_UNSPECIFIED") {
+		t.Fatalf("an optional enum left at its placeholder is left out of the body:\n%s", raw)
+	}
+	var c chain.Chain
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Normalize()
+	for _, is := range contract.LintChainBodies(&c, lib, catalogtest.New()) {
+		if strings.Contains(is.Message, "placeholder enum for") && strings.Contains(is.Message, "kind") {
+			t.Fatalf("lint warns about chain new's own output: %s", is.Message)
+		}
 	}
 }
