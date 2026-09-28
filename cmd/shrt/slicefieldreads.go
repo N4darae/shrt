@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,27 +9,10 @@ import (
 	"github.com/N4darae/shrt/runner"
 )
 
-const (
-	readsRelated   = "related"
-	readsUnrelated = "unrelated"
-)
-
-type fieldReads struct {
-	write   string
-	verdict string
-	fields  []string
-	readers []string
-}
-
-func (f fieldReads) note() string {
-	return fmt.Sprintf("dropped write step %s changes %s, which %s never read: not in their request or response messages, and their contracts "+
-		"neither need %s's service nor name it in a failure", f.write, strings.Join(f.fields, ", "), strings.Join(f.readers, ", "), f.write)
-}
-
-func classifyFieldReads(e *env, res *chain.SliceResult, rec *runner.Record, related []string) (keep []string, reads []fieldReads) {
+func classifyFieldReads(e *env, res *chain.SliceResult, rec *runner.Record, related []string) (keep []string) {
 	lib, err := e.library()
 	if err != nil || e.cat == nil {
-		return related, nil
+		return related
 	}
 	kept := map[string]bool{}
 	for _, id := range related {
@@ -52,54 +33,40 @@ func classifyFieldReads(e *env, res *chain.SliceResult, rec *runner.Record, rela
 					readers = append(readers, other)
 				}
 			}
-			if fieldReadsOf(e.cat, lib, res, rec, id, readers).verdict != readsRelated {
+			if !fieldReadsOf(e.cat, lib, res, rec, id, readers) {
 				kept[id] = false
 				changed = true
 			}
 		}
 	}
-	readers := []string{}
-	for _, k := range res.Kept {
-		readers = append(readers, k.ID)
-	}
 	for _, id := range related {
 		if kept[id] {
 			keep = append(keep, id)
-			readers = append(readers, id)
 		}
 	}
-	for _, id := range related {
-		if !kept[id] {
-			reads = append(reads, fieldReadsOf(e.cat, lib, res, rec, id, readers))
-		}
-	}
-	return keep, reads
+	return keep
 }
 
-func fieldReadsOf(cat *catalog.Catalog, lib *contract.Library, res *chain.SliceResult, rec *runner.Record, writeID string, readerIDs []string) fieldReads {
-	out := fieldReads{write: writeID, verdict: readsRelated}
+func fieldReadsOf(cat *catalog.Catalog, lib *contract.Library, res *chain.SliceResult, rec *runner.Record, writeID string, readerIDs []string) bool {
+	readers := 0
 	sr, ok := rec.Step(writeID)
 	if !ok || createsListedChild(rec, writeID, res) {
-		return out
+		return true
 	}
 	facts := entityFactsOf(rec, writeID)
 	if !facts.known {
-		return out
+		return true
 	}
 	wm, err := cat.Lookup(sr.Call)
 	if err != nil {
-		return out
+		return true
 	}
 	_, response := decodedRecordStep(sr)
 	changed := map[string]bool{}
 	changedFields(response, envelopeParent(), changed)
 	if len(changed) == 0 {
-		return out
+		return true
 	}
-	for f := range changed {
-		out.fields = append(out.fields, f)
-	}
-	sort.Strings(out.fields)
 	service, _, _ := strings.Cut(wm.FullName, "/")
 	noun := strings.ToLower(strings.TrimSuffix(service[strings.LastIndex(service, ".")+1:], "Service"))
 	at := recordIndex(rec, writeID)
@@ -120,53 +87,49 @@ func fieldReadsOf(cat *catalog.Catalog, lib *contract.Library, res *chain.SliceR
 		}
 		km, err := cat.Lookup(ks.Call)
 		if err != nil {
-			return out
+			return true
 		}
-		out.readers = append(out.readers, readerID)
+		readers++
 		names := map[string]bool{}
 		messageFieldNames(catalog.DescribeMessage(km.Input()).Fields, names)
 		messageFieldNames(catalog.DescribeMessage(km.Output()).Fields, names)
 		for f := range changed {
 			if names[f] {
-				return out
+				return true
 			}
 		}
 		rc, has := lib.Get(km.FullName)
 		if !has {
-			return out
+			return true
 		}
 		for _, n := range append(append([]string{}, rc.Needs...), rc.Before...) {
 			rpc, _, _ := strings.Cut(n, "@")
 			if s, _, _ := strings.Cut(rpc, "/"); rpc == wm.FullName || s == service || strings.HasSuffix(service, "."+s) {
-				return out
+				return true
 			}
 		}
 		if wc, has := lib.Get(wm.FullName); has {
 			for _, b := range wc.Before {
 				if rpc, _, _ := strings.Cut(b, "@"); rpc == km.FullName {
-					return out
+					return true
 				}
 			}
 		}
 		for _, f := range lib.AllFailures(km.FullName) {
 			text := strings.ToLower(f.Reason + " " + f.When + " " + f.Message + " " + f.Field)
 			if noun != "" && strings.Contains(text, noun) {
-				return out
+				return true
 			}
 			for field := range changed {
 				for _, phrase := range fieldPhrases(field) {
 					if strings.Contains(text, phrase) {
-						return out
+						return true
 					}
 				}
 			}
 		}
 	}
-	if len(out.readers) == 0 {
-		return out
-	}
-	out.verdict = readsUnrelated
-	return out
+	return readers == 0
 }
 
 func envelopeParent() string {
@@ -229,6 +192,6 @@ func stateIrrelevantIn(e *env, lib *contract.Library, c *chain.Chain, rec *runne
 	}
 	res := &chain.SliceResult{Chain: c}
 	return func(writer, reader string) bool {
-		return fieldReadsOf(e.cat, lib, res, rec, writer, []string{reader}).verdict == readsUnrelated
+		return !fieldReadsOf(e.cat, lib, res, rec, writer, []string{reader})
 	}
 }

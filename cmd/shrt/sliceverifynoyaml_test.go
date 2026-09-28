@@ -22,9 +22,9 @@ func TestCLISliceVerifyWithoutWriteDoesNotReprintTheSliceAfterTheVerdict(t *test
 	if strings.Contains(out[verdict:], "apiVersion: shrt/v1") || strings.Contains(out[verdict:], "steps:\n") {
 		t.Fatalf("the verdict is the last word under -verify; the slice YAML is not printed after it:\n%s", out)
 	}
-	for _, want := range []string{"side effects", "-keep writes"} {
+	for _, want := range []string{"dropped write step(s) on entities the kept steps use", "-keep writes"} {
 		if !strings.Contains(out[verdict:], want) {
-			t.Errorf("say plainly that the dropped writes can have undeclared side effects, and give the -keep writes command (%q):\n%s", want, out)
+			t.Errorf("name the dropped writes and give the -keep writes command (%q):\n%s", want, out)
 		}
 	}
 }

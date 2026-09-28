@@ -355,77 +355,6 @@ func TestSliceIncludesContractPrerequisitesAndReportsUnmetOnes(t *testing.T) {
 	}
 }
 
-func TestSlicePinDropsValueOnlyProducersAndKeepsSideEffectOnes(t *testing.T) {
-	c := sliceFixture()
-	values := map[string]any{
-		"create_deal.results.0.id_deal": "DEAL-9",
-		"exports.book":                  "BOOK-9",
-		"book":                          "BOOK-9",
-	}
-	opts := chain.SliceOptions{
-		Mode:  chain.SliceModePin,
-		RunID: "20260911T140222Z-8b148b22",
-		Value: func(ref string) (any, bool) {
-			v, ok := values[ref]
-			return v, ok
-		},
-		Prereqs: func(rpc string) []chain.Prereq {
-			if rpc == "DealService/FetchDeal" {
-				return []chain.Prereq{{RPC: "LimitActionService/SetCounterpartyCreditLimit", Edge: "before"}}
-			}
-			return nil
-		},
-	}
-	pinned, err := chain.Slice(c, "fetch_deal", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	closure, err := chain.Slice(c, "fetch_deal", chain.SliceOptions{Prereqs: opts.Prereqs})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(pinned.Kept) >= len(closure.Kept) {
-		t.Fatalf("pin kept %d steps, closure kept %d: pinning must drop producers whose only contribution is a value",
-			len(pinned.Kept), len(closure.Kept))
-	}
-	if got := strings.Join(keptIDs(pinned), ","); got != "set_limit,fetch_deal" {
-		t.Fatalf("kept %s, want set_limit,fetch_deal: a step kept for a side effect can never be pinned away", got)
-	}
-	if len(pinned.Pins) != 2 {
-		t.Fatalf("want two pins, got %+v", pinned.Pins)
-	}
-	for _, p := range pinned.Pins {
-		if _, ok := pinned.Chain.Vars[p.Var]; !ok {
-			t.Errorf("pinned value %s is not in vars", p.Var)
-		}
-	}
-	dropped := map[string]bool{"create_book": true, "create_deal": true, "noise": true}
-	for at, s := range pinned.Chain.Steps {
-		for _, ref := range refsOf(s) {
-			head, _, _ := strings.Cut(ref, ".")
-			if dropped[head] {
-				t.Errorf("step %s still references ${%s}, whose producer was pinned away", s.ID, ref)
-			}
-			if !resolvable(pinned.Chain, at, ref) {
-				t.Errorf("step %s references ${%s}, which resolves to nothing in the pinned slice", s.ID, ref)
-			}
-		}
-	}
-	if !strings.Contains(pinned.Chain.Description, "20260911T140222Z-8b148b22") {
-		t.Error("a pinned slice must record the run its values came from, in the description")
-	}
-}
-
-func TestSlicePinRefusesWithoutValues(t *testing.T) {
-	_, err := chain.Slice(sliceFixture(), "fetch_deal", chain.SliceOptions{Mode: chain.SliceModePin})
-	if err == nil {
-		t.Fatal("pin mode without a run record must fail loudly, not degrade to closure")
-	}
-	if !strings.Contains(err.Error(), "run record") {
-		t.Fatalf("the error must say what is missing, got: %v", err)
-	}
-}
-
 func TestSliceUnknownStepNamesTheValidIDs(t *testing.T) {
 	_, err := chain.Slice(sliceFixture(), "no_such_step", chain.SliceOptions{})
 	if err == nil {
@@ -443,7 +372,7 @@ func TestSliceDescriptionRecordsProvenance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"fixture", "fetch_deal", "closure", "3 of 5 steps"} {
+	for _, want := range []string{"fixture", "fetch_deal", "3 of 5 steps"} {
 		if !strings.Contains(res.Chain.Description, want) {
 			t.Errorf("description must record %q:\n%s", want, res.Chain.Description)
 		}

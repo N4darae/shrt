@@ -15,7 +15,8 @@ func TestCLISliceRefusalExitCodesAreStatedForBothModes(t *testing.T) {
 		want int
 	}{
 		{[]string{"-step", "fetchh", "-run", "latest"}, 1},
-		{[]string{"-step", "fetchh", "-run", "latest", "-verify"}, 2},
+		{[]string{"-step", "fetchh", "-run", "latest", "-verify"}, 1},
+		{[]string{"-step", "fetch", "-verify"}, 1},
 	} {
 		_, err := freshTagSlice(t, tc.args...)
 		if got := exitCodeOf(err); got != tc.want {
@@ -27,7 +28,7 @@ func TestCLISliceRefusalExitCodesAreStatedForBothModes(t *testing.T) {
 		want int
 	}{
 		{[]string{"no-such-chain", "-step", "fetch"}, 1},
-		{[]string{"no-such-chain", "-step", "fetch", "-run", "latest", "-verify"}, 2},
+		{[]string{"no-such-chain", "-step", "fetch", "-run", "latest", "-verify"}, 1},
 	} {
 		var err error
 		captureStdout(t, func() { err = chainSlice(context.Background(), tc.args) })
@@ -36,14 +37,14 @@ func TestCLISliceRefusalExitCodesAreStatedForBothModes(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(sliceExitCodes, "plain slice") || !strings.Contains(sliceExitCodes, "  2  DID NOT RUN") {
-		t.Errorf("chain slice -h must state the plain-slice exit codes and how they differ under -verify:\n%s", sliceExitCodes)
+	if !strings.Contains(sliceExitCodes, "  3  ") || !strings.Contains(sliceExitCodes, "DID NOT RUN") || strings.Contains(sliceExitCodes, "  2  ") {
+		t.Errorf("chain slice -h must state the 0/1/3 exit codes:\n%s", sliceExitCodes)
 	}
 	raw, err := coredistillation.Docs.ReadFile("README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "| `chain slice` (no `-verify`) |") {
-		t.Error("README's exit code table must have a row for chain slice without -verify")
+	if !strings.Contains(string(raw), "| `chain slice` |") {
+		t.Error("README's exit code table must have a row for chain slice")
 	}
 }

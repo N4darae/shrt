@@ -49,30 +49,22 @@ func TestCLISliceWriteKeepsTheVerdictOfAnIdenticalVerifiedSlice(t *testing.T) {
 	}
 }
 
-func TestCLISliceWriteRefusesToReplaceAVerifiedSliceWithoutForce(t *testing.T) {
+func TestCLISliceWriteRefusesToReplaceAVerifiedSlice(t *testing.T) {
 	srv := newFakeCLIBackend()
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	path := writeVerifiedProbe(t)
+	source := string(mustRead(t, ".shrt/chains/cli-thing-flow.yaml"))
+	writeFile(t, ".shrt/chains/cli-thing-flow.yaml", strings.Replace(source, "equals: widget", "equals: gadget", 1))
 	var err error
 	captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-thing-flow", "-step", "fetch", "-mode", "pin", "-run", "latest", "-write", "probe"})
+		err = chainSlice(context.Background(), []string{"cli-thing-flow", "-step", "fetch", "-write", "probe"})
 	})
-	if err == nil || !strings.Contains(err.Error(), "VERIFIED") || !strings.Contains(err.Error(), "-force") {
-		t.Fatalf("replacing a verified slice with a different one must be refused, naming the verdict and -force: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "VERIFIED") {
+		t.Fatalf("replacing a verified slice with a different one must be refused, naming the verdict: %v", err)
 	}
 	raw, _ := os.ReadFile(path)
 	if !strings.Contains(string(raw), "VERIFIED by") {
 		t.Fatalf("a refused write must leave the verified slice alone:\n%s", raw)
-	}
-	captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-thing-flow", "-step", "fetch", "-mode", "pin", "-run", "latest", "-write", "probe", "-force"})
-	})
-	if err != nil {
-		t.Fatalf("-force must replace it: %v", err)
-	}
-	raw, _ = os.ReadFile(path)
-	if strings.Contains(string(raw), "VERIFIED by") || !strings.Contains(string(raw), "mode pin") {
-		t.Fatalf("-force must write the new slice:\n%s", raw)
 	}
 }

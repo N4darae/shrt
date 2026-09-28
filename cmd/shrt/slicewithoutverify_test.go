@@ -113,7 +113,7 @@ func TestSliceWithoutVerifyNamesTheFailuresTheLeftOutWriteCaused(t *testing.T) {
 	if exitCodeOf(err) != 1 {
 		t.Fatalf("fetch_name still fails, so exit 1, got %d: %v\n%s", exitCodeOf(err), err, out)
 	}
-	if !strings.Contains(out, "cause confirmed for 1 of 2 step(s)") || !strings.Contains(out, "fetch_total") {
+	if !strings.Contains(out, "1 of 2 step(s) that failed in source run") || !strings.Contains(out, "pass without it: fetch_total") {
 		t.Fatalf("fetch_total passes without stray_add:\n%s", out)
 	}
 	if !strings.Contains(out, "still fail, so another cause: fetch_name") {
@@ -121,7 +121,7 @@ func TestSliceWithoutVerifyNamesTheFailuresTheLeftOutWriteCaused(t *testing.T) {
 	}
 }
 
-func TestSliceWithoutVerifyDoesNotCountAFailureWhoseExpectationCountsOnTheLeftOutWrite(t *testing.T) {
+func TestSliceWithoutVerifyCountsAFailureWithAnotherValueAsStillFailing(t *testing.T) {
 	srv := stockBackend(1)
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
@@ -137,7 +137,7 @@ func TestSliceWithoutVerifyDoesNotCountAFailureWhoseExpectationCountsOnTheLeftOu
 		t.Fatalf("json: %v\n%s", jerr, out)
 	}
 	v := payload.Verify
-	if exitCodeOf(err) != 1 || len(v.NotCounted) != 1 || v.NotCounted[0] != "fetch_total" || len(v.StillFail) != 1 || v.StillFail[0] != "fetch_name" {
-		t.Fatalf("fetch_total expects what stray_add added, so without it it fails with another value and is not counted: %d %v %+v\n%s", exitCodeOf(err), err, v, out)
+	if exitCodeOf(err) != 1 || len(v.Cleared) != 0 || strings.Join(v.StillFail, ",") != "fetch_total,fetch_name" {
+		t.Fatalf("fetch_total and fetch_name fail without stray_add too: %d %v %+v\n%s", exitCodeOf(err), err, v, out)
 	}
 }

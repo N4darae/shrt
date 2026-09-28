@@ -43,7 +43,7 @@ type WhichOptions struct {
 	RPCOf        func(*Step) string
 	SliceOf      func(*Chain, string) (int, bool)
 	Observations func(chainName string) []Observation
-	FreshVars    func(c *Chain, step, run string) []string
+	FreshVars    func(c *Chain, step string) []string
 	ReadsOnly    func(*Step) bool
 }
 
@@ -234,18 +234,10 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 
 func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
-	run := ""
-	step, _ := c.Step(best.Step)
-	switch {
-	case best.Observed == nil:
-	case IsAuthProbe(step):
-	case writeStep(c, best.Step, opts.ReadsOnly):
+	if step, _ := c.Step(best.Step); best.Observed != nil && !IsAuthProbe(step) && writeStep(c, best.Step, opts.ReadsOnly) {
 		cmd += " -keep " + SliceKeepWrites
-	default:
-		run = best.Observed.Run
-		cmd += " -mode pin -run " + run
 	}
-	return cmd + freshFlags(c, best.Step, run, opts.FreshVars)
+	return cmd + freshFlags(c, best.Step, opts.FreshVars)
 }
 
 func writeStep(c *Chain, id string, readsOnly func(*Step) bool) bool {
@@ -256,11 +248,11 @@ func writeStep(c *Chain, id string, readsOnly func(*Step) bool) bool {
 	return readsOnly == nil || !readsOnly(s)
 }
 
-func freshFlags(c *Chain, step, run string, fresh func(*Chain, string, string) []string) string {
+func freshFlags(c *Chain, step string, fresh func(*Chain, string) []string) string {
 	if fresh == nil {
 		return ""
 	}
-	names := append([]string{}, fresh(c, step, run)...)
+	names := append([]string{}, fresh(c, step)...)
 	sort.Strings(names)
 	out := ""
 	for _, name := range names {

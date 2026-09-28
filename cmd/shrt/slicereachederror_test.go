@@ -36,7 +36,7 @@ func TestASliceOfAStepRefusedForItsTokensAgeIsVerifiedAndSaysWhyItDiffers(t *tes
 	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-thing-flow", "-quiet"}) })
 	var err error
 	out := captureStdout(t, func() {
-		err = chainSlice(ctx, []string{"cli-thing-flow", "-step", "create_again", "-run", "latest", "-verify", "-repeat", "1"})
+		err = chainSlice(ctx, []string{"cli-thing-flow", "-step", "create_again", "-run", "latest", "-verify"})
 	})
 	if strings.Contains(out+fmt.Sprint(err), "reached step") || strings.Contains(out+fmt.Sprint(err), "did not reach") {
 		t.Fatalf("create_again was sent and refused, so the run reached it: %v\n%s", err, out)
@@ -44,7 +44,7 @@ func TestASliceOfAStepRefusedForItsTokensAgeIsVerifiedAndSaysWhyItDiffers(t *tes
 	if exitCodeOf(err) != 1 || !strings.Contains(out, "NOT REPRODUCED") {
 		t.Fatalf("the slice sends create_again with a fresh token, so the verdict differs: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "The refusal depends on how long the session had lived") {
+	if !strings.Contains(out, "the slice's younger token was accepted") {
 		t.Fatalf("the difference is the token's age, not a dropped write:\n%s", out)
 	}
 }

@@ -292,7 +292,7 @@ func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFile
 		red[k.Step] = true
 	}
 	if !red["cancel_order"] || !red["fetch_after_cancel"] || len(red) != 2 {
-		t.Fatalf("the slice keeps the write and its read-back red, got %v", slice.KeptRed)
+		t.Fatalf("the slice keeps the write and its read-back red, got %v\n%s", slice.KeptRed, out)
 	}
 	cancelAt := strings.Index(pinReadBackChain, "\n  - call: OrderService/CancelOrder")
 	getAt := strings.Index(pinReadBackChain, "  - call: ProductService/GetProduct")

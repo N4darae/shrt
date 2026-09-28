@@ -13,7 +13,7 @@ func TestSliceWriteSaysTheFileJoinsEverySweep(t *testing.T) {
 	}
 	for _, want := range []string{
 		"cli-fresh-flow-slice-fetch.yaml",
-		"so lint, hollow and the gate run it",
+		"lint, hollow and the gate run",
 		"mv .shrt/chains/cli-fresh-flow-slice-fetch.yaml .shrt/scratch/",
 	} {
 		if !strings.Contains(out, want) {
@@ -31,7 +31,7 @@ func TestSliceWithoutWrittenOverTheChainItselfSaysNothingAboutJoiningTheSweep(t 
 	if !strings.Contains(out, "written: .shrt/chains/cli-fresh-flow.yaml") {
 		t.Fatalf("the chain is rewritten in place:\n%s", out)
 	}
-	if strings.Contains(out, "so lint, hollow and the gate run it") {
+	if strings.Contains(out, "lint, hollow and the gate run") {
 		t.Fatalf("the chain was already part of every sweep; replacing it is not news:\n%s", out)
 	}
 }

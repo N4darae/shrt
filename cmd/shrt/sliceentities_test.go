@@ -35,7 +35,7 @@ func TestSliceKeepSuggestsOnlyWritesOnTheEntitiesTheKeptStepsUse(t *testing.T) {
 	if !strings.Contains(out, "confirm_single       OrderService/ConfirmOrder       changes the state of what create_order_single created, which cancel_confirmed reads") {
 		t.Fatalf("the confirm acts on the order the target cancels, so the closure keeps it:\n%s", out)
 	}
-	if exitCodeOf(err) != 2 {
+	if exitCodeOf(err) != 3 {
 		t.Fatalf("without the stock the kept confirm is refused and the slice stops before the target (exit %d):\n%s", exitCodeOf(err), out)
 	}
 	next := nextCommand(out)
@@ -59,11 +59,6 @@ func TestSliceKeepSuggestsOnlyWritesOnTheEntitiesTheKeptStepsUse(t *testing.T) {
 	if strings.Contains(again, "INCONCLUSIVE") {
 		t.Fatalf("writes on other entities do not make a matching verdict inconclusive:\n%s", again)
 	}
-	for _, id := range []string{"create_product_2", "create_order_three", "cancel_pending", "retry_single"} {
-		if !strings.Contains(again, id) {
-			t.Errorf("the dropped write %s is still named, as information:\n%s", id, again)
-		}
-	}
 }
 
 func TestSliceTreatsAnAnsweredWriteThatFailedAnExpectationAsDone(t *testing.T) {
@@ -76,7 +71,7 @@ func TestSliceTreatsAnAnsweredWriteThatFailedAnExpectationAsDone(t *testing.T) {
 	_ = runRun(context.Background(), []string{".shrt/scratch/probe-orders.yaml", "-quiet", "-keep-going", "-var", "tag=src"})
 
 	out, err := sliceShop(t, "-keep", "confirm_single", "-var", "tag=s1")
-	if exitCodeOf(err) != 2 {
+	if exitCodeOf(err) != 3 {
 		t.Fatalf("without the stock the confirm is refused and the slice stops before the target (exit %d):\n%s", exitCodeOf(err), out)
 	}
 	if strings.Contains(out, "No -keep command can reproduce") {

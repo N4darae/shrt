@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, mode string, opts SliceOptions) []sideEffectWrite {
+func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, opts SliceOptions) []sideEffectWrite {
 	target := x.c.Steps[at]
 	sent := map[string]string{}
 	stringLeaves(target.Body, "", sent)
@@ -28,9 +28,6 @@ func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, mode string, op
 		}
 		s := x.c.Steps[w]
 		if !isWriteCall(s.Call) || notSent(s, opts) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
-			continue
-		}
-		if mode == SliceModePin && opts.Performed != nil && opts.Performed(s.ID) {
 			continue
 		}
 		theirs := map[string]string{}

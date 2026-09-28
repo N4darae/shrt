@@ -71,7 +71,7 @@ func TestSliceReachesTheTargetPastKeptStepsThatFailedAnUnrelatedExpectation(t *t
 	var err error
 	out := captureStdout(t, func() {
 		err = chainSlice(context.Background(), []string{".shrt/scratch/order-happy.yaml", "-step", "confirm_order", "-run", "latest",
-			"-verify", "-repeat", "1", "-var", "tag=s1"})
+			"-verify", "-var", "tag=s1"})
 	})
 	if strings.Contains(out, "DID NOT RUN") {
 		t.Fatalf("create_product and create_order were answered and failed only a price expectation, so the slice keeps them "+
@@ -84,7 +84,7 @@ func TestSliceReachesTheTargetPastKeptStepsThatFailedAnUnrelatedExpectation(t *t
 	if joined := strings.Join(next, " "); next == nil || !(strings.Contains(joined, "-keep add_stock ") || strings.Contains(joined, "-keep writes ")) {
 		t.Fatalf("without the stock the confirm is refused; next must keep add_stock (exit %d):\n%s", exitCodeOf(err), out)
 	}
-	next = append(next[:len(next):len(next)], "-repeat", "1", "-var", "tag=s2")
+	next = append(next[:len(next):len(next)], "-var", "tag=s2")
 	again := captureStdout(t, func() { err = chainSlice(context.Background(), next) })
 	if exitCodeOf(err) != 0 || !strings.Contains(again, "verify reproduced") {
 		t.Fatalf("the suggested command must reach and reproduce the target (exit %d):\n%s", exitCodeOf(err), again)

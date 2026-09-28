@@ -113,23 +113,6 @@ func pinFixture() (*chain.Chain, func(string) []chain.Prereq) {
 	return c, prereqs
 }
 
-func TestPinModePinsAProducerAContractFromEdgeOnlyNeedsTheValueOf(t *testing.T) {
-	c, prereqs := pinFixture()
-	res, err := chain.Slice(c, "create_order", chain.SliceOptions{
-		Mode: chain.SliceModePin, RunID: "r1", Prereqs: prereqs,
-		Value: func(ref string) (any, bool) { return "prd-1", true },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := strings.Join(keptIDs(res), ","); got != "create_order" {
-		t.Fatalf("a from edge is satisfied by the pinned value, so only the target stays; kept %s", got)
-	}
-	if len(res.Pins) != 1 || res.Pins[0].Producer != "create_product" {
-		t.Fatalf("want create_product's id pinned, got %+v", res.Pins)
-	}
-}
-
 func TestClosureLabelsABodyReferenceAsProducesEvenWhenAContractEdgeAgrees(t *testing.T) {
 	c, prereqs := pinFixture()
 	res, err := chain.Slice(c, "create_order", chain.SliceOptions{Prereqs: prereqs})

@@ -25,7 +25,7 @@ func TestWhichReproducesAWriteInClosureModeAndAReadPinned(t *testing.T) {
 		t.Fatalf("re-sending a recorded confirm on the entity that run already confirmed reproduces nothing; want closure mode, got %+v", write)
 	}
 	read := chain.Which(chains, chain.WhichQuery{RPC: "pkg.Svc/Fetch"}, opts)
-	if len(read) != 1 || read[0].Command != "shrt chain slice flow -step fetch -mode pin -run r1" {
-		t.Fatalf("a read can be pinned to the recorded run, got %+v", read)
+	if len(read) != 1 || read[0].Command != "shrt chain slice flow -step fetch" {
+		t.Fatalf("a read is sliced plainly, got %+v", read)
 	}
 }

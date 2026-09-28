@@ -117,8 +117,8 @@ func TestCLISliceVerifySaysDidNotRunWhenAnEnvVarIsUnset(t *testing.T) {
 	if !strings.Contains(text, "SHRT_SLICE_TEST_NAME") {
 		t.Errorf("the reason the slice stopped should be shown:\n%s", text)
 	}
-	if got := exitCodeOf(err); got != 2 {
-		t.Errorf("did not run exits %d, want 2", got)
+	if got := exitCodeOf(err); got != 3 {
+		t.Errorf("did not run exits %d, want 3", got)
 	}
 }
 

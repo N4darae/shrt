@@ -30,7 +30,7 @@ func TestWhichDoesNotKeepWritesForAnAuthProbe(t *testing.T) {
 	if len(hits) != 1 {
 		t.Fatalf("want one chain, got %+v", hits)
 	}
-	if strings.Contains(hits[0].Command, "-keep writes") || strings.Contains(hits[0].Command, "-mode pin") {
+	if strings.Contains(hits[0].Command, "-keep writes") {
 		t.Fatalf("an auth probe is refused before it writes anything, so earlier writes do not change its verdict: %s", hits[0].Command)
 	}
 	if hits[0].Command != "shrt chain slice flow -step "+hits[0].Best {

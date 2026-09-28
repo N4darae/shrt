@@ -58,7 +58,7 @@ func TestCLIAHandEditedRunRecordIsNotEvidence(t *testing.T) {
 		t.Fatalf("diff by run id of an edited record must refuse it: %v", err)
 	}
 	captureStdout(t, func() {
-		err = chainSlice(context.Background(), []string{"cli-thing-flow", "-step", "fetch", "-mode", "pin", "-run", id})
+		err = chainSlice(context.Background(), []string{"cli-thing-flow", "-step", "fetch", "-run", id})
 	})
 	if !errors.Is(err, store.ErrRunEdited) {
 		t.Fatalf("slice from an edited record must refuse it: %v", err)

@@ -352,8 +352,8 @@ real, remove `kept_red`, run, propose. Never confirm a chain while it has `kept_
 ## 57. A kept-red chain says `FAILED, NOT AS PINNED` or `NEW FAILURE outside the pinned defect`
 
 **Cause.** Something else failed, or a pinned step now returns something different from the last
-run that failed as pinned. **Fix.** Treat it as a regression; re-pin with the slice command and
-`-force` only when the change is understood.
+run that failed as pinned. **Fix.** Treat it as a regression; re-pin (`shrt chain pin`) only when
+the change is understood.
 
 ## 58. One real defect keeps a long chain from a safe spot
 
@@ -378,11 +378,6 @@ path with a slash for exploratory slices (`-write .shrt/scratch/<name>.yaml`) an
 
 **Cause.** A kept write interpolates that var into what it creates, and its earlier values already
 exist on the backend. **Fix.** Pass a value never used before.
-
-## 62. A pinned slice stopped reproducing
-
-**Cause.** `-mode pin` reproduces one incident on that run's data, which ages. **Fix.** Use closure
-mode for anything lasting; confirm a safe spot only from a closure slice.
 
 ## 63. "220 of 229 steps kept" read as 220 passing steps
 

@@ -53,20 +53,3 @@ func TestSliceKeepsAWriteThatChangesTheStateAKeptReadReads(t *testing.T) {
 		}
 	}
 }
-
-func TestSliceInPinModeLeavesARecordedStateWriteToTheRun(t *testing.T) {
-	c := cancelRestockChain()
-	res, err := chain.Slice(c, "get_product_2_after_cancel", chain.SliceOptions{
-		Mode:      chain.SliceModePin,
-		Value:     func(ref string) (any, bool) { return "pinned-" + ref, true },
-		Performed: func(string) bool { return true },
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range res.Kept {
-		if k.ID == "cancel_order" {
-			t.Fatalf("under -mode pin the run already did the cancel, and re-sending it would change the state again: %+v", res.Kept)
-		}
-	}
-}

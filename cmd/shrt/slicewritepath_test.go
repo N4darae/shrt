@@ -20,7 +20,7 @@ func TestSliceWriteToAPathWritesExactlyThereAndSaysNoSweepReadsIt(t *testing.T) 
 	}
 	for _, want := range []string{
 		"/.shrt/scratch/x.yaml\n",
-		"outside .shrt/chains",
+		"no sweep reads",
 		"shrt run .shrt/scratch/x.yaml",
 	} {
 		if !strings.Contains(out, want) {
@@ -54,7 +54,7 @@ func TestSliceWriteToAPathDirectlyInPathsChainsSaysItJoinsTheGate(t *testing.T) 
 	if _, err := os.Stat(".shrt/chains/kept.yaml"); err != nil {
 		t.Fatalf("want .shrt/chains/kept.yaml: %v", err)
 	}
-	for _, want := range []string{"so lint, hollow and the gate run it", "mv .shrt/chains/kept.yaml .shrt/scratch/"} {
+	for _, want := range []string{"lint, hollow and the gate run", "mv .shrt/chains/kept.yaml .shrt/scratch/"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}

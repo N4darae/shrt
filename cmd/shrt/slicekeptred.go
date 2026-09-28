@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -18,7 +17,7 @@ import (
 
 func failurePins(c *chain.Chain, rec *runner.Record, step string) ([]chain.Pin, error) {
 	if rec == nil {
-		return nil, fmt.Errorf("-kept-red needs a run record of the chain that reached %s: run it first", step)
+		return nil, fmt.Errorf("pinning needs a run record of the chain that reached %s: run it first", step)
 	}
 	var sr *runner.StepRecord
 	for _, s := range rec.Steps {
@@ -146,7 +145,7 @@ func failedSteps(rec *runner.Record) []string {
 	return out
 }
 
-func sliceWithout(ctx context.Context, chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool, verify *withoutVerify) error {
+func sliceWithout(ctx context.Context, chainArg string, drop []string, runID string, write *optionalString, name string, asJSON bool, verify *withoutVerify) error {
 	writePath := ""
 	bare := bareSliceFile(name)
 	if bare {
@@ -186,7 +185,6 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		if err := load(); err != nil {
 			return err
 		}
-		verify.source = c
 	}
 	for _, id := range drop {
 		if id != "failed" {
@@ -223,8 +221,8 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		if source {
 			res.Chain.Name = c.Name
 		}
-		if _, err := os.Stat(path); err == nil && !force && !source {
-			return fmt.Errorf("%s already exists, pass -force to overwrite it or name another file: -write <name>", path)
+		if _, err := os.Stat(path); err == nil && !source {
+			return fmt.Errorf("%s already exists: name another file, -write <name>", path)
 		}
 		if err := writeWithout(path, source, res); err != nil {
 			return err
@@ -248,15 +246,12 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		}
 		return verdict.err()
 	}
-	how, unrun := "", "; a count of what the file holds, not of steps known to pass: none of them has run in this shape yet"
+	how := ""
 	if fromRun != "" {
 		how = fmt.Sprintf(" (failed in run %s)", fromRun)
 	}
-	if verify != nil {
-		unrun = ""
-	}
-	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out%s\n\n",
-		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed), unrun)
+	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out\n\n",
+		c.Name, capList(ids, 3), how, len(res.Chain.Steps), res.Total, len(res.Removed))
 	idW := 0
 	for _, r := range res.Removed {
 		idW = max(idW, len(r.ID))
@@ -273,13 +268,12 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		}
 		fmt.Print("\n" + verdict.text())
 	} else {
-		fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
-			"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
+		fmt.Println("\nunverified: run it before proposing it (-verify), or keep the defect red instead: shrt chain pin " + sliceChainRef(chainArg, c))
 	}
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
 		if !replaced {
-			fmt.Print(sweepNote(e, written, res.Chain.Name))
+			fmt.Print(sweepNote(e, written))
 		}
 		return verdict.err()
 	}
@@ -314,46 +308,10 @@ func containsStr(list []string, s string) bool {
 	return false
 }
 
-type keptRedFlag struct {
-	on    bool
-	steps []string
-}
-
-func (f *keptRedFlag) IsBoolFlag() bool { return true }
-
-func (f *keptRedFlag) String() string {
-	if f == nil || !f.on {
-		return ""
-	}
-	return strings.Join(f.steps, ",")
-}
-
-func (f *keptRedFlag) Set(s string) error {
-	switch strings.TrimSpace(s) {
-	case "true":
-		f.on = true
-		return nil
-	case "false":
-		f.on, f.steps = false, nil
-		return nil
-	}
-	f.on = true
-	for _, id := range strings.Split(s, ",") {
-		if id = strings.TrimSpace(id); id != "" && !containsStr(f.steps, id) {
-			f.steps = append(f.steps, id)
-		}
-	}
-	return nil
-}
-
-func (f *keptRedFlag) arg() string {
-	if !f.on {
-		return ""
-	}
-	if len(f.steps) == 0 {
-		return "-kept-red"
-	}
-	return "-kept-red=" + strings.Join(f.steps, ",")
+type sliceKeptRed struct {
+	on      bool
+	steps   []string
+	verdict *sliceVerdict
 }
 
 func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([]chain.Pin, error) {
@@ -366,7 +324,7 @@ func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([
 		if containsStr(named, k.ID) {
 			pins, err := failurePins(res.Chain, rec, k.ID)
 			if err != nil {
-				return nil, fmt.Errorf("-kept-red=%s: %w", k.ID, err)
+				return nil, fmt.Errorf("pin %s: %w", k.ID, err)
 			}
 			out = append(out, pins...)
 			continue
@@ -417,84 +375,4 @@ func pinList(c *chain.Chain, pins []chain.Pin) string {
 		parts = append(parts, s+" at "+strings.Join(byStep[s], ", "))
 	}
 	return strings.Join(parts, "; ")
-}
-
-func pinSubject(pins []chain.Pin) string {
-	steps := map[string]bool{}
-	for _, p := range pins {
-		steps[p.Step] = true
-	}
-	if len(steps) > 1 {
-		return "they"
-	}
-	return "it"
-}
-
-func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, pinRun string, slice *chain.Chain, pins []chain.Pin, written string) string {
-	if written == "" {
-		return fmt.Sprintf("\nkept_red: nothing written, so nothing pinned: add -write to pin %s, as %s failed in run %s\n",
-			pinList(slice, pins), pinSubject(pins), pinRun)
-	}
-	line := fmt.Sprintf("\nkept_red: pinned in %s on %s, as %s failed in run %s; its run exits 0 while it fails exactly so.",
-		shownPath(written), pinList(slice, pins), pinSubject(pins), pinRun)
-	if c.SourcePath != "" && sameSliceFile(written, c.SourcePath) {
-		return line + "\n"
-	}
-	steps := []string{}
-	for _, p := range pins {
-		if !containsStr(steps, p.Step) {
-			steps = append(steps, p.Step)
-		}
-	}
-	drop := strings.Join(steps, ",")
-	if failed := failedSteps(rec); len(failed) == len(steps) && !slices.ContainsFunc(failed, func(f string) bool { return !containsStr(steps, f) }) {
-		drop = "failed"
-	}
-	return line + fmt.Sprintf(" Leave the pinned steps out of %s in place, so the gate runs the rest green: shrt chain slice %s -without %s -run %s -write %s\n",
-		c.Name, ref, drop, rec.RunID, sourceFileArg(c))
-}
-
-func stoppedAsInSource(replay, source *runner.Record) string {
-	for _, sr := range replay.Steps {
-		if sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
-			continue
-		}
-		was, ok := source.Step(sr.ID)
-		if !ok || was.Status != runner.StatusFailed {
-			return ""
-		}
-		for _, x := range was.Expect {
-			if !x.Passed && x.Rule != "unevaluated" {
-				return sr.ID
-			}
-		}
-		return ""
-	}
-	return ""
-}
-
-func readsFailedAfter(e *env, ref string, rec *runner.Record, step string, err error) error {
-	if rec == nil {
-		return err
-	}
-	a := runAttribution(e, rec)
-	reads := []string{}
-	for _, st := range rec.Steps {
-		if st == nil || st.ID == step || st.Status != runner.StatusFailed {
-			continue
-		}
-		for _, x := range st.Expect {
-			if !x.Passed && x.Rule != "unevaluated" {
-				if a.item(gateItem{Step: st.ID, Call: st.Call, Path: x.Path}).SuspectStep == step {
-					reads = append(reads, st.ID)
-				}
-				break
-			}
-		}
-	}
-	if len(reads) == 0 {
-		return err
-	}
-	return fmt.Errorf("%w; later steps reading what it wrote failed (%s), so pin the first of them: shrt chain slice %s -step %s -kept-red=%s -verify -write",
-		err, strings.Join(reads, ", "), ref, reads[0], strings.Join(reads, ","))
 }

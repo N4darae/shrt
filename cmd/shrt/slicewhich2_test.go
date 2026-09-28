@@ -123,8 +123,7 @@ func TestCLISliceVerifyDoesNotCountRefusedWritesAndRecordsTheVerdict(t *testing.
 	if !strings.Contains(out, "verify reproduced") {
 		t.Fatalf("want reproduced:\n%s", out)
 	}
-	if !strings.Contains(out, "2 dropped write step(s) were refused in run") ||
-		!strings.Contains(out, "refused: error.code = INTERNAL") || !strings.Contains(out, "refused: transport invalid_argument") {
+	if !strings.Contains(out, "refused: error.code = INTERNAL in run") || !strings.Contains(out, "refused: transport invalid_argument in run") {
 		t.Fatalf("the output must say which dropped writes were refused and why:\n%s", out)
 	}
 	if strings.Contains(out, "WARNING possible under-inclusion") {
@@ -171,40 +170,25 @@ func TestCLISliceClosureVerifyRefusesAnUndeclaredVarWithTheFlagToPass(t *testing
 	}
 }
 
-func TestCLIPinSliceTakesAnUndeclaredVarFromTheSourceRun(t *testing.T) {
-	round2Workspace(t)
-	out, err := round2Slice(t, "-step", "create", "-mode", "pin", "-run", "latest", "-v", "-write")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "batch = T1  (the value run ") {
-		t.Fatalf("pin mode must say batch is the value the run used:\n%s", out)
-	}
-	written, err := chain.LoadFile(".shrt/chains/cli-r2-flow-slice-create.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if written.Vars["batch"] != "T1" {
-		t.Fatalf("the pinned slice must run on its own, got vars %v", written.Vars)
-	}
-}
-
 func TestCLISliceWriteRefusesToOverwriteAnotherChain(t *testing.T) {
 	round2Workspace(t)
 	other := "apiVersion: shrt/v1\nname: probe\nsteps:\n    - id: only\n      call: ThingService/Fetch\n      body:\n          id: x\n"
 	writeFile(t, ".shrt/chains/probe.yaml", other)
 	_, err := round2Slice(t, "-step", "fetch", "-write", "probe")
-	if err == nil || !strings.Contains(err.Error(), "-force") {
+	if err == nil || !strings.Contains(err.Error(), "name another file") {
 		t.Fatalf("an existing chain that is not this slice must not be overwritten silently, got %v", err)
 	}
 	if raw, _ := os.ReadFile(".shrt/chains/probe.yaml"); string(raw) != other {
 		t.Fatal("the refused write must leave the file untouched")
 	}
-	if _, err := round2Slice(t, "-step", "fetch", "-write", "probe", "-force"); err != nil {
-		t.Fatalf("-force overwrites: %v", err)
+	if err := os.Remove(".shrt/chains/probe.yaml"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := round2Slice(t, "-step", "fetch", "-write", "probe"); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := round2Slice(t, "-step", "fetch", "-keep", "other", "-write", "probe"); err != nil {
-		t.Fatalf("re-slicing the same step into this command's own slice needs no -force: %v", err)
+		t.Fatalf("re-slicing the same step into this command's own slice is allowed: %v", err)
 	}
 	if _, err := round2Slice(t, "-step", "blank", "-write", "probe"); err == nil {
 		t.Fatal("a slice of another step is not the same slice and needs -force")

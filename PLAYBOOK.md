@@ -449,10 +449,7 @@ shrt run billing                     # green: propose and approve it
 slices the first failing step (with the failing steps that read it, fail the same call the same
 way, or are failing reads with no write between), cuts them from the chain and re-runs until it
 passes. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the
-red.
-By hand: `chain slice <c> -step <id> -kept-red=<id,...> -verify -write`, then `chain slice <c>
--without failed -write .shrt/chains/<c>.yaml`. Remove the red slice and plan again once the defect
-is fixed.
+red. Remove the red slice and plan again once the defect is fixed.
 
 **No safe spot yet: `shrt diff`.**
 
@@ -500,9 +497,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    a dropped earlier write can be state the target needed, and the slice can go green without it.
 3. **`-write [name]`, then `chain lint` it.** The file lands beside the source chain, where gates
    run it; a value with a slash is a path (`-write .shrt/scratch/<name>.yaml`, run by that path).
-   `-force` replaces another file; a slice of the same chain and step is replaced in place.
-4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice (3 times by
-   default, `-repeat N`) and compares the target step's verdict with the source run's: envelope
+   A slice of the same chain and step is replaced in place; any other file is refused.
+4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice 3 times and compares the target step's verdict with the source run's: envelope
    code, reason and app code, transport refusal, and each expectation's pass, want and got; when
    those match and the source run drifted at the target against its safe spot, the slice must
    drift the same paths. It
@@ -511,21 +507,18 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `reproduced` (0): verdicts match, no dropped write touched a kept entity (`-write` records it
      in the description).
    - `NOT REPRODUCED` (1): the verdict differs; run the `next:` line.
-   - `DID NOT RUN` (2): the target was never answered, or refused before sending.
+   - `intermittent: reproduced k/3` (1): flaky there; keeping more steps will not help.
+   - `DID NOT RUN` (3): the target was never answered.
    - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, or another target;
      run the `next:` line, or `-keep writes` for every earlier write.
-   - `intermittent: reproduced k/N` (4): flaky there; keeping more steps will not help.
    Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff`
    compares: the newest record, but a `shrt run` over a verify replay recorded right after it,
    unless only the replay failed the step (for `-without`: unless their failed steps differ);
    it refuses (3) if that run left the target unevaluated.
-5. **`-mode pin -run <id>`** drops producers whose only contribution was a value and pins their
-   values into `vars:`. It does not re-send writes the source run performed, so a match is
-   INCONCLUSIVE; `-verify` refuses a kept write on the run's own entities unless `-resend-writes`.
-6. **A pinned slice reproduces one incident**, on that run's data. Confirm a safe spot only from a
-   closure slice.
 
 For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run
 latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
 `-keep <ids of the minimal chain>` instead.
-Suspect write: `chain slice <c> -without <id> -verify` names the failing steps that need it and those still red; answering as the safe spot did, it is a precondition or stores other than it answers, so look first at the first step that needs it. If they still read the same value and its contract `effects:` move that field, it had no effect: that write is the fault.
+Suspect write: `chain slice <c> -without <id> -verify` runs the chain without it and lists the
+steps that failed and now pass, those still failing (another cause, exit 1), and those that fail
+only without it.

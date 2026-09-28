@@ -56,8 +56,8 @@ func TestSliceVerifyRepeatsAndCallsAPartialMatchIntermittent(t *testing.T) {
 		t.Fatalf("GetProduct calls 2 to 5 fail, so of three slice runs, each re-sending a failed read once, one reproduces the source run's internal error; "+
 			"a single-run receipt either way would be wrong:\n%s", out)
 	}
-	if got := exitCodeOf(err); got != 4 {
-		t.Fatalf("an intermittent reproduction exits %d, want 4, distinct from reproduced (0) and NOT REPRODUCED (1):\n%s", got, out)
+	if got := exitCodeOf(err); got != 1 {
+		t.Fatalf("an intermittent reproduction exits %d, want 1:\n%s", got, out)
 	}
 	if strings.Count(out, "verify reproduced") > 0 || strings.Contains(out, "verify NOT REPRODUCED") {
 		t.Fatalf("no single run's verdict may stand for the whole:\n%s", out)
@@ -65,8 +65,8 @@ func TestSliceVerifyRepeatsAndCallsAPartialMatchIntermittent(t *testing.T) {
 }
 
 func TestSliceVerifyRepeatReportsEveryRunReproduced(t *testing.T) {
-	out, err := sliceFlaky(t, 1, "-repeat", "2")
-	if !strings.Contains(out, "verify reproduced 2/2") {
+	out, err := sliceFlaky(t, 1)
+	if !strings.Contains(out, "verify reproduced 3/3") {
 		t.Fatalf("every GetProduct fails, so both runs reproduce:\n%s", out)
 	}
 	if got := exitCodeOf(err); got != 0 {

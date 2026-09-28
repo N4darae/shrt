@@ -32,7 +32,7 @@ func TestASliceFailureReadingAnOrderNoStepCreatedIsACaveat(t *testing.T) {
 	if strings.Contains(joined, "ord-aaaaaaaaaaa1") || strings.Contains(joined, "cus-111111111111") {
 		t.Errorf("an order the slice created is not outside state: %v", got)
 	}
-	if line := outsideStateCaveat(list.ID, got); !strings.Contains(line, "depends on server state not created by the slice") {
+	if line := outsideStateCaveat(list.ID, got); !strings.Contains(line, "fails on server state the slice did not create") {
 		t.Errorf("the caveat says so: %s", line)
 	}
 	list.Response = json.RawMessage(`{"orders":[{"id_order":"ord-aaaaaaaaaaa1","id_customer":"cus-111111111111","status":"ORDER_STATUS_PENDING"},{"id_order":"ord-aaaaaaaaaaa1"}]}`)
