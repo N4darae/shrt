@@ -95,3 +95,28 @@ func TestARecordEmptiedUnderAnotherProfileIsFiledUnderTheReadAsThatProfile(t *te
 		t.Errorf("the clerk's answer lost the record's id too, but both reads sent the same request: %+v", it)
 	}
 }
+
+func TestAGateHedgeOnAReadFollowsThePrincipalVerdictForThatReadAndProfile(t *testing.T) {
+	own := "GetProduct answers product.price_minor differently as clerk than as default"
+	hedge := func(as string) *gateChain {
+		return &gateChain{name: "flow-" + as, failed: true, firstAt: "clerk_reads product.price_minor",
+			sent: map[string]string{"create": ` sent {"price_minor":300}`, "clerk_reads": ` as clerk sent {"id_product":"p"}`},
+			items: []gateItem{{Step: "clerk_reads", Call: "x.v1.ProductService/GetProduct", Path: "product.price_minor", Want: "300", Got: "0",
+				Suspect: "x.v1.ProductService/CreateProduct", SuspectStep: "create", ReadAs: as, Why: eitherWhy + "create answered product.price_minor=300, clerk_reads reads 0"}}}
+	}
+	chains := []*gateChain{
+		{name: "catalog", failed: true, items: []gateItem{{Step: "get_as_clerk", Call: "x.v1.ProductService/GetProduct", Path: "product.price_minor", Want: "1250", Got: "0", Own: own, Variant: "as clerk", as: "clerk"}}},
+		hedge("clerk"), hedge("admin"),
+	}
+	settleGate(chains)
+	if it := chains[1].items[0]; it.Own != own || it.Suspect != "" || it.Why != "" || it.Variant != "as clerk" {
+		t.Errorf("a hedge on the same read, path and profile keeps its hedge: %+v", it)
+	}
+	if it := chains[2].items[0]; it.Own != "" || it.Suspect == "" || !strings.HasPrefix(it.Why, eitherWhy) {
+		t.Errorf("a hedge on the read under another profile follows a verdict it was not proved for: %+v", it)
+	}
+	out := captureStdout(t, func() { printGateGroups(chains) })
+	if !strings.Contains(out, "  ProductService/GetProduct as clerk: 2 step(s) in 2 chain(s)") {
+		t.Errorf("got:\n%s", out)
+	}
+}
