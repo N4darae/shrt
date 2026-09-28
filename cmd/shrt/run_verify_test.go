@@ -369,3 +369,30 @@ func verTEdit(t *testing.T, path, from, to string) func() {
 		writeFile(t, path, edited)
 	}
 }
+func confirmedThingFlow(t *testing.T) {
+	t.Helper()
+	srv := newEchoNameBackend()
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	if err := runRun(context.Background(), []string{"cli-thing-flow", "-quiet"}); err != nil {
+		t.Fatalf("shrt run: %v", err)
+	}
+	captureStdout(t, func() {
+		if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "create echoes the name"}); err != nil {
+			t.Fatalf("propose: %v", err)
+		}
+		if err := runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"}); err != nil {
+			t.Fatalf("approve: %v", err)
+		}
+	})
+	path := ".shrt/chains/cli-thing-flow.yaml"
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := strings.Replace(string(raw), "name: widget\n          kind", "name: gadget\n          kind", 1)
+	if edited == string(raw) {
+		t.Fatal("fixture edit did not apply")
+	}
+	writeFile(t, path, edited)
+}
