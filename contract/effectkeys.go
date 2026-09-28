@@ -591,7 +591,8 @@ func effectsTodo(m *catalog.Method, all []*catalog.Method) string {
 				kept = append(kept, name)
 			}
 		}
-		if len(kept) == 1 {
+		carried := numericNames(append(catalog.DescribeMessage(m.Input()).Fields, catalog.DescribeMessage(m.Output()).Fields...))
+		if len(kept) == 1 && containsString(carried, kept[0]) {
 			moved = kept[0]
 		}
 	}

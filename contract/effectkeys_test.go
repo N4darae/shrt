@@ -200,7 +200,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 	cat, _ := shopDemo(t)
 	for domain, want := range map[string]map[string]string{
 		"catalog": {"StockService/AddStock": "what this write does to qty_on_hand: none | {increase: qty} | {decrease: qty} |", "StockService/AddStockBatch": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "ProductService/CreateProduct": ""},
-		"orders":  {"OrderService/CreateOrder": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
+		"orders":  {"OrderService/CreateOrder": "what this write does to <number>: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
 	} {
 		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
 		if err != nil {
