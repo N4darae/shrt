@@ -24,7 +24,7 @@ func TestVolatileAddedAfterApprovalIsReportedAndCounted(t *testing.T) {
 		t.Errorf("values hidden only by unapproved patterns = %v", rep.UnapprovedMasked)
 	}
 	text := rep.Text()
-	for _, want := range []string{"did not approve", "**.total_minor", "fetch_order order.total_minor", "2 value(s) under volatile"} {
+	for _, want := range []string{"did not approve", "**.total_minor", "fetch_order order.total_minor", "not counted: 2 "} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report must say %q:\n%s", want, text)
 		}

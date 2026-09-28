@@ -20,6 +20,10 @@ func (e *exitError) Error() string { return e.err.Error() }
 
 func (e *exitError) Unwrap() error { return e.err }
 
+type shownError struct{ error }
+
+func (e shownError) Unwrap() error { return e.error }
+
 func exitWith(code int, format string, args ...any) error {
 	return &exitError{code: code, err: fmt.Errorf(format, args...)}
 }
@@ -57,7 +61,12 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
-		fmt.Fprintf(os.Stderr, "shrt %s: %v\n", cmd.name, err)
+		var shown shownError
+		if !errors.As(err, &shown) {
+			fmt.Fprintf(os.Stderr, "shrt %s: %v\n", cmd.name, err)
+		} else if _, rest, ok := strings.Cut(err.Error(), "\n"); ok {
+			fmt.Fprintln(os.Stderr, rest)
+		}
 		var coded *exitError
 		if errors.As(err, &coded) {
 			os.Exit(coded.code)

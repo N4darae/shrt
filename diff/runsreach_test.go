@@ -91,7 +91,7 @@ func TestVerifyDoesNotCountIdsThatDifferEveryRun(t *testing.T) {
 	if len(rep.Changes) != 1 || rep.Changes[0].Path != "product.qty" {
 		t.Fatalf("only the qty is a real change: the id is id-shaped and the sku is declared volatile, got %+v", rep.Changes)
 	}
-	if rep.Masked != 1 || !strings.Contains(rep.Text(), "1 id- or timestamp-shaped value(s)") {
+	if rep.Masked != 1 || !strings.Contains(rep.Text(), "not counted: 2 (-masked lists them)") {
 		t.Fatalf("the report must say how many id-shaped values it did not count:\n%s", rep.Text())
 	}
 }

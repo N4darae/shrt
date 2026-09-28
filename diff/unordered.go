@@ -565,7 +565,7 @@ func (r *Report) reorderedText() string {
 				" (or at chain level) to compare it as a multiset")
 		}
 		if hidden > 0 {
-			fmt.Fprintf(&b, "; %d positional change(s) under it are counted above but not listed one by one (-json lists them)", hidden)
+			fmt.Fprintf(&b, "; %d positional change(s) under it are not listed one by one (-json lists them)", hidden)
 		}
 		b.WriteString("\n")
 	}

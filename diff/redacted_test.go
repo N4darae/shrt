@@ -14,7 +14,7 @@ func TestRedactedValuesAreCountedAsNeverCompared(t *testing.T) {
 	if rep.Redacted != 1 || len(rep.RedactedPaths) != 1 || rep.RedactedPaths[0] != "fetch_order product.qty_on_hand" {
 		t.Fatalf("a redacted value is blanked on both sides, so it is never compared and must be counted: %+v", rep)
 	}
-	if !strings.Contains(rep.Text(), "redacted") || !strings.Contains(rep.Text(), "fetch_order product.qty_on_hand") {
-		t.Fatalf("the report must say which redacted values were not compared:\n%s", rep.Text())
+	if !strings.Contains(rep.Text(), "not counted: 1") || !strings.Contains(rep.MaskedList(), "redact paths, blanked in the records, not compared:\n  fetch_order product.qty_on_hand") {
+		t.Fatalf("the report must say which redacted values were not compared:\n%s\n%s", rep.Text(), rep.MaskedList())
 	}
 }

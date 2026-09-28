@@ -35,18 +35,91 @@ const verifyExitCodes = "\nexit codes:\n" +
 	"  1  drift, a failed replay, no safe spot, a FINDING, REGRESSION or CHAIN DEFECT, a confirmed slowdown\n" +
 	"  3  could not verify: a step unanswered, a restart, auth refused, a fixture reused, a stale descriptor\n"
 
+type verifyFlags struct {
+	vars                                                  varFlags
+	useRun, build                                         string
+	asJSON, quiet, save, verbose, showLatency, listMasked bool
+}
+
+type verification struct {
+	e          *env
+	name, arg  string
+	o          verifyFlags
+	spot       *store.SafeSpot
+	olderSpot  string
+	rec        *runner.Record
+	c          *chain.Chain
+	report     *diff.Report
+	latency    []diff.LatencyFlag
+	varDrift   string
+	edits      []string
+	unsupplied []string
+
+	unansweredStep, unansweredWhy string
+	unanswered                    bool
+	life                          *tokenLifetime
+	loss                          *sessionLoss
+	fresh                         *freshRefusal
+	dropped                       *unansweredRepeat
+	flaky                         *intermittentFailure
+	reuse                         *fixtureReuse
+	literal                       *literalCollision
+	idem, lateIdem                *idempotentReplay
+	driftStep, driftWhy           string
+	driftAt                       int
+	declared, independent         []diff.Change
+	violation                     bool
+	nonBackend                    error
+	headline, notVerdict          string
+	runToo, flakyOnly             bool
+}
+
 func runVerify(ctx context.Context, args []string) (err error) {
+	v := &verification{o: verifyFlags{vars: varFlags{}}}
+	if err := v.parse(args); err != nil {
+		return err
+	}
+	if err := v.load(ctx); err != nil {
+		return err
+	}
+	v.compare()
+	defer v.writeSidecar()
+	v.explainInput()
+	v.examine(ctx)
+	v.notJudged(ctx)
+	if v.o.asJSON {
+		if v.olderSpot != "" {
+			fmt.Fprintln(os.Stderr, "verify: "+v.olderSpot)
+		}
+		if err := emitJSON(map[string]any{"run": v.rec, "diff": v.report, "latency": v.latency}); err != nil {
+			return err
+		}
+		return v.verdict(ctx)
+	}
+	body := &strings.Builder{}
+	defer func() {
+		verdict, rest := verifyVerdict(v.e, v.name, v.rec, v.report, v.flaky, v.nonBackend != nil, err, body.String())
+		fmt.Print(verdict + rest)
+		if first, _ := firstChange(v.report, v.rec); err != nil && v.nonBackend == nil && first != nil {
+			err = shownError{err}
+		}
+	}()
+	v.writeBody(ctx, body)
+	return v.verdict(ctx)
+}
+
+func (v *verification) parse(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
-	vars := varFlags{}
-	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
-	useRun := fs.String("run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
-	asJSON := fs.Bool("json", false, "print the diff report as JSON")
-	quiet := fs.Bool("quiet", false, "a clean replay prints its verdict line only")
-	save := fs.Bool("save", true, "persist the replay record")
-	build := fs.String("build", "", buildFlagUsage)
-	verbose := fs.Bool("v", false, "list each change at a step not judged for a descriptor mismatch, and count the values kept out of the comparison")
-	showLatency := fs.Bool("latency", false, "list each step's latency against the safe spot's run")
-	listMasked := fs.Bool("masked", false, "list every value kept out of the comparison, with both values, and each request value differing only in a fixture name")
+	o := &v.o
+	fs.Var(o.vars, "var", "set a chain var as `key=value`, repeatable")
+	fs.StringVar(&o.useRun, "run", "", "diff a recorded run `id` instead of replaying; latest is the newest")
+	fs.BoolVar(&o.asJSON, "json", false, "print the diff report as JSON")
+	fs.BoolVar(&o.quiet, "quiet", false, "a clean replay prints its verdict line only")
+	fs.BoolVar(&o.save, "save", true, "persist the replay record")
+	fs.StringVar(&o.build, "build", "", buildFlagUsage)
+	fs.BoolVar(&o.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
+	fs.BoolVar(&o.showLatency, "latency", false, "list each step's latency against the safe spot's run")
+	fs.BoolVar(&o.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -55,405 +128,464 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if len(rest) != 1 {
 		return fmt.Errorf("usage: shrt verify <chain> [flags]")
 	}
+	v.arg = rest[0]
+	return nil
+}
+
+func (v *verification) load(ctx context.Context) error {
 	e, err := loadEnv(true)
 	if err != nil {
 		return err
 	}
-	name, err := e.chainName(rest[0])
-	if err != nil {
+	v.e = e
+	if v.name, err = e.chainName(v.arg); err != nil {
 		return err
 	}
-	if err := e.knownChain(name); err != nil {
+	if err := e.knownChain(v.name); err != nil {
 		return err
 	}
+	if v.spot, v.olderSpot, err = loadVerifySpot(e, v.name); err != nil {
+		return err
+	}
+	if v.o.useRun != "" {
+		return v.loadRun()
+	}
+	return v.replay(ctx)
+}
+
+func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 	spot, err := e.store.LoadSafeSpot(name)
 	if errors.Is(err, os.ErrNotExist) {
 		err = fmt.Errorf("chain %s has no safe spot: nothing is confirmed at %s", name, e.store.SafeSpotPath(name))
 	}
 	if errors.Is(err, store.ErrMergeConflict) {
-		return err
+		return nil, "", err
 	}
 	if err != nil {
 		if e.store.HasProposal(name) {
-			return fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
+			return nil, "", fmt.Errorf("%w\na proposal for %s awaits a person's decision: shrt confirm %s -approve -by <their email> once the user says yes, or -reject", err, name, name)
 		}
 		if c, cerr := chain.Resolve(e.chainsDir(), name); cerr == nil && len(c.KeptRed) > 0 {
-			return fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
+			return nil, "", fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
 		}
-		return fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
+		return nil, "", fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
 	}
 	if !spot.DigestMatches() {
-		return fmt.Errorf("safe spot %s was changed after it was approved: its digest %s does not match its content, so it is not what a person approved.\n"+
+		return nil, "", fmt.Errorf("safe spot %s was changed after it was approved: its digest %s does not match its content, so it is not what a person approved.\n"+
 			"Restore the file (from version control or %s), or re-approve: run the chain, check the responses, "+
 			"propose it with 'shrt confirm %s -supersede -note \"...\"', and a person approves it",
 			rel(e.cfg.Root, e.store.SafeSpotPath(name)), spot.Digest, rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "archive")), name)
 	}
-	olderSpot := ""
-	if kind := spot.DigestKind(); kind != store.DigestCurrent {
-		covers := "the chain, run, target, build, volatile patterns and step records"
-		if kind == store.DigestLegacy {
-			covers = "step ids, calls and responses only"
-		}
-		olderSpot = fmt.Sprintf("safe spot %s is of the older kind: its digest covers %s, not who approved it (confirmed_by, confirmed_at, note), "+
-			"so a hand edit of those is not caught. To seal the approval, propose a passing run in its place with 'shrt confirm %s -supersede -note \"...\"' and have a person approve it",
-			rel(e.cfg.Root, e.store.SafeSpotPath(name)), covers, name)
+	kind := spot.DigestKind()
+	if kind == store.DigestCurrent {
+		return spot, "", nil
 	}
+	covers := "the chain, run, target, build, volatile patterns and step records"
+	if kind == store.DigestLegacy {
+		covers = "step ids, calls and responses only"
+	}
+	return spot, fmt.Sprintf("safe spot %s is of the older kind: its digest covers %s, not who approved it (confirmed_by, confirmed_at, note), "+
+		"so a hand edit of those is not caught. To seal the approval, propose a passing run in its place with 'shrt confirm %s -supersede -note \"...\"' and have a person approve it",
+		rel(e.cfg.Root, e.store.SafeSpotPath(name)), covers, name), nil
+}
 
-	var rec *runner.Record
-	var c *chain.Chain
-	if *useRun != "" {
-		*useRun = store.RunID(*useRun)
-		asked := *useRun
-		rec, err = e.store.LoadRun(name, *useRun)
-		if err == nil && rec.RunID != asked {
-			*useRun = rec.RunID
-			fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
-				asked, rec.RunID, name)
-		}
-		if *useRun == spot.RunID {
-			fmt.Fprintf(os.Stderr,
-				"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+
-					"itself. It is a clean control for the differ, and it is NOT evidence about the backend: "+
-					"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
-					"replay live.\n", *useRun)
-		}
-		if resolved, resolveErr := e.resolveChainNamed(rest[0], name); resolveErr == nil {
-			c = resolved
-		}
-	} else {
-		c, err = e.resolveChainNamed(rest[0], name)
-		if err != nil {
-			for _, o := range doctor.OrphanSafeSpots(e.cfg) {
-				if o.Name == name {
-					return fmt.Errorf("%w\n%s; there is no chain to replay.\n%s", err, o.Line(), o.Remedy())
-				}
-			}
-			return err
-		}
-		rec, err = executeChain(ctx, e, c, withLatency(runner.Options{Vars: c.CoerceVars(vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: *build, KeepGoing: true}, latencyPolicy(e), spot), true)
-		if err == nil {
-			rec.ReplayOf = spot.RunID
-		}
-		if err == nil && *save {
-			if _, serr := e.store.SaveRun(rec); serr != nil {
-				return serr
-			}
-		}
-	}
+func (v *verification) loadRun() error {
+	e, name := v.e, v.name
+	v.o.useRun = store.RunID(v.o.useRun)
+	asked := v.o.useRun
+	rec, err := e.store.LoadRun(name, v.o.useRun)
 	if err != nil {
 		return err
 	}
+	if rec.RunID != asked {
+		v.o.useRun = rec.RunID
+		fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
+			asked, rec.RunID, name)
+	}
+	if v.o.useRun == v.spot.RunID {
+		fmt.Fprintf(os.Stderr,
+			"verify: run %s IS the run this safe spot was made from, so this compares a recording with "+
+				"itself. It is a clean control for the differ, and it is NOT evidence about the backend: "+
+				"it reports no drift whatever the backend now does. Pass a LATER run id, or drop -run to "+
+				"replay live.\n", v.o.useRun)
+	}
+	if resolved, resolveErr := e.resolveChainNamed(v.arg, name); resolveErr == nil {
+		v.c = resolved
+	}
+	v.rec = rec
+	return nil
+}
 
-	spot, renamedSteps := diff.RenameSpotSteps(spot, rec.Steps)
-	latency := latencyFlags(e, spot, rec, latencyPolicy(e))
-	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
-	runToo, flakyOnly := false, false
-	var flaky *intermittentFailure
-	defer func() {
-		side := verifySidecar(e, rec, report, latency)
-		side.RunToo = runToo
-		if flaky.finding() {
-			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
+func (v *verification) replay(ctx context.Context) error {
+	e := v.e
+	c, err := e.resolveChainNamed(v.arg, v.name)
+	if err != nil {
+		for _, o := range doctor.OrphanSafeSpots(e.cfg) {
+			if o.Name == v.name {
+				return fmt.Errorf("%w\n%s; there is no chain to replay.\n%s", err, o.Line(), o.Remedy())
+			}
 		}
-		writeGateSidecar(side)
-	}()
-	report.HideMasked = !*verbose && !*listMasked
+		return err
+	}
+	opts := runner.Options{Vars: c.CoerceVars(v.o.vars), Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, Build: v.o.build, KeepGoing: true}
+	rec, err := executeChain(ctx, e, c, withLatency(opts, latencyPolicy(e), v.spot), true)
+	if err != nil {
+		return err
+	}
+	rec.ReplayOf = v.spot.RunID
+	if v.o.save {
+		if _, err := e.store.SaveRun(rec); err != nil {
+			return err
+		}
+	}
+	v.c, v.rec = c, rec
+	return nil
+}
+
+func (v *verification) compare() {
+	e, name, rec := v.e, v.name, v.rec
+	spot, renamedSteps := diff.RenameSpotSteps(v.spot, rec.Steps)
+	v.spot = spot
+	v.latency = latencyFlags(e, spot, rec, latencyPolicy(e))
+	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	v.report = report
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
 		report.NoteApprovedRedact(spotRun.Redacted, rec)
 		report.NoteRedactedRequests(spot, rec)
 	}
-	if c != nil {
+	if c := v.c; c != nil {
 		edited := diff.ChainChangesIn(spot, c, rec)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
 	}
-	varDrift, edits, unsupplied := "", []string{}, []string{}
-	if len(report.RequestChanges) > 0 {
-		only := map[string]any(vars)
-		if *useRun != "" {
-			only = nil
+}
+
+func (v *verification) writeSidecar() {
+	side := verifySidecar(v.e, v.rec, v.report, v.latency)
+	side.RunToo = v.runToo
+	if v.flaky.finding() {
+		side.Flaky, side.FlakyOnly = v.flaky.rates(), v.flakyOnly
+	}
+	writeGateSidecar(side)
+}
+
+func (v *verification) explainInput() {
+	e, c, rec, report, spotRun := v.e, v.c, v.rec, v.report, v.spot.RunID
+	if len(report.RequestChanges) == 0 {
+		return
+	}
+	only := map[string]any(v.o.vars)
+	if v.o.useRun != "" {
+		only = nil
+	}
+	fedAll := inputVars(c, report.RequestChanges)
+	v.varDrift = varsDifferFromConfirmed(e, spotRun, c, rec, only, fedAll)
+	defaulted := func(fed map[string]bool) []string {
+		if v.o.useRun != "" {
+			return nil
 		}
-		varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, only, inputVars(c, report.RequestChanges))
-		defaulted := func(fed map[string]bool) []string {
-			if *useRun != "" {
-				return nil
-			}
-			return varsConfirmedOtherwise(e, spot.RunID, rec, vars, fed)
-		}
-		if varDrift == "" {
-			unsupplied = defaulted(inputVars(c, report.RequestChanges))
-			if len(unsupplied) > 0 {
-				varDrift = varsDifferFromConfirmed(e, spot.RunID, c, rec, nil, inputVars(c, report.RequestChanges))
-			}
-		}
-		fedByVars := func(ch diff.Change) bool {
-			fed := inputVars(c, []diff.Change{ch})
-			return varsDifferFromConfirmed(e, spot.RunID, c, rec, only, fed) != "" || len(defaulted(fed)) > 0
-		}
-		for _, ch := range report.ChainEdits(fedByVars) {
-			edits = append(edits, ch.Step+" "+ch.Path)
+		return varsConfirmedOtherwise(e, spotRun, rec, v.o.vars, fed)
+	}
+	if v.varDrift == "" {
+		v.unsupplied = defaulted(fedAll)
+		if len(v.unsupplied) > 0 {
+			v.varDrift = varsDifferFromConfirmed(e, spotRun, c, rec, nil, fedAll)
 		}
 	}
-	if varDrift != "" {
-		how := "set by -var; the chain file is not what differs"
-		if *useRun != "" {
-			how = "as run " + rec.RunID + " was recorded"
-		}
-		if len(unsupplied) > 0 {
-			how = "this run took the chain's own value and the confirmed run ran with another, as set by -var when it was " +
-				"confirmed (unless the var's default was edited since); the steps reading it are unchanged, so the chain file is not what differs"
-		}
-		if len(edits) > 0 {
-			how = strings.TrimSuffix(how, "; the chain file is not what differs") +
-				", and the chain file changed since it was confirmed (" + strings.Join(edits, ", ") + ")"
-		}
-		report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", varDrift, how)
+	fedByVars := func(ch diff.Change) bool {
+		fed := inputVars(c, []diff.Change{ch})
+		return varsDifferFromConfirmed(e, spotRun, c, rec, only, fed) != "" || len(defaulted(fed)) > 0
 	}
-	unansweredStep, unansweredWhy, unanswered := unansweredOnly(rec, report)
-	loss := examineSessionLoss(e, rec)
-	life := examineTokenLifetime(e, rec)
-	if life != nil && driftedBefore(rec, report, life.first.index) {
-		runToo = runToo || life.finding()
-		life = nil
+	for _, ch := range report.ChainEdits(fedByVars) {
+		v.edits = append(v.edits, ch.Step+" "+ch.Path)
 	}
-	var fresh *freshRefusal
-	if loss == nil {
-		fresh = repeatedFreshRefusal(e, rec)
+	if v.varDrift == "" {
+		return
 	}
-	if fresh != nil && driftedBefore(rec, report, fresh.index) {
-		runToo, fresh = true, nil
+	how := "set by -var; the chain file is not what differs"
+	if v.o.useRun != "" {
+		how = "as run " + rec.RunID + " was recorded"
 	}
-	var dropped *unansweredRepeat
-	if unanswered && loss == nil && fresh == nil {
-		dropped = repeatedUnanswered(e, rec, unansweredStep)
+	if len(v.unsupplied) > 0 {
+		how = "this run took the chain's own value and the confirmed run ran with another, as set by -var when it was " +
+			"confirmed (unless the var's default was edited since); the steps reading it are unchanged, so the chain file is not what differs"
 	}
-	if loss == nil && fresh == nil && dropped == nil {
-		flaky = detectIntermittent(e, rec)
+	if len(v.edits) > 0 {
+		how = strings.TrimSuffix(how, "; the chain file is not what differs") +
+			", and the chain file changed since it was confirmed (" + strings.Join(v.edits, ", ") + ")"
 	}
-	var reuse *fixtureReuse
-	var literal *literalCollision
+	report.InputCause = fmt.Sprintf("this run's vars differ from the confirmed run's (%s), %s", v.varDrift, how)
+}
+
+func (v *verification) examine(ctx context.Context) {
+	e, c, rec, report := v.e, v.c, v.rec, v.report
+	v.unansweredStep, v.unansweredWhy, v.unanswered = unansweredOnly(rec, report)
+	v.loss = examineSessionLoss(e, rec)
+	v.life = examineTokenLifetime(e, rec)
+	if v.life != nil && driftedBefore(rec, report, v.life.first.index) {
+		v.runToo = v.runToo || v.life.finding()
+		v.life = nil
+	}
+	if v.loss == nil {
+		v.fresh = repeatedFreshRefusal(e, rec)
+	}
+	if v.fresh != nil && driftedBefore(rec, report, v.fresh.index) {
+		v.runToo, v.fresh = true, nil
+	}
+	if v.unanswered && v.loss == nil && v.fresh == nil {
+		v.dropped = repeatedUnanswered(e, rec, v.unansweredStep)
+	}
+	if v.loss == nil && v.fresh == nil && v.dropped == nil {
+		v.flaky = detectIntermittent(e, rec)
+	}
 	if !report.Clean() {
-		literal = detectLiteralCollision(e, c, rec)
-		if literal == nil {
-			reuse = detectFixtureReuse(e, c, rec)
-		} else if driftedBefore(rec, report, literal.index) {
-			runToo, literal = true, nil
+		v.literal = detectLiteralCollision(e, c, rec)
+		if v.literal == nil {
+			v.reuse = detectFixtureReuse(e, c, rec)
+		} else if driftedBefore(rec, report, v.literal.index) {
+			v.runToo, v.literal = true, nil
 		}
 	}
-	var idem, lateIdem *idempotentReplay
-	if literal == nil && reuse == nil {
-		if idem = detectIdempotentReplay(e, c, spot, rec, report); idem != nil && driftedBefore(rec, report, idem.index) {
-			idem, lateIdem = nil, idem
+	if v.literal == nil && v.reuse == nil {
+		if v.idem = detectIdempotentReplay(e, c, v.spot, rec, report); v.idem != nil && driftedBefore(rec, report, v.idem.index) {
+			v.idem, v.lateIdem = nil, v.idem
 		}
 	}
-	driftStep, driftWhy, driftAt := firstFailureIsDrift(rec)
-	declared := declaredDriftChanges(e, rec, report, driftStep)
-	violation := driftStep != "" && len(declared) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt) &&
-		protoViolation(ctx, e, driftWhy)
-	independent := independentOfDrift(c, rec, report, driftStep, driftAt)
-	var nonBackend error
-	headline, notVerdict := "", "this is not a verdict about the backend"
+	v.driftStep, v.driftWhy, v.driftAt = firstFailureIsDrift(rec)
+	v.declared = declaredDriftChanges(e, rec, report, v.driftStep)
+	v.violation = v.driftStep != "" && len(v.declared) == 0 && !report.Clean() && !driftedBefore(rec, report, v.driftAt) &&
+		protoViolation(ctx, e, v.driftWhy)
+	v.independent = independentOfDrift(c, rec, report, v.driftStep, v.driftAt)
+}
+
+func (v *verification) notJudged(ctx context.Context) {
+	name, rec, report, life, loss := v.name, v.rec, v.report, v.life, v.loss
+	v.notVerdict = "this is not a verdict about the backend"
 	switch {
 	case life.finding():
 	case life != nil && !report.Clean() && life.first.step.Status != runner.StatusPassed:
-		headline = fmt.Sprintf("a %s at step %d %s", runner.TokenRefusalPhrase(life.first.r), life.first.step.Index, life.first.step.ID)
-		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+		v.headline = fmt.Sprintf("a %s at step %d %s", runner.TokenRefusalPhrase(life.first.r), life.first.step.Index, life.first.step.ID)
+		v.nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, life.line(), life.first.step.Index)
 	case loss.finding():
 	case loss != nil && !report.Clean() && !driftedBefore(rec, report, loss.index):
-		headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
-		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
+		v.headline = fmt.Sprintf("the backend likely restarted mid-run (a token it had accepted was refused at step %d %s)", loss.step.Index, loss.step.ID)
+		v.nonBackend = exitWith(3, "could not verify %s: %s. Nothing before step %d drifted, and a change at or after it is not judged: "+
 			"this is not a verdict about the backend", name, loss.line(), loss.step.Index)
-	case fresh != nil:
-	case dropped != nil:
-	case unanswered:
-		headline = fmt.Sprintf("step %s never got an answer", unansweredStep)
-		switch {
-		case strings.Contains(unansweredWhy, transport.NoAnswerBeforeTimeout):
-			headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", unansweredStep)
-		case strings.Contains(unansweredWhy, "a gateway answered for the service"):
-			headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", unansweredStep)
-		case strings.HasPrefix(unansweredWhy, "the backend refused authentication") && refusedFreshAt(rec, unansweredStep):
-			headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
-				"so the credentials work: this may be an auth regression", unansweredStep)
-			notVerdict = "re-run to confirm: a repeat at the same step is a finding"
-			if st, _ := rec.Step(unansweredStep); st.AuthRetry != runner.AuthRetryResent {
-				notVerdict = "it was not re-sent, so a restart between the login and the call explains it too"
-			}
-		case strings.HasPrefix(unansweredWhy, "the backend refused authentication"):
-			headline = fmt.Sprintf("step %s was refused at authentication", unansweredStep)
-		}
-		nonBackend = couldNotVerifyAfter(name, unansweredStep, unansweredWhy, rec, previousRunAttempting(e, rec, unansweredStep))
-	case violation:
-	case driftStep != "" && len(declared) == 0 && len(independent) == 0 && !report.Clean() && !driftedBefore(rec, report, driftAt):
-		headline = fmt.Sprintf("the response at %s does not match the descriptor", driftStep)
-		nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s)%s; %s. "+
+	case v.fresh != nil:
+	case v.dropped != nil:
+	case v.unanswered:
+		v.unansweredHeadline()
+	case v.violation:
+	case v.driftStep != "" && len(v.declared) == 0 && len(v.independent) == 0 && !report.Clean() && !driftedBefore(rec, report, v.driftAt):
+		v.headline = fmt.Sprintf("the response at %s does not match the descriptor", v.driftStep)
+		v.nonBackend = exitWith(3, "could not verify %s: the response at %s does not match the descriptor (%s)%s; %s. "+
 			"Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend", name, driftStep, driftWhy, unsentWritesNote(rec, driftAt), driftRemedy(ctx, e, driftWhy))
-	case idem != nil && !idem.literal && !unanswered:
-		headline = idem.headline()
-		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, idem.line(), name, idem.fresh())
-	case reuse.finding() && !driftedBefore(rec, report, reuse.index):
-	case reuse != nil && !driftedBefore(rec, report, reuse.index):
-		headline = fmt.Sprintf("%s at step %s", reuse.verdict(), reuse.step)
-		nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
-			"this is not a verdict about the backend. %s", name, reuse.line(), capitalized(reuse.rerun("verify", name)))
+			"this is not a verdict about the backend", name, v.driftStep, v.driftWhy, unsentWritesNote(rec, v.driftAt), driftRemedy(ctx, v.e, v.driftWhy))
+	case v.idem != nil && !v.idem.literal:
+		v.headline = v.idem.headline()
+		v.nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. Re-run with a fresh value: shrt verify %s %s", name, v.idem.line(), name, v.idem.fresh())
+	case v.reuse.finding() && !driftedBefore(rec, report, v.reuse.index):
+	case v.reuse != nil && !driftedBefore(rec, report, v.reuse.index):
+		v.headline = fmt.Sprintf("%s at step %s", v.reuse.verdict(), v.reuse.step)
+		v.nonBackend = exitWith(3, "could not verify %s: %s. Nothing before that step drifted, and a change at or after it is not judged: "+
+			"this is not a verdict about the backend. %s", name, v.reuse.line(), capitalized(v.reuse.rerun("verify", name)))
 	}
-	if *asJSON {
-		if olderSpot != "" {
-			fmt.Fprintln(os.Stderr, "verify: "+olderSpot)
+}
+
+func (v *verification) unansweredHeadline() {
+	step, why, rec := v.unansweredStep, v.unansweredWhy, v.rec
+	v.headline = fmt.Sprintf("step %s never got an answer", step)
+	switch {
+	case strings.Contains(why, transport.NoAnswerBeforeTimeout):
+		v.headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", step)
+	case strings.Contains(why, "a gateway answered for the service"):
+		v.headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", step)
+	case strings.HasPrefix(why, "the backend refused authentication") && refusedFreshAt(rec, step):
+		v.headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
+			"so the credentials work: this may be an auth regression", step)
+		v.notVerdict = "re-run to confirm: a repeat at the same step is a finding"
+		if st, _ := rec.Step(step); st.AuthRetry != runner.AuthRetryResent {
+			v.notVerdict = "it was not re-sent, so a restart between the login and the call explains it too"
 		}
-		if err := emitJSON(map[string]any{"run": rec, "diff": report, "latency": latency}); err != nil {
-			return err
+	case strings.HasPrefix(why, "the backend refused authentication"):
+		v.headline = fmt.Sprintf("step %s was refused at authentication", step)
+	}
+	v.nonBackend = couldNotVerifyAfter(v.name, step, why, rec, previousRunAttempting(v.e, rec, step))
+}
+
+func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
+	name, rec, report, spot, quiet := v.name, v.rec, v.report, v.spot, v.o.quiet
+	life, loss := v.life, v.loss
+	if v.nonBackend != nil {
+		fmt.Fprintf(body, "could not verify %s: %s; %s (why below)\n", name, v.headline, v.notVerdict)
+	}
+	if v.olderSpot != "" && !quiet {
+		fmt.Fprintln(body, v.olderSpot)
+	}
+	if (spot.Build != "" || rec.Build != "") && !quiet {
+		fmt.Fprintf(body, "safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
+	}
+	switch {
+	case v.nonBackend != nil:
+		if list := affectedSteps(rec, report); list != "" {
+			fmt.Fprintln(body, "  affected step(s), not judged: "+list)
 		}
-	} else {
-		body := &strings.Builder{}
-		defer func() {
-			verdict, rest := verifyVerdict(e, name, rec, report, flaky, nonBackend != nil, err, body.String())
-			fmt.Print(verdict + rest)
-		}()
-		if nonBackend != nil {
-			fmt.Fprintf(body, "could not verify %s: %s; %s (why below)\n", name, headline, notVerdict)
-		}
-		if olderSpot != "" && !*quiet {
-			fmt.Fprintln(body, olderSpot)
-		}
-		if (spot.Build != "" || rec.Build != "") && !*quiet {
-			fmt.Fprintf(body, "safe spot build %s, this run build %s\n", orUnknown(spot.Build), orUnknown(rec.Build))
-		}
-		switch {
-		case nonBackend != nil:
-			if list := affectedSteps(rec, report); list != "" {
-				fmt.Fprintln(body, "  affected step(s), not judged: "+list)
-			}
-			if life != nil {
-				fmt.Fprintln(body, life.label()+life.line())
-			} else if loss != nil {
-				fmt.Fprintln(body, "WARNING: "+loss.line())
-			}
-		case life.finding():
-			fmt.Fprintln(body, "FINDING: "+life.line())
-		case loss.finding():
-			fmt.Fprintln(body, "FINDING: "+loss.line())
-		case fresh != nil:
-			fmt.Fprintln(body, "FINDING: "+fresh.line())
-		case dropped != nil:
-			fmt.Fprintln(body, "FINDING: "+dropped.line())
-		case flaky.finding():
-			fmt.Fprintln(body, "FINDING: "+flaky.line())
-		case loss != nil:
+		if life != nil {
+			fmt.Fprintln(body, life.label()+life.line())
+		} else if loss != nil {
 			fmt.Fprintln(body, "WARNING: "+loss.line())
 		}
-		if life != nil && !life.finding() && nonBackend == nil {
-			fmt.Fprintln(body, life.label()+life.line())
+	case life.finding():
+		fmt.Fprintln(body, "FINDING: "+life.line())
+	case loss.finding():
+		fmt.Fprintln(body, "FINDING: "+loss.line())
+	case v.fresh != nil:
+		fmt.Fprintln(body, "FINDING: "+v.fresh.line())
+	case v.dropped != nil:
+		fmt.Fprintln(body, "FINDING: "+v.dropped.line())
+	case v.flaky.finding():
+		fmt.Fprintln(body, "FINDING: "+v.flaky.line())
+	case loss != nil:
+		fmt.Fprintln(body, "WARNING: "+loss.line())
+	}
+	if life != nil && !life.finding() && !life.cachedFirstUse() && v.nonBackend == nil {
+		fmt.Fprintln(body, life.label()+life.line())
+	}
+	if v.nonBackend == nil && (!v.unanswered || anyAnswered(rec)) {
+		v.writeReport(ctx, body)
+	}
+	if quiet {
+		for _, line := range warningLines(rec) {
+			fmt.Fprintln(body, line)
 		}
-		if nonBackend == nil && (!unanswered || anyAnswered(rec)) {
-			if !*verbose && !violation && len(declared) == 0 && driftStep != "" {
-				report.FoldSteps(unjudgedSteps(rec, independent, driftAt), fmt.Sprintf("its response, or one it reads, does not "+
-					"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
-					"or add -v to list them", driftWhy))
-			}
-			if line := report.FixtureInputLine(*listMasked); line != "" && (*verbose || *listMasked) {
-				fmt.Fprintln(body, line)
-			}
-			if *quiet {
-				fmt.Fprintln(body, report.QuietText())
-			} else {
-				fmt.Fprintln(body, report.Text())
-			}
-			if list := report.MaskedList(); *listMasked && list != "" {
-				fmt.Fprintln(body, list)
-			}
-			if *showLatency {
-				fmt.Fprintln(body, diff.LatencyTable(spot.Steps, rec, latencyPolicy(e)))
-			}
-			for _, f := range latency {
-				fmt.Fprintln(body, f.Line())
-			}
-			switch {
-			case reuse.finding():
-				fmt.Fprintln(body, "FINDING: "+reuse.line())
-			case reuse != nil:
-				fmt.Fprintln(body, reuse.line()+"; "+reuse.rerun("verify", name))
-			}
-			if literal != nil {
-				fmt.Fprintln(body, "CHAIN DEFECT: "+literal.line())
-			}
-			if idem != nil && idem.literal {
-				fmt.Fprintln(body, "CHAIN DEFECT: "+idem.line())
-			}
-			if lateIdem != nil {
-				fmt.Fprintln(body, lateIdem.note())
-			}
-			for _, line := range flaky.notes() {
-				fmt.Fprintln(body, "note: "+line)
-			}
-			if violation {
-				fmt.Fprintln(body, "REGRESSION: "+violationLine(e, name, driftStep, driftWhy))
-			}
-			if !violation && len(declared) == 0 && len(independent) > 0 {
-				fmt.Fprintf(body, "note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
-					"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(independent),
-					describeChanges(independent), driftRemedy(ctx, e, driftWhy))
-			}
-			if len(declared) > 0 {
-				fmt.Fprintf(body, "note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
-					"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
-					driftStep, driftWhy, driftRemedy(ctx, e, driftWhy))
-			}
-			if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
-				fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
-					"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
-					"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
-			}
-		}
-		if *quiet {
-			for _, line := range warningLines(rec) {
-				fmt.Fprintln(body, line)
-			}
-		} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
-			fmt.Fprintln(body, "warning: "+line)
-		}
+	} else if line := runner.UndeclaredFieldsLine(rec); line != "" {
+		fmt.Fprintln(body, "warning: "+line)
 	}
-	if life.finding() {
-		return fmt.Errorf("%s: %s", name, life.line())
+}
+
+func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
+	name, rec, report, spot := v.name, v.rec, v.report, v.spot
+	driftStep, driftWhy := v.driftStep, v.driftWhy
+	if !v.o.verbose && !v.violation && len(v.declared) == 0 && driftStep != "" {
+		report.FoldSteps(unjudgedSteps(rec, v.independent, v.driftAt), fmt.Sprintf("its response, or one it reads, does not "+
+			"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
+			"or add -v to list them", driftWhy))
 	}
-	if loss.finding() && !driftedBefore(rec, report, loss.index) {
-		return fmt.Errorf("%s: %s", name, loss.line())
+	if v.o.quiet {
+		fmt.Fprintln(body, report.QuietText())
+	} else {
+		fmt.Fprintln(body, report.Text())
 	}
-	if fresh != nil {
-		return fmt.Errorf("%s: %s", name, fresh.line())
+	if list := report.MaskedList(); v.o.listMasked && list != "" {
+		fmt.Fprintln(body, list)
 	}
-	if dropped != nil {
-		return fmt.Errorf("%s: %s", name, dropped.line())
+	if v.o.showLatency {
+		fmt.Fprintln(body, diff.LatencyTable(spot.Steps, rec, latencyPolicy(v.e)))
 	}
-	if reuse.finding() && nonBackend == nil && !driftedBefore(rec, report, reuse.index) {
-		return fmt.Errorf("%s: %s", name, reuse.line())
+	for _, f := range v.latency {
+		fmt.Fprintln(body, f.Line())
 	}
-	if nonBackend != nil {
-		return nonBackend
+	switch {
+	case v.reuse.finding():
+		fmt.Fprintln(body, "FINDING: "+v.reuse.line())
+	case v.reuse != nil:
+		fmt.Fprintln(body, v.reuse.line()+"; "+v.reuse.rerun("verify", name))
 	}
-	if literal != nil {
-		return fmt.Errorf("chain defect in %s: %s", name, literal.line())
+	if v.literal != nil {
+		fmt.Fprintln(body, "CHAIN DEFECT: "+v.literal.line())
 	}
-	if idem != nil && idem.literal {
-		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
+	if v.idem != nil && v.idem.literal {
+		fmt.Fprintln(body, "CHAIN DEFECT: "+v.idem.line())
 	}
-	slow := latencyFailure(name, latency, latencyPolicy(e))
-	if flaky.explainsAll(report) && !violation && slow != nil {
+	if v.lateIdem != nil {
+		fmt.Fprintln(body, v.lateIdem.note())
+	}
+	for _, line := range v.flaky.notes() {
+		fmt.Fprintln(body, "note: "+line)
+	}
+	if v.violation {
+		fmt.Fprintln(body, "REGRESSION: "+violationLine(v.e, name, driftStep, driftWhy))
+	}
+	if !v.violation && len(v.declared) == 0 && len(v.independent) > 0 {
+		fmt.Fprintf(body, "note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+
+			"%d change(s) at step(s) that read nothing from it are: %s; %s\n", driftStep, driftWhy, len(v.independent),
+			describeChanges(v.independent), driftRemedy(ctx, v.e, driftWhy))
+	}
+	if len(v.declared) > 0 {
+		fmt.Fprintf(body, "note: the response at %s also does not match the descriptor (%s): the fields it does not declare were "+
+			"discarded and its declared fields were compared with the safe spot's, so the change(s) above are a verdict; %s\n",
+			driftStep, driftWhy, driftRemedy(ctx, v.e, driftWhy))
+	}
+	if added := diff.UnorderedAdded(spot, rec); len(added) > 0 {
+		fmt.Fprintf(body, "chain change since the safe spot's run: %s added, not in what was approved. An unordered list is "+
+			"compared as a multiset, which can hide only a change of order, never a changed, added or removed item, so it "+
+			"does not fail verify; propose a run with it (shrt confirm %s -supersede) to have it approved\n", strings.Join(added, ", "), name)
+	}
+}
+
+func (v *verification) verdict(ctx context.Context) error {
+	if err := v.findingOrNoVerdict(); err != nil {
+		return err
+	}
+	name, report, latency := v.name, v.report, v.latency
+	slow := latencyFailure(name, latency, latencyPolicy(v.e))
+	if v.flaky.explainsAll(report) && !v.violation && slow != nil {
 		return slow
 	}
-	if flaky.explainsAll(report) && !violation {
-		flakyOnly = true
-		return fmt.Errorf("%s: %s", name, flaky.short())
+	if v.flaky.explainsAll(report) && !v.violation {
+		v.flakyOnly = true
+		return fmt.Errorf("%s: %s", name, v.flaky.short())
 	}
-	if violation {
-		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(e, name, driftStep, driftWhy))
+	if v.violation {
+		return fmt.Errorf("regression: %d change(s) vs safe spot; %s", report.Counted(), violationLine(v.e, name, v.driftStep, v.driftWhy))
 	}
+	if err := v.inputDrift(); err != nil {
+		return err
+	}
+	if err := v.drift(); err != nil {
+		return err
+	}
+	if v.flaky.finding() && slow == nil {
+		v.flakyOnly = true
+		return fmt.Errorf("%s: %s", name, v.flaky.short())
+	}
+	if !v.rec.Passed() && slow == nil {
+		return fmt.Errorf("chain %s: %s", v.rec.Chain, v.rec.Status)
+	}
+	return slow
+}
+
+func (v *verification) findingOrNoVerdict() error {
+	name, rec, report := v.name, v.rec, v.report
+	switch {
+	case v.life.finding():
+		return fmt.Errorf("%s: %s", name, v.life.line())
+	case v.loss.finding() && !driftedBefore(rec, report, v.loss.index):
+		return fmt.Errorf("%s: %s", name, v.loss.line())
+	case v.fresh != nil:
+		return fmt.Errorf("%s: %s", name, v.fresh.line())
+	case v.dropped != nil:
+		return fmt.Errorf("%s: %s", name, v.dropped.line())
+	case v.reuse.finding() && v.nonBackend == nil && !driftedBefore(rec, report, v.reuse.index):
+		return fmt.Errorf("%s: %s", name, v.reuse.line())
+	case v.nonBackend != nil:
+		return v.nonBackend
+	case v.literal != nil:
+		return fmt.Errorf("chain defect in %s: %s", name, v.literal.line())
+	case v.idem != nil && v.idem.literal:
+		return fmt.Errorf("chain defect in %s: %s", name, v.idem.line())
+	}
+	return nil
+}
+
+func (v *verification) inputDrift() error {
+	name, report := v.name, v.report
+	const propose = "and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\""
 	if n := len(report.Unexplained()); n > 0 && len(report.RequestChanges) > 0 {
 		if report.OnlyExpectationsEdited() && n == len(report.Changes) {
 			return fmt.Errorf("regression: %d change(s) vs safe spot; the expectation change since it was confirmed explains none of them", n)
@@ -470,40 +602,41 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		return fmt.Errorf("regression: %d change(s) vs safe spot are at steps whose input did not differ, that read no value the different "+
 			"input changed and follow no write whose answer changed with it, so it does not explain them (%d more it explains)", n, len(report.Changes)-n)
 	}
-	if !report.Clean() && varDrift != "" {
+	if !report.Clean() && v.varDrift != "" {
 		fix := "Verify without that -var to compare like with like"
-		if len(unsupplied) > 0 {
-			fix = "Verify with " + strings.Join(unsupplied, " ") + " to compare like with like"
+		if len(v.unsupplied) > 0 {
+			fix = "Verify with " + strings.Join(v.unsupplied, " ") + " to compare like with like"
 		}
-		if *useRun != "" {
+		if v.o.useRun != "" {
 			fix = "Verify a run made with the confirmed vars, or drop -run to replay the chain as it is"
 		}
-		if len(edits) > 0 {
-			fix += ", and restore the chain's edit (" + strings.Join(edits, ", ") + ")"
+		if len(v.edits) > 0 {
+			fix += ", and restore the chain's edit (" + strings.Join(v.edits, ", ") + ")"
 		}
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s because this run's vars differ from the confirmed run's (%s).\n"+
-			"%s; if the new value is intended, run the chain with it until it passes,\n"+
-			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
-			len(report.Changes), report.InputSummary(), varDrift, fix, name)
+			"%s; if the new value is intended, run the chain with it until it passes,\n"+propose,
+			len(report.Changes), report.InputSummary(), v.varDrift, fix, name)
 	}
 	if report.PrincipalChanged() {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, and a step ran under another auth profile or principal than the confirmed run (%s).\n"+
-			"Restore the step's auth and credentials; if the new principal is intended, run the chain until it passes,\n"+
-			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			"Restore the step's auth and credentials; if the new principal is intended, run the chain until it passes,\n"+propose,
 			len(report.Changes), principalChanges(report), name)
 	}
 	if !report.Clean() && report.OnlyChainChanged() {
 		return fmt.Errorf("drift after a chain change: %d change(s) vs safe spot, after %s since it was confirmed: the chain changed, "+
-			"not the input it sends.\nRestore the chain; if the edit is intended, run it until it passes,\n"+
-			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			"not the input it sends.\nRestore the chain; if the edit is intended, run it until it passes,\n"+propose,
 			len(report.Changes), report.InputSummary(), name)
 	}
 	if !report.Clean() && len(report.RequestChanges) > 0 {
 		return fmt.Errorf("drift with different input: %d change(s) vs safe spot, after %s since it was confirmed.\n"+
-			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+
-			"and propose that run in place of the safe spot: shrt confirm %s -supersede -note \"...\"",
+			"Restore the chain's input; if the new input is intended, bring its expectations in line, run it until it passes,\n"+propose,
 			len(report.Changes), report.InputSummary(), name)
 	}
+	return nil
+}
+
+func (v *verification) drift() error {
+	name, report := v.name, v.report
 	if !report.Clean() && len(report.PrincipalUnchecked) > 0 {
 		return fmt.Errorf("drift, principal not checked: %d change(s) vs safe spot, which records no auth_principal, so they are a regression only if "+
 			"this run logged in as the account it was confirmed with, and shrt cannot tell.\n"+
@@ -511,28 +644,28 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
 	}
 	if report.OnlyReordered() {
-		next := "Only if the order also varies between runs of one release, declare the list unordered (unordered: [<path>] on the step or the chain); otherwise this is a regression"
+		next := ""
 		if list := report.ReorderedExpectations(); len(list) > 0 {
-			next = "The expectation(s) reading it by position, which passed in the safe spot's run, failed: " + capList(list, 3) + "; a regression unless the order was never promised"
+			next = "\nThe expectation(s) reading it by position, which passed in the safe spot's run, failed: " + capList(list, 3) + "; a regression unless the order was never promised"
 		}
-		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n%s",
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s",
 			len(report.Changes), strings.Join(report.ReorderedLists(), "; "), next)
 	}
-	if len(declared) == 0 && len(independent) > 0 {
+	if len(v.declared) == 0 && len(v.independent) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
-			"descriptor (%s), so it and the steps reading it are not judged: %s", len(independent), driftStep, driftWhy, describeChanges(independent))
+			"descriptor (%s), so it and the steps reading it are not judged: %s", len(v.independent), v.driftStep, v.driftWhy, describeChanges(v.independent))
 	}
-	if !report.Clean() && len(declared) > 0 {
+	if !report.Clean() && len(v.declared) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot, including %s in the declared fields of the response at %s, "+
-			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
+			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(v.declared), v.driftStep, v.driftWhy)
 	}
 	if !report.Clean() {
-		first, steps := firstChange(report, rec)
+		first, steps := firstChange(report, v.rec)
 		at := ""
 		if first != nil {
 			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s; %s", report.Counted(), at, regressionShape(report), intendedChangeNext(name))
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s\n%s", report.Counted(), at, regressionShape(report), capitalized(intendedChangeNext(name)))
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -550,14 +683,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"in place of the safe spot so a person approves the wider mask: shrt confirm %s -supersede -note \"...\"",
 			strings.Join(report.UnapprovedVolatile, ", "), name)
 	}
-	if flaky.finding() && slow == nil {
-		flakyOnly = true
-		return fmt.Errorf("%s: %s", name, flaky.short())
-	}
-	if !rec.Passed() && slow == nil {
-		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
-	}
-	return slow
+	return nil
 }
 
 func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {

@@ -20,8 +20,8 @@ func TestTextCollapsesIdenticalNotReachedLinesIntoOne(t *testing.T) {
 	if !strings.Contains(text, "4 step(s)") || !strings.Contains(text, "[b..e]") || !strings.Contains(text, why) {
 		t.Fatalf("the summary must name the count, the steps and the reason:\n%s", text)
 	}
-	if !strings.Contains(text, "1 change(s)") || !strings.Contains(text, "4 step(s) not reached are listed below and not counted") {
-		t.Fatalf("collapsing changes no count, and the steps not reached are not counted as changes:\n%s", text)
+	if r.Counted() != 1 {
+		t.Fatalf("collapsing changes no count, and the steps not reached are not counted as changes: %d\n%s", r.Counted(), text)
 	}
 }
 
