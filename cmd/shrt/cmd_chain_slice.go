@@ -1695,6 +1695,11 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	if err != nil || own == nil {
 		return latest, err
 	}
+	if step == "" && !slices.Equal(failedSteps(latest), failedSteps(own)) {
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s; in the newest `shrt run` record, %s, %s\n",
+			latest.RunID, failedCount(latest), own.RunID, failedCount(own))
+		return latest, nil
+	}
 	ownReached, _ := reachedStep(own, step)
 	if latestReached, _ := reachedStep(latest, step); ownReached != latestReached {
 		return latest, nil
@@ -1713,6 +1718,37 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay recorded right after it: pass -run %s to slice from it\n",
 		own.RunID, chainName, latest.RunID, latest.RunID)
 	return own, nil
+}
+
+func failedCount(rec *runner.Record) string {
+	switch n := len(failedSteps(rec)); n {
+	case 0:
+		return "no step failed"
+	case 1:
+		return "1 step failed"
+	default:
+		return fmt.Sprintf("%d steps failed", n)
+	}
+}
+
+func recordKind(rec *runner.Record) string {
+	if rec.ReplayOf != "" {
+		return "a `shrt verify` replay"
+	}
+	return "a `shrt run` record"
+}
+
+func newerFailing(e *env, rec *runner.Record) *runner.Record {
+	ids, err := e.store.ListRuns(rec.Chain)
+	if err != nil {
+		return nil
+	}
+	for i := len(ids) - 1; i >= 0 && ids[i] != rec.RunID; i-- {
+		if other, err := e.store.LoadRun(rec.Chain, ids[i]); err == nil && len(failedSteps(other)) > 0 {
+			return other
+		}
+	}
+	return nil
 }
 
 func stepStatus(rec *runner.Record, step string) string {
