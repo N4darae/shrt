@@ -485,7 +485,7 @@ func readsFailedAfter(e *env, ref string, rec *runner.Record, step string, err e
 		}
 		for _, x := range st.Expect {
 			if !x.Passed && x.Rule != "unevaluated" {
-				if a.item(gateItem{Step: st.ID, Call: st.Call, Path: x.Path}).SuspectStep == step {
+				if a.item(gateItem{Step: st.ID, Call: st.Call, Path: x.Path}).suspect() == step {
 					reads = append(reads, st.ID)
 				}
 				break

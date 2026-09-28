@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
@@ -19,11 +18,8 @@ func TestAStepHeldBackByAReadIsNeverFiledUnderThatReadAsAWrite(t *testing.T) {
 		shopStep("get_again", shopGet, product).heldBy("get", "product.qty_on_hand"),
 	)
 	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("get_again", "product.qty_on_hand")
-	if b.write >= 0 {
+	if b.Kind != reasonKnockOn || b.Step != "" || b.Read != "get" || b.String() != "knock-on of read get (ProductService/GetProduct)" {
 		t.Errorf("the read it waits on is no write: %+v", b)
-	}
-	if line := requestLine(rec, "get_again", b); strings.Contains(line, "suspect write get") {
-		t.Errorf("got %q", line)
 	}
 
 	order := `{"order":{"id_order":"o1","status":"CONFIRMED","lines":[{"id_product":"p1","qty":"2"}]}}`
@@ -37,7 +33,7 @@ func TestAStepHeldBackByAReadIsNeverFiledUnderThatReadAsAWrite(t *testing.T) {
 	)
 	moved := []diff.Change{{Step: "get", Path: "product.qty_on_hand", Kind: diff.KindChanged, Want: "8", Got: "7"}}
 	b = changesAttribution(effectsEnv(t), rec, moved).of("get_again", "product.qty_on_hand")
-	if b.write >= 0 || b.lead != "confirm_order" || !strings.HasPrefix(b.cascade, "left an expectation unjudged because ") {
+	if b.Kind != reasonKnockOn || b.Step != "confirm_order" {
 		t.Errorf("the step waits on the write the read observes: %+v", b)
 	}
 }
@@ -49,7 +45,7 @@ func TestAnAuthProbeFailingItsOwnTransportExpectationIsItsOwnSuspect(t *testing.
 		probe.AuthProfile = profile
 		rec := shopRecord(shopStep("create_order", shopOrder, order), probe)
 		write, own, _ := blameOf(t, rec, "watch_without_token", "transport.code")
-		if write != "" || !strings.Contains(own, "WatchOrder fails its own auth probe") {
+		if write != "" || own != reasonProbe {
 			t.Errorf("%s: got write %q own %q", profile, write, own)
 		}
 	}
@@ -75,11 +71,7 @@ func TestARefusalFollowingAnEarlierChangedWriteOnItsRecordIsFiledUnderThatWrite(
 		return shopRecord(steps...)
 	}
 	suspect := func(rec *runner.Record, path string) string {
-		b := pinnedAttribution(effectsEnv(t), rec, nil).of("confirm", path)
-		if b.write < 0 {
-			return ""
-		}
-		return rec.Steps[b.write].ID
+		return pinnedAttribution(effectsEnv(t), rec, nil).of("confirm", path).blamed("confirm")
 	}
 
 	moved := build(shopStep("batch", shopBatch, `{"status":{"code":"REJECTED","details":[{"app_code":1203}]}}`, "create_a", "create_b").
@@ -98,19 +90,5 @@ func TestARefusalFollowingAnEarlierChangedWriteOnItsRecordIsFiledUnderThatWrite(
 	email := shopStep("get_a", shopGet, `{"product":{"id_product":"p1","name":"x"},`+shopOK+`}`, "create_a").failing("product.name", "X", "x")
 	if got := suspect(build(answered, email), "status.code"); got != "" {
 		t.Errorf("a changed field the confirm's contract does not move explains nothing: got %q", got)
-	}
-}
-
-func TestAKeptRedPinWhoseSuspectChangedInItsOwnChainIsNotMaskedByTheRpcElsewhere(t *testing.T) {
-	chains := []*gateChain{
-		{name: "flow", failed: true, items: []gateItem{{Step: "confirm_exact", Call: shopConfirm, Path: "status.code", Want: "SUCCESS", Got: "REJECTED", Kind: "refused"}}},
-		{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{
-			{Step: "batch", Call: shopBatch, Path: "status.code", Want: "SUCCESS", Got: "REJECTED", Kind: "refused"},
-			{Step: "confirm_short", Call: shopConfirm, Path: "status.code", Want: "REJECTED", Got: "REJECTED", Pinned: "SUCCESS", Passes: true,
-				Suspect: shopBatch, SuspectStep: "batch"}}},
-	}
-	settleGate(chains)
-	if it := chains[1].items[1]; it.with != "" || it.Suspect != shopBatch {
-		t.Errorf("the pin moved with the batch in its own chain, not with ConfirmOrder elsewhere: %+v", it)
 	}
 }

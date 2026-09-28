@@ -28,8 +28,8 @@ func TestAReadNoLongerRefusedIsItsOwnSuspect(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	const get = "shop.customers.v1.CustomerService/GetCustomer"
 	rec := shopRecord(shopStep("get_unknown", get, `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
-	if own := runAttribution(nil, rec).of("get_unknown", "customer").own; own != "GetCustomer answers SUCCESS where it answered REJECTED" {
-		t.Fatalf("got %q", own)
+	if r := runAttribution(nil, rec).of("get_unknown", "customer"); r.String() != "suspect read get_unknown (CustomerService/GetCustomer): answers SUCCESS where it answered REJECTED" {
+		t.Fatalf("got %q", r.String())
 	}
 }
 

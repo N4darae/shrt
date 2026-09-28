@@ -1130,17 +1130,12 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 		why = class(*first) + alsoClasses(report, first, class)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	b := a.of(first.Step, first.Path)
-	if in := a.inputs(first.Step, first.Path); b.write < 0 && b.own == "" && in != "" {
-		line += "; " + in
+	r := a.of(first.Step, first.Path)
+	if s := r.String(); s != "" {
+		line += "; " + s
 	}
-	if b.own != "" {
-		line += "; suspect " + b.own
-	}
-	if req := requestLine(rec, first.Step, b); req != "" && strings.HasPrefix(why, "regression") {
+	if req := requestLine(r, first.Step, recordSent(rec)); req != "" && strings.HasPrefix(why, "regression") {
 		line += "\n  " + req
-	} else if b.write >= 0 && !b.knock {
-		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[b.write].ID, shortRPC(rec.Steps[b.write].Call))
 	}
 	return line + "\n" + otherRoots(e, rec, report, first), body
 }
@@ -1150,7 +1145,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
-			seen[rootOf(it)] = true
+			seen[it.root()] = true
 		}
 	}
 	if len(seen) == 0 {
@@ -1158,19 +1153,14 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	}
 	out := ""
 	for _, it := range items {
-		r := rootOf(it)
+		r := it.root()
 		if seen[r] {
 			continue
 		}
 		seen[r] = true
 		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
-		switch {
-		case it.Own != "" && it.Kind != "order":
-			out += "; suspect " + it.Own
-		case it.Own == "" && it.SuspectStep != "":
-			out += fmt.Sprintf(", after write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
-		case it.Why != "":
-			out += "; " + it.Why
+		if s := it.Reason.String(); s != "" {
+			out += "; " + s
 		}
 		out += "\n"
 	}

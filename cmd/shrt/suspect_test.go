@@ -104,48 +104,46 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 		steps []*runner.StepRecord
 		read  string
 		path  string
-		own   string
-		write string
-		why   string
+		kind  string
+		step  string
 	}{
 		{"one read answers a field its write returned otherwise and no other read settles it", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
-		}, "get", "product.sku", "", "create", "the write or the read: create answered product.sku=SKU-A, get reads sku-a"},
+		}, "get", "product.sku", reasonUnclear, "create"},
 		{"an empty value the read answers is shown", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":""}}`, "create"), "product.sku", "SKU-A", ""),
-		}, "get", "product.sku", "", "create", `the write or the read: create answered product.sku=SKU-A, get reads ""`},
+		}, "get", "product.sku", reasonUnclear, "create"},
 		{"without a reference the read agreed with, the contradiction stays on the write", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-B", "sku-a"),
-		}, "get", "product.sku", "", "create", "create answered product.sku=SKU-A, get reads sku-a"},
+		}, "get", "product.sku", reasonStored, "create"},
 		{"a later read after another write does not settle it", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			step("list", list, `{"products":[{"id_product":"p1","sku":"SKU-A"}]}`),
-		}, "get", "product.sku", "", "create", "the write or the read: create answered product.sku=SKU-A, get reads sku-a"},
+		}, "get", "product.sku", reasonUnclear, "create"},
 		{"two read rpcs agree against what the write answered", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 			step("list", list, `{"products":[{"id_product":"p0","sku":"SKU-0"},{"id_product":"p1","sku":"sku-a"}]}`),
-		}, "get", "product.sku", "", "create",
-			`CreateProduct answered product.sku SKU-A, but GetProduct, ListProducts read sku-a: it did not store what it answered`},
+		}, "get", "product.sku", reasonStored, "create"},
 		{"another read agrees with the write, so the disagreeing read is the suspect", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`)),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
 			step("list", list, `{"products":[{"id_product":"p1","sku":"SKU-A"}]}`),
-		}, "get", "product.sku", "GetProduct answers product.sku differently from what CreateProduct returned for the same record", "", ""},
+		}, "get", "product.sku", reasonDiffers, "get"},
 		{"the write's own answer is not known to be unchanged", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A"}}`),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"sku-a"}}`, "create"), "product.sku", "SKU-A", "sku-a"),
-		}, "get", "product.sku", "", "create", ""},
+		}, "get", "product.sku", reasonWrite, "create"},
 		{"the write carries no such field, so a wrong value after it stays on the write", []*runner.StepRecord{
 			echoed(step("create", create, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"5"}}`)),
 			step("add", add, `{"qty_on_hand":"6"}`, "create"),
 			failing(step("get", get, `{"product":{"id_product":"p1","sku":"SKU-A","price_minor":"6"}}`, "create"), "product.price_minor", "5", "6"),
-		}, "get", "product.price_minor", "", "add", ""},
+		}, "get", "product.price_minor", reasonWrite, "add"},
 		{"a list item the write answered is shown with its index", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -154,7 +152,7 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 				return st
 			}(),
 			failing(step("get", get, `{"product":{"id_product":"p1","qty_on_hand":"6"}}`, "create"), "product.qty_on_hand", "12", "6"),
-		}, "get", "product.qty_on_hand", "", "batch", "the write or the read: batch answered results.1.qty_on_hand=12, get reads 6"},
+		}, "get", "product.qty_on_hand", reasonUnclear, "batch"},
 		{"a server error is the read's own", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			func() *runner.StepRecord {
@@ -168,56 +166,30 @@ func TestTheReadIsTheSuspectWhenTheFaultSitsInTheReadItself(t *testing.T) {
 				st.Expect = []chain.ExpectResult{{Path: "product.sku", Rule: "unevaluated", Detail: `not evaluated: ${get.product.sku} reads step "get", which did not pass`}}
 				return st
 			}(),
-		}, "get_again", "product.sku", "GetProduct fails on its own (internal: pool exhausted)", "", ""},
+		}, "get_again", "product.sku", reasonKnockOn, ""},
 		{"the same items in another order are the read's", []*runner.StepRecord{
 			step("create", create, `{"product":{"id_product":"p1"}}`),
 			step("create_2", create, `{"product":{"id_product":"p2"}}`),
 			failing(step("list", list, `{"products":[{"id_product":"p2"},{"id_product":"p1"}]}`, "create", "create_2"), "products.0.id_product", "p1", "p2"),
-		}, "list", "products.0.id_product", "ListProducts answers the same items in another order", "", ""},
+		}, "list", "products.0.id_product", reasonOrder, "list"},
 	} {
 		rec := &runner.Record{Steps: c.steps}
-		b := runAttribution(e, rec).of(c.read, c.path)
-		write := ""
-		if b.write >= 0 {
-			write = rec.Steps[b.write].ID
-		}
-		if b.own != c.own || write != c.write || b.why != c.why {
-			t.Errorf("%s: got own %q write %q why %q, want own %q write %q why %q", c.name, b.own, write, b.why, c.own, c.write, c.why)
+		r := runAttribution(e, rec).of(c.read, c.path)
+		if r.Kind != c.kind || r.Step != c.step {
+			t.Errorf("%s: got %+v, want %s %q", c.name, r, c.kind, c.step)
 		}
 	}
 }
 
-func TestTheGateFilesAWriteTheReadsAgreeAgainstUnderTheWriteWithTheReason(t *testing.T) {
-	why := `Confirm answered thing.state DONE, but Get, List read OPEN: it did not store what it answered`
-	item := func(chainName, write string) *gateChain {
-		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "DONE", Got: "OPEN",
-			Suspect: "x.v1.S/" + write, SuspectStep: "w", Why: why, Firm: true}}}
+func TestTheGateSummaryShowsTheExamplesReason(t *testing.T) {
+	stored := reason{Kind: reasonStored, Step: "w", RPC: "x.v1.S/Confirm", Path: "thing.state", Want: "DONE", Got: "OPEN", ReadRPC: "Get"}
+	item := func(chainName string) *gateChain {
+		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "DONE", Got: "OPEN", Failed: true, Reason: stored}}}
 	}
-	out := captureStdout(t, func() { printGateGroups([]*gateChain{item("one", "Confirm"), item("two", "Fill")}) })
-	if !strings.Contains(out, "S/Confirm: suspect the write: "+why+"; e.g. one w") || strings.Contains(out, "suspect the read") {
-		t.Errorf("reads agreeing against the write keep the write the suspect, with the reason:\n%s", out)
-	}
-}
-
-func TestAReadContradictingTwoDifferentWritesIsSuspectedItself(t *testing.T) {
-	item := func(chainName, write, why string) *gateChain {
-		return &gateChain{name: chainName, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w", Why: why}}}
-	}
-	out := captureStdout(t, func() {
-		printGateGroups([]*gateChain{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Fill", "w answered thing.state=a, get reads b")})
-	})
-	if !strings.Contains(out, "suspect the read: Get reads thing.state unlike what 2 different writes answered (Move, Fill)") {
-		t.Errorf("a read disagreeing with what two different writes answered is the suspect:\n%s", out)
-	}
-	for _, chains := range [][]*gateChain{
-		{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Move", "w answered thing.state=a, get reads b")},
-		{item("one", "Move", ""), item("two", "Fill", "")},
-		{item("one", "Move", "w answered thing.state=a, get reads b"), item("two", "Fill", "")},
-	} {
-		out = captureStdout(t, func() { printGateGroups(chains) })
-		if strings.Contains(out, "suspect the read") || !strings.Contains(out, "  S/Move: ") {
-			t.Errorf("each chain's own lineage keeps its write the suspect:\n%s", out)
-		}
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{item("one"), item("two")}, false) })
+	want := "  S/Confirm: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("want %q in:\n%s", want, out)
 	}
 }
 
@@ -266,12 +238,14 @@ const (
 
 func blameOf(t *testing.T, rec *runner.Record, step, path string) (string, string, string) {
 	t.Helper()
-	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of(step, path)
-	write := ""
-	if b.write >= 0 {
-		write = rec.Steps[b.write].ID
+	r := runAttribution(&env{cat: catalogtest.Shop()}, rec).of(step, path)
+	own, cascade := "", ""
+	if r.Kind == reasonKnockOn {
+		cascade = r.Kind
+	} else if !r.blames() {
+		own = r.Kind
 	}
-	return write, b.own, b.cascade
+	return r.blamed(step), own, cascade
 }
 
 func TestAStepUnevaluatedBehindAFailedWriteIsFiledUnderThatWrite(t *testing.T) {
@@ -281,7 +255,7 @@ func TestAStepUnevaluatedBehindAFailedWriteIsFiledUnderThatWrite(t *testing.T) {
 		shopStep("get_after_add", shopGet, `{"product":{"id_product":"p1"}}`, "create").heldBy("create", "product.sku"),
 	)
 	write, own, cascade := blameOf(t, rec, "get_after_add", "status")
-	if write != "create" || own != "" || cascade != "left an expectation unjudged because CreateProduct lost product.sku" {
+	if write != "create" || own != "" || cascade != reasonKnockOn {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }
@@ -329,54 +303,58 @@ func TestAListAnsweringOtherItemsAfterUnchangedWritesIsTheReadsOwn(t *testing.T)
 	)
 	rec.Steps[2].Expect = append(rec.Steps[2].Expect, chain.ExpectResult{Path: "products.2", Rule: "exists", Want: false, Got: true})
 	_, own, _ := blameOf(t, rec, "list", "products.0.id_product")
-	if own != "ListProducts answers another set of products, and the writes before it answered as before" {
+	if own != reasonSet {
 		t.Errorf("got own %q", own)
 	}
 	rec.Steps[1].Status = runner.StatusFailed
-	if _, own, _ := blameOf(t, rec, "list", "products.0.id_product"); strings.Contains(own, "another set") {
+	if _, own, _ := blameOf(t, rec, "list", "products.0.id_product"); own == reasonSet {
 		t.Errorf("a write that failed before the list keeps the read from being blamed for its set, got own %q", own)
 	}
 }
 
-func TestTheGateSummaryHasOneLinePerSuspectRpcAndFoldsUnevaluatedSteps(t *testing.T) {
+func TestTheGateSummaryHasOneLinePerSuspectRpcAndCountsKnockOnsOnlyWhenVerbose(t *testing.T) {
 	var items []gateItem
-	for _, p := range []string{"list.0.a", "list.0.b", "list.0.c", "list.0.d", "list"} {
-		items = append(items, gateItem{Step: "list", Call: "x.v1.S/List", Path: p, Want: "1", Got: "2", Own: "List answers another set of list"})
+	set := reason{Kind: reasonSet, Step: "list", RPC: "x.v1.S/List", Path: "list"}
+	for _, p := range []string{"list.0.a", "list.0.b", "list"} {
+		items = append(items, gateItem{Step: "list", Call: "x.v1.S/List", Path: p, Want: "1", Got: "2", Reason: set})
 	}
+	knock := reason{Kind: reasonKnockOn, Step: "make", RPC: "x.v1.S/Make"}
 	items = append(items,
-		gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Own: "List answers the same items in another order"},
-		gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Own: "Find fails on its own (internal)"},
-		gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2"},
-		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "left an expectation unjudged because Make lost n"},
-		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Suspect: "x.v1.S/Make", SuspectStep: "make", Cascade: "left an expectation unjudged because Make lost n"},
+		gateItem{Step: "list_2", Call: "x.v1.S/List", Path: "list", Want: "1", Got: "2", Reason: reason{Kind: reasonOrder, Step: "list_2", RPC: "x.v1.S/List"}},
+		gateItem{Step: "find", Call: "x.v1.S/Find", Path: "n", Want: "1", Got: "2", Reason: reason{Kind: reasonError, Step: "find", RPC: "x.v1.S/Find", Got: "internal"}},
+		gateItem{Step: "make", Call: "x.v1.S/Make", Path: "n", Want: "1", Got: "2", Reason: reason{Kind: reasonWrite, Step: "make", RPC: "x.v1.S/Make"}},
+		gateItem{Step: "get", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Reason: knock},
+		gateItem{Step: "get_2", Call: "x.v1.S/Get", Path: "status", Want: "passed", Got: "failed", Reason: knock},
 	)
-	out := captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}) })
-	if n := strings.Count(out, "  S/List:"); n != 1 || !strings.Contains(out, "(+1 other reason(s))") {
-		t.Errorf("one line for List with its paths merged, got %d:\n%s", n, out)
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}, false) })
+	if n := strings.Count(out, "  S/List:"); n != 1 || !strings.Contains(out, "  S/List: 2 step(s) in 1 chain(s)") {
+		t.Errorf("one line for List, got %d:\n%s", n, out)
 	}
-	if !strings.Contains(out, "  S/Find:") || strings.Contains(out, "more\n") {
-		t.Errorf("a distinct suspect rpc is never cut:\n%s", out)
+	if !strings.Contains(out, "  S/Find: 1 step(s) in 1 chain(s); e.g. one find; suspect read find (S/Find): fails on its own (internal)\n") {
+		t.Errorf("a distinct suspect rpc has its own line:\n%s", out)
 	}
-	if !strings.Contains(out, "    +2 step(s) in 1 chain(s) left an expectation unjudged because Make lost n\n") || strings.Contains(out, "S/Get:") {
-		t.Errorf("unevaluated steps fold into one line under the producing write:\n%s", out)
+	if !strings.Contains(out, "  S/Make: 1 step(s) in 1 chain(s); e.g. one make; suspect write make (S/Make)\n") || strings.Contains(out, "S/Get:") {
+		t.Errorf("knock-on steps fold under the write and are not counted by default:\n%s", out)
+	}
+	out = captureStdout(t, func() { printGateGroups([]*gateChain{{name: "one", items: items}}, true) })
+	if !strings.Contains(out, "suspect write make (S/Make) (+2 knock-on step(s))\n") {
+		t.Errorf("-v counts the knock-on steps:\n%s", out)
 	}
 }
 
-func TestTheGateSuspectLineAgreesWithTheSummary(t *testing.T) {
-	g := func(name, write string) *gateChain {
-		return &gateChain{name: name, failed: true, firstAt: "get thing.state", sent: map[string]string{"get": " sent {}", "w": " sent {\"w\":1}"},
-			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Suspect: "x.v1.S/" + write, SuspectStep: "w",
-				Why: "w answered thing.state=a, get reads b"}}}
+func TestTheVerboseGateShowsTheSuspectsRequest(t *testing.T) {
+	g := func(name string) *gateChain {
+		return &gateChain{name: name, failed: true, sent: map[string]string{"get": " sent {}", "w": " sent {\"w\":1}"},
+			items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "thing.state", Want: "a", Got: "b", Failed: true,
+				Reason: reason{Kind: reasonWrite, Step: "w", RPC: "x.v1.S/Move"}}}}
 	}
-	chains := []*gateChain{g("one", "Move"), g("two", "Fill")}
+	chains := []*gateChain{g("one"), g("two")}
 	settleGate(chains)
-	if line := chains[0].suspectLine(); line != "suspect read get (S/Get) sent {}" {
-		t.Errorf("the per-chain line follows the settled attribution, got %q", line)
+	if chains[0].first != "get (S/Get) thing.state want=a got=b; suspect write w (S/Move)" || chains[1].first != "get (S/Get) thing.state want=a got=b; same fault as one" {
+		t.Errorf("got %q and %q", chains[0].first, chains[1].first)
 	}
-	chains = []*gateChain{g("one", "Move"), g("two", "Move")}
-	settleGate(chains)
-	if line := chains[0].suspectLine(); line != "suspect write w (S/Move) sent {\"w\":1}; w answered thing.state=a, get reads b" {
-		t.Errorf("got %q", line)
+	if out := captureStdout(t, chains[0].printChanges); !strings.HasPrefix(out, "  w sent {\"w\":1}\n") {
+		t.Errorf("got:\n%s", out)
 	}
 }
 
@@ -386,7 +364,7 @@ func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "get", Path: "thing.n", Want: "1", Got: "2"},
 		{Step: "list", Path: "things.3.n", Want: "1", Got: "2"},
-		{Step: "later", Path: "status", Want: "passed", Got: "failed", Cascade: "left an expectation unjudged because Make lost thing.n"},
+		{Step: "later", Path: "status", Want: "passed", Got: "failed", Reason: reason{Kind: reasonKnockOn, Step: "make", RPC: "x.v1.S/Make"}},
 		{Step: "put", Path: "(error)", Got: "unavailable: busy"},
 		{Step: "put", Path: "code", Want: "<none>", Got: "unavailable"},
 		{Step: "put_2", Path: "(error)", Got: "unavailable: busy"},
@@ -396,7 +374,7 @@ func TestTheVerboseGateListsEachChangedPathOnce(t *testing.T) {
 	for _, want := range []string{
 		"    thing.n at 2 step(s) (make, get); e.g. want=1 got=2\n",
 		"    things[].n at 1 step(s) (list); e.g. want=1 got=2\n",
-		"    1 step(s) left an expectation unjudged because Make lost thing.n\n",
+		"    1 step(s) knock-on of write make (S/Make) (later)\n",
 		"    (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -423,7 +401,7 @@ func TestChangesAfterAWriteThatFailedAtTheTransportAreFiledUnderIt(t *testing.T)
 		{"confirm_order", "status.code", "add"},
 		{"get_2", "product.qty_on_hand", "add"},
 	} {
-		if write, own, cascade := blameOf(t, rec, c.step, c.path); write != c.write || own != "" || cascade != "after AddStock failed on the same record" {
+		if write, own, cascade := blameOf(t, rec, c.step, c.path); write != c.write || own != "" || cascade != reasonKnockOn {
 			t.Errorf("%s: got write %q own %q cascade %q", c.step, write, own, cascade)
 		}
 	}
@@ -433,21 +411,6 @@ func TestChangesAfterAWriteThatFailedAtTheTransportAreFiledUnderIt(t *testing.T)
 	other := shopRecord(recStep{rec.Steps[0]}, recStep{rec.Steps[1]}, add, recStep{rec.Steps[6]})
 	if write, _, cascade := blameOf(t, other, "get_2", "product.qty_on_hand"); write == "add" || cascade != "" {
 		t.Errorf("another record is not the failed write's: got write %q cascade %q", write, cascade)
-	}
-	after := func(step string) gateItem {
-		return gateItem{Step: step, Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0",
-			Suspect: "shop.catalog.v1.StockService/AddStock", SuspectStep: "add", Cascade: "after AddStock failed on the same record"}
-	}
-	chains := []*gateChain{
-		{name: "one", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopCancel, SuspectStep: "cancel", Why: "cancel answered 5"}}},
-		{name: "two", items: []gateItem{after("get"), {Step: "get_2", Call: shopGet, Path: "product.qty_on_hand", Want: "5", Got: "0", Suspect: shopConfirm, SuspectStep: "confirm", Why: "confirm answered 5"}}},
-	}
-	out := captureStdout(t, func() { printGateGroups(chains) })
-	if !strings.Contains(out, "    +2 step(s) in 2 chain(s) after AddStock failed on the same record\n") {
-		t.Errorf("the steps after the failed write fold into one line under it:\n%s", out)
-	}
-	if !strings.Contains(out, "suspect the read: GetProduct reads product.qty_on_hand unlike what 2 different writes answered (CancelOrder, ConfirmOrder)") {
-		t.Errorf("the steps after the failed write do not count as writes the read changes after:\n%s", out)
 	}
 }
 
@@ -499,14 +462,14 @@ func TestARefusedRepeatOrAReplayOfAnEarlierWriteIsNeverTheSuspect(t *testing.T) 
 		t.Errorf("a first refused write is still one the read observes, got %v", got)
 	}
 	e := &env{cat: catalogtest.Shop()}
-	if b := runAttribution(e, rec).of("get_product", "product.qty_on_hand"); b.write != 2 || b.why != "" {
+	if b := runAttribution(e, rec).of("get_product", "product.qty_on_hand"); b.Kind != reasonWrite || b.Step != "confirm_order" {
 		t.Errorf("without a reference the nearest write is named, got %+v", b)
 	}
 	moved := []diff.Change{{Step: "get_product", Path: "product.qty_on_hand", Kind: diff.KindChanged, Want: "15", Got: "14"}}
-	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.write >= 0 || b.why != "the write or the read: create_order (CreateOrder), or earlier create_product, answered as before" {
+	if b := changesAttribution(e, rec, moved).of("get_product", "product.qty_on_hand"); b.Kind != reasonUnclear || b.Step != "create_order" {
 		t.Errorf("against a reference, a write refused as before is no candidate and the nearest other is named first, got %+v", b)
 	}
-	if b := changesAttribution(effectsEnv(t), rec, moved).of("get_product", "product.qty_on_hand"); b.lead != "confirm_order" || !strings.HasPrefix(b.why, "the write or the read: confirm_order (ConfirmOrder), or earlier create_product,") {
+	if b := changesAttribution(effectsEnv(t), rec, moved).of("get_product", "product.qty_on_hand"); b.Kind != reasonUnclear || b.Step != "confirm_order" {
 		t.Errorf("a refused write whose contract effects move the field stays the first candidate, got %+v", b)
 	}
 }
@@ -541,17 +504,16 @@ func TestAWriteAnsweringOtherThanALaterReadOfTheRecordShowsBothValues(t *testing
 		shopStep("cancel_order", shopCancel, `{"order":{"id_order":"o1","total_minor":"0"}}`, "create_order"),
 	)
 	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor")
-	want := "ConfirmOrder answered order.total_minor 7, but FetchOrder read 9: it answered other than it stored"
-	if b.write >= 0 || b.own != "" || b.why != want {
-		t.Errorf("got write %d own %q why %q, want the write's own failure with %q", b.write, b.own, b.why, want)
+	if b.Kind != reasonStored || b.Step != "confirm_order" || b.Want != "7" || b.Got != "9" || b.ReadRPC != "FetchOrder" {
+		t.Errorf("got %+v, want the write's own failure", b)
 	}
 	fetched.Response = []byte(`{"order":{"id_order":"o1","total_minor":""}}`)
-	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.why != `ConfirmOrder answered order.total_minor 7, but FetchOrder read "": it answered other than it stored` {
-		t.Errorf("an empty read is shown, got %q", b.why)
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.Kind != reasonStored || b.Got != "" || !strings.Contains(b.String(), `but FetchOrder read ""`) {
+		t.Errorf("an empty read is shown, got %+v", b)
 	}
 	rec.Steps[2], rec.Steps[3] = rec.Steps[3], rec.Steps[2]
-	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.why != "" {
-		t.Errorf("a read after a later write of the record says nothing about what the first write stored: %q", b.why)
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("confirm_order", "order.total_minor"); b.Kind == reasonStored {
+		t.Errorf("a read after a later write of the record says nothing about what the first write stored: %+v", b)
 	}
 }
 
@@ -590,65 +552,25 @@ func TestAWriteAnsweringItsListInAnotherOrderThanTheReadSaysSo(t *testing.T) {
 		fetched,
 	)
 	b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("create_order", "order.lines.0.qty")
-	want := "CreateOrder answered order.lines in another order than FetchOrder read: it answered other than it stored"
-	if b.why != want {
-		t.Errorf("why %q, want %q", b.why, want)
+	if b.Kind != reasonStoredOrder || b.Path != "order.lines" || b.ReadRPC != "FetchOrder" {
+		t.Errorf("got %+v", b)
 	}
 	fetched.Expect[0].Passed = false
-	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("create_order", "order.lines.0.qty"); b.why != "" {
-		t.Errorf("a read that moved too says nothing about what the write stored, got %q", b.why)
+	if b := runAttribution(&env{cat: catalogtest.Shop()}, rec).of("create_order", "order.lines.0.qty"); b.Kind == reasonStoredOrder {
+		t.Errorf("a read that moved too says nothing about what the write stored, got %+v", b)
 	}
 }
 
-func TestTheGateNamesTheWriteOrTheReadWithTheRootWriteAsExample(t *testing.T) {
-	why := "the write or the read: w answered results.2.qty_on_hand=12, get reads 6"
+func TestTheGateSummaryPrefersAnExampleWithAReason(t *testing.T) {
+	unclear := reason{Kind: reasonUnclear, Step: "w", RPC: "x.v1.S/Batch", Read: "get", ReadRPC: "x.v1.S/Get", Path: "results.2.qty_on_hand", Want: "12", Got: "6"}
 	g := &gateChain{name: "one", items: []gateItem{
 		{Step: "later", Call: "x.v1.S/Batch", Path: "results.1.qty_on_hand", Want: "18", Got: "12"},
-		{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Suspect: "x.v1.S/Batch", SuspectStep: "w", Why: why},
+		{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Reason: unclear},
 	}}
-	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
-	if !strings.Contains(out, "; "+why+"; e.g. one w\n") {
-		t.Errorf("the group shows both values and the root write:\n%s", out)
-	}
-	g.items = g.items[1:]
-	out = captureStdout(t, func() { printGateGroups([]*gateChain{g}) })
-	if !strings.Contains(out, "  S/Batch or Get: suspect "+why+"; e.g. one w\n") {
-		t.Errorf("got:\n%s", out)
-	}
-}
-
-func TestTheWriteOrTheReadIsNamedByBothRpcsInEveryGateLine(t *testing.T) {
-	why := "the write or the read: create answered customer.name=Ada, get reads ada@x"
-	g := func(name string) *gateChain {
-		return &gateChain{name: name, failed: true, firstAt: "get customer.name", sent: map[string]string{"create": ` sent {"name":"Ada"}`},
-			items: []gateItem{{Step: "get", Call: "x.v1.S/GetCustomer", Path: "customer.name", Want: "Ada", Got: "ada@x",
-				Suspect: "x.v1.S/CreateCustomer", SuspectStep: "create", Why: why}}}
-	}
-	chains := []*gateChain{g("one"), g("two")}
-	settleGate(chains)
-	headlineGate(chains)
-	if line := chains[0].suspectLine(); line != `suspect create (S/CreateCustomer or GetCustomer) sent {"name":"Ada"}; `+why {
-		t.Errorf("got %q", line)
-	}
-	if want := "1 step(s) from CreateCustomer or GetCustomer, reported above"; chains[1].first != want {
-		t.Errorf("got %q, want %q", chains[1].first, want)
-	}
-	if out := captureStdout(t, func() { printGateGroups(chains) }); !strings.Contains(out, "  S/CreateCustomer or GetCustomer: suspect "+why) {
-		t.Errorf("got:\n%s", out)
-	}
-}
-
-func TestAGroupWhoseRpcFailedItselfRanksAboveOnesThatPassedThemselves(t *testing.T) {
-	var chains []*gateChain
-	for _, name := range []string{"one", "two", "three"} {
-		chains = append(chains, &gateChain{name: name, items: []gateItem{{Step: "get", Call: "x.v1.S/Get", Path: "n", Want: "1", Got: "2", Suspect: "x.v1.S/Make", SuspectStep: "make"}}})
-	}
-	chains = append(chains, &gateChain{name: "four", items: []gateItem{{Step: "add", Call: "x.v1.S/Add", Path: "n", Want: "1", Got: "2"}}},
-		&gateChain{name: "five", items: []gateItem{{Step: "read", Call: "x.v1.S/Read", Path: "n", Want: "1", Got: "2", Why: eitherWhy + "add (Add), or earlier make, answered as before"}}})
-	out := captureStdout(t, func() { printGateGroups(chains) })
-	add, read, made := strings.Index(out, "  S/Add:"), strings.Index(out, "  S/Read: 1 step(s) in 1 chain(s), paths n; the write or the read: add (Add), or earlier make, answered as before;"), strings.Index(out, "  S/Make: passed itself")
-	if add < 0 || read < 0 || made < add || made < read {
-		t.Errorf("groups that failed themselves come first:\n%s", out)
+	out := captureStdout(t, func() { printGateGroups([]*gateChain{g}, false) })
+	want := "  S/Batch: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w (S/Batch) answered results[].qty_on_hand=12, read get (S/Get) got 6\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("want %q in:\n%s", want, out)
 	}
 }
 
@@ -664,8 +586,8 @@ func TestAnEnvelopeIsNeverAStoredFieldAWriteAndARecordReadCanDisagreeOn(t *testi
 	)
 	a := runAttribution(&env{cat: catalogtest.Shop()}, rec)
 	for _, path := range []string{"status.code", "results.0.status.code"} {
-		if b := a.of("batch", path); b.why != "" {
-			t.Errorf("%s: got %q", path, b.why)
+		if b := a.of("batch", path); b.Kind == reasonStored {
+			t.Errorf("%s: got %+v", path, b)
 		}
 	}
 }
@@ -678,7 +600,7 @@ func TestAStepHeldBackByAReadThatEchoesTheWriteNamesTheWrite(t *testing.T) {
 		shopStep("fetch_after", shopFetch, order, "create_order").heldBy("fetch_before", "order.total_minor"),
 	)
 	write, own, cascade := blameOf(t, rec, "fetch_after", "order.total_minor")
-	if write != "create_order" || own != "" || cascade != "left an expectation unjudged because CreateOrder changed order.total_minor" {
+	if write != "create_order" || own != "" || cascade != reasonKnockOn {
 		t.Errorf("got write %q own %q cascade %q", write, own, cascade)
 	}
 }

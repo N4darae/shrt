@@ -237,7 +237,7 @@ func (i *intermittentFailure) classOf(report *diff.Report, a attribution) func(d
 		if len(flaky) == 0 {
 			return report.Class(c)
 		}
-		if b := a.of(c.Step, c.Path); flaky[c.Step] || b.write >= 0 && flaky[a.rec.Steps[b.write].ID] {
+		if w := a.of(c.Step, c.Path).blamed(c.Step); flaky[c.Step] || w != "" && flaky[w] {
 			return i.kind()
 		}
 		return report.Class(c)

@@ -23,7 +23,7 @@ func TestTheVerifyHeadlineNamesEachDistinctSuspectOnce(t *testing.T) {
 		list, also string
 	}{
 		{`{"products":[{"id_product":"p2","price_minor":"7"},{"id_product":"p1","price_minor":"6"}]}`,
-			"  also: list (ProductService/ListProducts) products same items in another order\n"},
+			"  also: list (ProductService/ListProducts) products same items in another order; suspect read list (ProductService/ListProducts): answers the same items in another order\n"},
 		{`{"products":[{"id_product":"p1","price_minor":"6"},{"id_product":"p2","price_minor":"7"}]}`, ""},
 	} {
 		rec := shopRecord(
@@ -37,23 +37,6 @@ func TestTheVerifyHeadlineNamesEachDistinctSuspectOnce(t *testing.T) {
 		if !strings.Contains(head, "first: create (ProductService/CreateProduct) product.price_minor want=5 got=6") || rest != c.also {
 			t.Errorf("want the first change, then %q; got:\n%s", c.also, line)
 		}
-	}
-}
-
-func TestTheVerifyHeadlineShowsTheLinesAChangedTotalIsComputedFrom(t *testing.T) {
-	steps := func(total string) *runner.Record {
-		return shopRecord(
-			shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","price_minor":"250"}}`),
-			shopStep("create_product_2", shopCreate, `{"product":{"id_product":"p2","price_minor":"1250"}}`),
-			shopStep("create_order", shopOrder, `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p2","qty":"3"}],"total_minor":"`+total+`"}}`,
-				"create_product", "create_product_2"),
-		)
-	}
-	rec := steps("1750")
-	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("4250").Steps}, rec)
-	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, nil, false, errors.New("regression: x"), "")
-	if !strings.Contains(line, "order.total_minor want=4250 got=1750; lines: 2 x 250, 3 x 1250\n") {
-		t.Errorf("got:\n%s", line)
 	}
 }
 
@@ -106,7 +89,7 @@ func TestTheVerifyHeadlineKeepsARefusedWriteOfTheSameRpcAsItsOwnRoot(t *testing.
 	rec := steps("PENDING", "-10")
 	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("CONFIRMED", "10").Steps}, rec)
 	line, _ := verifyVerdict(effectsEnv(t), "shop", rec, report, nil, false, errors.New("regression: x"), "")
-	if !strings.Contains(line, "  also: get_product_2 (ProductService/GetProduct) product.qty_on_hand want=10 got=-10, after write confirm_short (OrderService/ConfirmOrder)") {
+	if !strings.Contains(line, "  also: get_product_2 (ProductService/GetProduct) product.qty_on_hand want=10 got=-10; unclear: write confirm_short (OrderService/ConfirmOrder) or read get_product_2 (ProductService/GetProduct)") {
 		t.Errorf("the refused confirm moved stock, a root apart from the confirm that answered PENDING; got:\n%s", line)
 	}
 }

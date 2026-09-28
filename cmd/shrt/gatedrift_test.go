@@ -5,25 +5,22 @@ import (
 	"testing"
 )
 
-func TestTheGateHeadlinesAChainByItsFirstChangeNotReportedAbove(t *testing.T) {
+func TestTheGateHeadlinesAChainByAFaultNoEarlierChainShowed(t *testing.T) {
 	const create, fetch = "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Fetch"
-	price := func(step string) gateItem {
-		return gateItem{Step: step, Call: create, Path: "thing.price", Want: "250", Got: "249"}
-	}
-	after := gateItem{Step: "get", Call: fetch, Path: "thing.price", Want: "250", Got: "249", Suspect: create, SuspectStep: "create"}
+	price := gateItem{Step: "create", Call: create, Path: "thing.price", Want: "250", Got: "249", Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
+	after := gateItem{Step: "get", Call: fetch, Path: "thing.price", Want: "250", Got: "249", Reason: reason{Kind: reasonWrite, Step: "create", RPC: create}}
 	refused := gateItem{Step: "fetch_as_other", Call: fetch, Path: "error.code", Want: "OK", Got: "DENIED", Kind: "refused",
-		Own: "Fetch passes as default, refused as other (DENIED)"}
+		Reason: reason{Kind: reasonRefused, Step: "fetch_as_other", RPC: fetch, Profile: "other", Got: "DENIED", Other: "default"}}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price("create"), after, refused}}}},
-		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{price("create"), after}}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{price, after, refused}}}},
+		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{price, after}}}},
 	})
-	out, code := runGateOut(t, "-v")
+	out, code := runGateOut(t)
 	for _, want := range []string{
-		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249\n",
-		"FAIL       cli-unique      pins held, new change: 2 step(s) from Create price, reported above\n",
-		"distinct changes (suspect rpc, path, kind):\n" +
-			"  ThingService/Create thing.price value: 2 step(s) in 2 chain(s); e.g. cli-thing-flow create thing.price want=250 got=249\n" +
-			"  ThingService/Fetch error.code refused: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other error.code want=OK got=DENIED\n",
+		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249; suspect write create (ThingService/Create)\n",
+		"FAIL       cli-unique      pins held, new change: create (ThingService/Create) thing.price want=250 got=249; same fault as cli-thing-flow\n",
+		"  ThingService/Create: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create; suspect write create (ThingService/Create)\n",
+		"  ThingService/Fetch: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other; suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -36,15 +33,16 @@ func TestTheGateHeadlinesAChainByItsFirstChangeNotReportedAbove(t *testing.T) {
 
 func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 	const create, move, get = "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Move", "shrt.test.v1.ThingService/Get"
-	after := gateItem{Step: "get", Call: get, Path: "thing.level", Want: "10", Got: "-1", Suspect: move, SuspectStep: "move", Variant: "refused (1305 TooFew)"}
-	pin := gateItem{Step: "get_pinned", Call: get, Path: "thing.level", Want: "-1", Got: "-3", Pinned: "8", Suspect: move, SuspectStep: "move", Variant: "refused (1305 TooFew)"}
+	blamed := reason{Kind: reasonWrite, Step: "move", RPC: move}
+	after := gateItem{Step: "get", Call: get, Path: "thing.level", Want: "10", Got: "-1", Reason: blamed}
+	pin := gateItem{Step: "get_pinned", Call: get, Path: "thing.level", Want: "-1", Got: "-3", Pinned: "8", Reason: blamed}
 	drift := gateItem{Step: "create", Call: create, Path: "thing.price", Want: "250", Got: "249"}
 	gateWorkspace(t, map[string][]gateOutcome{
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{after, drift}}}},
 		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{drift, pin}}}},
 	})
 	out, _ := runGateOut(t)
-	want := "FAIL       cli-unique      not as pinned: get_pinned thing.level pinned got=8, now got=-3; suspect Move refused (1305 TooFew), reported above\n"
+	want := "FAIL       cli-unique      not as pinned: get_pinned (ThingService/Get) thing.level pinned got=8, now got=-3; same fault as cli-thing-flow\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("want %q in:\n%s", want, out)
 	}
@@ -53,33 +51,12 @@ func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 func TestAMovedPinWithNoSuspectDoesNotPointAbove(t *testing.T) {
 	const get = "shrt.test.v1.ThingService/Get"
 	chains := []*gateChain{
-		{name: "a", failed: true, firstAt: "get thing.level", items: []gateItem{{Step: "get", Call: get, Path: "thing.level", Want: "5", Got: "8"}}},
-		{name: "b", failed: true, class: "not as pinned", items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "4", Got: "2", Pinned: "-1"}}},
+		{name: "a", failed: true, items: []gateItem{{Step: "get", Call: get, Path: "thing.level", Want: "5", Got: "8"}}},
+		{name: "b", failed: true, items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "4", Got: "2", Pinned: "-1"}}},
 	}
 	settleGate(chains)
-	headlineGate(chains)
-	if want := "get_pinned thing.level pinned got=-1, now got=2"; chains[1].first != want {
-		t.Errorf("got %q, want %q", chains[1].first, want)
-	}
-}
-
-func TestAMovedPinAfterAnotherWriteThanTheOneChangingThatReadElsewhereNamesBoth(t *testing.T) {
-	const confirm, cancel, get = "shrt.test.v1.ThingService/Confirm", "shrt.test.v1.ThingService/Cancel", "shrt.test.v1.ThingService/Get"
-	chains := []*gateChain{
-		{name: "a", failed: true, items: []gateItem{{Step: "get", Call: get, Path: "thing.level", Want: "3", Got: "2", Suspect: confirm, SuspectStep: "confirm"}}},
-		{name: "b", failed: true, class: "not as pinned", items: []gateItem{{Step: "get_pinned", Call: get, Path: "thing.level", Want: "6", Got: "2", Pinned: "3", Suspect: cancel, SuspectStep: "cancel"}}},
-	}
-	settleGate(chains)
-	headlineGate(chains)
-	if want := "get_pinned thing.level pinned got=3, now got=2; suspect Cancel, or Confirm as at other steps reading Get level"; chains[1].first != want {
-		t.Errorf("got %q, want %q", chains[1].first, want)
-	}
-	if chains[0].items[0].Own != "" {
-		t.Errorf("a moved pin is not a second write the read changes after: %+v", chains[0].items[0])
-	}
-	out := captureStdout(t, func() { printDistinct(chains) })
-	if strings.Contains(out, "Cancel") {
-		t.Errorf("an undecided pin gets no row of its own:\n%s", out)
+	if want := "get_pinned (ThingService/Get) thing.level pinned got=-1, now got=2"; chains[1].first != want || chains[1].class != "not as pinned" {
+		t.Errorf("got %q %q, want %q", chains[1].class, chains[1].first, want)
 	}
 }
 
@@ -96,22 +73,20 @@ func TestAKeptRedChainWhosePinsHeldNamesANewChangeWithoutARePin(t *testing.T) {
 	}
 }
 
-func TestAFailedFirstChangeReportedAboveStillLeadsOverADrift(t *testing.T) {
+func TestAFailedFirstChangeShownAboveStillLeadsOverADrift(t *testing.T) {
 	const add, create = "shrt.test.v1.ThingService/Add", "shrt.test.v1.ThingService/Create"
 	failed := func(step string) gateItem {
-		return gateItem{Step: step, Call: add, Path: "status.code", Want: "REJECTED", Got: "SUCCESS", Failed: true}
+		return gateItem{Step: step, Call: add, Path: "status.code", Want: "REJECTED", Got: "SUCCESS", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: add}}
 	}
 	drift := gateItem{Step: "create", Call: create, Path: "thing.name", Want: "long name", Got: "long"}
 	chains := []*gateChain{
-		{name: "a", failed: true, first: "add (ThingService/Add) status.code want=REJECTED got=SUCCESS", firstAt: "add status.code", items: []gateItem{failed("add")}},
-		{name: "b", failed: true, firstAt: "add_as_clerk status.code", items: []gateItem{failed("add_as_clerk"), failed("add_again"), drift}},
-		{name: "c", failed: true, firstAt: "add_once status.code", items: []gateItem{failed("add_once")}},
+		{name: "a", failed: true, items: []gateItem{failed("add")}},
+		{name: "b", failed: true, items: []gateItem{failed("add_as_clerk"), failed("add_again"), drift}},
 	}
-	headlineGate(chains)
+	settleGate(chains)
 	for i, want := range []string{
-		"add (ThingService/Add) status.code want=REJECTED got=SUCCESS",
-		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS (+1 step(s) from Add code, reported above)",
-		"add_once (ThingService/Add) status.code want=REJECTED got=SUCCESS, reported above",
+		"add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect write add (ThingService/Add)",
+		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a",
 	} {
 		if chains[i].first != want {
 			t.Errorf("chain %s: got %q, want %q", chains[i].name, chains[i].first, want)

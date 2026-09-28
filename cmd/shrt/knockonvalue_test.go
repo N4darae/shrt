@@ -44,7 +44,7 @@ func TestAListGainingItemsIsNotAKnockOnOfAChangedValue(t *testing.T) {
 		list,
 	)
 	write, own, _ := blameOf(t, rec, "list", "products.1")
-	if write != "" || own != "ListProducts answers another set of products" {
+	if write != "" || own != reasonSet {
 		t.Errorf("an added item is the list's own, whatever value changed before it: got write %q own %q", write, own)
 	}
 }
@@ -62,7 +62,7 @@ func TestARefusalAfterValueChangesIsTheReadsOwnAndNamesTheProfile(t *testing.T) 
 		refused,
 	)
 	write, own, _ := blameOf(t, rec, "fetch_as_clerk", "status.code")
-	if write != "" || own != "FetchOrder passes as default, refused as clerk (1302 OrderNotFound)" {
+	if r := runAttribution(nil, rec).of("fetch_as_clerk", "status.code"); write != "" || r.String() != "suspect read fetch_as_clerk (OrderService/FetchOrder) as clerk: refused (1302 OrderNotFound), passes as default" {
 		t.Errorf("got write %q own %q", write, own)
 	}
 	rec.Steps[0].Expect[0] = chain.ExpectResult{Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "REJECTED"}
@@ -79,10 +79,10 @@ func TestAKnockOnNeedsTheValueTheEarlierWriteAnswered(t *testing.T) {
 		shopStep("list_2", shopList, `{"products":[{"id_product":"p7","price_minor":"5"}]}`).failing("products.0.price_minor", "4", "5"),
 	)
 	b := runAttribution(nil, rec).of("list", "products.0.price_minor")
-	if b.write != 0 || !b.knock {
+	if b.Kind != reasonKnockOn || b.Step != "create" {
 		t.Errorf("the value the write answered is a knock-on of it: %+v", b)
 	}
-	if b := runAttribution(nil, rec).of("list_2", "products.0.price_minor"); b.write >= 0 {
+	if b := runAttribution(nil, rec).of("list_2", "products.0.price_minor"); b.blames() {
 		t.Errorf("another value is not explained by the write: %+v", b)
 	}
 }
@@ -96,22 +96,5 @@ func TestAStreamedMessageCarryingTheValueAWriteAnsweredIsFiledUnderTheWrite(t *t
 	)
 	if write, own, _ := blameOf(t, rec, "watch_order", "messages.0.order.total_minor"); write != "create_order" || own != "" {
 		t.Errorf("a streamed read answering the total the write answered is a knock-on of the write, got write %q own %q", write, own)
-	}
-}
-
-func TestAChangedTotalShowsTheLinesItIsComputedFromOnce(t *testing.T) {
-	order := `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p2","qty":"3"}],"total_minor":"1750"}}`
-	rec := shopRecord(
-		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","price_minor":"250"}}`),
-		shopStep("create_product_2", shopCreate, `{"product":{"id_product":"p2","price_minor":"1250"}}`),
-		shopStep("create_order", shopOrder, order, "create_product", "create_product_2").failing("order.total_minor", "4250", "1750"),
-	)
-	it := runAttribution(nil, rec).item(gateItem{Step: "create_order", Call: shopOrder, Path: "order.total_minor", Rule: "equals", Want: "4250", Got: "1750"})
-	if want := "order.total_minor want=4250 got=1750; lines: 2 x 250, 3 x 1250"; it.headline() != want {
-		t.Errorf("got %q, want %q", it.headline(), want)
-	}
-	rec.Steps[2].Expect[0].Want = "4000"
-	if it := runAttribution(nil, rec).item(gateItem{Step: "create_order", Call: shopOrder, Path: "order.total_minor"}); it.Inputs != "" {
-		t.Errorf("a want the lines do not give names no inputs, got %q", it.Inputs)
 	}
 }

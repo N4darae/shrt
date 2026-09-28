@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
@@ -31,15 +30,7 @@ func (a attribution) bears(i int, path string) bool {
 }
 
 func (a attribution) bearing(at int, path string) int {
-	pos := map[string]int{}
-	for i, st := range a.rec.Steps {
-		if st == nil {
-			continue
-		}
-		if _, seen := pos[st.ID]; !seen {
-			pos[st.ID] = i
-		}
-	}
+	pos := positions(a.rec)
 	for _, i := range entityWrites(a.rec, at, path, a.bad, pos) {
 		if a.bears(i, path) {
 			return i
@@ -70,7 +61,7 @@ func (a attribution) principal(st *runner.StepRecord, path string) string {
 		if !ok || compactValue(v) != compactValue(old) || !a.unchanged(o.ID, path) || !sameEntity(rb, path, ob, path) && (len(st.Request) == 0 || !sameRequest(st, o)) || a.changedBetween(min(at, j), max(at, j)) {
 			continue
 		}
-		return fmt.Sprintf("%s answers %s differently as %s than as %s", methodName(st.Call), gateIndex.ReplaceAllString(path, "[]$1"), profileOf(st), profileOf(o))
+		return profileOf(o)
 	}
 	return ""
 }

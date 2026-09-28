@@ -637,7 +637,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 	att := runAttribution(e, rec)
 	type failure struct {
 		st *runner.StepRecord
-		b  blame
+		r  reason
 	}
 	failures, writes := []failure{}, map[string]bool{}
 	for _, st := range rec.Steps {
@@ -651,19 +651,19 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 				break
 			}
 		}
-		b := att.of(st.ID, path)
-		if b.write >= 0 {
-			writes[rec.Steps[b.write].ID] = true
+		r := att.of(st.ID, path)
+		if w := r.blamed(st.ID); w != "" {
+			writes[w] = true
 		}
-		failures = append(failures, failure{st, b})
+		failures = append(failures, failure{st, r})
 	}
-	lines, count, order := map[string]string{}, map[string]int{}, []string{}
+	lines, count, order, named := map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
 	for _, f := range failures {
-		key := ""
+		key, w := "", f.r.blamed(f.st.ID)
 		switch {
-		case f.b.write >= 0:
-			key = rec.Steps[f.b.write].ID
-		case f.b.own != "":
+		case w != "":
+			key = w
+		case f.r.Kind != "" && !f.r.blames():
 			key = f.st.Call
 		case writes[f.st.ID]:
 			key = f.st.ID
@@ -671,8 +671,8 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if _, seen := count[key]; !seen {
 			order = append(order, key)
 		}
-		if lines[key] == "" || f.b.write >= 0 && !strings.HasPrefix(lines[key], "suspect") {
-			lines[key] = requestLine(rec, f.st.ID, f.b)
+		if lines[key] == "" || !named[key] && f.r.Kind != "" {
+			lines[key], named[key] = suspectLine(f.r, f.st.ID, recordSent(rec)), f.r.Kind != ""
 		}
 		count[key]++
 	}
