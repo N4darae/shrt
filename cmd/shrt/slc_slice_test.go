@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 	"testing"
 
@@ -689,9 +688,13 @@ func TestSliceCases(t *testing.T) {
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"}, code: 1,
 			want: []string{"NOT REPRODUCED", "the slice run changed total (changed)"},
 			check: func(t *testing.T, _ string) {
-				runs, _ := filepath.Glob(".shrt/runs/cli-thing-flow/*.json")
-				sort.Strings(runs)
-				if err := os.Remove(runs[0]); err != nil {
+				var spot struct {
+					RunID string `json:"run_id"`
+				}
+				if err := json.Unmarshal(mustRead(t, ".shrt/safespots/cli-thing-flow.json"), &spot); err != nil || spot.RunID == "" {
+					t.Fatalf("safe spot run id: %v", err)
+				}
+				if err := os.Remove(filepath.Join(".shrt/runs/cli-thing-flow", spot.RunID+".json")); err != nil {
 					t.Fatal(err)
 				}
 				if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"); code != 3 || !strings.Contains(out, "verify INCONCLUSIVE") || !strings.Contains(out, "cannot be loaded") {
