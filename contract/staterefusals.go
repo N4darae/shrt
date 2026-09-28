@@ -18,6 +18,7 @@ type stateEntity struct {
 	itemMsg  string
 	idField  string
 	state    *catalog.Field
+	via      string
 }
 
 func (p *Plan) entityStates(lib *Library, st *chain.Step, c *RPCContract) []stateEntity {

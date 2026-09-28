@@ -43,8 +43,18 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
 			initial := ""
-			if pc, ok := lib.Get(e.producer.Call); ok {
+			pc, ok := lib.Get(e.producer.Call)
+			if ok {
 				initial = stateIn([]string{pc.Exports[e.carrier], pc.Summary}, values, short)
+			}
+			held := ""
+			if ok && initial != "" && c.Effects.restores(short[initial]) {
+				for _, b := range p.entityStates(lib, e.producer, pc) {
+					if bc, known := lib.Get(b.producer.Call); known && held == "" && b.idPath == e.idPath && b.carrier == e.carrier {
+						b.field, b.via = e.field, e.producer.ID
+						held, e, initial = initial, b, stateIn([]string{bc.Exports[b.carrier], bc.Summary}, values, short)
+					}
+				}
 			}
 			result := stateIn([]string{c.Exports[e.carrier], c.Summary}, values, short)
 			if result == "" {
@@ -59,17 +69,23 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 			t := &listTarget{step: st, itemMsg: e.itemMsg, itemID: e.idField, carrier: e.carrier}
 			moves, _ := p.transitionsFor(lib, t, e.producer, values, short, initial)
 			for _, tr := range moves {
-				if tr.method.FullName == m.FullName || tr.value == result || refused[tr.value] {
+				if tr.method.FullName == m.FullName || tr.value == result || refused[tr.value] || (held != "" && tr.value != held) {
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value]))
+				if p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
+					for field, ef := range c.Effects {
+						if ef != nil && ef.Restore != "" && sameState(ef.Restore, short[tr.value]) {
+							p.met[[2]string{st.Call, field}] = true
+						}
+					}
+				}
 			}
 		}
 	}
 }
 
-func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) {
+func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
 	label := strings.ToLower(short[tr.value])
 	id := p.freeStepID(st.ID + "_after_" + label)
 	fixture := copyStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+id))
@@ -96,7 +112,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	p.freshen(lib, act)
 	setBodyPath(act.Body, e.field, fixtureID)
 	renameStepRefs(act, st.ID, act.ID)
-	act.Expect = retargetExpect(act.Expect, e.producer.ID, fixture.ID)
+	act.Expect = retargetExpect(retargetExpect(act.Expect, e.producer.ID, fixture.ID), e.via, moved.ID)
 	act.Description = fmt.Sprintf("%s on %s that is %s: it must still reach %s.", st.ID, withArticle(e.carrier), short[tr.value], short[result])
 
 	p.Chain.Steps = append(p.Chain.Steps, fixture)
@@ -159,9 +175,10 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	note := fmt.Sprintf("step %s: %s moves a fresh %s to %s first and %s then acts on it: %s", st.ID, moved.ID, e.carrier, short[tr.value], id, what)
 	if gap == "" {
 		p.note("%s", note)
-		return
+		return len(held) > 0
 	}
 	p.gapIn(note, "step "+st.ID+": "+gap)
+	return false
 }
 
 func retargetExpect(expect []chain.Expectation, from, to string) []chain.Expectation {

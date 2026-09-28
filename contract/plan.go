@@ -39,6 +39,7 @@ type Plan struct {
 	rulesOf  *Library
 	middles  map[*chain.Step]string
 	gaps     map[string]string
+	met      map[[2]string]bool
 }
 
 type PlanOptions struct {
@@ -110,7 +111,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 
-	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib}
+	p := &Plan{Target: strings.Join(nodes, ", "), Targets: nodes, Order: order, stepOf: map[string]string{}, cat: cat, opts: opts, lib: lib, met: map[[2]string]bool{}}
 	c := &chain.Chain{
 		APIVersion:  chain.APIVersion,
 		Name:        name,
@@ -180,6 +181,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.assertStreamEcho()
 	p.grouped("read-back", func() { p.readBackVariants(lib) })
 	p.grouped("read-back", func() { p.assertEffects(lib) })
+	p.noteUnmetEffects(lib)
 	p.noteReadBack(lib)
 	p.assertTimestamps(lib)
 	p.trimMiddleItems()
