@@ -472,10 +472,28 @@ func serviceRefused(sr *StepRecord) bool {
 	return NotAnsweredByService(sr) && sr.Transport.Code == "unavailable"
 }
 
-func settleServiceRefusals(steps []*StepRecord) {
-	answered := func(st *StepRecord) bool {
-		return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !NotAnsweredByService(st)
+func answered(st *StepRecord) bool {
+	return st != nil && (st.HTTPStatus != 0 || len(st.Response) > 0) && !NotAnsweredByService(st)
+}
+
+func (r *Runner) report(held []*StepRecord, sr *StepRecord) []*StepRecord {
+	if sr != nil {
+		if held = append(held, sr); !answered(sr) && transport.AnsweredLater(held[0].Error) != held[0].Error {
+			return held
+		}
 	}
+	for _, h := range held {
+		if answered(sr) {
+			h.Error = transport.AnsweredLater(h.Error)
+		}
+		if r.OnStep != nil {
+			r.OnStep(h)
+		}
+	}
+	return nil
+}
+
+func settleServiceRefusals(steps []*StepRecord) {
 	var settled []*StepRecord
 	for i, sr := range steps {
 		if !serviceRefused(sr) {
@@ -1054,6 +1072,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	unreached := 0
 	pastPins := len(c.KeptRed) > 0 && !opts.DryRun
 	keepGoing := opts.KeepGoing || pastPins
+	var held []*StepRecord
 	for i, step := range c.Steps {
 		var sr *StepRecord
 		behind := false
@@ -1062,9 +1081,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			rec.Steps = append(rec.Steps, sr)
 			rec.FailedSteps = append(rec.FailedSteps, step.ID)
 			unreached++
-			if r.OnStep != nil {
-				r.OnStep(sr)
-			}
+			held = r.report(held, sr)
 			continue
 		}
 		if keepGoing {
@@ -1087,9 +1104,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 		builds.observe(rec, sr)
 		rec.Steps = append(rec.Steps, sr)
-		if r.OnStep != nil {
-			r.OnStep(sr)
-		}
+		held = r.report(held, sr)
 		if sr.Status == StatusPassed || (sr.Status == StatusSkipped && !behind) {
 			continue
 		}
@@ -1109,6 +1124,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			dead = sr
 		}
 	}
+	r.report(held, nil)
 	settleServiceRefusals(rec.Steps)
 	failures := []string{}
 	said := map[string]int{}

@@ -45,18 +45,27 @@ const closedCrashGuess = ": it most likely stopped or crashed while this request
 
 const closedNotAVerdict = " This is not a verdict about the rpc: check the backend is up and run again"
 
+const answeredLater = " The backend answered later steps of this run, so this request itself likely broke it"
+
 func StillUp(message string) string {
 	message = strings.Replace(message, closedCrashGuess, ": whether the call took effect is unknown", 1)
-	if !strings.Contains(message, closedNotAVerdict) {
+	if trimmed := strings.Replace(strings.Replace(message, closedNotAVerdict, "", 1), answeredLater, "", 1); trimmed != message {
+		return strings.TrimSuffix(trimmed, ".")
+	}
+	return message
+}
+
+func AnsweredLater(message string) string {
+	if !strings.Contains(message, ClosedAfterSending) {
 		return message
 	}
-	return strings.TrimSuffix(strings.Replace(message, closedNotAVerdict, "", 1), ".")
+	return strings.Replace(message, closedNotAVerdict, answeredLater, 1)
 }
 
 func closedError(err error, sent bool) error {
 	if !sent {
 		return fmt.Errorf("the backend closed the connection before the request was written (%w), so it was not sent "+
-			"and took no effect. This is not a verdict about the rpc: check the backend is up and run again", err)
+			"and took no effect."+closedNotAVerdict, err)
 	}
 	return fmt.Errorf("%s before a response arrived (%w)"+closedCrashGuess+"."+closedNotAVerdict, ClosedAfterSending, err)
 }
