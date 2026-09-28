@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -225,4 +226,61 @@ func emptyDeclaredVar(c *chain.Chain, v any) (string, bool) {
 		return "", false
 	}
 	return name, IsPlaceholder(declared, AuthoredBody)
+}
+
+func lintWiring(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain.Issue {
+	idLeaves := map[string]bool{}
+	for _, rpc := range lib.RPCs() {
+		for _, ref := range fieldFroms(lib, rpc, "") {
+			idLeaves[leafOf(ref.Path)] = true
+		}
+	}
+	issues := []chain.Issue{}
+	for _, w := range c.Wires() {
+		s, _ := c.Step(w.Step)
+		sameRPC, wanted := false, []string{}
+		for _, ref := range fieldFroms(lib, canonicalCall(cat, s.Call), w.Field) {
+			if leafOf(ref.Path) == leafOf(w.Path) {
+				wanted = nil
+				break
+			}
+			sameRPC = sameRPC || canonicalCall(cat, ref.RPC) == canonicalCall(cat, w.Call)
+			wanted = append(wanted, path.Base(ref.RPC)+" "+ref.Path)
+		}
+		if len(wanted) > 0 && (sameRPC || idLeaves[leafOf(w.Path)]) && stepExpectsSuccess(s) {
+			issues = append(issues, chain.Issue{Step: w.Step, Severity: chain.SeverityError, Message: fmt.Sprintf(
+				"%s is fed from %s %s, but its contract takes it from %s",
+				w.Field, path.Base(w.Call), w.Path, strings.Join(wanted, " or "))})
+		}
+	}
+	return issues
+}
+
+func fieldFroms(lib *Library, rpc, field string) []Ref {
+	rc, _ := lib.Get(rpc)
+	if rc == nil {
+		return nil
+	}
+	sets := []map[string]*FieldContract{rc.Fields}
+	for _, a := range rc.Aliases {
+		if a != nil {
+			sets = append(sets, a.Fields)
+		}
+	}
+	out := []Ref{}
+	for _, fields := range sets {
+		for name, f := range fields {
+			if f == nil {
+				continue
+			}
+			if ref, err := ParseRef(f.From); err == nil && (field == "" || namecase.Fold(name) == namecase.Fold(field)) {
+				out = append(out, ref)
+			}
+		}
+	}
+	return out
+}
+
+func leafOf(p string) string {
+	return namecase.Fold(p[strings.LastIndex(p, ".")+1:])
 }

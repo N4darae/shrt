@@ -2,6 +2,8 @@ package chain
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -173,30 +175,9 @@ func interpolatedStructures(path, value string, refs []string, responses map[str
 }
 
 func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool, bool) {
-	if r.Err != nil {
+	step, rest, ok := refOrigin(r, exports)
+	if !ok {
 		return nil, "", false, false
-	}
-	step, rest := "", ""
-	if name, ok := r.ExportName(); ok {
-		if r.Kind == RefExports {
-			if _, sub, _ := strings.Cut(r.Rest, "."); sub != "" {
-				return nil, "", false, false
-			}
-		}
-		origin, known := exports[name]
-		if !known {
-			if r.Kind == RefExports {
-				return nil, "", false, false
-			}
-		} else {
-			step, rest = origin.step, strings.TrimPrefix(origin.path, "response.")
-		}
-	}
-	if step == "" {
-		if r.Kind != RefStep {
-			return nil, "", false, false
-		}
-		step, rest = r.Head, r.Rest
 	}
 	m, ok := responses[step]
 	if !ok || m == nil || rest == "" {
@@ -221,7 +202,30 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 		}
 		return f, fmt.Sprintf("%s.%s", msg, rest), true, true
 	}
-	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !isIndex(last), true
+	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !isDigits(last), true
+}
+
+func refOrigin(r Ref, exports map[string]exportOrigin) (step, rest string, ok bool) {
+	if r.Err != nil {
+		return "", "", false
+	}
+	if name, isExport := r.ExportName(); isExport {
+		if r.Kind == RefExports {
+			if _, sub, _ := strings.Cut(r.Rest, "."); sub != "" {
+				return "", "", false
+			}
+		}
+		if origin, known := exports[name]; known {
+			return origin.step, strings.TrimPrefix(origin.path, "response."), true
+		}
+		if r.Kind == RefExports {
+			return "", "", false
+		}
+	}
+	if r.Kind != RefStep {
+		return "", "", false
+	}
+	return r.Head, r.Rest, true
 }
 
 func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string, bool)) {
@@ -268,5 +272,44 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 			continue
 		}
 		visit(path, body[key])
+	}
+}
+
+type Wire struct{ Step, Field, Call, Path string }
+
+func (c *Chain) Wires() []Wire {
+	calls := map[string]string{}
+	exports := map[string]exportOrigin{}
+	out := []Wire{}
+	for _, s := range c.Steps {
+		walkText(s.Body, "", func(field, value string) {
+			refs := collectRefs(value)
+			if len(refs) != 1 || strings.TrimSpace(value) != "${"+refs[0]+"}" {
+				return
+			}
+			step, rest, ok := refOrigin(ParseRef(refs[0]), exports)
+			segs := slices.DeleteFunc(SplitPath(strings.TrimPrefix(rest, "response.")), isDigits)
+			if call, known := calls[step]; ok && known && len(segs) > 0 && segs[0] != "request" {
+				out = append(out, Wire{s.ID, field, call, strings.Join(segs, ".")})
+			}
+		})
+		calls[s.ID] = s.Call
+		noteExports(s, exports)
+	}
+	return out
+}
+
+func walkText(v any, path string, fn func(string, string)) {
+	switch t := v.(type) {
+	case string:
+		fn(path, t)
+	case []any:
+		for _, item := range t {
+			walkText(item, path, fn)
+		}
+	case map[string]any:
+		for _, k := range slices.Sorted(maps.Keys(t)) {
+			walkText(t[k], strings.TrimPrefix(path+"."+k, "."), fn)
+		}
 	}
 }

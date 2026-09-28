@@ -94,6 +94,7 @@ func LintChain(c *chain.Chain, cat *catalog.Catalog, opts ChainLintOptions) []ch
 	issues := chain.LintWith(c, cat, opts.Chain)
 	if opts.Library != nil {
 		issues = append(issues, LintChainBodies(c, opts.Library, cat)...)
+		issues = append(issues, lintWiring(c, opts.Library, cat)...)
 	}
 	if opts.Strict {
 		issues = chain.Promote(issues, chain.IsAssertionQualityIssue)

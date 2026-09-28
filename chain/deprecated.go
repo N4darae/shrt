@@ -66,7 +66,7 @@ func deprecatedBodyPaths(v any, path string, fields []*catalog.Field) []string {
 
 func deprecatedAlong(fields []*catalog.Field, segs []string) bool {
 	for i := range segs {
-		if f, ok := catalog.FieldAt(fields, segs[:i+1]); ok && f.Deprecated && !isIndexSegment(segs[i]) {
+		if f, ok := catalog.FieldAt(fields, segs[:i+1]); ok && f.Deprecated && !isDigits(segs[i]) {
 			return true
 		}
 	}
