@@ -70,22 +70,9 @@ func TestRunDiffReportsStatusFirstFailureUnreachedAndFieldChanges(t *testing.T) 
 	for _, want := range []string{
 		"create", "passed -> failed", "first failing step moved", "fetch", "close",
 		"name", "widget", "gadget",
-		"two recorded runs", "not a verdict against a confirmed safe spot",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report text lacks %q:\n%s", want, text)
 		}
-	}
-}
-
-func TestRunDiffSaysSoEvenWhenTheRunsMatch(t *testing.T) {
-	body := `{"name":"widget"}`
-	rep := diff.CompareRuns(runOf("run-a", stepAs("fetch", runner.StatusPassed, body)),
-		runOf("run-b", stepAs("fetch", runner.StatusPassed, body)))
-	if !rep.Same() {
-		t.Fatal(rep.Text())
-	}
-	if !strings.Contains(rep.Text(), "not a verdict against a confirmed safe spot") {
-		t.Errorf("a clean comparison of two runs is still not a verdict:\n%s", rep.Text())
 	}
 }

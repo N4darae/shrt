@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestDefaultDiffSkipsVerifyReplaysAndSaysWhichRunsItCompares(t *testing.T) {
+func TestDefaultDiffSkipsVerifyReplays(t *testing.T) {
 	name := "widget"
 	srv := newNamingBackend(&name)
 	defer srv.Close()
@@ -56,9 +56,6 @@ func TestDefaultDiffSkipsVerifyReplaysAndSaysWhichRunsItCompares(t *testing.T) {
 	}
 	if !strings.Contains(out, ids[0]) || !strings.Contains(out, ids[1]) || strings.Contains(out, "run B: "+ids[2]) {
 		t.Fatalf("the default diff compares the two latest runs that are not verify replays (%s, %s):\n%s", ids[0], ids[1], out)
-	}
-	if !strings.Contains(out, "verify replay") {
-		t.Fatalf("the default diff says it skipped a verify replay:\n%s", out)
 	}
 }
 

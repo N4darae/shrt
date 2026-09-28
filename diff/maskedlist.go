@@ -36,12 +36,34 @@ func withMask(cs []Change, mask string) []Change {
 	return out
 }
 
-func (r *RunReport) MaskedList() string {
-	if len(r.MaskedChanges) == 0 {
-		return "masked differences: none"
+func (r *RunReport) varChanges(fixture bool) []string {
+	out := []string{}
+	for _, v := range r.VarChanges {
+		if v.Fixture == fixture {
+			out = append(out, fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B)))
+		}
 	}
+	return out
+}
+
+func (r *RunReport) MaskedList() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d masked difference(s), not counted as differences, run A -> run B:\n", len(r.MaskedChanges))
+	if vars := r.varChanges(true); len(vars) > 0 {
+		fmt.Fprintf(&b, "fixture vars differ, echoes masked: %s\n", strings.Join(vars, "; "))
+	}
+	if r.FixtureRequests > 0 {
+		fmt.Fprintf(&b, "%d request value(s) differ only in a fixture name, a ${uuid} or the clock\n", r.FixtureRequests)
+	}
+	for _, g := range []struct {
+		what  string
+		paths []string
+	}{{"declared in one record, left at the proto3 default on the wire", r.UnsentDefaults},
+		{"declared in one record, on the wire undeclared with the same value in the other", r.UndeclaredSame}} {
+		if len(g.paths) > 0 {
+			fmt.Fprintf(&b, "response fields %s: %s\n", g.what, strings.Join(g.paths, ", "))
+		}
+	}
+	fmt.Fprintf(&b, "%d masked difference(s), run A -> run B:\n", len(r.MaskedChanges))
 	for _, c := range r.MaskedChanges {
 		fmt.Fprintf(&b, "  [%s] %s (%s) hidden by %s\n", c.Step, c.Path, c.Transition(), c.Mask)
 	}

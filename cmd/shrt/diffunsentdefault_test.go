@@ -20,7 +20,7 @@ func TestDiffDoesNotShowAFieldDeclaredInOneRunAndNeverSent(t *testing.T) {
 	if derr != nil {
 		t.Fatalf("a field one run's descriptor declares and the backend never sent is no difference, as verify reads it: %v\n%s", derr, out)
 	}
-	if !strings.Contains(out, "not on the wire") || !strings.Contains(out, "fetch total") {
+	if !strings.Contains(out, "not counted: ") {
 		t.Fatalf("the field left out should be named:\n%s", out)
 	}
 	total = 7

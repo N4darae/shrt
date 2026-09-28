@@ -30,7 +30,7 @@ steps:
 	}
 	var err error
 	out := captureStdout(t, func() { err = runDiff(ctx, []string{"probe"}) })
-	if err != nil || !strings.Contains(out, "echoing the fixture name") || strings.Contains(out, "product.sku") {
+	if err != nil || !strings.Contains(out, "not counted: ") || strings.Contains(out, "product.sku") {
 		t.Fatalf("the sku only echoes the tag the run sent, as verify masks it: %v\n%s", err, out)
 	}
 }
