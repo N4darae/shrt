@@ -1,0 +1,27 @@
+$ shrt confirm probe-orders -note orders flow  [exit 0]
+proposed run RUNID as the safe spot for "probe-orders" — NOT a safe spot yet; full report: .shrt/safespots/pending/probe-orders.md
+
+show the user this summary, with what you checked, and ask them to approve or reject:
+
+**Safe spot proposal: `probe-orders`**, run `RUNID`, 10/10 steps passed, target `http://127.0.0.1:PORT`, chain file `probe-orders.yaml`
+
+What the proposer checked: orders flow
+
+- 10 steps calling CreateOrder ×3, CreateProduct ×2, CancelOrder ×2, CreateCustomer ×1, AddStock ×1, ConfirmOrder ×1
+- answered, as each step expected: SUCCESS ×10
+- 10 assertions, all held; the fields asserted most: order.id_order ×1
+- 9 successful step(s) assert only the verdict: `create_customer`, `create_product`, `create_product_2`, `add_stock`, `create_order_single`, `create_order_three`, `cancel_pending`, `confirm_single` and 1 more
+
+**Not checked for fields that change every run:** no earlier passing run of this chain against `http://127.0.0.1:PORT` is recorded (a run against another target says nothing about this one). Run it once more and propose again to see them.
+
+Approving makes every response field of the run, not only the asserted ones, the baseline `shrt verify` compares against.
+
+only after the user says yes:  shrt confirm probe-orders -approve -by <their email>
+if they say no:                shrt confirm probe-orders -reject
+
+$ shrt confirm probe-orders -approve -by alice@example.test  [exit 0]
+safe spot for "probe-orders" set from run RUNID (proposed by agent)
+  approved by: alice@example.test at TIME
+  digest: DIGEST
+  file:        .shrt/safespots/probe-orders.json
+

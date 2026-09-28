@@ -353,49 +353,6 @@ func replayPath(path string, moves map[string][]int) string {
 	return replay
 }
 
-func likeness(want, got any, r *strings.Replacer) int {
-	switch w := want.(type) {
-	case map[string]any:
-		g, ok := got.(map[string]any)
-		if !ok {
-			return 0
-		}
-		n := 0
-		for k, wv := range w {
-			if gv, ok := g[k]; ok {
-				n += likeness(wv, gv, r)
-			}
-		}
-		return n
-	case []any:
-		g, ok := got.([]any)
-		if !ok {
-			return 0
-		}
-		n := 0
-		for i := range min(len(w), len(g)) {
-			n += likeness(w[i], g[i], r)
-		}
-		return n
-	case string:
-		g, ok := got.(string)
-		if !ok {
-			return 0
-		}
-		if w == g {
-			return 1
-		}
-		if r != nil && r.Replace(w) == g {
-			return 2
-		}
-		return 0
-	}
-	if jsonKind(want) == jsonKind(got) && sameScalar(want, got) {
-		return 1
-	}
-	return 0
-}
-
 func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra []string, fx *Fixtures, requests []Change) {
 	r.Reordered, r.reordered = nil, nil
 	if len(r.reorderCandidates) == 0 || r.Clean() {

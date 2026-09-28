@@ -81,10 +81,6 @@ func (r *RunReport) Same() bool {
 		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0 && len(r.RequestChanges) == 0
 }
 
-func CompareRuns(a, b *runner.Record) *RunReport {
-	return CompareRunsMasking(a, b, nil)
-}
-
 func reached(rec *runner.Record, s *runner.StepRecord) bool {
 	return StepReached(rec, s)
 }
@@ -94,10 +90,6 @@ func stepError(s *runner.StepRecord) string {
 		return ""
 	}
 	return firstLineOf(s.Error)
-}
-
-func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
-	return CompareRunsSkipping(a, b, extra, Fixtures{})
 }
 
 func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
