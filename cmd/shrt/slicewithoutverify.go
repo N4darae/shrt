@@ -20,19 +20,20 @@ type withoutVerify struct {
 }
 
 type withoutVerdict struct {
-	Without     []string `json:"without"`
-	SourceRun   string   `json:"source_run"`
-	Run         string   `json:"run,omitempty"`
-	Cleared     []string `json:"no_longer_fail"`
-	StillFail   []string `json:"still_fail"`
-	OtherValues []string `json:"still_fail_other_values,omitempty"`
-	Stores      []string `json:"left_out_moves,omitempty"`
-	NotCounted  []string `json:"not_counted,omitempty"`
-	NotRun      []string `json:"not_run,omitempty"`
-	NewFail     []string `json:"fail_only_without,omitempty"`
-	Needed      []string `json:"fail_reading_left_out,omitempty"`
-	OtherTarget string   `json:"other_target,omitempty"`
-	LikelyFault string   `json:"likely_fault,omitempty"`
+	Without     []string   `json:"without"`
+	SourceRun   string     `json:"source_run"`
+	Run         string     `json:"run,omitempty"`
+	Cleared     []string   `json:"no_longer_fail"`
+	StillFail   []string   `json:"still_fail"`
+	OtherValues []string   `json:"still_fail_other_values,omitempty"`
+	Stores      []string   `json:"left_out_moves,omitempty"`
+	NotCounted  []string   `json:"not_counted,omitempty"`
+	NotRun      []string   `json:"not_run,omitempty"`
+	NewFail     []string   `json:"fail_only_without,omitempty"`
+	Needed      []string   `json:"fail_reading_left_out,omitempty"`
+	OtherTarget string     `json:"other_target,omitempty"`
+	LikelyFault string     `json:"likely_fault,omitempty"`
+	NoEffect    []noEffect `json:"left_out_had_no_effect,omitempty"`
 	writers     []string
 	asBefore    string
 }
@@ -93,6 +94,11 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 			}
 		}
 	}
+	if len(v.Cleared) == 0 && len(v.StillFail) > 0 {
+		if lib, err := e.library(); err == nil {
+			v.NoEffect = noEffectOf(lib, rpcOfCall(e), rec, v.writers, v.sameValues())
+		}
+	}
 	if len(v.Cleared) > 0 {
 		if v.asBefore = leftOutAsBefore(e, res, rec, a.source); v.asBefore != "" {
 			v.LikelyFault = v.Cleared[0]
@@ -115,6 +121,56 @@ func rpcOfCall(e *env) func(string) string {
 
 func movesField(ef *contract.Effect) bool {
 	return ef != nil && (ef.Increase != "" || ef.Decrease != "" || ef.Restore != "" || ef.Sum != "")
+}
+
+type noEffect struct {
+	Step   string   `json:"step"`
+	Field  string   `json:"field"`
+	Effect string   `json:"effect"`
+	Reads  []string `json:"reads"`
+}
+
+func noEffectOf(lib *contract.Library, rpc func(string) string, rec *runner.Record, writers, same []string) []noEffect {
+	out := []noEffect{}
+	for _, w := range writers {
+		sr, ok := rec.Step(w)
+		if !ok {
+			continue
+		}
+		c, ok := lib.Get(rpc(sr.Call))
+		if !ok {
+			continue
+		}
+		for _, field := range sortedKeys(c.Effects) {
+			if !movesField(c.Effects[field]) {
+				continue
+			}
+			ne := noEffect{Step: w, Field: field, Effect: c.Effects[field].String()}
+			for _, id := range same {
+				if failsOn(rec, id, field) {
+					ne.Reads = append(ne.Reads, id)
+				}
+			}
+			if len(ne.Reads) > 0 {
+				out = append(out, ne)
+			}
+		}
+	}
+	return out
+}
+
+func failsOn(rec *runner.Record, id, field string) bool {
+	sr, ok := rec.Step(id)
+	if !ok {
+		return false
+	}
+	for _, x := range sr.Expect {
+		segs := strings.Split(x.Path, ".")
+		if !x.Passed && segs[len(segs)-1] == field {
+			return true
+		}
+	}
+	return false
 }
 
 func movedFieldsRead(lib *contract.Library, rpc func(string) string, rec *runner.Record, writers, failed []string) []string {
@@ -252,6 +308,29 @@ func (v *withoutVerdict) text() string {
 	switch {
 	case counted == 0:
 		fmt.Fprintf(&b, "verify without %s: no step left in failed in source run %s to compare\n", without, v.SourceRun)
+	case len(v.Cleared) == 0 && len(v.NoEffect) > 0:
+		read := map[string]bool{}
+		for i, ne := range v.NoEffect {
+			lead := "  "
+			if i == 0 {
+				lead = "verify without " + without + ": "
+			}
+			fmt.Fprintf(&b, "%s%s had no effect on %s: %s read the same value without it, though its contract says %s: %s\n",
+				lead, ne.Step, ne.Field, capList(ne.Reads, 5), ne.Field, ne.Effect)
+			for _, id := range ne.Reads {
+				read[id] = true
+			}
+		}
+		rest := []string{}
+		for _, id := range v.sameValues() {
+			if !read[id] {
+				rest = append(rest, id)
+			}
+		}
+		if len(rest) > 0 {
+			fmt.Fprintf(&b, "  still fail: %s\n", capList(rest, 5))
+		}
+		v.otherValuesLine(&b)
 	case len(v.Cleared) == 0:
 		same := v.sameValues()
 		if len(same) == 0 {
@@ -327,6 +406,8 @@ func (v *withoutVerdict) err() error {
 	}
 	without := strings.Join(v.Without, ", ")
 	switch {
+	case len(v.StillFail) > 0 && len(v.Cleared) == 0 && len(v.NoEffect) > 0:
+		return exitWith(1, "%s had no effect on %s, though its contract moves it", v.NoEffect[0].Step, v.NoEffect[0].Field)
 	case len(v.StillFail) > 0 && len(v.Cleared) == 0:
 		return exitWith(1, "NOT REPRODUCED without %s", without)
 	case len(v.StillFail) > 0:
