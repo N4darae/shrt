@@ -1,0 +1,96 @@
+$ shrt chain slice probe-orders -step cancel_confirmed  [exit 0]
+slice of probe-orders for step cancel_confirmed
+
+kept 5 of 10 steps, dropped 5, writes among them create_product_2, add_stock, retry_single and 2 more: WARNING possible under-inclusion, a kept step may depend on state they left
+unverified: a slice is a hypothesis until -verify reproduces the step's verdict
+
+apiVersion: shrt/v1
+name: probe-orders-slice-cancel_confirmed
+description: |
+    Slice of probe-orders reproducing step cancel_confirmed: 5 of 10 steps.
+
+    Computed by 'shrt chain slice': the target, the producers and contract prerequisites of kept steps,
+    and earlier writes on what they use or sending a unique value the target sends again.
+
+    This slice is a HYPOTHESIS until it is run. A dependency that is state rather than a
+    reference leaves no trace in the YAML, so a slice can be too small and still go green.
+
+    5 dropped step(s) WRITE: create_product_2, add_stock, retry_single, create_order_three, cancel_pending.
+steps:
+    - id: create_customer
+      call: CustomerService/CreateCustomer
+      body:
+        email: cust-${vars.tag}@example.test
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        price_minor: "100"
+        sku: sku-${vars.tag}-a
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: create_order_single
+      call: OrderService/CreateOrder
+      body:
+        id_customer: ${create_customer.customer.id_customer}
+        idempotency_key: single-${vars.tag}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "1"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: confirm_single
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order_single.order.id_order}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: cancel_confirmed
+      call: OrderService/CancelOrder
+      body:
+        id_order: ${create_order_single.order.id_order}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+
+
+$ shrt chain slice probe-orders -step cancel_confirmed -run latest -verify  [exit 3]
+slice of probe-orders for step cancel_confirmed, run RUNID
+repeat 1 of 3: DID NOT RUN, slice run RUNID failed: the slice run stopped before step "cancel_confirmed" (failed): step "confirm_single": expectation failed: status.code want=SUCCESS got=REJECTED (message="InsufficientStock")
+
+kept 5 of 10 steps, dropped 5, writes among them create_product_2, add_stock, retry_single and 2 more: WARNING possible under-inclusion, a kept step may depend on state they left
+unverified: a slice is a hypothesis until -verify reproduces the step's verdict
+
+verify DID NOT RUN: step cancel_confirmed, source run RUNID (a shrt verify replay), slice run RUNID
+  source: status failed, status.code "REJECTED" message="StillConfirmed"
+  slice:  step cancel_confirmed was never sent, so there is no verdict to compare
+  the slice run stopped before step "cancel_confirmed" (failed): step "confirm_single": expectation failed: status.code want=SUCCESS got=REJECTED (message="InsufficientStock")
+  confirm_single passed in source run RUNID and fails here; dropped writes on its entities: add_stock
+  slice run not kept: add -write to keep the slice and its run record
+  whether a dropped write caused it: shrt chain slice probe-orders -without add_stock -verify -run RUNID
+  next: shrt chain slice probe-orders -step cancel_confirmed -run RUNID -keep add_stock -verify -write
+note: -run latest is run RUNID, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run RUNID
+shrt chain: the slice DID NOT RUN step cancel_confirmed, so nothing was verified
+
+$ shrt chain slice probe-orders -without confirm_single -run latest -verify  [exit 0]
+probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 1 below left out
+
+     9  confirm_single  left out: named
+
+9 step(s) passed (-v prints every step)
+
+verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed
+note: -run latest is run RUNID, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run RUNID
+
+$ shrt chain pin probe-orders  [exit 0]
+slice of cancel_confirmed did not reproduce without the writes it needs: again with -keep add_stock
+wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red on cancel_confirmed at status.code
+verify reproduced 3/3: step cancel_confirmed, source run RUNID, 3 slice runs, details from slice run RUNID
+ran probe-orders -keep-going: run RUNID, passed
+wrote .shrt/chains/probe-orders.yaml: probe-orders no longer runs cancel_confirmed: kept red in probe-orders-slice-cancel_confirmed
+
