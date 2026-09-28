@@ -246,7 +246,12 @@ func (v *verification) sidecar() gateSidecar {
 	if v.report == nil {
 		return gateSidecar{}
 	}
-	side := verifySidecar(v.e, v.rec, v.report, v.latency)
+	side := earlySidecar(v.e, v.rec)
+	side.Items = verifyItems(v.e, v.rec, v.report)
+	if latencyPolicy(v.e).Fail {
+		side.Items = append(side.Items, latencyItems(v.latency)...)
+	}
+	side.Sent = firstSent(v.e, v.rec, side.Items)
 	side.RunToo, side.Notes, side.Latency = v.runToo, v.notes, v.latency
 	if v.flaky.finding() {
 		side.Flaky, side.FlakyOnly = v.flaky.rates(), v.flakyOnly
