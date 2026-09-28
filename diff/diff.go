@@ -1313,15 +1313,22 @@ func (r *Report) QuietText() string {
 	return b.String()
 }
 
+func (r *Report) FullyMaskedLine() string {
+	if len(r.FullyMasked) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
+		"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)",
+		strings.Join(r.FullyMasked, ", "))
+}
+
 func (r *Report) Text() string {
 	var b strings.Builder
 	if line := RenamedLine(r.RenamedSteps, "the safe spot", "this run"); line != "" {
 		b.WriteString(line + "\n")
 	}
-	if len(r.FullyMasked) > 0 {
-		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
-			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
-			strings.Join(r.FullyMasked, ", "))
+	if line := r.FullyMaskedLine(); line != "" {
+		b.WriteString(line + "\n")
 	}
 	if len(r.UnapprovedVolatile) > 0 {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",

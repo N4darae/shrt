@@ -54,7 +54,9 @@ func typedVar(s string) any {
 	return s
 }
 
-func runRun(ctx context.Context, args []string) error {
+func runRun(ctx context.Context, args []string) (err error) {
+	side := func() gateSidecar { return gateSidecar{} }
+	defer func() { writeGateSidecar(side(), err) }()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")
@@ -114,14 +116,16 @@ func runRun(ctx context.Context, args []string) error {
 	var drift []diff.Change
 	var driftReport *diff.RunReport
 	flakyOnly := false
-	defer func() {
-		side := runSidecar(e, c, rec, drift, driftReport, pinnedRef)
+	var notes []string
+	var pinnedSlow, slow []diff.LatencyFlag
+	side = func() gateSidecar {
+		s := runSidecar(e, c, rec, drift, driftReport, pinnedRef)
 		if flaky.finding() {
-			side.Flaky, side.FlakyOnly = flaky.rates(), flakyOnly
+			s.Flaky, s.FlakyOnly = flaky.rates(), flakyOnly
 		}
-		writeGateSidecar(side)
-	}()
-	var pinnedSlow []diff.LatencyFlag
+		s.Notes, s.Latency = notes, slow
+		return s
+	}
 	if !*dry && len(c.KeptRed) > 0 {
 		drift, driftReport = judgePinnedDrift(e, c, rec, pinnedRef)
 		if spot == nil && latencySpot != nil {
@@ -156,8 +160,10 @@ func runRun(ctx context.Context, args []string) error {
 	if !rec.Passed() && rec.KeptRed != runner.KeptRedAsPinned {
 		if literal := detectLiteralCollision(e, c, rec); literal != nil {
 			lead = "CHAIN DEFECT: " + literal.line()
+			notes = append(notes, lead)
 		} else if reuse := detectFixtureReuse(e, c, rec); reuse.finding() {
 			lead = "FINDING: " + reuse.line()
+			notes = append(notes, lead)
 		} else if reuse != nil {
 			lead = reuse.line() + "; " + reuse.rerun("run", rest[0])
 		}
@@ -193,17 +199,17 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	if spot != nil {
 		renamed, _ := diff.RenameSpotSteps(spot, rec.Steps)
-		for _, f := range latencyFlags(e, renamed, rec, latencyPolicy(e)) {
-			fmt.Println("  " + f.Line())
-		}
+		slow = latencyFlags(e, renamed, rec, latencyPolicy(e))
 	}
-	for _, f := range pinnedSlow {
+	slow = append(slow, pinnedSlow...)
+	for _, f := range slow {
 		fmt.Println("  " + f.Line())
 	}
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
 	if life != nil && !life.cachedFirstUse() {
+		notes = append(notes, life.label()+life.line())
 		fmt.Println("  " + life.label() + life.line())
 		if life.finding() && rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, life.line())

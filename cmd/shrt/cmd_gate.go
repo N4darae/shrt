@@ -46,6 +46,9 @@ type gateSidecar struct {
 	Flaky        []gateFlaky         `json:"flaky,omitempty"`
 	FlakyOnly    bool                `json:"flaky_only,omitempty"`
 	Errors       []gateFlaky         `json:"errors,omitempty"`
+	Notes        []string            `json:"notes,omitempty"`
+	Latency      []diff.LatencyFlag  `json:"latency,omitempty"`
+	Error        string              `json:"error,omitempty"`
 }
 
 type gateFlaky struct {
@@ -138,10 +141,13 @@ var gateSleep = func(ctx context.Context, d time.Duration) {
 	}
 }
 
-func writeGateSidecar(side gateSidecar) {
+func writeGateSidecar(side gateSidecar, err error) {
 	path := os.Getenv(gateReportEnv)
 	if path == "" {
 		return
+	}
+	if err != nil {
+		side.Error, _, _ = strings.Cut(err.Error(), "\n")
 	}
 	if raw, err := json.Marshal(side); err == nil {
 		_ = os.WriteFile(path, raw, 0o600)
@@ -726,6 +732,7 @@ type gateChain struct {
 	flakyKind map[string]string
 	errors    map[string]gateFlaky
 	errored   map[string]string
+	slow      map[string]bool
 	echoOf    string
 	slices    []string
 }
@@ -946,7 +953,6 @@ func runGate(ctx context.Context, args []string) error {
 		}
 	}
 	flakyFindings := settleGate(chains)
-	shown := map[string]bool{}
 	for _, g := range chains {
 		if g.echoOf != "" {
 			continue
@@ -956,13 +962,7 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println("  " + note)
 		}
 		for _, n := range g.notes {
-			key := noteKey(n)
-			if shown[key] {
-				fmt.Println("  " + key + ", as above")
-				continue
-			}
-			shown[key] = true
-			fmt.Println("  " + n)
+			fmt.Println("  " + capText(n, 240))
 		}
 		if *verbose && g.failed && !g.findingOnly() {
 			g.printChanges()
@@ -1109,18 +1109,6 @@ func gateAttempt(ctx context.Context, what, name string, readsTag bool, wait tim
 	return out
 }
 
-var gateNotable = regexp.MustCompile(`^(FINDING|REGRESSION|CHAIN DEFECT|LATENCY|WARNING)\b`)
-
-func noteKey(line string) string {
-	label, rest, _ := strings.Cut(line, ": ")
-	for _, sep := range []string{": ", " took "} {
-		if i := strings.Index(rest, sep); i >= 0 {
-			rest = rest[:i]
-		}
-	}
-	return label + ": " + strings.Replace(rest, "repeated failure", "intermittent failure", 1)
-}
-
 func (g *gateChain) absorb(what string, out gateOutcome) {
 	for _, f := range out.side.Flaky {
 		if g.flaky == nil {
@@ -1129,7 +1117,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		g.flaky[f.Call] = f
 	}
 	if g.errors == nil {
-		g.errors, g.errored = map[string]gateFlaky{}, map[string]string{}
+		g.errors, g.errored, g.slow = map[string]gateFlaky{}, map[string]string{}, map[string]bool{}
 	}
 	for _, f := range append(append([]gateFlaky{}, out.side.Flaky...), out.side.Errors...) {
 		for _, s := range f.Steps {
@@ -1139,28 +1127,18 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 	for _, f := range out.side.Errors {
 		g.errors[f.Call] = f
 	}
-	for _, line := range strings.Split(out.stdout, "\n") {
-		line = strings.TrimSpace(line)
-		if !gateNotable.MatchString(line) {
-			continue
-		}
-		if len(out.side.Flaky) > 0 && (strings.HasPrefix(line, "FINDING: intermittent failure at ") || strings.HasPrefix(line, "FINDING: repeated failure at ")) {
-			continue
-		}
-		seen := false
-		for i, n := range g.notes {
-			if noteKey(n) == noteKey(line) {
-				seen = true
-				if strings.Contains(line, "repeated failure") {
-					g.notes[i] = capNote(line, 240)
-				}
-			}
-		}
-		if !seen {
-			g.notes = append(g.notes, capNote(line, 240))
+	for _, n := range out.side.Notes {
+		if !containsName(g.notes, n) {
+			g.notes = append(g.notes, n)
 		}
 	}
-	why := strings.TrimPrefix(errorLine(out.stderr, "shrt "+what+": "), "chain "+g.name+": ")
+	for _, f := range out.side.Latency {
+		if !g.slow[f.Step] {
+			g.slow[f.Step] = true
+			g.notes = append(g.notes, f.Line())
+		}
+	}
+	why := strings.TrimPrefix(out.side.Error, "chain "+g.name+": ")
 	switch {
 	case out.code == 0:
 		if what == "run" && out.side.KeptRed != "" {
@@ -1234,18 +1212,6 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			}
 		}
 	}
-}
-
-func capNote(line string, n int) string {
-	parts := strings.Split(line, "; ")
-	out := capText(parts[0], 2*n)
-	for _, p := range parts[1:] {
-		if len(out)+2+len(p) > n {
-			return out + "; ..."
-		}
-		out += "; " + p
-	}
-	return out
 }
 
 func (g *gateChain) intermittentFirst() string {
@@ -1537,16 +1503,6 @@ func methodName(call string) string {
 	return call[strings.LastIndex(call, "/")+1:]
 }
 
-func errorLine(stderr, prefix string) string {
-	for _, line := range strings.Split(stderr, "\n") {
-		if rest, ok := strings.CutPrefix(line, prefix); ok {
-			return rest
-		}
-	}
-	line, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n")
-	return line
-}
-
 func gateHollow(ctx context.Context, baseline string) string {
 	if _, err := os.Stat(baseline); errors.Is(err, os.ErrNotExist) {
 		if os.Getenv("CI") != "" {
@@ -1557,7 +1513,7 @@ func gateHollow(ctx context.Context, baseline string) string {
 			Reported *int `json:"reported"`
 		}
 		if out.code != 0 || json.Unmarshal([]byte(out.stdout), &rep) != nil || rep.Reported == nil {
-			return "hollow ratchet: " + gateError(out, "shrt chain: ")
+			return "hollow ratchet: " + gateError(out)
 		}
 		if err := os.WriteFile(baseline, []byte(fmt.Sprintf("%d\n", *rep.Reported)), 0o644); err != nil {
 			return "hollow ratchet: " + err.Error()
@@ -1569,13 +1525,15 @@ func gateHollow(ctx context.Context, baseline string) string {
 	if out.code == 0 {
 		return ""
 	}
-	return "hollow ratchet: " + gateError(out, "shrt chain: ")
+	return "hollow ratchet: " + gateError(out)
 }
 
-func gateError(out gateOutcome, prefix string) string {
-	if strings.TrimSpace(out.stderr) != "" {
-		return strings.TrimPrefix(errorLine(out.stderr, prefix), "hollow: ")
+func gateError(out gateOutcome) string {
+	for _, line := range strings.Split(out.stderr, "\n") {
+		if rest, ok := strings.CutPrefix(line, "shrt chain: hollow: "); ok {
+			return rest
+		}
 	}
-	line, _, _ := strings.Cut(strings.TrimSpace(out.stdout), "\n")
+	line, _, _ := strings.Cut(strings.TrimSpace(out.stderr+"\n"+out.stdout), "\n")
 	return line
 }

@@ -64,8 +64,7 @@ func TestAKeptRedChainWhosePinsHeldNamesANewChangeWithoutARePin(t *testing.T) {
 	const fetch = "shrt.test.v1.ThingService/Fetch"
 	drift := gateItem{Step: "fetch", Call: fetch, Path: "thing.total", Want: "9", Got: "0"}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-unique": {{code: 1, stderr: "shrt run: chain cli-unique: kept red, but it did not fail as pinned: a pinned step now returns something else",
-			side: gateSidecar{KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{drift}}}},
+		"run cli-unique": {{code: 1, side: gateSidecar{Error: "chain cli-unique: kept red, but it did not fail as pinned: a pinned step now returns something else", KeptRed: "not_as_pinned", PinsHeld: true, Items: []gateItem{drift}}}},
 	})
 	out, _ := runGateOut(t)
 	if want := "FAIL       cli-unique      pins held, new change: fetch (ThingService/Fetch) thing.total want=9 got=0\n"; !strings.Contains(out, want) || strings.Contains(out, "-force") {

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -113,7 +112,7 @@ func TestTheGateRetriesAnExit3OnceWithAFreshTag(t *testing.T) {
 }
 
 func TestTheGateSaysNoVerdictWhenTheRetryExits3Too(t *testing.T) {
-	f := gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 3, stderr: "shrt verify: could not verify cli-thing-flow: down\n"}}})
+	f := gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 3, side: gateSidecar{Error: "could not verify cli-thing-flow: down"}}}})
 	out, code := runGateOut(t)
 	if code != 3 || f.tries["verify cli-thing-flow"] != 2 || !strings.Contains(out, "NO VERDICT cli-thing-flow  verify: could not verify cli-thing-flow: down") {
 		t.Fatalf("exit 3 twice is no verdict, exit 3, got %d:\n%s", code, out)
@@ -128,8 +127,7 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		"run cli-unique": {{code: 1, side: gateSidecar{Sent: map[string]string{"create": " sent {\"name\":\"x\"}"}, Items: []gateItem{item("create"),
 			{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "name", Want: "a", Got: "b"},
 			{Step: "fetch_2", Call: "shrt.test.v1.ThingService/Fetch", Path: "count", Rule: "not_equal", Want: "0", Got: "0", Reason: reason{Kind: reasonWrite, Step: "create", RPC: "shrt.test.v1.ThingService/Create"}}}}}},
-		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: DRIFT\nREGRESSION: something\n",
-			side: gateSidecar{Items: []gateItem{item("create"), item("create_2")}}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Notes: []string{"REGRESSION: something"}, Items: []gateItem{item("create"), item("create_2")}}}},
 	})
 	out, code := runGateOut(t)
 	if code != 1 || f.tries["verify cli-thing-flow"] != 1 || f.tries["run cli-thing-flow"] != 0 {
@@ -207,22 +205,7 @@ func TestTheGateInCIFailsOnAMissingHollowBaselineInsteadOfWritingIt(t *testing.T
 func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	name, extra := "widget", false
 	driftWorkspace(t, &name, &extra)
-	saved := gateExec
-	t.Cleanup(func() { gateExec = saved })
-	gateExec = func(ctx context.Context, args []string) gateOutcome {
-		side := t.TempDir() + "/side.json"
-		t.Setenv(gateReportEnv, side)
-		var err error
-		out := captureStdout(t, func() { err = commands[args[0]].run(ctx, args[1:]) })
-		o := gateOutcome{stdout: out, code: exitCodeOf(err)}
-		if err != nil {
-			o.stderr = "shrt " + args[0] + ": " + err.Error()
-		}
-		if raw, rerr := os.ReadFile(side); rerr == nil {
-			_ = json.Unmarshal(raw, &o.side)
-		}
-		return o
-	}
+	inProcessGate(t)
 	out, code := runGateOut(t)
 	if code != 0 || !strings.Contains(out, "PASS       cli-thing-flow") {
 		t.Fatalf("green, got %d:\n%s", code, out)
@@ -240,12 +223,12 @@ func TestTheGateFailLineSaysWhatVerifyCallsItAndEachNoteOnce(t *testing.T) {
 	item := gateItem{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "items.0.id", Want: "a", Got: "b"}
 	classed := item
 	classed.Class = "order changed"
-	latency := func(ms string) string {
-		return "LATENCY: Fetch at step fetch took " + ms + "ms, the safe spot's run 0ms; re-sent 2 more time(s)\n"
+	latency := func(ms int64) []diff.LatencyFlag {
+		return []diff.LatencyFlag{{Step: "fetch", Call: item.Call, AfterMS: ms, Confirmed: true}}
 	}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-thing-flow":    {{code: 1, stdout: latency("701"), side: gateSidecar{Items: []gateItem{item}}}},
-		"verify cli-thing-flow": {{code: 1, stdout: latency("702"), side: gateSidecar{RunToo: true, Items: []gateItem{classed}}}},
+		"run cli-thing-flow":    {{code: 1, side: gateSidecar{Latency: latency(701), Items: []gateItem{item}}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Latency: latency(702), RunToo: true, Items: []gateItem{classed}}}},
 	})
 	out, _ := runGateOut(t)
 	if !strings.Contains(out, "FAIL       cli-thing-flow  order changed: fetch (ThingService/Fetch) items.0.id want=a got=b") {
@@ -279,7 +262,7 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 		t.Fatalf("only confirmed slow steps become gate items: %+v", items)
 	}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"verify cli-thing-flow": {{code: 1, stdout: "cli-thing-flow: latency regression\n", side: gateSidecar{Items: items}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: items}}},
 	})
 	out, code := runGateOut(t)
 	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s); e.g. cli-thing-flow list; suspect read list (ThingService/List): slower than in the safe spot's run") {
