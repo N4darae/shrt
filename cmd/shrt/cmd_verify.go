@@ -1340,7 +1340,7 @@ func rootChange(report *diff.Report, rec *runner.Record, c diff.Change) *diff.Ch
 			bad[x.Step] = true
 		}
 	}
-	w, fallback := suspectWrite(rec, c.Step, c.Path, bad)
+	w, fallback := suspectWrite(rec, c.Step, c.Path, bad, -1)
 	if fallback || w < 0 || !bad[rec.Steps[w].ID] {
 		return nil
 	}

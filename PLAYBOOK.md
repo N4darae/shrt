@@ -401,10 +401,12 @@ recomputes from, changed; a newly refused or changed write to the first earlier 
 records whose answer or verdict changed, or read changed in a field both `effects:` move (a newly
 refused write with a contract only when its request carries a changed value, or its contract
 `needs:` that rpc or has `effects:` on the changed field; else it is its own suspect). A read
-observes the nearest earlier write on its record, skipping refused repeats, idempotent replays
-and, against a reference, a write refused as before or lacking the field whose `effects:` do not
-move it. A list item's id links it to the writes naming it; steps with an expectation left
-unjudged behind a failure are its knock-ons.
+observes the nearest earlier write on its record after the last read of that field that still
+matched (a read repeating an earlier read's drift is filed as that read), preferring one changed in
+that field, skipping refused repeats, idempotent replays and, against a reference, a write refused
+as before or lacking the field whose `effects:` do not move it. A list item's id links it to the
+writes naming it; steps with an expectation left unjudged behind a failure are its knock-ons
+unless the field itself changed.
 
 ## 9. Refactor and test against a safe spot
 

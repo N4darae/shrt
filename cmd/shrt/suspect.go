@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -60,7 +61,7 @@ func isWrite(st *runner.StepRecord) bool {
 	return st != nil && !chain.IsReadOnlyCall(st.Call)
 }
 
-func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (int, bool) {
+func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, from int) (int, bool) {
 	at, pos := -1, map[string]int{}
 	for i, st := range rec.Steps {
 		if st == nil {
@@ -77,7 +78,7 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (i
 		return -1, false
 	}
 	nearest, nearestBad := -1, -1
-	for _, i := range entityWrites(rec, at, path, bad, pos) {
+	for _, i := range entityWrites(rec, at, path, bad, pos, from) {
 		if nearest < 0 {
 			nearest = i
 		}
@@ -91,7 +92,7 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (i
 	case nearest >= 0:
 		return nearest, false
 	}
-	for i := at - 1; i >= 0; i-- {
+	for i := at - 1; i > from; i-- {
 		if w := rec.Steps[i]; isWrite(w) && bad[w.ID] {
 			return i, true
 		}
@@ -99,7 +100,7 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (i
 	return -1, false
 }
 
-func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int) []int {
+func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int, from int) []int {
 	reach := refReach(rec, pos)
 	entities := stepRefs(rec, at)
 	for _, id := range itemIDs(rec.Steps[at], path) {
@@ -108,7 +109,7 @@ func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, 
 		}
 	}
 	var out []int
-	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
+	for i := at - 1; i > from && len(entities) > 0; i-- {
 		w := rec.Steps[i]
 		if !isWrite(w) || inert(rec, i, bad) {
 			continue
@@ -283,7 +284,7 @@ func (a attribution) of(step, path string) reason {
 	if other := a.heldApart(st, path); other != "" {
 		return a.profiled(st, path, other)
 	}
-	if src, ref := heldBackBy(st); src != "" && src != step {
+	if src, ref := heldBackBy(st); src != "" && src != step && (a.changed == nil || !slices.Contains(a.changed(step), path)) {
 		up, i := a.of(src, ref), -1
 		if up.blames() {
 			i = a.index(up.blamed(src))
@@ -358,7 +359,11 @@ func (a attribution) of(step, path string) reason {
 	if other := a.principal(st, path); other != "" {
 		return a.profiled(st, path, other)
 	}
-	w, knock := suspectWrite(a.rec, step, path, a.bad)
+	from, p := a.lastMatch(st, path)
+	if from >= 0 && !a.unchanged(a.rec.Steps[from].ID, p) {
+		return a.of(a.rec.Steps[from].ID, p)
+	}
+	w, knock := suspectWrite(a.rec, step, path, a.movedFor(path), from)
 	switch {
 	case knock && a.explains(w, st, path):
 		return a.knockOn(w)
@@ -397,7 +402,8 @@ func (a attribution) profiled(st *runner.StepRecord, path, other string) reason 
 }
 
 func (a attribution) asBefore(at int, path string, w int) reason {
-	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec)) {
+	from, _ := a.lastMatch(a.rec.Steps[at], path)
+	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
 		if i != w && a.bears(i, path) {
 			return a.unclear(w, a.rec.Steps[at])
 		}
@@ -409,6 +415,46 @@ func (a attribution) unclear(w int, st *runner.StepRecord) reason {
 	r := a.write(w)
 	r.Kind, r.Read, r.ReadRPC, r.Profile = reasonUnclear, st.ID, st.Call, profileAs(a.e, st)
 	return r
+}
+
+func (a attribution) movedFor(path string) map[string]bool {
+	out := map[string]bool{}
+	for id := range a.bad {
+		st, _ := a.rec.Step(id)
+		var ch []string
+		if a.changed != nil {
+			ch = a.changed(id)
+		}
+		out[id] = path == "" || !isWrite(st) || len(ch) == 0 || verdictMoved(ch) || slices.ContainsFunc(ch, func(p string) bool {
+			return slices.Contains(chain.SplitPath(p), leafOf(path)) || slices.Contains(chain.SplitPath(path), leafOf(p))
+		})
+	}
+	return out
+}
+
+func (a attribution) lastMatch(st *runner.StepRecord, path string) (int, string) {
+	var rb any
+	if a.unchanged == nil || a.was == nil || path == "" || envelopeOnly(path) || json.Unmarshal(st.Response, &rb) != nil {
+		return -1, ""
+	}
+	now, _ := chain.Get(rb, path)
+	was, _ := a.was(st.ID, path)
+	for i := a.index(st.ID) - 1; i >= 0; i-- {
+		o, found := a.rec.Steps[i], ""
+		var ob any
+		if o == nil || isWrite(o) || refusalOf(o) != "" || json.Unmarshal(o.Response, &ob) != nil {
+			continue
+		}
+		eachLeaf(ob, "", func(p string, v any) {
+			if old, ok := a.was(o.ID, p); found == "" && leafOf(p) == leafOf(path) && sameEntity(rb, path, ob, p) && (a.unchanged(o.ID, p) || ok && compactValue(old) == compactValue(was) && compactValue(v) == compactValue(now)) {
+				found = p
+			}
+		})
+		if found != "" {
+			return i, found
+		}
+	}
+	return -1, ""
 }
 
 func positions(rec *runner.Record) map[string]int {
@@ -446,11 +492,13 @@ func (a attribution) writeChangedBefore(step string) bool {
 }
 
 func (a attribution) writeRefusedBefore(step string) bool {
-	for _, st := range a.rec.Steps {
+	at := a.index(step)
+	reach := refReach(a.rec, positions(a.rec))
+	for i, st := range a.rec.Steps {
 		if st == nil || st.ID == step {
 			return false
 		}
-		if isWrite(st) && a.bad[st.ID] && (a.flipped(st) != "" || st.Transport != nil || a.changed == nil || len(a.changed(st.ID)) == 0) {
+		if isWrite(st) && a.bad[st.ID] && related(reach, at, i, st.ID) && (a.flipped(st) != "" || st.Transport != nil || a.changed == nil || len(a.changed(st.ID)) == 0) {
 			return true
 		}
 	}

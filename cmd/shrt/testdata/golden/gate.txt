@@ -15,6 +15,17 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 
+# a changed read is filed under the write since the last read that matched, the other profile, or the read
+FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)
+FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect read clerk_get (ProductService/GetProduct) as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct)
+FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect write cancel_clerk (OrderService/CancelOrder) as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
+failures by suspect rpc:
+  ProductService/CreateProduct: 2 step(s) in 2 chain(s); e.g. stock create_product; suspect write create_product (ProductService/CreateProduct)
+  OrderService/ConfirmOrder: 1 step(s) in 1 chain(s); e.g. stock get; suspect write confirm_order (OrderService/ConfirmOrder)
+  ProductService/GetProduct: 1 step(s) in 1 chain(s); e.g. clerk clerk_get; suspect read clerk_get (ProductService/GetProduct) as clerk: answers product.price_minor unlike as default
+  OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. orders cancel_clerk; suspect write cancel_clerk (OrderService/CancelOrder) as clerk
+  OrderService/FetchOrder: 1 step(s) in 1 chain(s); e.g. orders fetch; suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
+
 # one line per suspect rpc, knock-ons folded under the write
 PASS       one
 failures by suspect rpc:

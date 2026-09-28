@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
@@ -70,7 +71,28 @@ func gateCases() []gateCase {
 		}
 		return []*gateChain{g}
 	}
+	asRun := func() []*gateChain {
+		chain.SetEnvelope("status.code", "SUCCESS")
+		defer chain.SetEnvelope("", "")
+		var out []*gateChain
+		for _, c := range []struct {
+			name  string
+			rec   *runner.Record
+			moved []diff.Change
+		}{{"stock", stampRecord(true), lostStamp()}, {"clerk", heldPriceRecord(), heldPriceMoved()}, {"orders", refusedElsewhereRecord(), refusedElsewhereMoved()}} {
+			a := changesAttribution(&env{cat: catalogtest.Shop()}, c.rec, c.moved)
+			g := &gateChain{name: c.name, failed: true}
+			for _, m := range c.moved {
+				if st, ok := c.rec.Step(m.Step); ok && m.Kind != diff.KindStatus {
+					g.items = append(g.items, a.item(gateItem{Step: m.Step, Call: st.Call, Path: m.Path, Want: compactValue(m.Want), Got: compactValue(m.Got), Failed: true}))
+				}
+			}
+			out = append(out, g)
+		}
+		return out
+	}
 	return []gateCase{
+		{name: "a changed read is filed under the write since the last read that matched, the other profile, or the read", chains: asRun},
 		{name: "one line per suspect rpc, knock-ons folded under the write", chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
 		{name: "-v counts the knock-on steps", verbose: true, chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
 		{name: "the example carries its reason", chains: func() []*gateChain { return []*gateChain{stored("one"), stored("two")} }},

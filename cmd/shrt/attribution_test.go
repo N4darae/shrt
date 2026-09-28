@@ -672,6 +672,22 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 				shopStep("confirm_order", shopConfirm, order, "create_order"),
 				shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"9"}}`, "create_product"))
 		}, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return shortRPC(r.rpc(shopGet)) == "OrderService/ConfirmOrder" }},
+		{name: "a read after a read of the record that still matched is filed under the write between them", env: "effects", moved: lostStamp(),
+			rec: func() *runner.Record { return stampRecord(true) }, step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "a write changed only in another field is no stored-value suspect of the stock", env: "effects", moved: lostStamp(),
+			rec: func() *runner.Record { return stampRecord(false) }, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order"},
+		{name: "a read held back by another field still answers as before for the profile comparison", env: "effects", moved: heldPriceMoved(),
+			rec: heldPriceRecord, step: "clerk_get", path: "product.price_minor", kind: reasonProfile, blamed: "", check: func(r reason) bool { return r.Profile == "clerk" && r.Other == "default" }},
+		{name: "a refused write on another record leaves a shrunk read its own", envelope: true, env: "shop", moved: refusedElsewhereMoved(),
+			rec: refusedElsewhereRecord, step: "fetch", path: "order.lines", kind: reasonSet, blamed: ""},
+		{name: "a held-back read repeating an earlier read's drift is filed as that read", env: "effects",
+			moved: append(lostStamp(), changed("get_again", "product.qty_on_hand", "5", "4")...),
+			rec: func() *runner.Record {
+				rec := stampRecord(false)
+				again := shopStep("get_again", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"4"}}`, "create_product").heldBy("create_product", "product.created_at")
+				rec.Steps = append(rec.Steps, again.StepRecord)
+				return rec
+			}, step: "get_again", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return r.Read == "get" }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.envelope {
@@ -732,7 +748,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 		{"fill_item", "", "", false},
 		{"get_item_unknown_id", "", "", false},
 	} {
-		i, knock := suspectWrite(rec, c.read, "", map[string]bool{c.bad: c.bad != ""})
+		i, knock := suspectWrite(rec, c.read, "", map[string]bool{c.bad: c.bad != ""}, -1)
 		got := ""
 		if i >= 0 {
 			got = rec.Steps[i].ID
@@ -757,7 +773,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 			exported("fetch_order", "FetchOrder", "", map[string]string{"id_order": orderRef}),
 			exported("stock_a_confirmed", "GetProduct", "", map[string]string{"id_product": "${id_a}"}),
 		}}
-		if i, knock := suspectWrite(rec, "stock_a_confirmed", "", map[string]bool{}); i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
+		if i, knock := suspectWrite(rec, "stock_a_confirmed", "", map[string]bool{}, -1); i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
 			t.Errorf("%s: got step %d knock-on %v, want confirm_order found through the exported id", orderRef, i, knock)
 		}
 	}
@@ -772,7 +788,7 @@ func TestAttributionHelpers(t *testing.T) {
 		for i, st := range rec.Steps {
 			pos[st.ID] = i
 		}
-		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, pos); !slices.Equal(got, []int{2, 1, 0}) {
+		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, pos, -1); !slices.Equal(got, []int{2, 1, 0}) {
 			t.Errorf("entityWrites (first refused %v): got steps %v, want the writes before the read without the repeats", firstRefused, got)
 		}
 	}
@@ -814,6 +830,53 @@ func TestAttributionHelpers(t *testing.T) {
 	if a.root() != b.root() || a.root() == w.root() || w.root() != "S/Create name" {
 		t.Errorf("a read's own fault is one root whatever path shows it: got %q, %q, %q", a.root(), b.root(), w.root())
 	}
+}
+
+func lostStamp() []diff.Change {
+	return append(changed("get", "product.qty_on_hand", "5", "4"), diff.Change{Step: "create_product", Path: "product.created_at", Kind: diff.KindChanged, Want: "t"})
+}
+
+func heldPriceMoved() []diff.Change {
+	return append(changed("clerk_get", "product.price_minor", "1250", "0"), diff.Change{Step: "create_product", Path: "product.created_at", Kind: diff.KindChanged, Want: "t"}, diff.Change{Step: "get", Kind: diff.KindStatus, Want: "passed", Got: "failed"})
+}
+
+func heldPriceRecord() *runner.Record {
+	product := func(price string) string {
+		return `{"product":{"id_product":"p1","price_minor":"` + price + `","created_at":"t"}}`
+	}
+	return shopRecord(shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","price_minor":"1250"}}`),
+		shopStep("get", shopGet, product("1250"), "create_product").heldBy("create_product", "product.created_at"),
+		shopStep("clerk_get", shopGet, product("0"), "create_product").failing("product.price_minor", "1250", "0").as("clerk"))
+}
+
+func refusedElsewhereMoved() []diff.Change {
+	return []diff.Change{{Step: "cancel_clerk", Path: "status.code", Kind: diff.KindChanged, Want: "SUCCESS", Got: "REJECTED"}, {Step: "fetch", Path: "order.lines", Kind: diff.KindLength, Want: 2, Got: 1}}
+}
+
+func refusedElsewhereRecord() *runner.Record {
+	lines := func(id string, n int) string {
+		l := `{"id_product":"p1","qty":"1"}` + strings.Repeat(`,{"id_product":"p2","qty":"1"}`, n-1)
+		return `{"order":{"id_order":"` + id + `","lines":[` + l + `]},` + shopOK + `}`
+	}
+	return shopRecord(shopStep("create_order", shopOrder, lines("o1", 2)),
+		shopStep("create_order_2", shopOrder, lines("o2", 2)),
+		shopStep("cancel_clerk", shopCancel, `{"status":{"code":"REJECTED","details":[{"app_code":1603}]}}`, "create_order_2").as("clerk"),
+		shopStep("cancel", shopCancel, lines("o1", 2), "create_order"),
+		shopStep("fetch", shopFetch, lines("o1", 1), "create_order"))
+}
+
+func stampRecord(readBetween bool) *runner.Record {
+	order := `{"order":{"id_order":"o1","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p1","qty":"3"}]}}`
+	steps := []recStep{
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
+		shopStep("add_stock", shopAdd, `{"qty_on_hand":"10"}`, "create_product"),
+		shopStep("create_order", shopOrder, order, "create_product"),
+	}
+	if readBetween {
+		steps = append(steps, shopStep("get_before", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"10"}}`, "create_product"))
+	}
+	return shopRecord(append(steps, shopStep("confirm_order", shopConfirm, order, "create_order"),
+		shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"4"}}`, "create_product"))...)
 }
 
 func replaysRecord(firstRefused bool) *runner.Record {
