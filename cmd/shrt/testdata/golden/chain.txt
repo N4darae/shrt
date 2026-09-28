@@ -59,14 +59,14 @@ steps:
           equals: SUCCESS
 
 
-$ shrt chain slice probe-orders -step cancel_confirmed -run latest -verify  [exit 3]
+$ shrt chain slice probe-orders -step cancel_confirmed -run RUNID -verify  [exit 3]
 slice of probe-orders for step cancel_confirmed, run RUNID
 repeat 1 of 3: DID NOT RUN, slice run RUNID failed: the slice run stopped before step "cancel_confirmed" (failed): step "confirm_single": expectation failed: status.code want=SUCCESS got=REJECTED (message="InsufficientStock")
 
 kept 5 of 10 steps, dropped 5, writes among them create_product_2, add_stock, retry_single and 2 more: WARNING possible under-inclusion, a kept step may depend on state they left
 unverified: a slice is a hypothesis until -verify reproduces the step's verdict
 
-verify DID NOT RUN: step cancel_confirmed, source run RUNID (a shrt verify replay), slice run RUNID
+verify DID NOT RUN: step cancel_confirmed, source run RUNID, slice run RUNID
   source: status failed, status.code "REJECTED" message="StillConfirmed"
   slice:  step cancel_confirmed was never sent, so there is no verdict to compare
   the slice run stopped before step "cancel_confirmed" (failed): step "confirm_single": expectation failed: status.code want=SUCCESS got=REJECTED (message="InsufficientStock")
@@ -74,10 +74,9 @@ verify DID NOT RUN: step cancel_confirmed, source run RUNID (a shrt verify repla
   slice run not kept: add -write to keep the slice and its run record
   whether a dropped write caused it: shrt chain slice probe-orders -without add_stock -verify -run RUNID
   next: shrt chain slice probe-orders -step cancel_confirmed -run RUNID -keep add_stock -verify -write
-note: -run latest is run RUNID, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run RUNID
 shrt chain: the slice DID NOT RUN step cancel_confirmed, so nothing was verified
 
-$ shrt chain slice probe-orders -without confirm_single -run latest -verify  [exit 0]
+$ shrt chain slice probe-orders -without confirm_single -run RUNID -verify  [exit 0]
 probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 1 below left out
 
      9  confirm_single  left out: named
@@ -85,7 +84,6 @@ probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 
 9 step(s) passed (-v prints every step)
 
 verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed
-note: -run latest is run RUNID, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run RUNID
 
 $ shrt chain pin probe-orders  [exit 0]
 slice of cancel_confirmed did not reproduce without the writes it needs: again with -keep add_stock

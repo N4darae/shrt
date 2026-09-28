@@ -1,4 +1,4 @@
-$ shrt diff probe-orders  [exit 1]
+$ shrt diff RUNID RUNID  [exit 1]
 diff of probe-orders: run A RUNID (passed) vs run B RUNID (failed); b= is the newer value
 first failing step moved: A none, B cancel_confirmed
 step status changes (A -> B):

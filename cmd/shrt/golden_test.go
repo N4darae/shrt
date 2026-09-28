@@ -98,25 +98,42 @@ func TestGoldenOutput(t *testing.T) {
 	writeFile(t, ".shrt/chains/probe-orders.yaml", strings.Replace(cancelConfirmedChain, "vars:\n    tag: probe\n", "", 1))
 	writeFile(t, ".shrt/chains/shop-product.yaml", goldenProductChain)
 	golden := map[string]*strings.Builder{}
+	seen := map[string]bool{}
+	var runs []string
 	step := func(name string, args ...string) {
 		out, code := shrtOut(t, name, args...)
+		files, _ := filepath.Glob(".shrt/runs/probe-orders/*.json")
+		for _, f := range files {
+			if id := strings.TrimSuffix(filepath.Base(f), ".json"); !seen[id] {
+				seen[id] = true
+				runs = append(runs, id)
+			}
+		}
 		if golden[name] == nil {
 			golden[name] = &strings.Builder{}
 		}
-		fmt.Fprintf(golden[name], "$ shrt %s %s  [exit %d]\n%s\n", name, strings.Join(args, " "), code, out)
+		shown := strings.Join(args, " ")
+		for _, n := range goldenNoise {
+			shown = n.re.ReplaceAllString(shown, n.with)
+		}
+		fmt.Fprintf(golden[name], "$ shrt %s %s  [exit %d]\n%s\n", name, shown, code, out)
 	}
 	step("run", "probe-orders")
 	step("confirm", "probe-orders", "-note", "orders flow")
 	step("confirm", "probe-orders", "-approve", "-by", "alice@example.test")
 	step("verify", "probe-orders")
+	step("run", "probe-orders", "-quiet")
+	step("verify", "probe-orders", "-quiet")
 	shop.cancelConfirmedBug = true
 	step("run", "probe-orders")
+	failed := runs[len(runs)-1]
+	step("run", "probe-orders", "-quiet")
 	step("verify", "probe-orders")
-	step("diff", "probe-orders")
+	step("diff", runs[0], failed)
 	step("gate", "-no-session-check", "-hollow-baseline", "")
 	step("chain", "slice", "probe-orders", "-step", "cancel_confirmed")
-	step("chain", "slice", "probe-orders", "-step", "cancel_confirmed", "-run", "latest", "-verify")
-	step("chain", "slice", "probe-orders", "-without", "confirm_single", "-run", "latest", "-verify")
+	step("chain", "slice", "probe-orders", "-step", "cancel_confirmed", "-run", failed, "-verify")
+	step("chain", "slice", "probe-orders", "-without", "confirm_single", "-run", failed, "-verify")
 	step("chain", "pin", "probe-orders")
 	step("gate", "-no-session-check", "-hollow-baseline", "")
 	for _, c := range gateCases() {
