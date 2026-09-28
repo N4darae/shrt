@@ -96,40 +96,13 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 		added = append(added, other)
 	}
 
-	c, _ := lib.Get(st.Call)
-	required := false
-	if c != nil {
-		for _, r := range c.Required {
-			if namecase.Fold(r) == namecase.Fold(key) {
-				required = true
-			}
-		}
-	}
-	pair := ""
-	if !required {
-		a := copyStep(st, p.freeStepID(st.ID+"_no_key"))
-		a.Export = nil
-		p.freshen(lib, a)
-		a.Body[key] = ""
-		renameStepRefs(a, st.ID, a.ID)
-		a.Description = fmt.Sprintf("no %s: a new %s.", key, carrier)
-		a.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, NotEqual: first})
-		b := copyStep(a, p.freeStepID(st.ID+"_no_key_2"))
-		p.freshen(lib, b)
-		b.Body[key] = ""
-		renameStepRefs(b, a.ID, b.ID)
-		b.Description = fmt.Sprintf("the same request again with no %s is another new %s, not a replay of %s.", key, carrier, a.ID)
-		b.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, NotEqual: "${" + a.ID + "." + idPath + "}"})
-		added = append(added, a, b)
-		pair = fmt.Sprintf(", and %s, %s send none and must create two", a.ID, b.ID)
-	}
 	p.Chain.Steps = append(p.Chain.Steps, added...)
 	what := "must return the first " + carrier
 	if conflict != "" {
 		what = "is refused with " + conflict + " when the body differs"
 	}
 	p.note("step %s: %s is an idempotency key; %s replays it with the same body and must return %s's %s, %s replays it with "+
-		"another body and %s%s", st.ID, key, replay.ID, st.ID, idField, other.ID, what, pair)
+		"another body and %s", st.ID, key, replay.ID, st.ID, idField, other.ID, what)
 	p.replayAfterTransitions(lib, st, m, key, carrier, idField)
 }
 
