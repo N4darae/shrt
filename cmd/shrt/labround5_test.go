@@ -129,7 +129,7 @@ steps:
 	if strings.Contains(out, "length") {
 		t.Fatalf("verify replays with keep-going: no step is missing, so nothing changed length:\n%s", out)
 	}
-	if !strings.Contains(out, "first failing step: step 1 create") || !strings.Contains(out, "[fetch] not_reached") {
+	if !strings.Contains(out, "first: create (ThingService/Create)") || strings.Contains(out, "first failing step") || !strings.Contains(out, "[fetch] not_reached") {
 		t.Fatalf("verify names the first failure and the step skipped behind it:\n%s", out)
 	}
 	if strings.Contains(out, "[other] not_reached") {

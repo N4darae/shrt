@@ -21,7 +21,7 @@ func TestVerifyReportsStepsSkippedBehindAFailureAsNotReachedNotAsALengthChange(t
 	if strings.Contains(text, "length") {
 		t.Fatalf("a keep-going run records every step, so nothing changed length:\n%s", text)
 	}
-	if !strings.Contains(text, "[fetch] not_reached") || !strings.Contains(text, "first failing step: step 1 create") {
+	if !strings.Contains(text, "[fetch] not_reached") || !strings.HasPrefix(rep.FirstFailure, "step 1 create") {
 		t.Fatalf("the skipped step is not reached and the first red is named:\n%s", text)
 	}
 	for _, c := range rep.Changes {

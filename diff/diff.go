@@ -1410,9 +1410,6 @@ func (r *Report) Text() string {
 	case len(r.RequestChanges) > 0:
 		fmt.Fprintf(&b, "%d change(s) vs safe spot %s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID)
 	}
-	if r.FirstFailure != "" {
-		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
-	}
 	b.WriteString(r.reorderedText())
 	skips := runner.NewSkipCondenser()
 	foldSaid := map[string]bool{}
