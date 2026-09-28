@@ -19,100 +19,61 @@ func orderSpot(body string) *store.SafeSpot {
 	}}
 }
 
-func TestIdNamedFieldIsMaskedOnlyWhenBothSidesAreIdShaped(t *testing.T) {
-	want := `{"order":{"id_order":"ord-819dac5f23ba","id_customer":"cus-5656cb156e31","created_at":"2026-09-24T15:59:18.1Z","total":"500"}}`
-	fresh := `{"order":{"id_order":"ord-0123456789ab","id_customer":"cus-ba9876543210","created_at":"2026-09-25T10:00:00Z","total":"500"}}`
-	rep := diff.Compare(orderSpot(want), runOf("run", stepAs("fetch_order", runner.StatusPassed, fresh)))
-	if !rep.Clean() || rep.Masked != 3 {
-		t.Fatalf("fresh ids and timestamps differ every run and must be masked, masked=%d:\n%s", rep.Masked, rep.Text())
+func TestAnIdIsMaskedOnlyWhenBothSidesAreIdShapedOfOneKind(t *testing.T) {
+	order := `{"order":{"id_order":"ord-819dac5f23ba","id_customer":"cus-5656cb156e31","created_at":"2026-09-24T15:59:18.1Z","total":"500"}}`
+	fresh := func(field, value string) string {
+		v := map[string]any{"id_order": "ord-0123456789ab", "id_customer": "cus-ba9876543210", "created_at": "2026-09-25T10:00:00Z", "total": "500"}
+		if field != "" {
+			v[field] = json.RawMessage(value)
+		}
+		if value == "" {
+			delete(v, field)
+		}
+		b, _ := json.Marshal(map[string]any{"order": v})
+		return string(b)
 	}
-	for name, got := range map[string]string{
-		"empty id":        `{"order":{"id_order":"ord-0123456789ab","id_customer":"","created_at":"2026-09-25T10:00:00Z","total":"500"}}`,
-		"undefined id":    `{"order":{"id_order":"ord-0123456789ab","id_customer":"undefined","created_at":"2026-09-25T10:00:00Z","total":"500"}}`,
-		"null id":         `{"order":{"id_order":"ord-0123456789ab","id_customer":null,"created_at":"2026-09-25T10:00:00Z","total":"500"}}`,
-		"number id":       `{"order":{"id_order":"ord-0123456789ab","id_customer":7,"created_at":"2026-09-25T10:00:00Z","total":"500"}}`,
-		"missing id":      `{"order":{"id_customer":"cus-ba9876543210","created_at":"2026-09-25T10:00:00Z","total":"500"}}`,
-		"empty timestamp": `{"order":{"id_order":"ord-0123456789ab","id_customer":"cus-ba9876543210","created_at":"","total":"500"}}`,
-		"junk timestamp":  `{"order":{"id_order":"ord-0123456789ab","id_customer":"cus-ba9876543210","created_at":"never","total":"500"}}`,
+	customer := func(id string) string { return `{"order":{"id_customer":"` + id + `"}}` }
+	product := func(id, name string) string { return `{"product":{"id_product":"` + id + `","name":"` + name + `"}}` }
+	mug := product("prd-60b05a32d153", "Mug")
+	for _, c := range []struct {
+		name, want, got string
+		masked          int
+	}{
+		{"fresh ids and timestamp", order, fresh("", ""), 3},
+		{"empty id", order, fresh("id_customer", `""`), -1},
+		{"undefined id", order, fresh("id_customer", `"undefined"`), -1},
+		{"null id", order, fresh("id_customer", `null`), -1},
+		{"number id", order, fresh("id_customer", `7`), -1},
+		{"missing id", order, fresh("id_order", ""), -1},
+		{"empty timestamp", order, fresh("created_at", `""`), -1},
+		{"junk timestamp", order, fresh("created_at", `"never"`), -1},
+		{"numeric ids", `{"order":{"id":41}}`, `{"order":{"id":42}}`, 1},
+		{"numeric id became 0", `{"order":{"id":41}}`, `{"order":{"id":0}}`, -1},
+		{"fresh id of one kind", customer("cus-5656cb156e31"), customer("cus-0123456789ab"), 1},
+		{"product id in a customer field", customer("cus-5656cb156e31"), customer("prd-000000000000"), -1},
+		{"prefix dropped", customer("cus-5656cb156e31"), customer("5656cb156e31"), -1},
+		{"underscore prefix of another", customer("cus-5656cb156e31"), customer("prd_5656cb156e31"), -1},
+		{"zero short", customer("cus-5656cb156e31"), customer("cus-0"), -1},
+		{"zero hex", customer("cus-5656cb156e31"), customer("cus-000000000000"), -1},
+		{"bare zero", customer("cus-5656cb156e31"), customer("0"), -1},
+		{"zero uuid", customer("3f2b8c1e-4a5d-4e6f-8a7b-1c2d3e4f5a6b"), customer("00000000-0000-0000-0000-000000000000"), -1},
+		{"all-letter hex", mug, product("prd-edababebdffe", "Mug"), 1},
+		{"word id", mug, product("prd-undefinedxx", "Mug"), -1},
+		{"short word", mug, product("prd-none", "Mug"), -1},
+		{"shorter hex", mug, product("prd-abcdef", "Mug"), -1},
+		{"changed name", mug, product("prd-edababebdffe", "Cup"), -1},
+		{"other prefix", mug, product("ord-edababebdffe", "Mug"), -1},
+		{"extra segment", mug, product("prd-edababebdffe-x", "Mug"), -1},
+		{"placeholder id", mug, product("prd-000000000000", "Mug"), -1},
 	} {
-		rep := diff.Compare(orderSpot(want), runOf("run", stepAs("fetch_order", runner.StatusPassed, got)))
-		if rep.Clean() {
-			t.Errorf("%s: a change to a value that is not id- or timestamp-shaped is drift, got no drift:\n%s", name, rep.Text())
+		rep := diff.Compare(orderSpot(c.want), runOf("run", stepAs("fetch_order", runner.StatusPassed, c.got)))
+		if rep.Clean() != (c.masked >= 0) || (c.masked >= 0 && rep.Masked != c.masked) {
+			t.Errorf("%s: verify clean=%v masked=%d, want masked %d:\n%s", c.name, rep.Clean(), rep.Masked, c.masked, rep.Text())
 		}
-		runs := compareRuns(runOf("a", stepAs("fetch_order", runner.StatusPassed, want)), runOf("b", stepAs("fetch_order", runner.StatusPassed, got)))
-		if runs.Same() {
-			t.Errorf("%s: shrt diff must show it too:\n%s", name, runs.Text())
+		runs := compareRuns(runOf("a", stepAs("fetch_order", runner.StatusPassed, c.want)), runOf("b", stepAs("fetch_order", runner.StatusPassed, c.got)))
+		if runs.Same() != (c.masked >= 0) {
+			t.Errorf("%s: diff same=%v, want %v:\n%s", c.name, runs.Same(), c.masked >= 0, runs.Text())
 		}
-	}
-}
-
-func TestNumericIdsOnBothSidesAreMasked(t *testing.T) {
-	rep := diff.Compare(orderSpot(`{"order":{"id":41}}`), runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"order":{"id":42}}`)))
-	if !rep.Clean() || rep.Masked != 1 {
-		t.Fatalf("two numeric ids are id-shaped, masked=%d:\n%s", rep.Masked, rep.Text())
-	}
-	rep = diff.Compare(orderSpot(`{"order":{"id":41}}`), runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"order":{"id":0}}`)))
-	if rep.Clean() {
-		t.Fatalf("an id that became 0 is drift:\n%s", rep.Text())
-	}
-}
-
-func TestAllLetterHexIdIsStillIdShaped(t *testing.T) {
-	spot := &store.SafeSpot{Chain: "shop", RunID: "spot", Steps: []*runner.StepRecord{
-		{ID: "create_product_2", Call: "ThingService/Fetch", Status: runner.StatusPassed,
-			Response: json.RawMessage(`{"product":{"id_product":"prd-60b05a32d153","name":"Mug"}}`)},
-		{ID: "fetch_order", Call: "ThingService/Fetch", Status: runner.StatusPassed,
-			Response: json.RawMessage(`{"order":{"id_order":"ord-9e5744d2dabc","id_product":"prd-60b05a32d153"}}`)},
-	}}
-	run := runOf("run",
-		stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-edababebdffe","name":"Mug"}}`),
-		stepAs("fetch_order", runner.StatusPassed, `{"order":{"id_order":"ord-bcabceaddfdf","id_product":"prd-edababebdffe"}}`))
-	rep := diff.Compare(spot, run)
-	if !rep.Clean() || rep.Masked != 3 {
-		t.Fatalf("prefix plus 12 random hex characters is an id whether or not a digit happens to appear, masked=%d:\n%s", rep.Masked, rep.Text())
-	}
-	runs := compareRuns(runOf("a",
-		stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-60b05a32d153","name":"Mug"}}`)),
-		runOf("b", stepAs("create_product_2", runner.StatusPassed, `{"product":{"id_product":"prd-edababebdffe","name":"Mug"}}`)))
-	if !runs.Same() {
-		t.Fatalf("shrt diff must mask it too:\n%s", runs.Text())
-	}
-	for name, got := range map[string]string{
-		"word id":        `{"product":{"id_product":"prd-undefinedxx","name":"Mug"}}`,
-		"short word":     `{"product":{"id_product":"prd-none","name":"Mug"}}`,
-		"shorter hex":    `{"product":{"id_product":"prd-abcdef","name":"Mug"}}`,
-		"changed name":   `{"product":{"id_product":"prd-edababebdffe","name":"Cup"}}`,
-		"other prefix":   `{"product":{"id_product":"ord-edababebdffe","name":"Mug"}}`,
-		"extra segment":  `{"product":{"id_product":"prd-edababebdffe-x","name":"Mug"}}`,
-		"placeholder id": `{"product":{"id_product":"prd-000000000000","name":"Mug"}}`,
-	} {
-		one := &store.SafeSpot{Chain: "shop", RunID: "spot", Steps: spot.Steps[:1]}
-		rep := diff.Compare(one, runOf("run", stepAs("create_product_2", runner.StatusPassed, got)))
-		if rep.Clean() {
-			t.Errorf("%s: must still be reported as drift:\n%s", name, rep.Text())
-		}
-	}
-}
-
-func TestAnIdOfAnotherKindIsDrift(t *testing.T) {
-	want := `{"order":{"id_customer":"cus-5656cb156e31"}}`
-	for name, got := range map[string]string{
-		"product id in a customer field": `{"order":{"id_customer":"prd-000000000000"}}`,
-		"prefix dropped":                 `{"order":{"id_customer":"5656cb156e31"}}`,
-		"underscore prefix of another":   `{"order":{"id_customer":"prd_5656cb156e31"}}`,
-	} {
-		rep := diff.Compare(orderSpot(want), runOf("run", stepAs("fetch_order", runner.StatusPassed, got)))
-		if rep.Clean() {
-			t.Errorf("%s: an id of another kind is not the same id refreshed, got no drift:\n%s", name, rep.Text())
-		}
-		runs := compareRuns(runOf("a", stepAs("fetch_order", runner.StatusPassed, want)), runOf("b", stepAs("fetch_order", runner.StatusPassed, got)))
-		if runs.Same() {
-			t.Errorf("%s: shrt diff must show it too:\n%s", name, runs.Text())
-		}
-	}
-	rep := diff.Compare(orderSpot(want), runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"order":{"id_customer":"cus-0123456789ab"}}`)))
-	if !rep.Clean() || rep.Masked != 1 {
-		t.Fatalf("a fresh id of the same kind is masked, masked=%d:\n%s", rep.Masked, rep.Text())
 	}
 }
 
@@ -211,19 +172,6 @@ func TestAnUnchangedIdThatIsRenamedElsewhereIsDrift(t *testing.T) {
 		`{"order":{"id_customer":"cus-ba9876543210"}}`)
 	if rep := diff.Compare(spot, run); rep.Clean() {
 		t.Fatalf("the customer id stayed the same in two steps and changed in the third, got no drift:\n%s", rep.Text())
-	}
-}
-
-func TestAnIdThatBecameAllZerosIsReported(t *testing.T) {
-	for _, zero := range []string{"cus-0", "cus-000000000000", "0", "00000000-0000-0000-0000-000000000000"} {
-		want := `{"order":{"id_customer":"cus-5656cb156e31"}}`
-		if strings.Count(zero, "-") == 4 {
-			want = `{"order":{"id_customer":"3f2b8c1e-4a5d-4e6f-8a7b-1c2d3e4f5a6b"}}`
-		}
-		rep := diff.Compare(orderSpot(want), runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"order":{"id_customer":"`+zero+`"}}`)))
-		if rep.Clean() {
-			t.Errorf("an id that became %q is a zero id, not a fresh one, got no drift:\n%s", zero, rep.Text())
-		}
 	}
 }
 

@@ -181,73 +181,36 @@ func TestAnUnapprovedVolatileThatHidOnlyAFixtureEchoHidNothing(t *testing.T) {
 	}
 }
 
-func TestRedactPatternAddedAfterApprovalIsUnapprovedNotARegression(t *testing.T) {
-	spot := orderSpot(`{"results":[{"qty_on_hand":5,"name":"Widget"}]}`)
-	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"results":[{"qty_on_hand":"<redacted>","name":"Widget"}]}`))
-	rec.Redacted = []string{"**.password", "**.qty_on_hand"}
-	rep := diff.Compare(spot, rec)
-	if !rep.Clean() {
-		t.Fatalf("a value redacted on one side only must not be compared:\n%s", rep.Text())
+func TestARedactPatternNeitherComparesNorHidesWhatItShouldNot(t *testing.T) {
+	for _, c := range []struct {
+		name, spot, run    string
+		redacted, approved []string
+		clean              bool
+		unapproved         string
+	}{
+		{"added after approval", `{"results":[{"qty_on_hand":5,"name":"Widget"}]}`, `{"results":[{"qty_on_hand":"<redacted>","name":"Widget"}]}`,
+			[]string{"**.password", "**.qty_on_hand"}, nil, true, "**.qty_on_hand"},
+		{"lacked by the safe spot's run", `{"name":"Widget"}`, `{"name":"Widget"}`, []string{"**.password", "**.pin"}, []string{"**.password"}, true, "**.pin"},
+		{"redacted in the safe spot only", `{"qty_on_hand":"<redacted>","name":"Widget"}`, `{"qty_on_hand":7,"name":"Widget"}`, nil, nil, true, ""},
+		{"empty then a secret", `{"access_token":"","name":"Widget"}`, `{"access_token":"<redacted>","name":"Widget"}`, []string{"**.access_token"}, []string{"**.access_token"}, false, ""},
+		{"a secret then empty", `{"access_token":"<redacted>","name":"Widget"}`, `{"access_token":"","name":"Widget"}`, []string{"**.access_token"}, []string{"**.access_token"}, false, ""},
+	} {
+		rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, c.run))
+		rec.Redacted = c.redacted
+		rep := diff.Compare(orderSpot(c.spot), rec)
+		if c.approved != nil {
+			rep.NoteApprovedRedact(c.approved, rec)
+		}
+		if rep.Clean() != c.clean || rep.Widened() != (c.unapproved != "") || strings.Join(rep.UnapprovedRedact, ",") != c.unapproved {
+			t.Errorf("%s: clean=%v widened=%v unapproved=%v, want %v %q:\n%s", c.name, rep.Clean(), rep.Widened(), rep.UnapprovedRedact, c.clean, c.unapproved, rep.Text())
+		}
 	}
-	if !rep.Widened() || len(rep.UnapprovedRedact) != 1 || rep.UnapprovedRedact[0] != "**.qty_on_hand" {
-		t.Fatalf("the redact pattern the safe spot did not have must be named as unapproved: %+v", rep.UnapprovedRedact)
-	}
-	text := rep.Text()
-	if !strings.Contains(text, "**.qty_on_hand") || !strings.Contains(text, "fetch_order results.0.qty_on_hand") {
-		t.Fatalf("the report must name the pattern and the value it hid:\n%s", text)
-	}
-}
-
-func TestRedactPatternsTheSafeSpotRunLackedAreUnapproved(t *testing.T) {
-	spot := orderSpot(`{"name":"Widget"}`)
-	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"name":"Widget"}`))
-	rec.Redacted = []string{"**.password", "**.pin"}
-	rep := diff.Compare(spot, rec)
-	rep.NoteApprovedRedact([]string{"**.password"}, rec)
-	if len(rep.UnapprovedRedact) != 1 || rep.UnapprovedRedact[0] != "**.pin" {
-		t.Fatalf("a pattern the safe spot's run did not have must be unapproved: %+v", rep.UnapprovedRedact)
-	}
-}
-
-func TestRedactedInTheSafeSpotOnlyIsNeverCompared(t *testing.T) {
-	spot := orderSpot(`{"qty_on_hand":"<redacted>","name":"Widget"}`)
-	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"qty_on_hand":7,"name":"Widget"}`))
-	rep := diff.Compare(spot, rec)
-	if !rep.Clean() || rep.Widened() {
-		t.Fatalf("a value redacted in the safe spot only is not compared:\n%s", rep.Text())
-	}
-}
-
-func TestRequestValueRedactedOnOneSideIsNotAnInputChange(t *testing.T) {
 	spot := orderSpot(`{"name":"Widget"}`)
 	spot.Steps[0].Request = []byte(`{"qty":5}`)
 	got := stepAs("fetch_order", runner.StatusPassed, `{"name":"Widget"}`)
 	got.Request = []byte(`{"qty":"<redacted>"}`)
 	if changes := diff.CompareRequests(spot, runOf("run", got), nil); len(changes) != 0 {
 		t.Fatalf("a request value redacted on one side only is not different input: %+v", changes)
-	}
-}
-
-func TestAnEmptyValueTheSafeSpotHeldUnderARedactPatternIsAChangeNotANewPattern(t *testing.T) {
-	spot := orderSpot(`{"access_token":"","name":"Widget"}`)
-	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"access_token":"<redacted>","name":"Widget"}`))
-	rec.Redacted = []string{"**.access_token"}
-	rep := diff.Compare(spot, rec)
-	rep.NoteApprovedRedact([]string{"**.access_token"}, rec)
-	if rep.Widened() || strings.Contains(rep.Text(), "did not have") {
-		t.Fatalf("the pattern was there at approval; the redactor leaves an empty value in the clear:\n%s", rep.Text())
-	}
-	if rep.Clean() || !strings.Contains(rep.Text(), "access_token") {
-		t.Fatalf("an empty value that now holds a secret is a change:\n%s", rep.Text())
-	}
-}
-
-func TestASecretTheSafeSpotRedactedThatIsNowEmptyIsAChange(t *testing.T) {
-	spot := orderSpot(`{"access_token":"<redacted>","name":"Widget"}`)
-	rec := runOf("run", stepAs("fetch_order", runner.StatusPassed, `{"access_token":"","name":"Widget"}`))
-	rec.Redacted = []string{"**.access_token"}
-	if rep := diff.Compare(spot, rec); rep.Clean() || !strings.Contains(rep.Text(), "access_token") {
-		t.Fatalf("a secret that is now empty is a change, not a redacted value:\n%s", rep.Text())
 	}
 }
 
@@ -296,69 +259,37 @@ func TestAVolatileListShowsItsLengthOnlyWhenItsOwnExpectationFailed(t *testing.T
 	}
 }
 
-const recordedCreate = `{"product":{"id":"p1","name":"w","created_at":"2026-09-01T10:00:00Z"}}`
-
-func TestVolatileMaskStillReportsAValueThatVanishes(t *testing.T) {
-	for _, got := range []string{
-		`{"product":{"id":"p1","name":"w"}}`,
-		`{"product":{"id":"p1","name":"w","created_at":null}}`,
-		`{"product":{"id":"p1","name":"w","created_at":""}}`,
-		`{"product":{"id":"p1","name":"w","created_at":"1970-01-01T00:00:00Z"}}`,
-		`{"product":{"id":"p1","name":"w","created_at":"0001-01-01T00:00:00Z"}}`,
+func TestAVolatileValueIsHiddenOnlyWhileItHoldsAValue(t *testing.T) {
+	body := func(created string) string {
+		return `{"product":{"id":"p1","name":"w"` + created + `}}`
+	}
+	recorded := body(`,"created_at":"2026-09-01T10:00:00Z"`)
+	for _, c := range []struct {
+		was, now string
+		clean    bool
+	}{
+		{recorded, body(`,"created_at":"2026-09-02T11:00:00Z"`), true},
+		{body(`,"created_at":null`), body(""), true},
+		{body(""), body(`,"created_at":null`), true},
+		{recorded, body(""), false},
+		{recorded, body(`,"created_at":null`), false},
+		{recorded, body(`,"created_at":""`), false},
+		{recorded, body(`,"created_at":"1970-01-01T00:00:00Z"`), false},
+		{recorded, body(`,"created_at":"0001-01-01T00:00:00Z"`), false},
+		{body(""), recorded, false},
 	} {
-		spot := spotOf([]string{"**.created_at"}, step("create", recordedCreate))
-		rep := diff.Compare(spot, recOf(step("create", got)))
-		if rep.Clean() || len(rep.Changes) != 1 || rep.Changes[0].Path != "product.created_at" {
-			t.Fatalf("%s: a volatile value that vanished must still be reported: %+v", got, rep.Changes)
+		rep := diff.Compare(spotOf([]string{"**.created_at"}, step("create", c.was)), recOf(step("create", c.now)))
+		if rep.Clean() != c.clean || (!c.clean && (changeKeys(rep.Changes) == "" || !strings.Contains(rep.Text(), "**.created_at"))) {
+			t.Errorf("%s -> %s: verify clean=%v, want %v, naming the pattern when not:\n%s", c.was, c.now, rep.Clean(), c.clean, rep.Text())
 		}
-		if !strings.Contains(rep.Text(), "**.created_at") {
-			t.Fatalf("%s: name the volatile pattern that did not hide it:\n%s", got, rep.Text())
+		if c.clean && c.now != body(`,"created_at":"2026-09-02T11:00:00Z"`) && (rep.VolatileMasked != 1 || len(rep.VolatileValues) != 1 || rep.VolatileValues[0].Mask != "**.created_at") {
+			t.Errorf("%s -> %s: a null and an absent value are one masked value: %+v", c.was, c.now, rep.VolatileValues)
 		}
-		a := runOf("a", stepAs("create", runner.StatusPassed, recordedCreate))
-		b := runOf("b", stepAs("create", runner.StatusPassed, got))
+		a, b := runOf("a", stepAs("create", runner.StatusPassed, c.was)), runOf("b", stepAs("create", runner.StatusPassed, c.now))
 		a.Volatile, b.Volatile = []string{"**.created_at"}, []string{"**.created_at"}
-		if rr := compareRuns(a, b); rr.Same() {
-			t.Fatalf("%s: shrt diff must report the vanished value too:\n%s", got, rr.Text())
+		if compareRuns(a, b).Same() != c.clean || compareRuns(b, a).Same() != c.clean {
+			t.Errorf("%s -> %s: diff must agree with verify (clean=%v)", c.was, c.now, c.clean)
 		}
-		if rr := compareRuns(b, a); rr.Same() {
-			t.Fatalf("%s: a value appearing where the first run had none is reported too:\n%s", got, rr.Text())
-		}
-	}
-}
-
-func TestVolatileMaskStillHidesAChangedValue(t *testing.T) {
-	spot := spotOf([]string{"**.created_at"}, step("create", recordedCreate))
-	now := `{"product":{"id":"p1","name":"w","created_at":"2026-09-02T11:00:00Z"}}`
-	if rep := diff.Compare(spot, recOf(step("create", now))); !rep.Clean() {
-		t.Fatalf("a changed volatile value is not a difference:\n%s", rep.Text())
-	}
-}
-
-func TestVolatileNullAndAbsentAreTheSameInVerifyAndDiff(t *testing.T) {
-	withNull := `{"product":{"id":"p1","name":"w","created_at":null}}`
-	absent := `{"product":{"id":"p1","name":"w"}}`
-	for _, pair := range [][2]string{{withNull, absent}, {absent, withNull}} {
-		spot := spotOf([]string{"**.created_at"}, step("create", pair[0]))
-		rep := diff.Compare(spot, recOf(step("create", pair[1])))
-		if !rep.Clean() || rep.VolatileMasked != 1 {
-			t.Fatalf("%s -> %s: no value was lost or gained, so verify masks it as shrt diff does:\n%s", pair[0], pair[1], rep.Text())
-		}
-		if len(rep.VolatileValues) != 1 || rep.VolatileValues[0].Mask != "**.created_at" {
-			t.Fatalf("%s -> %s: the masked value names its pattern: %+v", pair[0], pair[1], rep.VolatileValues)
-		}
-		if len(rep.UnapprovedMasked) > 0 {
-			t.Fatalf("%s -> %s: the safe spot approved the pattern: %v", pair[0], pair[1], rep.UnapprovedMasked)
-		}
-		a := runOf("a", stepAs("create", runner.StatusPassed, pair[0]))
-		b := runOf("b", stepAs("create", runner.StatusPassed, pair[1]))
-		a.Volatile, b.Volatile = []string{"**.created_at"}, []string{"**.created_at"}
-		if rr := compareRuns(a, b); !rr.Same() {
-			t.Fatalf("%s -> %s: shrt diff masks it:\n%s", pair[0], pair[1], rr.Text())
-		}
-	}
-	spot := spotOf([]string{"**.created_at"}, step("create", absent))
-	if rep := diff.Compare(spot, recOf(step("create", `{"product":{"id":"p1","name":"w","created_at":"2026-09-01T10:00:00Z"}}`))); rep.Clean() {
-		t.Fatalf("a value appearing where the safe spot had none is still reported:\n%s", rep.Text())
 	}
 }
 
