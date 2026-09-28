@@ -376,7 +376,7 @@ func joinDataPath(path string) string {
 	segs := SplitPath(path)
 	kept := make([]string, 0, len(segs))
 	for _, s := range segs {
-		if isIndex(s) {
+		if isDigits(s) {
 			continue
 		}
 		kept = append(kept, s)

@@ -218,7 +218,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 	out := []string{}
 	var last *catalog.Field
 	for i, seg := range segs {
-		if isIndexSegment(seg) {
+		if isDigits(seg) {
 			if last == nil || last.Repeated {
 				out = append(out, seg)
 			}
@@ -242,7 +242,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 func nearPath(fields []*catalog.Field, segs []string) string {
 	top := fields
 	for i, seg := range segs {
-		if isIndexSegment(seg) {
+		if isDigits(seg) {
 			continue
 		}
 		var next *catalog.Field
@@ -376,7 +376,7 @@ func lintRefSyntax(s *Step) []Issue {
 		values = append(values, e.Operands()...)
 	}
 	issues := []Issue{}
-	walkStrings(values, func(text string) {
+	walkText(values, "", func(_, text string) {
 		for _, why := range refSyntaxProblems(text) {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindRefSyntax, Message: why})
 		}
@@ -397,7 +397,7 @@ func refSyntaxProblems(text string) []string {
 		if r.Err != nil || r.Rest == "" || (r.Kind != RefClock && r.Kind != RefUUID) {
 			continue
 		}
-		if r.Kind == RefClock && r.Offset != 0 && isIndexSegment(r.Rest) {
+		if r.Kind == RefClock && r.Offset != 0 && isDigits(r.Rest) {
 			out = append(out, fmt.Sprintf("%q: the offset in ${%s} is a whole number of seconds, so it "+
 				"resolves as ${%s} and the .%s is dropped. Write the offset in whole seconds", text, trimmed,
 				r.Expr[:len(r.Expr)-len(r.Rest)-1], r.Rest))
@@ -868,7 +868,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 	switch {
 	case f.MapKey != "" && namecase.Equal(f.Name, last):
 		return "a map", true
-	case f.Repeated && !isIndex(last):
+	case f.Repeated && !isDigits(last):
 		return "a list", true
 	case (f.Kind == "message" || f.Kind == "group") && f.MapKey == "" &&
 		(f.Message == "google.protobuf.Struct" || !strings.HasPrefix(f.Message, "google.protobuf.")):
@@ -1000,7 +1000,7 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 	segs := SplitPath(path)
 	out := make([]string, 0, len(segs))
 	for i, seg := range segs {
-		if isIndexSegment(seg) {
+		if isDigits(seg) {
 			out = append(out, seg)
 			continue
 		}
@@ -1039,15 +1039,6 @@ func inexactPathIssue(stepID, what, exact string, m *catalog.Method) Issue {
 		"%s, which matches a field of %s only by folding case and separators; the field is %q. It resolves "+
 			"at run time, but a reader, a grep and a diff against the proto see a name the message does not "+
 			"declare: write %q", what, m.Output().FullName(), exact, exact)}
-}
-
-func isIndex(s string) bool {
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != ""
 }
 
 func ExternalInputs(c *Chain) (vars []string, env []string) {
@@ -1271,7 +1262,7 @@ func lintExpectRules(s *Step) []Issue {
 }
 
 func enumValuesAt(fields []*catalog.Field, segs []string) []string {
-	for len(segs) > 0 && isIndexSegment(segs[0]) {
+	for len(segs) > 0 && isDigits(segs[0]) {
 		segs = segs[1:]
 	}
 	if len(segs) == 0 {
@@ -1282,7 +1273,7 @@ func enumValuesAt(fields []*catalog.Field, segs []string) []string {
 			continue
 		}
 		rest := segs[1:]
-		for len(rest) > 0 && isIndexSegment(rest[0]) {
+		for len(rest) > 0 && isDigits(rest[0]) {
 			rest = rest[1:]
 		}
 		if len(rest) == 0 {
@@ -1291,18 +1282,6 @@ func enumValuesAt(fields []*catalog.Field, segs []string) []string {
 		return enumValuesAt(f.Fields, rest)
 	}
 	return nil
-}
-
-func isIndexSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func LintCorpus(chains []*Chain) []Issue {
