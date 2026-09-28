@@ -22,7 +22,7 @@ func proposeAll(e *env, note, by string) error {
 	e.store.Notes = nil
 	branch, commit := gitWhere(e.cfg.Root)
 	rows := []store.ProposalRow{}
-	failed := 0
+	failed, skipped, reasons := 0, map[string][]string{}, []string{}
 	for _, c := range chains {
 		rec, reason := proposable(e, c)
 		hasSpot := e.store.HasSafeSpot(c.Name)
@@ -33,7 +33,10 @@ func proposeAll(e *env, note, by string) error {
 			}
 		}
 		if reason != "" {
-			fmt.Printf("skip     %s: %s\n", c.Name, reason)
+			if skipped[reason] == nil {
+				reasons = append(reasons, reason)
+			}
+			skipped[reason] = append(skipped[reason], c.Name)
 			continue
 		}
 		comparedTo, unstable, carried := unstableFields(e, rec)
@@ -46,6 +49,9 @@ func proposeAll(e *env, note, by string) error {
 			continue
 		}
 		rows = append(rows, store.ProposalRowOf(p, rec))
+	}
+	for _, r := range reasons {
+		fmt.Printf("skip     %s: %s\n", r, capList(skipped[r], 3))
 	}
 	if len(rows) == 0 {
 		fmt.Println("nothing proposed")
@@ -60,11 +66,11 @@ func proposeAll(e *env, note, by string) error {
 
 func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 	fmt.Printf("\nproposed %d chain(s), NOT safe spots yet; what the proposer checked: %s\n\n", len(rows), strings.Join(strings.Fields(note), " "))
-	fmt.Println("| chain | run | steps passed | rpcs | refusals asserted | check before approving |\n|---|---|---|---|---|---|")
+	fmt.Println("| chain | run | steps passed | refusals asserted | check before approving |\n|---|---|---|---|---|")
 	volatile := map[string][]string{}
 	order := []string{}
 	for _, r := range rows {
-		fmt.Printf("| %s | `%s` | %s | %s | %s | %s |\n", r.Chain, r.Run, r.Steps, r.RPCs, r.Refusals, r.Check)
+		fmt.Printf("| %s | `%s` | %s | %s | %s |\n", r.Chain, r.Run, r.Steps, r.Refusals, r.Check)
 		if volatile[r.Volatile] == nil {
 			order = append(order, r.Volatile)
 		}
@@ -80,9 +86,9 @@ func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 		}
 		fmt.Printf("\n**Volatile, never compared by `shrt verify`:** %s (%s)\n", v, which)
 	}
-	fmt.Printf("\nApproving makes every response field of each run that no volatile pattern covers, not only the asserted ones, "+
-		"the baseline `shrt verify` compares against. Each chain's full summary, step by step: %s/<chain>.md\n", rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "pending")))
-	fmt.Printf("\nshow the user this table in the conversation, with what you checked, and ask them to approve or reject each:\n" +
+	fmt.Printf("\nApproving makes every response field of each run that no volatile pattern covers the baseline `shrt verify` compares against. "+
+		"Each chain's full summary: %s/<chain>.md\n", rel(e.cfg.Root, filepath.Join(e.store.SafeSpotsDir, "pending")))
+	fmt.Printf("\nshow the user this table, with what you checked, and ask them to approve or reject each:\n" +
 		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>\n" +
 		"for each one they reject, first:             shrt confirm <chain> -reject\n")
 }

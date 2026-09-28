@@ -74,7 +74,7 @@ func TestAProposalRowNamesWhatToCheckInOneLine(t *testing.T) {
 		{ID: "fetch", Call: "x.v1.OrderService/FetchOrder", Status: runner.StatusPassed, Response: json.RawMessage(`{"status":{"code":"SUCCESS"}}`)},
 	}}
 	row := store.ProposalRowOf(&store.Proposal{Chain: "orders", RunID: "run-1", ComparedTo: "run-0"}, rec)
-	if row.Steps != "3/3" || row.RPCs != "FetchOrder ×2, CreateOrder ×1" || row.Refusals != "REJECTED 1302 OrderNotFound ×1" ||
+	if row.Steps != "3/3" || row.Refusals != "REJECTED 1302 OrderNotFound ×1" ||
 		row.Check != "1 step(s) assert nothing; 1 step(s) assert only the verdict" || row.Volatile != "`**.created_at`" {
 		t.Errorf("one row per chain, with what to look at: %+v", row)
 	}
