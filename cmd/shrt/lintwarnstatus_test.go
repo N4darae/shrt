@@ -25,4 +25,8 @@ func TestChainLintMarksAChainWithOnlyWarningsWarn(t *testing.T) {
 	if !found || !strings.Contains(out, "WARN") {
 		t.Fatalf("want a warning under the chain's line:\n%s", out)
 	}
+	out = captureStdout(t, func() { err = chainLint([]string{"-v"}) })
+	if !strings.Contains(out, "\nWARN   cli-thing-flow [") {
+		t.Fatalf("each issue line names its chain, so a grep for WARN or ERROR finds where:\n%s", out)
+	}
 }

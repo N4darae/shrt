@@ -60,3 +60,46 @@ func TestSliceWithoutVerifySaysStillFailingStepsGotOtherValues(t *testing.T) {
 		t.Fatalf("only b moved:\n%s", out)
 	}
 }
+
+func TestSliceWithoutVerifySaysALeftOutWriteHadNoEffectItsContractPromises(t *testing.T) {
+	lib := contract.NewLibrary([]*contract.Overlay{{
+		APIVersion: "shrt/contract/v1",
+		Domain:     "test",
+		RPCs: map[string]*contract.RPCContract{
+			"s.v1.Order/Cancel": {Effects: contract.Effects{"qty_on_hand": {Restore: "CONFIRMED"}}},
+			"s.v1.Order/Note":   {},
+		},
+	}})
+	rec := &runner.Record{Steps: []*runner.StepRecord{
+		{ID: "cancel", Call: "s.v1.Order/Cancel"},
+		{ID: "note", Call: "s.v1.Order/Note"},
+		{ID: "read", Call: "s.v1.Product/Get", Expect: []chain.ExpectResult{{Path: "product.qty_on_hand", Got: 5}}},
+		{ID: "name", Call: "s.v1.Product/Get", Expect: []chain.ExpectResult{{Path: "product.name", Got: "x"}}},
+	}}
+	same := func(s string) string { return s }
+	got := noEffectOf(lib, same, rec, []string{"cancel", "note"}, []string{"read", "name"})
+	if len(got) != 1 || got[0].Step != "cancel" || got[0].Field != "qty_on_hand" || len(got[0].Reads) != 1 || got[0].Reads[0] != "read" {
+		t.Fatalf("cancel restores qty_on_hand, which read gets unchanged: %+v", got)
+	}
+	if got := noEffectOf(lib, same, rec, []string{"note"}, []string{"read"}); len(got) != 0 {
+		t.Fatalf("note moves nothing: %+v", got)
+	}
+
+	v := &withoutVerdict{Without: []string{"cancel"}, SourceRun: "r1", StillFail: []string{"read", "name"}, NoEffect: got}
+	out := v.text()
+	for _, want := range []string{
+		"verify without cancel: cancel had no effect on qty_on_hand: read read the same value without it, though its contract says qty_on_hand: {restore: CONFIRMED}\n",
+		"  still fail: name\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "NOT REPRODUCED") || !strings.Contains(v.err().Error(), "cancel had no effect on qty_on_hand") {
+		t.Fatalf("a write that did not do what its contract says is not a bare NOT REPRODUCED:\n%s\n%v", out, v.err())
+	}
+	v.NoEffect = nil
+	if !strings.Contains(v.text(), "verify NOT REPRODUCED without cancel") {
+		t.Fatalf("without a contract effect the verdict stays:\n%s", v.text())
+	}
+}
