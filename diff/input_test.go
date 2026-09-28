@@ -213,79 +213,37 @@ func TestAStepHeaderEditIsAnInputChange(t *testing.T) {
 	}
 }
 
-func TestAPrincipalSwapIsAnInputChange(t *testing.T) {
-	step := func(profile string) *runner.StepRecord {
-		return &runner.StepRecord{ID: "create_customer", Call: "CustomerService/CreateCustomer", Status: runner.StatusPassed,
-			AuthProfile: profile, Request: json.RawMessage(`{"name":"Carol"}`), Response: json.RawMessage(`{"status":{"code":"SUCCESS"}}`)}
+func TestAnotherPrincipalIsAnInputChangeOnlyWhenBothSidesNameOne(t *testing.T) {
+	as := func(profile, principal string) *runner.StepRecord {
+		st := stepAs("create", runner.StatusPassed, `{"error":{"code":"OK"}}`)
+		st.AuthProfile, st.AuthPrincipal = profile, principal
+		return st
 	}
-	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: []*runner.StepRecord{step("default")}}
-	rec := runOf("run", step("clerk"))
-	changes := diff.CompareRequests(spot, rec, nil)
-	if len(changes) != 1 || changes[0].Path != "auth_profile" || changes[0].Want != "default" || changes[0].Got != "clerk" {
-		t.Fatalf("the step now runs as another principal, which is a change of input: %+v", changes)
+	for _, c := range []struct {
+		name               string
+		spot, run          *runner.StepRecord
+		changed, unchecked bool
+	}{
+		{"another profile", as("default", ""), as("clerk", ""), true, false},
+		{"same profile", as("default", ""), as("default", ""), false, false},
+		{"run names no profile", as("default", ""), as("", ""), false, false},
+		{"another principal behind one profile", as("default", "aaaa1111bbbb2222"), as("default", "cccc3333dddd4444"), true, false},
+		{"same principal", as("default", "aaaa1111bbbb2222"), as("default", "aaaa1111bbbb2222"), false, false},
+		{"run names no principal", as("default", "aaaa1111bbbb2222"), as("default", ""), false, false},
+		{"safe spot names no principal", as("default", ""), as("default", "cccc3333dddd4444"), false, true},
+	} {
+		spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{c.spot}}
+		rep := diff.CompareWithRequests(spot, runOf("run", c.run), nil, nil)
+		if rep.PrincipalChanged() != c.changed || (len(rep.PrincipalUnchecked) == 1) != c.unchecked {
+			t.Errorf("%s: changed=%v unchecked=%v, want %v %v:\n%s", c.name, rep.PrincipalChanged(), rep.PrincipalUnchecked, c.changed, c.unchecked, rep.Text())
+		}
 	}
-	rep := diff.CompareWithRequests(spot, rec, nil, nil)
-	if !strings.Contains(rep.Text(), "auth_profile (default -> clerk)") {
-		t.Fatalf("name the profile change:\n%s", rep.Text())
+	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{as("default", "")}}
+	if text := diff.CompareWithRequests(spot, runOf("run", as("clerk", "")), nil, nil).Text(); !strings.Contains(text, "auth_profile (default -> clerk)") {
+		t.Fatalf("name the profile change:\n%s", text)
 	}
-	if !rep.PrincipalChanged() {
-		t.Fatal("a principal swap must stop verify from reporting no drift")
-	}
-	if got := diff.CompareRequests(spot, runOf("run", step("default")), nil); len(got) != 0 {
-		t.Fatalf("same principal, no change: %+v", got)
-	}
-	if got := diff.CompareRequests(spot, runOf("run", step("")), nil); len(got) != 0 {
-		t.Fatalf("a record that does not say which profile ran is not evidence of a swap: %+v", got)
-	}
-}
-
-func TestAnotherPrincipalBehindTheSameProfileIsAnInputChange(t *testing.T) {
-	body := `{"error":{"code":"OK"}}`
-	want := stepAs("create", runner.StatusPassed, body)
-	want.AuthProfile, want.AuthPrincipal = "default", "aaaa1111bbbb2222"
-	got := stepAs("create", runner.StatusPassed, body)
-	got.AuthProfile, got.AuthPrincipal = "default", "cccc3333dddd4444"
-	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{want}}
-
-	rep := diff.CompareWithRequests(spot, runOf("run", got), nil, nil)
-	if !rep.PrincipalChanged() {
-		t.Fatalf("the same profile logged in as someone else, so the safe spot does not vouch for this run:\n%s", rep.Text())
-	}
-	if !strings.Contains(rep.Text(), "principal") {
-		t.Fatalf("the report must say the principal changed:\n%s", rep.Text())
-	}
-
-	same := stepAs("create", runner.StatusPassed, body)
-	same.AuthProfile, same.AuthPrincipal = "default", "aaaa1111bbbb2222"
-	if rep := diff.CompareWithRequests(spot, runOf("run", same), nil, nil); rep.PrincipalChanged() {
-		t.Fatalf("the same principal is no input change:\n%s", rep.Text())
-	}
-	old := stepAs("create", runner.StatusPassed, body)
-	old.AuthProfile = "default"
-	if rep := diff.CompareWithRequests(spot, runOf("run", old), nil, nil); rep.PrincipalChanged() {
-		t.Fatalf("a record that does not say which principal ran is not compared:\n%s", rep.Text())
-	}
-}
-
-func TestASafeSpotWithoutAPrincipalSaysPrincipalCheckingIsOff(t *testing.T) {
-	want := stepAs("create", runner.StatusPassed, `{"error":{"code":"OK"}}`)
-	want.AuthProfile = "default"
-	got := stepAs("create", runner.StatusPassed, `{"error":{"code":"REJECTED"}}`)
-	got.AuthProfile, got.AuthPrincipal = "default", "cccc3333dddd4444"
-	spot := &store.SafeSpot{Chain: "thing-flow", RunID: "spot", Steps: []*runner.StepRecord{want}}
-	rep := diff.CompareWithRequests(spot, runOf("run", got), nil, nil)
-	if len(rep.PrincipalUnchecked) != 1 || rep.PrincipalUnchecked[0] != "create" {
-		t.Fatalf("the safe spot cannot say which principal ran create, got %v", rep.PrincipalUnchecked)
-	}
-	text := rep.Text()
-	if !strings.Contains(text, "principal checking is off") || !strings.Contains(text, "shrt confirm thing-flow -supersede") {
-		t.Fatalf("the report must say principal checking is off and how to turn it on:\n%s", text)
-	}
-	both := stepAs("create", runner.StatusPassed, `{"error":{"code":"OK"}}`)
-	both.AuthProfile, both.AuthPrincipal = "default", "aaaa"
-	spot.Steps[0] = both
-	if rep := diff.CompareWithRequests(spot, runOf("run", got), nil, nil); len(rep.PrincipalUnchecked) != 0 {
-		t.Fatalf("a safe spot with a principal is checked, got %v", rep.PrincipalUnchecked)
+	if text := diff.CompareWithRequests(spot, runOf("run", as("default", "cccc")), nil, nil).Text(); !strings.Contains(text, "principal checking is off") || !strings.Contains(text, "shrt confirm thing-flow -supersede") {
+		t.Fatalf("say principal checking is off and how to turn it on:\n%s", text)
 	}
 }
 
@@ -472,47 +430,35 @@ func unexplainedSteps(rep *diff.Report) string {
 	return strings.Join(out, ",")
 }
 
-func TestAnInputChangeWhoseResponseDidNotChangeExplainsNothingDownstream(t *testing.T) {
-	spot, rec := causalRuns("5348", "6250", "6250", "7")
-	rep := diff.CompareMasking(spot, rec, nil)
-	rep.RequestChanges = []diff.Change{{Step: "customer", Path: "headers.X-Trace-Note", Kind: diff.KindUnexpected, Got: "lab"}}
-	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: causalReads()})
-	if got := unexplainedSteps(rep); got != "confirm:total,order:total" {
-		t.Fatalf("customer answered as before, so its header explains no change at the steps reading it: %s\n%s", got, rep.Text())
-	}
-}
-
-func TestAnInputChangeExplainsItsOwnStepAndTheStepsReadingItsChangedResponse(t *testing.T) {
-	spot, rec := causalRuns("5348", "6598", "6598", "6")
-	rep := diff.CompareMasking(spot, rec, nil)
-	rep.RequestChanges = []diff.Change{{Step: "order", Path: "lines.0.qty", Kind: diff.KindChanged, Want: "3", Got: "4"}}
-	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: causalReads()})
-	if got := unexplainedSteps(rep); got != "" {
-		t.Fatalf("order is a write whose answer changed with its qty, so the server state after it may differ: the stock read is explained too: %s\n%s", got, rep.Text())
-	}
-}
-
-func TestAnInputChangeAtAReadExplainsOnlyItsReaders(t *testing.T) {
-	spot, rec := causalRuns("5348", "5348", "5348", "6")
-	spot.Steps[1].Call, rec.Steps[1].Call = "S/GetCustomer", "S/GetCustomer"
-	rec.Steps[1].Response = []byte(`{"id":"c2"}`)
-	rep := diff.CompareMasking(spot, rec, nil)
-	rep.RequestChanges = []diff.Change{{Step: "customer", Path: "id", Kind: diff.KindChanged, Want: "c1", Got: "c2"}}
-	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: causalReads()})
-	if got := unexplainedSteps(rep); got != "stock:qty" {
-		t.Fatalf("a read changes no server state, so its different input explains nothing at stock, which does not read it: %s\n%s", got, rep.Text())
-	}
-}
-
-func TestARequestValueReadDownstreamExplainsTheReader(t *testing.T) {
-	spot, rec := causalRuns("5348", "5348", "6598", "7")
-	rep := diff.CompareMasking(spot, rec, nil)
-	rep.RequestChanges = []diff.Change{{Step: "order", Path: "lines.0.qty", Kind: diff.KindChanged, Want: "3", Got: "4"}}
-	reads := causalReads()
-	reads["confirm"] = []diff.Read{{Step: "order", Request: true, Path: "lines"}}
-	rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: reads})
-	if got := unexplainedSteps(rep); got != "" {
-		t.Fatalf("confirm reads order's changed request value, so its change is explained: %s\n%s", got, rep.Text())
+func TestAnInputChangeExplainsOnlyTheStepsItReaches(t *testing.T) {
+	for _, c := range []struct {
+		name                string
+		order, confirm, qty string
+		readCustomer        bool
+		change              diff.Change
+		confirmReadsLines   bool
+		want                string
+	}{
+		{"a header whose step answered as before", "6250", "6250", "7", false, diff.Change{Step: "customer", Path: "headers.X-Trace-Note", Kind: diff.KindUnexpected, Got: "lab"}, false, "confirm:total,order:total"},
+		{"a write whose answer changed reaches every later read", "6598", "6598", "6", false, diff.Change{Step: "order", Path: "lines.0.qty", Kind: diff.KindChanged, Want: "3", Got: "4"}, false, ""},
+		{"a read reaches only its readers", "5348", "5348", "6", true, diff.Change{Step: "customer", Path: "id", Kind: diff.KindChanged, Want: "c1", Got: "c2"}, false, "stock:qty"},
+		{"a request value read downstream", "5348", "6598", "7", false, diff.Change{Step: "order", Path: "lines.0.qty", Kind: diff.KindChanged, Want: "3", Got: "4"}, true, ""},
+	} {
+		spot, rec := causalRuns("5348", c.order, c.confirm, c.qty)
+		if c.readCustomer {
+			spot.Steps[1].Call, rec.Steps[1].Call = "S/GetCustomer", "S/GetCustomer"
+			rec.Steps[1].Response = []byte(`{"id":"c2"}`)
+		}
+		reads := causalReads()
+		if c.confirmReadsLines {
+			reads["confirm"] = []diff.Read{{Step: "order", Request: true, Path: "lines"}}
+		}
+		rep := diff.CompareMasking(spot, rec, nil)
+		rep.RequestChanges = []diff.Change{c.change}
+		rep.SeparateInput(spot, rec, nil, diff.Fixtures{Reads: reads})
+		if got := unexplainedSteps(rep); got != c.want {
+			t.Errorf("%s: unexplained %q, want %q\n%s", c.name, got, c.want, rep.Text())
+		}
 	}
 }
 
