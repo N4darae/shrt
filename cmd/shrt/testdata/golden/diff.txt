@@ -5,6 +5,6 @@ step status changes (A -> B):
   cancel_confirmed  passed -> failed
 2 response difference(s) in steps both runs reached:
   [cancel_confirmed] changed    status.code a=SUCCESS b=REJECTED
-  [cancel_confirmed] changed    status.message a= b=StillConfirmed
+  [cancel_confirmed] changed    status.message a="" b=StillConfirmed
 not counted: 43 (-masked lists them)
 

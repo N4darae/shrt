@@ -1020,10 +1020,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 }
 
 func valueText(s string) string {
-	if s == "" {
-		return `""`
-	}
-	return capText(s, 60)
+	return capText(chain.EdgeQuoted(s), 60)
 }
 
 func envelopeOnly(path string) bool {

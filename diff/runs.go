@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +73,7 @@ type RunReport struct {
 	compared     []comparedStep
 	idPairs      []idPair
 	winA, winB   *runWindow
+	varsA, varsB map[string]any
 	fixturePairs [][2]string
 }
 
@@ -97,7 +99,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		Chain: a.Chain,
 		RunA:  a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
-		winA: recordWindow(a), winB: recordWindow(b),
+		winA: recordWindow(a), winB: recordWindow(b), varsA: a.Vars, varsB: b.Vars,
 	}
 	if rep.FirstFailureA != "" && rep.FirstFailureA == rep.FirstFailureB {
 		sa, _ := a.Step(rep.FirstFailureA)
@@ -630,7 +632,7 @@ func (r *RunReport) Text() string {
 			if c.Detail != "" {
 				detail = " (" + c.Detail + ")"
 			}
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", c.Step, c.Kind, c.Path, c.describeRuns(), detail)
+			fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", c.Step, c.Kind, c.Path, r.describe(c), detail)
 		}
 	}
 	if len(r.UndeclaredUnknown) > 0 {
@@ -752,6 +754,23 @@ func maskVarValues(vars map[string]any, text string) string {
 		text = strings.ReplaceAll(text, fmt.Sprint(vars[name]), "${vars."+name+"}")
 	}
 	return text
+}
+
+func (r *RunReport) describe(c Change) string {
+	if c.Kind == KindLength || c.Kind == KindType {
+		return c.describeRuns()
+	}
+	return fmt.Sprintf("a=%s b=%s", runValue(c.Want, r.varsA), runValue(c.Got, r.varsB))
+}
+
+func runValue(v any, vars map[string]any) string {
+	switch t := v.(type) {
+	case string:
+		return chain.EdgeQuoted(maskVarValues(vars, t))
+	case float64:
+		return strconv.FormatFloat(t, 'f', -1, 64)
+	}
+	return fmt.Sprint(v)
 }
 
 func (c Change) DescribeRuns() string {

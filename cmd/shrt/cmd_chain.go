@@ -376,11 +376,17 @@ func chainLint(args []string) error {
 					status = "FAIL"
 				}
 			}
-			fmt.Printf("%-4s %s\n", status, r.Chain)
+			shown := []chain.Issue{}
 			for _, i := range r.Issues {
-				if !*verbose && i.Kind == chain.KindUnassertedTimestamp && stamps.add(r.Chain, i) {
-					continue
+				if *verbose || i.Kind != chain.KindUnassertedTimestamp || !stamps.add(r.Chain, i) {
+					shown = append(shown, i)
 				}
+			}
+			if len(shown) == 0 {
+				continue
+			}
+			fmt.Printf("%-4s %s\n", status, r.Chain)
+			for _, i := range shown {
 				where := ""
 				if i.Step != "" {
 					where = " [" + i.Step + "]"

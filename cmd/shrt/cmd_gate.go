@@ -1403,7 +1403,7 @@ func foldSlices(chains []*gateChain) {
 
 func printGateGroups(chains []*gateChain, verbose bool) {
 	type group struct {
-		rpc                  string
+		rpc, path            string
 		steps, knock, chains map[string]bool
 		example              gateItem
 		in                   string
@@ -1435,7 +1435,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			key := cmp.Or(keys[g.name+" "+cmp.Or(it.suspect(), it.Step)], keyOf(it, it.Path))
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: it.rpc(), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &group{rpc: it.rpc(), path: strings.TrimPrefix(key, it.rpc()+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
 			}
@@ -1473,13 +1473,21 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		}
 		return len(order[i].steps) > len(order[j].steps)
 	})
+	perRPC := map[string]int{}
+	for _, gr := range order {
+		perRPC[gr.rpc]++
+	}
 	fmt.Println("failures by suspect rpc:")
 	for _, gr := range order {
 		n, it := len(gr.steps), gr.example
 		if n == 0 {
 			n = len(gr.knock)
 		}
-		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", gr.rpc, n, len(gr.chains), gr.in, it.Step)
+		head := gr.rpc
+		if perRPC[gr.rpc] > 1 && gr.path != "" {
+			head += " " + gr.path
+		}
+		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
 		if r := it.Reason.String(); r != "" {
 			line += "; " + r
 		} else {

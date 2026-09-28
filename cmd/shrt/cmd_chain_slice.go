@@ -705,22 +705,13 @@ func failedExpectLines(source, replay chain.Verdict) []string {
 }
 
 func quoted(v any) string {
-	if text, ok := v.(string); ok && (text == "" || strings.TrimSpace(text) != text) {
-		return strconv.Quote(text)
-	}
 	if v == nil {
 		return "(absent)"
 	}
-	switch v.(type) {
-	case map[string]any, []any:
-		var b strings.Builder
-		enc := json.NewEncoder(&b)
-		enc.SetEscapeHTML(false)
-		if err := enc.Encode(v); err == nil {
-			return strings.TrimRight(b.String(), "\n")
-		}
+	if text, ok := v.(string); ok {
+		return chain.EdgeQuoted(text)
 	}
-	return fmt.Sprint(v)
+	return exportJSON(v)
 }
 
 func refusalText(v chain.Verdict) string {
