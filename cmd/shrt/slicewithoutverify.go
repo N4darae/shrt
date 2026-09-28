@@ -32,7 +32,7 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: true,
 	}, quiet, false)
 	if err != nil {
-		return nil, exitWith(3, "DID NOT RUN: could not run %s without %s: %v", res.Source, strings.Join(named, ", "), err)
+		return nil, exitWith(3, "DID NOT RUN: could not run %s without %s: %v", res.Source, capList(named, 3), err)
 	}
 	a.sent = true
 	v := &withoutVerdict{Without: named, SourceRun: rec.RunID, Cleared: []string{}, StillFail: []string{}}
@@ -67,7 +67,7 @@ func failing(sr *runner.StepRecord) bool {
 
 func (v *withoutVerdict) text() string {
 	var b strings.Builder
-	without := strings.Join(v.Without, ", ")
+	without := capList(v.Without, 3)
 	counted := len(v.Cleared) + len(v.StillFail)
 	switch {
 	case counted == 0:
@@ -92,14 +92,14 @@ func (v *withoutVerdict) err() error {
 	if v == nil {
 		return nil
 	}
-	without := strings.Join(v.Without, ", ")
+	without := capList(v.Without, 3)
 	switch {
 	case len(v.StillFail) > 0 && len(v.Cleared) == 0:
 		return exitWith(1, "NOT REPRODUCED without %s", without)
 	case len(v.StillFail) > 0:
-		return exitWith(1, "without %s %d failing step(s) still fail: %s", without, len(v.StillFail), capList(v.StillFail, 5))
+		return exitWith(1, "without %s %d failing step(s) still fail", without, len(v.StillFail))
 	case len(v.Cleared) == 0 && len(v.NewFail) > 0:
-		return exitWith(1, "without %s %d step(s) fail that passed in source run %s: %s", without, len(v.NewFail), v.SourceRun, capList(v.NewFail, 5))
+		return exitWith(1, "without %s %d step(s) fail that passed in source run %s", without, len(v.NewFail), v.SourceRun)
 	}
 	return nil
 }

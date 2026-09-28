@@ -251,7 +251,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		how = fmt.Sprintf(" (failed in run %s)", fromRun)
 	}
 	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out\n\n",
-		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed))
+		c.Name, capList(ids, 3), how, len(res.Chain.Steps), res.Total, len(res.Removed))
 	idW := 0
 	for _, r := range res.Removed {
 		idW = max(idW, len(r.ID))
