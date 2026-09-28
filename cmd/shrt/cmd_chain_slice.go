@@ -146,6 +146,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 			opts.Relax = relaxIn(rec)
 		}
 		opts.StateIrrelevant = stateIrrelevantIn(e, lib, c, rec)
+		opts.AssertsWrite = func(w, r string) bool { return assertsWritten(rec, w, r, entityFactsOf(rec, r).mentions) }
 	}
 
 	res, err := chain.Slice(c, *step, opts)

@@ -596,6 +596,14 @@ func TestSliceCases(t *testing.T) {
 		{name: "-without names the failures the left-out write caused", setup: func(t *testing.T) { stockWorkspace(t, 0) },
 			args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
 			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total", "still fail, so another cause: fetch_name"}},
+		{name: "-without is inconclusive when the steps still failing read what the left-out write writes", setup: func(t *testing.T) {
+			srv := stockBackend(0)
+			t.Cleanup(srv.Close)
+			chdirToFreshCLIWorkspace(t, srv.URL)
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: 6", "equals: 99", "equals: gadget", "equals: widget").Replace(stockChain))
+			slcRunAny("stock", "-keep-going")
+		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 3,
+			want: []string{"verify INCONCLUSIVE without stray_add: the 1 step(s) that failed", "still fail, but they read what the left-out steps write: fetch_total"}, not: []string{"NOT REPRODUCED"}},
 		{name: "-without counts a failure with another value as still failing", setup: func(t *testing.T) {
 			srv := stockBackend(1)
 			t.Cleanup(srv.Close)
@@ -866,3 +874,32 @@ steps:
       body:
           id: ${create.id}
 `
+
+func TestOwnsFieldNeedsTheFieldOnTheEntityTheReaderUses(t *testing.T) {
+	decode := func(raw string) any {
+		var v any
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	batch := decode(`{"status":{"code":"SUCCESS"},"results":[{"status":{"code":"SUCCESS"},"id_product":"p1","qty_on_hand":4}]}`)
+	order := decode(`{"status":{"code":"SUCCESS"},"order":{"id_order":"o1","id_customer":"c1","total_minor":2500,"note":""}}`)
+	for _, c := range []struct {
+		v     any
+		field string
+		ids   map[string]bool
+		want  bool
+	}{
+		{batch, "qty_on_hand", map[string]bool{"p1": true}, true},
+		{batch, "qty_on_hand", map[string]bool{"p2": true}, false},
+		{order, "total_minor", map[string]bool{"c1": true}, false},
+		{order, "total_minor", map[string]bool{"o1": true}, true},
+		{order, "note", nil, false},
+		{order, "total_minor", nil, true},
+	} {
+		if got := ownsField(c.v, "", c.field, c.ids); got != c.want {
+			t.Errorf("%s with %v: got %v, want %v", c.field, c.ids, got, c.want)
+		}
+	}
+}
