@@ -7,11 +7,11 @@ coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other ro
 shrt gate: FAIL: 1 of 2 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
-FAIL       probe-orders                         chain change: cancel_confirmed () step want=shop.orders.v1.OrderService/CancelOrder got=<none>
+FAIL       probe-orders                         chain change: cancel_confirmed (OrderService/CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
 KEPT RED   probe-orders-slice-cancel_confirmed
 PASS       shop-product
 failures by suspect rpc:
-  : 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
+  OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 
@@ -89,12 +89,12 @@ failures by suspect rpc:
   S/Move: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Move)
 
 # -v lists each changed path once
-FAIL       one  later () status want=passed got=failed; knock-on of write make (S/Make)
+FAIL       one  later status want=passed got=failed; knock-on of write make (S/Make)
     thing.n at 2 step(s) (make, get); e.g. want=1 got=2
     things[].n at 1 step(s) (list); e.g. want=1 got=2
     1 step(s) knock-on of write make (S/Make) (later)
     (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy
 failures by suspect rpc:
-  : 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
+  (no rpc): 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
   S/Make: 1 step(s) in 1 chain(s); e.g. one later; knock-on of write make (S/Make)
 

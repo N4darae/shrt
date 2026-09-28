@@ -85,7 +85,25 @@ func (it gateItem) suspect() string {
 }
 
 func (it gateItem) rpc() string {
-	return shortRPC(it.Reason.rpc(it.Call))
+	call := it.Reason.rpc(it.Call)
+	if call == "" && it.Path == "step" {
+		call = it.Want
+	}
+	if call == "" {
+		return "(no rpc)"
+	}
+	return shortRPC(call)
+}
+
+func (it gateItem) callNote() string {
+	call := it.Call
+	if call == "" && it.Path == "step" {
+		call = it.Want
+	}
+	if call == "" {
+		return ""
+	}
+	return " (" + shortRPC(call) + ")"
 }
 
 func (it gateItem) root() string {
@@ -1171,7 +1189,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 						it, rank = f, r
 					}
 				}
-				g.first = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
+				g.first = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline())
 				g.firstAt = it.Step + " " + it.Path
 			} else {
 				g.first = capText(what+": "+strings.TrimPrefix(why, "kept red, but it did not fail as pinned: "), 200)
@@ -1360,7 +1378,7 @@ func settleGate(chains []*gateChain) []string {
 			g.items = nil
 			continue
 		}
-		g.first, g.firstAt = fmt.Sprintf("%s (%s) %s", it.Step, shortRPC(it.Call), it.headline()), it.Step+" "+it.Path
+		g.first, g.firstAt = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline()), it.Step+" "+it.Path
 		switch first := seen[it.root()]; {
 		case first != "" && first != g.name:
 			g.first += "; " + sameFault + first
