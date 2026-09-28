@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -305,8 +306,22 @@ func namesWithWord(word string, names []string, limit int) []string {
 	return out
 }
 
+func namesSharingWords(name string, candidates []string, limit int) []string {
+	out := []string{}
+	for _, c := range candidates {
+		if len(out) < limit && c != name && !slices.Contains(out, c) &&
+			(strings.Contains("_"+name+"_", "_"+c+"_") || strings.Contains("_"+c+"_", "_"+name+"_")) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func didYouMean(name string, candidates []string) string {
 	near := namecase.Closest(name, candidates, 3)
+	if len(near) == 0 {
+		near = namesSharingWords(name, candidates, 3)
+	}
 	if len(near) == 0 {
 		return ""
 	}

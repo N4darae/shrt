@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -956,7 +957,9 @@ func groupProblems(problems []string) []string {
 		if steps[m[2]] == nil {
 			order = append(order, m[2])
 		}
-		steps[m[2]] = append(steps[m[2]], m[1])
+		if !slices.Contains(steps[m[2]], m[1]) {
+			steps[m[2]] = append(steps[m[2]], m[1])
+		}
 	}
 	out := make([]string, 0, len(order))
 	for _, key := range order {
