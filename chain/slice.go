@@ -586,10 +586,8 @@ func SliceDescriptionPrefix(source, target string) string {
 func sliceDescription(res *SliceResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %d of %d steps.\n\n", SliceDescriptionPrefix(res.Source, res.Target), len(res.Kept), res.Total)
-	b.WriteString("Computed by 'shrt chain slice': the target step, every earlier step whose output a kept\n")
-	b.WriteString("step references, every ordering prerequisite the contracts declare for a kept rpc, and every\n")
-	b.WriteString("earlier write on an entity the target or a kept read sends, refused or not, or sending a unique\n")
-	b.WriteString("value the target sends again.\n")
+	b.WriteString("Computed by 'shrt chain slice': the target, the producers and contract prerequisites of kept steps,\n")
+	b.WriteString("and earlier writes on what they use or sending a unique value the target sends again.\n")
 	asked := []string{}
 	for _, k := range res.Kept {
 		if k.Kind == KeepAsked {
@@ -600,8 +598,7 @@ func sliceDescription(res *SliceResult) string {
 		fmt.Fprintf(&b, "Kept on request: %s.\n", listSome(asked, 8))
 	}
 	if len(res.Relaxed) > 0 {
-		fmt.Fprintf(&b, "Relaxed: kept step(s) failed these expectations in run %s after the backend answered, so the call took\n"+
-			"effect; the slice drops them so it reaches the target, and each call must still be answered: %s.\n", res.Run, RelaxedList(res.Relaxed))
+		fmt.Fprintf(&b, "Relaxed, failed in run %s after an answer: %s.\n", res.Run, RelaxedList(res.Relaxed))
 	}
 	for _, f := range res.FilledVars {
 		switch {
@@ -612,7 +609,7 @@ func sliceDescription(res *SliceResult) string {
 		}
 	}
 	if len(res.FreshVars) > 0 {
-		fmt.Fprintf(&b, "Kept writes interpolate var(s) %s into what they create: run it with a value the backend has\nnot seen, -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
+		fmt.Fprintf(&b, "Kept writes create with %s: run it with -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
 	if res.Verified != "" {
 		b.WriteString("\n" + verifiedLine(res.Verified))
@@ -637,7 +634,7 @@ func sliceDescription(res *SliceResult) string {
 		for _, d := range res.RefusedWrites {
 			names = append(names, d.ID)
 		}
-		fmt.Fprintf(&b, "\n%d dropped write step(s) were refused in run %s and act on no entity a kept step uses: %s.\n", len(names), res.Run, listSome(names, 8))
+		fmt.Fprintf(&b, "\n%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
 	}
 	if len(res.Unmet) > 0 {
 		names := []string{}

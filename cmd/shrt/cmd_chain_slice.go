@@ -934,30 +934,19 @@ func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a
 	usable, blocked := failedInSource(rec, names)
 	asked, askedBlocked := failedInSource(rec, a.keep)
 	v.NotKeepable = append(append([]string{}, askedBlocked...), blocked...)
-	if len(blocked) > 0 {
-		v.Reason += fmt.Sprintf("\nLeft out of next: %s did not pass in source run %s. A slice that keeps it stops there\n"+
-			"(-verify has no -keep-going), so step %s is never sent and the verdict can only be DID NOT RUN.",
-			strings.Join(blocked, ", "), rec.RunID, res.Target)
-	}
-	if len(askedBlocked) > 0 {
-		v.Reason += fmt.Sprintf("\nLeft out of next although you passed it with -keep: %s did not pass in source run %s.\n"+
-			"With the dropped writes kept it can fail as it did there and stop the slice before step %s is sent,\n"+
-			"so the verdict could only be DID NOT RUN.",
-			strings.Join(askedBlocked, ", "), rec.RunID, res.Target)
+	if out := append(append([]string{}, askedBlocked...), blocked...); len(out) > 0 {
+		v.Reason += fmt.Sprintf("\nleft out of next: %s did not pass in source run %s, so a slice keeping it stops there", strings.Join(out, ", "), rec.RunID)
 	}
 	a.keep = asked
 	if len(usable) == 0 {
-		v.Reason += "\nNo -keep command can reproduce this target: every dropped write it would need failed in the source run.\n" +
-			"Fix those steps, or write a chain that reaches the target without them, run it, and verify a slice of that."
+		v.Reason += "\nNo -keep command can reproduce this target: every dropped write it needs failed in the source run"
 		return
 	}
 	allWrites := len(blocked) == 0 && len(usable) == len(res.DroppedWrites) && keepsEveryWriteCleanly(res, rec, a)
 	if stops := stopsEarly(res, rec, a, keepList(a.keep, usable, allWrites)); len(stops) > 0 {
 		v.NotKeepable = append(v.NotKeepable, stops...)
-		v.Reason += fmt.Sprintf("\nNo next: the slice that keeps %s also keeps %s, which did not get an answer it can pass in source run %s\n"+
-			"(a relaxed expectation needs an answered call), so it would stop there before step %s and could only give DID NOT RUN.\n"+
-			"Fix that step, or write a chain that reaches the target without it, run it, and verify a slice of that.",
-			strings.Join(usable, ", "), strings.Join(stops, ", "), rec.RunID, res.Target)
+		v.Reason += fmt.Sprintf("\nno next: keeping %s also keeps %s, unanswered in source run %s, so the slice would stop there",
+			strings.Join(usable, ", "), strings.Join(stops, ", "), rec.RunID)
 		return
 	}
 	v.nextKeep = keepList(a.keep, usable, allWrites)
@@ -1087,16 +1076,15 @@ func clockDistanceLines(res *chain.SliceResult, source, replay chain.Verdict, sa
 		if fmt.Sprint(e.Got) == fmt.Sprint(r.Got) {
 			continue
 		}
-		verdict := "the same distance, so they match"
+		verdict := "same distance, match"
 		switch {
 		case chain.SameClockOffset(near.Expect[i].Got, far.Expect[i].Got):
 		case same != nil && same(e.Path, e.Got, r.Got):
-			verdict = "the distances differ, and both values are timestamp-shaped, which differ every run, so they were matched as timestamps, not by distance"
+			verdict = "distances differ, matched as timestamps"
 		default:
-			verdict = "the distances differ, so they differ"
+			verdict = "distances differ"
 		}
-		out = append(out, fmt.Sprintf("compared by distance from the bound: %s %s reads the clock, so the got values differ "+
-			"(source %s, slice %s) and each is compared by its distance from the bound its own run computed (source %s, slice %s): %s",
+		out = append(out, fmt.Sprintf("compared by distance from the bound: %s %s got source %s, slice %s; distance source %s, slice %s: %s",
 			e.Path, e.Rule, quoted(e.Got), quoted(r.Got), quoted(near.Expect[i].Got), quoted(far.Expect[i].Got), verdict))
 	}
 	return out
@@ -1489,15 +1477,15 @@ func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record
 	if ok {
 		return rec, nil
 	}
-	msg := fmt.Sprintf("run %s did not reach step %q (%s), so it has no value to pin and no verdict to compare", rec.RunID, step, why)
+	msg := fmt.Sprintf("run %s did not reach step %q (%s), so it has no verdict to compare", rec.RunID, step, why)
 	other, err := newestRunReaching(e, chainName, step, rec.RunID)
 	if err != nil {
 		return nil, err
 	}
 	if other == nil {
-		return nil, fmt.Errorf("%s, and no recorded run of %s reached it.\nRun the chain until it reaches the step: shrt run %s", msg, chainName, ref)
+		return nil, fmt.Errorf("%s, and no recorded run of %s reached it: shrt run %s", msg, chainName, ref)
 	}
-	return nil, fmt.Errorf("%s.\nRun %s did: pass -run %s", msg, other.RunID, other.RunID)
+	return nil, fmt.Errorf("%s; run %s did: pass -run %s", msg, other.RunID, other.RunID)
 }
 
 func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Record, supplied varFlags) error {
@@ -1531,9 +1519,7 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 	for _, name := range reused {
 		flags = append(flags, "-var "+name+"=<fresh>")
 	}
-	return fmt.Errorf("the slice keeps write step(s) that interpolate var(s) %s into what they create, so -verify would re-send them with %s.\n"+
-		"That value is not fresh: the source run, or an earlier verify, already created with it, and sending it again collides (a duplicate key refusal).\n"+
-		"Pass: %s, replacing each <fresh> with a value this backend has not seen",
+	return fmt.Errorf("kept writes create with %s, which already exists (%s): pass %s, a value this backend has not seen",
 		strings.Join(reused, ", "), strings.Join(from, "; "), strings.Join(flags, " "))
 }
 

@@ -34,7 +34,7 @@ func TestTheNextCommandLeavesOutAKeptStepThatFailedInTheSourceRun(t *testing.T) 
 	if !strings.Contains(v.Next, "-keep stock ") {
 		t.Fatalf("next: must keep the dropped write that passed: %s", v.Next)
 	}
-	if !strings.Contains(v.Reason, "confirm (failed)") || !strings.Contains(v.Reason, "-keep") {
+	if !strings.Contains(v.Reason, "left out of next: confirm (failed)") {
 		t.Fatalf("the reason must say the -keep id was left out and why: %s", v.Reason)
 	}
 }

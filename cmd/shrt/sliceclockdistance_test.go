@@ -41,9 +41,9 @@ steps:
 		name, sourceGot, sliceGot string
 		want                      []string
 	}{
-		{"same distance", "1790352732", "1790352760", []string{"source 1790352732, slice 1790352760", "(source bound+3s, slice bound+3s)", "the same distance, so they match"}},
+		{"same distance", "1790352732", "1790352760", []string{"got source 1790352732, slice 1790352760", "distance source bound+3s, slice bound+3s", "same distance, match"}},
 		{"timestamps", "1790352729682", "1790352757712", []string{"source 1790352729682, slice 1790352757712",
-			"source bound+1.788562376953e+12s, slice bound+1.788562404955e+12s", "matched as timestamps, not by distance"}},
+			"source bound+1.788562376953e+12s, slice bound+1.788562404955e+12s", "matched as timestamps"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			source, replay := verdict("1790352729 ± 5", tc.sourceGot), verdict("1790352757 ± 5", tc.sliceGot)
