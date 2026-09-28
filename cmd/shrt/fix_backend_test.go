@@ -290,3 +290,50 @@ func newNamingBackend(name *string) *httptest.Server {
 		}
 	}))
 }
+
+type resettableUniqueBackend struct {
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+func (b *resettableUniqueBackend) reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.seen = map[string]bool{}
+}
+
+func (b *resettableUniqueBackend) server() *httptest.Server {
+	b.reset()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		body := map[string]any{}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.Header().Set("Content-Type", "application/json")
+		name, _ := body["name"].(string)
+		if b.seen[name] {
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "REJECTED", "message": "name " + name + " is already registered"}})
+			return
+		}
+		b.seen[name] = true
+		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": "thing-1", "name": name})
+	}))
+}
+
+func shortLiteralChain(name string) string {
+	return `apiVersion: shrt/v1
+name: cli-unique
+vars:
+    tag: first
+steps:
+    - id: create
+      call: ThingService/Create
+      body:
+          name: '` + name + `'
+          idempotency_key: key ${vars.tag}
+          kind: KIND_A
+      expect:
+          - path: error.code
+            equals: OK
+`
+}

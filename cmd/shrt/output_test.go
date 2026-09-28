@@ -361,7 +361,7 @@ steps:
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", strings.Replace(flow, "not_empty: true", "equals: nope", 1))
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-three-flow", "-quiet", "-save=false"}) })
-	if err == nil || strings.Contains(out, "length") || !strings.Contains(out, "first failing step: step 1 create") ||
+	if err == nil || strings.Contains(out, "length") || !strings.Contains(out, "first: create (ThingService/Create)") || strings.Contains(out, "first failing step") ||
 		!strings.Contains(out, "[fetch] not_reached") || strings.Contains(out, "[other] not_reached") {
 		t.Fatalf("verify names the first failure, the step held behind it, and still compares the independent one: %v\n%s", err, out)
 	}

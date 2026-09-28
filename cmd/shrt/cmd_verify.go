@@ -59,10 +59,12 @@ type verification struct {
 	reuse                                                          *fixtureReuse
 	literal                                                        *literalCollision
 	idem, lateIdem                                                 *idempotentReplay
+	notes                                                          []string
 }
 
 func runVerify(ctx context.Context, args []string) (err error) {
 	v := &verification{vars: varFlags{}}
+	defer func() { writeGateSidecar(v.sidecar(), err) }()
 	if err := v.parse(args); err != nil {
 		return err
 	}
@@ -70,7 +72,6 @@ func runVerify(ctx context.Context, args []string) (err error) {
 		return err
 	}
 	v.compare()
-	defer v.writeSidecar()
 	v.explainInput()
 	v.examine(ctx)
 	v.notJudged(ctx)
@@ -241,13 +242,26 @@ func (v *verification) compare() {
 	}
 }
 
-func (v *verification) writeSidecar() {
-	side := verifySidecar(v.e, v.rec, v.report, v.latency)
-	side.RunToo = v.runToo
+func (v *verification) sidecar() gateSidecar {
+	if v.report == nil {
+		return gateSidecar{}
+	}
+	side := earlySidecar(v.e, v.rec)
+	side.Items = verifyItems(v.e, v.rec, v.report)
+	if latencyPolicy(v.e).Fail {
+		side.Items = append(side.Items, latencyItems(v.latency)...)
+	}
+	side.Sent = firstSent(v.e, v.rec, side.Items)
+	side.RunToo, side.Notes, side.Latency = v.runToo, v.notes, v.latency
 	if v.flaky.finding() {
 		side.Flaky, side.FlakyOnly = v.flaky.rates(), v.flakyOnly
 	}
-	writeGateSidecar(side)
+	return side
+}
+
+func (v *verification) note(body *strings.Builder, line string) {
+	fmt.Fprintln(body, line)
+	v.notes = append(v.notes, line)
 }
 
 func (v *verification) explainInput() {
@@ -413,26 +427,28 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 		if list := affectedSteps(rec, report); list != "" {
 			fmt.Fprintln(body, "  affected step(s), not judged: "+list)
 		}
-		if life != nil {
+		if life != nil && life.cachedFirstUse() {
 			fmt.Fprintln(body, life.label()+life.line())
+		} else if life != nil {
+			v.note(body, life.label()+life.line())
 		} else if loss != nil {
-			fmt.Fprintln(body, "WARNING: "+loss.line())
+			v.note(body, "WARNING: "+loss.line())
 		}
 	case life.finding():
-		fmt.Fprintln(body, "FINDING: "+life.line())
+		v.note(body, "FINDING: "+life.line())
 	case loss.finding():
-		fmt.Fprintln(body, "FINDING: "+loss.line())
+		v.note(body, "FINDING: "+loss.line())
 	case v.fresh != nil:
-		fmt.Fprintln(body, "FINDING: "+v.fresh.line())
+		v.note(body, "FINDING: "+v.fresh.line())
 	case v.dropped != nil:
-		fmt.Fprintln(body, "FINDING: "+v.dropped.line())
+		v.note(body, "FINDING: "+v.dropped.line())
 	case v.flaky.finding():
 		fmt.Fprintln(body, "FINDING: "+v.flaky.line())
 	case loss != nil:
-		fmt.Fprintln(body, "WARNING: "+loss.line())
+		v.note(body, "WARNING: "+loss.line())
 	}
 	if life != nil && !life.finding() && !life.cachedFirstUse() && v.nonBackend == nil {
-		fmt.Fprintln(body, life.label()+life.line())
+		v.note(body, life.label()+life.line())
 	}
 	if v.nonBackend == nil && (!v.unanswered || anyAnswered(rec)) {
 		v.writeReport(ctx, body)
@@ -459,6 +475,9 @@ func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 	} else {
 		fmt.Fprintln(body, report.Text())
 	}
+	if line := report.FullyMaskedLine(); line != "" {
+		v.notes = append(v.notes, line)
+	}
 	if list := report.MaskedList(); v.listMasked && list != "" {
 		fmt.Fprintln(body, list)
 	}
@@ -470,15 +489,15 @@ func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 	}
 	switch {
 	case v.reuse.finding():
-		fmt.Fprintln(body, "FINDING: "+v.reuse.line())
+		v.note(body, "FINDING: "+v.reuse.line())
 	case v.reuse != nil:
 		fmt.Fprintln(body, v.reuse.line()+"; "+v.reuse.rerun("verify", name))
 	}
 	if v.literal != nil {
-		fmt.Fprintln(body, "CHAIN DEFECT: "+v.literal.line())
+		v.note(body, "CHAIN DEFECT: "+v.literal.line())
 	}
 	if v.idem != nil && v.idem.literal {
-		fmt.Fprintln(body, "CHAIN DEFECT: "+v.idem.line())
+		v.note(body, "CHAIN DEFECT: "+v.idem.line())
 	}
 	if v.lateIdem != nil {
 		fmt.Fprintln(body, v.lateIdem.note())
@@ -487,7 +506,7 @@ func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 		fmt.Fprintln(body, "note: "+line)
 	}
 	if v.violation {
-		fmt.Fprintln(body, "REGRESSION: "+violationLine(v.e, name, driftStep, driftWhy))
+		v.note(body, "REGRESSION: "+violationLine(v.e, name, driftStep, driftWhy))
 	}
 	if !v.violation && len(v.declared) == 0 && len(v.independent) > 0 {
 		fmt.Fprintf(body, "note: the response at %s does not match the descriptor (%s), so it and the steps reading it are not judged; "+

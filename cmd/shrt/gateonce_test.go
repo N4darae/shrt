@@ -45,9 +45,6 @@ func TestTheGateChecksSessionLifetimeOnceForTwoProfiles(t *testing.T) {
 }
 
 func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
-	flaky := "FINDING: intermittent failure at ThingService/Fetch: the backend fails this rpc on some calls and answers it on others, " +
-		"a defect in the backend (flaky under load, an exhausted pool, a race), not a deterministic regression at that step; " +
-		"a re-run may pass and does not clear it; step 2 fetch got internal: pool exhausted, but " + strings.Repeat("x", 200)
 	fetch := gateItem{Step: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Path: "(failed)", Got: "internal: pool exhausted"}
 	classed := fetch
 	classed.Class = "regression"
@@ -55,9 +52,8 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 		return []gateFlaky{{Call: fetch.Call, Failed: failed, Calls: calls, Every: 4, Steps: []string{"fetch"}}}
 	}
 	gateWorkspace(t, map[string][]gateOutcome{
-		"verify cli-thing-flow": {{code: 1, stdout: "  " + flaky + "\n", side: gateSidecar{Items: []gateItem{classed}, Flaky: rate(3, 12)}}},
-		"run cli-unique": {{code: 1, stdout: "  " + strings.Replace(flaky, "step 2 fetch", "step 3 fetch", 1) + "\n",
-			side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{fetch}, Flaky: rate(4, 16)}}},
+		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{classed}, Flaky: rate(3, 12)}}},
+		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{fetch}, Flaky: rate(4, 16)}}},
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
@@ -69,7 +65,7 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if code != 1 || strings.Contains(out, "not a deterministic regression") {
+	if code != 1 {
 		t.Errorf("the gate states the finding once, in its own line, and fails:\n%s", out)
 	}
 }
@@ -79,10 +75,9 @@ func TestTheGateLabelsAChainFailingOnlyByAnIntermittentFindingAndStatesItOnce(t 
 	side := func(repeated bool) gateSidecar {
 		return gateSidecar{FlakyOnly: true, Flaky: []gateFlaky{{Call: call, Failed: 2, Calls: 8, Every: 4, Repeated: repeated, Steps: []string{"fetch"}}}}
 	}
-	note := "FINDING: repeated failure at ThingService/Fetch: run r1, the previous verify of this chain, failed at the same step(s) the same way\n"
 	gateWorkspace(t, map[string][]gateOutcome{
-		"verify cli-thing-flow": {{code: 1, stdout: note, stderr: "shrt verify: cli-thing-flow: repeated failure at ThingService/Fetch (failed 2 of 8 calls)\n", side: side(true)}},
-		"run cli-unique":        {{code: 1, stdout: strings.Replace(note, "repeated", "intermittent", 1), side: side(false)}},
+		"verify cli-thing-flow": {{code: 1, side: side(true)}},
+		"run cli-unique":        {{code: 1, side: side(false)}},
 	})
 	out, code := runGateOut(t)
 	for _, want := range []string{
@@ -196,8 +191,8 @@ func TestTheGateKeepsAServerErrorARegressionWithoutAFinding(t *testing.T) {
 
 func TestTheGateSaysNotAsPinnedForAKeptRedChainThatFailedOtherwise(t *testing.T) {
 	gateWorkspace(t, map[string][]gateOutcome{
-		"run cli-unique": {{code: 1, stderr: "shrt run: chain cli-unique: kept red, but it did not fail as pinned: NEW FAILURE outside the pinned defect: fetch refused at transport: internal\n",
-			side: gateSidecar{KeptRed: "not_as_pinned"}}},
+		"run cli-unique": {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned",
+			Error: "chain cli-unique: kept red, but it did not fail as pinned: NEW FAILURE outside the pinned defect: fetch refused at transport: internal"}}},
 	})
 	out, _ := runGateOut(t)
 	if !strings.Contains(out, "FAIL       cli-unique      not as pinned: run: NEW FAILURE outside the pinned defect: fetch refused at transport: internal\n") {
