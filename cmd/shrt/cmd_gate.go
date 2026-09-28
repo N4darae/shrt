@@ -485,8 +485,12 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 	}
 	return attribution{e: e, rec: rec, bad: bad, ref: true,
 		unchanged: func(step, path string) bool {
+			held := ""
+			if st, ok := rec.Step(step); ok && st != nil {
+				held, _ = heldBackBy(st)
+			}
 			for _, c := range changes {
-				if c.Step != step || c.Kind == diff.KindNotReached {
+				if c.Step != step || c.Kind == diff.KindNotReached || c.Kind == diff.KindStatus && held != "" {
 					continue
 				}
 				if c.Kind == diff.KindStatus || c.Path == path || strings.HasPrefix(path, c.Path+".") || strings.HasPrefix(c.Path, path+".") {
