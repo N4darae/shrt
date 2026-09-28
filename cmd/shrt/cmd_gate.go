@@ -945,8 +945,7 @@ func runGate(ctx context.Context, args []string) error {
 			g.absorb(what, out)
 		}
 	}
-	settleGate(chains)
-	flakyFindings := settleFlaky(chains)
+	flakyFindings := settleGate(chains)
 	shown := map[string]bool{}
 	for _, g := range chains {
 		if g.echoOf != "" {
@@ -1371,7 +1370,7 @@ func (g *gateChain) line(width int) string {
 
 var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 
-func settleGate(chains []*gateChain) {
+func settleGate(chains []*gateChain) []string {
 	foldFlaky(chains)
 	seen := map[string]string{}
 	for _, g := range chains {
@@ -1425,6 +1424,7 @@ func settleGate(chains []*gateChain) {
 		}
 	}
 	foldSlices(chains)
+	return settleFlaky(chains)
 }
 
 func foldSlices(chains []*gateChain) {
