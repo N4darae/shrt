@@ -22,6 +22,10 @@ rpcs:
         summary: reads a product
         fields:
             id_product: {from: shop.catalog.v1.ProductService/CreateProduct->product.id_product}
+        failures:
+            - code: 1204
+              reason: ProductNotFound
+              when: no product has this id
         status: draft
 `)
 	var err error
@@ -47,11 +51,10 @@ rpcs:
 			if seenGroup {
 				t.Fatalf("gap lines come before the probe groups:\n%s", out)
 			}
-		case strings.HasPrefix(line, "setup (1 step), 2 notes: "), strings.HasPrefix(line, "target (1 step): "):
+		case strings.HasPrefix(line, "unknown id (1 step): "):
 			seenGroup = true
-		}
-		if !strings.HasPrefix(line, "gap: ") && len(line) > 160 {
-			t.Fatalf("a probe group line is one short line: %q", line)
+		case strings.HasPrefix(line, "setup "), strings.HasPrefix(line, "target "):
+			t.Fatalf("only probe groups get a line:\n%s", out)
 		}
 	}
 	if !seenGroup || !strings.Contains(out, "-notes -v") {

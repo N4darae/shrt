@@ -7,7 +7,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -36,8 +35,6 @@ type Plan struct {
 	parities []parityCopy
 	lib      *Library
 	groupOf  map[*chain.Step]string
-	noteOf   map[string]string
-	current  string
 	rules    *effectRules
 	rulesOf  *Library
 	middles  map[*chain.Step]string
@@ -207,32 +204,41 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 }
 
 type probePass struct {
-	label, tag, caught string
-	probe              func(*Plan, *Library, func(*chain.Step) bool)
+	label, tag, caught, why string
+	probe                   func(*Plan, *Library, func(*chain.Step) bool)
 }
 
 var probePasses = []probePass{
-	{"list order", "", "F6 F14 F32 F41", (*Plan).discriminateListOrder},
-	{"unique", "", "F4 F18 F57", (*Plan).probeUniqueness},
-	{"filter", "", "F26 F43 D3", (*Plan).probeListFilters},
-	{"shortage", "shortage", "F19 D1", (*Plan).probeInsufficiency},
-	{"exact", "exact", "F48", (*Plan).probeExactStock},
-	{"boundary", "boundary", "F16 F30 F31 F39 F44", (*Plan).probeBoundaries},
-	{"wide total", "wide", "F51", (*Plan).probeWideTotals},
-	{"text length", "", "F21", (*Plan).probeTextLength},
-	{"read-back", "", "F29 F53", (*Plan).probeReadBack},
-	{"batch", "", "F36", (*Plan).probeBatch},
-	{"replay", "", "F5 F25", (*Plan).probeIdempotency},
-	{"token/role", "denied", "F3 D4", (*Plan).probeDenials},
-	{"other role", "", "F22 F28 F35 F52 F59", (*Plan).probeRoleParity},
-	{"item count", "items", "F23 F56 F62", (*Plan).probeItemCounts},
-	{"state", "state", "F7 F49", (*Plan).probeStateRefusals},
-	{"composed", "composed", "F12 D2", (*Plan).probeComposedTransitions},
-	{"twice", "twice", "F45", (*Plan).probeSameEntityTwice},
-	{"unknown id", "unknown", "F38 F40 F42", (*Plan).probeUnknownIDs},
-	{"malformed", "shape", "F54", (*Plan).probeShapes},
-	{"login", "", "F17 F60", (*Plan).probeLogin},
-	{"list cap", "", "F50", (*Plan).probeListCaps},
+	{"list order", "", "F6 F14 F32 F41", "fixtures that sort apart under every key, their positions asserted", (*Plan).discriminateListOrder},
+	{"unique", "", "F4 F18 F57", "the taken value again, with the other fields changed, in another case", (*Plan).probeUniqueness},
+	{"filter", "", "F26 F43 D3", "fixtures outside the filter, one list per state, one list unfiltered", (*Plan).probeListFilters},
+	{"shortage", "shortage", "F19 D1", "one past the stock on the first and on the last item; nothing moves", (*Plan).probeInsufficiency},
+	{"exact", "exact", "F48", "exactly the stock on hand, expecting success and a level of 0", (*Plan).probeExactStock},
+	{"boundary", "boundary", "F16 F30 F31 F39 F44", "the stated minimum, one below it, a negative and a large value", (*Plan).probeBoundaries},
+	{"wide total", "wide", "F51", "one line whose total passes 2^32", (*Plan).probeWideTotals},
+	{"text length", "", "F21", "long and multi-byte text, read back as sent", (*Plan).probeTextLength},
+	{"read-back", "", "F29 F53", "the record read back after each write, case-swapped and padded text too", (*Plan).probeReadBack},
+	{"batch", "", "F36", "a batch with a refused middle line; what each line reports is what is stored", (*Plan).probeBatch},
+	{"replay", "", "F5 F25", "the idempotency key replayed, with another body, and after each state change", (*Plan).probeIdempotency},
+	{"token/role", "denied", "F3 D4", "no token, a bad token, and each profile lacking the role", (*Plan).probeDenials},
+	{"other role", "", "F22 F28 F35 F52 F59", "the call repeated as each other profile, compared with the default's", (*Plan).probeRoleParity},
+	{"item count", "items", "F23 F56 F62", "one, three and twelve items where the target sends two", (*Plan).probeItemCounts},
+	{"state", "state", "F7 F49", "each declared state refusal, sent from that state", (*Plan).probeStateRefusals},
+	{"composed", "composed", "F12 D2", "the target after each other write moved the record", (*Plan).probeComposedTransitions},
+	{"twice", "twice", "F45", "one resource on two lines, counted twice", (*Plan).probeSameEntityTwice},
+	{"unknown id", "unknown", "F38 F40 F42", "an id no record has, expecting the declared not-found failure", (*Plan).probeUnknownIDs},
+	{"malformed", "shape", "F54", "each invalid_argument clause as a malformed request", (*Plan).probeShapes},
+	{"login", "", "F17 F60", "a wrong password, an unknown account, a padded password, each profile", (*Plan).probeLogin},
+	{"list cap", "", "F50", "twelve fixtures, or one past a stated limit, so a cap shows", (*Plan).probeListCaps},
+}
+
+func ProbeWhy(label string) string {
+	for _, pass := range probePasses {
+		if pass.label == label {
+			return pass.why
+		}
+	}
+	return ""
 }
 
 func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *catalog.Method, error) {
@@ -539,10 +545,7 @@ func (p *Plan) grouped(label string, probe func()) {
 	for _, st := range p.Chain.Steps {
 		before[st] = true
 	}
-	outer := p.current
-	p.current = label
 	probe()
-	p.current = outer
 	for _, st := range p.Chain.Steps {
 		if !before[st] && p.groupOf[st] == "" {
 			p.groupOf[st] = label
@@ -608,57 +611,6 @@ func (p *Plan) note(format string, args ...any) {
 		return
 	}
 	p.Notes = append(p.Notes, text)
-	if p.current != "" {
-		if p.noteOf == nil {
-			p.noteOf = map[string]string{}
-		}
-		p.noteOf[text] = p.current
-	}
-}
-
-type NoteGroup struct {
-	Label string
-	Steps int
-	Notes []string
-}
-
-func (p *Plan) NoteGroups() []NoteGroup {
-	out := []NoteGroup{}
-	at := map[string]int{}
-	for _, g := range p.StepGroups() {
-		at[g.Label] = len(out)
-		out = append(out, NoteGroup{Label: g.Label, Steps: g.Steps})
-	}
-	byID := map[string]string{}
-	for _, st := range p.Chain.Steps {
-		byID[st.ID] = p.groupOf[st]
-	}
-	fills := p.FillNotes()
-	for _, note := range p.Notes {
-		if p.IsGap(note) || containsString(fills, note) {
-			continue
-		}
-		label := p.noteOf[note]
-		if label == "" {
-			for _, word := range strings.FieldsFunc(note, func(r rune) bool { return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-				if g, ok := byID[word]; ok && g != "" {
-					label = g
-					break
-				}
-			}
-		}
-		if label == "" {
-			label = "other"
-		}
-		i, ok := at[label]
-		if !ok {
-			i = len(out)
-			at[label] = i
-			out = append(out, NoteGroup{Label: label})
-		}
-		out[i].Notes = append(out[i].Notes, note)
-	}
-	return out
 }
 
 func setBodyPath(body map[string]any, path string, value any) bool {
