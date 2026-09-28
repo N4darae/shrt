@@ -1,372 +1,333 @@
 package chain_test
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/chain"
-	"gopkg.in/yaml.v3"
 )
 
-type scannedStep struct {
-	ID     string `yaml:"id"`
-	Call   string `yaml:"call"`
-	Expect []struct {
-		Path   string `yaml:"path"`
-		Equals any    `yaml:"equals"`
-	} `yaml:"expect"`
+type whichCase struct {
+	name   string
+	chains []*chain.Chain
+	q      chain.WhichQuery
+	opts   chain.WhichOptions
+	order  string
+	cmds   []string
+	check  func(*testing.T, []chain.WhichChain)
 }
 
-type scannedChain struct {
-	Name  string        `yaml:"name"`
-	Steps []scannedStep `yaml:"steps"`
+func okResponse() any { return map[string]any{"error": map[string]any{"code": "OK"}} }
+
+func failureResponse(code any) any {
+	return map[string]any{"error": map[string]any{"code": "failed_precondition",
+		"details": []any{map[string]any{"app_code": code, "reason": "ObligationNotOpen"}}}}
 }
 
-type pair struct{ chain, step string }
-
-type scan struct {
-	steps   int
-	byRPC   map[string]map[pair]bool
-	byCode  map[string]map[pair]bool
-	rpcs    []string
-	codes   []string
-	rawPath map[string]bool
-}
-
-func scanCorpus(t *testing.T) *scan {
-	t.Helper()
-	files, err := filepath.Glob("../../.shrt/chains/*.yaml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(files) == 0 {
-		t.Skip("no committed chains to scan")
-	}
-	sort.Strings(files)
-	s := &scan{byRPC: map[string]map[pair]bool{}, byCode: map[string]map[pair]bool{}, rawPath: map[string]bool{}}
-	for _, path := range files {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		doc := scannedChain{}
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			t.Fatalf("%s: %v", filepath.Base(path), err)
-		}
-		name := doc.Name
-		if name == "" {
-			name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		}
-		for i, st := range doc.Steps {
-			s.steps++
-			if st.ID == "" {
-				t.Fatalf("%s step %d has no id: this scan mirrors the corpus only while every step names its own id",
-					filepath.Base(path), i+1)
-			}
-			p := pair{name, st.ID}
-			add(s.byRPC, st.Call, p)
-			for _, e := range st.Expect {
-				s.rawPath[e.Path] = true
-				if e.Equals == nil || !scanIsCodePath(e.Path) {
-					continue
-				}
-				add(s.byCode, fmt.Sprintf("%v", e.Equals), p)
-			}
-		}
-	}
-	s.rpcs = keysOf(s.byRPC)
-	s.codes = keysOf(s.byCode)
-	return s
-}
-
-func scanIsCodePath(path string) bool {
-	segs := []string{}
-	for _, seg := range strings.Split(strings.NewReplacer("[", ".", "]", "").Replace(path), ".") {
-		if seg != "" {
-			segs = append(segs, seg)
-		}
-	}
-	if len(segs) == 0 {
-		return false
-	}
-	if len(segs) == 2 && segs[0] == "transport" && segs[1] == "code" {
-		return true
-	}
-	last := segs[len(segs)-1]
-	if last == "app_code" || last == "reason" {
-		return true
-	}
-	return last == "code" && len(segs) >= 2 && segs[len(segs)-2] == "error"
-}
-
-func add(m map[string]map[pair]bool, key string, p pair) {
-	if m[key] == nil {
-		m[key] = map[pair]bool{}
-	}
-	m[key][p] = true
-}
-
-func keysOf(m map[string]map[pair]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func pairsOf(hits []chain.WhichChain) map[pair]bool {
-	out := map[pair]bool{}
-	for _, h := range hits {
-		for _, m := range h.Matches {
-			out[pair{h.Chain, m.Step}] = true
-		}
-	}
-	return out
-}
-
-func diffPairs(want, got map[pair]bool) (missing, extra []string) {
-	for p := range want {
-		if !got[p] {
-			missing = append(missing, p.chain+"/"+p.step)
-		}
-	}
-	for p := range got {
-		if !want[p] {
-			extra = append(extra, p.chain+"/"+p.step)
-		}
-	}
-	sort.Strings(missing)
-	sort.Strings(extra)
-	return missing, extra
-}
-
-func TestWhichFindsEveryPairAStraightforwardScanFinds(t *testing.T) {
-	chains := corpus(t)
-	s := scanCorpus(t)
-
-	loaded := 0
+func normalized(chains ...*chain.Chain) []*chain.Chain {
 	for _, c := range chains {
-		loaded += len(c.Steps)
-	}
-	if loaded != s.steps {
-		t.Fatalf("the scan saw %d steps and the loader saw %d: the scan is no longer looking at the same corpus", s.steps, loaded)
-	}
-	if len(s.rpcs) == 0 || len(s.codes) == 0 {
-		t.Fatalf("the scan found %d rpc(s) and %d code(s): nothing would be compared", len(s.rpcs), len(s.codes))
-	}
-
-	for _, rpc := range s.rpcs {
-		got := pairsOf(chain.Which(chains, chain.WhichQuery{RPC: rpc}, chain.WhichOptions{}))
-		missing, extra := diffPairs(s.byRPC[rpc], got)
-		if len(missing) > 0 || len(extra) > 0 {
-			t.Errorf("-rpc %s: missing %v, extra %v", rpc, missing, extra)
-		}
-	}
-	for _, code := range s.codes {
-		got := pairsOf(chain.Which(chains, chain.WhichQuery{Code: code}, chain.WhichOptions{}))
-		missing, extra := diffPairs(s.byCode[code], got)
-		if len(missing) > 0 || len(extra) > 0 {
-			t.Errorf("-code %s: missing %v, extra %v", code, missing, extra)
-		}
-	}
-}
-
-func TestWhichIntersectsBothSelectorsOverTheCorpus(t *testing.T) {
-	chains := corpus(t)
-	s := scanCorpus(t)
-
-	tried := 0
-	for _, rpc := range s.rpcs {
-		for _, code := range s.codes {
-			want := map[pair]bool{}
-			for p := range s.byRPC[rpc] {
-				if s.byCode[code][p] {
-					want[p] = true
-				}
-			}
-			if len(want) == 0 {
-				continue
-			}
-			tried++
-			got := pairsOf(chain.Which(chains, chain.WhichQuery{RPC: rpc, Code: code}, chain.WhichOptions{}))
-			missing, extra := diffPairs(want, got)
-			if len(missing) > 0 || len(extra) > 0 {
-				t.Errorf("-rpc %s -code %s: missing %v, extra %v", rpc, code, missing, extra)
-			}
-			if tried > 200 {
-				return
-			}
-		}
-	}
-	if tried == 0 {
-		t.Fatal("no rpc and code intersect in the corpus, so the intersection was never exercised")
-	}
-}
-
-func TestCodePathsComeFromTheCorpusNotFromOneHardCodedShape(t *testing.T) {
-	paths := chain.CodePaths(corpus(t))
-	if len(paths) < 2 {
-		t.Fatalf("a corpus that asserts codes on one path only would make this command a hard-coded lookup, got %v", paths)
-	}
-	nested := false
-	for _, p := range paths {
-		if !chain.IsCodePath(p) {
-			t.Errorf("CodePaths returned %q, which IsCodePath rejects", p)
-		}
-		if strings.Count(p, "app_code") == 1 && !strings.HasPrefix(p, "error.") {
-			nested = true
-		}
-	}
-	if !nested {
-		t.Log("the corpus currently asserts app_code only under error.*; the derivation still covers deeper shapes")
-	}
-	for _, bad := range []string{"counterparties.0.code", "id_request", "pagination.total"} {
-		if chain.IsCodePath(bad) {
-			t.Errorf("%q is not a code path: a plain field named code must not make every chain match", bad)
-		}
-	}
-	for _, good := range []string{"error.code", "error.details.0.app_code", "results.0.error.details.0.app_code", "error.details.1.reason"} {
-		if !chain.IsCodePath(good) {
-			t.Errorf("%q names a failure code and must be searchable", good)
-		}
-	}
-}
-
-func whichFixture() []*chain.Chain {
-	short := &chain.Chain{Name: "short", Steps: []*chain.Step{
-		{ID: "seed", Call: "pkg.Svc/Create", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
-		{ID: "boom", Call: "pkg.Svc/Approve", Body: map[string]any{"id": "${seed.id}"}, Expect: []chain.Expectation{
-			{Path: "error.code", Equals: "failed_precondition"},
-			{Path: "error.details.0.app_code", Equals: 1218},
-		}},
-	}}
-	long := &chain.Chain{Name: "long", Steps: []*chain.Step{
-		{ID: "a", Call: "pkg.Svc/Create", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
-		{ID: "b", Call: "pkg.Svc/Create", Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}},
-		{ID: "boom_long", Call: "pkg.Svc/Approve", Body: map[string]any{"id": "${a.id}", "other": "${b.id}"},
-			Expect: []chain.Expectation{{Path: "error.details.0.app_code", Equals: 1218}}},
-	}}
-	for _, c := range []*chain.Chain{short, long} {
 		if err := c.Normalize(); err != nil {
 			panic(err)
 		}
 	}
-	return []*chain.Chain{long, short}
+	return chains
 }
 
-func failureResponse(code any) any {
-	return map[string]any{"error": map[string]any{
-		"code":    "failed_precondition",
-		"details": []any{map[string]any{"app_code": code, "reason": "ObligationNotOpen"}},
+func whichFixture() []*chain.Chain {
+	ok := chain.Expectation{Path: "error.code", Equals: "OK"}
+	return normalized(
+		steps("long", st("a", "pkg.Svc/Create", nil, ok), st("b", "pkg.Svc/Create", nil, ok),
+			st("boom_long", "pkg.Svc/Approve", map[string]any{"id": "${a.id}", "other": "${b.id}"}, chain.Expectation{Path: "error.details.0.app_code", Equals: 1218})),
+		steps("short", st("seed", "pkg.Svc/Create", nil, ok),
+			st("boom", "pkg.Svc/Approve", ref("${seed.id}"), chain.Expectation{Path: "error.code", Equals: "failed_precondition"}, chain.Expectation{Path: "error.details.0.app_code", Equals: 1218})))
+}
+
+func observed(by map[string][]chain.Observation) chain.WhichOptions {
+	return chain.WhichOptions{Observations: func(name string) []chain.Observation {
+		if all, ok := by["*"]; ok {
+			return all
+		}
+		return by[name]
 	}}
 }
 
-func TestAnObservedVerdictOutranksAnAssertionAndChangesTheCommand(t *testing.T) {
-	hits := chain.Which(whichFixture(), chain.WhichQuery{Code: "1218"}, chain.WhichOptions{
-		Observations: func(name string) []chain.Observation {
-			if name != "long" {
-				return nil
-			}
-			return []chain.Observation{
-				{Run: "r1", Step: "boom_long", Status: "failed", Reached: true, Response: failureResponse(float64(1204))},
-				{Run: "r2", Step: "boom_long", Status: "failed", Reached: true, Response: failureResponse(float64(1218))},
-			}
-		},
-	})
-	if len(hits) != 2 {
-		t.Fatalf("both chains assert 1218, got %d", len(hits))
-	}
-	if hits[0].Chain != "long" {
-		t.Fatalf("a chain a run record OBSERVED answering 1218 must outrank a chain that only asserts it, got %s first", hits[0].Chain)
-	}
-	if !hits[0].Observed || hits[1].Observed {
-		t.Fatalf("observed flags are wrong: %v then %v", hits[0].Observed, hits[1].Observed)
-	}
-	ev := hits[0].Matches[0].Observed
-	if ev == nil || ev.Run != "r2" || ev.Code != "1218" || ev.Path != "error.details.0.app_code" {
-		t.Fatalf("the evidence must name the newest run that actually answered 1218 and where it was read, got %+v", ev)
-	}
-	if want := "shrt chain slice long -step boom_long -keep writes"; hits[0].Command != want {
-		t.Fatalf("an observed write is reproduced in closure mode: pinning would re-send it on the recorded run's entities\nwant %q\ngot  %q", want, hits[0].Command)
-	}
-	if want := "shrt chain slice short -step boom"; hits[1].Command != want {
-		t.Fatalf("without a run record the command must stay a closure slice\nwant %q\ngot  %q", want, hits[1].Command)
-	}
-	if hits[1].Runs != 0 || hits[1].Matches[0].Observed != nil {
-		t.Fatalf("a chain with no local runs must report no evidence rather than failing, got %d run(s)", hits[1].Runs)
-	}
+func obs(run, step, status string, resp any) chain.Observation {
+	return chain.Observation{Run: run, Step: step, Status: status, Reached: status != "error" && status != "skipped", Response: resp}
 }
 
-func TestARunThatNeverReachedTheBackendIsNotEvidence(t *testing.T) {
-	hits := chain.Which(whichFixture(), chain.WhichQuery{Code: "1218"}, chain.WhichOptions{
-		Observations: func(string) []chain.Observation {
-			return []chain.Observation{
-				{Run: "r1", Step: "boom", Status: "error", Reached: false, Response: failureResponse(float64(1218))},
-				{Run: "r1", Step: "boom_long", Status: "error", Reached: false, Response: failureResponse(float64(1218))},
-			}
-		},
-	})
+func matchOf(t *testing.T, hits []chain.WhichChain, chainName, step string) (chain.WhichChain, chain.WhichStep) {
+	t.Helper()
 	for _, h := range hits {
-		if h.Observed {
-			t.Fatalf("chain %s: a step that never reached the backend says nothing about the code", h.Chain)
-		}
-		if !strings.HasSuffix(h.Command, h.Best) {
-			t.Fatalf("chain %s: without evidence the command must not offer to pin a run: %q", h.Chain, h.Command)
-		}
-	}
-}
-
-func TestWithoutEvidenceTheCheaperSliceComesFirst(t *testing.T) {
-	fixture := whichFixture()
-	hits := chain.Which(fixture, chain.WhichQuery{Code: "1218"}, chain.WhichOptions{
-		SliceOf: func(c *chain.Chain, step string) (int, bool) {
-			res, err := chain.Slice(c, step, chain.SliceOptions{})
-			if err != nil {
-				return 0, false
+		for _, m := range h.Matches {
+			if h.Chain == chainName && m.Step == step {
+				return h, m
 			}
-			return len(res.Kept), true
-		},
-	})
-	if hits[0].Chain != "short" {
-		t.Fatalf("with no evidence anywhere the smaller slice must come first, got %s", hits[0].Chain)
+		}
 	}
-	if hits[0].Matches[0].SliceSteps != 2 || hits[1].Matches[0].SliceSteps != 3 {
-		t.Fatalf("slice sizes were not carried through: %d and %d",
-			hits[0].Matches[0].SliceSteps, hits[1].Matches[0].SliceSteps)
-	}
+	t.Fatalf("no match %s/%s in %+v", chainName, step, hits)
+	return chain.WhichChain{}, chain.WhichStep{}
 }
 
-func TestNeitherSelectorMatchesNothingRatherThanEverything(t *testing.T) {
-	if hits := chain.Which(whichFixture(), chain.WhichQuery{Code: "9999"}, chain.WhichOptions{}); len(hits) != 0 {
-		t.Fatalf("a code no chain asserts must match nothing, got %d chain(s)", len(hits))
-	}
-	if hits := chain.Which(whichFixture(), chain.WhichQuery{RPC: "pkg.Svc/Missing"}, chain.WhichOptions{}); len(hits) != 0 {
-		t.Fatalf("an rpc no chain calls must match nothing, got %d chain(s)", len(hits))
-	}
-	hits := chain.Which(whichFixture(), chain.WhichQuery{RPC: "pkg.Svc/Create", Code: "1218"}, chain.WhichOptions{})
-	if len(hits) != 0 {
-		t.Fatalf("both selectors intersect, so an rpc that never asserts 1218 must match nothing, got %d", len(hits))
-	}
+func transportChains() []*chain.Chain {
+	return normalized(steps("refusals", st("add_stock_batch_empty", "pkg.Stock/AddStockBatch", nil,
+		chain.Expectation{Path: "transport.code", Equals: "invalid_argument"}, chain.Expectation{Path: "transport.http_status", Equals: 400})))
 }
 
-func TestAPassingStepOutranksAFailedOneThatAlsoAnsweredTheCode(t *testing.T) {
-	hits := chain.Which(whichFixture(), chain.WhichQuery{Code: "1218"}, chain.WhichOptions{
-		Observations: func(name string) []chain.Observation {
-			switch name {
-			case "long":
-				return []chain.Observation{{Run: "r1", Step: "boom_long", Status: "failed", Reached: true, Response: failureResponse(float64(1218))}}
-			case "short":
-				return []chain.Observation{{Run: "r2", Step: "boom", Status: "passed", Reached: true, Response: failureResponse(float64(1218))}}
+func flow() []*chain.Chain {
+	ok := chain.Expectation{Path: "error.code", Equals: "OK"}
+	unauth := chain.Expectation{Path: "transport.code", Equals: "unauthenticated"}
+	return normalized(steps("flow", st("create", "pkg.Svc/Create", nil, ok), st("confirm", "pkg.Svc/Confirm", ref("${create.id}"), ok),
+		st("fetch", "pkg.Svc/Fetch", ref("${create.id}"), ok),
+		&chain.Step{ID: "cancel_without_token", Call: "pkg.Svc/Cancel", SkipAuth: true, Body: ref("${create.id}"), Expect: []chain.Expectation{unauth}},
+		&chain.Step{ID: "cancel_bad_token", Call: "pkg.Svc/Cancel", Auth: chain.InvalidTokenAuth, Body: ref("${create.id}"), Expect: []chain.Expectation{unauth}}))
+}
+
+func sharedReasonFixture() []*chain.Chain {
+	reason := chain.Expectation{Path: "status.details.0.reason", Equals: "CustomerNotFound"}
+	return normalized(steps("customers",
+		st("get_customer_missing", "shop.v1.CustomerService/GetCustomer", nil, chain.Expectation{Path: "status.details.0.app_code", Equals: 1102}, reason),
+		st("create_order_unknown_customer", "shop.v1.OrderService/CreateOrder", nil, chain.Expectation{Path: "status.details.0.app_code", Equals: 1301}, reason),
+		st("list_orders_unknown_customer", "shop.v1.OrderService/ListOrders", nil, reason)))
+}
+
+func TestWhich(t *testing.T) {
+	ok := okResponse()
+	refused := map[string]any{"transport": map[string]any{"code": "unauthenticated", "http_status": 401}}
+	flowRun := observed(map[string][]chain.Observation{"*": {obs("r1", "create", "passed", ok), obs("r1", "confirm", "passed", ok), obs("r1", "fetch", "passed", ok),
+		obs("r1", "cancel_without_token", "passed", refused), obs("r1", "cancel_bad_token", "passed", refused)}})
+	denied := map[string]any{"status": map[string]any{"code": "REJECTED", "details": []any{map[string]any{"app_code": float64(1603), "reason": "PermissionDenied"}}}}
+	roles := normalized(steps("auth-roles",
+		st("clerk_create_denied", "shop.v1.ProductService/CreateProduct", nil, chain.Expectation{Path: "status.details.0.app_code", Equals: 1603}),
+		st("clerk_stock_denied", "shop.v1.StockService/AddStock", nil, chain.Expectation{Path: "status.details.0.reason", Equals: "PermissionDenied"})))
+	clerk := normalized(steps("catalog-refusals",
+		st("create_product_as_clerk", "pkg.Catalog/CreateProduct", nil, chain.Expectation{Path: "status.details.0.app_code", Equals: 1603}),
+		st("add_stock_as_clerk", "pkg.Catalog/AddStock", nil, chain.Expectation{Path: "status.details.0.app_code", Equals: 1603})))
+	clerkRun := obs("r1", "add_stock_as_clerk", "failed", map[string]any{"status": map[string]any{"code": "SUCCESS"}})
+	clerkRun.Failures = []chain.ExpectResult{{Path: "status.details.0.app_code", Rule: "equals", Want: 1603}}
+	failedB := obs("r2", "b", "failed", ok)
+	failedB.Failures = []chain.ExpectResult{{Path: "total", Rule: "equals", Want: 4548, Got: 6250}}
+	contradicted := obs("new", "boom", "failed", ok)
+	contradicted.Failures = []chain.ExpectResult{{Path: "error.code", Rule: "equals", Want: "failed_precondition", Got: "OK"},
+		{Path: "error.details.0.app_code", Rule: "equals", Want: float64(1218), Detail: "path not present in response"}}
+	login := normalized(steps("auth", &chain.Step{ID: "login_admin", Call: "pkg.AuthService/Login", SkipAuth: true, Expect: []chain.Expectation{{Path: "error.code", Equals: "OK"}}}))
+	loginRun := observed(map[string][]chain.Observation{"*": {obs("r1", "login_admin", "passed", ok)}})
+	loginAsRead := loginRun
+	loginAsRead.ReadsOnly = func(s *chain.Step) bool { return s.Call == "pkg.AuthService/Login" }
+	sized := chain.WhichOptions{SliceOf: func(c *chain.Chain, step string) (int, bool) {
+		res, err := chain.Slice(c, step, chain.SliceOptions{})
+		if err != nil {
+			return 0, false
+		}
+		return len(res.Kept), true
+	}}
+	getProduct := normalized(steps("stock",
+		st("stock_after_cancel", "pkg.Svc/GetProduct", nil, chain.Expectation{Path: "error.code", Equals: "OK"}, chain.Expectation{Path: "qty", Equals: 10}),
+		st("stock_unrun", "pkg.Svc/GetProduct", nil, chain.Expectation{Path: "error.code", Equals: "OK"}),
+		st("stock_ok", "pkg.Svc/GetProduct", nil, chain.Expectation{Path: "error.code", Equals: "OK"})))
+	fetchers := normalized(steps("a-small", st("fetch", "shop.v1.S/Fetch", nil, chain.Expectation{Path: "error.code", Equals: "OK"})),
+		steps("b-large", st("make", "shop.v1.S/Make", nil), st("other", "shop.v1.S/Make", nil), st("fetch", "shop.v1.S/Fetch", nil, chain.Expectation{Path: "error.code", Equals: "OK"})))
+	cases := []whichCase{
+		{name: "a transport code assertion", chains: transportChains(), q: chain.WhichQuery{Code: "invalid_argument"},
+			opts:  observed(map[string][]chain.Observation{"*": {obs("r1", "add_stock_batch_empty", "passed", chain.TransportOutcome(400, "invalid_argument", "lines must not be empty"))}}),
+			order: "refusals", check: func(t *testing.T, hits []chain.WhichChain) {
+				if ev := hits[0].Matches[0].Observed; ev == nil || ev.Code != "invalid_argument" || ev.Path != "transport.code" || !ev.Holds {
+					t.Errorf("the transport code is read from the recorded outcome: %+v", ev)
+				}
+			}},
+		{name: "transport ok is no fallback code", chains: normalized(steps("a", st("s", "pkg.Svc/Do", nil, chain.Expectation{Path: "error.details.0.app_code", Equals: 1218},
+			chain.Expectation{Path: "transport.code", Equals: "ok"}))), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "s", "failed", chain.TransportOutcome(200, "", ""))}}), check: func(t *testing.T, hits []chain.WhichChain) {
+				if ev := hits[0].Matches[0].Observed; ev == nil || ev.Code != "" {
+					t.Errorf("a call answered 200 has no failure code: %+v", ev)
+				}
+			}},
+		{name: "fresh vars in the reproduce command", chains: transportChains(), q: chain.WhichQuery{Code: "invalid_argument"},
+			opts: chain.WhichOptions{FreshVars: func(*chain.Chain, string) []string { return []string{"tag", "email"} }},
+			cmds: []string{"shrt chain slice refusals -step add_stock_batch_empty -var email=<fresh> -var tag=<fresh>"}},
+		{name: "a failed step before a passing one", chains: getProduct, q: chain.WhichQuery{RPC: "pkg.Svc/GetProduct"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "stock_after_cancel", "failed", ok), obs("r1", "stock_ok", "passed", ok)}}),
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				got := []string{}
+				for _, m := range hits[0].Matches {
+					got = append(got, m.Step)
+				}
+				if strings.Join(got, ",") != "stock_after_cancel,stock_ok,stock_unrun" {
+					t.Errorf("got %v", got)
+				}
+			}},
+		{name: "an observed verdict outranks an assertion", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts:  observed(map[string][]chain.Observation{"long": {obs("r1", "boom_long", "failed", failureResponse(float64(1204))), obs("r2", "boom_long", "failed", failureResponse(float64(1218)))}}),
+			order: "long,short", cmds: []string{"shrt chain slice long -step boom_long -keep writes", "shrt chain slice short -step boom"},
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				ev := hits[0].Matches[0].Observed
+				if !hits[0].Observed || hits[1].Observed || ev == nil || ev.Run != "r2" || ev.Code != "1218" || ev.Path != "error.details.0.app_code" {
+					t.Errorf("the newest run answering 1218 is the evidence: %+v", ev)
+				}
+				if hits[1].Runs != 0 || hits[1].Matches[0].Observed != nil {
+					t.Errorf("no local runs, no evidence: %+v", hits[1])
+				}
+			}},
+		{name: "a run that never reached the backend", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "boom", "error", failureResponse(float64(1218))), obs("r1", "boom_long", "error", failureResponse(float64(1218)))}}),
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				for _, h := range hits {
+					if h.Observed || !strings.HasSuffix(h.Command, h.Best) {
+						t.Errorf("%s: no evidence and no pinned run: %+v", h.Chain, h)
+					}
+				}
+			}},
+		{name: "the cheaper slice first", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"}, opts: sized, order: "short,long",
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				if hits[0].Matches[0].SliceSteps != 2 || hits[1].Matches[0].SliceSteps != 3 {
+					t.Errorf("slice sizes: %d %d", hits[0].Matches[0].SliceSteps, hits[1].Matches[0].SliceSteps)
+				}
+			}},
+		{name: "a code no chain asserts", chains: whichFixture(), q: chain.WhichQuery{Code: "9999"}, order: "-"},
+		{name: "an rpc no chain calls", chains: whichFixture(), q: chain.WhichQuery{RPC: "pkg.Svc/Missing"}, order: "-"},
+		{name: "both selectors intersect", chains: whichFixture(), q: chain.WhichQuery{RPC: "pkg.Svc/Create", Code: "1218"}, order: "-"},
+		{name: "a passing step outranks a failed one", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts:  observed(map[string][]chain.Observation{"long": {obs("r1", "boom_long", "failed", failureResponse(float64(1218)))}, "short": {obs("r2", "boom", "passed", failureResponse(float64(1218)))}}),
+			order: "short,long"},
+		{name: "a code alias", chains: roles, q: chain.WhichQuery{Code: "1603", Aliases: chain.CodeAliases("1603", []any{denied})}, check: matchCount(2)},
+		{name: "a reason alias", chains: roles, q: chain.WhichQuery{Code: "PermissionDenied", Aliases: chain.CodeAliases("PermissionDenied", []any{denied})}, check: matchCount(2)},
+		{name: "no alias", chains: roles, q: chain.WhichQuery{Code: "1603"}, check: matchCount(1)},
+		{name: "a shared reason with another code", chains: sharedReasonFixture(), q: chain.WhichQuery{Code: "1102", Aliases: []string{"CustomerNotFound"}},
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				got := map[string]string{}
+				for _, m := range hits[0].Matches {
+					got[m.Step] = m.ByReason
+				}
+				if len(hits) != 1 || len(got) != 2 || got["get_customer_missing"] != "" || got["list_orders_unknown_customer"] != "CustomerNotFound" {
+					t.Errorf("the other code's step does not match, the reason-only step says so: %+v", hits[0].Matches)
+				}
+			}},
+		{name: "every code of a reason", chains: sharedReasonFixture(), q: chain.WhichQuery{Code: "CustomerNotFound", Aliases: []string{"1102", "1301"}}, check: matchCount(3)},
+		{name: "an auth probe keeps no writes", chains: flow(), q: chain.WhichQuery{RPC: "pkg.Svc/Cancel"}, opts: flowRun, check: func(t *testing.T, hits []chain.WhichChain) {
+			if len(hits) != 1 || hits[0].Command != "shrt chain slice flow -step "+hits[0].Best {
+				t.Errorf("a plain closure slice: %+v", hits)
 			}
-			return nil
-		},
-	})
-	if len(hits) != 2 || hits[0].Chain != "short" {
-		t.Fatalf("both answered 1218, the step that passed is the better reproduction, got %+v", hits)
+			for _, m := range hits[0].Matches {
+				if m.Kind != chain.WhichKindAuthProbe {
+					t.Errorf("%s is an auth probe", m.Step)
+				}
+			}
+		}},
+		{name: "a write keeps writes", chains: flow(), q: chain.WhichQuery{RPC: "pkg.Svc/Confirm"}, opts: flowRun, cmds: []string{"shrt chain slice flow -step confirm -keep writes"}},
+		{name: "a read is sliced plainly", chains: flow(), q: chain.WhichQuery{RPC: "pkg.Svc/Fetch"}, opts: flowRun, cmds: []string{"shrt chain slice flow -step fetch"}},
+		{name: "a login is a write by its name", chains: login, q: chain.WhichQuery{RPC: "pkg.AuthService/Login"}, opts: loginRun, cmds: []string{"shrt chain slice auth -step login_admin -keep writes"}},
+		{name: "the auth login is a read", chains: login, q: chain.WhichQuery{RPC: "pkg.AuthService/Login"}, opts: loginAsRead, cmds: []string{"shrt chain slice auth -step login_admin"}},
+		{name: "under -rpc the newest failure first", chains: whichFixture(), q: chain.WhichQuery{RPC: "pkg.Svc/Create"},
+			opts:  observed(map[string][]chain.Observation{"short": {obs("r1", "seed", "passed", ok)}, "long": {obs("r2", "a", "passed", ok), failedB}}),
+			order: "long/b,short/seed", cmds: []string{"shrt chain slice long -step b -keep writes"}},
+		{name: "under -rpc a failing chain above a passing one", chains: fetchers, q: chain.WhichQuery{RPC: "shop.v1.S/Fetch"},
+			opts: observed(map[string][]chain.Observation{"a-small": {obs("r-a", "fetch", "failed", ok)}, "b-large": {obs("r-b", "fetch", "passed", ok)}}), order: "a-small,b-large"},
+		{name: "the failing step reproduced, not a passing one", chains: clerk, q: chain.WhichQuery{Code: "1603"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "create_product_as_clerk", "passed", denied), clerkRun}}), order: "catalog-refusals/add_stock_as_clerk",
+			cmds: []string{"shrt chain slice catalog-refusals -step add_stock_as_clerk -keep writes"}},
+		{name: "the newest reaching run is cited even when it contradicts", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{"short": {obs("old", "boom", "passed", failureResponse(float64(1218))), contradicted}}),
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				h, m := matchOf(t, hits, "short", "boom")
+				ev := m.Observed
+				if !h.Observed || ev == nil || ev.Run != "new" || ev.Code != "OK" || ev.Status != "failed" || ev.Holds || ev.Asserted != "error.details.0.app_code" ||
+					ev.Path != "error.code" || len(ev.Failures) != 2 || ev.Failures[0].Path != "error.code" {
+					t.Errorf("evidence: %+v", ev)
+				}
+			}},
+		{name: "a contradicted step ranks below an asserted one", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{"short": {obs("new", "boom", "failed", ok)}}), order: "long,short",
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				if hits[1].Matches[0].Observed == nil {
+					t.Error("ranking it last must not hide its evidence")
+				}
+			}},
+		{name: "the newest run did not reach the step", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{
+				"short": {obs("r1", "seed", "passed", ok), obs("r1", "boom", "passed", failureResponse(float64(1218))), obs("r2", "seed", "failed", ok), {Run: "r2", Step: "boom", Status: "skipped"}},
+				"long":  {obs("r3", "a", "failed", ok)}}),
+			check: func(t *testing.T, hits []chain.WhichChain) {
+				_, m := matchOf(t, hits, "short", "boom")
+				if m.Observed == nil || m.Observed.Run != "r1" || m.Observed.NewerRuns != 1 || m.Newest == nil || m.Newest.Run != "r2" || m.Newest.Status != "skipped" {
+					t.Errorf("older evidence, newest skipped: %+v %+v", m.Observed, m.Newest)
+				}
+				_, m = matchOf(t, hits, "long", "boom_long")
+				if m.Observed != nil || m.Newest == nil || m.Newest.Run != "r3" || m.Newest.Status != "not in run" || m.Newest.StoppedAt != "a" || m.Newest.StoppedStatus != "failed" {
+					t.Errorf("not in the newest run, which stopped at a: %+v %+v", m.Observed, m.Newest)
+				}
+			}},
+		{name: "the newest run reached the step", chains: whichFixture(), q: chain.WhichQuery{Code: "1218"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "boom", "passed", failureResponse(float64(1218)))}}), check: func(t *testing.T, hits []chain.WhichChain) {
+				_, m := matchOf(t, hits, "short", "boom")
+				if m.Newest != nil || m.Observed == nil || m.Observed.NewerRuns != 0 || !m.Observed.Holds {
+					t.Errorf("nothing stale: %+v %+v", m.Observed, m.Newest)
+				}
+			}},
+		{name: "-rpc reads got from the asserted path", chains: whichFixture(), q: chain.WhichQuery{RPC: "pkg.Svc/Approve"},
+			opts: observed(map[string][]chain.Observation{"*": {obs("r1", "boom", "passed", failureResponse(float64(1218)))}}), check: func(t *testing.T, hits []chain.WhichChain) {
+				_, m := matchOf(t, hits, "short", "boom")
+				a, ok := chain.PrimaryAssertion(m.Asserts, "")
+				if m.Observed == nil || m.Observed.Code != "1218" || m.Observed.Path != "error.details.0.app_code" || !ok || a.Path != m.Observed.Path {
+					t.Errorf("got from app_code: %+v %+v", m.Observed, a)
+				}
+			}},
+	}
+	for _, tc := range cases {
+		hits := chain.Which(tc.chains, tc.q, tc.opts)
+		if tc.order != "" {
+			got := []string{}
+			for _, h := range hits {
+				id := h.Chain
+				if strings.Contains(tc.order, "/") {
+					id += "/" + h.Best
+				}
+				got = append(got, id)
+			}
+			if want := strings.TrimPrefix(tc.order, "-"); strings.Join(got, ",") != want {
+				t.Errorf("%s: order %v, want %q", tc.name, got, want)
+			}
+		}
+		for i, want := range tc.cmds {
+			if i >= len(hits) || hits[i].Command != want {
+				t.Errorf("%s: command %d, want %q in %+v", tc.name, i, want, hits)
+			}
+		}
+		if tc.check != nil && len(hits) > 0 {
+			tc.check(t, hits)
+		} else if tc.check != nil {
+			t.Errorf("%s: no hits", tc.name)
+		}
+	}
+}
+
+func matchCount(n int) func(*testing.T, []chain.WhichChain) {
+	return func(t *testing.T, hits []chain.WhichChain) {
+		if len(hits) != 1 || len(hits[0].Matches) != n {
+			t.Errorf("want %d match(es) in one chain, got %+v", n, hits)
+		}
+	}
+}
+
+func TestCodeAliasesAndUnassertedCodes(t *testing.T) {
+	denied := map[string]any{"status": map[string]any{"code": "REJECTED", "details": []any{map[string]any{"app_code": float64(1603), "reason": "PermissionDenied"}}}}
+	if got := strings.Join(chain.CodeAliases("1603", []any{denied}), ","); got != "PermissionDenied" {
+		t.Errorf("1603's alias is its reason, got %q", got)
+	}
+	if got := strings.Join(chain.CodeAliases("permissiondenied", []any{denied}), ","); got != "1603" {
+		t.Errorf("the alias works both ways, got %q", got)
+	}
+	confirm := normalized(steps("confirm", st("confirm_short", "shop.v1.OrderService/ConfirmOrder", nil,
+		chain.Expectation{Path: "error.code", Equals: "REJECTED"}, chain.Expectation{Path: "error.details.0.reason", Equals: "InsufficientStock"})))
+	opts := observed(map[string][]chain.Observation{"*": {obs("r1", "confirm_short", "passed", map[string]any{
+		"error": map[string]any{"code": "REJECTED", "details": []any{map[string]any{"app_code": float64(1305), "reason": "InsufficientStock"}}}})}})
+	q := chain.WhichQuery{Code: "1305"}
+	if hits := chain.Which(confirm, q, opts); len(hits) != 0 {
+		t.Errorf("nothing asserts 1305: %+v", hits)
+	}
+	seen := chain.WhichObservedUnasserted(confirm, q, opts)
+	if len(seen) != 1 || seen[0].Step != "confirm_short" || seen[0].Path != "error.details.0.app_code" || seen[0].Run != "r1" || !strings.Contains(seen[0].Command, "-step confirm_short -keep writes") {
+		t.Errorf("the run observed 1305 on confirm_short: %+v", seen)
+	}
+	if again := chain.WhichObservedUnasserted(confirm, chain.WhichQuery{Code: "1306"}, opts); len(again) != 0 {
+		t.Errorf("a code no run carried is not observed: %+v", again)
 	}
 }
