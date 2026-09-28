@@ -29,7 +29,7 @@ func TestDiffShowsTheFailingValuesWhenBothRunsFailedAtTheSameStep(t *testing.T) 
 	b := echoFailureRun("b", "b6b", "cust-b6b@example.test")
 	text := diff.CompareRunsSkipping(a, b, nil, diff.Fixtures{Named: fixture}).Text()
 	for _, want := range []string{
-		"first failing step unchanged: get_customer, failing the same way in both: the values differ only by the fixture name each run sent",
+		"first failing step unchanged: get_customer, failing the same way in both: the values differ only by the ids and fixture names each run generated",
 		"A: customer.name want=Customer b6a got=cust-b6a@example.test",
 		"B: customer.name want=Customer b6b got=cust-b6b@example.test",
 	} {
@@ -41,5 +41,25 @@ func TestDiffShowsTheFailingValuesWhenBothRunsFailedAtTheSameStep(t *testing.T) 
 	text = diff.CompareRunsSkipping(a, c, nil, diff.Fixtures{Named: fixture}).Text()
 	if !strings.Contains(text, "first failing step unchanged: get_customer, failing differently") {
 		t.Fatalf("a got that is not the other run's echo is a different failure:\n%s", text)
+	}
+}
+
+func TestAFailureDifferingOnlyByTheIdsEachRunGeneratedIsTheSame(t *testing.T) {
+	run := func(id, made, other string) *runner.Record {
+		return &runner.Record{RunID: id, Chain: "orders", Status: runner.StatusFailed, Steps: []*runner.StepRecord{
+			{ID: "create", Call: "S/Create", Status: runner.StatusPassed, Response: []byte(`{"order":{"id_order":"` + made + `"}}`)},
+			{ID: "create_other", Call: "S/Create", Status: runner.StatusPassed, Response: []byte(`{"order":{"id_order":"` + other + `"}}`)},
+			{ID: "list", Call: "S/List", Status: runner.StatusFailed, Response: []byte(`{"orders":[{"id_order":"` + other + `"}]}`),
+				Expect: []chain.ExpectResult{{Path: "orders.0.id_order", Rule: "equals", Want: made, Got: other}}},
+		}}
+	}
+	a := run("a", "ord-c1c11917aa24", "ord-60f9aa4b6db6")
+	b := run("b", "ord-fb15f508130a", "ord-d0d8a86db64f")
+	if text := diff.CompareRuns(a, b).Text(); !strings.Contains(text, "list, failing the same way in both: the values differ only by the ids") {
+		t.Fatalf("the same failure with each run's own ids is failing the same way:\n%s", text)
+	}
+	c := run("c", "ord-fb15f508130a", "ord-fb15f508130a")
+	if text := diff.CompareRuns(a, c).Text(); !strings.Contains(text, "list, failing differently") {
+		t.Fatalf("a got that is not the other run's renamed id is a different failure:\n%s", text)
 	}
 }

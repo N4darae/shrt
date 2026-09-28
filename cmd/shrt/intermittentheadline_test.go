@@ -28,3 +28,16 @@ func TestRunHeadlineLeadsWithADeterministicFailureBesideAnIntermittentOne(t *tes
 		t.Fatalf("fetch3 fails on every run, so the headline leads with it and the intermittent finding comes after: %v\n%s", err, out)
 	}
 }
+
+func TestVerifyHeadlineCallsAnIntermittentFirstChangeIntermittentBesideARegression(t *testing.T) {
+	f, ctx := flakyWorkspace(t)
+	f.set("internal", 500, 2, 3)
+	f.name11 = "gadget"
+	out, err := verifyOnce(t, ctx)
+	wantExit1(t, "verify", err, out)
+	head, _, _ := strings.Cut(out, "\n")
+	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") ||
+		!strings.Contains(head, "DRIFT (intermittent; also regression at 1 step(s))") || !strings.Contains(head, "first: fetch_again") {
+		t.Fatalf("fetch_again failed intermittently and fetch3 changed, so the headline calls the first change intermittent:\n%s", out)
+	}
+}

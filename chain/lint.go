@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ func Lint(c *Chain, cat *catalog.Catalog) []Issue {
 func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 	issues := []Issue{}
 	issues = append(issues, lintVars(c)...)
+	issues = append(issues, lintVolatileIDs(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
 	issues = append(issues, lintAuthEnv(c, opts)...)
@@ -66,6 +68,7 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintBody(s, m, cat)...)
 		issues = append(issues, lintWholeTag(c, s, m)...)
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
+		issues = append(issues, lintAbsentReads(c, s, known)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
 		for _, why := range never {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
@@ -211,8 +214,114 @@ func (x *refIndex) laterExport(name string) string {
 	return ""
 }
 
+func fitIndexes(fields []*catalog.Field, segs []string) []string {
+	out := []string{}
+	var last *catalog.Field
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			if last == nil || last.Repeated {
+				out = append(out, seg)
+			}
+			continue
+		}
+		last = nil
+		for _, f := range fields {
+			if f.Name == seg || f.JSONName == seg || namecase.Equal(f.Name, seg) {
+				last = f
+			}
+		}
+		if last == nil || last.Truncated || last.MapKey != "" {
+			return append(out, segs[i:]...)
+		}
+		out = append(out, seg)
+		fields = last.Fields
+	}
+	return out
+}
+
+func nearPath(fields []*catalog.Field, segs []string) string {
+	top := fields
+	for i, seg := range segs {
+		if isIndexSegment(seg) {
+			continue
+		}
+		var next *catalog.Field
+		names := make([]string, 0, len(fields))
+		for _, f := range fields {
+			if f.Name == seg || f.JSONName == seg || namecase.Equal(f.Name, seg) {
+				next = f
+			}
+			names = append(names, f.Name)
+		}
+		if next == nil {
+			near := []string{}
+			for _, f := range fields {
+				for _, sub := range f.Fields {
+					if len(near) < 3 && !f.Truncated && f.MapKey == "" && (sub.Name == seg || sub.JSONName == seg || namecase.Equal(sub.Name, seg)) {
+						near = append(near, f.Name+"."+sub.Name)
+					}
+				}
+			}
+			if len(near) == 0 {
+				near = namecase.Closest(seg, names, 3)
+			}
+			if len(near) == 0 {
+				near = namesWithWord(seg, names, 3)
+			}
+			quoted := make([]string, 0, len(near))
+			for _, n := range near {
+				path := append(append(append([]string{}, segs[:i]...), strings.Split(n, ".")...), segs[i+1:]...)
+				quoted = append(quoted, strconv.Quote(strings.Join(fitIndexes(top, path), ".")))
+			}
+			if len(quoted) == 0 {
+				return ""
+			}
+			return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+		}
+		if next.Truncated || next.MapKey != "" {
+			return ""
+		}
+		fields = next.Fields
+	}
+	return ""
+}
+
+func NearResponsePath(m *catalog.Method, path string) string {
+	if m == nil {
+		return ""
+	}
+	return nearPath(m.Response().Fields, SplitPath(path))
+}
+
+func namesWithWord(word string, names []string, limit int) []string {
+	out := []string{}
+	for _, n := range names {
+		for _, w := range strings.Split(n, "_") {
+			if len(out) < limit && strings.EqualFold(w, word) {
+				out = append(out, n)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func namesSharingWords(name string, candidates []string, limit int) []string {
+	out := []string{}
+	for _, c := range candidates {
+		if len(out) < limit && c != name && !slices.Contains(out, c) &&
+			(strings.Contains("_"+name+"_", "_"+c+"_") || strings.Contains("_"+c+"_", "_"+name+"_")) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func didYouMean(name string, candidates []string) string {
 	near := namecase.Closest(name, candidates, 3)
+	if len(near) == 0 {
+		near = namesSharingWords(name, candidates, 3)
+	}
 	if len(near) == 0 {
 		return ""
 	}
@@ -551,13 +660,26 @@ func refPathIssue(stepID string, r Ref, responses map[string]*catalog.Method) (I
 	if strings.HasPrefix(r.Rest, "request.") {
 		hint = ". A request path names a field of the request message that step sends, not of its response"
 	}
-	return Issue{
+	if strings.HasSuffix(why, "?)") {
+		hint = ""
+	}
+	issue := Issue{
 		Step:     stepID,
 		Severity: SeverityError,
 		Kind:     KindDeadRef,
 		Message:  fmt.Sprintf("${%s} %s%s", r.Expr, why, hint),
-	}, true
+	}
+	if why != NoArithmetic {
+		issue.Why = deadRefWhy
+	}
+	return issue, true
 }
+
+const deadRefWhy = "shrt run refuses a chain with such a reference before sending anything: resolving it would kill " +
+	"the run after every earlier step had already hit the backend"
+
+const NoArithmetic = "does arithmetic, and a reference does none (only a clock takes an offset: ${nowunix+3600}): " +
+	"work the value out and write it as a literal or a var"
 
 func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bool) {
 	if r.Kind != RefStep || r.Err != nil {
@@ -575,9 +697,8 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 		if catalog.HasResponsePath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path)) {
 			return "", false
 		}
-		return fmt.Sprintf("reads request path %q, which is not a field of %s — step %q never sends it, so the run "+
-			"would die resolving it after every earlier step had already hit the backend, and shrt run refuses "+
-			"the chain before sending anything", path, m.Input().FullName(), r.Head), true
+		return fmt.Sprintf("reads request path %q, which is not a field of %s, so step %q never sends it%s", path,
+			m.Input().FullName(), r.Head, nearPath(catalog.DescribeMessage(m.Input()).Fields, SplitPath(path))), true
 	}
 	rest = strings.TrimPrefix(rest, "response.")
 	if rest == "" || rest == "response" {
@@ -587,9 +708,11 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 	if catalog.HasResponsePath(fields, SplitPath(rest)) {
 		return "", false
 	}
-	return fmt.Sprintf("reads %q, which is not a field of %s — step %q cannot produce it, so the run would "+
-		"die resolving it after every earlier step had already hit the backend, and shrt run refuses the "+
-		"chain before sending anything", rest, m.Output().FullName(), r.Head), true
+	if strings.ContainsAny(rest, "+-*/ ") {
+		return NoArithmetic, true
+	}
+	return fmt.Sprintf("reads %q, which is not a field of %s, so step %q cannot produce it%s", rest,
+		m.Output().FullName(), r.Head, nearPath(fields, SplitPath(rest))), true
 }
 
 func headerValues(in map[string]string) []any {
@@ -815,23 +938,40 @@ func lintExports(s *Step, m *catalog.Method) []Issue {
 				Step:     s.ID,
 				Severity: SeverityError,
 				Kind:     KindBadExport, Message: fmt.Sprintf("export %q reads %q which is not a field of %s, so shrt run "+
-					"fails this step when the path is missing from the response", name, path, m.Output().FullName()),
+					"fails this step when the path is missing from the response%s", name, path, m.Output().FullName(),
+					nearPath(schema.Fields, SplitPath(path))),
 			})
 		}
 	}
 	return issues
 }
 
+func (c *Chain) ExportStepClashes() []string {
+	out := []string{}
+	for _, issue := range lintExportNames(c) {
+		if issue.IsError() {
+			out = append(out, fmt.Sprintf("step %q: %s", issue.Step, issue.Message))
+		}
+	}
+	return out
+}
+
 func lintExportNames(c *Chain) []Issue {
 	issues := []Issue{}
 	stepAt := map[string]int{}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		if _, seen := stepAt[s.ID]; !seen {
 			stepAt[s.ID] = i + 1
 		}
 	}
 	writer := map[string]int{}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		names := make([]string, 0, len(s.Export))
 		for name := range s.Export {
 			names = append(names, name)
@@ -955,7 +1095,15 @@ func sortedKeys(m map[string]bool) []string {
 
 func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 	issues := []Issue{}
-	missingVars, needEnv := ExternalInputs(c)
+	missing, needEnv := ExternalInputs(c)
+	missingVars := []string{}
+	for _, name := range missing {
+		if strings.ContainsAny(name, "+*/ ") {
+			issues = append(issues, Issue{Severity: SeverityError, Message: "${vars." + name + "} " + NoArithmetic})
+			continue
+		}
+		missingVars = append(missingVars, name)
+	}
 	if len(missingVars) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
 			"reads ${vars.%s} which this chain does not declare in vars: — the run needs %s, "+
@@ -1040,18 +1188,22 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 
 func lintVars(c *Chain) []Issue {
 	issues := []Issue{}
-	for _, name := range sortedVarNames(c.Vars) {
-		text, ok := c.Vars[name].(string)
-		if !ok {
-			continue
-		}
-		for _, ref := range collectRefs([]any{text}) {
-			issues = append(issues, Issue{Severity: SeverityError, Message: fmt.Sprintf(
-				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
-				name, ref)})
-		}
+	for _, why := range VarRefProblems(c.Vars) {
+		issues = append(issues, Issue{Severity: SeverityError, Message: why})
 	}
 	return issues
+}
+
+func VarRefProblems(vars map[string]any) []string {
+	out := []string{}
+	for _, name := range sortedVarNames(vars) {
+		for _, ref := range collectRefs(vars[name]) {
+			out = append(out, fmt.Sprintf(
+				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
+				name, ref))
+		}
+	}
+	return out
 }
 
 func sortedVarNames(vars map[string]any) []string {

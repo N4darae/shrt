@@ -59,3 +59,48 @@ func TestAListIsSameItemsInAnotherOrderOnlyWhenNoItemWasAddedOrMissing(t *testin
 		t.Errorf("a list holding an item it should not is a changed set, not a reorder: %v", got)
 	}
 }
+
+func TestAValueUnderAListThatEchoesTheRequestInAnotherOrderIsAReorder(t *testing.T) {
+	request, _ := json.Marshal(map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 2},
+		map[string]any{"id_product": "a", "qty": 3},
+		map[string]any{"id_product": "b", "qty": 1},
+	}})
+	reversed, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "b", "qty": 1, "price_minor": "799"},
+		map[string]any{"id_product": "a", "qty": 3, "price_minor": "1250"},
+		map[string]any{"id_product": "a", "qty": 2, "price_minor": "1250"},
+	}}})
+	qty := chain.ExpectResult{Path: "order.lines.2.qty", Rule: "equals", Want: float64(1), Got: float64(2)}
+	sr := &StepRecord{ID: "create", Status: StatusFailed, Request: request, Response: reversed, Expect: []chain.ExpectResult{qty}}
+	if !ReorderedPaths(sr)["order.lines.2.qty"] {
+		t.Errorf("the lines sent, answered in another order, are a reorder: %v", listChangeKinds(sr))
+	}
+	doubled, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 2},
+		map[string]any{"id_product": "a", "qty": 3},
+		map[string]any{"id_product": "b", "qty": 2},
+	}}})
+	sr.Response = doubled
+	if ReorderedPaths(sr)["order.lines.2.qty"] {
+		t.Errorf("a line answered with another qty is a value change, not a reorder")
+	}
+}
+
+func TestALineMissingFromLinesOfOneProductIsMissingNotReordered(t *testing.T) {
+	response, _ := json.Marshal(map[string]any{"order": map[string]any{"lines": []any{
+		map[string]any{"id_product": "a", "qty": 6},
+	}}})
+	sr := &StepRecord{ID: "fetch", Status: StatusFailed, Response: response, Expect: []chain.ExpectResult{
+		{Path: "order.lines.0.id_product", Rule: "equals", Want: "a", Got: "a", Passed: true},
+		{Path: "order.lines.1.id_product", Rule: "equals", Want: "a"},
+		{Path: "order.lines.1.qty", Rule: "equals", Want: float64(5)},
+	}}
+	kinds := listChangeKinds(sr)
+	if kinds[1] != "item missing: order.lines holds 1 of the 2 item(s) with id_product=a" {
+		t.Errorf("a repeated id is counted, not looked up: %q", kinds[1])
+	}
+	if len(ReorderedPaths(sr)) != 0 {
+		t.Errorf("a dropped line is not a reorder: %v", ReorderedPaths(sr))
+	}
+}

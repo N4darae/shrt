@@ -33,9 +33,12 @@ func TestPlanAssertsTheNumbersTheContractsState(t *testing.T) {
 	if a, b := bodyAt(t, twice, "lines.0.id_product"), bodyAt(t, twice, "lines.1.id_product"); a != b || !strings.Contains(a, "_for_twice.") {
 		t.Fatalf("both lines name one product of the probe's own: %s %s\n%s", a, b, text)
 	}
-	wantExpect(t, twice, "order.total_minor", 2*250)
+	if a, b := bodyAt(t, twice, "lines.0.qty"), bodyAt(t, twice, "lines.1.qty"); a == b {
+		t.Fatalf("the two lines ask for different quantities, so a backend taking the first line's quantity per line fails: %s %s\n%s", a, b, text)
+	}
+	wantExpect(t, twice, "order.total_minor", 3*250)
 	wantExpect(t, planStep(t, p, "confirm_order_same_product_twice"), "order.status", "ORDER_STATUS_CONFIRMED")
-	wantExpect(t, planStep(t, p, "get_product_after_confirm_order_same_product_twice"), "product.qty_on_hand", 5-2)
+	wantExpect(t, planStep(t, p, "get_product_after_confirm_order_same_product_twice"), "product.qty_on_hand", 5-3)
 	if !strings.Contains(notes, "assert numbers the plan works out") || !strings.Contains(notes, "Reserve stock for every line") ||
 		strings.Contains(notes, "AddStockBatch") {
 		t.Fatalf("the plan names the sentences it computed from, and only for rpcs it calls:\n%s", notes)

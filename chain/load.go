@@ -20,6 +20,10 @@ func LoadFile(path string) (*Chain, error) {
 	if err != nil {
 		return nil, err
 	}
+	return loadBytes(raw, path)
+}
+
+func loadBytes(raw []byte, path string) (*Chain, error) {
 	c := &Chain{}
 	if err := decodeStrict(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -174,7 +178,7 @@ func decodeStrict(raw []byte, into any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into)
+		return yamlkey.Explain(err, into, raw)
 	}
 	var extra yaml.Node
 	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {

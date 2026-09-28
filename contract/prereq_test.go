@@ -58,3 +58,25 @@ func TestPrereqsForDoesNotMakeAnRPCItsOwnPrerequisite(t *testing.T) {
 			"satisfy: %+v", got)
 	}
 }
+
+func TestANeedIsMetByAnRPCWhoseEffectsIncreaseTheSameField(t *testing.T) {
+	lib := contract.NewLibrary([]*contract.Overlay{{
+		APIVersion: "shrt/contract/v1",
+		Domain:     "test",
+		RPCs: map[string]*contract.RPCContract{
+			"shrt.test.v1.StockService/Add":      {Effects: contract.Effects{"level": {Increase: "qty"}}},
+			"shrt.test.v1.StockService/AddBatch": {Effects: contract.Effects{"level": {Increase: "lines.qty"}}},
+			"shrt.test.v1.OrderService/Cancel":   {Effects: contract.Effects{"level": {Restore: "CONFIRMED"}}},
+			"shrt.test.v1.OrderService/Confirm":  {Needs: []string{"shrt.test.v1.StockService/Add"}},
+		},
+	}})
+	for _, p := range contract.PrereqsFor(lib)("shrt.test.v1.OrderService/Confirm") {
+		if p.RPC == "shrt.test.v1.StockService/Add" {
+			if len(p.Via) != 1 || p.Via[0] != "shrt.test.v1.StockService/AddBatch" {
+				t.Fatalf("AddBatch increases level as Add does, and Cancel only restores it: %+v", p)
+			}
+			return
+		}
+	}
+	t.Fatal("Confirm needs Add")
+}

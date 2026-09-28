@@ -28,7 +28,7 @@ A `+` in the `req` column means the key is always written out (no `omitempty`).
 | `body` | map string → any |  | The request, validated against the proto request message before anything is sent. |
 | `headers` | map string → string |  | Per-step headers. Never the auth header: use `auth: <profile>`; a hand-written `Authorization` is a lint error and `run` refuses it. |
 | `expect` | list of expectation |  | Assertions on this step's response. Each entry holds exactly one rule and nearly always a `path`. |
-| `export` | map string → string |  | `name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is a lint error; one another step also exports is a warning (`export-overwritten`). |
+| `export` | map string → string |  | `name: <path in the response>`, e.g. `id_invoice: invoice.id_invoice` (no `response.` prefix). Publishes `${exports.name}` and the bare `${name}`. A name equal to a step id is refused by lint and run; one another step also exports is a warning (`export-overwritten`). |
 | `auth` | string |  | Auth profile from `.shrt/config.yaml` for this step. `invalid` sends a token the backend never issued and never logs in again: the invalid-token probe. Contradicts `skip_auth`. |
 | `skip_auth` | bool |  | Attach no auth header: the missing-token probe. A login step does not need it. |
 | `allow_fail` | bool |  | Let the chain go on past a transport refusal on a step with no expectations. It never waives a failed expectation or an `error` step; with expectations it does nothing (`inert-allow-fail`). |
@@ -161,7 +161,7 @@ Produced by resolving each form against a fixture scope:
 | `${today-86400}` | `"1788998400"` | the business date before it |
 | `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys; verify and diff mask a response that only echoes it |
 | `deal-${create_deal.id_deal}-x` | `"deal-d-9-x"` | interpolated inside a longer string, so the result is text |
-| `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` now rejects it |
+| `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` and `run` reject it |
 
 ## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`
 
@@ -182,7 +182,7 @@ Produced by resolving each form against a fixture scope:
 | `auth` | string |  | Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step. |
 | `requires_role` | list of string |  | Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial. |
 | `required` | list of string | + | Fields the server rejects without, read from the backend; reads too. `[NONE]`: it rejects nothing. `[UNKNOWN]`: the handler could not be found (a warning, scored as empty). |
-| `needs` | list of string |  | An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches. |
+| `needs` | list of string |  | An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it. |
 | `no_producer` | string |  | Why no write in this API creates the rows this read returns (a seed, a migration, a feed). The only thing that spares the no-producer charge. |
 | `before` | list of string |  | The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc. |
 | `fields` | map string → fieldcontract |  | Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry. |
@@ -307,7 +307,7 @@ Produced by resolving each form against a fixture scope:
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve. |
+| `read_only_prefixes` | list of string |  | Rpc-name prefixes that mean a read, matched at a word boundary. Default: Fetch, Get, List, Preview, Search, Read, Query, Find, Lookup, Describe, Show, Count, Export, Download, Retrieve, Watch, Subscribe. |
 | `envelope_path` | string |  | Where a response reports its verdict. Default `error.code`. A path no response declares fails `run`. |
 | `envelope_ok` | string |  | The `envelope_path` value that means success. Default `OK`. |
 | `item_envelope_path` | string |  | Per-item verdict in a batch response, `<list>[].<path>` (e.g. `results[].error.code`); without it a batch refusing every line passes. |
@@ -342,7 +342,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `status` | string | `passed`, `failed` or `error`; never `skipped`, which is a step status. |
 | `dry_run` | bool | True for a `-dry-run` record, which is never saved. |
 | `keep_going` | bool | True for a `-keep-going` run. |
-| `replay_of` | string | On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips such records. |
+| `replay_of` | string | On a `verify` replay: the safe spot's run id. `shrt diff <chain>` skips one recorded right after a run. |
 | `vars` | map string → any | The resolved vars this run used; secrets show as `<redacted>`. |
 | `exports` | map string → any | Everything any step exported. |
 | `volatile` | list of string | Volatile patterns in force for the whole run, chain plus config. |
@@ -369,7 +369,7 @@ The evidence file; the JSON names below are the ones in the file.
 | `auth_principal` | string | Digest of the account the profile logged in as, no secret in it; `verify` compares it. |
 | `auth_retry` | string | `resent`: answered unauthenticated, logged in again and re-sent. `not_resent`: a write that may have been performed was not re-sent. |
 | `first_attempt` | attempt | A read's first answer when it was a server error: the read is re-sent once and judged on the answer; the failure stays a FINDING. |
-| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal, or three in a row across runs, is a `FINDING`. |
+| `token_refused` | list of tokenrefusal | Each token refused at this step: fingerprint, when issued, stated expiry, when refused. A cached token refused on first use prints one `note:` line; repeated early refusal is a `FINDING`. |
 | `status` | string | `passed`, `failed`, `error`, or `skipped` (a dry-run step, or a `-keep-going` step held back behind one that did not pass). |
 | `http_status` | int | Transport status. 200 with a non-OK envelope code is an in-band refusal. |
 | `latency_ms` | int | Wall time of the call. |

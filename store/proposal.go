@@ -1070,6 +1070,31 @@ func itemsSummary(body any) string {
 	return strings.Join(parts, ", ")
 }
 
+func itemRefusals(st *runner.StepRecord) []string {
+	list, field, ok := strings.Cut(chain.ItemEnvelope(), "[].")
+	var body any
+	if !ok || json.Unmarshal(st.Response, &body) != nil {
+		return nil
+	}
+	scope, _, _ := strings.Cut(field, ".")
+	var out []string
+	seen := map[string]bool{}
+	for _, e := range st.Expect {
+		rest, under := strings.CutPrefix(e.Path, list+".")
+		index, sub, _ := strings.Cut(rest, ".")
+		if !under || !e.Passed || seen[index] || sub != scope && !strings.HasPrefix(sub, scope+".") {
+			continue
+		}
+		item, _ := chain.Get(body, list+"."+index)
+		if v, found := chain.Get(item, field); found && fmt.Sprint(v) != chain.EnvelopeOK() {
+			seen[index] = true
+			text, _ := verdictText(item, field, "details.0.app_code", "details.0.reason")
+			out = append(out, text)
+		}
+	}
+	return out
+}
+
 func carriedPaths(lines []string) []string {
 	out := make([]string, 0, len(lines))
 	for _, l := range lines {
@@ -1204,6 +1229,9 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		answer := answerKind(st, envelope)
 		if answer != chain.EnvelopeOK() {
 			refusals.add(answer)
+		}
+		for _, text := range itemRefusals(st) {
+			refusals.add(text)
 		}
 		beyond := false
 		for _, e := range st.Expect {

@@ -48,10 +48,6 @@ type LoginTokenSource struct {
 	expiresAt    time.Time
 	issuedAt     time.Time
 	sentAt       time.Time
-	relogins     []time.Time
-	ages         []time.Duration
-	pending      []time.Time
-	pendingAges  []time.Duration
 	fromCache    bool
 	accepted     bool
 	logins       int
@@ -73,12 +69,12 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 		return s.token, nil
 	}
 	if e, ok := s.readCache(); ok {
-		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins, s.ages = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt, e.Relogins, e.ReloginAges
+		s.token, s.expiresAt, s.issuedAt, s.sentAt = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt
 		if !s.stale() {
 			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
-		s.token, s.expiresAt, s.issuedAt, s.sentAt, s.relogins, s.ages = "", time.Time{}, time.Time{}, time.Time{}, nil, nil
+		s.token, s.expiresAt, s.issuedAt, s.sentAt = "", time.Time{}, time.Time{}, time.Time{}
 	}
 	return s.login(ctx)
 }
@@ -93,7 +89,6 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	s.expiresAt = expiresAt
 	s.issuedAt = time.Now()
 	s.sentAt = time.Time{}
-	s.relogins, s.ages = nil, nil
 	s.fromCache, s.accepted = false, false
 }
 
@@ -104,10 +99,6 @@ func (s *LoginTokenSource) Accepted(token string) {
 		return
 	}
 	s.accepted = true
-	if s.fromCache && len(s.relogins) > 0 && time.Since(s.issuedAt) >= youngest(s.ages) {
-		s.relogins, s.ages = nil, nil
-		s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt})
-	}
 }
 
 func (s *LoginTokenSource) UntriedCached(token string) bool {
@@ -133,7 +124,7 @@ func (s *LoginTokenSource) Refusal(token string, at time.Time) (TokenRefusal, bo
 	}
 	return TokenRefusal{
 		Token: fingerprint(token), SentAt: s.sentAt, IssuedAt: s.issuedAt, ExpiresAt: s.expiresAt, RefusedAt: at,
-		Cached: s.fromCache, FirstUse: !s.accepted, Relogins: s.relogins,
+		Cached: s.fromCache, FirstUse: !s.accepted,
 	}, true
 }
 
@@ -146,16 +137,7 @@ func (s *LoginTokenSource) CurrentToken() string {
 func (s *LoginTokenSource) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.pending, s.pendingAges = nil, nil
-	if now := time.Now(); s.token != "" && (TokenRefusal{IssuedAt: s.issuedAt, SentAt: s.sentAt, ExpiresAt: s.expiresAt, RefusedAt: now}).Early() {
-		keep := max(0, len(s.relogins)-1)
-		s.pending = append(append([]time.Time{}, s.relogins[keep:]...), now)
-		if len(s.ages) == len(s.relogins) {
-			s.pendingAges = append(append([]time.Duration{}, s.ages[keep:]...), now.Sub(s.issuedAt))
-		}
-	}
 	s.token = ""
-	s.relogins, s.ages = nil, nil
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Time{}
 	s.sentAt = time.Time{}
@@ -239,8 +221,6 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	s.expiresAt = time.Time{}
 	s.issuedAt = time.Now()
 	s.sentAt = sentAt
-	s.relogins, s.pending = s.pending, nil
-	s.ages, s.pendingAges = s.pendingAges, nil
 	s.fromCache, s.accepted = false, false
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
@@ -248,19 +228,8 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 		}
 	}
 	s.logins++
-	s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt, Relogins: s.relogins, ReloginAges: s.ages})
+	s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt})
 	return token, nil
-}
-
-func youngest(ages []time.Duration) time.Duration {
-	if len(ages) == 0 {
-		return 0
-	}
-	out := ages[0]
-	for _, a := range ages[1:] {
-		out = min(out, a)
-	}
-	return out
 }
 
 type AuthProfile struct {

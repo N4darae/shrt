@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -25,7 +27,7 @@ func init() {
 
 const diffUsage = "usage: shrt diff <run-a> <run-b>\n" +
 	"       shrt diff <chain> <run-a> <run-b>   run ids, 'latest', or 'latest~N' (N runs before latest)\n" +
-	"       shrt diff <chain>                   the two latest runs that are not shrt verify replays"
+	"       shrt diff <chain>                   the latest run, skipping a verify replay recorded right after a run, vs the latest earlier one that is not a replay"
 
 func runDiff(ctx context.Context, args []string) error {
 	err := compareRuns(ctx, args)
@@ -39,6 +41,7 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
+	step := fs.String("step", "", "print step `id` of one run of <chain> (default latest) as recorded: its request and response, compact JSON")
 	listMasked := fs.Bool("masked", false, "list every difference kept out of the comparison, with both values and what hid it: the volatile pattern, an id- or timestamp-shaped value, a renamed id or a fixture echo (masked_changes under -json)")
 	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ; also, as for every command, "+
 		"a flag that cannot be parsed or a setup that cannot load\n"+
@@ -54,10 +57,13 @@ func compareRuns(_ context.Context, args []string) error {
 	if err != nil {
 		return &exitError{code: 1, err: err}
 	}
-	if len(rest) == 1 || len(rest) == 3 {
+	if len(rest) == 1 || len(rest) == 3 || *step != "" && len(rest) == 2 {
 		if err := e.knownChain(rest[0]); err != nil {
 			return err
 		}
+	}
+	if *step != "" {
+		return showStep(e, rest, *step)
 	}
 	var a, b *runner.Record
 	picked := ""
@@ -93,7 +99,11 @@ func compareRuns(_ context.Context, args []string) error {
 		return fmt.Errorf("both sides are run %s: comparing a record with itself says nothing", a.RunID)
 	}
 	var fx diff.Fixtures
-	if c, err := chain.Resolve(e.chainsDir(), a.Chain); err == nil {
+	c, err := chain.Resolve(e.chainsDir(), a.Chain)
+	if err != nil && a.ChainSource != "" {
+		c, err = chain.LoadFile(a.ChainSource)
+	}
+	if err == nil {
 		fx = requestFixtures(c)
 	}
 	rep := diff.CompareRunsSkipping(a, b, currentVolatile(e, a.Chain), fx)
@@ -132,23 +142,29 @@ func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record,
 	if err != nil {
 		return nil, nil, "", err
 	}
-	picked := []*runner.Record{}
-	replays := []string{}
-	for i := len(ids) - 1; i >= 0 && len(picked) < 2; i-- {
-		rec, err := e.store.LoadRun(chainName, ids[i])
-		if err != nil {
+	recs := make([]*runner.Record, len(ids))
+	for i, id := range ids {
+		if recs[i], err = e.store.LoadRun(chainName, id); err != nil {
 			return nil, nil, "", err
 		}
-		if rec.ReplayOf != "" {
-			replays = append(replays, rec.RunID)
+	}
+	picked := []*runner.Record{}
+	replays := []string{}
+	for i := len(recs) - 1; i >= 0 && len(picked) < 2; i-- {
+		if recs[i].ReplayOf != "" && (len(picked) > 0 || i > 0 && replayBesideRun(recs[i-1], recs[i])) {
+			replays = append(replays, recs[i].RunID)
 			continue
 		}
-		picked = append(picked, rec)
+		picked = append(picked, recs[i])
 	}
 	if len(picked) < 2 {
 		return nil, nil, "", fmt.Errorf("chain %s has %d recorded run(s) that are not shrt verify replays (%d replay(s) skipped), and a "+
 			"default diff needs two; name the runs to compare: shrt diff %s <run-a> <run-b> (latest and latest~N count replays too)",
 			chainName, len(picked), len(replays), chainName)
+	}
+	if picked[0].ReplayOf != "" {
+		return picked[1], picked[0], fmt.Sprintf("comparing the latest run of %s, verify replay %s, with the latest run that is not a replay, %s",
+			chainName, picked[0].RunID, picked[1].RunID), nil
 	}
 	line := fmt.Sprintf("comparing the two latest runs of %s that are not shrt verify replays: run A %s, run B %s",
 		chainName, picked[1].RunID, picked[0].RunID)
@@ -157,6 +173,10 @@ func latestNonReplays(e *env, chainName string) (*runner.Record, *runner.Record,
 			"backend: %s; name one to compare it: shrt diff %s <run-a> <run-b>)", len(replays), capList(replays, 3), chainName)
 	}
 	return picked[1], picked[0], line, nil
+}
+
+func replayBesideRun(prev, rec *runner.Record) bool {
+	return rec.ReplayOf != "" && prev.ReplayOf == ""
 }
 
 func currentVolatile(e *env, chainName string) []string {
@@ -261,4 +281,48 @@ func isChainName(e *env, name string) bool {
 		}
 	}
 	return false
+}
+
+func showStep(e *env, rest []string, id string) error {
+	if len(rest) < 1 || len(rest) > 2 {
+		return fmt.Errorf("usage: shrt diff <chain> [<run>] -step <id>")
+	}
+	sel := "latest"
+	if len(rest) == 2 {
+		sel = rest[1]
+	}
+	rec, err := selectRun(e, rest[0], sel)
+	if err != nil {
+		return err
+	}
+	st, ok := rec.Step(id)
+	if !ok || st == nil {
+		ids := []string{}
+		for _, s := range rec.Steps {
+			if s != nil {
+				ids = append(ids, s.ID)
+			}
+		}
+		return fmt.Errorf("run %s of %s has no step %q; its steps: %s", rec.RunID, rec.Chain, id, capList(ids, 12))
+	}
+	as := ""
+	if st.AuthProfile != "" && st.AuthProfile != "default" {
+		as = " as " + st.AuthProfile
+	}
+	fmt.Printf("%s (%s)%s %s in run %s\n", st.ID, shortRPC(st.Call), as, st.Status, rec.RunID)
+	for _, part := range []struct {
+		name string
+		raw  []byte
+	}{{"request", st.Request}, {"response", st.Response}} {
+		var buf bytes.Buffer
+		if len(part.raw) == 0 || json.Compact(&buf, part.raw) != nil {
+			buf.Reset()
+			buf.WriteString("(none)")
+		}
+		fmt.Printf("%s %s\n", part.name, buf.String())
+	}
+	if st.Error != "" {
+		fmt.Println("error " + st.Error)
+	}
+	return nil
 }

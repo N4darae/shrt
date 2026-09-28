@@ -19,6 +19,8 @@ type env struct {
 	cfg   *config.Config
 	cat   *catalog.Catalog
 	store *store.Store
+	lib   *contract.Library
+	libOK bool
 }
 
 func loadEnv(withCatalog bool) (*env, error) {
@@ -61,6 +63,25 @@ func configLoadError(wd string, err error) error {
 	}
 	return fmt.Errorf("%s exists but does not parse, so nothing was read from it: %w\n"+
 		"%s", filepath.Join(root, config.DirName, config.FileName), err, brokenConfigAdvice)
+}
+
+func (e *env) effectsOf(call string) contract.Effects {
+	if e == nil || e.cat == nil || !e.libOK && e.cfg == nil {
+		return nil
+	}
+	if !e.libOK {
+		e.libOK = true
+		e.lib, _, _ = contract.LoadLibraryIn(e.contractsDir(), e.cat)
+	}
+	m, err := e.cat.Lookup(call)
+	if err != nil {
+		return nil
+	}
+	c, ok := e.lib.Get(m.FullName)
+	if !ok {
+		return nil
+	}
+	return c.Effects
 }
 
 func (e *env) chainsDir() string { return e.cfg.Abs(e.cfg.Paths.Chains) }

@@ -122,11 +122,51 @@ func TestSingleItemRepeatsNamesAFieldThatNeverCarriesOneResourceTwice(t *testing
 	if len(got) != 1 || got[0].Field != "lines" || !got[0].NoRepeat || got[0].SameResource {
 		t.Fatalf("got %+v, want CreateOrder lines named as never carrying one product twice (a refused step does not count)", got)
 	}
+	defer chain.SetItemEnvelope("")
+	chain.SetItemEnvelope("results[].status.code")
+	refusedItem := &chain.Chain{Name: "refused_item", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "d"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product", "0")}},
+			Expect: []chain.Expectation{{Path: "results.1.status.code", Equals: "REJECTED"}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{distinct, refusedItem}, cat); len(got) != 1 || !got[0].NoRepeat {
+		t.Fatalf("got %+v, want lines still named: the second item on the product is refused, so nothing is applied twice", got)
+	}
 	twice := &chain.Chain{Name: "twice", Steps: []*chain.Step{
 		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "c"}},
 		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{line("create_product", "2"), line("create_product", "3")}}},
 	}}
 	if got := contract.SingleItemRepeats([]*chain.Chain{distinct, twice}, cat); len(got) != 0 {
 		t.Fatalf("one chain sends distinct products and another one product twice, so nothing is missing: %+v", got)
+	}
+}
+
+func TestSingleItemRepeatsComparesExportNamesByTheStepAndPathTheyRead(t *testing.T) {
+	cat := catalogtest.Shop()
+	line := func(id, qty string) map[string]any {
+		return map[string]any{"id_product": id, "qty": qty}
+	}
+	lifecycle := &chain.Chain{Name: "lifecycle", Vars: map[string]any{"qty_a1": 2, "qty_a2": 3}, Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "a"}, Export: map[string]string{"id_a": "product.id_product"}},
+		{ID: "create_product_2", Call: shopCreateProduct, Body: map[string]any{"sku": "b"}, Export: map[string]string{"id_b": "product.id_product"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{
+			line("${id_a}", "${vars.qty_a1}"),
+			line("${exports.id_a}", "${vars.qty_a2}"),
+			line("${steps.create_product_2.response.product.id_product}", "1"),
+		}}},
+	}}
+	if got := contract.SingleItemRepeats([]*chain.Chain{lifecycle}, cat); len(got) != 0 {
+		t.Fatalf("${id_a} and ${exports.id_a} read one product, so it is sent on two applied lines: %+v", got)
+	}
+	same := &chain.Chain{Name: "same", Steps: []*chain.Step{
+		{ID: "create_product", Call: shopCreateProduct, Body: map[string]any{"sku": "a"}, Export: map[string]string{"id_a": "product.id_product"}},
+		{ID: "create_order", Call: shopCreateOrder, Body: map[string]any{"lines": []any{
+			line("${id_a}", "2"),
+			line("${steps.create_product.response.product.id_product}", "3"),
+		}}},
+	}}
+	got := contract.SingleItemRepeats([]*chain.Chain{same}, cat)
+	if len(got) != 1 || !got[0].SameResource || got[0].Resource != "${create_product.product.id_product}" {
+		t.Fatalf("got %+v, want both lines seen as the one product create_product returns", got)
 	}
 }

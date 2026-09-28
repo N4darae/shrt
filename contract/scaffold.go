@@ -350,6 +350,38 @@ func scaffoldNested(fields *yaml.Node, parent *catalog.Field, path string, m *ca
 	}
 }
 
+func inferredFroms(m *catalog.Method, all []*catalog.Method) map[string]string {
+	out := map[string]string{}
+	fields := scaffoldFields(m, all, fieldHint)
+	for i := 0; i+1 < len(fields.Content); i += 2 {
+		if from := mappingValue(fields.Content[i+1], "from"); from != nil {
+			out[fields.Content[i].Value] = from.Value
+		}
+	}
+	return out
+}
+
+func (p *Plan) wireInferredIDs(step *chain.Step, m *catalog.Method, fields map[string]*FieldContract) {
+	if p.noun == "" {
+		return
+	}
+	earlier := map[string]bool{}
+	for _, st := range p.Chain.Steps {
+		earlier[st.Call] = true
+	}
+	froms := inferredFroms(m, p.cat.Methods())
+	for _, path := range sortedKeys(froms) {
+		if f := fields[path]; f != nil && (f.Value != "" || f.From != "" || f.SameAs != "") {
+			continue
+		}
+		ref, err := ParseRef(froms[path])
+		if err != nil || !earlier[ref.Node()] {
+			continue
+		}
+		setBodyPath(step.Body, path, "${"+p.stepOf[ref.Node()]+"."+ref.Path+"}")
+	}
+}
+
 func withDoc(text string, f *catalog.Field) string {
 	if f == nil || strings.TrimSpace(f.Doc) == "" || !IsTodo(text) {
 		return text

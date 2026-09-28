@@ -56,3 +56,22 @@ func TestARunReadingAnUnsetEnvVarInAStepBodySendsNothing(t *testing.T) {
 		t.Fatalf("nothing may be sent before the refusal, the backend received %v", srv.calls)
 	}
 }
+
+func TestARunNamesAStepOnceAndSuggestsAStepNamedByOneWordOfTheReference(t *testing.T) {
+	srv := newFakeServer()
+	defer srv.Close()
+
+	c := normalized(t, &chain.Chain{Name: "word-ref", Steps: []*chain.Step{
+		{ID: "customer", Call: "ThingService/Create",
+			Body: map[string]any{"name": "widget", "kind": "KIND_A"}, Expect: okExpect()},
+		{ID: "fetch", Call: "ThingService/Create",
+			Body: map[string]any{"name": "${create_customer.id}", "kind": "KIND_A", "meta": map[string]any{"trace_id": "${create_customer.id}"}}, Expect: okExpect()},
+	}})
+	_, err := newRunner(t, srv).Run(context.Background(), c, runner.Options{})
+	if err == nil || !strings.Contains(err.Error(), `did you mean "customer"?`) {
+		t.Fatalf("a step named by one word of the reference is suggested, got %v", err)
+	}
+	if strings.Count(err.Error(), `"fetch" (step 2)`) != 1 {
+		t.Fatalf("the step is named once, got %v", err)
+	}
+}

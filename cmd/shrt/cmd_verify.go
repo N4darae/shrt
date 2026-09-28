@@ -313,7 +313,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	} else {
 		body := &strings.Builder{}
 		defer func() {
-			verdict, rest := verifyVerdict(e, name, rec, report, nonBackend != nil, err, body.String())
+			verdict, rest := verifyVerdict(e, name, rec, report, flaky, nonBackend != nil, err, body.String())
 			fmt.Print(verdict + rest)
 		}()
 		if nonBackend != nil {
@@ -443,6 +443,10 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	if idem != nil && idem.literal {
 		return fmt.Errorf("chain defect in %s: %s", name, idem.line())
 	}
+	slow := latencyFailure(name, latency, latencyPolicy(e))
+	if flaky.explainsAll(report) && !violation && slow != nil {
+		return slow
+	}
 	if flaky.explainsAll(report) && !violation {
 		flakyOnly = true
 		return fmt.Errorf("%s: %s", name, flaky.short())
@@ -507,13 +511,12 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"shrt confirm %s -supersede -note \"...\", and a person approves it", len(report.Changes), name)
 	}
 	if report.OnlyReordered() {
-		failed := ""
+		next := "Only if the order also varies between runs of one release, declare the list unordered (unordered: [<path>] on the step or the chain); otherwise this is a regression"
 		if list := report.ReorderedExpectations(); len(list) > 0 {
-			failed = "; the expectation(s) reading it by position failed: " + capList(list, 3)
+			next = "The expectation(s) reading it by position, which passed in the safe spot's run, failed: " + capList(list, 3) + "; a regression unless the order was never promised"
 		}
-		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s.\n"+
-			"If the rpc promises no order, declare the list unordered (unordered: [<path>] on the step or the chain) and verify again; "+
-			"if it promises one, this is a regression", len(report.Changes), strings.Join(report.ReorderedLists(), "; "), failed)
+		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s).\n%s",
+			len(report.Changes), strings.Join(report.ReorderedLists(), "; "), next)
 	}
 	if len(declared) == 0 && len(independent) > 0 {
 		return fmt.Errorf("regression: %d change(s) vs safe spot at step(s) that read nothing from %s, whose response does not match the "+
@@ -524,7 +527,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"which also does not match the descriptor (%s)", report.Counted(), describeChanges(declared), driftStep, driftWhy)
 	}
 	if !report.Clean() {
-		first, steps := firstChange(report)
+		first, steps := firstChange(report, rec)
 		at := ""
 		if first != nil {
 			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
@@ -547,14 +550,14 @@ func runVerify(ctx context.Context, args []string) (err error) {
 			"in place of the safe spot so a person approves the wider mask: shrt confirm %s -supersede -note \"...\"",
 			strings.Join(report.UnapprovedVolatile, ", "), name)
 	}
-	if flaky.finding() {
+	if flaky.finding() && slow == nil {
 		flakyOnly = true
 		return fmt.Errorf("%s: %s", name, flaky.short())
 	}
-	if !rec.Passed() {
+	if !rec.Passed() && slow == nil {
 		return fmt.Errorf("chain %s: %s", rec.Chain, rec.Status)
 	}
-	return latencyFailure(name, latency, latencyPolicy(e))
+	return slow
 }
 
 func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner.Record, only map[string]any, fed map[string]bool) string {
@@ -1098,7 +1101,7 @@ func intendedChangeNext(name string) string {
 	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
 }
 
-func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, noVerdict bool, err error, body string) (string, string) {
+func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
 	if noVerdict {
 		return "", body
 	}
@@ -1117,15 +1120,20 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if kind, _, ok := strings.Cut(why, ":"); ok && len(kind) < 40 && !strings.Contains(kind, name) {
 		why = kind
 	}
-	first, steps := firstChange(report)
+	first, steps := firstChange(report, rec)
 	if first == nil {
 		return fmt.Sprintf("%s: FAILED vs safe spot %s: %s\n", name, report.SafeSpotID, capText(why, 200)), body
 	}
+	a := verifyAttribution(e, rec, report)
 	if why == "regression" || why == "order changed" {
-		why = report.Class(*first) + alsoClasses(report, first)
+		class := flaky.classOf(report, a)
+		why = class(*first) + alsoClasses(report, first, class)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	b := verifyAttribution(e, rec, report).of(first.Step, first.Path)
+	b := a.of(first.Step, first.Path)
+	if in := a.inputs(first.Step, first.Path); b.write < 0 && b.own == "" && in != "" {
+		line += "; " + in
+	}
 	if b.own != "" {
 		line += "; suspect " + b.own
 	}
@@ -1134,18 +1142,50 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	} else if b.write >= 0 && !b.knock {
 		line += fmt.Sprintf(", after write %s (%s)", rec.Steps[b.write].ID, shortRPC(rec.Steps[b.write].Call))
 	}
-	return line + "\n", body
+	return line + "\n" + otherRoots(e, rec, report, first), body
 }
 
-func alsoClasses(report *diff.Report, first *diff.Change) string {
-	class := report.Class(*first)
+func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Change) string {
+	items := verifyItems(e, rec, report)
+	seen := map[string]bool{}
+	for _, it := range items {
+		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
+			seen[rootOf(it)] = true
+		}
+	}
+	if len(seen) == 0 {
+		return ""
+	}
+	out := ""
+	for _, it := range items {
+		r := rootOf(it)
+		if seen[r] {
+			continue
+		}
+		seen[r] = true
+		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
+		switch {
+		case it.Own != "" && it.Kind != "order":
+			out += "; suspect " + it.Own
+		case it.Own == "" && it.SuspectStep != "":
+			out += fmt.Sprintf(", after write %s (%s)", it.SuspectStep, shortRPC(it.Suspect))
+		case it.Why != "":
+			out += "; " + it.Why
+		}
+		out += "\n"
+	}
+	return out
+}
+
+func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Change) string) string {
+	class := classOf(*first)
 	byStep := map[string]string{}
 	for _, status := range []bool{false, true} {
 		for _, c := range report.Changes {
 			if _, seen := byStep[c.Step]; seen || c.Kind == diff.KindNotReached || c.Step == first.Step || (c.Kind == diff.KindStatus) != status {
 				continue
 			}
-			byStep[c.Step] = report.Class(c)
+			byStep[c.Step] = classOf(c)
 		}
 	}
 	counts := map[string]int{}
@@ -1166,25 +1206,84 @@ func alsoClasses(report *diff.Report, first *diff.Change) string {
 	return out
 }
 
-func firstChange(report *diff.Report) (*diff.Change, int) {
+func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 	var first *diff.Change
 	steps := map[string]bool{}
+	failing := func(step string) bool {
+		if rec == nil {
+			return false
+		}
+		st, ok := rec.Step(step)
+		return ok && st != nil && (st.Status == runner.StatusFailed || st.Status == runner.StatusError)
+	}
+	best := 0
 	for i, c := range report.Changes {
 		if c.Kind == diff.KindNotReached {
 			continue
 		}
 		steps[c.Step] = true
-		if first == nil || first.Kind == diff.KindStatus && c.Kind != diff.KindStatus && c.Step == first.Step {
+		level := 0
+		if failing(c.Step) {
+			level = 1
+			if report.Class(c) != "order changed" {
+				level = 2
+			}
+		}
+		switch {
+		case first == nil || level > best:
+			first, best = &report.Changes[i], level
+		case c.Step == first.Step && rank(c) > rank(*first):
 			first = &report.Changes[i]
 		}
 	}
+	if first != nil && best > 0 && rec != nil {
+		if root := rootChange(report, rec, *first); root != nil {
+			first = root
+		}
+	}
 	return first, len(steps)
+}
+
+func rootChange(report *diff.Report, rec *runner.Record, c diff.Change) *diff.Change {
+	bad := map[string]bool{}
+	for _, x := range report.Changes {
+		if x.Kind != diff.KindNotReached {
+			bad[x.Step] = true
+		}
+	}
+	w, fallback := suspectWrite(rec, c.Step, c.Path, bad)
+	if fallback || w < 0 || !bad[rec.Steps[w].ID] {
+		return nil
+	}
+	var root *diff.Change
+	for i, x := range report.Changes {
+		if x.Step == rec.Steps[w].ID && x.Kind != diff.KindNotReached && (root == nil || rank(x) > rank(*root)) {
+			root = &report.Changes[i]
+		}
+	}
+	return root
+}
+
+func rank(c diff.Change) int {
+	switch {
+	case c.Kind == diff.KindStatus && (c.Want == runner.StatusError || c.Got == runner.StatusError):
+		return 2
+	case c.Kind == diff.KindStatus:
+		return 0
+	}
+	return 1
 }
 
 func changeAt(rec *runner.Record, c diff.Change) string {
 	rpc := ""
 	if st, ok := rec.Step(c.Step); ok && st != nil {
 		rpc = " (" + shortRPC(st.Call) + ")"
+		for _, ex := range st.Expect {
+			if c.Kind == diff.KindStatus && !ex.Passed && ex.Rule != "unevaluated" {
+				want, got := gatePair(ex.Want, ex.Got)
+				return fmt.Sprintf("%s%s %s %s", c.Step, rpc, ex.Path, chain.WantGot(ex.Rule, want, got))
+			}
+		}
 	}
 	want, got := gatePair(c.Want, c.Got)
 	return fmt.Sprintf("%s%s %s want=%s got=%s", c.Step, rpc, c.Path, want, got)

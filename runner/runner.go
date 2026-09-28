@@ -12,6 +12,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -764,7 +765,7 @@ func producerOf(ref string, exporter map[string]string) string {
 func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Procedure = method.Procedure()
+		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
 	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
 	if producer.Request != nil {
@@ -777,7 +778,7 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Procedure = method.Procedure()
+		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
 	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
 	return sr
@@ -942,6 +943,35 @@ func failedPaths(results []chain.ExpectResult) []string {
 	return out
 }
 
+var stepProblem = regexp.MustCompile(`^step ("[^"]*" \(step \d+\))(.*)$`)
+
+func groupProblems(problems []string) []string {
+	var order []string
+	steps := map[string][]string{}
+	for _, p := range problems {
+		m := stepProblem.FindStringSubmatch(p)
+		if m == nil {
+			order = append(order, p)
+			continue
+		}
+		if steps[m[2]] == nil {
+			order = append(order, m[2])
+		}
+		if !slices.Contains(steps[m[2]], m[1]) {
+			steps[m[2]] = append(steps[m[2]], m[1])
+		}
+	}
+	out := make([]string, 0, len(order))
+	for _, key := range order {
+		if at := steps[key]; at != nil {
+			out = append(out, "step "+strings.Join(at, ", ")+key)
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
+}
+
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return strings.TrimSpace(line)
@@ -983,14 +1013,16 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := r.checkHandWrittenAuth(c); err != nil {
 		return nil, err
 	}
-	problems := c.PreflightProblems()
+	problems := chain.VarRefProblems(rec.Vars)
+	problems = append(problems, c.PreflightProblems()...)
+	problems = append(problems, c.ExportStepClashes()...)
 	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
 	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
 	if len(problems) > 0 {
-		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(problems, "; "))
+		return nil, fmt.Errorf("chain %q cannot run to the end, so nothing was sent: %s", c.Name, strings.Join(groupProblems(problems), "; "))
 	}
 	redactor := pathmask.NewRedactor(rec.Redacted)
 	scope := chain.NewScope(rec.Vars)
@@ -1274,6 +1306,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	if err != nil {
 		return fail(sr, err)
 	}
+	sr.Call = method.FullName
 	if wait, err := step.WaitFor(); err != nil {
 		return fail(sr, err)
 	} else if wait > 0 && !opts.DryRun {
@@ -1293,7 +1326,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolved, err := scope.ResolveValue(orEmpty(step.Body))
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	scope.RecordRequest(step.ID, resolved)
 	sr.BodyRefs = BodyRefs(step.Body)
@@ -1305,14 +1338,19 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 
 	resolvedHeaders, err := resolveHeaders(scope, step.Headers)
 	if err != nil {
-		return fail(sr, chain.ExplainLaterRef(opts.chain, i, err))
+		return failRef(sr, chain.ExplainLaterRef(opts.chain, i, err))
 	}
 	learnSentHeaderSecrets(redactor, step.Headers, resolvedHeaders)
 	sr.Headers = recordedHeaders(step.Headers, resolvedHeaders)
 
 	if r.ValidateInput {
 		if err := r.Catalog.ValidateInput(method, body); err != nil {
-			return fail(sr, err)
+			fail(sr, err)
+			sr.Status, sr.Request = StatusFailed, nil
+			if why := opts.chain.RefTypeMismatches(r.Catalog, i); opts.DryRun && len(why) > 0 {
+				sr.Error = fmt.Sprintf("request does not match %s: %s", method.Input().FullName(), strings.Join(why, "; "))
+			}
+			return sr
 		}
 	}
 	if opts.DryRun {
@@ -1387,7 +1425,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.Expect = evaluateRefused(scope, step.Expect, outcome, redactor)
 		for i, why := range opts.heldBack {
 			if i < len(sr.Expect) {
-				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Passed: false, Detail: why}
+				sr.Expect[i] = chain.ExpectResult{Path: step.Expect[i].Path, Rule: "unevaluated", Want: sr.Expect[i].Want, Got: sr.Expect[i].Got, Detail: why}
 			}
 		}
 		if refusalAsserted(step.Expect, sr.Expect) {
@@ -1519,7 +1557,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			result.Detail = envelopeBehindTransport(decoded, outcome, redactor)
 		}
 		if why, held := opts.heldBack[i]; held {
-			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Passed: false, Detail: why}
+			result = chain.ExpectResult{Path: e.Path, Rule: "unevaluated", Want: result.Want, Got: result.Got, Detail: why}
 		}
 		sr.Expect = append(sr.Expect, result)
 		if !result.Passed {
@@ -1575,7 +1613,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		for name, path := range step.Export {
 			v, ok := chain.Get(decoded, path)
 			if !ok {
-				missing := fmt.Sprintf("export %q: path %q missing in response", name, path)
+				missing := fmt.Sprintf("export %q: path %q missing in response%s", name, path, chain.NearResponsePath(method, path))
 				if sr.AssertionFailed() {
 					missing = failedExpectations(sr) + "; " + missing
 				}
@@ -1940,6 +1978,18 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 		"reported here"
 }
 
+func capValue(v any, n int) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	text := []rune(string(raw))
+	if len(text) <= n {
+		return string(text)
+	}
+	return string(text[:n-3]) + "..."
+}
+
 func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
 	return evaluateTyped(scope, e, response, presence, "", redactor)
 }
@@ -1950,6 +2000,11 @@ func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence a
 		return chain.ExpectResult{Path: e.Path, Rule: "unresolved", Passed: false, Detail: err.Error()}
 	}
 	result := bound.EvaluateTyped(response, presence, kind)
+	if result.Rule == "exists" && !result.Passed && result.Got == true && result.Detail == "" {
+		if v, ok := chain.Get(redactor.Apply(presence), e.Path); ok {
+			result.Detail = "holds " + capValue(v, 60)
+		}
+	}
 	if redactor.MasksValue(e.Path, result.Got) {
 		result.Got = pathmask.MaskRedacted
 	}
@@ -2048,6 +2103,9 @@ func checkVarsSupplied(c *chain.Chain, supplied map[string]any) error {
 	refs := make([]string, 0, len(missing))
 	flags := make([]string, 0, len(missing))
 	for _, name := range missing {
+		if strings.ContainsAny(name, "+*/ ") {
+			return fmt.Errorf("chain %q: ${vars.%s} %s", c.Name, name, chain.NoArithmetic)
+		}
 		refs = append(refs, "${vars."+name+"}")
 		flags = append(flags, "-var "+name+"=...")
 	}
@@ -2194,6 +2252,14 @@ func seededNote(profile string) string {
 		return "seeded the shared auth token, later steps reuse it instead of logging in again"
 	}
 	return "seeded the " + profile + " auth token, later steps with auth: " + profile + " reuse it instead of logging in again"
+}
+
+func failRef(sr *StepRecord, err error) *StepRecord {
+	fail(sr, err)
+	if missing := (*chain.MissingPathError)(nil); errors.As(err, &missing) {
+		sr.Status = StatusFailed
+	}
+	return sr
 }
 
 func fail(sr *StepRecord, err error) *StepRecord {

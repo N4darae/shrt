@@ -29,7 +29,7 @@ const RefusedNotSent = "not sent"
 func DefaultReadOnlyPrefixes() []string {
 	return []string{
 		"Fetch", "Get", "List", "Preview", "Search",
-		"Read", "Query", "Find", "Lookup", "Describe", "Show", "Count", "Export", "Download", "Retrieve",
+		"Read", "Query", "Find", "Lookup", "Describe", "Show", "Count", "Export", "Download", "Retrieve", "Watch", "Subscribe",
 	}
 }
 
@@ -100,6 +100,7 @@ type SliceOptions struct {
 	IsLogin           func(*Step) bool
 	Relax             func(stepID string) []ExpectResult
 	StateIrrelevant   func(writerID, readerID string) bool
+	KeyField          func(rpc, field string) (key, known bool)
 }
 
 type Keep struct {
@@ -327,6 +328,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			added = true
 		}
 		for _, w := range idx.stateWrites(at, keeps, mode, opts) {
+			add(w.index, KeepSideEffect, w.reason)
+			added = true
+		}
+		for _, w := range idx.sameValueWrites(at, keeps, mode, opts) {
 			add(w.index, KeepSideEffect, w.reason)
 			added = true
 		}
@@ -712,7 +717,8 @@ func sliceDescription(res *SliceResult) string {
 	b.WriteString(".\n\n")
 	b.WriteString("Computed by 'shrt chain slice': the target step, every earlier step whose output a kept\n")
 	b.WriteString("step references, every ordering prerequisite the contracts declare for a kept rpc, and every\n")
-	b.WriteString("earlier write on an entity the target or a kept read sends, refused or not.\n")
+	b.WriteString("earlier write on an entity the target or a kept read sends, refused or not, or sending a unique\n")
+	b.WriteString("value the target sends again.\n")
 	asked := []string{}
 	for _, k := range res.Kept {
 		if k.Kind == KeepAsked {

@@ -42,11 +42,13 @@ func spreadValue(base int64, rank int, quantity bool) int64 {
 	return mid*10 + 5
 }
 
-func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field) {
+func itemNumbers(producers []*chain.Step, fields []*catalog.Field, visit func(rank int, item map[string]any, key string, sub *catalog.Field, n int64)) []string {
+	names := []string{}
 	for _, f := range fields {
 		if !f.Repeated || f.Kind != "message" || f.MapKey != "" {
 			continue
 		}
+		found := false
 		for rank, prod := range producers {
 			key, ok := namecase.LookupKey(prod.Body, f.Name)
 			if !ok {
@@ -67,15 +69,45 @@ func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field) {
 					if !ok || n == 0 {
 						continue
 					}
-					if isQuantityName(sub.Name) {
-						item[k] = strconv.FormatInt(smallerQuantity(n, rank), 10)
-						continue
+					found = true
+					if visit != nil {
+						visit(rank, item, k, sub, n)
 					}
-					item[k] = strconv.FormatInt(spreadValue(n, rank, false), 10)
 				}
 			}
 		}
+		if found {
+			names = append(names, f.Name)
+		}
 	}
+	return names
+}
+
+func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field, perm []int) []int {
+	down, shift := true, int64(0)
+	itemNumbers(producers, fields, func(_ int, _ map[string]any, _ string, sub *catalog.Field, n int64) {
+		down = down && isQuantityName(sub.Name)
+		shift = max(shift, int64(len(producers))-n)
+	})
+	itemNumbers(producers, fields, func(k int, item map[string]any, key string, sub *catalog.Field, n int64) {
+		rank := perm[k]
+		switch {
+		case down:
+			item[key] = strconv.FormatInt(n+shift-int64(rank), 10)
+		case isQuantityName(sub.Name):
+			item[key] = strconv.FormatInt(n+int64(rank), 10)
+		default:
+			item[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
+		}
+	})
+	if !down {
+		return perm
+	}
+	sorted := make([]int, len(perm))
+	for k, r := range perm {
+		sorted[k] = len(perm) - 1 - r
+	}
+	return sorted
 }
 
 func parseMinimum(text string) (int64, bool) {
@@ -281,13 +313,6 @@ func hasExpectOn(st *chain.Step, path string) bool {
 		}
 	}
 	return false
-}
-
-func smallerQuantity(base int64, rank int) int64 {
-	if base-int64(rank) >= 1 {
-		return base - int64(rank)
-	}
-	return base + int64(rank)
 }
 
 func joinInts(ns []int64) string {

@@ -94,7 +94,13 @@ func TestAnIncreaseStatedAsEffectsIsAsserted(t *testing.T) {
 	wantExpect(t, planStep(t, p, "add_stock"), "qty_on_hand", 5)
 	decrease := map[string]string{"ProductService/CreateProduct": "{qty_on_hand: zero}", "StockService/AddStock": "{qty_on_hand: {decrease: qty}}"}
 	p, _ = mutedPlan(t, decrease, "AddStock")
-	wantExpect(t, planStep(t, p, "add_stock"), "qty_on_hand", -5)
+	if assertsLiteral(p, "add_stock", "qty_on_hand") {
+		t.Fatalf("a decrease below zero is not asserted: %+v", planStep(t, p, "add_stock").Expect)
+	}
+	want := "step add_stock: it takes qty_on_hand of create_product below zero, since nothing before it adds any, so no level is asserted after it"
+	if gaps := strings.Join(p.GapNotes(), "\n"); !strings.Contains(gaps, want) {
+		t.Fatalf("want gap %q in:\n%s", want, gaps)
+	}
 }
 
 func TestAZeroStatedAsEffectsIsAsserted(t *testing.T) {
@@ -194,7 +200,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 	cat, _ := shopDemo(t)
 	for domain, want := range map[string]map[string]string{
 		"catalog": {"StockService/AddStock": "what this write does to qty_on_hand: none | {increase: qty} | {decrease: qty} |", "StockService/AddStockBatch": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "ProductService/CreateProduct": ""},
-		"orders":  {"OrderService/CreateOrder": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
+		"orders":  {"OrderService/CreateOrder": "what this write does to <number>: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
 	} {
 		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
 		if err != nil {

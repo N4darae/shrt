@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -145,7 +146,7 @@ func failedSteps(rec *runner.Record) []string {
 	return out
 }
 
-func sliceWithout(chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool) error {
+func sliceWithout(ctx context.Context, chainArg string, drop []string, runID string, write *optionalString, name string, force, asJSON bool, verify *withoutVerify) error {
 	writePath := ""
 	bare := bareSliceFile(name)
 	if bare {
@@ -169,6 +170,24 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	}
 	ids := []string{}
 	fromRun := ""
+	var rec *runner.Record
+	load := func() error {
+		if rec != nil {
+			return nil
+		}
+		if runID == "" || runID == "latest" {
+			rec, err = latestRun(e, c.Name, "")
+		} else {
+			rec, err = e.store.LoadRun(c.Name, runID)
+		}
+		return err
+	}
+	if verify != nil {
+		if err := load(); err != nil {
+			return err
+		}
+		verify.source = c
+	}
 	for _, id := range drop {
 		if id != "failed" {
 			if !containsStr(ids, id) {
@@ -176,19 +195,8 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 			}
 			continue
 		}
-		if runID == "" {
-			runID = "latest"
-		}
-		rec, err := e.store.LoadRun(c.Name, runID)
-		if err != nil {
+		if err := load(); err != nil {
 			return err
-		}
-		if runID == "latest" && rec.ReplayOf != "" {
-			if own, _ := newestRecordReaching(e, c.Name, "", "", false); own != nil {
-				fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay, passed over: pass -run %s to use it\n",
-					own.RunID, c.Name, rec.RunID, rec.RunID)
-				rec = own
-			}
 		}
 		fromRun = rec.RunID
 		failed := failedSteps(rec)
@@ -218,25 +226,37 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 		if _, err := os.Stat(path); err == nil && !force && !source {
 			return fmt.Errorf("%s already exists, pass -force to overwrite it or name another file: -write <name>", path)
 		}
-		if err := writeSliceFile(path, res.Chain); err != nil {
+		if err := writeWithout(path, source, res); err != nil {
 			return err
 		}
 		written, replaced = path, source
 	}
+	var verdict *withoutVerdict
 	if asJSON {
-		return emitJSON(struct {
+		if verify != nil {
+			if verdict, err = verifyWithout(ctx, e, res, rec, ids, verify, written != "", true); err != nil {
+				return err
+			}
+		}
+		if err := emitJSON(struct {
 			*chain.WithoutResult
-			Run     string `json:"run,omitempty"`
-			Written string `json:"written,omitempty"`
-		}{res, fromRun, written})
+			Run     string          `json:"run,omitempty"`
+			Written string          `json:"written,omitempty"`
+			Verify  *withoutVerdict `json:"verify,omitempty"`
+		}{res, fromRun, written, verdict}); err != nil {
+			return err
+		}
+		return verdict.err()
 	}
-	how := ""
+	how, unrun := "", "; a count of what the file holds, not of steps known to pass: none of them has run in this shape yet"
 	if fromRun != "" {
 		how = fmt.Sprintf(" (failed in run %s)", fromRun)
 	}
-	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out; "+
-		"a count of what the file holds, not of steps known to pass: none of them has run in this shape yet\n\n",
-		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed))
+	if verify != nil {
+		unrun = ""
+	}
+	fmt.Printf("%s without %s%s: the new chain holds %d of the %d steps, the %d below left out%s\n\n",
+		c.Name, strings.Join(ids, ", "), how, len(res.Chain.Steps), res.Total, len(res.Removed), unrun)
 	idW := 0
 	for _, r := range res.Removed {
 		idW = max(idW, len(r.ID))
@@ -247,14 +267,24 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	for _, k := range res.DroppedPins {
 		fmt.Printf("  kept_red pin on %s %s dropped with its step\n", k.Step, k.Path)
 	}
-	fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
-		"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
+	if verify != nil {
+		if verdict, err = verifyWithout(ctx, e, res, rec, ids, verify, written != "", false); err != nil {
+			return err
+		}
+		fmt.Print("\n" + verdict.text())
+	} else {
+		fmt.Println("\nrun it before proposing it: a step left in may depend on state a left-out write set; " +
+			"keep the defect red in its own chain: shrt chain slice <chain> -step <failing step> -kept-red -write <name>")
+	}
 	if written != "" {
 		fmt.Printf("\nwritten: %s\n", shownPath(written))
 		if !replaced {
 			fmt.Print(sweepNote(e, written, res.Chain.Name))
 		}
-		return nil
+		return verdict.err()
+	}
+	if verdict != nil {
+		return verdict.err()
 	}
 	raw, err := res.Chain.Marshal()
 	if err != nil {
@@ -262,6 +292,17 @@ func sliceWithout(chainArg string, drop []string, runID string, write *optionalS
 	}
 	fmt.Printf("\n%s\n", string(raw))
 	return nil
+}
+
+func writeWithout(path string, source bool, res *chain.WithoutResult) error {
+	if source {
+		if raw, err := os.ReadFile(path); err == nil {
+			if edited, ok := res.EditSource(raw, path); ok {
+				return os.WriteFile(path, edited, 0o644)
+			}
+		}
+	}
+	return writeSliceFile(path, res.Chain)
 }
 
 func containsStr(list []string, s string) bool {
@@ -340,6 +381,22 @@ func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([
 	return out, nil
 }
 
+func replayPins(res *chain.SliceResult, replay *runner.Record) []chain.Pin {
+	ids := []string{}
+	for _, k := range res.Kept {
+		if k.ID != res.Target {
+			ids = append(ids, k.ID)
+		}
+	}
+	out := []chain.Pin{}
+	for _, id := range append(ids, res.Target) {
+		if pins, err := failurePins(res.Chain, replay, id); err == nil {
+			out = append(out, pins...)
+		}
+	}
+	return out
+}
+
 func pinList(c *chain.Chain, pins []chain.Pin) string {
 	order := map[string]int{}
 	for i, s := range c.Steps {
@@ -373,13 +430,13 @@ func pinSubject(pins []chain.Pin) string {
 	return "it"
 }
 
-func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, slice *chain.Chain, pins []chain.Pin, written string) string {
+func keptRedLine(c *chain.Chain, ref string, rec *runner.Record, pinRun string, slice *chain.Chain, pins []chain.Pin, written string) string {
 	if written == "" {
 		return fmt.Sprintf("\nkept_red: nothing written, so nothing pinned: add -write to pin %s, as %s failed in run %s\n",
-			pinList(slice, pins), pinSubject(pins), rec.RunID)
+			pinList(slice, pins), pinSubject(pins), pinRun)
 	}
 	line := fmt.Sprintf("\nkept_red: pinned in %s on %s, as %s failed in run %s; its run exits 0 while it fails exactly so.",
-		shownPath(written), pinList(slice, pins), pinSubject(pins), rec.RunID)
+		shownPath(written), pinList(slice, pins), pinSubject(pins), pinRun)
 	if c.SourcePath != "" && sameSliceFile(written, c.SourcePath) {
 		return line + "\n"
 	}

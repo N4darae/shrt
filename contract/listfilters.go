@@ -256,11 +256,13 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	}
 	swapped := swapLiteralCase(scope.prefix)
 	switch {
-	case !prefixCaseSensitive.MatchString(text) || caseIgnored.MatchString(text):
+	case caseIgnored.MatchString(text):
 		p.note("step %s: the contracts do not say %s is compared case-sensitively, so no fixture with the prefix in "+
 			"another letter case was planned; say \"case-sensitive\" in the note of %s or %s to have one", t.step.ID, scope.target, scope.prefixKey, scope.target)
 	case swapped == scope.prefix:
 		p.note("step %s: the prefix %q has no letters outside references, so no case variant could be built", t.step.ID, scope.prefix)
+	case !prefixCaseSensitive.MatchString(text):
+		p.listInOtherCase(t, scope, swapped)
 	default:
 		cased := copyStep(first, p.freeStepID(first.ID+"_prefix_case"))
 		cased.Export = nil
@@ -272,6 +274,27 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	}
 	p.insertBefore(t.step.ID, added...)
 	return said
+}
+
+func (p *Plan) listInOtherCase(t *listTarget, scope listScope, swapped string) {
+	m, err := p.cat.Lookup(t.step.Call)
+	if err != nil {
+		return
+	}
+	n, ok := assertedLength(t.step, t.listPath)
+	if !ok {
+		n = len(t.producers)
+	}
+	probe := copyStep(t.step, p.freeStepID(t.step.ID+"_prefix_case"))
+	probe.Export = nil
+	probe.Body[scope.prefixKey] = swapped
+	probe.Expect = append(SuccessExpectation(m), chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, n), Exists: boolPtr(false)})
+	probe.Description = fmt.Sprintf("%s with the %s in another letter case: the contract does not say whether case counts, "+
+		"so which items it lists is left to the safe spot, and verify reports a change.", t.step.ID, scope.prefixKey)
+	p.insertAfter(t.step.ID, probe)
+	p.note("step %s: the contracts do not say whether %s is compared case-sensitively, so %s can assert only that the "+
+		"prefix in another case lists at most %s's items; say \"case-sensitive\" or \"case-insensitive\" in the note of %s to assert which",
+		t.step.ID, scope.target, probe.ID, t.step.ID, scope.prefixKey)
 }
 
 type transition struct {

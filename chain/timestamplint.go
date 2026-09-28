@@ -153,10 +153,7 @@ func timestampHint(s *Step, path string, earlier map[string]*catalog.Method) str
 	return `within: {of: "${nowunix}", by: 300}`
 }
 
-const unassertedTimestampWhy = "verify masks a timestamp's value as volatile, so a clock value in the wrong unit, zone or " +
-	"offset (milliseconds for seconds, a token that expires at once) passes every check unless an expectation reads it. " +
-	"A stamp a call makes is now, within the chain's run and clock skew (300s); a creation stamp read back equals the one " +
-	"the step that created it received; only an expiry sits its lifetime ahead"
+const unassertedTimestampWhy = "verify masks timestamps, so only an expectation catches one in the wrong unit or offset (PLAYBOOK.md §4)"
 
 func lintUnassertedTimestamps(c *Chain, methods map[string]*catalog.Method) []Issue {
 	var order []string

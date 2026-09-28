@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -27,6 +28,8 @@ const (
 	KindStatus     = "status"
 	KindNotReached = "not_reached"
 )
+
+const VolatileFailed = "declared volatile, shown as its expectation failed"
 
 type Change struct {
 	Step   string `json:"step,omitempty"`
@@ -207,15 +210,32 @@ func (r *Report) NotReachedCount() int {
 }
 
 func (r *Report) Counted() int {
-	if n := len(r.Changes) - r.NotReachedCount(); n > 0 {
+	changedAt := r.valueChangedSteps()
+	n := 0
+	for _, c := range r.Changes {
+		if c.Kind != KindNotReached && !(c.Kind == KindStatus && changedAt[c.Step]) {
+			n++
+		}
+	}
+	if n > 0 {
 		return n
 	}
 	return len(r.Changes)
 }
 
+func (r *Report) valueChangedSteps() map[string]bool {
+	changedAt := map[string]bool{}
+	for _, c := range r.Changes {
+		if c.Kind != KindStatus && c.Kind != KindNotReached {
+			changedAt[c.Step] = true
+		}
+	}
+	return changedAt
+}
+
 func (r *Report) uncountedNote() string {
 	n := r.NotReachedCount()
-	if n == 0 || r.Counted() == len(r.Changes) {
+	if n == 0 || n == len(r.Changes) {
 		return ""
 	}
 	return fmt.Sprintf("; %d step(s) not reached are listed below and not counted: a step the run never sent is not a change", n)
@@ -296,6 +316,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			if got.Status == runner.StatusError || got.Transport != nil {
 				change.Detail = firstLineOf(got.Error)
 			}
+			if change.Detail == "" {
+				change.Detail = heldBackDetail(got)
+			}
 			rep.Changes = append(rep.Changes, change)
 		}
 		if !StepReached(rec, got) {
@@ -342,6 +365,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				stepChanges = append(stepChanges, c)
 			})
 		}
+		if env := chain.EnvelopePath(); env != "" {
+			sort.SliceStable(stepChanges, func(i, j int) bool { return stepChanges[i].Path == env && stepChanges[j].Path != env })
+		}
 		for _, c := range stepChanges {
 			shaped, why := false, ""
 			if c.Kind == KindChanged {
@@ -349,6 +375,9 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 			switch {
 			case rep.oneSidedRedaction(c, rec.Redacted):
+			case c.Path != "response" && maskedValue(stepMask, c) && failedLength(got, c):
+				c.Detail = VolatileFailed
+				rep.Changes = append(rep.Changes, c)
 			case c.Path != "response" && maskedValue(stepMask, c) && !vanishedUnderMask(stepMask, c):
 				rep.VolatileMasked++
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
@@ -373,7 +402,8 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		}
 		if errA == nil && errB == nil {
 			collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
-			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, mask: stepMask})
+			sent, _ := decode(got.Request)
+			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, sent: sent, mask: stepMask})
 		}
 	}
 	rep.applyRenaming(idPairs)
@@ -958,6 +988,18 @@ func unapproved(approved []string, rec *runner.Record, extra []string) []string 
 	return out
 }
 
+func failedLength(st *runner.StepRecord, c Change) bool {
+	if c.Kind != KindLength {
+		return false
+	}
+	for _, ex := range st.Expect {
+		if !ex.Passed && ex.Rule != "unevaluated" && (ex.Path == c.Path || strings.HasPrefix(ex.Path, c.Path+".")) {
+			return true
+		}
+	}
+	return false
+}
+
 func maskedValue(m *pathmask.Masker, c Change) bool {
 	if maskedAt(m, c) {
 		return true
@@ -1159,8 +1201,36 @@ func (c Change) describeValues() string {
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
 }
 
+var heldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
+
+func heldBackDetail(st *runner.StepRecord) string {
+	answered, held, producer := []string{}, []string{}, ""
+	for _, ex := range st.Expect {
+		if ex.Rule != "unevaluated" {
+			continue
+		}
+		if m := heldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
+			producer = m[1]
+		}
+		held = append(held, ex.Path)
+		if ex.Got != nil {
+			answered = append(answered, ex.Path+"="+show(ex.Got))
+		}
+	}
+	if producer == "" {
+		return ""
+	}
+	out := strings.Join(held, ", ") + " not judged: it reads step " + producer + ", which did not pass"
+	if len(answered) > 0 {
+		out = "answered " + strings.Join(answered, ", ") + ", not judged: it reads step " + producer + ", which did not pass"
+	}
+	return out
+}
+
 func show(v any) string {
-	switch v.(type) {
+	switch t := v.(type) {
+	case string:
+		return chain.EdgeQuoted(t)
 	case map[string]any, []any:
 		var buf bytes.Buffer
 		enc := json.NewEncoder(&buf)
@@ -1395,14 +1465,17 @@ func (r *Report) Text() string {
 	for _, fr := range renames {
 		renamedAt[fr.missing], renamedTo[fr.unexpected] = fr, true
 	}
-	changedAt := map[string]bool{}
-	for _, c := range r.Changes {
-		if c.Kind != KindStatus && c.Kind != KindNotReached {
-			changedAt[c.Step] = true
-		}
-	}
+	changedAt := r.valueChangedSteps()
+	idLines, idFolded := r.inconsistentIDGroups()
 	for i := 0; i < len(r.Changes); i++ {
 		c := r.Changes[i]
+		if line, ok := idLines[i]; ok {
+			b.WriteString(line)
+			continue
+		}
+		if idFolded[i] {
+			continue
+		}
 		if c.Kind == KindStatus && changedAt[c.Step] {
 			continue
 		}

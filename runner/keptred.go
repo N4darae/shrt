@@ -48,9 +48,8 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 			continue
 		}
 		if sr.Status == StatusPassed {
-			if len(want) > 0 {
-				problems = append(problems, fmt.Sprintf("step %q passed although it is pinned failing on %s: what it answers changed, "+
-					"which a fix does, and so does another regression on the same record; compare with shrt diff %s", step.ID, pinPaths(want), c.Name))
+			for _, k := range resolvedPins(want, scope) {
+				problems = append(problems, passedPin(step.ID, sr, k))
 			}
 			continue
 		}
@@ -109,7 +108,7 @@ func recordScope(rec *Record) *chain.Scope {
 }
 
 func PinChanges(c *chain.Chain, rec *Record) (map[string]string, bool) {
-	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
+	if rec == nil || rec.KeptRed != KeptRedNotAsPinned && rec.KeptRed != KeptRedGone {
 		return nil, false
 	}
 	pins := map[string][]chain.Pin{}
@@ -124,17 +123,17 @@ func PinChanges(c *chain.Chain, rec *Record) (map[string]string, bool) {
 			continue
 		}
 		sr, ok := rec.Step(step.ID)
-		if !ok || sr.Status == StatusSkipped || sr.Status == StatusPassed || sr.Transport != nil {
+		if !ok || sr.Status == StatusSkipped || sr.Transport != nil {
 			held = false
 			continue
 		}
 		for _, k := range resolvedPins(want, scope) {
 			seen := false
 			for _, ex := range sr.Expect {
-				if ex.Passed || !namecase.Equal(k.Path, ex.Path) {
+				if !namecase.Equal(k.Path, ex.Path) {
 					continue
 				}
-				seen = true
+				seen = seen || !ex.Passed
 				if ex.Rule != unevaluatedRule && k.Got != nil && gotText(ex.Got) != *k.Got {
 					changed[step.ID+" "+ex.Path] = *k.Got
 				}
@@ -244,10 +243,19 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 	}
 	for i, k := range want {
 		if !seen[i] {
-			out = append(out, fmt.Sprintf("step %q held on pinned path %s", id, k.Path))
+			out = append(out, passedPin(id, sr, k))
 		}
 	}
 	return out, fresh, unpinned
+}
+
+func passedPin(id string, sr *StepRecord, k chain.Pin) string {
+	for _, ex := range sr.Expect {
+		if ex.Passed && k.Got != nil && namecase.Equal(k.Path, ex.Path) {
+			return fmt.Sprintf("%s %s: pinned got=%s, now got=%s, which passes", id, k.Path, *k.Got, gotText(ex.Got))
+		}
+	}
+	return fmt.Sprintf("%s %s: pinned failing, now passes", id, k.Path)
 }
 
 func stepList(ids []string) string {
@@ -292,14 +300,6 @@ func gotText(v any) string {
 		return ""
 	}
 	return fmt.Sprint(v)
-}
-
-func pinPaths(pins []chain.Pin) string {
-	paths := make([]string, 0, len(pins))
-	for _, k := range pins {
-		paths = append(paths, k.Path)
-	}
-	return strings.Join(paths, ", ")
 }
 
 func pinSummary(pins []chain.Pin) string {

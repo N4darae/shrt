@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
@@ -64,5 +65,15 @@ func TestAReorderedListWithoutTheDeclarationIsNamedAndPointsAtIt(t *testing.T) {
 	rep = diff.Compare(listSpot(), listRun(changed, nil))
 	if strings.Contains(rep.Text(), "unordered: [products]") || rep.OnlyReordered() {
 		t.Fatalf("a list whose items changed is not the same set in another order:\n%s", rep.Text())
+	}
+}
+
+func TestAReorderAnExpectationReadByPositionIsNotOfferedUnordered(t *testing.T) {
+	rec := listRun(listRunReversed, nil)
+	rec.Steps[2].Status = runner.StatusFailed
+	rec.Steps[2].Expect = []chain.ExpectResult{{Path: "products.0.sku", Rule: "equals", Want: "sku-g", Got: "sku-w"}}
+	text := diff.Compare(listSpot(), rec).Text()
+	if strings.Contains(text, "unordered: [") || !strings.Contains(text, "which passed there, failed: products.0.sku") {
+		t.Fatalf("an order the chain relied on and the safe spot held is a regression, not a list to declare unordered:\n%s", text)
 	}
 }

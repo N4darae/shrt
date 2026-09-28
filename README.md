@@ -85,7 +85,7 @@ traffic.
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify -run <id>` proves it |
-| `shrt chain pin <c>` | pin a red chain: its failing steps kept red in a verified slice, the chain rewritten without them |
+| `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`) |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot; prints a short summary to show the user, the full report in `.shrt/safespots/pending/` |
@@ -117,23 +117,23 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 ### CI gate
 
 `shrt gate` sends every chain in `.shrt/chains` once (by verify when it has a safe spot, by run
-otherwise, with a fresh `-var tag`), retries an exit 3 once, and holds `shrt chain hollow` to
+otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 once, and holds `shrt chain hollow` to
 `.shrt/hollow-baseline`. One line per chain:
 
 | line | means |
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
 | `KEPT RED` | failed exactly as its `kept_red` pins |
-| `kept red, drifted` | every pin held; the rest is drift already reported above |
-| `FAIL pins held, new change:` | every pin held; a change outside them is new: a regression, not a reason to re-pin |
+| `FAIL pins held, new change:` | every pin held; a change outside them is a regression (or one reported above), not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
-| `FINDING intermittent:` / `repeated:` | its only failure is an rpc failing on some calls; one `FINDING:` line at the end counts them over every chain |
-| `FAIL intermittent:` | its first failure is such a call, and something else failed too |
-| `FAIL not as pinned:` | a kept-red chain that failed otherwise; the moved pin and its suspect are named |
+| `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain |
+| `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
+| `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, or `masked by`/`moved with` the rpc path this gate reports |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
 Under a `FAIL` it prints the suspect's request; then one line per suspect rpc (split by auth
-profile and refusal code), with the steps it explains folded beneath. `-v` adds every changed path
+profile and refusal code), with the steps it explains folded beneath and an `another change:` example
+for each other root change in it. `-v` adds every changed path
 and ends with each distinct change once. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 Exit 0 is green; 1 is a failure, a `FINDING` or the ratchet; 3 is no verdict (re-run once the
@@ -185,7 +185,8 @@ input, so the fresh tag makes every verify of it drift. A slowdown fails the gat
 Left of `edit` is derivation, and the tool does it. Right of it is evidence. Yours is the middle:
 the test data, and the assertions that say what correct means. A gate runs
 `shrt chain lint -strict`, which fails the six assertion-quality warnings in the command table;
-other warnings, such as `unasserted-timestamp`, stay warnings and exit 0.
+other warnings, such as `unasserted-timestamp` (one line per lint; `-v` lists each step), stay
+warnings and exit 0.
 Authoring the contract itself is a different loop, fed by `shrt contract quality`
 (`PLAYBOOK.md` §7).
 

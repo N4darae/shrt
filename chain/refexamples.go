@@ -25,7 +25,7 @@ var ReferenceExamples = []ReferenceExample{
 	{"${today-86400}", "the business date before it"},
 	{"${uuid}", "fresh per reference — idempotency keys; verify and diff mask a response that only echoes it"},
 	{"deal-${create_deal.id_deal}-x", "interpolated inside a longer string, so the result is text"},
-	{"${vars.ref_in_a_var}", "a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` now rejects it"},
+	{"${vars.ref_in_a_var}", "a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` and `run` reject it"},
 }
 
 const ReferenceExampleStep = "create_deal"

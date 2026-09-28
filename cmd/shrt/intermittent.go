@@ -226,6 +226,24 @@ func (i *intermittentFailure) otherFailures(rec *runner.Record) []string {
 	return out
 }
 
+func (i *intermittentFailure) classOf(report *diff.Report, a attribution) func(diff.Change) string {
+	flaky := map[string]bool{}
+	if i.finding() {
+		for _, f := range i.steps {
+			flaky[f.step.ID] = true
+		}
+	}
+	return func(c diff.Change) string {
+		if len(flaky) == 0 {
+			return report.Class(c)
+		}
+		if b := a.of(c.Step, c.Path); flaky[c.Step] || b.write >= 0 && flaky[a.rec.Steps[b.write].ID] {
+			return i.kind()
+		}
+		return report.Class(c)
+	}
+}
+
 func (i *intermittentFailure) finding() bool { return i != nil && len(i.steps) > 0 }
 
 func (i *intermittentFailure) calls() string {
@@ -317,6 +335,35 @@ func (i *intermittentFailure) line() string {
 	}
 	return fmt.Sprintf("intermittent failure at %s: %s, a backend defect (flaky under load, an exhausted pool, a race), "+
 		"not a deterministic regression at that step; a re-run may pass and does not clear it%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
+}
+
+func serverErrors(rec *runner.Record) []gateFlaky {
+	if rec == nil {
+		return nil
+	}
+	answered := map[string]bool{}
+	for _, st := range rec.Steps {
+		if st != nil && st.HTTPStatus != 0 && !runner.NotAnsweredByService(st) {
+			answered[st.Call] = true
+		}
+	}
+	steps, order := map[string][]string{}, []string{}
+	for _, st := range rec.Steps {
+		if serverError(st) == "" && !(runner.NotAnsweredByService(st) && answered[st.Call]) {
+			continue
+		}
+		if steps[st.Call] == nil {
+			order = append(order, st.Call)
+		}
+		steps[st.Call] = append(steps[st.Call], st.ID)
+	}
+	var out []gateFlaky
+	for _, call := range order {
+		r := callCounts(rec, call)
+		r.Steps, r.Failed = steps[call], max(r.Failed, len(steps[call]))
+		out = append(out, r)
+	}
+	return out
 }
 
 func callCounts(rec *runner.Record, call string) gateFlaky {

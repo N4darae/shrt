@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -13,10 +14,12 @@ import (
 
 var unknownField = regexp.MustCompile(`^line (\d+): field (.+) not found in type (\S+)$`)
 
-func Explain(err error, into any) error {
+var flowError = regexp.MustCompile(`^yaml: line (\d+): did not find expected ',' or '[}\]]'$`)
+
+func Explain(err error, into any, raw []byte) error {
 	var typeErr *yaml.TypeError
 	if !errors.As(err, &typeErr) {
-		return err
+		return quoteHint(err, raw)
 	}
 	keys := map[string][]string{}
 	collect(reflect.TypeOf(into), keys, map[reflect.Type]bool{})
@@ -34,6 +37,24 @@ func Explain(err error, into any) error {
 		said = append(said, line)
 	}
 	return errors.New(strings.Join(said, "; "))
+}
+
+func quoteHint(err error, raw []byte) error {
+	m := flowError.FindStringSubmatch(err.Error())
+	if m == nil {
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	n, _ := strconv.Atoi(m[1])
+	for i := n; i < len(lines); i++ {
+		if strings.Contains(lines[i], "${") {
+			return fmt.Errorf("%w (line %d: quote a ${...} inside {} or []: \"${...}\")", err, i+1)
+		}
+		if i >= n && strings.ContainsAny(lines[i], "}]") {
+			break
+		}
+	}
+	return err
 }
 
 func collect(t reflect.Type, keys map[string][]string, seen map[reflect.Type]bool) {

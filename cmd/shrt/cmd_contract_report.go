@@ -197,7 +197,7 @@ func contractStatus(args []string) error {
 			"resource, so per-item logic that reads each item's own resource goes untested: shrt contract status -gaps lists them as 'same resource'\n", same)
 	}
 	if repeat > 0 {
-		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two items, so logic that merges, "+
+		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two applied items, so logic that merges, "+
 			"deduplicates or counts once per resource goes untested: shrt contract status -gaps lists them as 'no repeat'\n", repeat)
 	}
 	unchained := 0
@@ -237,7 +237,7 @@ var gapMeaning = []struct{ kind, line string }{
 	{"no path to", "a contract, but in no multi-step plan: a missing needs: or from:, unless a read taking no id; the config's login is never listed"},
 	{"one item", "no chain sends the repeated field with two or more items, so per-item logic is never exercised"},
 	{"same resource", "every multi-item step points all items at one resource, so per-item resource logic is never exercised"},
-	{"no repeat", "no chain sends one resource on two items, so merging or counting once per resource passes"},
+	{"no repeat", "no chain sends one resource on two items that both apply, so merging or counting once per resource passes"},
 	{"no empty filter", "the contract says an empty filter lists all, and every chain sends it set"},
 	{"no login probe", "a failure the login's contract declares that no chain expects"},
 	{"no chain", "no chain calls the rpc, so no run or gate exercises it: shrt contract plan <rpc>"},
@@ -263,7 +263,7 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 	for _, r := range rows {
 		for _, one := range r.SingleItem {
 			if one.NoRepeat {
-				gap("no repeat", "no repeat    %s %s: every chain that sends two or more items points each at a different resource (%s)\n",
+				gap("no repeat", "no repeat    %s %s: no chain sends one resource on two items that both apply; a refused item or step does not count (%s)\n",
 					one.RPC, one.Field, strings.Join(clip(one.Chains, 4), ", "))
 				continue
 			}
@@ -359,10 +359,11 @@ const statusGapLegend = "\nno contract  the rpc has no entry in .shrt/contracts/
 	"             the second item at a second producer step with different values (shrt contract plan\n" +
 	"             scaffolds one).\n" +
 	"no repeat    a repeated message field whose items carry a resource, but no chain ever sends one\n" +
-	"             resource on two items, so a backend that merges, deduplicates or counts once per\n" +
-	"             resource (stock taken once for a product on two lines) passes. Send the same resource\n" +
-	"             on two items with different quantities and assert what depends on both (shrt contract\n" +
-	"             plan scaffolds <step>_same_<noun>_twice).\n" +
+	"             resource on two items that both apply (a refused item or step does not count), so a\n" +
+	"             backend that merges, deduplicates or counts once per resource (stock taken once for a\n" +
+	"             product on two lines) passes. Send the same resource on two items with different\n" +
+	"             quantities and assert what depends on both (shrt contract plan scaffolds\n" +
+	"             <step>_same_<noun>_twice).\n" +
 	"no empty filter the contract says an empty (or absent) value of a list's filter lists everything,\n" +
 	"             but every chain sends it set, so a backend whose empty filter returns nothing passes.\n" +
 	"             Send it empty and assert the fixtures the chain created are among the items by id\n" +

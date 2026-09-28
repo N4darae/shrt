@@ -11,27 +11,49 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-func stepRefs(st *runner.StepRecord) map[string]bool {
+func stepRefs(rec *runner.Record, at int) map[string]bool {
 	out := map[string]bool{}
-	for path, ref := range st.BodyRefs {
+	for path, ref := range rec.Steps[at].BodyRefs {
 		if diff.IDNamedPath(path) && !wholeRef.MatchString(strings.TrimSpace(ref)) {
 			continue
 		}
-		for _, m := range gateRef.FindAllStringSubmatch(ref, -1) {
-			switch m[1] {
-			case "vars", "env", "exports":
-			default:
-				out[m[1]] = true
+		for _, m := range bodyRefExpr.FindAllStringSubmatch(ref, -1) {
+			r := chain.ParseRef(m[1])
+			switch {
+			case r.Kind == chain.RefStep && r.Rest != "":
+				out[r.Head] = true
+			case r.Kind == chain.RefBare, r.Kind == chain.RefExports:
+				name := r.Head
+				if r.Kind == chain.RefExports {
+					name, _, _ = strings.Cut(r.Rest, ".")
+				}
+				if src := exporter(rec, at, name); src != "" {
+					out[src] = true
+				}
 			}
 		}
 	}
 	return out
 }
+
+func exporter(rec *runner.Record, at int, name string) string {
+	for i := at - 1; i >= 0; i-- {
+		if st := rec.Steps[i]; st != nil {
+			if _, ok := st.Exported[name]; ok {
+				return st.ID
+			}
+		}
+	}
+	return ""
+}
+
+var bodyRefExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
 
 var wholeRef = regexp.MustCompile(`^\$\{[^}]+\}$`)
 
@@ -39,7 +61,7 @@ func isWrite(st *runner.StepRecord) bool {
 	return st != nil && !chain.IsReadOnlyCall(st.Call)
 }
 
-func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bool) {
+func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool) (int, bool) {
 	at, pos := -1, map[string]int{}
 	for i, st := range rec.Steps {
 		if st == nil {
@@ -55,30 +77,12 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	if at < 0 || isWrite(rec.Steps[at]) {
 		return -1, false
 	}
-	if _, w, ok := strings.Cut(rec.Steps[at].ID, "_after_"); ok {
-		if j, ok := pos[w]; ok && j < at && isWrite(rec.Steps[j]) {
-			return j, false
-		}
-	}
-	reach := refReach(rec, pos)
-	entities := stepRefs(rec.Steps[at])
 	nearest, nearestBad := -1, -1
-	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
-		w := rec.Steps[i]
-		if !isWrite(w) {
-			continue
-		}
-		match := entities[w.ID]
-		for e := range reach(i) {
-			match = match || entities[e]
-		}
-		if !match {
-			continue
-		}
+	for _, i := range entityWrites(rec, at, path, bad, pos) {
 		if nearest < 0 {
 			nearest = i
 		}
-		if bad[w.ID] && nearestBad < 0 {
+		if bad[rec.Steps[i].ID] && nearestBad < 0 {
 			nearestBad = i
 		}
 	}
@@ -96,6 +100,121 @@ func suspectWrite(rec *runner.Record, step string, bad map[string]bool) (int, bo
 	return -1, false
 }
 
+func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int) []int {
+	reach := refReach(rec, pos)
+	entities := stepRefs(rec, at)
+	for _, id := range itemIDs(rec.Steps[at], path) {
+		if src := producer(rec, at, id); src != "" {
+			entities[src] = true
+		}
+	}
+	var out []int
+	for i := at - 1; i >= 0 && len(entities) > 0; i-- {
+		w := rec.Steps[i]
+		if !isWrite(w) || inert(rec, i, bad) {
+			continue
+		}
+		match := entities[w.ID]
+		for e := range reach(i) {
+			match = match || entities[e]
+		}
+		if match {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
+func itemIDs(st *runner.StepRecord, path string) []string {
+	segs := chain.SplitPath(path)
+	var body any
+	if st == nil || json.Unmarshal(st.Response, &body) != nil {
+		return nil
+	}
+	for k := len(segs) - 1; k > 0; k-- {
+		if _, err := strconv.Atoi(segs[k]); err == nil {
+			item, _ := chain.Get(body, strings.Join(segs[:k+1], "."))
+			return idsOf(item)
+		}
+	}
+	return nil
+}
+
+func producer(rec *runner.Record, at int, id string) string {
+	for _, st := range rec.Steps[:at] {
+		var body any
+		if st == nil || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		found := false
+		eachLeaf(body, "", func(p string, v any) {
+			segs := chain.SplitPath(p)
+			found = found || v == id && diff.IDNamedPath(segs[len(segs)-1])
+		})
+		if found {
+			return st.ID
+		}
+	}
+	return ""
+}
+
+func inert(rec *runner.Record, i int, bad map[string]bool) bool {
+	w := rec.Steps[i]
+	if bad[w.ID] {
+		return false
+	}
+	if refusalOf(w) != "" {
+		refs := stepRefs(rec, i)
+		for j, o := range rec.Steps[:i] {
+			if o == nil || o.Call != w.Call || refusalOf(o) != "" {
+				continue
+			}
+			for ref := range stepRefs(rec, j) {
+				if refs[ref] {
+					return true
+				}
+			}
+		}
+	}
+	for _, ref := range w.BodyRefs {
+		m := bodyRefExpr.FindStringSubmatch(ref)
+		if m == nil || !wholeRef.MatchString(strings.TrimSpace(ref)) {
+			continue
+		}
+		r := chain.ParseRef(m[1])
+		if r.Kind != chain.RefStep || !strings.HasPrefix(r.Rest, "request.") {
+			continue
+		}
+		for _, o := range rec.Steps[:i] {
+			if o != nil && o.ID == r.Head && o.Call == w.Call && sameIDs(o.Response, w.Response) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func sameIDs(a, b json.RawMessage) bool {
+	var x, y map[string]any
+	if json.Unmarshal(a, &x) != nil || json.Unmarshal(b, &y) != nil {
+		return false
+	}
+	found := false
+	for k, v := range x {
+		ids, other := idsOf(v), idsOf(y[k])
+		sort.Strings(ids)
+		sort.Strings(other)
+		if len(ids) == 0 {
+			continue
+		}
+		if strings.Join(ids, " ") != strings.Join(other, " ") {
+			return false
+		}
+		found = true
+	}
+	return found
+}
+
 func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool {
 	closure := map[int]map[string]bool{}
 	var reach func(i int) map[string]bool
@@ -105,7 +224,7 @@ func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool 
 		}
 		c := map[string]bool{}
 		closure[i] = c
-		for ref := range stepRefs(rec.Steps[i]) {
+		for ref := range stepRefs(rec, i) {
 			c[ref] = true
 			if j, ok := pos[ref]; ok && j < i {
 				for r := range reach(j) {
@@ -125,10 +244,12 @@ type blame struct {
 	cascade string
 	why     string
 	firm    bool
+	lead    string
 }
 
 type attribution struct {
 	e         *env
+	ref       bool
 	rec       *runner.Record
 	bad       map[string]bool
 	unchanged func(step, path string) bool
@@ -148,15 +269,22 @@ func (a attribution) of(step, path string) blame {
 		b.own = fmt.Sprintf("%s fails on its own (%s)", methodName(st.Call), why)
 		return b
 	}
+	if p := profileOf(st); (p == runner.NoAuthProfile || p == chain.InvalidTokenAuth) && chain.IsTransportPath(path) {
+		b.own = fmt.Sprintf("%s fails its own auth probe (auth %s, %s)", methodName(st.Call), p, path)
+		return b
+	}
 	if src, ref := heldBackBy(st); src != "" && src != step {
 		up := a.of(src, ref)
 		if up.own != "" {
 			b.own = up.own
 			return b
 		}
-		b.write, b.cascade = up.write, "unevaluated because "+a.lost(src, ref)
-		if b.write < 0 {
-			b.write = a.index(src)
+		b.write, b.cascade, b.lead, b.why = up.write, up.cascade, up.lead, up.why
+		if !strings.HasPrefix(b.cascade, "left an expectation unjudged because ") {
+			b.cascade = "left an expectation unjudged because " + a.lost(src, ref, up)
+		}
+		if i := a.index(src); b.write < 0 && b.lead == "" && i >= 0 && isWrite(a.rec.Steps[i]) {
+			b.write = i
 		}
 		return b
 	}
@@ -172,7 +300,7 @@ func (a attribution) of(step, path string) blame {
 			if w := a.recomputed(a.rec.Steps[e].ID, p); w >= 0 {
 				return blame{write: w}
 			}
-			return blame{write: e}
+			return blame{write: a.behind(e)}
 		}
 		return a.of(a.rec.Steps[e].ID, p)
 	}
@@ -180,14 +308,31 @@ func (a attribution) of(step, path string) blame {
 		return blame{write: w}
 	}
 	if isWrite(st) {
+		b.why = a.unstored(st, path)
+		if a.flipped(st) != "" {
+			b.write = a.changedWriteBefore(step)
+		} else if b.why == "" {
+			b.write = a.sameRecordWriteBefore(step)
+		}
+		if b.write < 0 && b.why == "" {
+			b.write = a.upstream(step)
+		}
+		return b
+	}
+	if was, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
+		b.own = fmt.Sprintf("%s answers %s where it answered %v", methodName(st.Call), verdictOf(st).ErrorCode, was)
 		return b
 	}
 	if list := ""; a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
 		if list = a.resized(step, path); list != "" {
+			if w := a.listedFrom(step, path); w >= 0 {
+				return blame{write: w}
+			}
 			b.own = fmt.Sprintf("%s answers another set of %s", methodName(st.Call), list)
 			if !a.writeChangedBefore(step) {
 				b.own += ", and the writes before it answered as before"
 			}
+			b.own += a.otherRead(step, list)
 			return b
 		}
 	}
@@ -195,9 +340,16 @@ func (a attribution) of(step, path string) blame {
 		b.own = fmt.Sprintf("%s answers the same items in another order", methodName(st.Call))
 		return b
 	}
-	b.write, b.knock = suspectWrite(a.rec, step, a.bad)
+	if why := a.principal(st, path); why != "" {
+		b.own = why
+		return b
+	}
+	b.write, b.knock = suspectWrite(a.rec, step, path, a.bad)
 	if b.knock && !a.explains(b.write, st, path) {
 		b.write, b.knock = -1, false
+	}
+	if b.write >= 0 && !b.knock && !a.bears(b.write, path) {
+		b.write = a.bearing(a.index(step), path)
 	}
 	if b.write >= 0 && !b.knock {
 		w := a.rec.Steps[b.write]
@@ -213,8 +365,137 @@ func (a attribution) of(step, path string) blame {
 				return blame{write: up, cascade: why}
 			}
 		}
+		if up := a.behind(b.write); up != b.write {
+			return blame{write: up}
+		}
+		if a.ref && !a.bad[w.ID] {
+			return a.asBefore(a.index(step), path, b)
+		}
 	}
 	return b
+}
+
+func (a attribution) asBefore(at int, path string, b blame) blame {
+	pos := map[string]int{}
+	for i, st := range a.rec.Steps {
+		if st == nil {
+			continue
+		}
+		if _, seen := pos[st.ID]; !seen {
+			pos[st.ID] = i
+		}
+	}
+	var earlier []string
+	leaf, movers, since := leafOf(path), []int{}, a.seenSince(at, path)
+	for _, i := range entityWrites(a.rec, at, path, a.bad, pos) {
+		if !a.bears(i, path) {
+			continue
+		}
+		if i > since && a.moves(i, leaf) {
+			movers = append(movers, i)
+		}
+		if i != b.write {
+			earlier = append(earlier, a.rec.Steps[i].ID)
+		}
+	}
+	if len(earlier) == 0 {
+		return b
+	}
+	if len(movers) == 1 {
+		return blame{write: movers[0], firm: true, why: fmt.Sprintf("its contract moves %s; the other writes on that record answered as before", leaf)}
+	}
+	w := a.rec.Steps[b.write]
+	b.write, b.lead, b.why = -1, w.ID, fmt.Sprintf("%s%s (%s), or earlier %s, answered as before", eitherWhy, w.ID, methodName(w.Call), capList(earlier, 2))
+	return b
+}
+
+func (a attribution) moves(i int, leaf string) bool {
+	w := a.rec.Steps[i]
+	eff := a.e.effectsOf(w.Call)[leaf]
+	if eff == nil || eff.Is != "" || refusalOf(w) != "" {
+		return false
+	}
+	return eff.Restore == "" || a.wasIn(i, eff.Restore)
+}
+
+func (a attribution) seenSince(at int, path string) int {
+	st := a.rec.Steps[at]
+	var body any
+	if a.unchanged == nil || json.Unmarshal(st.Response, &body) != nil {
+		return -1
+	}
+	segs := chain.SplitPath(path)
+	if len(segs) < 2 {
+		return -1
+	}
+	holder, _ := chain.Get(body, strings.Join(segs[:len(segs)-1], "."))
+	ids := map[string]bool{}
+	for _, id := range idsOf(holder) {
+		ids[id] = true
+	}
+	leaf := segs[len(segs)-1]
+	for j := at - 1; j >= 0 && len(ids) > 0; j-- {
+		r := a.rec.Steps[j]
+		var rb any
+		if r == nil || isWrite(r) || json.Unmarshal(r.Response, &rb) != nil {
+			continue
+		}
+		seen := false
+		eachLeaf(rb, "", func(p string, _ any) {
+			ps := chain.SplitPath(p)
+			if seen || len(ps) < 2 || ps[len(ps)-1] != leaf {
+				return
+			}
+			parent, _ := chain.Get(rb, strings.Join(ps[:len(ps)-1], "."))
+			for _, id := range idsOf(parent) {
+				seen = seen || ids[id] && a.unchanged(r.ID, p)
+			}
+		})
+		if seen {
+			return j
+		}
+	}
+	return -1
+}
+
+func (a attribution) wasIn(i int, state string) bool {
+	var req map[string]any
+	if json.Unmarshal(a.rec.Steps[i].Request, &req) != nil {
+		return false
+	}
+	ids := map[string]bool{}
+	for _, id := range idsOf(req) {
+		ids[id] = true
+	}
+	found := false
+	for _, st := range a.rec.Steps[:i] {
+		var body any
+		if st == nil || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		eachObject(body, func(m map[string]any) {
+			for _, id := range idsOf(m) {
+				for _, v := range m {
+					found = found || ids[id] && v == state
+				}
+			}
+		})
+	}
+	return found
+}
+
+func eachObject(v any, visit func(map[string]any)) {
+	switch t := v.(type) {
+	case map[string]any:
+		visit(t)
+		for _, x := range t {
+			eachObject(x, visit)
+		}
+	case []any:
+		for _, x := range t {
+			eachObject(x, visit)
+		}
+	}
 }
 
 func (a attribution) index(step string) int {
@@ -264,6 +545,13 @@ func (a attribution) flipped(st *runner.StepRecord) string {
 		}
 	}
 	return ""
+}
+
+func (a attribution) accepted(st *runner.StepRecord) (any, bool) {
+	if a.was == nil || refusalOf(st) != "" || verdictOf(st).ErrorCode == "" {
+		return nil, false
+	}
+	return a.was(st.ID, chain.EnvelopePath())
 }
 
 func refusalOf(st *runner.StepRecord) string {
@@ -559,7 +847,7 @@ func linesSum(lines []any, known map[string]input, nv, wv float64) int {
 	return -1
 }
 
-func (a attribution) lost(src, path string) string {
+func (a attribution) lost(src, path string, up blame) string {
 	st, ok := a.rec.Step(src)
 	if !ok || st == nil {
 		return ""
@@ -570,6 +858,14 @@ func (a attribution) lost(src, path string) string {
 	var body any
 	if json.Unmarshal(st.Response, &body) == nil {
 		if v, ok := chain.Get(body, path); ok && v != nil {
+			if up.write >= 0 && !up.knock && up.cascade == "" && a.rec.Steps[up.write].ID != src {
+				w, wb := a.rec.Steps[up.write], any(nil)
+				if json.Unmarshal(w.Response, &wb) == nil {
+					if wv, ok := chain.Get(wb, path); ok && fmt.Sprint(wv) == fmt.Sprint(v) {
+						return methodName(w.Call) + " changed " + path
+					}
+				}
+			}
 			return methodName(st.Call) + " changed " + path
 		}
 	}
@@ -599,7 +895,7 @@ func (a attribution) afterFailedWrite(step, path string) (int, string) {
 			continue
 		}
 		same := false
-		for ref := range stepRefs(w) {
+		for ref := range stepRefs(a.rec, i) {
 			same = same || touched[ref]
 		}
 		if m, err := a.e.cat.Lookup(w.Call); same && err == nil && declares(m.Output(), leaf, 0) {
@@ -658,12 +954,155 @@ func (a attribution) earlier(step, path string) (int, string) {
 		var wb any
 		_ = json.Unmarshal(w.Response, &wb)
 		for _, p := range a.changed(w.ID) {
-			if c, ok := carrierOf(wm, p); ok && c == want && sameEntity(body, path, wb, p) {
+			c, ok := carrierOf(wm, p)
+			if !ok || !sameEntity(body, path, wb, p) {
+				continue
+			}
+			if c == want || isWrite(w) && fieldOf(c) == fieldOf(want) && related(reach, at, i, w.ID) {
 				return i, p
 			}
 		}
 	}
 	return -1, ""
+}
+
+func (a attribution) behind(w int) int {
+	if a.flipped(a.rec.Steps[w]) != "" {
+		if up := a.changedWriteBefore(a.rec.Steps[w].ID); up >= 0 {
+			return up
+		}
+	}
+	if up := a.sameRecordWriteBefore(a.rec.Steps[w].ID); up >= 0 {
+		return up
+	}
+	if up := a.upstream(a.rec.Steps[w].ID); a.bad[a.rec.Steps[w].ID] && up >= 0 {
+		return up
+	}
+	return w
+}
+
+func (a attribution) upstream(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	pos := map[string]int{}
+	for i, s := range a.rec.Steps {
+		if _, seen := pos[s.ID]; s != nil && !seen {
+			pos[s.ID] = i
+		}
+	}
+	reach := refReach(a.rec, pos)
+	uses := func(call, path string) bool {
+		eff := a.e.effectsOf(call)[leafOf(path)]
+		return eff != nil && eff.Is != contract.EffectNone
+	}
+	for i := 0; i < at; i++ {
+		o := a.rec.Steps[i]
+		if o == nil || !a.bad[o.ID] || !related(reach, at, i, o.ID) {
+			continue
+		}
+		if isWrite(o) {
+			if verdictMoved(a.changed(o.ID)) {
+				return a.behind(i)
+			}
+			continue
+		}
+		for _, p := range a.changed(o.ID) {
+			if !uses(a.rec.Steps[at].Call, p) {
+				continue
+			}
+			if b := a.of(o.ID, p); b.write >= 0 && !b.knock && b.own == "" && b.cascade == "" && uses(a.rec.Steps[b.write].Call, p) {
+				return b.write
+			}
+		}
+	}
+	return -1
+}
+
+func (a attribution) changedWriteBefore(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	pos := map[string]int{}
+	for i, s := range a.rec.Steps {
+		if _, seen := pos[s.ID]; s != nil && !seen {
+			pos[s.ID] = i
+		}
+	}
+	reach := refReach(a.rec, pos)
+	for i := 0; i < at; i++ {
+		w := a.rec.Steps[i]
+		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) {
+			continue
+		}
+		for _, p := range a.changed(w.ID) {
+			if a.reordered == nil || !a.reordered(w.ID, p) {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+func (a attribution) sameRecordWriteBefore(step string) int {
+	at := a.index(step)
+	if at < 0 || a.changed == nil {
+		return -1
+	}
+	mine := stepRefs(a.rec, at)
+	fields := leafFields(a.changed(step))
+	call := a.rec.Steps[at].Call
+	for i := at - 1; i >= 0; i-- {
+		w := a.rec.Steps[i]
+		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && (w.Call != call || !sharesField(fields, leafFields(a.changed(w.ID)))) {
+			continue
+		}
+		for ref := range stepRefs(a.rec, i) {
+			if !mine[ref] {
+				continue
+			}
+			return a.behind(i)
+		}
+	}
+	return -1
+}
+
+func leafFields(paths []string) map[string]bool {
+	out := map[string]bool{}
+	for _, p := range paths {
+		segs := chain.SplitPath(p)
+		for k := len(segs) - 1; k >= 0; k-- {
+			if _, err := strconv.Atoi(segs[k]); err != nil {
+				out[segs[k]] = true
+				break
+			}
+		}
+	}
+	return out
+}
+
+func verdictMoved(paths []string) bool {
+	for _, p := range paths {
+		if envelopeOnly(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func sharesField(a, b map[string]bool) bool {
+	for f := range a {
+		if b[f] {
+			return true
+		}
+	}
+	return false
+}
+
+func fieldOf(carrier string) string {
+	return carrier[strings.LastIndex(carrier, ".")+1:]
 }
 
 func related(reach func(int) map[string]bool, at, i int, id string) bool {
@@ -703,7 +1142,7 @@ func heldBackBy(st *runner.StepRecord) (string, string) {
 
 func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, bool) {
 	w := a.rec.Steps[wi]
-	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) {
 		return blame{}, false
 	}
 	rm, err := a.e.cat.Lookup(r.Call)
@@ -726,12 +1165,19 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 	if !ok {
 		return blame{}, false
 	}
+	before, agreed := "", false
+	if a.was != nil {
+		if v, ok := a.was(r.ID, path); ok {
+			before, agreed = compactValue(v), true
+		}
+	}
 	wp, wv, found := "", "", false
 	eachLeaf(wb, "", func(p string, v any) {
 		if found {
 			return
 		}
-		if c, ok := carrierOf(wm, p); !ok || c != want {
+		c, ok := carrierOf(wm, p)
+		if !ok || envelopeOnly(p) || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {
@@ -744,7 +1190,10 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 	shown := gateIndex.ReplaceAllString(path, "[]$1")
 	agree, confirm := []string{methodName(r.Call)}, false
 	for _, o := range a.rec.Steps[wi+1:] {
-		if o == nil || o == r || isWrite(o) {
+		if isWrite(o) {
+			break
+		}
+		if o == nil || o == r {
 			continue
 		}
 		om, err := a.e.cat.Lookup(o.Call)
@@ -772,10 +1221,107 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (blame, b
 			methodName(r.Call), shown, methodName(w.Call))}, true
 	case len(agree) > 1:
 		return blame{write: wi, firm: true, why: fmt.Sprintf("%s answered %s %s, but %s read %s: it did not store what it answered",
-			methodName(w.Call), shown, capText(wv, 60), strings.Join(agree, ", "), capText(compactValue(rv), 60))}, true
+			methodName(w.Call), shown, valueText(wv), strings.Join(agree, ", "), valueText(compactValue(rv)))}, true
 	}
-	return blame{write: wi, why: fmt.Sprintf("%s answered %s %s, %s reads %s: the write stored something else or the read changes it",
-		methodName(w.Call), shown, capText(wv, 60), agree[0], capText(compactValue(rv), 60))}, true
+	why := fmt.Sprintf("%s answered %s=%s, %s reads %s", w.ID, wp, valueText(wv), r.ID, valueText(compactValue(rv)))
+	if agreed && before == wv {
+		why = eitherWhy + why
+	}
+	return blame{write: wi, why: why}, true
+}
+
+const eitherWhy = "the write or the read: "
+
+func valueText(s string) string {
+	if s == "" {
+		return `""`
+	}
+	return capText(s, 60)
+}
+
+func envelopeOnly(path string) bool {
+	var segs []string
+	for _, seg := range chain.SplitPath(path) {
+		if _, err := strconv.Atoi(seg); err != nil {
+			segs = append(segs, seg)
+		}
+	}
+	p := strings.Join(segs, ".")
+	list, _, _ := strings.Cut(chain.ItemEnvelope(), "[].")
+	item, ok := strings.CutPrefix(p, list+".")
+	return p == "" || p == "code" || p == "message" || strings.HasPrefix(p, "transport.") || chain.IsEnvelopePath(p) || ok && list != "" && chain.IsEnvelopePath(item)
+}
+
+func (a attribution) unstored(w *runner.StepRecord, path string) string {
+	if a.e == nil || a.e.cat == nil || a.unchanged == nil || path == "" || envelopeOnly(path) || a.unchanged(w.ID, path) {
+		return ""
+	}
+	wm, err := a.e.cat.Lookup(w.Call)
+	if err != nil {
+		return ""
+	}
+	want, ok := carrierOf(wm, path)
+	var wb any
+	if !ok || json.Unmarshal(w.Response, &wb) != nil {
+		return ""
+	}
+	wv, ok := chain.Get(wb, path)
+	if !ok {
+		return ""
+	}
+	for _, o := range a.rec.Steps[a.index(w.ID)+1:] {
+		if isWrite(o) {
+			return ""
+		}
+		om, err := a.e.cat.Lookup(o.Call)
+		var ob any
+		if err != nil || json.Unmarshal(o.Response, &ob) != nil {
+			continue
+		}
+		if list, ok := reorderedList(wb, ob, path); ok && sameEntity(wb, list, ob, list) && a.unchanged(o.ID, path) {
+			return fmt.Sprintf("%s answered %s in another order than %s read: it answered other than it stored",
+				methodName(w.Call), list, methodName(o.Call))
+		}
+		read, found := "", false
+		eachLeaf(ob, "", func(p string, v any) {
+			if c, ok := carrierOf(om, p); !found && ok && c == want && sameEntity(wb, path, ob, p) && a.unchanged(o.ID, p) && compactValue(v) != compactValue(wv) {
+				read, found = compactValue(v), true
+			}
+		})
+		if found {
+			return fmt.Sprintf("%s answered %s %s, but %s read %s: it answered other than it stored",
+				methodName(w.Call), gateIndex.ReplaceAllString(path, "[]$1"), valueText(compactValue(wv)), methodName(o.Call), valueText(read))
+		}
+	}
+	return ""
+}
+
+func reorderedList(w, r any, path string) (string, bool) {
+	segs := chain.SplitPath(path)
+	for i, seg := range segs {
+		if _, err := strconv.Atoi(seg); err != nil || i == 0 {
+			continue
+		}
+		prefix := strings.Join(segs[:i], ".")
+		wl, wok := chain.Get(w, prefix)
+		rl, rok := chain.Get(r, prefix)
+		wa, _ := wl.([]any)
+		ra, _ := rl.([]any)
+		if !wok || !rok || len(wa) < 2 || len(wa) != len(ra) {
+			return "", false
+		}
+		ws, rs := make([]string, len(wa)), make([]string, len(ra))
+		for j := range wa {
+			ws[j], rs[j] = compactValue(wa[j]), compactValue(ra[j])
+		}
+		if strings.Join(ws, "\x00") == strings.Join(rs, "\x00") {
+			return "", false
+		}
+		sort.Strings(ws)
+		sort.Strings(rs)
+		return prefix, strings.Join(ws, "\x00") == strings.Join(rs, "\x00")
+	}
+	return "", false
 }
 
 func carrierOf(m *catalog.Method, path string) (string, bool) {
@@ -846,20 +1392,55 @@ func eachLeaf(v any, path string, visit func(string, any)) {
 }
 
 func sameEntity(a any, pa string, b any, pb string) bool {
-	parent := func(root any, path string) map[string]any {
+	parent := func(root any, path string) (map[string]any, []any) {
 		segs := chain.SplitPath(path)
 		if len(segs) < 2 {
-			return nil
+			return nil, nil
 		}
 		v, _ := chain.Get(root, strings.Join(segs[:len(segs)-1], "."))
 		m, _ := v.(map[string]any)
-		return m
+		var list []any
+		if _, err := strconv.Atoi(segs[len(segs)-2]); err == nil && len(segs) > 2 {
+			l, _ := chain.Get(root, strings.Join(segs[:len(segs)-2], "."))
+			list, _ = l.([]any)
+		}
+		return m, list
 	}
-	x, y := parent(a, pa), parent(b, pb)
+	idKey := func(k string) bool {
+		lower := strings.ToLower(k)
+		return lower == "id" || strings.HasPrefix(lower, "id_") || strings.HasSuffix(lower, "_id")
+	}
+	distinct := func(list []any, k string) bool {
+		seen := map[string]bool{}
+		for _, it := range list {
+			m, _ := it.(map[string]any)
+			v := compactValue(m[k])
+			if seen[v] {
+				return false
+			}
+			seen[v] = true
+		}
+		return true
+	}
+	x, xl := parent(a, pa)
+	y, yl := parent(b, pb)
+	matched := false
+	for k, v := range x {
+		w, ok := y[k]
+		if !idKey(k) || !ok || xl == nil && yl == nil || !distinct(xl, k) || !distinct(yl, k) {
+			continue
+		}
+		if compactValue(v) != compactValue(w) {
+			return false
+		}
+		matched = true
+	}
+	if matched {
+		return true
+	}
 	sawID := false
 	for k, v := range x {
-		lower := strings.ToLower(k)
-		if lower != "id" && !strings.HasPrefix(lower, "id_") && !strings.HasSuffix(lower, "_id") {
+		if !idKey(k) {
 			continue
 		}
 		if w, ok := y[k]; ok {
@@ -879,16 +1460,34 @@ func requestLine(rec *runner.Record, step string, b blame) string {
 	}
 	lead := step
 	if b.own != "" {
-		lead = fmt.Sprintf("suspect read %s (%s)", step, shortRPC(st.Call))
+		lead = fmt.Sprintf("suspect %s %s (%s)", rw(st.Call), step, shortRPC(st.Call))
 	}
 	if b.write >= 0 {
+		it := gateItem{Call: st.Call, Suspect: rec.Steps[b.write].Call, Why: b.why}
 		st = rec.Steps[b.write]
 		lead = fmt.Sprintf("suspect write %s (%s)", st.ID, shortRPC(st.Call))
+		if or := it.orRead(); or != "" {
+			lead = fmt.Sprintf("suspect %s (%s%s)", st.ID, shortRPC(st.Call), or)
+		}
 	}
 	if sent := sentText(st); sent != "" {
-		return lead + sent
+		return lead + sent + whyText(b.why)
 	}
 	return ""
+}
+
+func rw(call string) string {
+	if chain.IsReadOnlyCall(call) {
+		return "read"
+	}
+	return "write"
+}
+
+func whyText(why string) string {
+	if why == "" {
+		return ""
+	}
+	return "; " + why
 }
 
 func sentText(st *runner.StepRecord) string {
