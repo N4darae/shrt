@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -111,7 +112,7 @@ func chainNew(args []string) error {
 		return err
 	}
 	for _, n := range notes {
-		fmt.Fprintf(os.Stderr, "note: %s\n", n)
+		fmt.Fprintf(os.Stderr, "note: %s\n", noteLead(n))
 	}
 	if *stdout {
 		fmt.Print(string(raw))
@@ -449,6 +450,20 @@ func (s *stampSummary) print(explained map[string]bool) {
 	}
 	fmt.Printf("WARN   timestamps unasserted in %d chain(s), %s ('chain lint -v' names each step and its expect)%s\n",
 		len(s.chains), capList(s.paths, 4), why)
+}
+
+var noteSteps = regexp.MustCompile(`^steps? [a-z0-9_, ]+: `)
+
+func noteLead(note string) string {
+	note = contract.FirstSentence(note)
+	head := noteSteps.FindString(note)
+	note = note[len(head):]
+	for _, sep := range []string{"; ", ": ", " ("} {
+		if i := strings.Index(note, sep); i > 0 {
+			note = note[:i]
+		}
+	}
+	return head + strings.TrimSuffix(note, ".")
 }
 
 func lintLead(msg string) string {
