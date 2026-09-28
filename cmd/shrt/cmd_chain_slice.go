@@ -573,6 +573,7 @@ type sliceVerdict struct {
 	Recorded       string            `json:"verdict_written_to,omitempty"`
 	OutsideState   []string          `json:"outside_state,omitempty"`
 	ByDistance     []string          `json:"compared_by_distance,omitempty"`
+	Drifted        []string          `json:"drifted,omitempty"`
 	SourceReplay   string            `json:"source_replay_of,omitempty"`
 	replay         *runner.Record
 	nextKeep       []string
@@ -644,7 +645,7 @@ func (v *sliceVerdict) text() string {
 		for _, line := range failedExpectLines(v.Source, v.Replay) {
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
-		for _, line := range v.ByDistance {
+		for _, line := range slices.Concat(v.ByDistance, v.Drifted) {
 			fmt.Fprintf(&b, "  %s\n", line)
 		}
 	}
@@ -750,7 +751,8 @@ func (v *sliceVerdict) err() error {
 		if len(v.BlockedBy) > 0 {
 			return exitWith(3, "step %s: INCONCLUSIVE, its failing expectations were not evaluated in the source run, behind %s", v.Step, strings.Join(v.BlockedBy, ", "))
 		}
-		return exitWith(3, "step %s: INCONCLUSIVE, the verdict matched but the slice dropped write step(s) acting on entities the kept steps use", v.Step)
+		why, _, _ := strings.Cut(v.Reason, "\n")
+		return exitWith(3, "step %s: INCONCLUSIVE, %s", v.Step, why)
 	}
 	return nil
 }
@@ -821,8 +823,11 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Differences = compareSliceVerdicts(res, v.Source, withoutBlocked(v.Source, v.Replay, blocked), sameUpToFixtures(rec.Vars, replayRec.Vars))
 		upstreamOnly = len(v.Differences) == 0
 	}
+	driftUnseen := false
 	if len(v.Differences) == 0 {
-		v.Differences = sliceDrift(e, res, rec, replayRec)
+		passed := v.Source.Status == runner.StatusPassed
+		missing, drifted, compared := sliceDrift(e, res, rec, replayRec, passed)
+		v.Differences, v.Drifted, driftUnseen = missing, drifted, passed && !compared
 	}
 	related, other := relatedDroppedWrites(res, rec)
 	entityRelated := append([]string{}, related...)
@@ -884,6 +889,9 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		if differ := varsDifferBetween(rec, replayRec, freshSet(res)); differ != "" {
 			v.Reason = strings.TrimPrefix(v.Reason+"\nthe slice ran with other vars than the source run ("+differ+"): drop the -var to use the source run's", "\n")
 		}
+	case driftUnseen:
+		v.Outcome = sliceInconclusive
+		v.Reason = fmt.Sprintf("step %s passed in source run %s and the run its drift was measured against cannot be loaded", res.Target, rec.RunID)
 	case len(related) > 0:
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped write step(s) on entities the kept steps use: %s", capList(related, 5))
@@ -1390,9 +1398,10 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	if latestReached, _ := reachedStep(latest, step); ownReached != latestReached {
 		return latest, nil
 	}
-	if stepFailed(latest, step) != stepFailed(own, step) {
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s %s; the newest `shrt run` record, %s, %s it\n",
-			latest.RunID, step, stepStatus(latest, step), own.RunID, stepStatus(own, step))
+	moved := func(s string) bool { return s == runner.StatusFailed || s == "drifted" }
+	if l, o := movedStatus(e, latest, step), movedStatus(e, own, step); moved(l) != moved(o) {
+		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s %s; in the newest `shrt run` record, %s, it %s\n",
+			latest.RunID, step, l, own.RunID, o)
 		return latest, nil
 	}
 	prev, err := e.store.LoadRun(chainName, ids[len(ids)-2])
@@ -1435,11 +1444,6 @@ func stepStatus(rec *runner.Record, step string) string {
 		return sr.Status
 	}
 	return "was not run"
-}
-
-func stepFailed(rec *runner.Record, step string) bool {
-	sr, ok := rec.Step(step)
-	return ok && sr.Status == runner.StatusFailed
 }
 
 func loadRunReaching(e *env, chainName, ref, runID, step string) (*runner.Record, error) {

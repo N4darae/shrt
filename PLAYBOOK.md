@@ -390,8 +390,9 @@ vocabulary:
 - `unclear: write ... or the read`: the write answered as before and only the read moved (a
   write storing other than it answers looks the same); check what the write persisted.
 - `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
+  A held-back step answering otherwise than the step it copies is judged on its own.
 - `same fault as <chain>`: the suspect and field an earlier gate line named, and no suspect that
-  chain lacks; otherwise the line names its own suspect and `also` the first other one.
+  chain lacks; otherwise the line names its own suspect and `also` the first other one, if any.
 - `not as pinned` / `pins held, new change`: a kept-red chain's pin moved, or a new defect beside
   the pinned ones; do not re-pin, run its `shrt diff`.
 
@@ -502,8 +503,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    A slice of the same chain and step is replaced in place; any other file is refused.
 4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice 3 times and compares the target step's verdict with the source run's: envelope
    code, reason and app code, transport refusal, and each expectation's pass, want and got; when
-   those match and the source run drifted at the target against its safe spot, the slice must
-   drift the same paths. It
+   those match and the target passed in the source run, the slice must drift exactly the paths
+   the source run drifted against its safe spot (`drifted: <path> source got=.., slice got=..`). It
    writes the source run's vars into the slice, except fresh vars a kept write interpolates, which
    you must pass (`-var name=<fresh>`). Outcomes:
    - `reproduced` (0): verdicts match, no dropped write touched a kept entity (`-write` records it
@@ -511,11 +512,12 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `NOT REPRODUCED` (1): the verdict differs; run the `next:` line.
    - `intermittent: reproduced k/3` (1): flaky there; keeping more steps will not help.
    - `DID NOT RUN` (3): the target was never answered.
-   - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, or another target;
+   - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, another target,
+     or the run a passing target's drift is measured against is gone;
      run the `next:` line, or `-keep writes` for every earlier write.
    Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff`
    compares: the newest record, but a `shrt run` over a verify replay recorded right after it,
-   unless only the replay failed the step (for `-without`: unless their failed steps differ);
+   unless only the replay failed or drifted the step (for `-without`: unless their failed steps differ);
    it refuses (3) if that run left the target unevaluated.
 
 For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run

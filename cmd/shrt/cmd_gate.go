@@ -1332,13 +1332,13 @@ func settleGate(chains []*gateChain) []string {
 	for _, g := range chains {
 		byName[g.name] = g
 	}
-	lacks := func(x string, g *gateChain) (gateItem, bool) {
-		if byName[x] == nil || x == g.name {
-			return gateItem{}, false
-		}
-		has := map[string]bool{}
-		for _, it := range byName[x].items {
-			has[keyOf(x, it)] = true
+	lacks := func(x string, g *gateChain, lead gateItem) (gateItem, bool) {
+		has := map[string]bool{keyOf(g.name, lead): true}
+		if byName[x] != nil && x != g.name {
+			has = map[string]bool{}
+			for _, it := range byName[x].items {
+				has[keyOf(x, it)] = true
+			}
 		}
 		for _, it := range g.items {
 			if !it.Passes && it.Reason.Kind != "" && !has[keyOf(g.name, it)] {
@@ -1379,7 +1379,7 @@ func settleGate(chains []*gateChain) []string {
 			continue
 		}
 		g.first, g.firstAt = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline()), it.Step+" "+it.Path
-		other, more := lacks(seen[it.root()], g)
+		other, more := lacks(seen[it.root()], g, it)
 		switch first := seen[it.root()]; {
 		case first != "" && first != g.name && !more:
 			g.first += "; " + sameFault + first
