@@ -36,12 +36,29 @@ func withMask(cs []Change, mask string) []Change {
 	return out
 }
 
-func (r *RunReport) MaskedList() string {
-	if len(r.MaskedChanges) == 0 {
-		return "masked differences: none"
+func (r *RunReport) varChanges(fixture bool) []string {
+	out := []string{}
+	for _, v := range r.VarChanges {
+		if v.Fixture == fixture {
+			out = append(out, fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B)))
+		}
 	}
+	return out
+}
+
+func (r *RunReport) MaskedList() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%d masked difference(s), not counted as differences, run A -> run B:\n", len(r.MaskedChanges))
+	if vars := r.varChanges(true); len(vars) > 0 {
+		fmt.Fprintf(&b, "fixture vars differ, echoes masked: %s\n", strings.Join(vars, "; "))
+	}
+	if r.FixtureRequests > 0 {
+		fmt.Fprintf(&b, "%d request value(s) differ only in a fixture name, a ${uuid} or the clock\n", r.FixtureRequests)
+	}
+	if len(r.UnsentDefaults)+len(r.UndeclaredSame) > 0 {
+		fmt.Fprintf(&b, "response fields declared in one record only, unsent or sent undeclared alike: %s\n",
+			strings.Join(append(append([]string{}, r.UnsentDefaults...), r.UndeclaredSame...), ", "))
+	}
+	fmt.Fprintf(&b, "%d masked difference(s), run A -> run B:\n", len(r.MaskedChanges))
 	for _, c := range r.MaskedChanges {
 		fmt.Fprintf(&b, "  [%s] %s (%s) hidden by %s\n", c.Step, c.Path, c.Transition(), c.Mask)
 	}

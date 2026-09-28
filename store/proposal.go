@@ -499,13 +499,7 @@ func proposalFindings(p *Proposal, rec *runner.Record, max int) string {
 	case p.ComparedTo == "":
 		fmt.Fprintf(&b, "\n**Not checked for fields that change every run:** no earlier passing run of this chain against `%s` is recorded "+
 			"(a run against another target says nothing about this one). Run it once more and propose again to see them.\n", p.Target)
-	case len(p.Unstable) == 0:
-		other := ""
-		if len(p.Carried) > 0 {
-			other = " other"
-		}
-		fmt.Fprintf(&b, "\nCompared with the earlier passing run `%s`: no%s field differs beyond ids, timestamps and values echoing a fixture name, so `shrt verify` should not report drift on an unchanged backend.\n", p.ComparedTo, other)
-	default:
+	case len(p.Unstable) > 0:
 		fmt.Fprintf(&b, "\n**Warning: %d field(s) differ from the earlier passing run `%s`** and are not declared volatile, so every `shrt verify` will report them as drift unless the chain's `volatile:` covers them (or they are a real difference):\n\n", len(p.Unstable), p.ComparedTo)
 		for i, line := range unstableLines(p.Unstable) {
 			if max > 0 && i == max {
@@ -1212,20 +1206,18 @@ func listRoot(path string) (string, bool) {
 }
 
 type ProposalRow struct {
-	Chain, Run, Steps, RPCs, Refusals, Check string
-	Volatile                                 string
+	Chain, Run, Steps, Refusals, Check, Volatile string
 }
 
 func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 	passed := 0
-	calls, refusals := counter{}, counter{}
+	refusals := counter{}
 	bare, verdictOnly, warned := 0, 0, 0
 	envelope := chain.EnvelopePath()
 	for _, st := range rec.Steps {
 		if st.Status == runner.StatusPassed {
 			passed++
 		}
-		calls.add(shortCall(st.Call))
 		answer := answerKind(st, envelope)
 		if answer != chain.EnvelopeOK() {
 			refusals.add(answer)
@@ -1285,7 +1277,7 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		check = append(check, "every field volatile at "+clipList(masked, 3))
 	}
 	row := ProposalRow{Chain: p.Chain, Run: p.RunID, Steps: fmt.Sprintf("%d/%d", passed, len(rec.Steps)),
-		RPCs: calls.top(3), Refusals: "none", Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
+		Refusals: "none", Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
 	if len(refusals.order) > 0 {
 		row.Refusals = refusals.top(3)
 	}

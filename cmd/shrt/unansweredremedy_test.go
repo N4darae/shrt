@@ -14,13 +14,13 @@ func TestAnUnansweredStepNotRefusedForCredentialsDoesNotBlameThem(t *testing.T) 
 		{"connection reset", "POST http://x/Create: the backend closed the connection before a response arrived (EOF): it most likely stopped", "check the backend is up"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := couldNotVerify("c", "create", tc.why, rec)
+			err := couldNotVerifyAfter("c", "create", tc.why, rec, nil)
 			if strings.Contains(err.Error(), "credentials") || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("nothing refused the credentials here; want %q and no credentials advice: %v", tc.want, err)
 			}
 		})
 	}
-	err := couldNotVerify("c", "create", "auth login rejected: http_401: unauthenticated: bad password", rec)
+	err := couldNotVerifyAfter("c", "create", "auth login rejected: http_401: unauthenticated: bad password", rec, nil)
 	if !strings.Contains(err.Error(), "fix the credentials") {
 		t.Fatalf("a login refused for its credentials keeps the credentials advice: %v", err)
 	}

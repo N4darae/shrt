@@ -75,7 +75,6 @@ type Report struct {
 	RenamedSteps       []StepRename `json:"renamed_steps,omitempty"`
 	UnsentDefaults     []string     `json:"unsent_defaults,omitempty"`
 	UndeclaredSame     []string     `json:"undeclared_same,omitempty"`
-	HideMasked         bool         `json:"-"`
 	UndeclaredUnknown  []string     `json:"undeclared_uncompared,omitempty"`
 
 	inputSeparated    bool
@@ -231,14 +230,6 @@ func (r *Report) valueChangedSteps() map[string]bool {
 		}
 	}
 	return changedAt
-}
-
-func (r *Report) uncountedNote() string {
-	n := r.NotReachedCount()
-	if n == 0 || n == len(r.Changes) {
-		return ""
-	}
-	return fmt.Sprintf("; %d step(s) not reached are listed below and not counted: a step the run never sent is not a change", n)
 }
 
 const (
@@ -1272,6 +1263,9 @@ func withKind(v any) string {
 
 func (r *Report) MaskedList() string {
 	var b strings.Builder
+	if r.SafeSpotTarget != "" || r.RunTarget != "" {
+		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s\n", orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
+	}
 	section := func(title string, cs []Change) {
 		if len(cs) == 0 {
 			return
@@ -1281,26 +1275,29 @@ func (r *Report) MaskedList() string {
 			fmt.Fprintf(&b, "  %s %s (%s)%s\n", c.Step, c.Path, c.Transition(), maskSuffix(c))
 		}
 	}
+	section("request values differing only in a fixture name or under a volatile path", r.FixtureInput)
 	section("values under volatile paths", r.VolatileValues)
 	section("id- or timestamp-shaped values", r.ShapeMasked)
 	section("values echoing a fixture name", r.FixtureEchoed)
+	paths := func(title string, ps []string) {
+		if len(ps) > 0 {
+			fmt.Fprintf(&b, "%s, not compared:\n  %s\n", title, strings.Join(ps, "\n  "))
+		}
+	}
+	paths("response values under redact paths, blanked in the records", r.RedactedPaths)
+	paths("response values under no redact path, scrubbed by value for holding a secret the run sent", r.ScrubbedPaths)
+	paths("response fields declared now and left at the proto3 default on the wire", r.UnsentDefaults)
+	paths("response fields declared now and on the wire undeclared with the same value in the safe spot's run", r.UndeclaredSame)
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func (r *Report) FixtureInputLine(listed bool) string {
-	if len(r.FixtureInput) == 0 {
+func (r *Report) NotCountedLine() string {
+	n := r.Masked + r.VolatileMasked + len(r.FixtureEchoed) + len(r.FixtureInput) +
+		len(r.RedactedPaths) + len(r.ScrubbedPaths) + len(r.UnsentDefaults) + len(r.UndeclaredSame)
+	if n == 0 {
 		return ""
 	}
-	line := fmt.Sprintf("%d request value(s) differ from the confirmed run only in a fixture name or under a volatile path, "+
-		"so they are not counted as different input", len(r.FixtureInput))
-	if !listed {
-		return line + " (-masked lists them)"
-	}
-	names := []string{}
-	for _, c := range r.FixtureInput {
-		names = append(names, c.Step+" "+c.Path)
-	}
-	return line + ": " + strings.Join(names, ", ")
+	return fmt.Sprintf("not counted: %d (-masked lists them)", n)
 }
 
 func (r *Report) QuietText() string {
@@ -1317,20 +1314,6 @@ func (r *Report) QuietText() string {
 }
 
 func (r *Report) Text() string {
-	parts := []string{}
-	if r.Masked > 0 {
-		parts = append(parts, fmt.Sprintf("%d id- or timestamp-shaped value(s)", r.Masked))
-	}
-	if r.VolatileMasked > 0 {
-		parts = append(parts, fmt.Sprintf("%d value(s) under volatile paths", r.VolatileMasked))
-	}
-	if len(r.FixtureEchoed) > 0 {
-		parts = append(parts, fmt.Sprintf("%d value(s) echoing a fixture name", len(r.FixtureEchoed)))
-	}
-	masked := ""
-	if len(parts) > 0 && (!r.HideMasked || len(r.UnapprovedVolatile) > 0 || len(r.FullyMasked) > 0) {
-		masked = " (" + strings.Join(parts, " and ") + " that differ every run were not counted)"
-	}
 	var b strings.Builder
 	if line := RenamedLine(r.RenamedSteps, "the safe spot", "this run"); line != "" {
 		b.WriteString(line + "\n")
@@ -1339,10 +1322,6 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
 			"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
 			strings.Join(r.FullyMasked, ", "))
-	}
-	if r.SafeSpotTarget != "" || r.RunTarget != "" {
-		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s; a difference may come from the target, not from a change in the code\n",
-			orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
 	}
 	if len(r.UnapprovedVolatile) > 0 {
 		fmt.Fprintf(&b, "the replay was masked with %d volatile pattern(s) the safe spot %s did not approve: %s\n",
@@ -1368,15 +1347,6 @@ func (r *Report) Text() string {
 			}
 		}
 	}
-	if r.Redacted > 0 {
-		fmt.Fprintf(&b, "%d redacted response value(s), under redact paths, are blanked in the run records and were never compared, "+
-			"so a change there is invisible to verify: %s\n", r.Redacted, strings.Join(r.RedactedPaths, ", "))
-	}
-	if len(r.ScrubbedPaths) > 0 {
-		fmt.Fprintf(&b, "%d response value(s) under no redact path were scrubbed by value, blanked in both records because they held "+
-			"a secret the run knew (a credential or token it sent), and were never compared, so a change there is invisible to verify: %s\n",
-			len(r.ScrubbedPaths), strings.Join(r.ScrubbedPaths, ", "))
-	}
 	for _, c := range r.RequestChanges {
 		what := "request"
 		if chainLevel(c) || c.Path == ExpectPath {
@@ -1391,14 +1361,6 @@ func (r *Report) Text() string {
 			continue
 		}
 		fmt.Fprintf(&b, "%s differs from the confirmed run at %s %s (%s)\n", what, c.Step, c.Path, c.Transition())
-	}
-	if len(r.UnsentDefaults) > 0 {
-		fmt.Fprintf(&b, "%d response field(s) are declared now but were not on the wire (left at the proto3 default, the same bytes "+
-			"the safe spot's backend sent), so they are not counted as a change: %s\n", len(r.UnsentDefaults), strings.Join(r.UnsentDefaults, ", "))
-	}
-	if len(r.UndeclaredSame) > 0 {
-		fmt.Fprintf(&b, "%d response field(s) are declared now and were on the wire, undeclared, in the safe spot's run with the same value, "+
-			"so they are not counted as a change: %s\n", len(r.UndeclaredSame), strings.Join(r.UndeclaredSame, ", "))
 	}
 	if len(r.UndeclaredUnknown) > 0 {
 		fmt.Fprintf(&b, "%d response field(s) are declared now and were on the wire, undeclared, in the safe spot's run, whose build did not "+
@@ -1418,41 +1380,28 @@ func (r *Report) Text() string {
 	}
 	b.WriteString(r.principalCaveat())
 	if r.Clean() && r.PrincipalChanged() {
-		fmt.Fprintf(&b, "the responses match safe spot %s%s, but a step ran under another auth profile or principal than the confirmed run, "+
-			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID, masked)
+		fmt.Fprintf(&b, "the responses match safe spot %s, but a step ran under another auth profile or principal than the confirmed run, "+
+			"so the safe spot does not vouch for this principal: drift with different input", r.SafeSpotID)
 		return b.String()
 	}
 	if r.Clean() {
 		if r.Chain != "" {
 			fmt.Fprintf(&b, "%s: ", r.Chain)
 		}
-		fmt.Fprintf(&b, "no drift vs safe spot %s%s", r.SafeSpotID, masked)
-		return b.String()
+		fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
+		return strings.TrimRight(b.String()+"\n"+r.NotCountedLine(), "\n")
 	}
 	unexplained := len(r.Unexplained())
 	mixed := len(r.RequestChanges) > 0 && unexplained > 0
 	expectOnly := r.OnlyExpectationsEdited()
 	switch {
-	case mixed && expectOnly && unexplained == len(r.Changes):
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: the expectation change explains none of them, since it explains only a failure of the "+
-			"changed expectation itself, so they are evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
-	case mixed && expectOnly:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are not explained by the expectation change, which explains only its own step's "+
-			"status and the steps not reached after it when the changed expectation failed, so they are evidence of a backend regression; "+
-			"%d are\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
-	case mixed && r.OnlyChainChanged():
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps the chain change cannot affect (not a changed, added or removed step, "+
-			"after no added or removed write, and reading none of those steps), so it does not explain them and they are evidence of a "+
-			"backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
 	case mixed:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s: %d are at steps whose input did not differ, that read no value the different input "+
-			"changed and follow no write whose answer changed with it, so it does not explain them and they are evidence of a backend regression; %d it explains\n", len(r.Changes), r.SafeSpotID, masked, unexplained, len(r.Changes)-unexplained)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s: %d are not explained by the input or chain change since it was confirmed, "+
+			"so they are evidence of a backend regression; %d are\n", len(r.Changes), r.SafeSpotID, unexplained, len(r.Changes)-unexplained)
 	case r.OnlyChainChanged():
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s, after a chain change, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID)
 	case len(r.RequestChanges) > 0:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID, masked)
-	default:
-		fmt.Fprintf(&b, "%d change(s) vs safe spot %s%s%s\n", r.Counted(), r.SafeSpotID, masked, r.uncountedNote())
+		fmt.Fprintf(&b, "%d change(s) vs safe spot %s, with different input, so they are not evidence of a backend regression\n", len(r.Changes), r.SafeSpotID)
 	}
 	if r.FirstFailure != "" {
 		fmt.Fprintf(&b, "  first failing step: %s\n", r.FirstFailure)
@@ -1523,6 +1472,7 @@ func (r *Report) Text() string {
 		fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", step, c.Kind, c.Path, c.describe(), after)
 	}
 	b.WriteString(renameText(renames))
+	b.WriteString(r.NotCountedLine())
 	return strings.TrimRight(b.String(), "\n")
 }
 

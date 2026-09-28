@@ -52,7 +52,7 @@ func TestARegressionVerdictSaysWhatToDoIfTheChangeIsIntended(t *testing.T) {
 	if code := exitCodeOf(verr); code != 1 || !strings.Contains(verr.Error(), "regression") {
 		t.Fatalf("an added response field is a change: want a regression, got %d: %v\n%s", code, verr, out)
 	}
-	for _, want := range []string{"if intended", "shrt confirm cli-thing-flow -supersede", "approves", "first fetch"} {
+	for _, want := range []string{"If intended", "shrt confirm cli-thing-flow -supersede", "approves", "first fetch"} {
 		if !strings.Contains(verr.Error(), want) {
 			t.Errorf("the verdict lacks %q: %v\n%s", want, verr, out)
 		}

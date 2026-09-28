@@ -37,7 +37,7 @@ func TestARenamedIDInsideAMessageIsNotAChange(t *testing.T) {
 			if changed := len(runs.Changes) > 0; changed != tc.changed {
 				t.Fatalf("diff: changed=%v, want %v\n%s", changed, tc.changed, runs.Text())
 			}
-			if !tc.changed && !strings.Contains(rep.Text(), "id- or timestamp-shaped") {
+			if !tc.changed && !strings.Contains(rep.MaskedList(), "id- or timestamp-shaped") {
 				t.Fatalf("the renamed id is counted with the masked ids:\n%s", rep.Text())
 			}
 		})

@@ -32,8 +32,8 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 		t.Fatalf("confirm -all: %v\n%s", err, out)
 	}
 	for _, want := range []string{"proposed 2 chain(s), NOT safe spots yet; what the proposer checked: fetch returns the created name",
-		"| cli-thing-flow | `", "| cli-thing-again | `", "| 2/2 | Create ×1, Fetch ×1 | none | no earlier passing run to compare with |",
-		"skip     cli-thing-unrun: no run recorded", ".shrt/safespots/pending/<chain>.md",
+		"| cli-thing-flow | `", "| cli-thing-again | `", "| 2/2 | none | no earlier passing run to compare with |",
+		"skip     no run recorded: cli-thing-unrun", ".shrt/safespots/pending/<chain>.md",
 		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("confirm -all output lacks %q:\n%s", want, out)
@@ -58,7 +58,7 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 	}
 
 	out = captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "-note", "again"}) })
-	if err != nil || !strings.Contains(out, "skip     cli-thing-flow: safe spot unchanged") || !strings.Contains(out, "nothing proposed") {
+	if err != nil || !strings.Contains(out, "skip     safe spot unchanged: cli-thing-again, cli-thing-flow") || !strings.Contains(out, "nothing proposed") {
 		t.Fatalf("a chain whose latest run is its safe spot is not proposed again: %v\n%s", err, out)
 	}
 	out = captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })

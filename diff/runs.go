@@ -14,8 +14,6 @@ import (
 	"github.com/N4darae/shrt/transport"
 )
 
-const RunComparisonNote = "this compares two recorded runs with each other; it is not a verdict against a confirmed safe spot (that is 'shrt verify')"
-
 type StepStatus struct {
 	Step   string `json:"step"`
 	A      string `json:"a"`
@@ -32,7 +30,6 @@ type VarChange struct {
 }
 
 type RunReport struct {
-	Note              string       `json:"note"`
 	Chain             string       `json:"chain"`
 	RunA              string       `json:"run_a"`
 	RunB              string       `json:"run_b"`
@@ -105,8 +102,8 @@ func CompareRunsMasking(a, b *runner.Record, extra []string) *RunReport {
 
 func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
 	rep := &RunReport{
-		Note: RunComparisonNote, Chain: a.Chain,
-		RunA: a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
+		Chain: a.Chain,
+		RunA:  a.RunID, RunB: b.RunID, StatusA: a.Status, StatusB: b.Status, StartedA: a.StartedAt, StartedB: b.StartedAt,
 		FirstFailureA: firstFailure(a), FirstFailureB: firstFailure(b),
 		winA: recordWindow(a), winB: recordWindow(b),
 	}
@@ -519,20 +516,19 @@ func (r *RunReport) Text() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "diff of %s: %s vs %s%s\n", r.Chain, runLabel("A", r.SelectorA, r.RunA, r.StatusA),
 		runLabel("B", r.SelectorB, r.RunB, r.StatusB), r.recordedOrder())
-	fmt.Fprintf(&b, "%s\n", r.Note)
 	if line := RenamedLine(r.RenamedSteps, "run A", "run B"); line != "" {
-		fmt.Fprintf(&b, "\n%s\n", line)
+		fmt.Fprintf(&b, "%s\n", line)
 	}
 	if len(r.FullyMasked) > 0 {
-		fmt.Fprintf(&b, "\nWARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
+		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
 			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
 			strings.Join(r.FullyMasked, ", "))
 	}
 	if r.TargetA != "" || r.TargetB != "" {
-		fmt.Fprintf(&b, "\ntargets differ: A %s, B %s\n", r.TargetA, r.TargetB)
+		fmt.Fprintf(&b, "targets differ: A %s, B %s\n", r.TargetA, r.TargetB)
 	}
 	if r.BuildA != "" || r.BuildB != "" {
-		fmt.Fprintf(&b, "\nbuilds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
+		fmt.Fprintf(&b, "builds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
 	}
 	if r.KeepGoingA != r.KeepGoingB {
 		with, without, red, only := "B", "A", r.FirstFailureA, r.NewlyReached
@@ -540,7 +536,7 @@ func (r *RunReport) Text() string {
 			with, without, red, only = "A", "B", r.FirstFailureB, r.NoLongerReached
 		}
 		if red != "" {
-			fmt.Fprintf(&b, "\nrun %s used -keep-going and run %s did not, so %s went on past %s's first red (%s)", with, without, with, without, red)
+			fmt.Fprintf(&b, "run %s used -keep-going and run %s did not, so %s went on past %s's first red (%s)", with, without, with, without, red)
 			if len(only) > 0 {
 				fmt.Fprintf(&b, "; %d step(s) reached in %s only, listed below", len(only), with)
 			}
@@ -554,24 +550,12 @@ func (r *RunReport) Text() string {
 		}
 	}
 	if len(r.VarChanges) > 0 {
-		parts, fixtures := []string{}, []string{}
-		for _, v := range r.VarChanges {
-			part := fmt.Sprintf("%s a=%v b=%v", v.Name, orAbsent(v.A), orAbsent(v.B))
-			if v.Fixture {
-				fixtures = append(fixtures, part)
-			} else {
-				parts = append(parts, part)
-			}
-		}
-		if len(parts) > 0 {
-			fmt.Fprintf(&b, "\nthe runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
-		}
-		if len(fixtures) > 0 {
-			fmt.Fprintf(&b, "\nfixture vars differ, echoes masked: %s\n", strings.Join(fixtures, "; "))
+		if parts := r.varChanges(false); len(parts) > 0 {
+			fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
 		}
 	}
 	if r.FirstFailureA != r.FirstFailureB {
-		fmt.Fprintf(&b, "\nfirst failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
+		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
 	} else if r.FirstFailureA != "" {
 		how := ""
 		switch {
@@ -583,7 +567,7 @@ func (r *RunReport) Text() string {
 		default:
 			how = ", failing differently"
 		}
-		fmt.Fprintf(&b, "\nfirst failing step unchanged: %s%s\n", r.FirstFailureA, how)
+		fmt.Fprintf(&b, "first failing step unchanged: %s%s\n", r.FirstFailureA, how)
 		for _, line := range r.FailingA {
 			fmt.Fprintf(&b, "  A: %s\n", line)
 		}
@@ -592,7 +576,7 @@ func (r *RunReport) Text() string {
 		}
 	}
 	if len(r.StatusChanges) > 0 {
-		b.WriteString("\nstep status changes (A -> B):\n")
+		b.WriteString("step status changes (A -> B):\n")
 		for _, s := range r.StatusChanges {
 			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
@@ -619,13 +603,13 @@ func (r *RunReport) Text() string {
 			}
 		}
 		if len(unreached) > 0 {
-			fmt.Fprintf(&b, "\nreached in %s, not reached in %s: %s\n", reachedIn, other, strings.Join(unreached, ", "))
+			fmt.Fprintf(&b, "reached in %s, not reached in %s: %s\n", reachedIn, other, strings.Join(unreached, ", "))
 		}
 		if len(sent) > 0 {
-			fmt.Fprintf(&b, "\nanswered in %s; sent in %s, no answer before target.timeout: %s\n", reachedIn, other, strings.Join(sent, ", "))
+			fmt.Fprintf(&b, "answered in %s; sent in %s, no answer before target.timeout: %s\n", reachedIn, other, strings.Join(sent, ", "))
 		}
 		if len(dropped) > 0 {
-			fmt.Fprintf(&b, "\nanswered in %s; sent in %s, no answer (the connection closed): %s\n", reachedIn, other, strings.Join(dropped, ", "))
+			fmt.Fprintf(&b, "answered in %s; sent in %s, no answer (the connection closed): %s\n", reachedIn, other, strings.Join(dropped, ", "))
 		}
 	}
 	unreachedLines(r.NoLongerReached, timedOutB, "A", "B")
@@ -636,22 +620,19 @@ func (r *RunReport) Text() string {
 		fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 	}
 	if len(r.ErrorChanges) > 0 {
-		b.WriteString("\nsteps that errored in both runs, for different reasons (A -> B):\n")
+		b.WriteString("steps that errored in both runs, for different reasons (A -> B):\n")
 		for _, s := range r.ErrorChanges {
 			fmt.Fprintf(&b, "  %s  %s -> %s%s\n", s.Step, s.A, s.B, s.errors())
 		}
 	}
 	if len(r.RequestChanges) > 0 {
-		fmt.Fprintf(&b, "\n%d request difference(s), what the two runs SENT, in steps both reached (a = run A, b = run B):\n", len(r.RequestChanges))
+		fmt.Fprintf(&b, "%d request difference(s), what the two runs SENT, in steps both reached:\n", len(r.RequestChanges))
 		for _, c := range r.RequestChanges {
 			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
 		}
 	}
-	if r.FixtureRequests > 0 {
-		fmt.Fprintf(&b, "\n%d request value(s) differ only in a fixture name built from a var inside other text (`sku-${vars.tag}`) or from `${uuid}` or the clock, not shown\n", r.FixtureRequests)
-	}
 	if len(r.Changes) > 0 {
-		fmt.Fprintf(&b, "\n%d response difference(s) in steps both runs reached (a = run A, b = run B):\n", len(r.Changes))
+		fmt.Fprintf(&b, "%d response difference(s) in steps both runs reached:\n", len(r.Changes))
 		for _, c := range r.Changes {
 			detail := ""
 			if c.Detail != "" {
@@ -660,27 +641,15 @@ func (r *RunReport) Text() string {
 			fmt.Fprintf(&b, "  [%s] %-10s %s %s%s\n", c.Step, c.Kind, c.Path, c.describeRuns(), detail)
 		}
 	}
-	if len(r.UnsentDefaults) > 0 {
-		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and absent from the other's, where they were not on "+
-			"the wire (left at the proto3 default, the same bytes), so they are not shown, as `shrt verify` does not count them: %s\n",
-			len(r.UnsentDefaults), strings.Join(r.UnsentDefaults, ", "))
-	}
-	if len(r.UndeclaredSame) > 0 {
-		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and were on the wire, undeclared, in the other's with "+
-			"the same value, so they are not shown: %s\n", len(r.UndeclaredSame), strings.Join(r.UndeclaredSame, ", "))
-	}
 	if len(r.UndeclaredUnknown) > 0 {
-		fmt.Fprintf(&b, "\n%d response field(s) are declared in one run's record and were on the wire, undeclared, in the other's, whose "+
+		fmt.Fprintf(&b, "%d response field(s) are declared in one run's record and were on the wire, undeclared, in the other's, whose "+
 			"build did not record their value, so they were not compared: %s\n", len(r.UndeclaredUnknown), strings.Join(r.UndeclaredUnknown, ", "))
 	}
-	if r.FixtureEchoed > 0 {
-		fmt.Fprintf(&b, "\n%d response value(s) differ only by echoing the fixture name the run sent, as `shrt verify` masks them, not shown\n", r.FixtureEchoed)
-	}
-	if r.Masked > 0 {
-		fmt.Fprintf(&b, "\n%d differing value(s) not shown: declared volatile paths, ids and timestamps differ every run\n", r.Masked)
-	}
 	if r.Same() {
-		b.WriteString("\nno differences between the two runs\n")
+		b.WriteString("no differences between the two runs\n")
+	}
+	if n := r.Masked + r.FixtureEchoed + r.FixtureRequests + len(r.UnsentDefaults) + len(r.UndeclaredSame); n > 0 {
+		fmt.Fprintf(&b, "not counted: %d (-masked lists them)\n", n)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -697,9 +666,9 @@ func (r *RunReport) recordedOrder() string {
 	case r.StartedA.IsZero() || r.StartedB.IsZero():
 		return ""
 	case r.StartedA.After(r.StartedB):
-		return "; A was recorded after B, so b= is the older value"
+		return "; b= is the older value"
 	case r.StartedB.After(r.StartedA):
-		return "; A was recorded before B, so b= is the newer value"
+		return "; b= is the newer value"
 	}
 	return ""
 }

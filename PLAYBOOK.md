@@ -417,11 +417,11 @@ shrt verify <name> -run <run-id>                 # re-diff that record, offline
 Reading the report:
 
 - Change kinds: `GRAMMAR.md` §7. A clean verify covers only that chain's steps.
-- `targets differ:` first means the replay ran against another target.
 - Every step runs as under `-keep-going`; one held back behind a failure is `not_reached`.
 - It masks `volatile` paths, id- and timestamp-shaped values, and values that only echo a fixture
-  name or a `${uuid}` (counted under `-v`, listed by `-masked`). A lost volatile value (null,
-  empty, gone) is still reported, as is a volatile list's length when its expectation failed.
+  name or a `${uuid}` (one `not counted: N` line; `-masked` lists them and a changed target).
+  A lost volatile value (null, empty, gone) is still reported, as is a volatile list's length
+  when its expectation failed.
   Anything else that changes every run belongs in `volatile`; ids do not (verify pairs them across
   runs, and a volatile id hides a stale one).
 - It compares what each step SENT first: a changed request or chain that explains every response

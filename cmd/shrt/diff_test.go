@@ -60,9 +60,6 @@ func TestCLIDiffComparesTwoRunsWithoutASafeSpot(t *testing.T) {
 	if derr != nil {
 		t.Fatalf("two runs differing only in ids and timestamps must compare the same: %v\n%s", derr, out)
 	}
-	if !strings.Contains(out, "not a verdict against a confirmed safe spot") {
-		t.Errorf("the output must say it compares two runs, not a baseline:\n%s", out)
-	}
 	if _, err := os.Stat(".shrt/safespots/cli-thing-flow.json"); err == nil {
 		t.Fatal("diff must not create a safe spot")
 	}

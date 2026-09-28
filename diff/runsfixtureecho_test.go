@@ -22,7 +22,7 @@ func TestDiffMasksAResponseValueThatOnlyEchoesTheFixtureName(t *testing.T) {
 	if len(rep.Changes) != 0 {
 		t.Fatalf("both response values only echo the new sku, as verify masks them; want no change, got %d:\n%s", len(rep.Changes), rep.Text())
 	}
-	if !strings.Contains(rep.Text(), "2 response value(s) differ only by echoing the fixture name") {
+	if !strings.Contains(rep.Text(), "not counted: 3 (-masked lists them)") {
 		t.Fatalf("the report counts the echoes:\n%s", rep.Text())
 	}
 	rep = diff.CompareRunsSkipping(fixtureRun("a", "first", "ok"), fixtureRun("b", "second", "late"), nil, diff.Fixtures{Named: fixture})

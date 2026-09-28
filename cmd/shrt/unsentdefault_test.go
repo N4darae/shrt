@@ -86,7 +86,7 @@ func TestCLIVerifyDoesNotReportAFieldTheBackendNeverSent(t *testing.T) {
 	if verr != nil {
 		t.Fatalf("a field the descriptor gained but the backend never sends is not drift, got %v\n%s", verr, out)
 	}
-	if !strings.Contains(out, "not on the wire") || !strings.Contains(out, "fetch total") {
+	if !strings.Contains(out, "not counted: ") {
 		t.Fatalf("the uncounted field should be named:\n%s", out)
 	}
 }

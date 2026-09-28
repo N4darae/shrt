@@ -125,22 +125,16 @@ func runConfirm(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("proposed run %s as the safe spot for %q — NOT a safe spot yet\n  full report, step by step: %s\n",
+	fmt.Printf("proposed run %s as the safe spot for %q — NOT a safe spot yet; full report: %s\n",
 		p.RunID, p.Chain, rel(e.cfg.Root, p.Report))
-	if p.Replaces != "" {
-		fmt.Printf("  replaces the safe spot from run %s once approved\n", p.Replaces)
-	}
 	if previous != nil {
 		fmt.Printf("  replaces pending proposal %s (proposed by %s at %s), which is discarded unapproved\n",
 			previous.RunID, previous.ProposedBy, previous.ProposedAt.Format(time.RFC3339))
 	}
-	if rec.ChainSource != "" {
-		fmt.Printf("  chain file:  %s (what run %s ran)\n", rel(e.cfg.Root, rec.ChainSource), rec.RunID)
-	}
 	if why := ranOtherChainFile(e, rec); why != "" {
 		fmt.Printf("  WARNING: %s\n", why)
 	}
-	fmt.Printf("\nshow the user this summary in the conversation, with what you checked, and ask them to approve or reject:\n\n")
+	fmt.Printf("\nshow the user this summary, with what you checked, and ask them to approve or reject:\n\n")
 	description := ""
 	if c, err := chain.Resolve(e.chainsDir(), rec.Chain); err == nil {
 		description = c.Description
@@ -274,11 +268,6 @@ func unstableFields(e *env, rec *runner.Record) (string, []string, []string) {
 		return prev.RunID, unstable, carried
 	}
 	return "", nil, nil
-}
-
-func unstableAgainst(prev, rec *runner.Record, volatile []string, c *chain.Chain, unsent func(procedure, path string, v any) bool) []string {
-	unstable, _ := unstableAgainstSpot(prev, rec, nil, volatile, c, unsent)
-	return unstable
 }
 
 func unstableAgainstSpot(prev, rec *runner.Record, spot *store.SafeSpot, volatile []string, c *chain.Chain,

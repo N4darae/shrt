@@ -83,7 +83,7 @@ func TestAProposalNamesTheChainFileItsRunRan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "chain file:  .shrt/chains/cli-thing-flow.yaml") || !strings.Contains(out, "chain file `cli-thing-flow.yaml`") {
+	if !strings.Contains(out, "chain file `cli-thing-flow.yaml`") {
 		t.Fatalf("the proposal names the chain file the run ran:\n%s", out)
 	}
 }

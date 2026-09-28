@@ -19,11 +19,11 @@ func TestVerifyReportSaysTheReplayRanAgainstAnotherTarget(t *testing.T) {
 		t.Fatalf("targets not reported: %+v", rep)
 	}
 	text := rep.Text()
-	if !strings.HasPrefix(text, "targets differ: safe spot http://127.0.0.1:18199, this run http://prod.example") {
-		t.Fatalf("a different target must lead the report:\n%s", text)
+	if list := rep.MaskedList(); !strings.HasPrefix(list, "targets differ: safe spot http://127.0.0.1:18199, this run http://prod.example") || strings.Contains(text, "targets differ") {
+		t.Fatalf("a different target leads the -masked list, not the report:\n%s\n%s", list, text)
 	}
 	rec.Target = spot.Target
-	if text := diff.Compare(spot, rec).Text(); strings.Contains(text, "targets differ") {
+	if text := diff.Compare(spot, rec).MaskedList(); strings.Contains(text, "targets differ") {
 		t.Fatalf("same target, nothing to say:\n%s", text)
 	}
 }

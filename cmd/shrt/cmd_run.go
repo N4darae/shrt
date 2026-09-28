@@ -203,7 +203,7 @@ func runRun(ctx context.Context, args []string) error {
 	if step := timedOutStep(rec); step != "" {
 		fmt.Printf("  step %q: %s, and run it again\n", step, timeoutRemedy)
 	}
-	if life != nil {
+	if life != nil && !life.cachedFirstUse() {
 		fmt.Println("  " + life.label() + life.line())
 		if life.finding() && rec.KeptRed == "" {
 			return fmt.Errorf("chain %s: %s", rec.Chain, life.line())

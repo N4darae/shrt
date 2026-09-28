@@ -26,7 +26,6 @@ func TestTextPairsAMissingAndAnUnexpectedFieldHoldingOneValueAsARename(t *testin
 		"[list_orders] missing    orders.0.amount_minor",
 		"[list_orders] unexpected orders.0.total_cents",
 		"1 missing and unexpected field pair(s)",
-		"5 change(s) vs safe spot",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("text lacks %q:\n%s", want, text)

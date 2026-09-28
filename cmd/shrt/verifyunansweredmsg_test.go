@@ -13,7 +13,7 @@ func TestCouldNotVerifySaysWhetherTheStepsAfterTheUnansweredOneWereCompared(t *t
 		{ID: "cust", Status: runner.StatusPassed, HTTPStatus: 200},
 		{ID: "cust2", Status: runner.StatusPassed, HTTPStatus: 200},
 	}}
-	err := couldNotVerify("dropz", "p", "the backend refused authentication", refused)
+	err := couldNotVerifyAfter("dropz", "p", "the backend refused authentication", refused, nil)
 	if exitCodeOf(err) != 3 {
 		t.Fatalf("could not verify exits 3, got %d %v", exitCodeOf(err), err)
 	}
@@ -28,7 +28,7 @@ func TestCouldNotVerifySaysWhetherTheStepsAfterTheUnansweredOneWereCompared(t *t
 		{ID: "p", Status: runner.StatusError},
 		{ID: "cust", Status: runner.StatusSkipped},
 	}}
-	msg = couldNotVerify("dropz", "p", "connection refused", unreachable).Error()
+	msg = couldNotVerifyAfter("dropz", "p", "connection refused", unreachable, nil).Error()
 	if !strings.Contains(msg, "nothing after it got an answer") {
 		t.Fatalf("no later step was answered, so the message must say so: %s", msg)
 	}

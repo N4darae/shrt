@@ -30,7 +30,7 @@ func TestDiffOfSelectorsLabelsEachSideWithItsSelectorAndID(t *testing.T) {
 		t.Fatalf("shrt diff: %v\n%s", derr, out)
 	}
 	newest, older := ids[len(ids)-1], ids[len(ids)-2]
-	for _, want := range []string{"run A = latest (" + newest, "run B = latest~1 (" + older, "A was recorded after B"} {
+	for _, want := range []string{"run A = latest (" + newest, "run B = latest~1 (" + older, "b= is the older value"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the header lacks %q:\n%s", want, out)
 		}

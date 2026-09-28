@@ -42,12 +42,12 @@ func TestCLIVerifyRefusesAVolatileMaskWiderThanTheApprovedOne(t *testing.T) {
 	if verr == nil || !strings.Contains(verr.Error(), "did not approve") {
 		t.Fatalf("a mask the safe spot did not approve must fail verify, got %v:\n%s", verr, out)
 	}
-	if !strings.Contains(out, "did not approve: **") || !strings.Contains(out, "value(s) under volatile paths") {
+	if !strings.Contains(out, "did not approve: **") || !strings.Contains(out, "not counted: ") {
 		t.Fatalf("verify must name the pattern and count what it hid:\n%s", out)
 	}
 }
 
-func TestVerifyCountsTheValuesItMaskedOnlyUnderV(t *testing.T) {
+func TestVerifyCountsTheValuesItMaskedOnOneLine(t *testing.T) {
 	approvedThingFlow(t)
 	for _, verbose := range []bool{false, true} {
 		args := []string{"cli-thing-flow"}
@@ -56,8 +56,8 @@ func TestVerifyCountsTheValuesItMaskedOnlyUnderV(t *testing.T) {
 		}
 		var err error
 		out := captureStdout(t, func() { err = runVerify(context.Background(), args) })
-		if err != nil || strings.Contains(out, "were not counted") != verbose {
-			t.Errorf("-v %v: the masked count is printed only under -v: %v\n%s", verbose, err, out)
+		if err != nil || strings.Count(out, "not counted: ") != 1 || !strings.Contains(out, "(-masked lists them)") {
+			t.Errorf("-v %v: the masked values are counted on one line: %v\n%s", verbose, err, out)
 		}
 	}
 }

@@ -104,7 +104,7 @@ func TestCLIVerifyDoesNotReportAnUndeclaredFieldDeclaredNowWithTheSameValue(t *t
 	if verr != nil || strings.Contains(out, "unexpected total") {
 		t.Fatalf("total was on the wire with the same value before it was declared, so this is no change, got %v\n%s", verr, out)
 	}
-	if !strings.Contains(out, "same value") || !strings.Contains(out, "fetch total") {
+	if !strings.Contains(out, "not counted: ") {
 		t.Fatalf("the field declared since should be named as not counted:\n%s", out)
 	}
 	total = 8
