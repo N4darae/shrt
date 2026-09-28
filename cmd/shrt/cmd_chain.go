@@ -385,11 +385,11 @@ func chainLint(args []string) error {
 					where = " [" + i.Step + "]"
 				}
 				if i.Step != "" && said[i.Severity+" "+i.Message] {
-					fmt.Printf("%-5s %s %s, as above\n", strings.ToUpper(i.Severity), where, lintLead(i.Message))
+					fmt.Printf("%-5s  %s%s %s, as above\n", strings.ToUpper(i.Severity), r.Chain, where, lintLead(i.Message))
 					continue
 				}
 				said[i.Severity+" "+i.Message] = true
-				fmt.Printf("%-5s %s %s\n", strings.ToUpper(i.Severity), where, i.Message)
+				fmt.Printf("%-5s  %s%s %s\n", strings.ToUpper(i.Severity), r.Chain, where, i.Message)
 				if i.Why != "" && !explained[i.Why] {
 					explained[i.Why] = true
 					fmt.Printf("       %s\n", i.Why)
