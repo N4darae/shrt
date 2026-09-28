@@ -100,25 +100,3 @@ func LintChain(c *chain.Chain, cat *catalog.Catalog, opts ChainLintOptions) []ch
 	}
 	return issues
 }
-
-func LintChains(chains []*chain.Chain, cat *catalog.Catalog, opts ChainLintOptions) []chain.Issue {
-	issues := chain.LintCorpus(chains)
-	for _, c := range chains {
-		issues = append(issues, LintChain(c, cat, opts)...)
-	}
-	return issues
-}
-
-type severityCarrier interface {
-	IsError() bool
-}
-
-func ErrorCount[I severityCarrier](issues []I) int {
-	n := 0
-	for _, i := range issues {
-		if i.IsError() {
-			n++
-		}
-	}
-	return n
-}

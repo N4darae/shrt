@@ -17,7 +17,7 @@ func wantTransportRefusal(t *testing.T, st *chain.Step) {
 }
 
 func TestPlanSendsMalformedRequestsTheContractSaysAreInvalid(t *testing.T) {
-	p, text, notes := shopDemoPlan(t, "CreateOrder")
+	p, text, _ := shopDemoPlan(t, "CreateOrder")
 	empty := planStep(t, p, "create_order_lines_empty")
 	wantTransportRefusal(t, empty)
 	if n := len(empty.Body["lines"].([]any)); n != 0 {
@@ -32,20 +32,6 @@ func TestPlanSendsMalformedRequestsTheContractSaysAreInvalid(t *testing.T) {
 		t.Fatalf("only one line is malformed:\n%s", text)
 	}
 	wantTransportRefusal(t, planStep(t, p, "create_order_qty_negative"))
-	early := planStep(t, p, "create_order_lines_empty_unknown_refs")
-	wantTransportRefusal(t, early)
-	if got := bodyAt(t, early, "id_customer"); strings.Contains(got, "${") {
-		t.Fatalf("the ordering probe points id_customer at nothing, got %s", got)
-	}
-	both := planStep(t, p, "create_order_qty_zero_unknown_refs")
-	for _, path := range []string{"id_customer", "lines.0.id_product", "lines.1.id_product"} {
-		if got := bodyAt(t, both, path); strings.Contains(got, "${") {
-			t.Fatalf("%s still names a real entity (%s), so validation order is not tested:\n%s", path, got, text)
-		}
-	}
-	if !strings.Contains(notes, "before any business rule") {
-		t.Fatalf("the plan says what the ordering probe proves: %s", notes)
-	}
 
 	for rpc, want := range map[string]map[string]any{
 		"CreateProduct":  {"create_product_sku_empty": "", "create_product_sku_blank": "   ", "create_product_name_empty": "", "create_product_name_blank": "   "},

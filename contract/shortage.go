@@ -156,9 +156,8 @@ func (p *Plan) addExactStockProbe(lib *Library, st *chain.Step, m *catalog.Metho
 		supplied, ok := p.suppliedFor(lib, refs)
 		key := strings.Join(refs, ",")
 		if !ok || seen[key] {
-			p.note("step %s: its contract declares %s, but no write in the chain adds a known quantity to the item at %s "+
-				"on its own, so no probe asks for exactly the stock on hand: a backend that refuses a quantity equal to "+
-				"the stock (>= where > is meant) passes unnoticed; plan the rpc that adds it (needs:)", st.ID, f.Label(), path)
+			p.note("step %s: no write in the chain adds a known quantity to the item at %s on its own, so no probe asks "+
+				"for exactly the stock on hand (%s): plan the rpc that adds it (needs:)", st.ID, path, f.Label())
 			return
 		}
 		seen[key] = true

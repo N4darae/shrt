@@ -48,7 +48,7 @@ func TestAWhenThatSaysNothingOfAnUnknownAccountIsNamedInANote(t *testing.T) {
 		t.Fatalf("nothing says what an unknown account gets:\n%s", text)
 	}
 	notes := strings.Join(p.Notes, "\n")
-	if !strings.Contains(notes, `("the password does not match the account")`) || !strings.Contains(notes, "login_unknown_user") {
+	if !strings.Contains(notes, "when: does not read as an unknown account") || !strings.Contains(notes, "login_unknown_user") {
 		t.Fatalf("the note names the when: it could not read as an unknown account:\n%s", notes)
 	}
 }

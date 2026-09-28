@@ -99,80 +99,17 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 				b[subKey] = strconv.FormatInt(min-1, 10)
 				return b
 			}
-			said := []string{}
 			partial, reads := p.batchProbe(lib, st, m, key, results, listPath, verdict, "partial",
 				fmt.Sprintf("%s.1 has %s %d and is refused with %s on that line only; the lines around it are applied.", rf.Name, sub.Name, min-1, failure.Label()),
 				[]batchLine{{item: cloneBody(first)}, {item: bad(last), refused: failure}, {item: cloneBody(last)}})
 			p.note("step %s: %s sends three %s with the middle one refused (%s %d, %s declared per line); it asserts each line's own "+
 				"verdict, and %s assert that what each applied line reports is what is stored, so a batch that stops at the refused line, "+
 				"applies it, or reports stale values for later lines fails", st.ID, partial.ID, rf.Name, sub.Name, min-1, failure.Label(), stepIDList(reads))
-			if len(items) > 1 {
-				firstProbe, _ := p.batchProbe(lib, st, m, key, results, listPath, verdict, "partial_first",
-					fmt.Sprintf("%s.0 has %s %d and is refused with %s on that line only; the line after it is applied.", rf.Name, sub.Name, min-1, failure.Label()),
-					[]batchLine{{item: bad(first), refused: failure}, {item: cloneBody(last)}})
-				lastProbe, _ := p.batchProbe(lib, st, m, key, results, listPath, verdict, "partial_last",
-					fmt.Sprintf("the last of %s has %s %d and is refused with %s on that line only; the line before it is applied.", rf.Name, sub.Name, min-1, failure.Label()),
-					[]batchLine{{item: cloneBody(first)}, {item: bad(last), refused: failure}})
-				said = append(said, firstProbe.ID+" (the refused line first)", lastProbe.ID+" (the refused line last)")
-			}
-			if probe := p.unknownBatchLine(lib, st, c, m, rf, key, first, last, results, listPath, verdict); probe != "" {
-				said = append(said, probe)
-			}
-			if len(said) > 0 {
-				p.note("step %s: %s also refuse one line each; what a refused line alone names is read before and after and must be unchanged, "+
-					"and what an applied line names is read after and must be what the line reported, so a batch that checks only the "+
-					"middle line, stops at a refused first line, applies an unknown id, or drops the line after a refusal fails", st.ID, strings.Join(said, ", "))
-			}
 			return
 		}
 	}
-	p.note("step %s: its contract declares failures reported per item, but no numeric field of a repeated request item has a "+
-		"minimum stated in a failure's when:, so no batch with a refused middle item was planned: write one by hand", st.ID)
-}
-
-func (p *Plan) unknownBatchLine(lib *Library, st *chain.Step, c *RPCContract, m *catalog.Method, rf *catalog.Field, key string, first, last map[string]any,
-	results *catalog.Field, listPath, verdict string) string {
-	failures := []Failure{}
-	for _, f := range lib.AllFailures(st.Call) {
-		itemField := strings.HasPrefix(stripIndexes(f.Field), rf.Name+".")
-		if f.Unreachable != "" || isUnauthenticated(f) || f.ConnectCode == invalidArgCode || !(itemField || perItemFailure.MatchString(f.When)) {
-			continue
-		}
-		if notFoundReason.MatchString(f.Reason) || notFoundWhen.MatchString(f.When) {
-			failures = append(failures, f)
-		}
-	}
-	if len(failures) == 0 {
-		return ""
-	}
-	for _, sub := range rf.Fields {
-		name := rf.Name + "." + sub.Name
-		fc := c.Fields[name]
-		if fc == nil || fc.From == "" || fc.CheckedBy == CheckedByNone {
-			continue
-		}
-		ref, err := ParseRef(fc.From)
-		if err != nil {
-			continue
-		}
-		f, found := unknownIDFailure(failures, name, ref, true)
-		if !found {
-			continue
-		}
-		subKey, ok := namecase.LookupKey(last, sub.Name)
-		text, _ := last[subKey].(string)
-		if !ok || !wholeReference(text) {
-			continue
-		}
-		unknown, _ := cloneBody(last).(map[string]any)
-		unknown[subKey] = text + unknownIDSuffix
-		items := []batchLine{{item: cloneBody(first)}, {item: unknown, refused: &f}}
-		probe, _ := p.batchProbe(lib, st, m, key, results, listPath, verdict, "unknown_"+sub.Name+"_line",
-			fmt.Sprintf("the last of %s names no existing record (a real id with %q appended) and is refused with %s on that line only; the line before it is applied.",
-				rf.Name, unknownIDSuffix, f.Label()), items)
-		return fmt.Sprintf("%s (an unknown %s on the last line, %s)", probe.ID, sub.Name, f.Label())
-	}
-	return ""
+	p.note("step %s: no numeric field of a repeated request item has a minimum in a failure's when:, so no batch "+
+		"with a refused middle item was planned: write one by hand", st.ID)
 }
 
 func (p *Plan) batchProbe(lib *Library, st *chain.Step, m *catalog.Method, key string, results *catalog.Field, listPath, verdict, suffix, desc string,

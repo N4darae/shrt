@@ -112,7 +112,7 @@ func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
 
 func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, field string, f Failure) string {
 	segs := chain.SplitPath(field)
-	path, first := field, ""
+	path := field
 	if len(segs) > 1 {
 		key, ok := namecase.LookupKey(st.Body, segs[0])
 		list, isList := st.Body[key].([]any)
@@ -120,26 +120,12 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 			return ""
 		}
 		path = fmt.Sprintf("%s.%d.%s", key, len(list)-1, strings.Join(segs[1:], "."))
-		if len(list) > 1 {
-			first = fmt.Sprintf("%s.0.%s", key, strings.Join(segs[1:], "."))
-		}
 	} else if key, ok := namecase.LookupKey(st.Body, field); ok {
 		path = key
 	}
 	probe := p.probeCopy(lib, st, "unknown_"+leafName(field))
 	renameStepRefs(probe, st.ID, probe.ID)
-	var again *chain.Step
-	if first != "" {
-		again = copyStep(probe, probe.ID+"_first_line")
-	}
-	said := p.unknownAt(lib, st, m, probe, path, f)
-	if said != "" && again != nil {
-		again.ID = p.freeStepID(again.ID)
-		if line := p.unknownAt(lib, st, m, again, first, f); line != "" {
-			said += "; " + line
-		}
-	}
-	return said
+	return p.unknownAt(lib, st, m, probe, path, f)
 }
 
 func (p *Plan) unknownAt(lib *Library, st *chain.Step, m *catalog.Method, probe *chain.Step, path string, f Failure) string {

@@ -53,9 +53,6 @@ func TestPlanSendsEachUnknownIDOnceWithReadsAroundAWrite(t *testing.T) {
 				t.Fatalf("%v: step id %s planned twice:\n%s", targets, st.ID, text)
 			}
 			seen[st.ID] = true
-			if strings.HasSuffix(st.ID, "_unknown_refs") {
-				continue
-			}
 			for _, path := range unknownPaths(st.Body, "") {
 				key := st.Call + " " + path
 				if other, dup := probed[key]; dup {
@@ -91,24 +88,4 @@ func unknownPaths(v any, at string) []string {
 		}
 	}
 	return out
-}
-
-func TestPlanSendsAnUnknownIDOnTheFirstLineOfARepeatedFieldToo(t *testing.T) {
-	p, text, notes := shopDemoPlan(t, "CreateOrder")
-	last := planStep(t, p, "create_order_unknown_id_product")
-	first := planStep(t, p, "create_order_unknown_id_product_first_line")
-	if got := bodyAt(t, last, "lines.0.id_product"); strings.HasSuffix(got, "-unknown") {
-		t.Fatalf("the last-line probe keeps its first line real, got %s:\n%s", got, text)
-	}
-	if got := bodyAt(t, first, "lines.0.id_product"); !strings.HasSuffix(got, "-unknown") {
-		t.Fatalf("the first-line probe sends the unknown id on line 0, got %s:\n%s", got, text)
-	}
-	if got := bodyAt(t, first, "lines.1.id_product"); strings.HasSuffix(got, "-unknown") {
-		t.Fatalf("the first-line probe keeps its last line real, got %s:\n%s", got, text)
-	}
-	wantExpect(t, first, "status.details.0.reason", "ProductNotFound")
-	planStep(t, p, "get_product_after_create_order_unknown_id_product_first_line")
-	if !strings.Contains(notes, "create_order_unknown_id_product_first_line (lines.0.id_product") {
-		t.Fatalf("the plan names the first-line probe:\n%s", notes)
-	}
 }

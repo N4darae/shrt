@@ -292,9 +292,8 @@ func (p *Plan) listInOtherCase(t *listTarget, scope listScope, swapped string) {
 	probe.Description = fmt.Sprintf("%s with the %s in another letter case: the contract does not say whether case counts, "+
 		"so which items it lists is left to the safe spot, and verify reports a change.", t.step.ID, scope.prefixKey)
 	p.insertAfter(t.step.ID, probe)
-	p.note("step %s: the contracts do not say whether %s is compared case-sensitively, so %s can assert only that the "+
-		"prefix in another case lists at most %s's items; say \"case-sensitive\" or \"case-insensitive\" in the note of %s to assert which",
-		t.step.ID, scope.target, probe.ID, t.step.ID, scope.prefixKey)
+	p.note("step %s: %s's case rule is unstated, so %s can assert only that it lists at most %s's items: say "+
+		"\"case-sensitive\" or \"case-insensitive\" in %s's note", t.step.ID, scope.target, probe.ID, t.step.ID, scope.prefixKey)
 }
 
 type transition struct {

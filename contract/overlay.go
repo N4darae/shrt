@@ -181,8 +181,6 @@ func UsesLegacySeparator(raw string) bool {
 	return !strings.Contains(raw, RefSeparator) && strings.Contains(raw, LegacyRefSeparator)
 }
 
-func (r Ref) String() string { return r.Node() + RefSeparator + r.Path }
-
 func (r Ref) Node() string {
 	if r.Alias == "" {
 		return r.RPC

@@ -107,10 +107,8 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 			f = uf
 			add("unknown_user", key, "no-such-user-shrt", "an account name no one has")
 		} else {
-			p.note("step %s: no failure of the login says what an unknown account gets: %s's when: (%q) does not read as "+
-				"one (unknown, no such user, no account has this username), so no %s_unknown_user probe was planned; say it "+
-				"in the when: (\"the username is unknown\") or declare the failure an unknown account gets, and plan again",
-				st.ID, f.Label(), strings.TrimSpace(f.When), st.ID)
+			p.note("step %s: %s's when: does not read as an unknown account, so no %s_unknown_user probe was planned: "+
+				"say \"the username is unknown\" in it, or declare the failure an unknown account gets", st.ID, f.Label(), st.ID)
 		}
 	}
 	return out

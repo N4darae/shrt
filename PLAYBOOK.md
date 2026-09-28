@@ -147,8 +147,7 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
   and a case or whitespace variant when the contract says the comparison ignores case or trims
   (`unique: {case: ignore, trim: true}` states it as data);
 - for a quantity or limit failure: a request just past the limit and one exactly at it, on the first
-  and the last item, and one item twice whose quantities fit alone but not together, with reads
-  before and after asserting a refused write changed nothing;
+  and the last item, with reads before and after asserting a refused write changed nothing;
 - a failure whose `when:` names a state, probed from that state; a not-found failure, probed with
   an id nothing created; `invalid_argument` clauses in `when:` (empty, zero, negative, missing `@`)
   turned into malformed requests;
@@ -159,8 +158,8 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
   a total over lines, with one line past 2^32, when `effects:` states them (§7);
 - numbers of different magnitudes, a large value, minimum and maximum boundaries a note or `when:`
   states, long and multi-byte text;
-- a batch with a refused item first, in the middle and last; an idempotency key replayed with the
-  same and with another body.
+- a batch with a refused middle item; an idempotency key replayed with the same and with another
+  body.
 
 Each probe group runs on fixtures of its own (`<fixture>_for_<group>`), so one defect fails one
 group. `shrt contract status -gaps` lists what no chain exercises yet.

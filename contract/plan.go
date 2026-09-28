@@ -162,42 +162,17 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	p.captureRegion(targetSteps)
 	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] && !p.streams(st) }
 	denied := func(st *chain.Step) bool { return targetSteps[st.ID] }
-	for _, pass := range []struct {
-		label, tag string
-		probe      func(*Library, func(*chain.Step) bool)
-	}{
-		{"list order", "", p.discriminateListOrder},
-		{"unique", "", p.probeUniqueness},
-		{"filter", "", p.probeListFilters},
-		{"shortage", "shortage", p.probeInsufficiency},
-		{"exact", "exact", p.probeExactStock},
-		{"boundary", "boundary", p.probeBoundaries},
-		{"wide total", "wide", p.probeWideTotals},
-		{"text length", "", p.probeTextLength},
-		{"read-back", "", p.probeReadBack},
-		{"batch", "", p.probeBatch},
-		{"replay", "", p.probeIdempotency},
-		{"token/role", "denied", p.probeDenials},
-		{"other role", "", p.probeRoleParity},
-		{"item count", "items", p.probeItemCounts},
-		{"state", "state", p.probeStateRefusals},
-		{"composed", "composed", p.probeComposedTransitions},
-		{"twice", "twice", p.probeSameEntityTwice},
-		{"unknown id", "unknown", p.probeUnknownIDs},
-		{"malformed", "shape", p.probeShapes},
-		{"login", "", p.probeLogin},
-		{"list cap", "", p.probeListCaps},
-	} {
+	for _, pass := range probePasses {
 		only := targeted
 		if pass.label == "token/role" {
 			only = denied
 		}
 		p.grouped(pass.label, func() {
 			if pass.tag == "" {
-				pass.probe(lib, only)
+				pass.probe(p, lib, only)
 				return
 			}
-			p.isolating(lib, pass.tag, func() { pass.probe(lib, only) })
+			p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) })
 		})
 	}
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
@@ -228,6 +203,35 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 			strings.Join(missing, "}, ${vars."), strings.Join(missing, "=... -var "))
 	}
 	return p, nil
+}
+
+type probePass struct {
+	label, tag, caught string
+	probe              func(*Plan, *Library, func(*chain.Step) bool)
+}
+
+var probePasses = []probePass{
+	{"list order", "", "F6 F14 F32 F41", (*Plan).discriminateListOrder},
+	{"unique", "", "F4 F18 F57", (*Plan).probeUniqueness},
+	{"filter", "", "F26 F43 D3", (*Plan).probeListFilters},
+	{"shortage", "shortage", "F19 D1", (*Plan).probeInsufficiency},
+	{"exact", "exact", "F48", (*Plan).probeExactStock},
+	{"boundary", "boundary", "F16 F30 F31 F39 F44", (*Plan).probeBoundaries},
+	{"wide total", "wide", "F51", (*Plan).probeWideTotals},
+	{"text length", "", "F21", (*Plan).probeTextLength},
+	{"read-back", "", "F29 F53", (*Plan).probeReadBack},
+	{"batch", "", "F36", (*Plan).probeBatch},
+	{"replay", "", "F5 F25", (*Plan).probeIdempotency},
+	{"token/role", "denied", "F3 D4", (*Plan).probeDenials},
+	{"other role", "", "F22 F28 F35 F52 F59", (*Plan).probeRoleParity},
+	{"item count", "items", "F23 F56 F62", (*Plan).probeItemCounts},
+	{"state", "state", "F7 F49", (*Plan).probeStateRefusals},
+	{"composed", "composed", "F12 D2", (*Plan).probeComposedTransitions},
+	{"twice", "twice", "F45", (*Plan).probeSameEntityTwice},
+	{"unknown id", "unknown", "F38 F40 F42", (*Plan).probeUnknownIDs},
+	{"malformed", "shape", "F54", (*Plan).probeShapes},
+	{"login", "", "F17 F60", (*Plan).probeLogin},
+	{"list cap", "", "F50", (*Plan).probeListCaps},
 }
 
 func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *catalog.Method, error) {

@@ -98,13 +98,13 @@ func TestContractPlanAllPrintsTheGapsPlanRPCAndNotesPrint(t *testing.T) {
 		t.Fatalf("plan: %v %v %v\n%s", err1, err2, err3, all)
 	}
 	want := gaps(one, "")
-	if len(want) == 0 || !strings.Contains(strings.Join(want, "\n"), "gap: step confirm_order: its contract declares 1305") {
+	if len(want) == 0 || !strings.Contains(strings.Join(want, "\n"), "gap: step confirm_order: no write in the chain adds a known quantity") {
 		t.Fatalf("plan ConfirmOrder names the exact-stock gap:\n%s", one)
 	}
 	if got := gaps(all, "orders-confirmorder"); strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("-all prints the gaps plan ConfirmOrder prints:\n%s\n---\n%s", all, one)
 	}
-	if !strings.Contains(notes, "\ngap: step confirm_order: its contract declares 1305") {
+	if !strings.Contains(notes, "\ngap: step confirm_order: no write in the chain adds a known quantity") {
 		t.Fatalf("-notes labels a gap as a gap:\n%s", notes)
 	}
 }
