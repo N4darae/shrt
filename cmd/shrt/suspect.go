@@ -827,7 +827,7 @@ func (a attribution) changedWriteBefore(step string) int {
 	reach := refReach(a.rec, pos)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
-		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) {
+		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) || !a.reaches(i, at) {
 			continue
 		}
 		for _, p := range a.changed(w.ID) {
@@ -837,6 +837,31 @@ func (a attribution) changedWriteBefore(step string) int {
 		}
 	}
 	return -1
+}
+
+func (a attribution) reaches(i, at int) bool {
+	w, st := a.rec.Steps[i], a.rec.Steps[at]
+	c := a.e.contractOf(st.Call)
+	if c == nil {
+		return true
+	}
+	if m, err := a.e.cat.Lookup(w.Call); err == nil && containsName(c.Needs, m.FullName) {
+		return true
+	}
+	var wb, req any
+	_ = json.Unmarshal(w.Response, &wb)
+	_ = json.Unmarshal(st.Request, &req)
+	sent := map[string]bool{}
+	eachLeaf(req, "", func(p string, v any) {
+		sent[compactValue(v)] = sent[compactValue(v)] || p != "" && !diff.IDNamedPath(leafOf(p))
+	})
+	for _, p := range a.changed(w.ID) {
+		v, ok := chain.Get(wb, p)
+		if eff := c.Effects[leafOf(p)]; eff != nil && eff.Is != contract.EffectNone || ok && sent[compactValue(v)] {
+			return true
+		}
+	}
+	return false
 }
 
 func (a attribution) sameRecordWriteBefore(step string) int {

@@ -82,7 +82,7 @@ func gateCases() []gateCase {
 			}}}
 		}},
 		{name: "knock-on changes on the same record fold into the root write", chains: laterWrites},
-		{name: "a later chain showing the same fault names the chain that showed it", chains: func() []*gateChain {
+		{name: "a chain with a root the earlier chain lacks names that root, not the same fault", chains: func() []*gateChain {
 			return []*gateChain{
 				{name: "replay", failed: true, items: []gateItem{status("replay")}},
 				{name: "orders", failed: true, items: []gateItem{status("replay_2"), total}},
@@ -92,7 +92,8 @@ func gateCases() []gateCase {
 		{name: "a slice failing as its parent folds into the parent's line", chains: func() []*gateChain {
 			return []*gateChain{
 				{name: "orders", failed: true, items: []gateItem{confirmed}},
-				{name: "orders-slice-list", failed: true, pinsHeld: true, items: []gateItem{confirmed}},
+				{name: "orders-slice-list", failed: true, items: []gateItem{confirmed}},
+				{name: "orders-slice-held", failed: true, pinsHeld: true, items: []gateItem{confirmed}},
 				{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}}},
 				{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
 			}
@@ -143,6 +144,7 @@ func renderGateCase(t *testing.T, c gateCase) string {
 }
 
 func TestTheGateSettlesEachChainsLead(t *testing.T) {
+	const b = "a chain with a root the earlier chain lacks names that root, not the same fault"
 	cases := map[string]gateCase{}
 	for _, c := range gateCases() {
 		cases[c.name] = c
@@ -162,7 +164,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		name          string
 		firstAt, same []string
 	}{
-		{"a later chain showing the same fault names the chain that showed it", []string{"replay order.status", "replay_2 order.status", "create order.total_minor"}, []string{"", "replay", ""}},
+		{"a chain with a root the earlier chain lacks names that root, not the same fault", []string{"replay order.status", "replay_2 order.status", "create order.total_minor"}, []string{"", "", ""}},
 		{"a failed first change leads over a drift", []string{"add status.code", "add_as_clerk status.code"}, []string{"", "a"}},
 		{"-v shows the suspect's request and the same fault in a later chain", []string{"get thing.state", "get thing.state"}, []string{"", "one"}},
 	} {
@@ -173,9 +175,12 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 			}
 		}
 	}
+	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect write replay_2 (OrderService/CreateOrder); also suspect write create (OrderService/CreateOrder)") {
+		t.Errorf("%s: got %q", b, chains[1].first)
+	}
 	chains := settled("a slice failing as its parent folds into the parent's line")
-	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" {
-		t.Errorf("only the slice whose first change is its parent's folds: %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf)
+	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" || chains[4].echoOf != "" {
+		t.Errorf("only the slice whose first change is its parent's and fails as pinned folds: %q %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf)
 	}
 	chains = settled("a moved pin with no suspect does not point above")
 	if chains[1].class != "not as pinned" || sameAs(chains[1]) != "" {
