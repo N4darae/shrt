@@ -15,6 +15,7 @@ const (
 	KeepAsked    = "requested"
 
 	KeepSideEffect = "side_effect"
+	KeepCheckpoint = "checkpoint"
 )
 
 const SliceKeepWrites = "writes"
@@ -89,6 +90,7 @@ type SliceOptions struct {
 	Refused func(stepID string) (string, bool)
 
 	RunVarsAsDefaults bool
+	Checkpoints       map[string]string
 	IsLogin           func(*Step) bool
 	Relax             func(stepID string) []ExpectResult
 	StateIrrelevant   func(writerID, readerID string) bool
@@ -203,6 +205,16 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)
 		}
 		add(j, KeepAsked, KeepAsked)
+	}
+	checkpoints := make([]string, 0, len(opts.Checkpoints))
+	for id := range opts.Checkpoints {
+		checkpoints = append(checkpoints, id)
+	}
+	sort.Strings(checkpoints)
+	for _, id := range checkpoints {
+		if j, ok := idx.byID[id]; ok {
+			add(j, KeepCheckpoint, opts.Checkpoints[id])
+		}
 	}
 
 	unmet := []Unmet{}
@@ -597,6 +609,11 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if len(asked) > 0 {
 		fmt.Fprintf(&b, "Kept on request: %s.\n", listSome(asked, 8))
+	}
+	for _, k := range res.Kept {
+		if k.Kind == KeepCheckpoint {
+			fmt.Fprintf(&b, "Kept as checkpoint: %s (%s).\n", k.ID, strings.TrimPrefix(k.Reason, KeepCheckpoint+": "))
+		}
 	}
 	if len(res.Relaxed) > 0 {
 		fmt.Fprintf(&b, "Relaxed, failed in run %s after an answer: %s.\n", res.Run, RelaxedList(res.Relaxed))

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -375,4 +377,78 @@ func pinList(c *chain.Chain, pins []chain.Pin) string {
 		parts = append(parts, s+" at "+strings.Join(byStep[s], ", "))
 	}
 	return strings.Join(parts, "; ")
+}
+
+func checkpointReads(c *chain.Chain, res *chain.SliceResult, rec *runner.Record, targets []string) map[string]string {
+	kept := map[string]bool{}
+	for _, k := range res.Kept {
+		kept[k.ID] = true
+	}
+	out := map[string]string{}
+	for _, target := range targets {
+		at := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == target })
+		src, ok := rec.Step(target)
+		if at < 0 || !ok || !chain.IsReadOnlyCall(c.Steps[at].Call) {
+			continue
+		}
+		records := requestIDs(src)
+		if len(records) == 0 {
+			continue
+		}
+		for _, x := range src.Expect {
+			if x.Passed || x.Rule == "unevaluated" || x.Path == chain.EnvelopePath() || strings.HasPrefix(x.Path, "transport.") {
+				continue
+			}
+			if id, why := checkpointFor(c, rec, kept, at, records, x.Path); id != "" && !kept[id] {
+				out[id] = why
+			}
+		}
+	}
+	return out
+}
+
+func checkpointFor(c *chain.Chain, rec *runner.Record, kept map[string]bool, at int, records map[string]bool, path string) (string, string) {
+	field := lastSegment(path)
+	for j := at - 1; j >= 0; j-- {
+		s := c.Steps[j]
+		sr, ok := rec.Step(s.ID)
+		if !ok || !chain.IsReadOnlyCall(s.Call) || !maps.Equal(requestIDs(sr), records) {
+			continue
+		}
+		if sr.Status != runner.StatusPassed || !slices.ContainsFunc(sr.Expect, func(x chain.ExpectResult) bool { return lastSegment(x.Path) == field }) {
+			continue
+		}
+		writes := []string{}
+		for _, w := range c.Steps[j+1 : at] {
+			if !kept[w.ID] || chain.IsReadOnlyCall(w.Call) {
+				continue
+			}
+			for id := range entityFactsWith(rec, w.ID, true).acts {
+				if records[id] {
+					writes = append(writes, w.ID)
+					break
+				}
+			}
+		}
+		if len(writes) == 0 {
+			return "", ""
+		}
+		return s.ID, fmt.Sprintf("%s: last passing read of %s before %s", chain.KeepCheckpoint, path, strings.Join(writes, ", "))
+	}
+	return "", ""
+}
+
+func requestIDs(sr *runner.StepRecord) map[string]bool {
+	request, _ := decodedRecordStep(sr)
+	out := map[string]bool{}
+	collectIDs(request, out)
+	return out
+}
+
+func lastSegment(path string) string {
+	segs := chain.SplitPath(path)
+	if len(segs) == 0 {
+		return path
+	}
+	return segs[len(segs)-1]
 }

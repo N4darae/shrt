@@ -153,6 +153,13 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	if err != nil {
 		return err
 	}
+	if keptRed.on && rec != nil {
+		if opts.Checkpoints = checkpointReads(c, res, rec, append([]string{*step}, keptRed.steps...)); len(opts.Checkpoints) > 0 {
+			if res, err = chain.Slice(c, *step, opts); err != nil {
+				return err
+			}
+		}
+	}
 	res.SourceRef = ref
 	redPins := []chain.Pin{}
 	inherited := len(res.Chain.KeptRed)

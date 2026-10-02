@@ -23,6 +23,8 @@ type fakeShop struct {
 	addStockFailAt     map[int]int
 	priceBug           bool
 	skuEchoBug         bool
+	stockInProduct     bool
+	confirmExtraUnit   bool
 
 	next      int
 	getCalls  int
@@ -106,6 +108,13 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			wrong["sku"] = fmt.Sprintf("wrong-%v", p["sku"])
 			return 200, map[string]any{"status": ok(), "product": wrong}
 		}
+		if s.stockInProduct {
+			stocked := map[string]any{"qty_on_hand": strconv.FormatInt(s.stock[fmt.Sprint(p["id_product"])], 10)}
+			for k, v := range p {
+				stocked[k] = v
+			}
+			return 200, map[string]any{"status": ok(), "product": stocked}
+		}
 		return 200, map[string]any{"status": ok(), "product": p}
 	case "/shop.catalog.v1.StockService/AddStock":
 		s.addCalls++
@@ -156,6 +165,9 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		for _, l := range lines {
 			line, _ := l.(map[string]any)
 			s.stock[fmt.Sprint(line["id_product"])] -= num64(line["qty"])
+			if s.confirmExtraUnit {
+				s.stock[fmt.Sprint(line["id_product"])]--
+			}
 		}
 		s.states[id] = "CONFIRMED"
 		return 200, map[string]any{"status": ok(), "order": o}
