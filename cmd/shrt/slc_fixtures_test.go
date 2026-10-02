@@ -286,6 +286,38 @@ steps:
           equals: ${steps.create.request.sku}
 `
 
+const stockedEchoChain = `apiVersion: shrt/v1
+name: stocked-echo
+vars:
+    tag: stocked
+steps:
+    - id: create
+      call: ProductService/CreateProduct
+      body:
+        sku: sku-${vars.tag}
+        price_minor: "5"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create.product.id_product}
+        qty: "3"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: get
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create.product.id_product}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+        - path: product.sku
+          equals: ${steps.create.request.sku}
+`
+
 const freshTagChain = `apiVersion: shrt/v1
 name: cli-fresh-flow
 vars:

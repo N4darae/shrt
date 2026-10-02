@@ -6,8 +6,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -207,6 +209,9 @@ func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {
 
 func failureShape(rec *runner.Record, id string) string {
 	st, _ := rec.Step(id)
+	if field := unappliedFilter(st); field != "" {
+		return st.Call + "\x00filter " + field
+	}
 	paths := []string{st.Call}
 	for _, x := range st.Expect {
 		if !x.Passed && x.Rule != "unevaluated" {
@@ -302,4 +307,33 @@ func quietly(fn func() error) (string, error) {
 	out := <-done
 	_ = r.Close()
 	return string(out), runErr
+}
+
+func unappliedFilter(st *runner.StepRecord) string {
+	request, response := decodedRecordStep(st)
+	req, _ := request.(map[string]any)
+	resp, _ := response.(map[string]any)
+	names := slices.Sorted(maps.Keys(req))
+	for _, name := range names {
+		want, ok := req[name].(string)
+		if !ok || want == "" {
+			continue
+		}
+		for _, list := range slices.Sorted(maps.Keys(resp)) {
+			items, _ := resp[list].([]any)
+			asserted := slices.ContainsFunc(st.Expect, func(x chain.ExpectResult) bool {
+				return !x.Passed && (x.Path == list || strings.HasPrefix(x.Path, list+"."))
+			})
+			if !asserted {
+				continue
+			}
+			for _, item := range items {
+				obj, _ := item.(map[string]any)
+				if got, ok := obj[name].(string); ok && got != want {
+					return name
+				}
+			}
+		}
+	}
+	return ""
 }

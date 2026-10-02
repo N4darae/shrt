@@ -455,10 +455,13 @@ shrt run billing                     # green: propose and approve it
 ```
 
 `chain pin` runs `-keep-going` first if the latest run did not reach every step, then repeatedly
-slices the first failing step (with the failing steps that read it, fail the same call the same
-way, or are failing reads with no write between), cuts them from the chain and re-runs until it
-passes. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the
-red. Remove the red slice and plan again once the defect is fixed.
+slices the first failing step (with the failing steps that read it, fail the same call the same way
+or with list items ignoring the same request filter, or are failing reads with no write between),
+cuts them from the chain and re-runs until it passes. A pinned read keeps the last earlier read of
+its field that passed, when kept writes lie between (`checkpoint:`), so a later defect in an
+earlier write fails there and is named. It stops when a slice does not reproduce or a FINDING or
+intermittent failure explains the red. Remove the red slice and plan again once the defect is
+fixed.
 
 **No safe spot yet: `shrt diff`.**
 
@@ -516,7 +519,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `reproduced` (0): verdicts match, no dropped write touched a kept entity (`-write` records it
      in the description).
    - `NOT REPRODUCED` (1): the verdict differs; run the `next:` line.
-   - `intermittent: reproduced k/3` (1): flaky there; keeping more steps will not help.
+   - `intermittent: reproduced k/n` (1): flaky there; keeping more steps will not help. A run that
+     did not reach the target, or in which a kept step that passed in the source failed, is not counted.
    - `DID NOT RUN` (3): the target was never answered.
    - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, another target,
      or the run a passing target's drift is measured against is gone;
@@ -530,5 +534,6 @@ For a minimal chain written by hand, verify it with `shrt chain slice <minimal> 
 latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
 `-keep <ids of the minimal chain>` instead.
 Suspect write: `chain slice <c> -without <id> -verify` runs the chain without it and lists the
-steps that failed and now pass, those still failing (another cause, exit 1; INCONCLUSIVE, exit 3,
-when they read what the left-out steps write), and those that fail only without it.
+steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none
+passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail
+only without it.

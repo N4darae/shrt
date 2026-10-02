@@ -130,8 +130,12 @@ func (v *withoutVerdict) text() string {
 		fmt.Fprintf(&b, "verify INCONCLUSIVE without %s: the %d step(s) that failed in source run %s still fail, but they read what the left-out steps write: %s\n",
 			without, counted, v.SourceRun, capList(v.StillFail, 5))
 	case len(v.Cleared) == 0:
-		fmt.Fprintf(&b, "verify NOT REPRODUCED without %s: the %d step(s) that failed in source run %s still fail: %s\n",
-			without, counted, v.SourceRun, capList(v.StillFail, 5))
+		verb := "is"
+		if len(v.Without) > 1 {
+			verb = "are"
+		}
+		fmt.Fprintf(&b, "verify STILL FAILS without %s: the %d step(s) that failed in source run %s still fail (%s), so %s %s not their cause\n",
+			without, counted, v.SourceRun, capList(v.StillFail, 5), without, verb)
 	default:
 		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s\n",
 			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5))
@@ -159,7 +163,7 @@ func (v *withoutVerdict) err() error {
 	case v.readsOut:
 		return exitWith(3, "INCONCLUSIVE without %s: %d failing step(s) still fail and read what the left-out steps write", without, len(v.StillFail))
 	case len(v.StillFail) > 0 && len(v.Cleared) == 0:
-		return exitWith(1, "NOT REPRODUCED without %s", without)
+		return exitWith(1, "STILL FAILS without %s", without)
 	case len(v.StillFail) > 0:
 		return exitWith(1, "without %s %d failing step(s) still fail", without, len(v.StillFail))
 	case len(v.Cleared) == 0 && len(v.NewFail) > 0:
