@@ -91,7 +91,24 @@ func gateCases() []gateCase {
 		}
 		return out
 	}
+	stock := func(step string, r reason, pinned string) gateItem {
+		return gateItem{Step: step, Call: shopGet, Path: "product.qty_on_hand", Want: "2", Got: "1", Failed: pinned == "", Pinned: pinned, Reason: r}
+	}
+	either := reason{Kind: reasonUnclear, Step: "confirm", RPC: shopConfirm, Or: []reason{{Step: "confirm", RPC: shopConfirm}, {Step: "cancel", RPC: shopCancel}}}
 	return []gateCase{
+		{name: "a read unclear between two writes names both and is grouped once, under the earlier", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}},
+				{name: "flow", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}, "")}},
+				{name: "flow-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
+			}
+		}},
+		{name: "an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "cancels", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "cancel", RPC: shopCancel}, "")}},
+				{name: "cancels-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
+			}
+		}},
 		{name: "a changed read is filed under the write since the last read that matched, the other profile, or the read", chains: asRun},
 		{name: "one line per suspect rpc, knock-ons folded under the write", chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
 		{name: "-v counts the knock-on steps", verbose: true, chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
@@ -158,7 +175,7 @@ func renderGateCase(t *testing.T, c gateCase) string {
 		for _, g := range chains {
 			fmt.Println(g.line(0))
 			if c.verbose {
-				g.printChanges()
+				g.printChanges(nil)
 			}
 		}
 		printGateGroups(chains, c.verbose)
@@ -178,6 +195,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	}
 	sameAs := func(g *gateChain) string {
 		if _, as, ok := strings.Cut(g.first, "; "+sameFault); ok {
+			as, _, _ = strings.Cut(as, " (")
 			return as
 		}
 		return ""
@@ -189,6 +207,8 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		{"a chain with a root the earlier chain lacks names that root, not the same fault", []string{"replay order.status", "replay_2 order.status", "create order.total_minor"}, []string{"", "", ""}},
 		{"a failed first change leads over a drift", []string{"add status.code", "add_as_clerk status.code"}, []string{"", "a"}},
 		{"-v shows the suspect's request and the same fault in a later chain", []string{"get thing.state", "get thing.state"}, []string{"", "one"}},
+		{"a read unclear between two writes names both and is grouped once, under the earlier", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "", "flow"}},
+		{"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "cancels"}},
 	} {
 		chains := settled(c.name)
 		for i, g := range chains {
@@ -207,6 +227,14 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	chains = settled("a moved pin with no suspect does not point above")
 	if chains[1].class != "not as pinned" || sameAs(chains[1]) != "" {
 		t.Errorf("a moved pin is not as pinned and names no other chain: %q %q", chains[1].class, chains[1].first)
+	}
+	for name, want := range map[string]string{
+		"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc": "  OrderService/CancelOrder: 2 step(s) in 2 chain(s)",
+		"-v shows the suspect's request and the same fault in a later chain":                                           "; same fault as one (Move)\n",
+	} {
+		if out := renderGateCase(t, cases[name]); !strings.Contains(out, want) {
+			t.Errorf("%s: want %q in:\n%s", name, want, out)
+		}
 	}
 	out := renderGateCase(t, cases["knock-on changes on the same record fold into the root write"])
 	if strings.Count(out, "\n  ") != 1 || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {

@@ -1236,6 +1236,9 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if req := requestLine(r, first.Step, recordSent(e, rec)); req != "" && strings.HasPrefix(why, "regression") {
 		line += "\n  " + req
 	}
+	if hint := tellApart(e, r, first.Path); hint != "" {
+		line += "\n  " + hint
+	}
 	return line + "\n" + otherRoots(e, rec, report, first), body
 }
 

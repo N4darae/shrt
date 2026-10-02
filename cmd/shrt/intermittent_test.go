@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -254,5 +255,24 @@ func TestAConfirmedLatencyRegressionLeadsVerifyOverAnIntermittentFinding(t *test
 	out, err := verifyOnce(t, ctx)
 	if err == nil || !strings.Contains(err.Error(), "latency regression") || !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
 		t.Fatalf("the latency regression leads, the finding is still printed: %v\n%s", err, out)
+	}
+}
+
+func TestAReadFailingBehindAnIntermittentWriteIsNoOtherFailure(t *testing.T) {
+	busy := func(st *runner.StepRecord) {
+		st.Status, st.Response, st.HTTPStatus = runner.StatusError, nil, 503
+		st.Transport = &runner.TransportError{Code: "unavailable", Message: "stock store busy"}
+	}
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
+		shopStep("add_stock_1", shopAdd, `{"qty_on_hand":"1"}`, "create_product"),
+		shopStep("add_stock_2", shopAdd, ``, "create_product").with(busy),
+		shopStep("add_stock_3", shopAdd, `{"qty_on_hand":"2"}`, "create_product"),
+		shopStep("get_product", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"2"}}`, "create_product").failing("product.qty_on_hand", "3", "2"),
+		shopStep("create_other", shopCreate, `{"product":{"id_product":"p2","sku":"B"}}`).failing("product.sku", "A", "B"),
+	)
+	flaky := &intermittentFailure{rec: rec, steps: []flakyStep{{step: rec.Steps[2]}}}
+	if got := flaky.otherFailures(&env{cat: catalogtest.Shop()}, rec); strings.Join(got, ",") != "create_other" {
+		t.Errorf("get_product failed because add_stock_2 was refused, so only create_other is another failure, got %q", got)
 	}
 }

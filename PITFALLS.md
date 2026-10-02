@@ -298,8 +298,8 @@ Declare it where it belongs.
 
 **Cause.** A server error on a request answered on its one re-send (reads only, judged on that
 answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
-call, reported on every chain it explains. **Fix.** A real backend defect (exit 1), just not
-deterministic.
+call, reported on every chain it explains. A step whose suspect is that call (a read missing the
+refused write) counts with it. **Fix.** A real backend defect (exit 1), just not deterministic.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 

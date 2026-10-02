@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -27,16 +30,17 @@ const (
 )
 
 type reason struct {
-	Kind    string `json:"kind,omitempty"`
-	Step    string `json:"step,omitempty"`
-	RPC     string `json:"rpc,omitempty"`
-	Profile string `json:"profile,omitempty"`
-	Read    string `json:"read,omitempty"`
-	ReadRPC string `json:"read_rpc,omitempty"`
-	Path    string `json:"path,omitempty"`
-	Want    string `json:"want,omitempty"`
-	Got     string `json:"got,omitempty"`
-	Other   string `json:"other,omitempty"`
+	Kind    string   `json:"kind,omitempty"`
+	Step    string   `json:"step,omitempty"`
+	RPC     string   `json:"rpc,omitempty"`
+	Profile string   `json:"profile,omitempty"`
+	Read    string   `json:"read,omitempty"`
+	ReadRPC string   `json:"read_rpc,omitempty"`
+	Path    string   `json:"path,omitempty"`
+	Want    string   `json:"want,omitempty"`
+	Got     string   `json:"got,omitempty"`
+	Other   string   `json:"other,omitempty"`
+	Or      []reason `json:"or,omitempty"`
 }
 
 func (r reason) blames() bool {
@@ -64,11 +68,15 @@ func (r reason) rpc(call string) string {
 	return call
 }
 
-func (r reason) String() string {
-	as := ""
-	if r.Profile != "" {
-		as = " as " + r.Profile
+func asText(profile string) string {
+	if profile == "" {
+		return ""
 	}
+	return " as " + profile
+}
+
+func (r reason) String() string {
+	as := asText(r.Profile)
 	who := func(step, rpc string) string {
 		return fmt.Sprintf("%s %s (%s)", rw(rpc), step, shortRPC(rpc))
 	}
@@ -83,8 +91,15 @@ func (r reason) String() string {
 	case reasonStoredOrder:
 		return fmt.Sprintf("suspect %s%s: answered %s in another order than %s read", who(r.Step, r.RPC), as, shown, r.ReadRPC)
 	case reasonUnclear:
-		if r.Path == "" {
-			return fmt.Sprintf("unclear: %s or the read (%s%s)", who(r.Step, r.RPC), methodName(r.ReadRPC), as)
+		if len(r.Or) > 1 {
+			names := []string{}
+			for _, o := range r.Or[:2] {
+				names = append(names, strings.TrimPrefix(who(o.Step, o.RPC), "write ")+asText(o.Profile))
+			}
+			if n := len(r.Or) - 2; n > 0 {
+				names[1] += fmt.Sprintf(" +%d more", n)
+			}
+			return "unclear: write " + strings.Join(names, " or ")
 		}
 		return fmt.Sprintf("unclear: %s or the read: answered %s=%s, but %s%s read %s", who(r.Step, r.RPC), shown, valueText(r.Want), methodName(r.ReadRPC), as, valueText(r.Got))
 	case reasonKnockOn:
@@ -139,6 +154,59 @@ func suspectLine(r reason, step string, sent func(string) string) string {
 		return s + "; " + req
 	}
 	return req
+}
+
+func tellApart(e *env, r reason, path string) string {
+	if r.Kind != reasonUnclear || len(r.Or) > 0 || e == nil || e.cat == nil {
+		return ""
+	}
+	m, err := e.cat.Lookup(r.ReadRPC)
+	if err != nil {
+		return ""
+	}
+	carrier, ok := carrierOf(m, path)
+	if !ok {
+		return ""
+	}
+	msg, field := carrier[:strings.LastIndex(carrier, ".")], fieldOf(carrier)
+	var via []string
+	for _, o := range e.cat.Methods() {
+		if len(via) == 2 {
+			break
+		}
+		if p := pathTo(o.Output(), msg, field, 0); p != "" && o.FullName != m.FullName && chain.IsReadOnlyCall(o.FullName) {
+			if o.ServerStreaming {
+				p = catalog.StreamMessages + "[]." + p
+			}
+			via = append(via, shortRPC(o.FullName)+" ("+p+")")
+		}
+	}
+	if len(via) == 0 {
+		return ""
+	}
+	return "tell them apart: read " + gateIndex.ReplaceAllString(path, "[]$1") + " through " + strings.Join(via, " or ")
+}
+
+func pathTo(md protoreflect.MessageDescriptor, msg, field string, depth int) string {
+	if md == nil || depth > 4 {
+		return ""
+	}
+	if string(md.FullName()) == msg && md.Fields().ByName(protoreflect.Name(field)) != nil {
+		return field
+	}
+	for i := 0; i < md.Fields().Len(); i++ {
+		fd := md.Fields().Get(i)
+		if fd.IsMap() {
+			continue
+		}
+		if p := pathTo(fd.Message(), msg, field, depth+1); p != "" {
+			if fd.IsList() {
+				return string(fd.Name()) + "[]." + p
+			}
+			return string(fd.Name()) + "." + p
+		}
+	}
+	return ""
 }
 
 func recordSent(e *env, rec *runner.Record) func(string) string {

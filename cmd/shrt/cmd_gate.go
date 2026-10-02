@@ -983,7 +983,7 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println("  " + capText(n, 240))
 		}
 		if *verbose && g.failed && !g.findingOnly() {
-			g.printChanges()
+			g.printChanges(e)
 		}
 	}
 	failed, unverified := 0, 0
@@ -1248,10 +1248,13 @@ func (g *gateChain) firstItem() (gateItem, bool) {
 	return gateItem{}, false
 }
 
-func (g *gateChain) printChanges() {
+func (g *gateChain) printChanges(e *env) {
 	if it, ok := g.firstItem(); ok {
 		if req := requestLine(it.Reason, it.Step, func(s string) string { return g.sent[s] }); req != "" {
 			fmt.Println("  " + req)
+		}
+		if hint := tellApart(e, it.Reason, it.Path); hint != "" {
+			fmt.Println("  " + hint)
 		}
 	}
 	seen, paths := map[string]bool{}, []string{}
@@ -1355,6 +1358,14 @@ func settleGate(chains []*gateChain) []string {
 		if !g.failed || g.findingOnly() || len(g.items) == 0 {
 			continue
 		}
+		for i := range g.items {
+			r := &g.items[i].Reason
+			for _, o := range r.Or {
+				if seen[g.items[i].root()] == "" && seen[shortRPC(o.RPC)+" "+leafOf(g.items[i].Path)] != "" {
+					r.Step, r.RPC, r.Profile = o.Step, o.RPC, o.Profile
+				}
+			}
+		}
 		lead, rank, verified := -1, -1, false
 		for i, it := range g.items {
 			r := 0
@@ -1386,14 +1397,14 @@ func settleGate(chains []*gateChain) []string {
 		other, more := lacks(seen[it.root()], g, it)
 		switch first := seen[it.root()]; {
 		case first != "" && first != g.name && !more:
-			g.first += "; " + sameFault + first
+			g.first += "; " + sameFault + first + " (" + methodName(it.rpc()) + ")"
 		case it.Reason.Kind != "":
 			g.first += "; " + it.Reason.String()
 		}
 		if more {
 			g.first += "; also " + other.Reason.String()
 		}
-		if seen[it.root()] == "" && it.Reason.Kind != "" {
+		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
 			seen[it.root()] = g.name
 		}
 		switch {
@@ -1483,12 +1494,14 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			}
 			gr.chains[g.name] = true
 			rank := 0
-			switch it.Reason.Kind {
-			case "", reasonKnockOn:
-			case reasonWrite:
+			switch {
+			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
+			case len(it.Reason.Or) > 0:
 				rank += 4
-			default:
+			case it.Reason.Kind == reasonWrite:
 				rank += 8
+			default:
+				rank += 16
 			}
 			if it.Failed {
 				rank += 2

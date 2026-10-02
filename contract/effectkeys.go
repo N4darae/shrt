@@ -157,14 +157,14 @@ func (es Effects) perItem() bool {
 }
 
 func (es Effects) restores(state string) bool {
-	return es.any(func(e *Effect) bool { return e.Restore != "" && sameState(e.Restore, state) })
+	return es.any(func(e *Effect) bool { return e.Restore != "" && SameState(e.Restore, state) })
 }
 
 func (es Effects) restoresAny() bool {
 	return es.any(func(e *Effect) bool { return e.Restore != "" })
 }
 
-func sameState(a, b string) bool {
+func SameState(a, b string) bool {
 	a, b = strings.ToUpper(a), strings.ToUpper(b)
 	return a == b || strings.HasSuffix(a, "_"+b) || strings.HasSuffix(b, "_"+a)
 }
