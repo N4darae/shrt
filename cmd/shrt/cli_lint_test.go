@@ -108,6 +108,11 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/chains/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
 			}},
+		{name: "a scratch chain outside the chains directory, which the gate never lints", args: []string{".shrt/scratch/bare.yaml"},
+			want: []string{"asserts nothing"}, not: []string{"ci-gate.sh", "exit 0, but"},
+			setup: func(t *testing.T) {
+				writeFile(t, ".shrt/scratch/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
+			}},
 		{name: "one warning on three steps", args: []string{"cli-probe"},
 			want: []string{"A step with no expect entry", "[fetch_2] asserts nothing at all, as above\n", "[fetch_3] asserts nothing at all, as above\n"},
 			setup: func(t *testing.T) {

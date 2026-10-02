@@ -413,8 +413,15 @@ func chainLint(args []string) error {
 		return fmt.Errorf("%d lint error(s)", errCount)
 	}
 	if !*strict && !*asJSON {
+		gated := map[string]bool{}
+		for _, c := range targets {
+			gated[c.Name] = inChainsDir(e, c)
+		}
 		quality := 0
 		for _, r := range reports {
+			if !gated[r.Chain] {
+				continue
+			}
 			for _, i := range r.Issues {
 				if i.Severity == chain.SeverityWarn && chain.IsAssertionQualityIssue(i) {
 					quality++
@@ -570,14 +577,15 @@ func (o *optionalString) Set(s string) error {
 	return nil
 }
 
-func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
-	var mm *chain.NameMismatchError
-	if c == nil || !errors.As(chain.NameMismatch(c), &mm) {
-		return nil
-	}
+func inChainsDir(e *env, c *chain.Chain) bool {
 	dir, err1 := filepath.Abs(filepath.Dir(c.SourcePath))
 	chains, err2 := filepath.Abs(e.chainsDir())
-	if err1 != nil || err2 != nil || dir != chains {
+	return err1 == nil && err2 == nil && dir == chains
+}
+
+func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
+	var mm *chain.NameMismatchError
+	if c == nil || !errors.As(chain.NameMismatch(c), &mm) || !inChainsDir(e, c) {
 		return nil
 	}
 	return mm
