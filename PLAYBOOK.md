@@ -54,8 +54,10 @@ id no contract sets, when `contract init` would guess that producer; a producer 
 named in a note. A create listed twice gets the values a plan gives its second copy. Reads of one
 rpc after two creates take them in turn, restarting after each write; a repeated rpc's step is
 named after what it observes (`get_product_2_after_confirm_order`, `cancel_order_again`). Each step
-asserts what a plan would from its contract, levels and totals worked out from the quantities and
-prices sent: edit those and rework the numbers.
+asserts what a plan would from its contract: the state the last write left (a write refused in that
+state expects the refusal), a list under a parent the chain created holding exactly its items, and
+levels and totals worked out from the quantities and prices sent, a give-back included: edit those
+and rework the numbers.
 An optional enum field left at `*_UNSPECIFIED` is left out of the body.
 Then write the contract (§7) so the next chains compose themselves.
 
