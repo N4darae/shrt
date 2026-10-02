@@ -85,14 +85,23 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 				cliUnsetEnv(t, "WIDGET_USER", "WIDGET_PASSWORD")
 				writeFile(t, ".shrt/chains/cli-thing-again.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: cli-thing-again", 1))
 			}},
-		{name: "unasserted timestamps in two chains", want: []string{"WARN   timestamps unasserted in 2 chain(s), created_at (", "verify masks timestamps"},
+		{name: "unasserted timestamps in two chains", want: []string{"WARN   timestamps unasserted in 2 chain(s), created_at (", "verify masks timestamps", "\n2 chain(s): 2 with warnings\n"},
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/chains/cli-thing-copy.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: cli-thing-copy", 1))
 			}},
 		{name: "unasserted timestamps with -v", args: []string{"-v"}, want: []string{"[fetch] timestamp created_at unasserted; expect within:", "\nWARN   cli-thing-flow ["}},
-		{name: "an asserted timestamp", args: []string{"-v", "cli-thing-flow"}, not: []string{"timestamp created_at unasserted"},
+		{name: "an asserted timestamp", args: []string{"-v", "cli-thing-flow"}, want: []string{"ok   cli-thing-flow\n", "1 chain(s) lint clean\n"}, not: []string{"timestamp created_at unasserted"},
 			setup: func(t *testing.T) {
 				cliEdit(t, cliFlow, "            equals: widget\n", "            equals: widget\n          - path: created_at\n            lte: ${nowunix}\n")
+			}},
+		{name: "a clean chain prints the count only", not: []string{"ok   ", "WARN"},
+			setup: func(t *testing.T) {
+				cliEdit(t, cliFlow, "            equals: widget\n", "            equals: widget\n          - path: created_at\n            lte: ${nowunix}\n")
+				writeFile(t, ".shrt/chains/cli-thing-copy.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: cli-thing-copy", 1))
+			}, want: []string{"2 chain(s) lint clean\n"}},
+		{name: "a failing chain beside a clean one", failing: true, want: []string{"FAIL broken\n", "2 chain(s): 1 failing, 1 with warnings\n"}, not: []string{"ok   "},
+			setup: func(t *testing.T) {
+				writeFile(t, ".shrt/chains/broken.yaml", "apiVersion: shrt/v1\nname: broken\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/NoSuchRpc\n    body: {id: x}\n")
 			}},
 		{name: "a step that asserts nothing", args: []string{"bare"},
 			want: []string{"exit 0, but 1 warning(s) above are errors under 'shrt chain lint -strict', which .shrt/ci-gate.sh runs\n"},
