@@ -452,8 +452,6 @@ func slicesContain(list []string, s string) bool {
 	return false
 }
 
-const notAnsweredByService = "not answered by the service"
-
 func unavailableAnswer(status int, code string) bool {
 	switch code {
 	case "unavailable":
@@ -1454,10 +1452,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		}
 		if unavailableAnswer(res.Status, res.Error.Code) {
 			sr.Status, sr.refused = StatusError, sr.Expect
-			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was "+notAnsweredByService+", so this assertion never ran")
-			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the call was %s: a gateway or load balancer "+
-				"answered for it (the normal answer while the service restarts or is not ready), so this is not a verdict "+
-				"about the rpc. Re-run once the service is up", res.Status, notAnsweredByService)
+			sr.Expect = unevaluatedBecause(step.Expect, redactor, "the call was answered unavailable, so this assertion never ran")
+			sr.Error = res.Error.Error() + "\n       " + fmt.Sprintf("HTTP %d: the backend or a gateway in front of it answered "+
+				"unavailable (as during a restart); if other calls of this rpc were answered, the gate reports it as intermittent", res.Status)
 			return sr
 		}
 		sr.Status = StatusFailed

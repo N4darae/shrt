@@ -256,7 +256,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
-	"  3  no verdict: unreachable, a gateway answered, a restart mid-run, login or auth refused; re-run\n"
+	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

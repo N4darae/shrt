@@ -96,8 +96,11 @@ func TestAnUnavailableAnswerIsNotAVerdictAboutTheService(t *testing.T) {
 	} {
 		rec := run(t, bareRunner(t, answering(tc.status, tc.ctype, tc.body), nil), normalized(t, fetchA()), runner.Options{})
 		st := rec.Steps[0]
-		if st.Status != runner.StatusError || rec.Status != runner.StatusError || !runner.NotAnsweredByService(st) || !strings.Contains(st.Error, "not answered by the service") {
-			t.Fatalf("%s: a gateway's answer is not the service's verdict: step %s, run %s, %q", tc.name, st.Status, rec.Status, st.Error)
+		_, why, _ := strings.Cut(st.Error, "\n")
+		if st.Status != runner.StatusError || rec.Status != runner.StatusError || !runner.NotAnsweredByService(st) ||
+			!strings.Contains(why, "the backend or a gateway in front of it answered unavailable (as during a restart)") ||
+			strings.Contains(why, "not answered by the service") || strings.Count(why, "\n") != 0 {
+			t.Fatalf("%s: an unavailable answer is no verdict, and says only what is known, in one line: step %s, run %s, %q", tc.name, st.Status, rec.Status, st.Error)
 		}
 	}
 	r := bareRunner(t, answering(http.StatusServiceUnavailable, "application/json", `{"code":"unavailable","message":"draining"}`), nil)

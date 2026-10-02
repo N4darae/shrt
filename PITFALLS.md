@@ -40,7 +40,7 @@ resolve before the cache is read. **Fix.** Export the variables `auth.body` in
 
 ## 6. Exit 3 from `run` or `verify`
 
-**Cause.** No verdict: the backend was unreachable, a gateway answered, it restarted mid-run, a
+**Cause.** No verdict: the backend was unreachable, answered unavailable, restarted mid-run, a
 fixture was reused, or authentication was refused. The output says which and ends in `re-run`.
 **Fix.** Re-run once (with a fresh `-var tag` if the line says so). Do not count 3 as red or green.
 
