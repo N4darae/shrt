@@ -1,14 +1,14 @@
 $ shrt run probe-orders  [exit 0]
-ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer        DUR
-ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct            DUR
-ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct            DUR
-ok     4 add_stock                shop.catalog.v1.StockService/AddStock                   DUR
-ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder                 DUR
-ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder                DUR
-ok    10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder                 DUR
+ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer DUR
+ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct DUR
+ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct DUR
+ok     4 add_stock                shop.catalog.v1.StockService/AddStock DUR
+ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder DUR
+ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder DUR
+ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder DUR
+ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder DUR
+ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder DUR
+ok    10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder DUR
 
 run RUNID -> TMP
 probe-orders: PASSED in DUR
@@ -17,16 +17,16 @@ $ shrt run probe-orders -quiet  [exit 0]
 probe-orders: PASSED in DUR
 
 $ shrt run probe-orders  [exit 1]
-ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer        DUR
-ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct            DUR
-ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct            DUR
-ok     4 add_stock                shop.catalog.v1.StockService/AddStock                   DUR
-ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder                 DUR
-ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder                 DUR
-ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder                DUR
-FAIL  10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder                 DUR
+ok     1 create_customer          shop.customers.v1.CustomerService/CreateCustomer DUR
+ok     2 create_product           shop.catalog.v1.ProductService/CreateProduct DUR
+ok     3 create_product_2         shop.catalog.v1.ProductService/CreateProduct DUR
+ok     4 add_stock                shop.catalog.v1.StockService/AddStock DUR
+ok     5 create_order_single      shop.orders.v1.OrderService/CreateOrder DUR
+ok     6 retry_single             shop.orders.v1.OrderService/CreateOrder DUR
+ok     7 create_order_three       shop.orders.v1.OrderService/CreateOrder DUR
+ok     8 cancel_pending           shop.orders.v1.OrderService/CancelOrder DUR
+ok     9 confirm_single           shop.orders.v1.OrderService/ConfirmOrder DUR
+FAIL  10 cancel_confirmed         shop.orders.v1.OrderService/CancelOrder DUR
        FAIL status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
 
 run RUNID -> TMP
