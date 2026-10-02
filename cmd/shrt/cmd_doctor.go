@@ -86,7 +86,10 @@ func runDoctor(ctx context.Context, args []string) error {
 	if *strict && report.Count(doctor.LevelError) == 0 {
 		fmt.Fprintln(os.Stderr, "doctor: -strict, so the warnings above are failures")
 	}
-	return exitWith(1, "%s", report.Summary())
+	if *asJSON {
+		return exitWith(1, "%s", report.Summary())
+	}
+	return shownError{exitWith(1, "%s", report.Summary())}
 }
 
 func tokenKeys(ctx context.Context) func(cfg *config.Config, target string) []string {

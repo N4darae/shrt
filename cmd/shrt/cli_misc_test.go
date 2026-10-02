@@ -112,6 +112,22 @@ func TestDoctorFailsOnDriftedDocsOrKitAndOnWarningsOnlyUnderStrict(t *testing.T)
 	}
 }
 
+func TestDoctorStatesItsCountsOnceWhenItFails(t *testing.T) {
+	root := adoptedRepo(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n")
+	for _, c := range []struct {
+		args  []string
+		shown bool
+	}{{[]string{"-strict"}, true}, {[]string{"-strict", "-json"}, false}} {
+		var err error
+		out := captureStdout(t, func() { err = runDoctor(context.Background(), c.args) })
+		var shown shownError
+		if exitCodeOf(err) != 1 || errors.As(err, &shown) != c.shown {
+			t.Errorf("%v: exit 1, and the error is printed only when the text summary did not already say it: %v\n%s", c.args, err, out)
+		}
+	}
+}
+
 func TestAMisspeltChainNameGetsADidYouMean(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, "http://127.0.0.1:1")
 	ctx := context.Background()
