@@ -567,6 +567,7 @@ type sliceVerdict struct {
 	OtherDropped   []string          `json:"dropped_writes_other_entities,omitempty"`
 	Repeat         int               `json:"repeat,omitempty"`
 	ReproducedRuns int               `json:"reproduced_runs,omitempty"`
+	MatchedRuns    int               `json:"verdict_matched_runs,omitempty"`
 	Runs           []sliceRunOutcome `json:"runs,omitempty"`
 	OtherTarget    string            `json:"source_target_differs,omitempty"`
 	BlockedBy      []string          `json:"unevaluated_behind,omitempty"`
@@ -578,6 +579,7 @@ type sliceVerdict struct {
 	replay         *runner.Record
 	nextKeep       []string
 	brokeWhy       string
+	matched        bool
 }
 
 type stepList []string
@@ -632,6 +634,8 @@ func (v *sliceVerdict) text() string {
 	runs := ""
 	switch {
 	case v.Repeat <= 1 || v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent:
+	case v.MatchedRuns > 0:
+		runs = fmt.Sprintf(" the verdict matched in %d of %d slice runs,", v.MatchedRuns, v.counted())
 	default:
 		runs = fmt.Sprintf(" %d slice runs,", v.Repeat)
 	}
@@ -839,6 +843,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		missing, drifted, compared := sliceDrift(e, res, rec, replayRec, passed)
 		v.Differences, v.Drifted, driftUnseen = missing, drifted, passed && !compared
 	}
+	v.matched = len(v.Differences) == 0 && !upstreamOnly
 	related, other := relatedDroppedWrites(res, rec)
 	entityRelated := append([]string{}, related...)
 	related = classifyFieldReads(e, res, rec, related)

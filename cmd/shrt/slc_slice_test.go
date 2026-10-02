@@ -163,7 +163,7 @@ func TestSliceCases(t *testing.T) {
 	var round2Code *string
 	cases := []slcCase{
 		{name: "a dropped write makes a match inconclusive and next settles it", setup: slcNoisy, args: noisy, code: 3,
-			want: []string{"verify INCONCLUSIVE", "slice run not kept", "-keep writes"},
+			want: []string{"verify INCONCLUSIVE: step fetch, source run ", "the verdict matched in 3 of 3 slice runs", "slice run not kept", "-keep writes"}, not: []string{"0/3"},
 			check: func(t *testing.T, out string) {
 				slcExists(t, ".shrt/runs/cli-noisy-flow-slice-fetch", false)
 				if hollow := captureStdout(t, func() { _ = chainHollow(nil) }); strings.Contains(hollow, "orphan") {
@@ -183,7 +183,7 @@ func TestSliceCases(t *testing.T) {
 			args: append(noisy, "-write", ".shrt/scratch/noisy-repro.yaml"), code: 3,
 			want: []string{"-verify -write .shrt/scratch/noisy-repro.yaml\n"},
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "INCONCLUSIVE by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") {
+				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "INCONCLUSIVE by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") || strings.Contains(raw, "0 of 3 reproduced") {
 					t.Fatalf("the verdict replaces the hypothesis:\n%s", raw)
 				}
 			}},

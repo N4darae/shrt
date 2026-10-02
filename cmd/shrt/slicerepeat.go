@@ -95,10 +95,13 @@ func combineSliceVerdicts(verdicts []*sliceVerdict) (*sliceVerdict, error) {
 			runs[i].NotCounted = ""
 		}
 	}
-	reproduced := 0
+	reproduced, matched := 0, 0
 	var rep *sliceVerdict
 	rank := map[string]int{sliceNotReproduced: 3, sliceInconclusive: 2, sliceDidNotRun: 1}
 	for _, v := range counted {
+		if v.matched {
+			matched++
+		}
 		if v.Outcome == sliceReproduced {
 			reproduced++
 			continue
@@ -124,6 +127,8 @@ func combineSliceVerdicts(verdicts []*sliceVerdict) (*sliceVerdict, error) {
 		out.Next = ""
 		out.Reason = fmt.Sprintf("step %s got the verdict of source run %s in %d of %d runs of the same slice: the backend answers it "+
 			"differently to the same input, the differences above are from a run that did not reproduce it", out.Step, out.SourceRun, reproduced, len(counted))
+	case out.Outcome == sliceInconclusive && matched > 0:
+		out.MatchedRuns = matched
 	}
 	return &out, out.err()
 }
@@ -148,6 +153,9 @@ func (v *sliceVerdict) runsLabel() string {
 			ids = append(ids, r.SliceRun)
 		}
 	}
+	if v.Outcome != sliceReproduced && v.Outcome != sliceIntermittent {
+		return strings.Join(ids, ", ")
+	}
 	return fmt.Sprintf("%s (%d of %d reproduced)", strings.Join(ids, ", "), v.ReproducedRuns, v.counted())
 }
 
@@ -155,7 +163,10 @@ func (v *sliceVerdict) countLabel() string {
 	if v.Repeat <= 1 {
 		return ""
 	}
-	out := fmt.Sprintf(" %d/%d", v.ReproducedRuns, v.counted())
+	out := ""
+	if v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
+		out = fmt.Sprintf(" %d/%d", v.ReproducedRuns, v.counted())
+	}
 	skipped := []string{}
 	for i, r := range v.Runs {
 		if r.NotCounted != "" {

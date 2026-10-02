@@ -497,8 +497,8 @@ func TestAPartlyClearedWithoutIsInconclusiveWhenTheRestReadTheLeftOutWrites(t *t
 }
 
 func TestRepeatsCombineOverTheRunsThatCount(t *testing.T) {
-	rv := func(outcome, broke string, _ bool) *sliceVerdict {
-		return &sliceVerdict{Step: "get", SourceRun: "src", Outcome: outcome, brokeWhy: broke, SliceRun: "run-" + outcome}
+	rv := func(outcome, broke string, matched bool) *sliceVerdict {
+		return &sliceVerdict{Step: "get", SourceRun: "src", Outcome: outcome, brokeWhy: broke, matched: matched, SliceRun: "run-" + outcome}
 	}
 	cases := []struct {
 		name     string
@@ -512,9 +512,11 @@ func TestRepeatsCombineOverTheRunsThatCount(t *testing.T) {
 		{"a counted miss is intermittent and gives the details", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceDidNotRun, "", false), rv(sliceNotReproduced, "", false)},
 			sliceIntermittent, "verify intermittent: reproduced 1/2 (repeat 2 not counted: did not run): step get, source run src, details from slice run run-not_reproduced", ""},
 		{"a matched inconclusive beside reproduced runs is not intermittent", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceInconclusive, "", true), rv(sliceInconclusive, "", true)},
-			sliceInconclusive, "verify INCONCLUSIVE 1/3: step get, source run src, 3 slice runs,", "intermittent"},
+			sliceInconclusive, "verify INCONCLUSIVE: step get, source run src, the verdict matched in 3 of 3 slice runs,", "1/3"},
+		{"no count on a run of misses", []*sliceVerdict{rv(sliceNotReproduced, "", false), rv(sliceNotReproduced, "", false)},
+			sliceNotReproduced, "verify NOT REPRODUCED: step get, source run src, 2 slice runs,", "0/2"},
 		{"every repeat broken stays inconclusive", []*sliceVerdict{rv(sliceInconclusive, "kept step add failed, internal", false), rv(sliceInconclusive, "kept step add failed, internal", false)},
-			sliceInconclusive, "verify INCONCLUSIVE 0/2: step get, source run src, 2 slice runs,", "not counted"},
+			sliceInconclusive, "verify INCONCLUSIVE: step get, source run src, 2 slice runs,", "0/2"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
