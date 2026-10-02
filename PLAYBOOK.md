@@ -512,7 +512,8 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    - `reproduced` (0): verdicts match, no dropped write touched a kept entity (`-write` records it
      in the description).
    - `NOT REPRODUCED` (1): the verdict differs; run the `next:` line.
-   - `intermittent: reproduced k/3` (1): flaky there; keeping more steps will not help.
+   - `intermittent: reproduced k/n` (1): flaky there; keeping more steps will not help. A run that
+     did not reach the target, or in which a kept step that passed in the source failed, is not counted.
    - `DID NOT RUN` (3): the target was never answered.
    - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, another target,
      or the run a passing target's drift is measured against is gone;

@@ -20,11 +20,13 @@ type fakeShop struct {
 	cancelWipesBug     bool
 	getProductFailN    int
 	getProductFailAt   map[int]bool
+	addStockFailAt     map[int]int
 	priceBug           bool
 	skuEchoBug         bool
 
 	next      int
 	getCalls  int
+	addCalls  int
 	products  map[string]map[string]any
 	stock     map[string]int64
 	customers map[string]map[string]any
@@ -106,6 +108,12 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		}
 		return 200, map[string]any{"status": ok(), "product": p}
 	case "/shop.catalog.v1.StockService/AddStock":
+		s.addCalls++
+		if status := s.addStockFailAt[s.addCalls]; status == 503 {
+			return status, map[string]any{"code": "unavailable", "message": "stock store busy"}
+		} else if status != 0 {
+			return status, map[string]any{"code": "internal", "message": "stock store crashed"}
+		}
 		id := fmt.Sprint(body["id_product"])
 		if _, found := s.products[id]; !found {
 			return 200, map[string]any{"status": rejected("ProductNotFound")}

@@ -495,3 +495,34 @@ func TestAPartlyClearedWithoutIsInconclusiveWhenTheRestReadTheLeftOutWrites(t *t
 		t.Fatalf("exit %d: %v", exitCodeOf(err), err)
 	}
 }
+
+func TestRepeatsCombineOverTheRunsThatCount(t *testing.T) {
+	rv := func(outcome, broke string, _ bool) *sliceVerdict {
+		return &sliceVerdict{Step: "get", SourceRun: "src", Outcome: outcome, brokeWhy: broke, SliceRun: "run-" + outcome}
+	}
+	cases := []struct {
+		name     string
+		verdicts []*sliceVerdict
+		outcome  string
+		head     string
+		not      string
+	}{
+		{"a broken kept step leaves its repeat out", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceInconclusive, "kept step add failed, unavailable", true), rv(sliceReproduced, "", true)},
+			sliceReproduced, "verify reproduced 2/2 (repeat 2 not counted: kept step add failed, unavailable): step get", "slice runs"},
+		{"a counted miss is intermittent and gives the details", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceDidNotRun, "", false), rv(sliceNotReproduced, "", false)},
+			sliceIntermittent, "verify intermittent: reproduced 1/2 (repeat 2 not counted: did not run): step get, source run src, details from slice run run-not_reproduced", ""},
+		{"a matched inconclusive beside reproduced runs is not intermittent", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceInconclusive, "", true), rv(sliceInconclusive, "", true)},
+			sliceInconclusive, "verify INCONCLUSIVE 1/3: step get, source run src, 3 slice runs,", "intermittent"},
+		{"every repeat broken stays inconclusive", []*sliceVerdict{rv(sliceInconclusive, "kept step add failed, internal", false), rv(sliceInconclusive, "kept step add failed, internal", false)},
+			sliceInconclusive, "verify INCONCLUSIVE 0/2: step get, source run src, 2 slice runs,", "not counted"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v, _ := combineSliceVerdicts(c.verdicts)
+			text := v.text()
+			if v.Outcome != c.outcome || !strings.Contains(text, c.head) || c.not != "" && strings.Contains(text, c.not) {
+				t.Fatalf("outcome %s:\n%s", v.Outcome, text)
+			}
+		})
+	}
+}
