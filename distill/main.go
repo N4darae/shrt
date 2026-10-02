@@ -333,6 +333,8 @@ func render() ([]byte, error) {
 		return nil, err
 	}
 	b.WriteString(refs)
+	b.WriteString("\nWrite `${<step>.<path>}` for a response field and `${steps.<step>.request.<field>}` for a sent one, as\n")
+	b.WriteString("`contract plan` and `chain new` do; the `steps.<step>.response` and `export:` spellings are for chains already written with them.\n")
 
 	b.WriteString("\n## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`\n\n")
 	writeTable(&b, "Overlay", reflect.TypeOf(contract.Overlay{}))

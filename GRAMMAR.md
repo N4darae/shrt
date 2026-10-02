@@ -163,6 +163,9 @@ Produced by resolving each form against a fixture scope:
 | `deal-${create_deal.id_deal}-x` | `"deal-d-9-x"` | interpolated inside a longer string, so the result is text |
 | `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` and `run` reject it |
 
+Write `${<step>.<path>}` for a response field and `${steps.<step>.request.<field>}` for a sent one, as
+`contract plan` and `chain new` do; the `steps.<step>.response` and `export:` spellings are for chains already written with them.
+
 ## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`
 
 | key | type | req | meaning |
