@@ -120,10 +120,6 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 			return err
 		}
 		fmt.Printf("write %s: target.base_url %s%s\n", rel(root, cfgPath), cfg.Target.BaseURL, baseURLSource(portFile != "", baseURLGiven))
-		if *verbose {
-			fmt.Println("      latency: {fail: true}: a slowdown verify confirms (a slow read re-sent and slow every time) fails it, so a CI gate " +
-				"is red on one; set fail: false to keep it a LATENCY warning line")
-		}
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)

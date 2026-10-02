@@ -166,7 +166,8 @@ func chainList(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
 	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot and which are kept red",
-		"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
+		"\nmarks: * has a safe spot, ? a proposal awaits approval, R kept red (fails on purpose, its kept_red pins name what the backend still gets wrong)\n"+
+			"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
 			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -240,13 +241,23 @@ func chainList(args []string) error {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
 	}
-	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval, R = kept red (fails on purpose, "+
-		"its kept_red pins name what the backend still gets wrong)", len(rows))
-	if *long {
-		fmt.Print("\n")
-		return nil
+	shown := map[string]bool{}
+	for _, r := range rows {
+		shown["*"] = shown["*"] || r.SafeSpot && !r.Proposed
+		shown["?"] = shown["?"] || r.Proposed
+		shown["R"] = shown["R"] || r.KeptRed
 	}
-	fmt.Print("; -long for the full description, -json for every field\n")
+	legend := []string{}
+	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"}} {
+		if shown[m.mark] {
+			legend = append(legend, m.mark+" = "+m.means)
+		}
+	}
+	fmt.Printf("\n%d chain(s)", len(rows))
+	if len(legend) > 0 {
+		fmt.Print("; " + strings.Join(legend, ", "))
+	}
+	fmt.Println()
 	return nil
 }
 
