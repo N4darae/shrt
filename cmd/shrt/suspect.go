@@ -900,6 +900,10 @@ func (a attribution) upstream(step string) int {
 		eff := a.e.effectsOf(call)[leafOf(path)]
 		return eff != nil && eff.Is != contract.EffectNone
 	}
+	mine := a.changed(step)
+	reached := func(p string) bool {
+		return verdictMoved(mine) || leafFields(mine)[leafOf(p)]
+	}
 	for i := 0; i < at; i++ {
 		o := a.rec.Steps[i]
 		if o == nil || !a.bad[o.ID] || !related(reach, at, i, o.ID) {
@@ -912,7 +916,7 @@ func (a attribution) upstream(step string) int {
 			continue
 		}
 		for _, p := range a.changed(o.ID) {
-			if !uses(a.rec.Steps[at].Call, p) {
+			if !uses(a.rec.Steps[at].Call, p) || !reached(p) {
 				continue
 			}
 			if r := a.of(o.ID, p); (r.Kind == reasonWrite || r.Kind == reasonStored) && r.blamed(o.ID) != "" && uses(r.RPC, p) {
@@ -1144,8 +1148,24 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 	out.Kind, out.Path, out.Want, out.Got, out.ReadRPC = reasonStored, wp, wv, compactValue(rv), methodName(r.Call)
 	if !agree && agreed && before == wv {
 		out.Kind, out.Read, out.ReadRPC, out.Profile = reasonUnclear, r.ID, r.Call, profileAs(a.e, r)
+		if sentAs(w, wp, wv) {
+			out.Other = asSent
+		}
 	}
 	return out, true
+}
+
+const asSent = "as sent"
+
+func sentAs(w *runner.StepRecord, path, value string) bool {
+	var req any
+	found := false
+	if json.Unmarshal(w.Request, &req) == nil {
+		eachLeaf(req, "", func(p string, v any) {
+			found = found || leafOf(p) == leafOf(path) && compactValue(v) == value
+		})
+	}
+	return found
 }
 
 func valueText(s string) string {

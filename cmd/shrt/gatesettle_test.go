@@ -109,6 +109,20 @@ func gateCases() []gateCase {
 				{name: "cancels-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
 			}
 		}},
+		{name: "an unclear between two writes no row settles is grouped under both", chains: func() []*gateChain {
+			return []*gateChain{{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}}}
+		}},
+		{name: "an unclear write or read no row settles is grouped under both, a decisive row apart", chains: func() []*gateChain {
+			name := func(step string, r reason) gateItem {
+				return gateItem{Step: step, Call: "x.v1.S/GetCustomer", Path: "customer.name", Want: "Ann", Got: "ann@example.test", Failed: true, Reason: r}
+			}
+			unclear := reason{Kind: reasonUnclear, Step: "create", RPC: "x.v1.S/CreateCustomer", Read: "get", ReadRPC: "x.v1.S/GetCustomer", Path: "customer.name", Want: "Ann", Got: "ann@example.test"}
+			return []*gateChain{
+				{name: "customers", failed: true, items: []gateItem{name("get", unclear)}},
+				{name: "lookup", failed: true, items: []gateItem{name("get", unclear)}},
+				{name: "orders", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}, "")}},
+			}
+		}},
 		{name: "a changed read is filed under the write since the last read that matched, the other profile, or the read", chains: asRun},
 		{name: "one line per suspect rpc, knock-ons folded under the write", chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
 		{name: "-v counts the knock-on steps", verbose: true, chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},

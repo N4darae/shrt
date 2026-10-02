@@ -603,7 +603,7 @@ func TestSliceCases(t *testing.T) {
 
 		{name: "-without names the failures the left-out write caused", setup: func(t *testing.T) { stockWorkspace(t, 0) },
 			args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
-			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total", "still fail, so another cause: fetch_name"}},
+			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total\n", "still fail, so another cause: fetch_name"}, not: []string{"not proof"}},
 		{name: "-without is inconclusive when the steps still failing read what the left-out write writes", setup: func(t *testing.T) {
 			srv := stockBackend(0)
 			t.Cleanup(srv.Close)
@@ -642,7 +642,7 @@ func TestSliceCases(t *testing.T) {
 			b.cancelBug = true
 			slcRunAny("life", "-keep-going")
 		}, args: []string{"life", "-without", "confirm", "-verify"},
-			want: []string{"1 of 1 step(s) that failed in source run", "pass without it: cancel", "fail only without it: fetch_confirmed"}},
+			want: []string{"1 of 1 step(s) that failed in source run", "pass without it: cancel (it acts on the record confirm changed and may need that state: not proof confirm is the cause)\n", "fail only without it: fetch_confirmed"}},
 
 		{name: "an identical re-write keeps a verified slice's verdict", setup: slcVerifiedProbe,
 			args: []string{"cli-thing-flow", "-step", "fetch", "-write", "probe"},

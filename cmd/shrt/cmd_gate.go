@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1472,6 +1473,49 @@ func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	}
 }
 
+func unclearLabel(chains []*gateChain) func(gateItem) string {
+	decisive := map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if k := it.Reason.Kind; !it.Passes && (k != "" || !chain.IsReadOnlyCall(it.Call)) && k != reasonUnclear && k != reasonKnockOn {
+				decisive[it.rpc()+" "+leafOf(it.Path)] = true
+			}
+		}
+	}
+	return func(it gateItem) string {
+		r := it.Reason
+		if r.Kind != reasonUnclear {
+			return it.rpc()
+		}
+		var names []string
+		add := func(call string) {
+			if n := shortRPC(call); call != "" && !slices.Contains(names, n) {
+				names = append(names, n)
+			}
+		}
+		if len(r.Or) > 0 {
+			for _, o := range r.Or {
+				add(o.RPC)
+			}
+		} else {
+			add(r.RPC)
+			add(r.ReadRPC)
+		}
+		for _, n := range names {
+			if decisive[n+" "+leafOf(it.Path)] {
+				return n
+			}
+		}
+		switch {
+		case len(names) < 2:
+			return it.rpc()
+		case len(r.Or) == 0:
+			return names[0] + " or the read " + names[1]
+		}
+		return strings.Join(names, " or ")
+	}
+}
+
 func printGateGroups(chains []*gateChain, verbose bool) {
 	type group struct {
 		rpc, path            string
@@ -1480,16 +1524,19 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		in                   string
 		rank                 int
 	}
-	groups, order, keyOf := map[string]*group{}, []*group{}, groupKeys(chains)
+	groups, order, keyOf, label := map[string]*group{}, []*group{}, groupKeys(chains), unclearLabel(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
-			key := keyOf(g.name, it)
+			key, rpc := keyOf(g.name, it), it.rpc()
+			if l := label(it); l != rpc && strings.HasPrefix(key, rpc+" ") {
+				key, rpc = l+strings.TrimPrefix(key, rpc), l
+			}
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: it.rpc(), path: strings.TrimPrefix(key, it.rpc()+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &group{rpc: rpc, path: strings.TrimPrefix(key, rpc+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
 			}
