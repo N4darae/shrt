@@ -612,6 +612,15 @@ func TestSliceCases(t *testing.T) {
 			slcRunAny("stock", "-keep-going")
 		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 3,
 			want: []string{"verify INCONCLUSIVE without stray_add: the 1 step(s) that failed", "still fail, but they read what the left-out steps write: fetch_total"}, not: []string{"NOT REPRODUCED"}},
+		{name: "-without says the failures that persist are not the left-out step's", setup: func(t *testing.T) {
+			srv := stockBackend(1)
+			t.Cleanup(srv.Close)
+			chdirToFreshCLIWorkspace(t, srv.URL)
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "equals: 6", "equals: 15").Replace(stockChain))
+			slcRunAny("stock", "-keep-going")
+		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
+			want: []string{"verify STILL FAILS without stray_add: the 2 step(s) that failed in source run ", " still fail (fetch_total, fetch_name), so stray_add is not their cause\n", "STILL FAILS without stray_add"},
+			not:  []string{"NOT REPRODUCED"}},
 		{name: "-without counts a failure with another value as still failing", setup: func(t *testing.T) {
 			srv := stockBackend(1)
 			t.Cleanup(srv.Close)

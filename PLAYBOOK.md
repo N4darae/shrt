@@ -527,5 +527,6 @@ For a minimal chain written by hand, verify it with `shrt chain slice <minimal> 
 latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
 `-keep <ids of the minimal chain>` instead.
 Suspect write: `chain slice <c> -without <id> -verify` runs the chain without it and lists the
-steps that failed and now pass, those still failing (another cause, exit 1; INCONCLUSIVE, exit 3,
-when they read what the left-out steps write), and those that fail only without it.
+steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none
+passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail
+only without it.

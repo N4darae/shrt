@@ -27,7 +27,7 @@ const sliceUsage = "usage: shrt chain slice <chain> -step <id> [flags]\n" +
 
 const sliceExitCodes = "\nexit codes:\n" +
 	"  0  printed or written; -verify: reproduced\n" +
-	"  1  refused; -verify: NOT REPRODUCED, or intermittent\n" +
+	"  1  refused; -verify: NOT REPRODUCED, intermittent, or STILL FAILS without\n" +
 	"  3  -run latest did not evaluate the step; -verify: DID NOT RUN or INCONCLUSIVE\n"
 
 const sliceRepeat = 3
