@@ -169,9 +169,12 @@ func (r *Report) Checks() []string {
 
 const remedyIndent = "       "
 
-func (r *Report) Text() string {
+func (r *Report) Text(verbose bool) string {
 	var b strings.Builder
 	for _, f := range r.Findings {
+		if f.Level == LevelOK && !verbose {
+			continue
+		}
 		fmt.Fprintf(&b, "%-4s %s: %s\n", f.Level, f.Check, f.Detail)
 		if f.Level == LevelOK || f.Remedy == "" {
 			continue

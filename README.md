@@ -69,7 +69,7 @@ traffic.
 |---|---|
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` |
 | `shrt version` | version, commit, build time and the docs it carries |
-| `shrt doctor` | check this repo's `.shrt/` installation; `-strict` fails on warnings |
+| `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check; `-strict` fails on warnings |
 | `shrt gate` | verify every chain with a safe spot, run the rest, each with a fresh tag; one line per chain, failures grouped by suspect rpc |
 | `shrt catalog build` | rebuild the descriptor after a proto change |
 | `shrt catalog ls [-filter x]` | list the rpcs |

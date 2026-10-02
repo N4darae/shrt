@@ -47,7 +47,8 @@ func runDoctor(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	strict := fs.Bool("strict", false, "exit non-zero on warnings too, for a CI job that refuses them")
 	asJSON := fs.Bool("json", false, "emit the findings as JSON")
-	setUsage(fs, "usage: shrt doctor [flags]   check this repo's .shrt/ installation, one line per finding (OK, WARN or FAIL)", doctorHelpTail)
+	verbose := fs.Bool("v", false, "also list every check that passed")
+	setUsage(fs, "usage: shrt doctor [flags]   check this repo's .shrt/ installation: one line per WARN or FAIL, then the counts", doctorHelpTail)
 	if _, err := parseArgs(fs, args); err != nil {
 		return err
 	}
@@ -74,8 +75,10 @@ func runDoctor(ctx context.Context, args []string) error {
 			return err
 		}
 	} else {
-		fmt.Print(report.Text())
-		fmt.Printf("\n%s: %s\n", report.Root, report.Summary())
+		if text := report.Text(*verbose); text != "" {
+			fmt.Println(text)
+		}
+		fmt.Printf("%s: %s\n", report.Root, report.Summary())
 	}
 	if !report.Failed(*strict) {
 		return nil
