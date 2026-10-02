@@ -51,9 +51,11 @@ shrt chain new -name invoice-happy-path InvoiceService/CreateInvoice InvoiceServ
 
 `chain new` wires a step's input to an earlier step's output when a contract says so, or, for an
 id no contract sets, when `contract init` would guess that producer; a producer not in the list is
-named in a note. Reads of one rpc after two creates take them in turn, restarting after each write.
-A repeated rpc's step is named after what it observes: `get_product_2_after_confirm_order` reads the
-second product after that write, and `cancel_order_again` repeats a write on the same resource.
+named in a note. A create listed twice sends the second the values a plan's second copy gets
+(a price of 250 then 1250, `-2` after the tag). Reads of one rpc after two creates take them in
+turn, restarting after each write. A repeated rpc's step is named after what it observes:
+`get_product_2_after_confirm_order` reads the second product after that write, and
+`cancel_order_again` repeats a write on the same resource.
 An optional enum field left at `*_UNSPECIFIED` is left out of the body.
 Then write the contract (§7) so the next chains compose themselves.
 

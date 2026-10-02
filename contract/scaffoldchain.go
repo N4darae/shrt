@@ -50,7 +50,9 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 		if read {
 			readRun[m.FullName]++
 		}
-		if len(producers[m.FullName]) > 0 {
+		if n := len(producers[m.FullName]); n > 0 && p.creates(step, m) {
+			distinctProducerAt(step.Body, catalog.DescribeMessage(m.Input()).Fields, strings.TrimPrefix(ids[i], producers[m.FullName][0]+"_"), n)
+		} else if n > 0 {
 			distinguishFixtures(step, ids[i], producers[m.FullName][0])
 		}
 		for _, c := range p.splitSharedProducers(step, p.grown) {

@@ -83,3 +83,22 @@ func TestChainNewNamesARepeatedRPCAfterWhatItObserves(t *testing.T) {
 		}
 	}
 }
+
+func TestChainNewGivesASecondCreateTheValuesThePlanGivesIt(t *testing.T) {
+	c, raw, _ := chainNewShopDemo(t, orderLifecycle...)
+	p, text, _ := shopDemoPlan(t, "CreateOrder")
+	for _, id := range []string{"create_product", "create_product_2"} {
+		st, _ := c.Step(id)
+		planned := planStep(t, p, id)
+		for _, field := range []string{"sku", "name", "price_minor"} {
+			if st.Body[field] != planned.Body[field] {
+				t.Fatalf("%s.%s: chain new sends %v, contract plan %v\n%s\n%s", id, field, st.Body[field], planned.Body[field], raw, text)
+			}
+		}
+	}
+	first, _ := c.Step("create_product")
+	second, _ := c.Step("create_product_2")
+	if first.Body["price_minor"] == second.Body["price_minor"] {
+		t.Fatalf("a total over two lines cannot tell two products of one price apart:\n%s", raw)
+	}
+}
