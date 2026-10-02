@@ -205,8 +205,8 @@ func TestInitBaseURLComesFromTheFlagThePortFileOrTheDefault(t *testing.T) {
 	dir := shopWorkspace(t, "")
 	defer chdir(t, dir)()
 	out := cliInit(t, "-base-url", "http://backend.test:9000")
-	if strings.Contains(out, "set target.base_url") || !strings.Contains(out, "check target.base_url") || !strings.Contains(out, "http://backend.test:9000") {
-		t.Fatalf("with -base-url, next: asks to check it, not to set it:\n%s", out)
+	if strings.Contains(out, "set it") || !strings.Contains(out, "write .shrt/config.yaml: target.base_url http://backend.test:9000\n") {
+		t.Fatalf("with -base-url, init names the target it wrote and does not ask to set it:\n%s", out)
 	}
 	out = cliInit(t, "-base-url", "http://other.test:1")
 	if !strings.Contains(out, "-base-url http://other.test:1 was NOT applied") || !strings.Contains(out, "http://backend.test:9000") {
@@ -215,8 +215,8 @@ func TestInitBaseURLComesFromTheFlagThePortFileOrTheDefault(t *testing.T) {
 	fresh := shopWorkspace(t, "")
 	defer chdir(t, fresh)()
 	out = cliInit(t)
-	if !strings.Contains(out, "set target.base_url") || !strings.Contains(out, "http://127.0.0.1:8080 now") {
-		t.Fatalf("without -base-url next: says to set it:\n%s", out)
+	if !strings.Contains(out, "target.base_url http://127.0.0.1:8080, the default: set it to your backend") {
+		t.Fatalf("without -base-url init says to set it:\n%s", out)
 	}
 	if !strings.Contains(out, "    envelope_path: status.code ") || !strings.Contains(out, "    item_envelope_path: results[].status.code ") ||
 		strings.Contains(out, "envelope_path: error.code") || strings.Contains(out, "results[].error.code") ||
@@ -371,5 +371,28 @@ func TestABrokenConfigsAdviceMatchesWhatInitDoes(t *testing.T) {
 	captureStdout(t, func() { initErr = runInit(context.Background(), nil) })
 	if initErr == nil || !strings.Contains(initErr.Error(), `unknown key "timeuot"`) {
 		t.Fatalf("init stops on the same parse error, got %v", initErr)
+	}
+}
+
+func TestInitPrintsWhatItWroteWhatToCheckAndTheNextCommand(t *testing.T) {
+	srv := loginServer(t, `{"error":{"code":"DONE"},"access_token":"tok","expires_at":"0"}`)
+	dir := loginWorkspace(t, "")
+	defer chdir(t, dir)()
+	t.Setenv("API_USER", "u")
+	t.Setenv("API_PASSWORD", "p")
+	out := cliInit(t, "-base-url", srv.URL)
+	for _, want := range []string{"write .shrt/config.yaml", srv.URL, "write .shrt/chains/, .shrt/runs/, .shrt/safespots/, .shrt/contracts/\n",
+		"GUESSED", "envelope_ok DONE", "write .shrt/ci-gate.sh\n", "next: shrt doctor, then .shrt/docs/README.md \"Quickstart\"\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("want %q in:\n%s", want, out)
+		}
+	}
+	for _, not := range []string{"subagent", "latency: {fail: true}", "copy it to <name>.yaml", "shrt contract quality -phase happy", "\n\n\n"} {
+		if strings.Contains(out, not) {
+			t.Errorf("want no %q in:\n%s", not, out)
+		}
+	}
+	if n := strings.Count(out, "\n"); n > 12 {
+		t.Errorf("init prints what it wrote, what to check and the next command, %d lines:\n%s", n, out)
 	}
 }
