@@ -9,32 +9,14 @@ Record, replay and verify ordered chains of internal API calls. A **chain** is a
 RPC calls that reproduces a backend state. A **safe spot** is a run a person approved as correct;
 later replays are diffed against it, so a regression names the rpc that changed.
 
-## Before the first command
+## Start here
 
-```bash
-cd "$(git rev-parse --show-toplevel)"
-shrt init -agents=false -build=false # only if .shrt/docs/ is missing, as on a fresh clone
-shrt catalog build                   # the descriptor; rebuild after any proto change
-shrt catalog ls -filter invoice      # what rpcs exist
-```
-
-`.shrt/docs/` and the descriptor are gitignored build output; the first line restores the docs
-from the binary and says if it wrote anything else. Commit `.claude/` (this skill and the
-`shrt-contract-author` subagent); after upgrading shrt, `shrt init -force -build=false` refreshes
-docs and kit but never your config.
-
-## Building a regression suite
-
-Follow `.shrt/docs/README.md` "Quickstart" in order: export the login credentials, `shrt init`,
-fill the contracts, `shrt contract plan -all -write`, run, pin real defects with `chain pin`,
-`shrt confirm -all`, then `shrt gate` per release. Do not hand-write the chains: the planner's
-probes find what hand-written chains miss.
-
-## The rules
-
-`.shrt/docs/README.md` owns the four rules: approve a safe spot only on the user's yes to a
-proposal you presented, never reorder steps, never hand-write a body from memory, never leave a
-step asserting only that the server did not crash.
+On a fresh clone `.shrt/docs/` is missing: `shrt init -agents=false -build=false` restores it. Then
+read `.shrt/docs/README.md`: "Before the first command", then "Quickstart" to build a regression
+suite (let the planner compose the chains, do not hand-write them), and "Four rules that are never
+negotiable", which hold for every command. Commit `.claude/` (this skill and the
+`shrt-contract-author` subagent); `shrt init -force -build=false` refreshes docs and kit after an
+upgrade and never touches your config.
 
 ## Route
 
