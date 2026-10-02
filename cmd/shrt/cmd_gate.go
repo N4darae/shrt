@@ -807,6 +807,7 @@ func settleFlaky(chains []*gateChain) []string {
 		}
 	}
 	var out []string
+	said := map[string]bool{}
 	for _, call := range order {
 		t := totals[call]
 		kind := "intermittent"
@@ -827,7 +828,12 @@ func settleFlaky(chains []*gateChain) []string {
 				r.Every = k
 			}
 		}
-		out = append(out, fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains))
+		line := fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains)
+		if !said[kind] {
+			said[kind] = true
+			line += ": " + findingMeaning(kind == "repeated", "those steps")
+		}
+		out = append(out, line)
 	}
 	return out
 }

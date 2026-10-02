@@ -104,7 +104,7 @@ func (v *verification) parse(args []string) error {
 	fs.BoolVar(&v.quiet, "quiet", false, "a clean replay prints its verdict line only")
 	fs.BoolVar(&v.save, "save", true, "persist the replay record")
 	fs.StringVar(&v.build, "build", "", buildFlagUsage)
-	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
+	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch, and say what an intermittent or repeated FINDING means")
 	fs.BoolVar(&v.showLatency, "latency", false, "list each step's latency against the safe spot's run")
 	fs.BoolVar(&v.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -395,8 +395,8 @@ func (v *verification) unansweredHeadline() {
 	switch {
 	case strings.Contains(why, transport.NoAnswerBeforeTimeout):
 		v.headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", step)
-	case strings.Contains(why, "a gateway answered for the service"):
-		v.headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", step)
+	case strings.Contains(why, unavailableAnswered):
+		v.headline = fmt.Sprintf("step %s was answered unavailable", step)
 	case strings.HasPrefix(why, "the backend refused authentication") && refusedFreshAt(rec, step):
 		v.headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
 			"so the credentials work: this may be an auth regression", step)
@@ -443,7 +443,7 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 	case v.dropped != nil:
 		v.note(body, "FINDING: "+v.dropped.line())
 	case v.flaky.finding():
-		fmt.Fprintln(body, "FINDING: "+v.flaky.line())
+		fmt.Fprintln(body, "FINDING: "+v.flaky.line(v.verbose))
 	case loss != nil:
 		v.note(body, "WARNING: "+loss.line())
 	}
@@ -1449,11 +1449,10 @@ func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error
 			"issued, so the credentials work: this may be an auth regression in the backend. Nothing before it drifted, and %s. "+
 			"The step record says what was tried (auth_retry, error); %s", name, step, why, past, tail)
 	}
-	remedy := unansweredRemedy(why)
+	remedy, got := unansweredRemedy(why), "never got an answer"
 	for _, st := range rec.Steps {
 		if st.ID == step && runner.NotAnsweredByService(st) {
-			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
-				"so wait until it is up and run verify again"
+			remedy, got = "wait until it is up (as after a restart) and run verify again", "was answered unavailable"
 		}
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
@@ -1472,9 +1471,11 @@ func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error
 				"it as a finding about that step", st.ID)
 		}
 	}
-	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
-		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
+	return exitWith(3, "could not verify %s: step %q %s (%s); nothing before it drifted, and %s. "+
+		"This is not a verdict about the backend: %s", name, step, got, why, past, remedy)
 }
+
+const unavailableAnswered = "the backend or a gateway in front of it answered unavailable"
 
 var gatewayLogin = regexp.MustCompile(`(?i)login rejected: (http_50[234]|unavailable)\b`)
 
@@ -1482,7 +1483,7 @@ func unansweredRemedy(why string) string {
 	lower := strings.ToLower(why)
 	switch {
 	case gatewayLogin.MatchString(why):
-		return "the login was answered by a gateway, not by the service (as during a rolling restart), so wait until it is up " +
+		return "the login was answered unavailable, by the backend or a gateway in front of it (as during a restart), so wait until it is up " +
 			"and run verify again"
 	case strings.Contains(lower, "refused authentication") || strings.Contains(lower, "login rejected") ||
 		strings.Contains(lower, "unauthenticated") || strings.Contains(lower, "permission_denied"):
@@ -1506,7 +1507,7 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 			why := st.Error
 			if gateway {
 				why, _, _ = strings.Cut(st.Error, "\n")
-				why = fmt.Sprintf("HTTP %d %s: a gateway answered for the service", st.HTTPStatus, why)
+				why = fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, why, unavailableAnswered)
 			} else if authRefused {
 				line, _, _ := strings.Cut(st.Error, "\n")
 				why = "the backend refused authentication: " + line

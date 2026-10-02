@@ -59,13 +59,14 @@ func TestTheGateLabelsWhatItsOwnOutputExplains(t *testing.T) {
 	for _, want := range []string{
 		"FINDING    cli-thing-flow  intermittent: ThingService/Fetch failed 3 of 12 calls, every 4th\n",
 		"FINDING    cli-unique      intermittent: ThingService/Fetch failed 4 of 16 calls, every 4th\n",
-		"FINDING: intermittent failure at ThingService/Fetch (failed 7 of 28 calls, every 4th) in 2 chain(s)\n",
+		"FINDING: intermittent failure at ThingService/Fetch (failed 7 of 28 calls, every 4th) in 2 chain(s): a backend defect (flaky under load, " +
+			"an exhausted pool, a race), not a deterministic regression at those steps; a re-run may pass and does not clear it\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}
 	}
-	if code != 1 {
+	if code != 1 || strings.Count(out, "a re-run may pass") != 1 {
 		t.Errorf("the gate states the finding once, in its own line, and fails:\n%s", out)
 	}
 }
@@ -83,7 +84,7 @@ func TestTheGateLabelsAChainFailingOnlyByAnIntermittentFindingAndStatesItOnce(t 
 	for _, want := range []string{
 		"FINDING    cli-thing-flow  intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
 		"FINDING    cli-unique      intermittent: ThingService/Fetch failed 2 of 8 calls, every 4th\n",
-		"FINDING: intermittent failure at ThingService/Fetch (failed 4 of 16 calls, every 4th) in 2 chain(s)\n",
+		"FINDING: intermittent failure at ThingService/Fetch (failed 4 of 16 calls, every 4th) in 2 chain(s): a backend defect",
 		"FAIL: 2 of 2 chain(s) failed, 1 finding(s)",
 	} {
 		if !strings.Contains(out, want) {
@@ -115,7 +116,7 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 		"FINDING    cli-unique      intermittent: ThingService/Create failed 1 of 5 calls\n",
 		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2; suspect read list (ThingService/Fetch): answers another set of items\n",
 		"  FINDING: intermittent failure at ThingService/Create, below\n",
-		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls) in 3 chain(s)\n",
+		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls) in 3 chain(s): a backend defect",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -169,7 +170,7 @@ func TestTheGateFindsAServerErrorAtAFixedCadenceIntermittent(t *testing.T) {
 	out, _ := runGateOut(t)
 	for _, want := range []string{
 		"FINDING    cli-unique      intermittent: ThingService/Create failed 3 of 15 calls, every 5th\n",
-		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls, every 5th) in 1 chain(s)\n",
+		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls, every 5th) in 1 chain(s): a backend defect",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)

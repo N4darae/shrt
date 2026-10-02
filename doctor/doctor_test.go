@@ -102,7 +102,7 @@ func find(t *testing.T, r *doctor.Report, check string) doctor.Finding {
 			return f
 		}
 	}
-	t.Fatalf("no finding for %q in:\n%s", check, r.Text())
+	t.Fatalf("no finding for %q in:\n%s", check, r.Text(true))
 	return doctor.Finding{}
 }
 
@@ -110,10 +110,16 @@ func TestASoundInstallationReportsNothingToFix(t *testing.T) {
 	r := run(t, repo(t), options())
 
 	if r.Failed(true) {
-		t.Fatalf("a freshly installed repo must be clean even under -strict:\n%s", r.Text())
+		t.Fatalf("a freshly installed repo must be clean even under -strict:\n%s", r.Text(true))
 	}
 	if len(r.Checks()) < 5 {
 		t.Errorf("every check has to report, including the ones that pass: %v", r.Checks())
+	}
+	if text := r.Text(false); text != "" {
+		t.Errorf("a sound installation prints no line above its summary:\n%s", text)
+	}
+	if all := r.Text(true); strings.Count(all, "\n") != r.Count(doctor.LevelOK) || !strings.HasPrefix(all, "ok   ") {
+		t.Errorf("-v lists every ok check, one line each:\n%s", all)
 	}
 }
 
@@ -391,7 +397,7 @@ func TestTheReportPrintsARemedyOnlyForWhatIsWrong(t *testing.T) {
 	cfg := repo(t)
 	write(t, cfg.Abs(filepath.Join(config.DocsDir, "README.md")), "an older loop\n")
 
-	text := run(t, cfg, options()).Text()
+	text := run(t, cfg, options()).Text(true)
 
 	if !strings.Contains(text, "rm -rf .shrt/docs") {
 		t.Errorf("a finding without its remedy leaves the reader to guess: %q", text)

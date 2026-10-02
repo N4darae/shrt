@@ -275,7 +275,7 @@ func pinBlocker(e *env, c *chain.Chain, rec *runner.Record) string {
 		}
 	}
 	if flaky := detectIntermittent(e, rec); flaky != nil {
-		return flaky.line()
+		return flaky.line(true)
 	}
 	return ""
 }

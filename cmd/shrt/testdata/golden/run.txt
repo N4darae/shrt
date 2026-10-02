@@ -34,7 +34,6 @@ probe-orders: FAILED in DUR
   step "cancel_confirmed": expectation failed: status.code want=SUCCESS got=REJECTED (message="StillConfirmed")
   suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0024"}
 pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)
-shrt run: chain probe-orders: failed
 
 $ shrt run probe-orders -quiet  [exit 1]
 probe-orders: FAILED in DUR
@@ -42,5 +41,4 @@ probe-orders: FAILED in DUR
   suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0029"}
   run RUNID -> TMP
 pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)
-shrt run: chain probe-orders: failed
 

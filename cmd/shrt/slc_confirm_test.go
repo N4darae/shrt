@@ -116,7 +116,8 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 		t.Fatalf("confirm -all: %v\n%s", err, out)
 	}
 	for _, want := range []string{"proposed 2 chain(s), NOT safe spots yet; what the proposer checked: fetch returns the created name",
-		"| cli-thing-flow | `", "| cli-thing-again | `", "| 2/2 | none | no earlier passing run to compare with |",
+		"| cli-thing-flow | `", "| cli-thing-again | `", "| 2/2 | none |\n",
+		"\n**Check before approving:**\n- `cli-thing-again`, `cli-thing-flow`: no earlier passing run to compare with\n",
 		"skip     no run recorded: cli-thing-unrun", ".shrt/safespots/pending/<chain>.md",
 		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>"} {
 		if !strings.Contains(out, want) {
@@ -148,6 +149,23 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 	out = captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })
 	if err == nil {
 		t.Fatal("-all names no chain")
+	}
+}
+
+func TestTheProposalTableListsOnlyTheRowsWithSomethingToCheck(t *testing.T) {
+	row := func(chain, check string) store.ProposalRow {
+		return store.ProposalRow{Chain: chain, Run: "r-" + chain, Steps: "2/2", Refusals: "none", Check: check}
+	}
+	plain := proposalTable([]store.ProposalRow{row("a", "none"), row("b", "")})
+	if strings.Contains(plain, "check") || strings.Contains(plain, "Check") || strings.Count(plain, "\n") != 4 {
+		t.Fatalf("with nothing to check, the table has no check column and nothing under it:\n%s", plain)
+	}
+	mixed := proposalTable([]store.ProposalRow{row("a", "redacted `token`"), row("b", "none"), row("c", "redacted `token`"), row("d", "1 warning(s)")})
+	want := "| chain | run | steps passed | refusals asserted |\n|---|---|---|---|\n" +
+		"| a | `r-a` | 2/2 | none |\n| b | `r-b` | 2/2 | none |\n| c | `r-c` | 2/2 | none |\n| d | `r-d` | 2/2 | none |\n" +
+		"\n**Check before approving:**\n- `a`, `c`: redacted `token`\n- `d`: 1 warning(s)\n"
+	if mixed != want {
+		t.Fatalf("the rows needing a check are listed after the table, grouped by what to check:\n%s\nwant:\n%s", mixed, want)
 	}
 }
 

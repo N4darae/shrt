@@ -231,7 +231,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			fmt.Println("  note: " + line)
 		}
 		if flaky.finding() {
-			fmt.Println("  FINDING: " + flaky.line())
+			fmt.Println("  FINDING: " + flaky.line(true))
 			if others := flaky.otherFailures(e, rec); len(others) > 0 && rec.KeptRed == "" {
 				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}
@@ -243,6 +243,9 @@ func runRun(ctx context.Context, args []string) (err error) {
 		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
+		if rec.KeptRed == "" {
+			return shownError{err}
+		}
 		return err
 	}
 	if rec.KeptRed == runner.KeptRedAsPinned {
@@ -254,7 +257,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
-	"  3  no verdict: unreachable, a gateway answered, a restart mid-run, login or auth refused; re-run\n"
+	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

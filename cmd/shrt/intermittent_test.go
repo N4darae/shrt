@@ -177,25 +177,30 @@ func TestRunSummarySaysIntermittent(t *testing.T) {
 	var err error
 	out := captureStdout(t, func() { err = runRun(ctx, []string{"cli-flaky", "-quiet"}) })
 	wantExit1(t, "run", err, out)
-	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") {
-		t.Fatalf("run's summary says the failure looks intermittent, with evidence: %v\n%s", err, out)
+	if !strings.Contains(out, "FINDING: intermittent failure at ThingService/Fetch") || strings.Count(out, "a re-run may pass and does not clear it") != 1 {
+		t.Fatalf("run's summary says the failure looks intermittent, with evidence, and once what that means: %v\n%s", err, out)
 	}
 }
 
 func TestAServerErrorAtTheSameStepAsThePreviousRunIsARepeatedFailureARerunDoesNotClear(t *testing.T) {
 	f, ctx := flakyWorkspace(t)
 	f.set("internal", 500, 2, 3)
-	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "intermittent failure") || !strings.Contains(out, "a re-run may pass") {
-		t.Fatalf("verify 1: a first failure is intermittent: %v\n%s", err, out)
+	if out, err := verifyOnce(t, ctx); err == nil || !strings.Contains(err.Error(), "intermittent failure") || strings.Contains(out, "a re-run may pass") {
+		t.Fatalf("verify 1: a first failure is intermittent, and what that means is said by run and the gate, or verify -v: %v\n%s", err, out)
 	}
 	f.set("internal", 500, 2, 3)
 	out, err := verifyOnce(t, ctx)
 	wantExit1(t, "verify 2", err, out)
 	msg := err.Error()
 	if !strings.Contains(msg, "repeated failure at ThingService/Fetch") || strings.Contains(out, "a re-run may pass") ||
-		!strings.Contains(out, "failed at the same step(s) the same way") || !strings.Contains(out, "a re-run fails the same way") ||
+		!strings.Contains(out, "failed at the same step(s) the same way") || strings.Contains(out, "a re-run fails the same way") ||
 		!strings.Contains(out, "the errors hid the checks of fetch_again") {
 		t.Fatalf("verify 2: the same failure at the same step as the previous run is said so, with the checks it hid: %v\n%s", err, out)
+	}
+	f.set("internal", 500, 2, 3)
+	out = captureStdout(t, func() { err = runVerify(ctx, []string{"cli-flaky", "-quiet", "-v"}) })
+	if !strings.Contains(out, "a re-run fails the same way") {
+		t.Fatalf("verify -v says what a repeated failure means: %v\n%s", err, out)
 	}
 }
 

@@ -532,6 +532,34 @@ func TestSliceDescriptionRecordsTheRerun(t *testing.T) {
 	}
 }
 
+func TestASliceDescriptionSaysWhatItReproducesWhetherVerifiedAndTheSourceRun(t *testing.T) {
+	res, err := chain.Slice(productChainReading("tag"), "add_stock_second", chain.SliceOptions{RunID: "src-run"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := res.Chain.Description
+	head := chain.SliceDescriptionPrefix("stock", "add_stock_second")
+	if !strings.HasPrefix(d, head) || !strings.Contains(d, "\nHYPOTHESIS: not verified; 'shrt chain slice -verify' compares it with source run src-run.\n") ||
+		strings.Contains(d, "Computed by") || strings.Contains(d, "\n\n") {
+		t.Fatalf("an unverified slice says what it reproduces and that it is a hypothesis, one line each:\n%s", d)
+	}
+	res.MarkReproduced("src-run", "slice-run", time.Date(2026, 9, 24, 10, 0, 0, 0, time.UTC))
+	d = res.Chain.Description
+	lines := strings.Split(strings.TrimRight(d, "\n"), "\n")
+	if !strings.HasPrefix(lines[0], head) || !strings.HasPrefix(lines[1], "VERIFIED by 'shrt chain slice -verify': ") ||
+		!strings.Contains(lines[1], "source run src-run") || strings.Contains(d, "HYPOTHESIS") || strings.Contains(d, "\n\n") {
+		t.Fatalf("a verified slice says so on the line under what it reproduces:\n%s", d)
+	}
+	rerun := chain.RecordRerun(head+" 2 of 3 steps.\nHYPOTHESIS: not verified by 'shrt chain slice -verify'.\n2 dropped step(s) WRITE: a, b.\n", "reproduced on 2026-09-25: run r3")
+	if strings.Contains(rerun, "HYPOTHESIS") || !strings.Contains(rerun, "\nRE-RUN by 'shrt chain slice -verify': reproduced on 2026-09-25: run r3.\n") ||
+		!strings.Contains(rerun, "2 dropped step(s) WRITE") {
+		t.Fatalf("a re-run replaces the hypothesis line:\n%s", rerun)
+	}
+	if !chain.IsSliceDescription(rerun) {
+		t.Fatalf("the first line still marks a slice:\n%s", rerun)
+	}
+}
+
 func TestCompareVerdicts(t *testing.T) {
 	app := []chain.ExpectResult{{Path: "error.details.0.app_code", Rule: "equals", Passed: true}}
 	source := chain.Verdict{Step: "a", Status: "passed", ErrorCode: "failed_precondition", Expect: app}

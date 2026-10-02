@@ -26,7 +26,7 @@ func TestASafeSpotWhoseChainIsGoneIsAWarningWithTheRemedy(t *testing.T) {
 	r := run(t, cfg, options())
 	f := find(t, r, doctor.CheckSafeSpots)
 	if f.Level != doctor.LevelWarn {
-		t.Fatalf("a safe spot with no chain fails the gate's verify, so doctor must warn:\n%s", r.Text())
+		t.Fatalf("a safe spot with no chain fails the gate's verify, so doctor must warn:\n%s", r.Text(true))
 	}
 	for _, want := range []string{`no chain "stock-batch"`, `"stock-batch-renamed"`, "renamed"} {
 		if !strings.Contains(f.Detail, want) {
