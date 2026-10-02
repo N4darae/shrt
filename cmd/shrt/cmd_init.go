@@ -162,11 +162,21 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if len(docs) == 0 {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
+	gateFiles := []string{}
 	switch wrote, err := agentkit.InstallGateScript(root, *force); {
 	case err != nil:
 		return err
 	case wrote:
-		fmt.Printf("write %s\n", agentkit.GateScriptPath)
+		gateFiles = append(gateFiles, agentkit.GateScriptPath)
+	}
+	switch wrote, err := agentkit.InstallQualityBaseline(root); {
+	case err != nil:
+		return err
+	case wrote:
+		gateFiles = append(gateFiles, agentkit.QualityBaselinePath+" (0)")
+	}
+	if len(gateFiles) > 0 {
+		fmt.Printf("write %s\n", strings.Join(gateFiles, ", "))
 	}
 
 	switch added, err := ensureGitignore(root, initGitignore(loaded)); {

@@ -382,7 +382,7 @@ func TestInitPrintsWhatItWroteWhatToCheckAndTheNextCommand(t *testing.T) {
 	t.Setenv("API_PASSWORD", "p")
 	out := cliInit(t, "-base-url", srv.URL)
 	for _, want := range []string{"write .shrt/config.yaml", srv.URL, "write .shrt/chains/, .shrt/runs/, .shrt/safespots/, .shrt/contracts/\n",
-		"GUESSED", "envelope_ok DONE", "write .shrt/ci-gate.sh\n", "next: shrt doctor, then .shrt/docs/README.md \"Quickstart\"\n"} {
+		"GUESSED", "envelope_ok DONE", "write .shrt/ci-gate.sh, .shrt/quality-baseline (0)\n", "next: shrt doctor, then .shrt/docs/README.md \"Quickstart\"\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
 		}

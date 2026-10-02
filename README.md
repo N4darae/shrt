@@ -122,8 +122,8 @@ fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that se
 overlay, or an rpc whose contract no chain calls, it ends with one `coverage:` line.
 
 `shrt init` writes this wrapper to `.shrt/ci-gate.sh` (commit it; `init -force` refreshes it); it
-skips the contract checks while `.shrt/contracts` holds no overlay.
-Write `0` into `.shrt/quality-baseline` first; a gate failing on it names the current score, to
+skips the contract checks while `.shrt/contracts` holds no overlay. Init also writes `0` into a
+missing `.shrt/quality-baseline`, never over one; a gate failing on it names the current score, to
 write in as a reviewed edit. The first gate outside CI writes `.shrt/hollow-baseline` with today's
 count and says so; commit it. With `CI` set, a missing baseline fails the gate.
 
