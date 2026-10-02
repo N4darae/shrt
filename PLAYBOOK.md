@@ -455,11 +455,11 @@ shrt run billing                     # green: propose and approve it
 `chain pin` runs `-keep-going` first if the latest run did not reach every step, then repeatedly
 slices the first failing step (with the failing steps that read it, fail the same call the same way
 or with list items ignoring the same request filter, or are failing reads with no write between),
-cuts them from the chain and re-runs until it passes. A pinned read keeps the last earlier read of
-its field that passed, when kept writes lie between (`checkpoint:`), so a later defect in an
-earlier write fails there and is named. It stops when a slice does not reproduce or a FINDING or
-intermittent failure explains the red. Remove the red slice and plan again once the defect is
-fixed.
+cuts them from the chain, adds `Kept red in <slice>: <steps>.` to its description, and re-runs
+until it passes. A pinned read keeps the last earlier read of its field that passed, when kept
+writes lie between (`checkpoint:`), so a later defect in an earlier write fails there and is
+named. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the
+red. Remove the red slice and plan again once the defect is fixed.
 
 **No safe spot yet: `shrt diff`.**
 
