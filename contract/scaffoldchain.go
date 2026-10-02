@@ -212,6 +212,9 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 	p.nameBySituation()
 	for _, st := range p.Chain.Steps {
 		dropPlaceholderEnums(st, lib, cat)
+		if rc, ok := lib.Get(canonicalCall(cat, st.Call)); ok && st.Description == FirstSentence(rc.Summary) {
+			st.Description = ""
+		}
 	}
 	p.discriminateListOrder(lib, nil)
 	p.assertContracts(lib)

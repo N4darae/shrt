@@ -147,3 +147,14 @@ func TestChainNewWritesWhatTheContractsLetThePlanAssert(t *testing.T) {
 		}
 	}
 }
+
+func TestChainNewWritesNoDescriptionThatOnlyRepeatsTheContractSummary(t *testing.T) {
+	c, raw, _ := chainNewShopDemo(t, orderLifecycle...)
+	_, lib := shopDemo(t)
+	for _, st := range c.Steps {
+		rc, ok := lib.Get(st.Call)
+		if ok && st.Description != "" && st.Description == contract.FirstSentence(rc.Summary) {
+			t.Fatalf("step %s repeats its rpc's summary, which shrt contract show prints:\n%s", st.ID, raw)
+		}
+	}
+}

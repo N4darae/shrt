@@ -58,7 +58,8 @@ turn, restarting after each write. A repeated rpc's step is named after what it 
 `cancel_order_again` repeats a write on the same resource. Each step gets the expectations a plan
 writes from its contract (an id read back, a stated state, levels and totals worked out from
 `effects:` and the literal quantities and prices sent); one note names the steps left asserting
-only the verdict. Edit a quantity or price and rework the numbers that follow from it.
+only the verdict. Edit a quantity or price and rework the numbers that follow from it. A step
+carries no `description:` that would only repeat its rpc's summary (`shrt contract show` has it).
 An optional enum field left at `*_UNSPECIFIED` is left out of the body.
 Then write the contract (§7) so the next chains compose themselves.
 
