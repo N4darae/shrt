@@ -17,10 +17,16 @@ shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt r
 
 # a read unclear between two writes names both and is grouped once, under the earlier
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
-FAIL       flow  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; same fault as alone
-FAIL       flow-slice-get_b  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; same fault as alone
+FAIL       flow  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; suspect write confirm (OrderService/ConfirmOrder)
+FAIL       flow-slice-get_b  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; same fault as flow (ConfirmOrder)
 failures by suspect rpc:
-  OrderService/ConfirmOrder: 3 step(s) in 3 chain(s); e.g. alone get_b; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
+  OrderService/ConfirmOrder: 3 step(s) in 3 chain(s); e.g. flow get_b; suspect write confirm (OrderService/ConfirmOrder)
+
+# an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc
+FAIL       cancels  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; suspect write cancel (OrderService/CancelOrder)
+FAIL       cancels-slice-get_b  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; same fault as cancels (CancelOrder)
+failures by suspect rpc:
+  OrderService/CancelOrder: 2 step(s) in 2 chain(s); e.g. cancels get_b; suspect write cancel (OrderService/CancelOrder)
 
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)
@@ -53,7 +59,7 @@ failures by suspect rpc:
 
 # the example carries its reason
 FAIL       one  get (S/Get) thing.state want=DONE got=OPEN; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
-FAIL       two  get (S/Get) thing.state want=DONE got=OPEN; same fault as one
+FAIL       two  get (S/Get) thing.state want=DONE got=OPEN; same fault as one (Confirm)
 failures by suspect rpc:
   S/Confirm: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
 
@@ -77,17 +83,17 @@ failures by suspect rpc:
 
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)
-FAIL       orders-slice-list  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
-FAIL       orders-slice-held  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders
+FAIL       orders-slice-list  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
+FAIL       orders-slice-held  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
-FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders
+FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders (ConfirmOrder)
 failures by suspect rpc:
   OrderService/ConfirmOrder: 4 step(s) in 4 chain(s); e.g. orders confirm; suspect write confirm (OrderService/ConfirmOrder)
   OrderService/ListOrders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
 
 # a failed first change leads over a drift
 FAIL       a  add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect write add (ThingService/Add)
-FAIL       b  add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a
+FAIL       b  add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)
 failures by suspect rpc:
   ThingService/Add: 3 step(s) in 2 chain(s); e.g. a add; suspect write add (ThingService/Add)
   ThingService/Create: 1 step(s) in 1 chain(s); e.g. b create thing.name want=long name got=long
@@ -102,7 +108,7 @@ failures by suspect rpc:
 FAIL       one  get (S/Get) thing.state want=a got=b; suspect write w (S/Move)
   w sent {"w":1}
     thing.state at 1 step(s) (get); e.g. want=a got=b
-FAIL       two  get (S/Get) thing.state want=a got=b; same fault as one
+FAIL       two  get (S/Get) thing.state want=a got=b; same fault as one (Move)
   w sent {"w":1}
     thing.state at 1 step(s) (get); e.g. want=a got=b
 failures by suspect rpc:

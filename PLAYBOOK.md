@@ -394,8 +394,9 @@ vocabulary:
   answered as before and only the read moved; check what the write persisted.
 - `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
   A held-back step answering otherwise than the step it copies is judged on its own.
-- `same fault as <chain>`: the suspect and field an earlier gate line named, and no suspect that
-  chain lacks; otherwise the line names its own suspect and `also` the first other one, if any.
+- `same fault as <chain> (<rpc>)`: the suspect and field an earlier gate line named (or one of
+  this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own
+  suspect and `also` the first other one, if any.
 - `not as pinned` / `pins held, new change`: a kept-red chain's pin moved, or a new defect beside
   the pinned ones; do not re-pin, run its `shrt diff`.
 

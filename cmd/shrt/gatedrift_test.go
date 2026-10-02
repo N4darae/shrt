@@ -18,7 +18,7 @@ func TestTheGateHeadlinesAChainByAFaultNoEarlierChainShowed(t *testing.T) {
 	out, code := runGateOut(t)
 	for _, want := range []string{
 		"FAIL       cli-thing-flow  create (ThingService/Create) thing.price want=250 got=249; suspect write create (ThingService/Create); also suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",
-		"FAIL       cli-unique      pins held, new change: create (ThingService/Create) thing.price want=250 got=249; same fault as cli-thing-flow\n",
+		"FAIL       cli-unique      pins held, new change: create (ThingService/Create) thing.price want=250 got=249; same fault as cli-thing-flow (Create)\n",
 		"  ThingService/Create: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create; suspect write create (ThingService/Create)\n",
 		"  ThingService/Fetch: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch_as_other; suspect read fetch_as_other (ThingService/Fetch) as other: refused (DENIED), passes as default\n",
 	} {
@@ -42,7 +42,7 @@ func TestAKeptRedChainWhosePinMovedNamesThePinAndItsSuspect(t *testing.T) {
 		"run cli-unique":        {{code: 1, side: gateSidecar{KeptRed: "not_as_pinned", Items: []gateItem{drift, pin}}}},
 	})
 	out, _ := runGateOut(t)
-	want := "FAIL       cli-unique      not as pinned: get_pinned (ThingService/Get) thing.level pinned got=8, now got=-3; same fault as cli-thing-flow\n"
+	want := "FAIL       cli-unique      not as pinned: get_pinned (ThingService/Get) thing.level pinned got=8, now got=-3; same fault as cli-thing-flow (Move)\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("want %q in:\n%s", want, out)
 	}
@@ -85,7 +85,7 @@ func TestAFailedFirstChangeShownAboveStillLeadsOverADrift(t *testing.T) {
 	settleGate(chains)
 	for i, want := range []string{
 		"add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect write add (ThingService/Add)",
-		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a",
+		"add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)",
 	} {
 		if chains[i].first != want {
 			t.Errorf("chain %s: got %q, want %q", chains[i].name, chains[i].first, want)
