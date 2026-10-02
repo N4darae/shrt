@@ -230,7 +230,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			fmt.Println("  note: " + line)
 		}
 		if flaky.finding() {
-			fmt.Println("  FINDING: " + flaky.line())
+			fmt.Println("  FINDING: " + flaky.line(true))
 			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
 				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}

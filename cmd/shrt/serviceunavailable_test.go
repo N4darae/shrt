@@ -60,7 +60,7 @@ func TestAnUnavailableTheServiceAnswersBetweenAnsweredCallsIsAFinding(t *testing
 	if exitCodeOf(gateErr) != 1 || !strings.Contains(out, "FINDING    cli-flaky  repeated: ThingService/Fetch failed") || *retries != 0 {
 		t.Fatalf("the gate fails the chain on the finding, without a retry: %v, %d retries\n%s", gateErr, *retries, out)
 	}
-	if !strings.Contains(out, "FINDING: repeated failure at ThingService/Fetch (failed ") || !strings.Contains(out, ") in 1 chain(s)\n") {
+	if !strings.Contains(out, "FINDING: repeated failure at ThingService/Fetch (failed ") || !strings.Contains(out, ") in 1 chain(s): the backend fails this rpc at the same calls every run, not by chance: a defect in the backend, and a re-run fails the same way\n") {
 		t.Fatalf("the gate states the finding once:\n%s", out)
 	}
 }

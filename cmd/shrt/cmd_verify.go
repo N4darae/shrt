@@ -104,7 +104,7 @@ func (v *verification) parse(args []string) error {
 	fs.BoolVar(&v.quiet, "quiet", false, "a clean replay prints its verdict line only")
 	fs.BoolVar(&v.save, "save", true, "persist the replay record")
 	fs.StringVar(&v.build, "build", "", buildFlagUsage)
-	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
+	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch, and say what an intermittent or repeated FINDING means")
 	fs.BoolVar(&v.showLatency, "latency", false, "list each step's latency against the safe spot's run")
 	fs.BoolVar(&v.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -443,7 +443,7 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 	case v.dropped != nil:
 		v.note(body, "FINDING: "+v.dropped.line())
 	case v.flaky.finding():
-		fmt.Fprintln(body, "FINDING: "+v.flaky.line())
+		fmt.Fprintln(body, "FINDING: "+v.flaky.line(v.verbose))
 	case loss != nil:
 		v.note(body, "WARNING: "+loss.line())
 	}

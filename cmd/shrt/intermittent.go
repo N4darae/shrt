@@ -302,7 +302,15 @@ func (i *intermittentFailure) rates() []gateFlaky {
 	return out
 }
 
-func (i *intermittentFailure) line() string {
+func findingMeaning(repeated bool, where string) string {
+	if repeated {
+		return "the backend fails this rpc at the same calls every run, not by chance: a defect in the backend, and a re-run fails the same way"
+	}
+	return "a backend defect (flaky under load, an exhausted pool, a race), not a deterministic regression at " + where +
+		"; a re-run may pass and does not clear it"
+}
+
+func (i *intermittentFailure) line(explain bool) string {
 	resent, order, each := map[string][]string{}, []string{}, []string{}
 	for _, f := range i.steps {
 		at := fmt.Sprintf("step %d %s", f.step.Index, f.step.ID)
@@ -325,16 +333,20 @@ func (i *intermittentFailure) line() string {
 		hidden = "; the errors hid the checks of " + capList(i.hidden, 6)
 	}
 	if i.repeated() {
-		return fmt.Sprintf("repeated failure at %s: %s, so the backend fails this rpc at the same calls every run, not by chance: "+
-			"a defect in the backend, and a re-run fails the same way%s; %s",
-			i.calls(), i.steps[0].repeated, hidden, strings.Join(each, "; "))
+		why := ""
+		if explain {
+			why = ", so " + findingMeaning(true, "")
+		}
+		return fmt.Sprintf("repeated failure at %s: %s%s%s; %s", i.calls(), i.steps[0].repeated, why, hidden, strings.Join(each, "; "))
 	}
 	how := "the backend fails this rpc on some calls and answers it on others"
 	if i.rate != "" {
 		how = i.rate
 	}
-	return fmt.Sprintf("intermittent failure at %s: %s, a backend defect (flaky under load, an exhausted pool, a race), "+
-		"not a deterministic regression at that step; a re-run may pass and does not clear it%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
+	if explain {
+		how += ", " + findingMeaning(false, "that step")
+	}
+	return fmt.Sprintf("intermittent failure at %s: %s%s; %s", i.calls(), how, hidden, strings.Join(each, "; "))
 }
 
 func serverErrors(rec *runner.Record) []gateFlaky {
