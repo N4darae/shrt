@@ -31,8 +31,6 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	rpcOf := map[string]string{}
 	used := map[string]int{}
 	readRun := map[string]int{}
-	readerOf := map[string]string{}
-	lastWrite := ""
 	for i, m := range methods {
 		read := chain.IsReadOnlyCall(m.FullName)
 		if !read {
@@ -48,20 +46,13 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 			p.stepOf[rpc] = choose(ids)
 		}
 		step := p.buildStep(ids[i], "", m, lib)
-		picked, others := p.rewireProducers(step, producers, rpcOf, used, choose)
-		if read && readRun[m.FullName] == 0 && readerOf[picked] != "" {
-			p.note("step %s reads %s again after %s, as %s did; to read %s instead, reference it", ids[i], picked,
-				lastWrite, readerOf[picked], strings.Join(others, " or "))
-		}
+		p.rewireProducers(step, producers, rpcOf, used, choose)
 		if read {
 			readRun[m.FullName]++
-			if picked != "" {
-				readerOf[picked] = ids[i]
-			}
-		} else {
-			lastWrite = ids[i]
 		}
-		if len(producers[m.FullName]) > 0 {
+		if n := len(producers[m.FullName]); n > 0 && p.creates(step, m) {
+			distinctProducerAt(step.Body, catalog.DescribeMessage(m.Input()).Fields, strings.TrimPrefix(ids[i], producers[m.FullName][0]+"_"), n)
+		} else if n > 0 {
 			distinguishFixtures(step, ids[i], producers[m.FullName][0])
 		}
 		for _, c := range p.splitSharedProducers(step, p.grown) {
@@ -79,9 +70,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 }
 
 func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, rpcOf map[string]string, used map[string]int,
-	choose func([]string) string) (string, []string) {
-	var picked string
-	var others []string
+	choose func([]string) string) {
 	var walk func(v any, item int) any
 	walk = func(v any, item int) any {
 		switch t := v.(type) {
@@ -110,13 +99,6 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 			pick := choose(choices)
 			if item >= 0 {
 				pick = choices[item%len(choices)]
-			} else if picked == "" {
-				picked = pick
-				for _, c := range choices {
-					if c != pick {
-						others = append(others, c)
-					}
-				}
 			}
 			used[pick]++
 			return "${" + pick + "." + path + "}"
@@ -124,7 +106,6 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 		return v
 	}
 	walk(step.Body, -1)
-	return picked, others
 }
 
 func leastUsed(choices []string, used map[string]int) string {
@@ -228,10 +209,15 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		return nil, nil, err
 	}
 	p.Chain.Description = description
+	p.nameBySituation()
 	for _, st := range p.Chain.Steps {
 		dropPlaceholderEnums(st, lib, cat)
+		if rc, ok := lib.Get(canonicalCall(cat, st.Call)); ok && st.Description == FirstSentence(rc.Summary) {
+			st.Description = ""
+		}
 	}
 	p.discriminateListOrder(lib, nil)
+	p.assertContracts(lib)
 	p.noteRequirements()
 	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
 		p.declareInterpolatedVars(missing)
@@ -245,6 +231,37 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		steps[st.ID] = true
 	}
 	return raw, groupStepNotes(p.Notes, steps), nil
+}
+
+func (p *Plan) assertContracts(lib *Library) {
+	if lib == nil {
+		return
+	}
+	notes := len(p.Notes)
+	p.echoNumbers()
+	p.assertOutcomes(lib)
+	p.Notes = p.Notes[:notes]
+	p.assertStates(lib)
+	r := p.effectRules(lib)
+	if len(r.increase) == 0 && len(r.total) == 0 {
+		return
+	}
+	if p.met == nil {
+		p.met = map[[2]string]bool{}
+	}
+	asserted, _, _ := p.effectPass(lib, r, true)
+	ids := []string{}
+	for _, st := range p.Chain.Steps {
+		for _, kind := range []string{"zero", "increase", "batch", "total", "read"} {
+			if containsString(asserted[kind], st.ID) && !containsString(ids, st.ID) {
+				ids = append(ids, st.ID)
+			}
+		}
+	}
+	if len(ids) > 0 {
+		p.note("%s %s: %s levels and totals worked out from the quantities and prices sent, by the contracts' effects, so they change if those do",
+			pluralVerb(len(ids), "step", "steps"), strings.Join(ids, ", "), pluralVerb(len(ids), "asserts", "assert"))
+	}
 }
 
 func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {

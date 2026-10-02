@@ -1046,6 +1046,8 @@ func (p *Plan) noteStreamingTargets() {
 }
 
 func (p *Plan) noteRequirements() {
+	verdictOnly := []string{}
+	rpcs := []string{}
 	for _, pc := range p.pending {
 		id := pc.step.ID
 		if pc.contract.IsUnfilled("required") {
@@ -1073,11 +1075,23 @@ func (p *Plan) noteRequirements() {
 				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
 		}
 		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
-			p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
+			if p.noun == "" {
+				p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
+			} else {
+				verdictOnly = append(verdictOnly, id)
+				if rpc := shortRPC(pc.step.Call); !containsString(rpcs, rpc) {
+					rpcs = append(rpcs, rpc)
+				}
+			}
 		}
 		if len(pc.contract.RequiresRole) > 0 && !pc.contract.DeclaresNoRole() {
 			p.note("step %s: caller must hold role %s", id, strings.Join(pc.contract.RequiresRole, " or "))
 		}
+	}
+	if len(verdictOnly) > 0 {
+		p.note("%s %s: %s only the verdict, though %s more, see shrt contract plan %s",
+			pluralVerb(len(verdictOnly), "step", "steps"), strings.Join(verdictOnly, ", "), pluralVerb(len(verdictOnly), "asserts", "assert"),
+			pluralVerb(len(rpcs), "the contract declares", "the contracts declare"), strings.Join(rpcs, " "))
 	}
 }
 

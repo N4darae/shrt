@@ -1104,6 +1104,9 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 }
 
 func (p *Plan) isTargetStep(id string) bool {
+	if p.noun != "" {
+		return true
+	}
 	for _, node := range p.Targets {
 		if p.stepOf[node] == id {
 			return true
