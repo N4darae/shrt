@@ -8,13 +8,7 @@ apiVersion: shrt/v1
 name: probe-orders-slice-cancel_confirmed
 description: |
     Slice of probe-orders reproducing step cancel_confirmed: 5 of 10 steps.
-
-    Computed by 'shrt chain slice': the target, the producers and contract prerequisites of kept steps,
-    and earlier writes on what they use or sending a unique value the target sends again.
-
-    This slice is a HYPOTHESIS until it is run. A dependency that is state rather than a
-    reference leaves no trace in the YAML, so a slice can be too small and still go green.
-
+    HYPOTHESIS: not verified by 'shrt chain slice -verify'.
     5 dropped step(s) WRITE: create_product_2, add_stock, retry_single, create_order_three, cancel_pending.
 steps:
     - id: create_customer

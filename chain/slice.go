@@ -499,6 +499,7 @@ func (r *SliceResult) onBuild() string {
 const (
 	hypothesisParagraph = "\nThis slice is a HYPOTHESIS until it is run. A dependency that is state rather than a\n" +
 		"reference leaves no trace in the YAML, so a slice can be too small and still go green.\n"
+	hypothesisPrefix    = "HYPOTHESIS: not verified"
 	verifiedPrefix      = "VERIFIED by 'shrt chain slice -verify': "
 	notReproducedPrefix = "NOT REPRODUCED by 'shrt chain slice -verify': "
 	rerunPrefix         = "RE-RUN by 'shrt chain slice -verify': "
@@ -533,7 +534,7 @@ func replaceVerdict(description, line string, prefixes ...string) string {
 	}
 	kept := []string{}
 	for _, l := range strings.SplitAfter(description, "\n") {
-		verdict := false
+		verdict := strings.HasPrefix(l, hypothesisPrefix)
 		for _, p := range prefixes {
 			if strings.HasPrefix(l, p) {
 				verdict = true
@@ -586,9 +587,21 @@ func SliceDescriptionPrefix(source, target string) string {
 
 func sliceDescription(res *SliceResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %d of %d steps.\n\n", SliceDescriptionPrefix(res.Source, res.Target), len(res.Kept), res.Total)
-	b.WriteString("Computed by 'shrt chain slice': the target, the producers and contract prerequisites of kept steps,\n")
-	b.WriteString("and earlier writes on what they use or sending a unique value the target sends again.\n")
+	fmt.Fprintf(&b, "%s %d of %d steps.\n", SliceDescriptionPrefix(res.Source, res.Target), len(res.Kept), res.Total)
+	switch {
+	case res.Verified != "":
+		b.WriteString(verifiedLine(res.Verified))
+	case res.NotReproduced != "":
+		b.WriteString(notReproducedPrefix + res.NotReproduced + ".\n")
+	case res.Intermittent != "":
+		b.WriteString(intermittentPrefix + res.Intermittent + ".\n")
+	case res.Inconclusive != "":
+		b.WriteString(inconclusivePrefix + res.Inconclusive + ".\n")
+	case res.Run != "":
+		fmt.Fprintf(&b, "%s; 'shrt chain slice -verify' compares it with source run %s.\n", hypothesisPrefix, res.Run)
+	default:
+		b.WriteString(hypothesisPrefix + " by 'shrt chain slice -verify'.\n")
+	}
 	asked := []string{}
 	for _, k := range res.Kept {
 		if k.Kind == KeepAsked {
@@ -612,30 +625,19 @@ func sliceDescription(res *SliceResult) string {
 	if len(res.FreshVars) > 0 {
 		fmt.Fprintf(&b, "Kept writes create with %s: run it with -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
-	if res.Verified != "" {
-		b.WriteString("\n" + verifiedLine(res.Verified))
-	} else if res.NotReproduced != "" {
-		b.WriteString("\n" + notReproducedPrefix + res.NotReproduced + ".\n")
-	} else if res.Intermittent != "" {
-		b.WriteString("\n" + intermittentPrefix + res.Intermittent + ".\n")
-	} else if res.Inconclusive != "" {
-		b.WriteString("\n" + inconclusivePrefix + res.Inconclusive + ".\n")
-	} else {
-		b.WriteString(hypothesisParagraph)
-	}
 	if len(res.DroppedWrites) > 0 {
 		names := make([]string, 0, len(res.DroppedWrites))
 		for _, d := range res.DroppedWrites {
 			names = append(names, d.ID)
 		}
-		fmt.Fprintf(&b, "\n%d dropped step(s) WRITE: %s.\n", len(names), listSome(names, 8))
+		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(names), listSome(names, 8))
 	}
 	if len(res.RefusedWrites) > 0 {
 		names := make([]string, 0, len(res.RefusedWrites))
 		for _, d := range res.RefusedWrites {
 			names = append(names, d.ID)
 		}
-		fmt.Fprintf(&b, "\n%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
+		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
 	}
 	if len(res.Unmet) > 0 {
 		names := []string{}
@@ -647,7 +649,7 @@ func sliceDescription(res *SliceResult) string {
 			seen[u.RPC] = true
 			names = append(names, u.RPC)
 		}
-		fmt.Fprintf(&b, "\nUnmet contract prerequisite(s), no earlier step calls them: %s.\n", listSome(names, 8))
+		fmt.Fprintf(&b, "Unmet contract prerequisite(s), no earlier step calls them: %s.\n", listSome(names, 8))
 	}
 	return b.String()
 }
