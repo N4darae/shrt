@@ -77,7 +77,7 @@ probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 
 
 9 step(s) passed (-v prints every step)
 
-verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed
+verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed (it acts on the order confirm_single changed and may need that state: not proof confirm_single is the cause)
 
 $ shrt chain pin probe-orders  [exit 0]
 slice of cancel_confirmed did not reproduce without the writes it needs: again with -keep add_stock

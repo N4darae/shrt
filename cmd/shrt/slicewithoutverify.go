@@ -24,6 +24,8 @@ type withoutVerdict struct {
 	NewFail   []string `json:"fail_only_without,omitempty"`
 	newer     string
 	readsOut  bool
+	state     []string
+	noun      string
 }
 
 func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *runner.Record, named []string, a *withoutVerify, persist, quiet bool) (*withoutVerdict, error) {
@@ -61,7 +63,69 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 		}
 	}
 	v.readsOut = len(v.StillFail) > 0 && !slices.ContainsFunc(v.StillFail, func(id string) bool { return !readsLeftOut(rec, res, id) })
+	v.state, v.noun = leftState(rec, res, v.Cleared)
 	return v, nil
+}
+
+func leftState(rec *runner.Record, res *chain.WithoutResult, cleared []string) ([]string, string) {
+	acted := map[string]string{}
+	for _, r := range res.Removed {
+		for id := range entityFactsOf(rec, r.ID).acts {
+			if acted[id] == "" {
+				acted[id] = r.ID
+			}
+		}
+	}
+	var out []string
+	noun, wrote := "", false
+	for _, sr := range rec.Steps {
+		if sr == nil || !slices.Contains(cleared, sr.ID) {
+			continue
+		}
+		write := isWrite(sr)
+		for _, id := range sortedKeys(entityFactsOf(rec, sr.ID).mentions) {
+			if acted[id] != "" && (write || wrote) {
+				wrote = wrote || write
+				out = append(out, sr.ID)
+				if noun == "" {
+					noun = recordNoun(rec, acted[id], id)
+				}
+				break
+			}
+		}
+	}
+	if !wrote {
+		return nil, ""
+	}
+	return out, noun
+}
+
+func recordNoun(rec *runner.Record, step, id string) string {
+	sr, ok := rec.Step(step)
+	if !ok {
+		return "record"
+	}
+	request, response := decodedRecordStep(sr)
+	if top, ok := response.(map[string]any); ok {
+		for _, k := range sortedKeys(top) {
+			if obj, ok := top[k].(map[string]any); ok {
+				if key := primaryIDKey(k, obj); key != "" && obj[key] == id {
+					return k
+				}
+			}
+		}
+	}
+	for _, body := range []any{request, response} {
+		top, _ := body.(map[string]any)
+		for _, k := range sortedKeys(top) {
+			if top[k] == id && isIDKey(k) {
+				if n := strings.TrimSuffix(strings.TrimPrefix(k, "id_"), "_id"); n != "" && n != k {
+					return n
+				}
+			}
+		}
+	}
+	return "record"
 }
 
 func readsLeftOut(rec *runner.Record, res *chain.WithoutResult, step string) bool {
@@ -137,8 +201,8 @@ func (v *withoutVerdict) text() string {
 		fmt.Fprintf(&b, "verify STILL FAILS without %s: the %d step(s) that failed in source run %s still fail (%s), so %s %s not their cause\n",
 			without, counted, v.SourceRun, capList(v.StillFail, 5), without, verb)
 	default:
-		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s\n",
-			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5))
+		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s%s\n",
+			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5), v.stateNote())
 		if why := "so another cause"; len(v.StillFail) > 0 {
 			if v.readsOut {
 				why = "they read what the left-out steps write"
@@ -150,6 +214,27 @@ func (v *withoutVerdict) text() string {
 		fmt.Fprintf(&b, "  fail only without it: %s, they need what the left-out steps did\n", capList(v.NewFail, 5))
 	}
 	return b.String()
+}
+
+func (v *withoutVerdict) stateNote() string {
+	if len(v.state) == 0 {
+		return ""
+	}
+	without := capList(v.Without, 3)
+	who, act, is := "they", "act", "is"
+	if len(v.state) < len(v.Cleared) {
+		who = capList(v.state, 3)
+	}
+	if len(v.state) == 1 {
+		act = "acts"
+		if who == "they" {
+			who = "it"
+		}
+	}
+	if len(v.Without) > 1 {
+		is = "are"
+	}
+	return fmt.Sprintf(" (%s %s on the %s %s changed and may need that state: not proof %s %s the cause)", who, act, v.noun, without, without, is)
 }
 
 func (v *withoutVerdict) err() error {
