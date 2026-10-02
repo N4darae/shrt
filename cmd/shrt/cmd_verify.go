@@ -104,7 +104,7 @@ func (v *verification) parse(args []string) error {
 	fs.BoolVar(&v.quiet, "quiet", false, "a clean replay prints its verdict line only")
 	fs.BoolVar(&v.save, "save", true, "persist the replay record")
 	fs.StringVar(&v.build, "build", "", buildFlagUsage)
-	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch, and say what an intermittent or repeated FINDING means")
+	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch, say what an intermittent or repeated FINDING means, and how a person approves an intended regression")
 	fs.BoolVar(&v.showLatency, "latency", false, "list each step's latency against the safe spot's run")
 	fs.BoolVar(&v.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -649,7 +649,11 @@ func (v *verification) drift() error {
 		if first != nil {
 			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s\n%s", report.Counted(), at, regressionShape(report), capitalized(intendedChangeNext(name)))
+		next := ""
+		if v.verbose {
+			next = "\n" + capitalized(intendedChangeNext(name))
+		}
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s%s", report.Counted(), at, regressionShape(report), next)
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
