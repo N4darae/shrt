@@ -232,7 +232,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 		}
 		if flaky.finding() {
 			fmt.Println("  FINDING: " + flaky.line())
-			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
+			if others := flaky.otherFailures(e, rec); len(others) > 0 && rec.KeptRed == "" {
 				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}
 			flakyOnly = rec.KeptRed == "" || rec.KeptRed == runner.KeptRedAsPinned
@@ -652,13 +652,7 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
 			continue
 		}
-		path := ""
-		for _, ex := range st.Expect {
-			if !ex.Passed && ex.Rule != "unevaluated" {
-				path = ex.Path
-				break
-			}
-		}
+		path := failedPath(st)
 		r := att.of(st.ID, path)
 		if w := r.blamed(st.ID); w != "" {
 			writes[w] = true

@@ -212,18 +212,27 @@ func (f flakyStep) evidence() string {
 	return strings.Join(parts, "; ")
 }
 
-func (i *intermittentFailure) otherFailures(rec *runner.Record) []string {
+func (i *intermittentFailure) otherFailures(e *env, rec *runner.Record) []string {
 	flaky := map[string]bool{}
 	for _, f := range i.steps {
 		flaky[f.step.ID] = true
 	}
-	out := []string{}
+	a, out := runAttribution(e, rec), []string{}
 	for _, st := range rec.Steps {
-		if (st.Status == runner.StatusFailed || st.Status == runner.StatusError) && !flaky[st.ID] {
+		if (st.Status == runner.StatusFailed || st.Status == runner.StatusError) && !flaky[st.ID] && !flaky[a.of(st.ID, failedPath(st)).blamed(st.ID)] {
 			out = append(out, st.ID)
 		}
 	}
 	return out
+}
+
+func failedPath(st *runner.StepRecord) string {
+	for _, ex := range st.Expect {
+		if !ex.Passed && ex.Rule != "unevaluated" {
+			return ex.Path
+		}
+	}
+	return ""
 }
 
 func (i *intermittentFailure) classOf(report *diff.Report, a attribution) func(diff.Change) string {
