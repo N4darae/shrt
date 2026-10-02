@@ -900,6 +900,10 @@ func (a attribution) upstream(step string) int {
 		eff := a.e.effectsOf(call)[leafOf(path)]
 		return eff != nil && eff.Is != contract.EffectNone
 	}
+	mine := a.changed(step)
+	reached := func(p string) bool {
+		return verdictMoved(mine) || leafFields(mine)[leafOf(p)]
+	}
 	for i := 0; i < at; i++ {
 		o := a.rec.Steps[i]
 		if o == nil || !a.bad[o.ID] || !related(reach, at, i, o.ID) {
@@ -912,7 +916,7 @@ func (a attribution) upstream(step string) int {
 			continue
 		}
 		for _, p := range a.changed(o.ID) {
-			if !uses(a.rec.Steps[at].Call, p) {
+			if !uses(a.rec.Steps[at].Call, p) || !reached(p) {
 				continue
 			}
 			if r := a.of(o.ID, p); (r.Kind == reasonWrite || r.Kind == reasonStored) && r.blamed(o.ID) != "" && uses(r.RPC, p) {

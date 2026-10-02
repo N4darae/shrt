@@ -1247,7 +1247,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
-			seen[it.root()] = true
+			seen[it.root()], seen[it.Step+" "+it.Reason.String()] = true, it.Reason.Kind != ""
 		}
 	}
 	if len(seen) == 0 {
@@ -1255,11 +1255,12 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	}
 	out := ""
 	for _, it := range items {
-		r := it.root()
-		if seen[r] {
+		r, same := it.root(), it.Step+" "+it.Reason.String()
+		if seen[r] || it.Reason.Kind != "" && seen[same] {
+			seen[r] = true
 			continue
 		}
-		seen[r] = true
+		seen[r], seen[same] = true, true
 		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
 		if s := it.Reason.String(); s != "" {
 			out += "; " + s

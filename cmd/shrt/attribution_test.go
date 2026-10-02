@@ -702,6 +702,12 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 				rec.Steps = append(rec.Steps, again.StepRecord)
 				return rec
 			}, step: "get_again", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "a cancel whose own status changed is its own suspect though a stock read before it changed", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "cancel_order", path: "order.status", kind: reasonWrite, blamed: ""},
+		{name: "a repeat cancel answered otherwise is filed under the first cancel", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "cancel_order_again", path: "status.code", kind: reasonWrite, blamed: "cancel_order"},
+		{name: "a read of the status after the cancel is filed under the cancel", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "fetch_order_after_cancel_order", path: "order.status", kind: reasonWrite, blamed: "cancel_order"},
+		{name: "the stock read stays on the confirm", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "get_product_after_confirm_order", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "against a reference a cancel whose own status changed is its own suspect", envelope: true, env: "effects", moved: cancelConfirmedMoved(), rec: cancelConfirmed, step: "cancel_order", path: "order.status", kind: reasonWrite, blamed: ""},
+		{name: "against a reference a repeat cancel answered otherwise is filed under the first cancel", envelope: true, env: "effects", moved: cancelConfirmedMoved(), rec: cancelConfirmed, step: "cancel_order_again", path: "status.code", kind: reasonWrite, blamed: "cancel_order"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.envelope {
@@ -876,6 +882,37 @@ func twoMovers(readBetween bool) func() *runner.Record {
 	}
 }
 
+func cancelConfirmed() *runner.Record {
+	order := func(status string) string {
+		return `{"order":{"id_order":"o1","status":"` + status + `","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p1","qty":"4"}]},` + shopOK + `}`
+	}
+	return shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"},`+shopOK+`}`),
+		shopStep("add_stock", shopAdd, `{"qty_on_hand":"10",`+shopOK+`}`, "create_product"),
+		shopStep("create_order", shopOrder, order("ORDER_STATUS_PENDING"), "create_product"),
+		shopStep("get_product_after_create_order", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"10"},`+shopOK+`}`, "create_product").held("product.qty_on_hand", "10"),
+		shopStep("confirm_order", shopConfirm, order("ORDER_STATUS_CONFIRMED"), "create_order"),
+		shopStep("get_product_after_confirm_order", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"8"},`+shopOK+`}`, "create_product").failing("product.qty_on_hand", "4", "8"),
+		shopStep("cancel_order", shopCancel, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+		shopStep("fetch_order_after_cancel_order", shopFetch, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+		shopStep("cancel_order_again", shopCancel, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("status.code", "REJECTED", "SUCCESS").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+	)
+}
+
+func cancelConfirmedMoved() []diff.Change {
+	var out []diff.Change
+	for _, c := range [][4]string{
+		{"get_product_after_confirm_order", "product.qty_on_hand", "4", "8"},
+		{"cancel_order", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+		{"fetch_order_after_cancel_order", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+		{"cancel_order_again", "status.code", "REJECTED", "SUCCESS"},
+		{"cancel_order_again", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+	} {
+		out = append(out, changed(c[0], c[1], c[2], c[3])...)
+	}
+	return out
+}
+
 func lostStamp() []diff.Change {
 	return append(changed("get", "product.qty_on_hand", "5", "4"), diff.Change{Step: "create_product", Path: "product.created_at", Kind: diff.KindChanged, Want: "t"})
 }
@@ -972,5 +1009,38 @@ func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
 	item := reason{Kind: reasonUnclear, Step: "create", RPC: "shrt.stamped.v1.ItemService/CreateItem", ReadRPC: "shrt.stamped.v1.ItemService/GetItem", Path: "item.name"}
 	if got := tellApart(&env{cat: catalogtest.Stamped()}, item, "item.name"); got != "" {
 		t.Errorf("no other read carries the field, so no hint, got %q", got)
+	}
+}
+
+func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	changes := append(cancelConfirmedMoved(), changed("cancel_order_again", "status.message", "order is already cancelled", "")...)
+	report := &diff.Report{Changes: changes}
+	out := otherRoots(effectsEnv(t), cancelConfirmed(), report, &changes[0])
+	want := []string{
+		"  also: cancel_order (OrderService/CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (OrderService/CancelOrder)",
+		"  also: cancel_order_again (OrderService/CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (OrderService/CancelOrder)",
+	}
+	if got := strings.Split(strings.TrimRight(out, "\n"), "\n"); !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", out, strings.Join(want, "\n"))
+	}
+}
+
+func TestAFoldedAlsoLineStillCountsItsField(t *testing.T) {
+	busy := `{"code":"unavailable","message":"stock store busy"}`
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`),
+		shopStep("add", shopAdd, busy, "create").failing("qty_on_hand", "7", nil),
+		shopStep("add_more", shopAdd, busy, "create").failing("qty_on_hand", "9", nil),
+	)
+	var changes []diff.Change
+	for _, st := range []string{"add", "add_more"} {
+		for _, p := range []string{"code", "message"} {
+			changes = append(changes, diff.Change{Step: st, Path: p, Kind: diff.KindUnexpected, Got: "x"})
+		}
+	}
+	if out := otherRoots(&env{cat: catalogtest.Shop()}, rec, &diff.Report{Changes: changes}, &changes[0]); out != "" {
+		t.Errorf("the fields the first step's lines already named are not listed again for another step:\n%s", out)
 	}
 }
