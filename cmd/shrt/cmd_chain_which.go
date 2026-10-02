@@ -22,14 +22,15 @@ func chainWhich(args []string) error {
 	rpc := fs.String("rpc", "", "chains with a step calling this rpc, as package.Service/Rpc, Service/Rpc or a bare Rpc")
 	code := fs.String("code", "", "chains asserting this app_code, envelope code, failure reason, transport code (unauthenticated) or HTTP status (401)")
 	asJSON := fs.Bool("json", false, "emit JSON")
-	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json]   which chains, or local run records, exercise an rpc or a failure code",
+	verbose := fs.Bool("v", false, "after the counts, say what asserted, OBSERVED, auth probe and the reproduce: line mean")
+	setUsage(fs, "usage: shrt chain which [-rpc <rpc>] [-code <n>] [-json] [-v]   which chains, or local run records, exercise an rpc or a failure code",
 		"\nexit codes:\n  0  a chain or run record matched\n  1  nothing matched, or bad flags (neither -rpc nor -code, an unknown rpc)\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
 	}
 	if len(rest) > 0 {
-		return fmt.Errorf("unexpected argument %q\n\nusage: shrt chain which [-rpc <rpc>] [-code <n>] [-json]", rest[0])
+		return fmt.Errorf("unexpected argument %q\n\nusage: shrt chain which [-rpc <rpc>] [-code <n>] [-json] [-v]", rest[0])
 	}
 	if *rpc == "" && *code == "" {
 		return fmt.Errorf("name what to look for: -rpc <Service/Rpc>, -code <app_code>, or both")
@@ -79,7 +80,7 @@ func chainWhich(args []string) error {
 	if *asJSON {
 		return emitJSON(hits)
 	}
-	printWhich(hits, q, e.targetURL())
+	printWhich(hits, q, e.targetURL(), *verbose)
 	return nil
 }
 
@@ -257,7 +258,7 @@ const (
 	whichMarkClaim = "asserted"
 )
 
-func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
+func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verbose bool) {
 	steps, observed := 0, 0
 	for _, h := range hits {
 		steps += len(h.Matches)
@@ -323,6 +324,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string) {
 		}
 	}
 	fmt.Printf("\n%d chain(s), %d with a local run record that reached a matching step.\n", len(hits), observed)
+	if !verbose {
+		return
+	}
 	fmt.Printf("%s is what the chain claims; %s cites the newest local run record that reached the step, and \"got\" is\n"+
 		"what its recorded response carried at the asserted path. A step marked FAILED did not produce what it asserts,\n"+
 		"and its failing expectations follow. Under -rpc alone, a step whose newest reaching run FAILED there ranks first:\n"+
