@@ -114,7 +114,7 @@ func TestTheGateLabelsEveryChainAGateFindingExplains(t *testing.T) {
 	for _, want := range []string{
 		"FINDING    cli-thing-flow  intermittent: ThingService/Create failed 1 of 5 calls\n",
 		"FINDING    cli-unique      intermittent: ThingService/Create failed 1 of 5 calls\n",
-		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2; suspect read list (ThingService/Fetch): answers another set of items\n",
+		"FAIL       cli-other       regression: list (ThingService/Fetch) items want=3 got=2; suspect the read: answers another set of items\n",
 		"  FINDING: intermittent failure at ThingService/Create, below\n",
 		"FINDING: intermittent failure at ThingService/Create (failed 3 of 15 calls) in 3 chain(s): a backend defect",
 	} {

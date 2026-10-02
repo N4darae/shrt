@@ -1,5 +1,5 @@
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
-FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect write cancel_confirmed (OrderService/CancelOrder)
+FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
 PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed; suspect write cancel_confirmed (OrderService/CancelOrder)
@@ -30,8 +30,8 @@ failures by suspect rpc:
 
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)
-FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect read clerk_get (ProductService/GetProduct) as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct)
-FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect write cancel_clerk (OrderService/CancelOrder) as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
+FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct)
+FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
 failures by suspect rpc:
   ProductService/CreateProduct: 2 step(s) in 2 chain(s); e.g. stock create_product; suspect write create_product (ProductService/CreateProduct)
   OrderService/ConfirmOrder: 1 step(s) in 1 chain(s); e.g. stock get; suspect write confirm_order (OrderService/ConfirmOrder)
@@ -58,7 +58,7 @@ failures by suspect rpc:
   S/Make: 1 step(s) in 1 chain(s); e.g. one make; suspect write make (S/Make) (+2 knock-on step(s))
 
 # the example carries its reason
-FAIL       one  get (S/Get) thing.state want=DONE got=OPEN; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
+FAIL       one  get (S/Get) thing.state want=DONE got=OPEN; suspect write w (S/Confirm): stores other than it answered
 FAIL       two  get (S/Get) thing.state want=DONE got=OPEN; same fault as one (Confirm)
 failures by suspect rpc:
   S/Confirm: 2 step(s) in 2 chain(s); e.g. one get; suspect write w (S/Confirm): answered thing.state=DONE, but Get read OPEN
@@ -69,20 +69,20 @@ failures by suspect rpc:
   S/Batch: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w (S/Batch) or the read: answered results[].qty_on_hand=12, but Get read 6
 
 # knock-on changes on the same record fold into the root write
-FAIL       c  add_negative (StockService/AddStock) status.code want= got=; suspect write add_negative (StockService/AddStock)
+FAIL       c  add_negative (StockService/AddStock) status.code want= got=; suspect the write
 failures by suspect rpc:
   StockService/AddStock: 3 step(s) in 1 chain(s); e.g. c add_negative; suspect write add_negative (StockService/AddStock)
 
 # a chain with a root the earlier chain lacks names that root, not the same fault
-FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay (OrderService/CreateOrder)
-FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect write replay_2 (OrderService/CreateOrder); also suspect write create (OrderService/CreateOrder)
-FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect write create (OrderService/CreateOrder)
+FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write
+FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (OrderService/CreateOrder)
+FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
 failures by suspect rpc:
   OrderService/CreateOrder order.status: 2 step(s) in 2 chain(s); e.g. replay replay; suspect write replay (OrderService/CreateOrder)
   OrderService/CreateOrder order.total_minor: 2 step(s) in 2 chain(s); e.g. orders create; suspect write create (OrderService/CreateOrder)
 
 # a slice failing as its parent folds into the parent's line
-FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect write confirm (OrderService/ConfirmOrder) (+1 slice(s) fail the same: orders-slice-list)
+FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+1 slice(s) fail the same: orders-slice-list)
 FAIL       orders-slice-list  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
 FAIL       orders-slice-held  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
@@ -92,7 +92,7 @@ failures by suspect rpc:
   OrderService/ListOrders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
 
 # a failed first change leads over a drift
-FAIL       a  add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect write add (ThingService/Add)
+FAIL       a  add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect the write
 FAIL       b  add_as_clerk (ThingService/Add) status.code want=REJECTED got=SUCCESS; same fault as a (Add)
 failures by suspect rpc:
   ThingService/Add: 3 step(s) in 2 chain(s); e.g. a add; suspect write add (ThingService/Add)
