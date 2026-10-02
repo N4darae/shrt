@@ -242,6 +242,9 @@ func runRun(ctx context.Context, args []string) (err error) {
 		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
+		if rec.KeptRed == "" {
+			return shownError{err}
+		}
 		return err
 	}
 	if rec.KeptRed == runner.KeptRedAsPinned {
