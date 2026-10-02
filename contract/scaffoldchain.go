@@ -238,10 +238,13 @@ func (p *Plan) assertContracts(lib *Library) {
 		return
 	}
 	notes := len(p.Notes)
+	held := p.refuseByState(lib)
 	p.echoNumbers()
 	p.assertOutcomes(lib)
 	p.Notes = p.Notes[:notes]
 	p.assertStates(lib)
+	p.assertReadBack(lib)
+	p.assertHeldStates(lib, held)
 	r := p.effectRules(lib)
 	if len(r.increase) == 0 && len(r.total) == 0 {
 		return
@@ -280,4 +283,144 @@ func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {
 		}
 		delete(st.Body, key)
 	}
+}
+
+func (p *Plan) createdState(lib *Library, prod *chain.Step, carrier string, state *catalog.Field) string {
+	c, ok := lib.Get(canonicalCall(p.cat, prod.Call))
+	if !ok {
+		return ""
+	}
+	return stateIn([]string{c.Exports[carrier], c.Summary}, state.EnumValues[1:], enumShort(state.EnumValues))
+}
+
+func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
+	held, by := map[string]string{}, map[string]string{}
+	before := map[string]map[string]string{}
+	for _, st := range p.Chain.Steps {
+		snap := make(map[string]string, len(held))
+		for k, v := range held {
+			snap[k] = v
+		}
+		before[st.ID] = snap
+		if st.AllowFail || chain.IsReadOnlyCall(st.Call) {
+			continue
+		}
+		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
+		m, err := p.cat.Lookup(st.Call)
+		if !ok || err != nil {
+			continue
+		}
+		for _, e := range p.entityStates(lib, st, c) {
+			values, short := e.state.EnumValues[1:], enumShort(e.state.EnumValues)
+			cur := held[e.producer.ID]
+			if !isRefusalStep(st) && cur != "" && cur != p.createdState(lib, e.producer, e.carrier, e.state) {
+				for _, f := range lib.AllFailures(m.FullName) {
+					if probeable(f) && failureState(f, values, short) == cur {
+						st.Expect = refusalOf(m, f)
+						st.Description = fmt.Sprintf("refused with %s: %s left the %s %s.", f.Label(), by[e.producer.ID], e.carrier, short[cur])
+						break
+					}
+				}
+			}
+			if cur == "" {
+				held[e.producer.ID] = p.createdState(lib, e.producer, e.carrier, e.state)
+			}
+			carrier := carrierField(m, e.itemMsg)
+			if isRefusalStep(st) || carrier == "" {
+				continue
+			}
+			if v := stateIn([]string{c.Exports[carrier], c.Summary}, values, short); v != "" {
+				held[e.producer.ID], by[e.producer.ID] = v, st.ID
+			}
+		}
+	}
+	return before
+}
+
+func (p *Plan) assertHeldStates(lib *Library, before map[string]map[string]string) {
+	for _, st := range p.Chain.Steps {
+		if st.AllowFail || !chain.IsReadOnlyCall(st.Call) || p.streams(st) || effectOutcome(st) != outcomeSuccess {
+			continue
+		}
+		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
+		m, err := p.cat.Lookup(st.Call)
+		if !ok || err != nil {
+			continue
+		}
+		state := func(prod *chain.Step, carrier string, field *catalog.Field) string {
+			if v := before[st.ID][prod.ID]; v != "" {
+				return v
+			}
+			return p.createdState(lib, prod, carrier, field)
+		}
+		if car := singleCarrier(m); car != nil {
+			for _, e := range p.entityStates(lib, st, c) {
+				path := car.Name + "." + e.state.Name
+				if v := state(e.producer, e.carrier, e.state); car.Message == e.itemMsg && v != "" && !hasExpectOn(st, path) {
+					st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: v})
+				}
+			}
+			continue
+		}
+		p.assertListed(c, st, m, state)
+	}
+}
+
+func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, state func(*chain.Step, string, *catalog.Field) string) {
+	for key, v := range st.Body {
+		if text, _ := v.(string); text != "" && strings.Contains(namecase.Fold(key), "prefix") {
+			return
+		}
+	}
+	t := p.listTargetFor(st, true)
+	if t == nil {
+		return
+	}
+	for _, e := range st.Expect {
+		if e.Path == t.listPath || strings.HasPrefix(e.Path, t.listPath+".") {
+			return
+		}
+	}
+	scope := p.scopeOf(t)
+	if scope.parent == nil || c.Fields[scope.parentKey] == nil {
+		return
+	}
+	if ref, err := ParseRef(c.Fields[scope.parentKey].From); err != nil || canonicalCall(p.cat, ref.RPC) != canonicalCall(p.cat, scope.parent.Call) {
+		return
+	}
+	list := repeatedMessageField(m)
+	var field *catalog.Field
+	for _, f := range list.Fields {
+		if len(f.EnumValues) > 1 && !f.Repeated {
+			field = f
+		}
+	}
+	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
+		key, sent := namecase.LookupKey(st.Body, rf.Name)
+		if sent && field != nil && sameValues(rf.EnumValues, field.EnumValues) && st.Body[key] != rf.EnumValues[0] {
+			return
+		}
+	}
+	key, desc, stated := stateOrder(c, t.listPath)
+	positional := stated && !desc && creationWord.MatchString(key)
+	for i, prod := range t.producers {
+		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
+		v := ""
+		if field != nil {
+			v = state(prod, t.carrier, field)
+		}
+		if !positional {
+			want := map[string]any{t.itemID: id}
+			if v != "" {
+				want[field.Name] = v
+			}
+			st.Expect = append(st.Expect, chain.Expectation{Path: t.listPath, Includes: want})
+			continue
+		}
+		st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
+		if v != "" {
+			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, field.Name), Equals: v})
+		}
+	}
+	st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 }

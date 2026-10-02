@@ -11,12 +11,9 @@ var ReferenceExamples = []ReferenceExample{
 	{"${vars.book_code}", "a chain var"},
 	{"${vars.nested.qty}", "a dotted path inside a var"},
 	{"${env.API_USER}", "an environment variable; missing is an error, never `\"\"`"},
-	{"${create_deal.id_deal}", "a field of an earlier step's RESPONSE"},
-	{"${steps.create_deal.response.id_deal}", "the same, written out"},
-	{"${steps.create_deal.request.id_book}", "a field of an earlier step's REQUEST, or inside `expect` this step's own, to assert the response echoes what was sent"},
+	{"${create_deal.id_deal}", "a field of an earlier step's RESPONSE: write `${<step>.<path>}`"},
+	{"${steps.create_deal.request.id_book}", "a field of an earlier step's REQUEST: write `${steps.<step>.request.<field>}`; or, inside `expect`, this step's own, to assert the response echoes what was sent"},
 	{"${create_deal.deals.0.id_deal}", "a list index"},
-	{"${exports.deal_id}", "a value an earlier step exported"},
-	{"${deal_id}", "the same export, bare"},
 	{"${now}", "RFC3339, pinned here for reproducibility"},
 	{"${nowunix}", "unix seconds"},
 	{"${nowunix+3600}", "an hour ahead — a bounded-future `expires_at` without a literal that goes stale"},
@@ -26,6 +23,12 @@ var ReferenceExamples = []ReferenceExample{
 	{"${uuid}", "fresh per reference — idempotency keys; verify and diff mask a response that only echoes it"},
 	{"deal-${create_deal.id_deal}-x", "interpolated inside a longer string, so the result is text"},
 	{"${vars.ref_in_a_var}", "a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` and `run` reject it"},
+}
+
+var OlderReferenceExamples = []ReferenceExample{
+	{"${steps.create_deal.response.id_deal}", "the response field written out"},
+	{"${exports.deal_id}", "a value an earlier step's `export:` named"},
+	{"${deal_id}", "the same export, bare"},
 }
 
 const ReferenceExampleStep = "create_deal"

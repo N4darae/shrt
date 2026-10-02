@@ -46,8 +46,8 @@ shrt catalog ls -filter <word>
 ```
 
 `.shrt/docs/`, the descriptor, `.shrt/runs/`, `.shrt/tokens.json` and
-`.shrt/safespots/pending/` are gitignored build output, so a fresh clone has none of them. Run
-`shrt doctor` before trusting a green. Rebuild the descriptor after any proto change and the binary
+`.shrt/safespots/pending/` are gitignored build output, so a fresh clone has none of them, and a
+run id quoted in a document is no evidence it can check. Run `shrt doctor` before trusting a green. Rebuild the descriptor after any proto change and the binary
 after any change to shrt itself (`go build -o shrt ./cmd/shrt`): both go stale quietly.
 
 `shrt init` guesses the `auth:` block from the descriptor and says so; check the login it picked
@@ -193,19 +193,3 @@ shows which chains have a safe spot; expect few at first, since only a person cr
 4. **Never leave a step asserting only that it did not crash.** `error.code == OK` is the floor,
    not the assertion (`PLAYBOOK.md` §4). `chain lint -strict` fails such a step when its contract
    declares response facts.
-
-## Where the authority is
-
-| question | authority | not |
-|---|---|---|
-| what fields does this rpc take | `shrt catalog describe <rpc>` | the contract, which may be stale |
-| what does this rpc require | the contract's `required`, read from backend source | the proto |
-| what keys may I write | `GRAMMAR.md` | another tool's keys |
-| does this code really fire | a run record under `.shrt/runs/` | the contract's `when:` |
-| did that read find anything | `shrt chain hollow` | a green step |
-| which roles may call this rpc | the backend's authorisation rules | an unchecked `requires_role:` |
-| is this run correct | the user's yes, via `shrt confirm -approve` | a green run, or an agent |
-| are these docs the rules enforced | `shrt doctor` | the fact that they are installed |
-
-Run records are gitignored and machine-local: a run id quoted in a document is not evidence a
-fresh clone can check.

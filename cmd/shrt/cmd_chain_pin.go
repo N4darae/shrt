@@ -74,7 +74,7 @@ func chainPin(ctx context.Context, args []string) error {
 	return fmt.Errorf("%s is still red after pinning %s", c.Name, strings.Join(written, ", "))
 }
 
-func movedSteps(c, slice *chain.Chain, steps []string) string {
+func movedSteps(c, slice *chain.Chain, steps []string) (string, string) {
 	removed := steps
 	if w, err := chain.Without(c, steps, ""); err == nil {
 		removed = nil
@@ -91,10 +91,28 @@ func movedSteps(c, slice *chain.Chain, steps []string) string {
 		}
 	}
 	out := strings.Join(held, ", ") + ": kept red in " + slice.Name
+	line := "Kept red in " + slice.Name + ": " + strings.Join(held, ", ") + "."
 	if len(lost) > 0 {
 		out += "; " + strings.Join(lost, ", ") + ": in no slice"
+		line += " In no slice: " + strings.Join(lost, ", ") + "."
 	}
-	return out
+	return out, line
+}
+
+func noteMovedSteps(path, line string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if edited, ok := chain.AppendDescriptionLine(raw, path, line); ok {
+		return os.WriteFile(path, edited, 0o644)
+	}
+	c, err := chain.LoadFile(path)
+	if err != nil {
+		return err
+	}
+	c.Description = strings.TrimSpace(strings.TrimSpace(c.Description) + "\n" + line)
+	return writeSliceFile(path, c)
 }
 
 func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int) (string, string, error) {
@@ -172,13 +190,18 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		fmt.Print(withoutOut)
 		return "", "", fmt.Errorf("%s is written kept red, but %s was not rewritten without %s: %v", shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
 	}
+	gone, line := movedSteps(c, pinned, steps)
+	if err := noteMovedSteps(c.SourcePath, line); err != nil {
+		return "", "", fmt.Errorf("%s is written kept red and %s rewritten without %s, but its description was not updated: %v",
+			shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
+	}
 	fmt.Printf("wrote %s: kept red on %s\n", shownPath(slicePath), pinList(pinned, pinned.KeptRed))
 	for _, line := range strings.Split(sliceOut, "\n") {
 		if strings.HasPrefix(line, "verify ") {
 			fmt.Println(line)
 		}
 	}
-	return shownPath(slicePath), movedSteps(c, pinned, steps), nil
+	return shownPath(slicePath), gone, nil
 }
 
 func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {

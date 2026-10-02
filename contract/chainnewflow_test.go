@@ -158,3 +158,53 @@ func TestChainNewWritesNoDescriptionThatOnlyRepeatsTheContractSummary(t *testing
 		}
 	}
 }
+
+var testerLifecycle = []string{"CreateProduct", "CreateProduct", "AddStock", "AddStock", "CreateCustomer", "CreateOrder", "GetProduct",
+	"ConfirmOrder", "GetProduct", "GetProduct", "FetchOrder", "ListOrders", "CancelOrder", "GetProduct", "GetProduct", "ListOrders",
+	"FetchOrder", "CancelOrder", "GetProduct"}
+
+func TestChainNewAssertsTheStateTheLevelAndTheListEachWriteLeaves(t *testing.T) {
+	c, raw, notes := chainNewShopDemo(t, testerLifecycle...)
+	step := func(id string) *chain.Step {
+		st, ok := c.Step(id)
+		if !ok {
+			t.Fatalf("no step %s:\n%s", id, raw)
+		}
+		return st
+	}
+	added := map[string]int{}
+	for _, id := range []string{"add_stock", "add_stock_2"} {
+		for _, e := range step(id).Expect {
+			if e.Path == "qty_on_hand" {
+				added[id] = e.Equals.(int)
+			}
+		}
+	}
+	if added["add_stock"] == 0 || added["add_stock_2"] == 0 {
+		t.Fatalf("add_stock levels unasserted:\n%s", raw)
+	}
+	wantExpect(t, step("fetch_order_after_confirm_order"), "order.status", "ORDER_STATUS_CONFIRMED")
+	wantExpect(t, step("fetch_order_after_cancel_order"), "order.status", "ORDER_STATUS_CANCELLED")
+	wantExpect(t, step("fetch_order_after_confirm_order"), "order.lines.1.qty", "${steps.create_order.request.lines.1.qty}")
+	wantExpect(t, step("get_product_after_cancel_order"), "product.qty_on_hand", added["add_stock"])
+	wantExpect(t, step("get_product_2_after_cancel_order"), "product.qty_on_hand", added["add_stock_2"])
+	wantExpect(t, step("get_product_after_cancel_order_again"), "product.qty_on_hand", added["add_stock"])
+	for id, state := range map[string]string{"list_orders_after_confirm_order": "ORDER_STATUS_CONFIRMED", "list_orders_after_cancel_order": "ORDER_STATUS_CANCELLED"} {
+		wantExpect(t, step(id), "orders.0.id_order", "${create_order.order.id_order}")
+		wantExpect(t, step(id), "orders.0.status", state)
+		wantExists(t, step(id), "orders.1", false)
+	}
+	again := step("cancel_order_again")
+	wantExpect(t, again, "status.details.0.app_code", 1304)
+	refused := false
+	for _, e := range again.Expect {
+		refused = refused || (e.Path == "status.code" && e.NotEqual == "SUCCESS")
+	}
+	if !refused {
+		t.Fatalf("cancel_order already left the order CANCELLED, and CancelOrder's contract refuses a CANCELLED order:\n%s", raw)
+	}
+	joined := strings.Join(notes, "\n")
+	if strings.Contains(joined, "only the verdict") {
+		t.Fatalf("every step of the lifecycle has something its contracts let it assert:\n%s\n%s", joined, raw)
+	}
+}

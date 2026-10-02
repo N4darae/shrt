@@ -642,3 +642,20 @@ func TestWithoutEditSource(t *testing.T) {
 		}
 	}
 }
+
+func TestAppendDescriptionLineKeepsTheRestOfTheFile(t *testing.T) {
+	steps := "steps:\n-   id: a\n    call: A/Get\n"
+	line := "Kept red in edit-slice-a: a, b."
+	for _, tc := range []struct{ src, want string }{
+		{"name: edit\ndescription: Confirm reserves stock, cancel returns it.\n" + steps,
+			"name: edit\ndescription: |-\n    Confirm reserves stock, cancel returns it.\n    Kept red in edit-slice-a: a, b.\n" + steps},
+		{"name: edit\ndescription: |\n    First line.\n    Second line.\n\n" + steps,
+			"name: edit\ndescription: |\n    First line.\n    Second line.\n    Kept red in edit-slice-a: a, b.\n\n" + steps},
+		{"name: edit\n" + steps, "name: edit\ndescription: |-\n    Kept red in edit-slice-a: a, b.\n" + steps},
+	} {
+		got, ok := chain.AppendDescriptionLine([]byte(tc.src), "edit.yaml", line)
+		if !ok || string(got) != tc.want {
+			t.Errorf("ok=%v\n%s\nwant\n%s", ok, got, tc.want)
+		}
+	}
+}

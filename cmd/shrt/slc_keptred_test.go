@@ -82,7 +82,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	shop := newFakeShop()
 	shop.cancelConfirmedBug = true
 	chdirToFakeShop(t, shop)
-	source := strings.Replace(cancelConfirmedChain, "vars:\n    tag: probe\n", "", 1) + pinFetchAfterCancel
+	source := strings.Replace(cancelConfirmedChain, "vars:\n    tag: probe\n", "description: Cancelling a confirmed order gives its stock back.\n", 1) + pinFetchAfterCancel
 	writeFile(t, ".shrt/chains/probe-orders.yaml", source)
 	var err error
 	out := captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
@@ -106,6 +106,9 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	}
 	if _, kept := rest.Step("fetch_after_cancel"); !kept {
 		t.Fatalf("steps that did not fail stay in the chain")
+	}
+	if want := "Cancelling a confirmed order gives its stock back.\nKept red in probe-orders-slice-cancel_confirmed: cancel_confirmed"; !strings.HasPrefix(rest.Description, want) {
+		t.Fatalf("the description says where the pinned steps went:\n%q", rest.Description)
 	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
 	if err != nil {
@@ -342,8 +345,9 @@ func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFile
 	cancelAt := strings.Index(pinReadBackChain, "\n  - call: OrderService/CancelOrder")
 	getAt := strings.Index(pinReadBackChain, "  - call: ProductService/GetProduct")
 	want := pinReadBackChain[:cancelAt+1] + pinReadBackChain[getAt:]
+	want = strings.Replace(want, "name: probe-wipe\n", "name: probe-wipe\ndescription: |-\n    Kept red in probe-wipe-slice-cancel_order: cancel_order, fetch_after_cancel.\n", 1)
 	if raw, _ := os.ReadFile(".shrt/chains/probe-wipe.yaml"); string(raw) != want {
-		t.Fatalf("only the pinned steps leave the file, the rest stays as written:\n%s\nwant:\n%s", raw, want)
+		t.Fatalf("only the pinned steps leave the file and one description line names where, the rest stays as written:\n%s\nwant:\n%s", raw, want)
 	}
 }
 
@@ -452,9 +456,12 @@ func TestPinNamesTheReadsOfAPinnedStepThatNoSliceHolds(t *testing.T) {
 		{ID: "read_make", Call: "S/Get", Body: map[string]any{"id": "${id}"}},
 	}}
 	slice := &chain.Chain{Name: "src-slice-confirm", Steps: c.Steps[:2]}
-	got := movedSteps(c, slice, []string{"confirm"})
+	got, line := movedSteps(c, slice, []string{"confirm"})
 	if want := "confirm: kept red in src-slice-confirm; read_ref: in no slice"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+	if want := "Kept red in src-slice-confirm: confirm. In no slice: read_ref."; line != want {
+		t.Fatalf("description line: got %q, want %q", line, want)
 	}
 }
 
