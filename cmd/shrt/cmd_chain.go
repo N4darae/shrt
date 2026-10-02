@@ -166,7 +166,8 @@ func chainList(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
 	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot and which are kept red",
-		"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
+		"\nmarks: * has a safe spot, ? a proposal awaits approval, R kept red (fails on purpose, its kept_red pins name what the backend still gets wrong)\n"+
+			"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
 			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -240,13 +241,23 @@ func chainList(args []string) error {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
 	}
-	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval, R = kept red (fails on purpose, "+
-		"its kept_red pins name what the backend still gets wrong)", len(rows))
-	if *long {
-		fmt.Print("\n")
-		return nil
+	shown := map[string]bool{}
+	for _, r := range rows {
+		shown["*"] = shown["*"] || r.SafeSpot && !r.Proposed
+		shown["?"] = shown["?"] || r.Proposed
+		shown["R"] = shown["R"] || r.KeptRed
 	}
-	fmt.Print("; -long for the full description, -json for every field\n")
+	legend := []string{}
+	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"}} {
+		if shown[m.mark] {
+			legend = append(legend, m.mark+" = "+m.means)
+		}
+	}
+	fmt.Printf("\n%d chain(s)", len(rows))
+	if len(legend) > 0 {
+		fmt.Print("; " + strings.Join(legend, ", "))
+	}
+	fmt.Println()
 	return nil
 }
 
@@ -413,8 +424,15 @@ func chainLint(args []string) error {
 		return fmt.Errorf("%d lint error(s)", errCount)
 	}
 	if !*strict && !*asJSON {
+		gated := map[string]bool{}
+		for _, c := range targets {
+			gated[c.Name] = inChainsDir(e, c)
+		}
 		quality := 0
 		for _, r := range reports {
+			if !gated[r.Chain] {
+				continue
+			}
 			for _, i := range r.Issues {
 				if i.Severity == chain.SeverityWarn && chain.IsAssertionQualityIssue(i) {
 					quality++
@@ -570,14 +588,15 @@ func (o *optionalString) Set(s string) error {
 	return nil
 }
 
-func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
-	var mm *chain.NameMismatchError
-	if c == nil || !errors.As(chain.NameMismatch(c), &mm) {
-		return nil
-	}
+func inChainsDir(e *env, c *chain.Chain) bool {
 	dir, err1 := filepath.Abs(filepath.Dir(c.SourcePath))
 	chains, err2 := filepath.Abs(e.chainsDir())
-	if err1 != nil || err2 != nil || dir != chains {
+	return err1 == nil && err2 == nil && dir == chains
+}
+
+func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
+	var mm *chain.NameMismatchError
+	if c == nil || !errors.As(chain.NameMismatch(c), &mm) || !inChainsDir(e, c) {
 		return nil
 	}
 	return mm

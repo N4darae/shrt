@@ -12,5 +12,4 @@ probe-orders: DRIFT (regression), 1 step(s) changed vs safe spot RUNID; first: c
   [cancel_confirmed] changed    status.code want=SUCCESS got=REJECTED
   [cancel_confirmed] changed    status.message want="" got=StillConfirmed
 not counted: 31 (-masked lists them)
-If intended, a person approves a passing run: shrt confirm probe-orders -supersede -note "..."
 

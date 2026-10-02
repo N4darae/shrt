@@ -82,7 +82,7 @@ func TestAWriteThatFailedItsOwnExpectationsUnderTwoProfilesIsOneChange(t *testin
 	out, _ := runGateOut(t, "-v")
 	for _, want := range []string{
 		"    status.code at 2 step(s) (move_zero, move_as_other); e.g. want≠SUCCESS got=SUCCESS\n",
-		"  ThingService/Move: 3 step(s) in 1 chain(s); e.g. cli-thing-flow get_after_move_as_other; suspect write move_as_other (ThingService/Move) as other\n",
+		"  ThingService/Move: 3 step(s) in 1 chain(s); e.g. cli-thing-flow get_after_move_as_other; write move_as_other as other\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)

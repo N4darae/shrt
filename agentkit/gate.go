@@ -9,7 +9,10 @@ import (
 	coredistillation "github.com/N4darae/shrt"
 )
 
-const GateScriptPath = ".shrt/ci-gate.sh"
+const (
+	GateScriptPath      = ".shrt/ci-gate.sh"
+	QualityBaselinePath = ".shrt/quality-baseline"
+)
 
 func GateScript() ([]byte, error) {
 	readme, err := coredistillation.Docs.ReadFile("README.md")
@@ -47,4 +50,23 @@ func InstallGateScript(root string, force bool) (bool, error) {
 		return false, err
 	}
 	return true, os.Chmod(dest, 0o755)
+}
+
+func InstallQualityBaseline(root string) (bool, error) {
+	dest := filepath.Join(root, filepath.FromSlash(QualityBaselinePath))
+	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		return false, err
+	}
+	f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, os.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if _, err := f.WriteString("0\n"); err != nil {
+		f.Close()
+		return false, err
+	}
+	return true, f.Close()
 }

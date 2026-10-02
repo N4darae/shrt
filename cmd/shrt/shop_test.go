@@ -181,17 +181,17 @@ steps:
 		args      []string
 		has, lack []string
 	}{
-		{"-gaps prints only the gaps, a legend line per kind found", shopStatusWorkspace, []string{"-gaps"},
-			[]string{"no contract  shop.catalog.v1.ProductService/CreateProduct", "no chain     shop.orders.v1.OrderService/WatchOrder", "no contract      the rpc has no entry"},
-			[]string{"DOMAIN", "CONTRACT counts", "streaming    shop.orders.v1.OrderService/WatchOrder", "no path to", "one item"}},
+		{"-gaps prints only the gaps and one line of what to run for them", shopStatusWorkspace, []string{"-gaps"},
+			[]string{"no contract  shop.catalog.v1.ProductService/CreateProduct", "no chain     shop.orders.v1.OrderService/WatchOrder", "\nnext: shrt contract init <domain> (no contract); shrt contract plan <rpc> (no chain"},
+			[]string{"DOMAIN", "CONTRACT counts", "streaming    shop.orders.v1.OrderService/WatchOrder", "no path to", "one item", "no contract      the rpc has no entry", "-v explains", "\n\n"}},
 		{"-gaps -v explains each kind in full", shopStatusWorkspace, []string{"-gaps", "-v"},
 			[]string{"no path to   it has a contract, but appears in no multi-step plan"}, nil},
 		{"a repeated field no chain sends twice", func(t *testing.T) func() { return shopChains(t, oneLine) }, []string{"-gaps"},
-			[]string{"one item     shop.orders.v1.OrderService/CreateOrder lines: at most 1 item in every chain that sends it (cli-thing-flow)", "per-item logic"}, nil},
+			[]string{"one item     shop.orders.v1.OrderService/CreateOrder lines: at most 1 item in every chain that sends it (cli-thing-flow)", "; a step sending two items with different values (one item)"}, nil},
 		{"a chain sending two items leaves no single-item gap", func(t *testing.T) func() { return shopChains(t, oneLine, twoLines) }, []string{"-gaps"},
 			nil, []string{"one item     shop"}},
 		{"items that all point at one resource", func(t *testing.T) func() { return shopChains(t, sameProduct) }, []string{"-gaps"},
-			[]string{"same resource shop.orders.v1.OrderService/CreateOrder lines: every chain that sends two or more items points them all at ${create_product.product.id_product} (same)", "same resource    every multi-item step"},
+			[]string{"same resource shop.orders.v1.OrderService/CreateOrder lines: every chain that sends two or more items points them all at ${create_product.product.id_product} (same)", "shrt contract plan <rpc> (", "same resource"},
 			[]string{"no gaps"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {

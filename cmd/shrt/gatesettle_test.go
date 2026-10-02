@@ -217,7 +217,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 			}
 		}
 	}
-	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect write replay_2 (OrderService/CreateOrder); also suspect write create (OrderService/CreateOrder)") {
+	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder)") {
 		t.Errorf("%s: got %q", b, chains[1].first)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")

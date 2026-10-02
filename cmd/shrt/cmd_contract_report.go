@@ -232,18 +232,19 @@ func contractStatus(args []string) error {
 	return nil
 }
 
-var gapMeaning = []struct{ kind, line string }{
-	{"no contract", "the rpc has no entry in .shrt/contracts/: shrt contract init <domain>"},
-	{"no path to", "a contract, but in no multi-step plan: a missing needs: or from:, unless a read taking no id; the config's login is never listed"},
-	{"one item", "no chain sends the repeated field with two or more items, so per-item logic is never exercised"},
-	{"same resource", "every multi-item step points all items at one resource, so per-item resource logic is never exercised"},
-	{"no repeat", "no chain sends one resource on two items that both apply, so merging or counting once per resource passes"},
-	{"no empty filter", "the contract says an empty filter lists all, and every chain sends it set"},
-	{"no login probe", "a failure the login's contract declares that no chain expects"},
-	{"no chain", "no chain calls the rpc, so no run or gate exercises it: shrt contract plan <rpc>"},
-	{"no role probe", "no chain calls the role-gated rpc as a profile lacking the role, so a dropped check passes"},
-	{"no profile probe", "no chain calls the every-role rpc as that profile, so a role check added by mistake passes"},
-	{"no token", "no chain calls the rpc without a token or with auth: invalid, so a dropped token check passes"},
+var gapNext = []struct{ kind, next string }{
+	{"no contract", "shrt contract init <domain>"},
+	{"no path to", "a needs: or from:"},
+	{"one item", "a step sending two items with different values"},
+	{"same resource", "shrt contract plan <rpc>"},
+	{"no repeat", "shrt contract plan <rpc>"},
+	{"no empty filter", "shrt contract plan <rpc>"},
+	{"no login probe", "shrt contract plan <rpc>"},
+	{"no chain", "shrt contract plan <rpc>"},
+	{"no role probe", "shrt contract plan <rpc>"},
+	{"no profile probe", "shrt contract plan <rpc>"},
+	{"no token", "shrt contract plan <rpc>"},
+	{"streaming", "a test of your own"},
 }
 
 func printStatusGaps(rows []statusRow, verbose bool) {
@@ -327,19 +328,22 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 		fmt.Print(statusGapLegend)
 		return
 	}
-	meant := false
-	for _, m := range gapMeaning {
+	order, kinds := []string{}, map[string][]string{}
+	for _, m := range gapNext {
 		if !found[m.kind] {
 			continue
 		}
-		if !meant {
-			fmt.Println()
-			meant = true
+		if kinds[m.next] == nil {
+			order = append(order, m.next)
 		}
-		fmt.Printf("%-16s %s\n", m.kind, m.line)
+		kinds[m.next] = append(kinds[m.next], m.kind)
 	}
-	if meant {
-		fmt.Println("shrt contract status -gaps -v explains each kind in full")
+	parts := []string{}
+	for _, next := range order {
+		parts = append(parts, next+" ("+strings.Join(kinds[next], ", ")+")")
+	}
+	if len(parts) > 0 {
+		fmt.Println("next: " + strings.Join(parts, "; "))
 	}
 }
 

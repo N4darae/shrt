@@ -120,10 +120,6 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 			return err
 		}
 		fmt.Printf("write %s: target.base_url %s%s\n", rel(root, cfgPath), cfg.Target.BaseURL, baseURLSource(portFile != "", baseURLGiven))
-		if *verbose {
-			fmt.Println("      latency: {fail: true}: a slowdown verify confirms (a slow read re-sent and slow every time) fails it, so a CI gate " +
-				"is red on one; set fail: false to keep it a LATENCY warning line")
-		}
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
@@ -166,11 +162,21 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if len(docs) == 0 {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
+	gateFiles := []string{}
 	switch wrote, err := agentkit.InstallGateScript(root, *force); {
 	case err != nil:
 		return err
 	case wrote:
-		fmt.Printf("write %s\n", agentkit.GateScriptPath)
+		gateFiles = append(gateFiles, agentkit.GateScriptPath)
+	}
+	switch wrote, err := agentkit.InstallQualityBaseline(root); {
+	case err != nil:
+		return err
+	case wrote:
+		gateFiles = append(gateFiles, agentkit.QualityBaselinePath+" (0)")
+	}
+	if len(gateFiles) > 0 {
+		fmt.Printf("write %s\n", strings.Join(gateFiles, ", "))
 	}
 
 	switch added, err := ensureGitignore(root, initGitignore(loaded)); {

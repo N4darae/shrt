@@ -47,9 +47,8 @@ func runVersion(_ context.Context, args []string) error {
 	}
 	fmt.Printf("  docs    %s\n", strings.Join(coredistillation.DocNames, ", "))
 	if note := b.Provenance(); note != "" {
-		fmt.Printf("\n%s\n", note)
+		fmt.Println(note)
 	}
-	fmt.Println("\nA stale binary lints with the OLD rules and reports that everything is fine.")
-	fmt.Println("'shrt doctor' compares the docs above against the copy installed in this repo.")
+	fmt.Println("shrt doctor checks the docs installed in this repo against this build")
 	return nil
 }
