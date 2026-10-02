@@ -1148,8 +1148,24 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 	out.Kind, out.Path, out.Want, out.Got, out.ReadRPC = reasonStored, wp, wv, compactValue(rv), methodName(r.Call)
 	if !agree && agreed && before == wv {
 		out.Kind, out.Read, out.ReadRPC, out.Profile = reasonUnclear, r.ID, r.Call, profileAs(a.e, r)
+		if sentAs(w, wp, wv) {
+			out.Other = asSent
+		}
 	}
 	return out, true
+}
+
+const asSent = "as sent"
+
+func sentAs(w *runner.StepRecord, path, value string) bool {
+	var req any
+	found := false
+	if json.Unmarshal(w.Request, &req) == nil {
+		eachLeaf(req, "", func(p string, v any) {
+			found = found || leafOf(p) == leafOf(path) && compactValue(v) == value
+		})
+	}
+	return found
 }
 
 func valueText(s string) string {

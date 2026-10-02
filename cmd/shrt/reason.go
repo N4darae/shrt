@@ -181,6 +181,9 @@ func tellApart(e *env, r reason, path string) string {
 			via = append(via, shortRPC(o.FullName)+" ("+p+")")
 		}
 	}
+	if len(via) == 0 && r.Other == asSent {
+		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, methodName(r.ReadRPC))
+	}
 	if len(via) == 0 {
 		return ""
 	}

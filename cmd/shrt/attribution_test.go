@@ -1010,6 +1010,24 @@ func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
 	if got := tellApart(&env{cat: catalogtest.Stamped()}, item, "item.name"); got != "" {
 		t.Errorf("no other read carries the field, so no hint, got %q", got)
 	}
+	stamped := &env{cat: catalogtest.Stamped()}
+	for _, c := range []struct{ sent, want string }{
+		{`{"name":"Ann"}`, "create answered name as sent; only GetItem differs"},
+		{`{"name":"ann"}`, ""},
+	} {
+		rec := shopRecord(
+			shopStep("create", "shrt.stamped.v1.ItemService/CreateItem", `{"item":{"id_item":"i1","name":"Ann"}}`).held("item.name", "Ann").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(c.sent) }),
+			shopStep("get", "shrt.stamped.v1.ItemService/GetItem", `{"item":{"id_item":"i1","name":"ann@example.test"}}`, "create").failing("item.name", "Ann", "ann@example.test"),
+		)
+		rec.Status = runner.StatusFailed
+		r := runAttribution(stamped, rec).of("get", "item.name")
+		if got := tellApart(stamped, r, "item.name"); r.Kind != reasonUnclear || got != c.want {
+			t.Errorf("sent %s: got %s, hint %q, want %q", c.sent, r, got, c.want)
+		}
+		if lines := failureRequests(stamped, rec, false); c.want != "" && !slices.Contains(lines, c.want) {
+			t.Errorf("run prints the fact once under the suspect, got %q", lines)
+		}
+	}
 }
 
 func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
