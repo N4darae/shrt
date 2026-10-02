@@ -528,3 +528,32 @@ func TestRepeatsCombineOverTheRunsThatCount(t *testing.T) {
 		})
 	}
 }
+
+func TestAStreamedStepsVerdictIsReadFromItsMessages(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	step := func(response string) *runner.StepRecord {
+		return &runner.StepRecord{ID: "watch", Status: runner.StatusFailed, Response: json.RawMessage(response)}
+	}
+	ok := step(`{"messages":[{"status":{"code":"SUCCESS"},"order":{"id_order":"o1"}},{"status":{"code":"SUCCESS"}}]}`)
+	refused := step(`{"messages":[{"status":{"code":"SUCCESS"}},{"status":{"code":"REJECTED","message":"gone","details":[{"app_code":1302,"reason":"OrderNotFound"}]}}]}`)
+	for _, c := range []struct {
+		name, code, refusal string
+		st                  *runner.StepRecord
+	}{
+		{"every message answered", "SUCCESS", "", ok},
+		{"a message refused", "REJECTED", "1302 OrderNotFound", refused},
+		{"a unary answer", "REJECTED", "1302", step(`{"status":{"code":"REJECTED","details":[{"app_code":1302}]}}`)},
+	} {
+		if v := verdictOf(c.st); v.ErrorCode != c.code || refusalOf(c.st) != c.refusal {
+			t.Errorf("%s: got %q refusal %q, want %q %q", c.name, v.ErrorCode, refusalOf(c.st), c.code, c.refusal)
+		}
+	}
+	if got := verdictPath(ok); got != "messages[].status.code" {
+		t.Errorf("a streamed step's envelope is labelled %q", got)
+	}
+	v := &sliceVerdict{Step: "watch", Outcome: sliceReproduced, EnvelopePath: verdictPath(ok), Source: verdictOf(ok), Replay: verdictOf(ok), SourceRun: "a", SliceRun: "b"}
+	if out := v.text(); !strings.Contains(out, `source: status failed, messages[].status.code "SUCCESS"`) {
+		t.Errorf("%s", out)
+	}
+}

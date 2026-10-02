@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
@@ -782,7 +783,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	}
 	v := &sliceVerdict{
 		Step:         res.Target,
-		EnvelopePath: chain.EnvelopePath(),
+		EnvelopePath: verdictPath(source),
 		SourceRun:    rec.RunID,
 		SourceReplay: rec.ReplayOf,
 		Source:       verdictOf(source),
@@ -1014,12 +1015,45 @@ func stopsEarly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, k
 	return out
 }
 
+func streamedEnvelope(response any) string {
+	if _, ok := chain.Get(response, chain.EnvelopePath()); ok {
+		return ""
+	}
+	top, _ := response.(map[string]any)
+	messages, _ := top[catalog.StreamMessages].([]any)
+	base := ""
+	for i, m := range messages {
+		v, ok := chain.Get(m, chain.EnvelopePath())
+		if !ok {
+			continue
+		}
+		if base == "" || fmt.Sprint(v) != chain.EnvelopeOK() {
+			base = catalog.StreamMessages + "." + strconv.Itoa(i) + "."
+		}
+		if fmt.Sprint(v) != chain.EnvelopeOK() {
+			break
+		}
+	}
+	return base
+}
+
+func verdictPath(sr *runner.StepRecord) string {
+	var response any
+	if len(sr.Response) > 0 {
+		_ = json.Unmarshal(sr.Response, &response)
+	}
+	if streamedEnvelope(response) != "" {
+		return catalog.StreamMessages + "[]." + chain.EnvelopePath()
+	}
+	return chain.EnvelopePath()
+}
+
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
 	var response any
 	if len(sr.Response) > 0 {
 		_ = json.Unmarshal(sr.Response, &response)
 	}
-	path := chain.EnvelopePath()
+	path := streamedEnvelope(response) + chain.EnvelopePath()
 	code := ""
 	if v, ok := chain.Get(response, path); ok {
 		code = fmt.Sprintf("%v", v)
