@@ -26,18 +26,6 @@ upgrade and never touches your config.
 | which keys exist, with types; `${...}` forms; what verify compares | `.shrt/docs/GRAMMAR.md` |
 | compose, fill, assert, probe, principals, author a contract, verify, find, slice | `.shrt/docs/PLAYBOOK.md` §1-§11 |
 | it did something strange | `.shrt/docs/PITFALLS.md` |
+| contracts for many domains | one `shrt-contract-author` subagent per domain, then the `before:` pass of `.shrt/docs/PLAYBOOK.md` §7 over the whole library yourself: a per-domain author cannot see other domains |
 
 Every command prints its flags and exit codes with `-h`.
-
-## Contracts
-
-- `shrt contract show <rpc>` prints the generated schema and the curated layer; `shrt contract plan
-  <rpc> -write` composes a chain from it.
-- `shrt contract init -all` scaffolds every domain; existing curation is kept. A domain is the
-  package segment after the organisation root (`acme.billing.invoice.v1.InvoiceService` is
-  `billing`).
-- To fill unexplored domains, dispatch one `shrt-contract-author` subagent per domain.
-- Then do the `before:` pass yourself over the finished library, since a per-domain author cannot
-  see consumers in other domains: every `read rpc with no producer` line of `shrt contract quality`
-  and every one-step `shrt contract plan <read>` is a candidate for `before:` on the write that
-  creates those rows, or `no_producer:` on the read.

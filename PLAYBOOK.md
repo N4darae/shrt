@@ -257,7 +257,8 @@ error is re-sent once and judged on the answer; one answered then or elsewhere i
 
 State behaviour from the spec (README, API docs, tests), not from what the handler does: a contract
 copied from a buggy handler makes the planner assert the bug as correct. Use the handler for names,
-codes, shapes and `required` (what it rejects up front), and report where it disagrees with the spec.
+codes, shapes, `required` (what it rejects up front) and `requires_role` (its authorisation rules),
+and report where it disagrees with the spec.
 
 ```bash
 shrt contract quality                  # what is missing — start here
