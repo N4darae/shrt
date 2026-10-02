@@ -383,29 +383,17 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 2. Deploy the merged backend and run `shrt doctor -strict` and `shrt verify <chain>`.
 3. If it drifts, run, propose with `-supersede` and have a person approve.
 
-**How the gate names a suspect**: gate lines, the gate summary, `verify` and `run` use one
-vocabulary:
+**How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`):
 
-- `suspect write <step> (<rpc>)`: its answer changed, or a read of the record observes it. `...:
-  answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it
-  answers. Fix the write.
-- `suspect read <step> (<rpc>): <what>`: a server error, a failed auth probe, refused (`passes as
-  <p>` when another profile passes), another set or order of items, a code it did not answer
-  before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or
-  `unlike what <write> returned`. Fix the read.
-- `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`): several writes on the record move the
-  field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it)
-  after the last read or write answer of it that still matched, and none answered differently.
-  Read the record between them. `unclear: write ... or the read: answered ...`: the write
-  answered as before and only the read moved; read the field through the rpc `tell them apart:`
-  names (`run`, `verify`, `gate -v`), or check what the write persisted.
-- `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
-  A held-back step answering otherwise than the step it copies is judged on its own.
-- `same fault as <chain> (<rpc>)`: the suspect and field an earlier gate line named (or one of
-  this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own
-  suspect and `also` the first other one, if any.
-- `not as pinned` / `pins held, new change`: a kept-red chain's pin moved, or a new defect beside
-  the pinned ones; do not re-pin, run its `shrt diff`.
+| verdict word | what it means | what to do |
+|---|---|---|
+| `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
+| `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items, a code it did not answer before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
+| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it) after the last read or write answer of it that still matched, and none answered differently | read the record between them |
+| `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`), or check what the write persisted |
+| `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
+| `same fault as <chain> (<rpc>)` | the suspect and field an earlier gate line named (or one of this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own suspect and `also` the first other one, if any | fix it once, under the earlier line |
+| `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11): `STILL FAILS` means it is not the cause.
@@ -508,30 +496,28 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 3. **`-write [name]`, then `chain lint` it.** The file lands beside the source chain, where gates
    run it; a value with a slash is a path (`-write .shrt/scratch/<name>.yaml`, run by that path).
    A slice of the same chain and step is replaced in place; any other file is refused.
-4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice 3 times and compares the target step's verdict with the source run's: envelope
-   code, reason and app code, transport refusal, and each expectation's pass, want and got; when
-   those match and the target passed in the source run, the slice must drift exactly the paths
-   the source run drifted against its safe spot (`drifted: <path> source got=.., slice got=..`). It
-   writes the source run's vars into the slice, except fresh vars a kept write interpolates, which
-   you must pass (`-var name=<fresh>`). Outcomes:
-   - `reproduced` (0): verdicts match, no dropped write touched a kept entity (`-write` records it
-     in the description).
-   - `NOT REPRODUCED` (1): the verdict differs; run the `next:` line.
-   - `intermittent: reproduced k/n` (1): flaky there; keeping more steps will not help. A run that
-     did not reach the target, or in which a kept step that passed in the source failed, is not counted.
-   - `DID NOT RUN` (3): the target was never answered.
-   - `INCONCLUSIVE` (3): verdicts match but dropped writes act on kept entities, another target,
-     or the run a passing target's drift is measured against is gone;
-     run the `next:` line, or `-keep writes` for every earlier write.
-   Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff`
-   compares: the newest record, but a `shrt run` over a verify replay recorded right after it,
-   unless only the replay failed or drifted the step (for `-without`: unless their failed steps differ);
-   it refuses (3) if that run left the target unevaluated.
+4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice 3 times and
+   compares the target step's verdict with the source run's: envelope code, reason and app code,
+   transport refusal, and each expectation's pass, want and got; when those match and the target
+   passed in the source run, the slice must drift exactly the paths the source run drifted against
+   its safe spot (`drifted: <path> source got=.., slice got=..`). It writes the source run's vars
+   into the slice, except fresh vars a kept write interpolates, which you must pass
+   (`-var name=<fresh>`).
+
+| verdict (exit) | what it means | what to do |
+|---|---|---|
+| `reproduced` (0) | verdicts match, no dropped write touched a kept entity | nothing; `-write` records it in the description |
+| `NOT REPRODUCED` (1) | the verdict differs | run the `next:` line |
+| `intermittent: reproduced k/n` (1) | flaky there; a run that did not reach the target, or in which a kept step that passed in the source failed, is not counted | keeping more steps will not help |
+| `DID NOT RUN` (3) | the target was never answered | read why the slice run stopped, printed under it |
+| `INCONCLUSIVE` (3) | verdicts match but dropped writes act on kept entities, another target, or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
+| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it | test a suspect write |
+
+Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares: the
+newest record, but a `shrt run` over a verify replay recorded right after it, unless only the
+replay failed or drifted the step (for `-without`: unless their failed steps differ); it refuses
+(3) if that run left the target unevaluated.
 
 For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run
 latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
 `-keep <ids of the minimal chain>` instead.
-Suspect write: `chain slice <c> -without <id> -verify` runs the chain without it and lists the
-steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none
-passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail
-only without it.
