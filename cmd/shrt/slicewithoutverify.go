@@ -157,7 +157,7 @@ func (v *withoutVerdict) err() error {
 	case v.readsOut && len(v.Cleared) == 0:
 		return exitWith(3, "INCONCLUSIVE without %s", without)
 	case v.readsOut:
-		return nil
+		return exitWith(3, "INCONCLUSIVE without %s: %d failing step(s) still fail and read what the left-out steps write", without, len(v.StillFail))
 	case len(v.StillFail) > 0 && len(v.Cleared) == 0:
 		return exitWith(1, "NOT REPRODUCED without %s", without)
 	case len(v.StillFail) > 0:

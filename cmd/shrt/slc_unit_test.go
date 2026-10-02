@@ -488,3 +488,10 @@ func TestRefusedFailureNeedsARefusedStepThatDidNotPass(t *testing.T) {
 		}
 	}
 }
+
+func TestAPartlyClearedWithoutIsInconclusiveWhenTheRestReadTheLeftOutWrites(t *testing.T) {
+	v := &withoutVerdict{Without: []string{"stray_add"}, Cleared: []string{"fetch_total"}, StillFail: []string{"fetch_name"}, readsOut: true}
+	if err := v.err(); exitCodeOf(err) != 3 || !strings.Contains(err.Error(), "INCONCLUSIVE without stray_add: 1 failing step(s) still fail") {
+		t.Fatalf("exit %d: %v", exitCodeOf(err), err)
+	}
+}
