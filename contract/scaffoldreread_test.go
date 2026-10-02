@@ -26,9 +26,9 @@ func TestChainNewReadRepeatedAfterAWriteReadsTheSameResourceAgain(t *testing.T) 
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"get_product":   "${create_product.product.id_product}",
-		"get_product_2": "${create_product_2.product.id_product}",
-		"get_product_3": "${create_product.product.id_product}",
+		"get_product":                 "${create_product.product.id_product}",
+		"get_product_2":               "${create_product_2.product.id_product}",
+		"get_product_after_add_stock": "${create_product.product.id_product}",
 	}
 	for id, ref := range want {
 		st, _ := c.Step(id)
@@ -36,11 +36,7 @@ func TestChainNewReadRepeatedAfterAWriteReadsTheSameResourceAgain(t *testing.T) 
 			t.Fatalf("%s must read %s, got %v:\n%s", id, ref, st.Body["id_product"], raw)
 		}
 	}
-	joined := strings.Join(notes, "\n")
-	if !strings.Contains(joined, "step get_product_3: reads create_product again after add_stock, as get_product did; to read create_product_2 instead") {
-		t.Fatalf("the re-read must be named with its alternative, got:\n%s", joined)
-	}
-	if strings.Contains(joined, "get_product_2: reads") {
-		t.Fatalf("a read with no write before it is not a re-read, got:\n%s", joined)
+	if joined := strings.Join(notes, "\n"); strings.Contains(joined, "again after") {
+		t.Fatalf("the id names the write a re-read follows, so no note repeats it, got:\n%s", joined)
 	}
 }

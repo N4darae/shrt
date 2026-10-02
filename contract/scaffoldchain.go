@@ -31,8 +31,6 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 	rpcOf := map[string]string{}
 	used := map[string]int{}
 	readRun := map[string]int{}
-	readerOf := map[string]string{}
-	lastWrite := ""
 	for i, m := range methods {
 		read := chain.IsReadOnlyCall(m.FullName)
 		if !read {
@@ -48,18 +46,9 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 			p.stepOf[rpc] = choose(ids)
 		}
 		step := p.buildStep(ids[i], "", m, lib)
-		picked, others := p.rewireProducers(step, producers, rpcOf, used, choose)
-		if read && readRun[m.FullName] == 0 && readerOf[picked] != "" {
-			p.note("step %s reads %s again after %s, as %s did; to read %s instead, reference it", ids[i], picked,
-				lastWrite, readerOf[picked], strings.Join(others, " or "))
-		}
+		p.rewireProducers(step, producers, rpcOf, used, choose)
 		if read {
 			readRun[m.FullName]++
-			if picked != "" {
-				readerOf[picked] = ids[i]
-			}
-		} else {
-			lastWrite = ids[i]
 		}
 		if len(producers[m.FullName]) > 0 {
 			distinguishFixtures(step, ids[i], producers[m.FullName][0])
@@ -79,9 +68,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 }
 
 func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, rpcOf map[string]string, used map[string]int,
-	choose func([]string) string) (string, []string) {
-	var picked string
-	var others []string
+	choose func([]string) string) {
 	var walk func(v any, item int) any
 	walk = func(v any, item int) any {
 		switch t := v.(type) {
@@ -110,13 +97,6 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 			pick := choose(choices)
 			if item >= 0 {
 				pick = choices[item%len(choices)]
-			} else if picked == "" {
-				picked = pick
-				for _, c := range choices {
-					if c != pick {
-						others = append(others, c)
-					}
-				}
 			}
 			used[pick]++
 			return "${" + pick + "." + path + "}"
@@ -124,7 +104,6 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 		return v
 	}
 	walk(step.Body, -1)
-	return picked, others
 }
 
 func leastUsed(choices []string, used map[string]int) string {
@@ -228,6 +207,7 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		return nil, nil, err
 	}
 	p.Chain.Description = description
+	p.nameBySituation()
 	for _, st := range p.Chain.Steps {
 		dropPlaceholderEnums(st, lib, cat)
 	}
