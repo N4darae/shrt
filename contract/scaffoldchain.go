@@ -214,6 +214,7 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		dropPlaceholderEnums(st, lib, cat)
 	}
 	p.discriminateListOrder(lib, nil)
+	p.assertContracts(lib)
 	p.noteRequirements()
 	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
 		p.declareInterpolatedVars(missing)
@@ -227,6 +228,37 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 		steps[st.ID] = true
 	}
 	return raw, groupStepNotes(p.Notes, steps), nil
+}
+
+func (p *Plan) assertContracts(lib *Library) {
+	if lib == nil {
+		return
+	}
+	notes := len(p.Notes)
+	p.echoNumbers()
+	p.assertOutcomes(lib)
+	p.Notes = p.Notes[:notes]
+	p.assertStates(lib)
+	r := p.effectRules(lib)
+	if len(r.increase) == 0 && len(r.total) == 0 {
+		return
+	}
+	if p.met == nil {
+		p.met = map[[2]string]bool{}
+	}
+	asserted, _, _ := p.effectPass(lib, r, true)
+	ids := []string{}
+	for _, st := range p.Chain.Steps {
+		for _, kind := range []string{"zero", "increase", "batch", "total", "read"} {
+			if containsString(asserted[kind], st.ID) && !containsString(ids, st.ID) {
+				ids = append(ids, st.ID)
+			}
+		}
+	}
+	if len(ids) > 0 {
+		p.note("%s %s: %s levels and totals worked out from the quantities and prices sent, by the contracts' effects, so they change if those do",
+			pluralVerb(len(ids), "step", "steps"), strings.Join(ids, ", "), pluralVerb(len(ids), "asserts", "assert"))
+	}
 }
 
 func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {
