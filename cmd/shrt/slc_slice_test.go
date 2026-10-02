@@ -682,7 +682,7 @@ func TestSliceCases(t *testing.T) {
 				captureStdout(t, func() { _ = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"}) })
 			}
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"},
-			want: []string{"(a shrt verify replay)", "a `shrt verify` replay in which fetch drifted", "drifted: total source got=1, slice got=1", "verify reproduced"},
+			want: []string{"(a shrt verify replay)", "note: -run latest: verify replay ", "drifted: total source got=1, slice got=1", "verify reproduced"},
 			check: func(t *testing.T, _ string) {
 				total = 2
 				if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"); code != 1 || !strings.Contains(out, "NOT REPRODUCED") || !strings.Contains(out, "total (") || !strings.Contains(out, "the slice run did not") {

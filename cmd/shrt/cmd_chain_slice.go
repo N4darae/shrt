@@ -1411,9 +1411,16 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	if err != nil || own == nil {
 		return latest, err
 	}
+	picked := "note: -run latest: verify replay " + latest.RunID
+	since := ", made after the safe spot's approval"
+	if spot, err := e.store.LoadSafeSpot(chainName); err == nil && !own.StartedAt.After(spot.ConfirmedAt) {
+		since = ""
+	}
 	if step == "" && !slices.Equal(failedSteps(latest), failedSteps(own)) {
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s; in the newest `shrt run` record, %s, %s\n",
-			latest.RunID, failedCount(latest), own.RunID, failedCount(own))
+		if since != "" {
+			picked += fmt.Sprintf(", in which %s; in shrt run %s%s, %s", failedCount(latest), own.RunID, since, failedCount(own))
+		}
+		fmt.Fprintln(os.Stderr, picked)
 		return latest, nil
 	}
 	ownReached, _ := reachedStep(own, step)
@@ -1422,18 +1429,18 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 	}
 	moved := func(s string) bool { return s == runner.StatusFailed || s == "drifted" }
 	if l, o := movedStatus(e, latest, step), movedStatus(e, own, step); moved(l) != moved(o) {
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay in which %s %s; in the newest `shrt run` record, %s, it %s\n",
-			latest.RunID, step, l, own.RunID, o)
+		if since != "" {
+			picked += fmt.Sprintf(", in which %s %s; in shrt run %s%s, it %s", step, l, own.RunID, since, o)
+		}
+		fmt.Fprintln(os.Stderr, picked)
 		return latest, nil
 	}
 	prev, err := e.store.LoadRun(chainName, ids[len(ids)-2])
 	if err != nil || !replayBesideRun(prev, latest) {
-		fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest record, a `shrt verify` replay, as shrt diff picks it; to slice from the newest `shrt run` record: -run %s\n",
-			latest.RunID, own.RunID)
+		fmt.Fprintln(os.Stderr, picked)
 		return latest, nil
 	}
-	fmt.Fprintf(os.Stderr, "note: -run latest is run %s, the newest `shrt run` record of %s; the newest record, %s, is a `shrt verify` replay recorded right after it: pass -run %s to slice from it\n",
-		own.RunID, chainName, latest.RunID, latest.RunID)
+	fmt.Fprintf(os.Stderr, "note: -run latest: shrt run %s\n", own.RunID)
 	return own, nil
 }
 

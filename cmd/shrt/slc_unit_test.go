@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
@@ -395,26 +396,37 @@ func TestSliceNextIsWithheldWhenItsClosurePullsInAStepThatErredInTheSourceRun(t 
 func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 	for _, c := range []struct {
 		name    string
+		runs    []string
 		replays []string
 		fetch   string
 		without bool
 		picked  string
 		err     []string
 		note    []string
+		lack    []string
 	}{
 		{name: "the chain's own run over a verify replay", replays: []string{"29990101T000000Z-replay01"}, picked: "base",
-			note: []string{"the newest `shrt run` record", "29990101T000000Z-replay01, is a `shrt verify` replay", "pass -run 29990101T000000Z-replay01"}},
+			note: []string{"note: -run latest: shrt run BASE\n"}, lack: []string{"replay01"}},
 		{name: "a newer replay that did not reach the step is refused", replays: []string{"29990101T000000Z-replay02"}, fetch: runner.StatusSkipped,
 			err: []string{"run 29990101T000000Z-replay02, which did not evaluate step fetch", "-run BASE"}},
 		{name: "the newer replay in which only it failed the step", replays: []string{"29990101T000000Z-replay03"}, fetch: runner.StatusFailed, picked: "29990101T000000Z-replay03",
-			note: []string{"run 29990101T000000Z-replay03, the newest record, a `shrt verify` replay in which fetch failed", "BASE, it passed"}},
+			note: []string{"note: -run latest: verify replay 29990101T000000Z-replay03\n"}, lack: []string{"BASE"}},
 		{name: "the newest replay when no run was recorded beside it", replays: []string{"29990101T000000Z-replay04", "29990101T000001Z-replay05"}, picked: "29990101T000001Z-replay05",
-			note: []string{"as shrt diff picks it", "-run BASE"}},
+			note: []string{"note: -run latest: verify replay 29990101T000001Z-replay05\n"}, lack: []string{"BASE"}},
 		{name: "-without picks the newer replay in which steps failed", replays: []string{"29990101T000000Z-replay06"}, fetch: runner.StatusFailed, without: true, picked: "29990101T000000Z-replay06",
-			note: []string{"replay in which 1 step failed", "BASE, no step failed"}},
+			note: []string{"note: -run latest: verify replay 29990101T000000Z-replay06\n"}, lack: []string{"BASE"}},
+		{name: "a run made after the approval that disagrees is named", runs: []string{"29990101T000000Z-run07"}, replays: []string{"29990101T000001Z-replay08"}, fetch: runner.StatusFailed, picked: "29990101T000001Z-replay08",
+			note: []string{"note: -run latest: verify replay 29990101T000001Z-replay08, in which fetch failed; in shrt run 29990101T000000Z-run07, made after the safe spot's approval, it passed\n"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, e, base := approvedThingFlowRun(t)
+			for _, id := range c.runs {
+				run := copyRun(t, base, id)
+				run.StartedAt = time.Now().Add(time.Hour)
+				if _, err := e.store.SaveRun(run); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for _, id := range c.replays {
 				replay := copyRun(t, base, id)
 				replay.ReplayOf = base.RunID
@@ -457,6 +469,11 @@ func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 			for _, w := range c.note {
 				if !strings.Contains(note, fill(w)) {
 					t.Errorf("missing %q in %q", fill(w), note)
+				}
+			}
+			for _, w := range c.lack {
+				if strings.Contains(note, fill(w)) {
+					t.Errorf("want no %q in %q", fill(w), note)
 				}
 			}
 			if c.without {
