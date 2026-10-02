@@ -1544,9 +1544,9 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			head += " " + gr.path
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
-		if r := it.Reason.String(); r != "" {
+		if r := it.Reason.inGroup(gr.rpc, it.Step); r != "" {
 			line += "; " + r
-		} else {
+		} else if it.Reason.Kind == "" {
 			path, eg := it.shown()
 			line += " " + path + " " + eg
 		}

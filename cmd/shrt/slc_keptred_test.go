@@ -708,7 +708,7 @@ func TestAGateGroupExampleIsARealChangeNotAMaskedPinThatNowPasses(t *testing.T) 
 	}
 	settleGate(chains)
 	out := captureStdout(t, func() { printGateGroups(chains, false) })
-	if !strings.Contains(out, "e.g. lifecycle get; suspect read get") {
+	if !strings.Contains(out, "e.g. lifecycle get; answers another set of product") {
 		t.Errorf("the example is the step that changed, not the pin that now passes:\n%s", out)
 	}
 	if got := chains[0].items[0].wantGot(); got != "pinned got=-1, now got=1" {

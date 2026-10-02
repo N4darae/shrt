@@ -45,3 +45,24 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 		t.Errorf("the row printed the read's want and got once, the unclear form does not repeat them: %q", rows["customers"])
 	}
 }
+
+func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
+	summary := captureStdout(t, func() { printGateGroups(rowChains(), false) })
+	for _, want := range []string{
+		"  OrderService/FetchOrder: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
+		"  CustomerService/CreateCustomer: 1 step(s) in 1 chain(s); e.g. customers get_customer; unclear: write create_customer or the read (GetCustomer)\n",
+		"; e.g. stock get_product; write confirm_order\n",
+		"  S/Confirm: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
+		"  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. confirms confirm_order; as clerk\n",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("want %q in the summary:\n%s", want, summary)
+		}
+	}
+	for _, line := range strings.Split(strings.TrimSpace(summary), "\n")[1:] {
+		head, _, _ := strings.Cut(strings.TrimSpace(line), ":")
+		if rpc, _, _ := strings.Cut(head, " "); strings.Count(line, rpc) != 1 || strings.Contains(line, "suspect") {
+			t.Errorf("a group line names its rpc once and does not restate it as the suspect: %q", line)
+		}
+	}
+}
