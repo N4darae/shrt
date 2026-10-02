@@ -913,3 +913,28 @@ func TestRunExitsZeroOnlyWhenAKeptRedChainFailsAsPinned(t *testing.T) {
 		}
 	}
 }
+
+func TestPinPutsListReadsThatIgnoreTheSameFilterInOneSlice(t *testing.T) {
+	orders := `{"orders":[{"id_order":"o1","status":"PENDING"},{"id_order":"o2","status":"CANCELLED"}]}`
+	list := func(id, request, response string, failed ...string) *runner.StepRecord {
+		sr := &runner.StepRecord{ID: id, Call: "shop.orders.v1.OrderService/ListOrders", Status: runner.StatusFailed,
+			Request: json.RawMessage(request), Response: json.RawMessage(response)}
+		for _, p := range failed {
+			sr.Expect = append(sr.Expect, chain.ExpectResult{Path: p, Rule: "equals"})
+		}
+		return sr
+	}
+	rec := &runner.Record{Steps: []*runner.StepRecord{
+		{ID: "create", Call: "shop.orders.v1.OrderService/CreateOrder", Status: runner.StatusPassed},
+		list("list_pending", `{"id_customer":"c1","status":"PENDING"}`, orders, "orders.1"),
+		list("list_cancelled", `{"id_customer":"c1","status":"CANCELLED"}`, orders, "orders.0.id_order", "orders.0.status", "orders.1"),
+		list("list_totals", `{"id_customer":"c1"}`, orders, "orders.0.total_minor"),
+	}}
+	c := &chain.Chain{Name: "orders"}
+	for _, sr := range rec.Steps {
+		c.Steps = append(c.Steps, &chain.Step{ID: sr.ID, Call: sr.Call})
+	}
+	if got := strings.Join(pinGroup(c, rec, []string{"list_pending", "list_cancelled", "list_totals"}), ","); got != "list_pending,list_cancelled" {
+		t.Fatalf("one slice for the filter the rpc ignores, another for the other defect: %s", got)
+	}
+}
