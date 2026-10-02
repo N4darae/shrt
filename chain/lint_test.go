@@ -841,7 +841,7 @@ func TestLintAcceptsEveryReferenceTheGrammarDocuments(t *testing.T) {
 		t.Fatal("the GRAMMAR reference table is empty")
 	}
 	headers, expect := map[string]string{}, []chain.Expectation{}
-	for n, ex := range chain.ReferenceExamples {
+	for n, ex := range append(append([]chain.ReferenceExample{}, chain.ReferenceExamples...), chain.OlderReferenceExamples...) {
 		headers[fmt.Sprintf("X-Example-%d", n)] = ex.Ref
 		expect = append(expect, chain.Expectation{Path: "name", Equals: ex.Ref})
 	}
