@@ -46,7 +46,7 @@ func (r reason) inGroup(rpc, step string) string {
 		return strings.TrimSpace(out + asText(profile))
 	}
 	switch {
-	case r.Kind == "":
+	case r.Kind == "", r.Kind == reasonUnclear && strings.Contains(rpc, " or "):
 		return ""
 	case r.Kind == reasonUnclear && len(r.Or) > 1:
 		names := []string{}

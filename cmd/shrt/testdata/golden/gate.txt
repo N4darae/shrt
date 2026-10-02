@@ -31,15 +31,15 @@ failures by suspect rpc:
 # an unclear between two writes no row settles is grouped under both
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
 failures by suspect rpc:
-  OrderService/ConfirmOrder or OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. alone get_b; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
+  OrderService/ConfirmOrder or OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. alone get_b
 
 # an unclear write or read no row settles is grouped under both, a decisive row apart
-FAIL       customers  get (S/GetCustomer) customer.name want=Ann got=ann@example.test; unclear: write create (S/CreateCustomer) or the read: answered customer.name=Ann, but GetCustomer read ann@example.test
-FAIL       lookup  get (S/GetCustomer) customer.name want=Ann got=ann@example.test; same fault as customers (CreateCustomer)
+FAIL       customers  get (S/GetCustomer) customer.name want=Ann got=ann@example.test; unclear: write create (S/CreateCustomer) or the read
+FAIL       lookup  get (S/GetCustomer) customer.name want=Ann got=ann@example.test; same fault as customers (CreateCustomer or GetCustomer)
 FAIL       orders  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; suspect write confirm (OrderService/ConfirmOrder)
 failures by suspect rpc:
-  S/CreateCustomer or the read S/GetCustomer: 2 step(s) in 2 chain(s); e.g. customers get; unclear: write create (S/CreateCustomer) or the read: answered customer.name=Ann, but GetCustomer read ann@example.test
-  OrderService/ConfirmOrder: 1 step(s) in 1 chain(s); e.g. orders get_b; suspect write confirm (OrderService/ConfirmOrder)
+  S/CreateCustomer or the read S/GetCustomer: 2 step(s) in 2 chain(s); e.g. customers get
+  OrderService/ConfirmOrder: 1 step(s) in 1 chain(s); e.g. orders get_b; write confirm
 
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)

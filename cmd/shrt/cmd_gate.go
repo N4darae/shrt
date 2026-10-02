@@ -1404,7 +1404,11 @@ func settleGate(chains []*gateChain) []string {
 		other, more := lacks(seen[it.root()], g, it)
 		switch first := seen[it.root()]; {
 		case first != "" && first != g.name && !more:
-			g.first += "; " + sameFault + first + " (" + methodName(it.rpc()) + ")"
+			named := methodName(it.rpc())
+			if r := it.Reason; r.Kind == reasonUnclear && len(r.Or) == 0 && r.ReadRPC != "" {
+				named += " or " + methodName(r.ReadRPC)
+			}
+			g.first += "; " + sameFault + first + " (" + named + ")"
 		case it.Reason.Kind != "":
 			g.first += "; " + it.Reason.inRow(&it)
 		}

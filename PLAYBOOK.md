@@ -384,20 +384,24 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 2. Deploy the merged backend and run `shrt doctor -strict` and `shrt verify <chain>`.
 3. If it drifts, run, propose with `-supersede` and have a person approve.
 
-**How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`):
+**How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`). A gate line
+shortens a suspect that is its own step to `suspect the read` / `suspect the write` and the
+unclear read form to `or the read`; a summary line leaves out what its heading says; `verify` and
+`run` print every form in full.
 
 | verdict word | what it means | what to do |
 |---|---|---|
 | `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
 | `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items, a code it did not answer before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
 | `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it) after the last read or write answer of it that still matched, and none answered differently | read the record between them |
-| `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`), or check what the write persisted |
+| `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`); with no such rpc, `<write> answered <field> as sent; only <Rpc> differs` leans to the read; or check what the write persisted |
 | `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
 | `same fault as <chain> (<rpc>)` | the suspect and field an earlier gate line named (or one of this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own suspect and `also` the first other one, if any | fix it once, under the earlier line |
 | `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
-<step> -verify` (§11): `STILL FAILS` means it is not the cause.
+<step> -verify` (§11): `STILL FAILS` means it is not the cause; steps that pass without it may
+only need the state it leaves.
 
 ## 9. Refactor and test against a safe spot
 
@@ -512,7 +516,7 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 | `intermittent: reproduced k/n` (1) | flaky there; a run that did not reach the target, or in which a kept step that passed in the source failed, is not counted | keeping more steps will not help |
 | `DID NOT RUN` (3) | the target was never answered | read why the slice run stopped, printed under it |
 | `INCONCLUSIVE` (3) | verdicts match but dropped writes act on kept entities, another target, or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
-| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it | test a suspect write |
+| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it; cleared steps acting on a record the left-out step changed are marked `may need that state: not proof` | test a suspect write |
 
 Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares: the
 newest record, but a `shrt run` over a verify replay recorded right after it, unless only the

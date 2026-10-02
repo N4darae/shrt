@@ -50,7 +50,7 @@ func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
 	summary := captureStdout(t, func() { printGateGroups(rowChains(), false) })
 	for _, want := range []string{
 		"  OrderService/FetchOrder: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
-		"  CustomerService/CreateCustomer: 1 step(s) in 1 chain(s); e.g. customers get_customer; unclear: write create_customer or the read (GetCustomer)\n",
+		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
 		"; e.g. stock get_product; write confirm_order\n",
 		"  S/Confirm: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
 		"  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. confirms confirm_order; as clerk\n",
