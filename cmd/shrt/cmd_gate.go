@@ -983,7 +983,7 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println("  " + capText(n, 240))
 		}
 		if *verbose && g.failed && !g.findingOnly() {
-			g.printChanges()
+			g.printChanges(e)
 		}
 	}
 	failed, unverified := 0, 0
@@ -1248,10 +1248,13 @@ func (g *gateChain) firstItem() (gateItem, bool) {
 	return gateItem{}, false
 }
 
-func (g *gateChain) printChanges() {
+func (g *gateChain) printChanges(e *env) {
 	if it, ok := g.firstItem(); ok {
 		if req := requestLine(it.Reason, it.Step, func(s string) string { return g.sent[s] }); req != "" {
 			fmt.Println("  " + req)
+		}
+		if hint := tellApart(e, it.Reason, it.Path); hint != "" {
+			fmt.Println("  " + hint)
 		}
 	}
 	seen, paths := map[string]bool{}, []string{}

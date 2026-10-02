@@ -175,7 +175,7 @@ func renderGateCase(t *testing.T, c gateCase) string {
 		for _, g := range chains {
 			fmt.Println(g.line(0))
 			if c.verbose {
-				g.printChanges()
+				g.printChanges(nil)
 			}
 		}
 		printGateGroups(chains, c.verbose)

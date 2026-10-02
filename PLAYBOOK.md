@@ -391,7 +391,8 @@ vocabulary:
   field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it)
   after the last read or write answer of it that still matched, and none answered differently.
   Read the record between them. `unclear: write ... or the read: answered ...`: the write
-  answered as before and only the read moved; check what the write persisted.
+  answered as before and only the read moved; read the field through the rpc `tell them apart:`
+  names (`run`, `verify`, `gate -v`), or check what the write persisted.
 - `knock-on of <step> (<rpc>)`: the step failed behind that one's failure. Fix that one first.
   A held-back step answering otherwise than the step it copies is judged on its own.
 - `same fault as <chain> (<rpc>)`: the suspect and field an earlier gate line named (or one of

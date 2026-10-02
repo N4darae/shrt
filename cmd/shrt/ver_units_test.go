@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -212,5 +213,22 @@ func TestAKeepGoingRunNamesEachDistinctSuspectMostFailingStepsFirst(t *testing.T
 	}
 	if failureRequests(nil, rec, true) != nil {
 		t.Fatal("a dry run sent nothing, so it names no request")
+	}
+}
+
+func TestVerifyTellsAWriteFromTheReadThroughAnotherRead(t *testing.T) {
+	steps := func(qty string) *runner.Record {
+		return shopRecord(
+			shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
+			shopStep("add_stock", shopAdd, `{"qty_on_hand":"10"}`, "create_product"),
+			shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"`+qty+`"}}`, "create_product"),
+		)
+	}
+	rec := steps("9")
+	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("10").Steps}, rec)
+	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, nil, false, errors.New("shop: regression"), "")
+	if !strings.Contains(line, "; unclear: write add_stock (StockService/AddStock) or the read") ||
+		!strings.Contains(line, "\n  tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)\n") {
+		t.Errorf("got:\n%s", line)
 	}
 }

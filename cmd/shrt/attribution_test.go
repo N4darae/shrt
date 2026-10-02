@@ -944,3 +944,33 @@ func replaysRecord(firstRefused bool) *runner.Record {
 	}
 	return shopRecord(steps...)
 }
+
+func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
+	shop := &env{cat: catalogtest.Shop()}
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
+		shopStep("add_stock", shopAdd, `{"qty_on_hand":"10"}`, "create_product").held("qty_on_hand", "10").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(`{"qty":"10"}`) }),
+		shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"9"}}`, "create_product").failing("product.qty_on_hand", "10", "9"),
+	)
+	rec.Status = runner.StatusFailed
+	r := runAttribution(shop, rec).of("get", "product.qty_on_hand")
+	const hint = "tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)"
+	if r.Kind != reasonUnclear || tellApart(shop, r, "product.qty_on_hand") != hint {
+		t.Fatalf("got %s, hint %q", r, tellApart(shop, r, "product.qty_on_hand"))
+	}
+	if lines := failureRequests(shop, rec, false); !slices.Contains(lines, hint) {
+		t.Errorf("run prints the hint once under the suspect, got %q", lines)
+	}
+	list := reason{Kind: reasonUnclear, Step: "add_stock", RPC: shopAdd, Read: "list", ReadRPC: shopList, Path: "qty_on_hand"}
+	if got := tellApart(shop, list, "products.1.qty_on_hand"); got != "tell them apart: read products[].qty_on_hand through ProductService/GetProduct (product.qty_on_hand)" {
+		t.Errorf("a list read is told apart by the single read, got %q", got)
+	}
+	writes := reason{Kind: reasonUnclear, Step: "a", RPC: shopConfirm, Or: []reason{{Step: "a", RPC: shopConfirm}, {Step: "b", RPC: shopCancel}}}
+	if got := tellApart(shop, writes, "product.qty_on_hand"); got != "" {
+		t.Errorf("an unclear between writes needs a read between them, not another read rpc, got %q", got)
+	}
+	item := reason{Kind: reasonUnclear, Step: "create", RPC: "shrt.stamped.v1.ItemService/CreateItem", ReadRPC: "shrt.stamped.v1.ItemService/GetItem", Path: "item.name"}
+	if got := tellApart(&env{cat: catalogtest.Stamped()}, item, "item.name"); got != "" {
+		t.Errorf("no other read carries the field, so no hint, got %q", got)
+	}
+}

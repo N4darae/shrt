@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -642,8 +643,9 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 	}
 	att := runAttribution(e, rec)
 	type failure struct {
-		st *runner.StepRecord
-		r  reason
+		st   *runner.StepRecord
+		r    reason
+		path string
 	}
 	failures, writes := []failure{}, map[string]bool{}
 	for _, st := range rec.Steps {
@@ -661,9 +663,9 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 		if w := r.blamed(st.ID); w != "" {
 			writes[w] = true
 		}
-		failures = append(failures, failure{st, r})
+		failures = append(failures, failure{st, r, path})
 	}
-	lines, count, order, named := map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
+	lines, hints, count, order, named := map[string]string{}, map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
 	for _, f := range failures {
 		key, w := "", f.r.blamed(f.st.ID)
 		switch {
@@ -678,16 +680,20 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 			order = append(order, key)
 		}
 		if lines[key] == "" || !named[key] && f.r.Kind != "" {
-			lines[key], named[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != ""
+			lines[key], named[key], hints[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != "", tellApart(e, f.r, f.path)
 		}
 		count[key]++
 	}
 	sort.SliceStable(order, func(i, j int) bool { return count[order[i]] > count[order[j]] })
-	out := []string{}
+	out, hint := []string{}, ""
 	for _, key := range order {
 		if lines[key] != "" && len(out) < 3 {
 			out = append(out, lines[key])
+			hint = cmp.Or(hint, hints[key])
 		}
+	}
+	if hint != "" {
+		out = append(out, hint)
 	}
 	return out
 }

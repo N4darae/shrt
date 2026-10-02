@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 const (
@@ -152,6 +154,59 @@ func suspectLine(r reason, step string, sent func(string) string) string {
 		return s + "; " + req
 	}
 	return req
+}
+
+func tellApart(e *env, r reason, path string) string {
+	if r.Kind != reasonUnclear || len(r.Or) > 0 || e == nil || e.cat == nil {
+		return ""
+	}
+	m, err := e.cat.Lookup(r.ReadRPC)
+	if err != nil {
+		return ""
+	}
+	carrier, ok := carrierOf(m, path)
+	if !ok {
+		return ""
+	}
+	msg, field := carrier[:strings.LastIndex(carrier, ".")], fieldOf(carrier)
+	var via []string
+	for _, o := range e.cat.Methods() {
+		if len(via) == 2 {
+			break
+		}
+		if p := pathTo(o.Output(), msg, field, 0); p != "" && o.FullName != m.FullName && chain.IsReadOnlyCall(o.FullName) {
+			if o.ServerStreaming {
+				p = catalog.StreamMessages + "[]." + p
+			}
+			via = append(via, shortRPC(o.FullName)+" ("+p+")")
+		}
+	}
+	if len(via) == 0 {
+		return ""
+	}
+	return "tell them apart: read " + gateIndex.ReplaceAllString(path, "[]$1") + " through " + strings.Join(via, " or ")
+}
+
+func pathTo(md protoreflect.MessageDescriptor, msg, field string, depth int) string {
+	if md == nil || depth > 4 {
+		return ""
+	}
+	if string(md.FullName()) == msg && md.Fields().ByName(protoreflect.Name(field)) != nil {
+		return field
+	}
+	for i := 0; i < md.Fields().Len(); i++ {
+		fd := md.Fields().Get(i)
+		if fd.IsMap() {
+			continue
+		}
+		if p := pathTo(fd.Message(), msg, field, depth+1); p != "" {
+			if fd.IsList() {
+				return string(fd.Name()) + "[]." + p
+			}
+			return string(fd.Name()) + "." + p
+		}
+	}
+	return ""
 }
 
 func recordSent(e *env, rec *runner.Record) func(string) string {

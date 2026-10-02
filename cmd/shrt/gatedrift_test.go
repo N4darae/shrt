@@ -92,3 +92,17 @@ func TestAFailedFirstChangeShownAboveStillLeadsOverADrift(t *testing.T) {
 		}
 	}
 }
+
+func TestTheGateTellsTheWriteFromTheReadOnlyUnderV(t *testing.T) {
+	const create, fetch = "shrt.test.v1.ThingService/Create", "shrt.test.v1.ThingService/Fetch"
+	it := gateItem{Step: "fetch", Call: fetch, Path: "name", Want: `"a "`, Got: "a", Failed: true,
+		Reason: reason{Kind: reasonUnclear, Step: "create", RPC: create, Read: "fetch", ReadRPC: fetch, Path: "name", Want: "a ", Got: "a"}}
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: []gateItem{it}}}}})
+	const hint = "\n  tell them apart: read name through PartnerService/FetchMine (name)\n"
+	if out, _ := runGateOut(t); strings.Contains(out, "tell them apart") {
+		t.Errorf("the default gate row carries no hint:\n%s", out)
+	}
+	if out, _ := runGateOut(t, "-v"); !strings.Contains(out, hint) {
+		t.Errorf("want %q under -v in:\n%s", hint, out)
+	}
+}
