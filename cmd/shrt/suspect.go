@@ -389,7 +389,7 @@ func (a attribution) of(step, path string) reason {
 	if up := a.behind(w); up != w {
 		return a.write(up)
 	}
-	if a.ref && !a.bad[a.rec.Steps[w].ID] {
+	if !a.movedFor(path)[a.rec.Steps[w].ID] {
 		return a.asBefore(a.index(step), path, w)
 	}
 	return a.write(w)
@@ -402,19 +402,67 @@ func (a attribution) profiled(st *runner.StepRecord, path, other string) reason 
 }
 
 func (a attribution) asBefore(at int, path string, w int) reason {
-	from, _ := a.lastMatch(a.rec.Steps[at], path)
+	st := a.rec.Steps[at]
+	from, _ := a.lastMatch(st, path)
+	var ws []reason
 	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
-		if i != w && a.bears(i, path) {
-			return a.unclear(w, a.rec.Steps[at])
+		if a.answers(a.rec.Steps[i], st, path) {
+			break
+		}
+		if a.moves(i, path) {
+			ws = append([]reason{{Step: a.rec.Steps[i].ID, RPC: a.rec.Steps[i].Call, Profile: profileAs(a.e, a.rec.Steps[i])}}, ws...)
 		}
 	}
-	return a.write(w)
+	if len(ws) < 2 {
+		return a.write(w)
+	}
+	r := a.write(a.index(ws[0].Step))
+	r.Kind, r.Or = reasonUnclear, ws
+	return r
 }
 
-func (a attribution) unclear(w int, st *runner.StepRecord) reason {
-	r := a.write(w)
-	r.Kind, r.Read, r.ReadRPC, r.Profile = reasonUnclear, st.ID, st.Call, profileAs(a.e, st)
-	return r
+func (a attribution) moves(i int, path string) bool {
+	w := a.rec.Steps[i]
+	eff := a.e.effectsOf(w.Call)[leafOf(path)]
+	switch {
+	case eff != nil && eff.Restore != "" && !a.seenIn(i, eff.Restore):
+		return false
+	case a.ref:
+		return a.bears(i, path)
+	}
+	return eff != nil && eff.Is != contract.EffectNone && refusalOf(w) == ""
+}
+
+func (a attribution) seenIn(i int, state string) bool {
+	var req map[string]any
+	_ = json.Unmarshal(a.rec.Steps[i].Request, &req)
+	ids, found := idsOf(req), false
+	for _, st := range a.rec.Steps[:i] {
+		var body any
+		if st == nil || json.Unmarshal(st.Response, &body) != nil {
+			continue
+		}
+		eachLeaf(body, "", func(p string, v any) {
+			if s, ok := v.(string); !found && ok && contract.SameState(s, state) {
+				segs := chain.SplitPath(p)
+				holder, _ := chain.Get(body, strings.Join(segs[:len(segs)-1], "."))
+				found = slices.ContainsFunc(idsOf(holder), func(id string) bool { return slices.Contains(ids, id) })
+			}
+		})
+	}
+	return found
+}
+
+func (a attribution) answers(w, st *runner.StepRecord, path string) bool {
+	var rb, wb any
+	if a.unchanged == nil || path == "" || envelopeOnly(path) || json.Unmarshal(st.Response, &rb) != nil || json.Unmarshal(w.Response, &wb) != nil {
+		return false
+	}
+	found := false
+	eachLeaf(wb, "", func(p string, _ any) {
+		found = found || leafOf(p) == leafOf(path) && sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p)
+	})
+	return found
 }
 
 func (a attribution) movedFor(path string) map[string]bool {
@@ -1095,8 +1143,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 	out := a.write(wi)
 	out.Kind, out.Path, out.Want, out.Got, out.ReadRPC = reasonStored, wp, wv, compactValue(rv), methodName(r.Call)
 	if !agree && agreed && before == wv {
-		out = a.unclear(wi, r)
-		out.Path, out.Want, out.Got = wp, wv, compactValue(rv)
+		out.Kind, out.Read, out.ReadRPC, out.Profile = reasonUnclear, r.ID, r.Call, profileAs(a.e, r)
 	}
 	return out, true
 }

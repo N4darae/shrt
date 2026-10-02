@@ -91,7 +91,18 @@ func gateCases() []gateCase {
 		}
 		return out
 	}
+	stock := func(step string, r reason, pinned string) gateItem {
+		return gateItem{Step: step, Call: shopGet, Path: "product.qty_on_hand", Want: "2", Got: "1", Failed: pinned == "", Pinned: pinned, Reason: r}
+	}
+	either := reason{Kind: reasonUnclear, Step: "confirm", RPC: shopConfirm, Or: []reason{{Step: "confirm", RPC: shopConfirm}, {Step: "cancel", RPC: shopCancel}}}
 	return []gateCase{
+		{name: "a read unclear between two writes names both and is grouped once, under the earlier", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}},
+				{name: "flow", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}, "")}},
+				{name: "flow-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
+			}
+		}},
 		{name: "a changed read is filed under the write since the last read that matched, the other profile, or the read", chains: asRun},
 		{name: "one line per suspect rpc, knock-ons folded under the write", chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},
 		{name: "-v counts the knock-on steps", verbose: true, chains: func() []*gateChain { return []*gateChain{{name: "one", items: listItems()}} }},

@@ -15,6 +15,13 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
 
+# a read unclear between two writes names both and is grouped once, under the earlier
+FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
+FAIL       flow  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; same fault as alone
+FAIL       flow-slice-get_b  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; same fault as alone
+failures by suspect rpc:
+  OrderService/ConfirmOrder: 3 step(s) in 3 chain(s); e.g. alone get_b; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
+
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)
 FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect read clerk_get (ProductService/GetProduct) as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct)

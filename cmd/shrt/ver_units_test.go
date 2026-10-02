@@ -181,8 +181,8 @@ func TestARefusedWriteOfTheSameRpcIsItsOwnRoot(t *testing.T) {
 	items := verifyItems(effectsEnv(t), rec, report)
 	for _, it := range items {
 		if it.Step == "get_product_2" {
-			if it.Reason.Kind != reasonUnclear || it.Reason.Step != "confirm_short" || !strings.HasPrefix(it.Reason.String(), "unclear: ") {
-				t.Errorf("the refused confirm moved stock: want unclear confirm_short, got %+v", it.Reason)
+			if it.Reason.Kind != reasonWrite || it.Reason.Step != "confirm_short" {
+				t.Errorf("the refused confirm moved stock: want suspect write confirm_short, got %+v", it.Reason)
 			}
 			if len(verTRoots(items)) < 2 {
 				t.Errorf("it is a root apart from the confirm that answered PENDING: %+v", items)
