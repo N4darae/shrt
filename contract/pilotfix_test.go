@@ -19,6 +19,12 @@ func errorsOf(issues []contract.Issue) []contract.Issue {
 	return out
 }
 
+func createErrors(t *testing.T, fields string) []contract.Issue {
+	t.Helper()
+	lib := libraryFrom(t, "\ndomain: test\nrpcs:\n  shrt.test.v1.ThingService/Create:\n    summary: s"+fields+"    status: draft\n")
+	return errorsOf(contract.LintLibrary(lib, catalogtest.New()))
+}
+
 func TestPlanFlagsAnUnfilledEnumAsRemainingWork(t *testing.T) {
 	lib := libraryFrom(t, `
 domain: test
@@ -158,11 +164,7 @@ rpcs:
 }
 
 func TestOneOfRejectsTwoArmsCarryingAValue(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     fields:
       name:
         oneof: owner
@@ -170,9 +172,7 @@ rpcs:
       idempotency_key:
         oneof: owner
         value: b
-    status: draft
 `)
-	issues := errorsOf(contract.LintLibrary(lib, catalogtest.New()))
 	for _, i := range issues {
 		if strings.Contains(i.Message, "oneof") {
 			return
@@ -182,11 +182,7 @@ rpcs:
 }
 
 func TestOneOfAcceptsExactlyOneArm(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     fields:
       name:
         oneof: owner
@@ -194,42 +190,31 @@ rpcs:
       idempotency_key:
         oneof: owner
         note: leave empty when name is set
-    status: draft
 `)
-	if issues := errorsOf(contract.LintLibrary(lib, catalogtest.New())); len(issues) != 0 {
+	if len(issues) != 0 {
 		t.Fatalf("one armed member is valid, got %v", issues)
 	}
 }
 
 func TestFailureWithoutAnAppCodeIsValid(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     failures:
       - connect_code: invalid_argument
         reason: NameEmpty
         field: name
         when: name is empty
-    status: draft
 `)
-	if issues := errorsOf(contract.LintLibrary(lib, catalogtest.New())); len(issues) != 0 {
+	if len(issues) != 0 {
 		t.Fatalf("a shape error carries no app code and must still be expressible, got %v", issues)
 	}
 }
 
 func TestFailureNamingNothingIsAnError(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     failures:
       - when: something happens
-    status: draft
 `)
-	if len(errorsOf(contract.LintLibrary(lib, catalogtest.New()))) == 0 {
+	if len(issues) == 0 {
 		t.Fatal("a failure with no code, connect_code or reason must be rejected")
 	}
 }
@@ -262,52 +247,37 @@ rpcs:
 }
 
 func TestCheckedByRejectsAnUnknownValue(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     fields:
       name:
         checked_by: vibes
-    status: draft
 `)
-	if len(errorsOf(contract.LintLibrary(lib, catalogtest.New()))) == 0 {
+	if len(issues) == 0 {
 		t.Fatal("checked_by must be one of the known values")
 	}
 }
 
 func TestNestedFieldPathsAreAccepted(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     required: [meta.source]
     fields:
       meta.source:
         value: shrt-pilot
       meta.trace_id:
         note: optional
-    status: draft
 `)
-	if issues := errorsOf(contract.LintLibrary(lib, catalogtest.New())); len(issues) != 0 {
+	if len(issues) != 0 {
 		t.Fatalf("a dotted path into a nested message must be accepted, got %v", issues)
 	}
 }
 
 func TestNestedFieldPathIsRejectedWhenItDoesNotExist(t *testing.T) {
-	lib := libraryFrom(t, `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: s
+	issues := createErrors(t, `
     fields:
       meta.nope:
         value: x
-    status: draft
 `)
-	if len(errorsOf(contract.LintLibrary(lib, catalogtest.New()))) == 0 {
+	if len(issues) == 0 {
 		t.Fatal("a nested path that does not exist must still be caught")
 	}
 }
