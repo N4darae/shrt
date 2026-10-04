@@ -1,9 +1,11 @@
 package agentkit_test
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -38,7 +40,7 @@ func TestEveryDocReferenceInTheKitIsInstalled(t *testing.T) {
 				continue
 			}
 			t.Errorf("%s points at %q, which `shrt init` does not install\ninstalled: %v",
-				filepath.ToSlash(a.Dest), ref, sortedKeys(dests))
+				filepath.ToSlash(a.Dest), ref, slices.Sorted(maps.Keys(dests)))
 		}
 	}
 }
@@ -113,15 +115,6 @@ func TestDocAssetsShipEveryDistillationDoc(t *testing.T) {
 			t.Errorf("%s does not match core_distillation/%s", a.Dest, a.Source)
 		}
 	}
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func distillationDir() string {
