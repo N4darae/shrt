@@ -70,8 +70,7 @@ func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 
 func failureState(f Failure, values []string, short map[string]string) string {
 	for _, v := range values {
-		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(short[v]) + `\b`)
-		if re.MatchString(f.When) {
+		if mentionsField(f.When, short[v]) {
 			return v
 		}
 	}

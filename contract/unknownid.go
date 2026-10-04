@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -49,7 +48,7 @@ func unknownIDFailure(failures []Failure, field string, ref Ref, only bool) (Fai
 			continue
 		}
 		for _, noun := range nouns {
-			if noun != "" && (strings.Contains(namecase.Fold(f.Reason), noun) || regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(noun)+`\b`).MatchString(f.When)) {
+			if noun != "" && (strings.Contains(namecase.Fold(f.Reason), noun) || mentionsField(f.When, noun)) {
 				return f, true
 			}
 		}
@@ -121,14 +120,7 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 	}
 	probe := p.probeCopy(lib, st, "unknown_"+leafName(field))
 	renameStepRefs(probe, st.ID, probe.ID)
-	return p.unknownAt(lib, st, m, probe, path, f)
-}
-
-func (p *Plan) unknownAt(lib *Library, st *chain.Step, m *catalog.Method, probe *chain.Step, path string, f Failure) string {
-	cur, ok := bodyValue(st.Body, path)
-	if !ok {
-		return ""
-	}
+	cur, _ := bodyValue(st.Body, path)
 	text, isText := cur.(string)
 	if !isText {
 		return ""
