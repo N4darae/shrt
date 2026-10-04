@@ -47,36 +47,6 @@ func (e Expectation) MapOperands(f func(any) any) Expectation {
 	return out
 }
 
-func (e Expectation) resolveComparisons(scope *Scope) (Expectation, error) {
-	var err error
-	resolve := func(name string, v any) any {
-		if v == nil || err != nil {
-			return v
-		}
-		r, rerr := scope.ResolveValue(v)
-		if rerr != nil {
-			err = fmt.Errorf("expect on %q: %s: %w", e.Path, name, rerr)
-			return v
-		}
-		return r
-	}
-	out := e
-	out.Gt, out.Gte, out.Lt, out.Lte = resolve("gt", e.Gt), resolve("gte", e.Gte), resolve("lt", e.Lt), resolve("lte", e.Lte)
-	if e.Between != nil {
-		out.Between = make([]any, len(e.Between))
-		for i, v := range e.Between {
-			out.Between[i] = resolve("between", v)
-		}
-	}
-	if e.Within != nil {
-		out.Within = &Within{Of: resolve("within.of", e.Within.Of), By: resolve("within.by", e.Within.By)}
-	}
-	if err != nil {
-		return e, err
-	}
-	return out, nil
-}
-
 func numberOf(v any) (float64, bool) {
 	switch t := v.(type) {
 	case float64:

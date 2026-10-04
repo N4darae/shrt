@@ -55,33 +55,37 @@ type ExpectResult struct {
 // hand-computed number encoding its author's belief, and 48.7% of steps asserted only the error
 // envelope because that was the only thing an assertion could reach.
 func (e Expectation) ResolveWith(scope *Scope) (Expectation, error) {
-	out := e
-	for _, f := range []struct {
-		name string
-		get  func() any
-		set  func(any)
-	}{
-		{"equals", func() any { return e.Equals }, func(v any) { out.Equals = v }},
-		{"includes", func() any { return e.Includes }, func(v any) { out.Includes = v }},
-		{"not_equal", func() any { return e.NotEqual }, func(v any) { out.NotEqual = v }},
-		{"contains", func() any {
-			if e.Contains == "" {
-				return nil
-			}
-			return e.Contains
-		}, func(v any) { out.Contains = stringify(v) }},
-	} {
-		raw := f.get()
-		if raw == nil {
-			continue
+	var err error
+	resolve := func(name string, v any) any {
+		if v == nil || err != nil {
+			return v
 		}
-		resolved, err := scope.ResolveValue(raw)
-		if err != nil {
-			return e, fmt.Errorf("expect on %q: %s: %w", e.Path, f.name, err)
+		r, rerr := scope.ResolveValue(v)
+		if rerr != nil {
+			err = fmt.Errorf("expect on %q: %s: %w", e.Path, name, rerr)
+			return v
 		}
-		f.set(resolved)
+		return r
 	}
-	return out.resolveComparisons(scope)
+	out := e
+	out.Equals, out.Includes, out.NotEqual = resolve("equals", e.Equals), resolve("includes", e.Includes), resolve("not_equal", e.NotEqual)
+	if e.Contains != "" {
+		out.Contains = stringify(resolve("contains", e.Contains))
+	}
+	out.Gt, out.Gte, out.Lt, out.Lte = resolve("gt", e.Gt), resolve("gte", e.Gte), resolve("lt", e.Lt), resolve("lte", e.Lte)
+	if e.Between != nil {
+		out.Between = make([]any, len(e.Between))
+		for i, v := range e.Between {
+			out.Between[i] = resolve("between", v)
+		}
+	}
+	if e.Within != nil {
+		out.Within = &Within{Of: resolve("within.of", e.Within.Of), By: resolve("within.by", e.Within.By)}
+	}
+	if err != nil {
+		return e, err
+	}
+	return out, nil
 }
 
 func (e Expectation) Evaluate(response any) ExpectResult {
