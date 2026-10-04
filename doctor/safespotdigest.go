@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/config"
@@ -17,18 +16,8 @@ const CheckSafeSpotDigests = "safespot-digests"
 
 func checkSafeSpotDigests(_ context.Context, cfg *config.Config, _ Options, r *Report) {
 	dir := cfg.Abs(cfg.Paths.SafeSpots)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	names := []string{}
-	for _, e := range entries {
-		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	if len(names) == 0 {
+	names, err := spotFiles(dir)
+	if err != nil || len(names) == 0 {
 		return
 	}
 	conflicted, unreadable, edited := []string{}, []string{}, []string{}
