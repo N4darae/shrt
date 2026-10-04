@@ -29,18 +29,14 @@ type conventions struct {
 
 var (
 	conventionsMu sync.RWMutex
-	active        = defaultConventions()
-)
-
-func defaultConventions() conventions {
-	return conventions{
+	active        = conventions{
 		field:    DefaultEnvelopeField,
 		path:     DefaultEnvelopePath,
 		ok:       DefaultEnvelopeOK,
 		readOnly: DefaultReadOnlyPrefixes(),
 		codes:    DefaultCodeFields(),
 	}
-}
+)
 
 func DefaultCodeFields() []string {
 	return []string{"app_code", "reason", "error_code"}
@@ -56,19 +52,6 @@ func EnvelopeLeaf() string {
 	conventionsMu.RLock()
 	defer conventionsMu.RUnlock()
 	return active.path[strings.LastIndex(active.path, ".")+1:]
-}
-
-func setCodeFieldsLocked(names []string) {
-	out := []string{}
-	for _, n := range names {
-		if n = strings.TrimSpace(n); n != "" {
-			out = append(out, n)
-		}
-	}
-	if len(out) == 0 {
-		out = DefaultCodeFields()
-	}
-	active.codes = out
 }
 
 func EnvelopeField() string {
@@ -535,7 +518,16 @@ func ApplyConventions(readOnlyPrefixes []string, envelopePath, envelopeOK string
 func ApplyItemEnvelope(path string) { SetItemEnvelope(path) }
 
 func ApplyCodeFields(names []string) {
+	out := []string{}
+	for _, n := range names {
+		if n = strings.TrimSpace(n); n != "" {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		out = DefaultCodeFields()
+	}
 	conventionsMu.Lock()
 	defer conventionsMu.Unlock()
-	setCodeFieldsLocked(names)
+	active.codes = out
 }
