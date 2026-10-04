@@ -188,13 +188,9 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 	}
 	before := len(r.Findings)
 	if n := unsealed.total(); n > 0 {
-		cmds := []string{}
-		for _, c := range unsealed.names() {
-			cmds = append(cmds, "shrt run "+c)
-		}
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d run record(s) predate sealed run records, so an edit to them cannot be ruled out and none can be proposed: %s", n, unsealed.list()),
-			"re-run each chain for a sealed record, and propose that run instead:\n"+strings.Join(cmds, "\n"))
+			"re-run each chain for a sealed record, and propose that run instead:\nshrt run "+strings.Join(unsealed.names(), "\nshrt run "))
 	}
 	if n := edited.total(); n > 0 {
 		r.add(CheckUpgrade, LevelWarn,
