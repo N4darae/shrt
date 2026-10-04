@@ -89,13 +89,13 @@ failures by suspect rpc:
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct) at product.created_at
 FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct) at product.created_at
-FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
+FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers 1 order.lines where it answered 2
 failures by suspect rpc:
   ProductService/CreateProduct product.created_at: 2 step(s) in 2 chain(s); e.g. stock create_product
   OrderService/ConfirmOrder product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. stock get; write confirm_order
   ProductService/GetProduct product.price_minor: 1 step(s) in 1 chain(s); e.g. clerk clerk_get; as clerk: answers product.price_minor unlike as default
   OrderService/CancelOrder status.code: 1 step(s) in 1 chain(s); e.g. orders cancel_clerk; as clerk
-  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch; answers another set of order.lines
+  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch; answers 1 order.lines where it answered 2
 
 # one line per suspect rpc, knock-ons folded under the write
 PASS       one

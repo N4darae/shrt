@@ -640,6 +640,16 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 					shopStep("replay", shopOrder, `{"order":{"id_order":"o2"},`+shopOK+`}`),
 					shopStep("list_orders", "shop.orders.v1.OrderService/ListOrders", `{"orders":[{"id_order":"o1"},{"id_order":"o2"}],`+shopOK+`}`))
 			}, step: "list_orders", path: "orders", kind: reasonWrite, blamed: "replay"},
+		{name: "against a reference a list of another size names both counts", env: "shop", moved: []diff.Change{{Step: "list", Path: "products", Kind: diff.KindLength, Want: 316, Got: 0}},
+			rec: func() *runner.Record { return shopRecord(shopStep("list", shopList, `{"products":[]}`)) }, step: "list", path: "products", kind: reasonSet, blamed: "",
+			check: func(r reason) bool {
+				return strings.HasSuffix(r.String(), ": answers 0 products where it answered 316")
+			}},
+		{name: "against a reference a list of as many other items is another set", env: "shop", moved: []diff.Change{{Step: "list", Path: "products", Kind: diff.KindMembership, Want: 1, Got: 1}},
+			rec: func() *runner.Record {
+				return shopRecord(shopStep("list", shopList, `{"products":[{"id_product":"p2"}]}`))
+			}, step: "list", path: "products", kind: reasonSet, blamed: "",
+			check: func(r reason) bool { return strings.HasSuffix(r.String(), ": answers another set of products") }},
 		{name: "a record emptied under another profile is filed under the read as that profile", envelope: true, env: "effects", moved: changed("clerk_get", "product.sku", "s1", ""),
 			rec: emptied, step: "clerk_get", path: "product.sku", kind: reasonProfile, blamed: "", check: func(r reason) bool { return r.Profile == "clerk" && r.blamed("clerk_get") == "" }},
 		{name: "a cancel of an order never seen in the state it restores from moves nothing", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),

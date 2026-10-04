@@ -362,12 +362,12 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 			}
 			return out
 		},
-		resized: func(step, path string) string {
+		resized: func(step, path string) diff.Change {
 			st, ok := rec.Step(step)
 			if !ok || st == nil {
-				return ""
+				return diff.Change{}
 			}
-			return listUnder(runResized(moved(st)), path)
+			return diff.Change{Path: listUnder(runResized(moved(st)), path)}
 		},
 		was: func(step, path string) (any, bool) {
 			st, ok := rec.Step(step)
@@ -533,14 +533,13 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 		changed: func(step string) []string {
 			return changedAt[step]
 		},
-		resized: func(step, path string) string {
-			var lists []string
+		resized: func(step, path string) diff.Change {
 			for _, c := range changes {
-				if c.Step == step && (c.Kind == diff.KindLength || c.Kind == diff.KindMembership) {
-					lists = append(lists, c.Path)
+				if c.Step == step && (c.Kind == diff.KindLength || c.Kind == diff.KindMembership) && listUnder([]string{c.Path}, path) != "" {
+					return c
 				}
 			}
-			return listUnder(lists, path)
+			return diff.Change{}
 		},
 		was: func(step, path string) (any, bool) {
 			for _, c := range changes {
@@ -564,7 +563,7 @@ func (a attribution) item(it gateItem) gateItem {
 		case a.flipped(st) != "":
 		case path != "" && a.reordered != nil && a.reordered(it.Step, path):
 			it.Kind = "order"
-		case path != "" && a.resized != nil && a.resized(it.Step, path) != "":
+		case path != "" && a.resized != nil && a.resized(it.Step, path).Path != "":
 			it.Kind = "membership"
 		}
 	}

@@ -251,7 +251,7 @@ type attribution struct {
 	unchanged func(step, path string) bool
 	reordered func(step, path string) bool
 	changed   func(step string) []string
-	resized   func(step, path string) string
+	resized   func(step, path string) diff.Change
 	was       func(step, path string) (any, bool)
 }
 
@@ -379,12 +379,15 @@ func (a attribution) of(step, path string) reason {
 		return r
 	}
 	if a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
-		if list := a.resized(step, path); list != "" {
+		if list := a.resized(step, path); list.Path != "" {
 			if w := a.listedFrom(step, path); w >= 0 {
 				return a.write(w)
 			}
 			r := a.own(reasonSet, st)
-			r.Path = list
+			r.Path = list.Path
+			if list.Kind == diff.KindLength {
+				r.Want, r.Got = compactValue(list.Want), compactValue(list.Got)
+			}
 			return r
 		}
 	}
