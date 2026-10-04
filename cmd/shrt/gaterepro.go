@@ -361,7 +361,12 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	field := gateIndex.ReplaceAllString(path, "[]$1")
 	orig, _ := os.ReadFile(file)
 	back := *read
-	back.Expect = []chain.Expectation{{Path: path, Equals: r.Want}}
+	answered := r.Step + "_answered"
+	back.Expect = []chain.Expectation{{Path: path, Equals: "${vars." + answered + "}"}}
+	if slice.Vars == nil {
+		slice.Vars = map[string]any{}
+	}
+	slice.Vars[answered] = r.Want
 	slice.Steps = append(slice.Steps, &back)
 	slice.Description = strings.TrimSpace(slice.Description) + fmt.Sprintf("\nThen %s reads %s back and expects what %s answered, %s: run it with -keep-going to see the answer and the stored value side by side.", r.Read, field, r.Step, valueText(r.Want))
 	args := []string{"run", file, "-quiet", "-keep-going"}
