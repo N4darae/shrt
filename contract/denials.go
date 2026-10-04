@@ -19,6 +19,13 @@ var (
 
 const invalidProfile = "invalid"
 
+func refusedWith(m *catalog.Method, f *Failure) ([]chain.Expectation, string) {
+	if f == nil {
+		return []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}, ""
+	}
+	return refusalFor(m, *f, true), " with " + f.Label()
+}
+
 func refusalFor(m *catalog.Method, f Failure, absentCarrier bool) []chain.Expectation {
 	if f.ConnectCode != "" && f.Code == 0 {
 		return []chain.Expectation{{Path: "transport.code", Equals: f.ConnectCode}}
@@ -76,7 +83,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 				if prof == st.Auth || prof == invalidProfile || prof == "default" || holdsRole(prof, c.RequiresRole) {
 					continue
 				}
-				probe := p.probeCopy(lib, st, "as_"+strings.ToLower(profileChars().ReplaceAllString(prof, "_")))
+				probe := p.probeCopy(lib, st, "as_"+profileSuffix(prof))
 				probe.Auth = prof
 				roles := strings.Join(c.RequiresRole, " or ")
 				if found {

@@ -131,18 +131,26 @@ func mentionsField(text, name string) bool {
 	return err == nil && re.MatchString(text)
 }
 
-func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
+func boundTexts(lib *Library, rpc string, c *RPCContract, name string) ([]string, []*Failure) {
+	texts, from := []string{}, []*Failure{}
 	for _, f := range lib.AllFailures(rpc) {
-		if f.Field != name && !mentionsField(f.When, name) {
-			continue
-		}
-		if n, ok := parse(f.When); ok {
-			return n, &f, true
+		if f.Field == name || mentionsField(f.When, name) {
+			texts, from = append(texts, f.When), append(from, &f)
 		}
 	}
-	if fc := c.Fields[name]; fc != nil {
-		if n, ok := parse(fc.Note); ok {
-			return n, nil, true
+	if c != nil {
+		if fc := c.Fields[name]; fc != nil {
+			texts, from = append(texts, fc.Note), append(from, nil)
+		}
+	}
+	return texts, from
+}
+
+func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
+	texts, from := boundTexts(lib, rpc, c, name)
+	for i, text := range texts {
+		if n, ok := parse(text); ok {
+			return n, from[i], true
 		}
 	}
 	return 0, nil, false
@@ -195,13 +203,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				p.Chain.Steps = append(p.Chain.Steps, probe)
 				below := p.probeCopy(lib, st, f.Name+"_below_min")
 				below.Body[key] = strconv.FormatInt(min-1, 10)
-				if failure != nil {
-					below.Expect = refusalFor(m, *failure, true)
-					below.Description = fmt.Sprintf("%s at %d, one below its minimum, is refused with %s.", f.Name, min-1, failure.Label())
-				} else {
-					below.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
-					below.Description = fmt.Sprintf("%s at %d, one below its minimum, is refused.", f.Name, min-1)
-				}
+				expect, with := refusedWith(m, failure)
+				below.Expect, below.Description = expect, fmt.Sprintf("%s at %d, one below its minimum, is refused%s.", f.Name, min-1, with)
 				p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{below}, below.ID)...)
 				from := "the field's note"
 				if failure != nil {
@@ -501,17 +504,7 @@ var lengthUnit = lazyRegexp(`(?i)^\s*(?:characters|chars|char|letters|runes|code
 var aboveN = lazyRegexp(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
 
 func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string) (int64, bool) {
-	texts := []string{}
-	for _, f := range lib.AllFailures(rpc) {
-		if f.Field == name || mentionsField(f.When, name) {
-			texts = append(texts, f.When)
-		}
-	}
-	if c != nil {
-		if fc := c.Fields[name]; fc != nil {
-			texts = append(texts, fc.Note)
-		}
-	}
+	texts, _ := boundTexts(lib, rpc, c, name)
 	best, found := int64(0), false
 	for _, t := range texts {
 		for _, at := range aboveN().FindAllStringSubmatchIndex(t, -1) {

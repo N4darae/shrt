@@ -1097,14 +1097,9 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 		}
 	}
 	if len(ids) > 0 {
-		shown := ids
-		more := ""
-		if len(shown) > 8 {
-			shown, more = ids[:8], fmt.Sprintf(", … %d more", len(ids)-8)
-		}
-		p.note("steps %s%s assert numbers the plan works out from the literal values it sends, as the contracts state: %s. "+
+		p.note("steps %s assert numbers the plan works out from the literal values it sends, as the contracts state: %s. "+
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
-			strings.Join(shown, ", "), more, strings.Join(said, "; "))
+			strings.Join(clipList(ids, 8), ", "), strings.Join(said, "; "))
 	}
 	for _, rpc := range sortedKeys(silent) {
 		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
@@ -1309,15 +1304,10 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 }
 
 func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectation {
-	out := []chain.Expectation{}
-	for _, e := range expect {
+	return slices.DeleteFunc(append([]chain.Expectation{}, expect...), func(e chain.Expectation) bool {
 		segs := chain.SplitPath(e.Path)
-		if len(segs) >= 2 && segs[len(segs)-2] == list && chain.IsDigits(segs[len(segs)-1]) {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
+		return len(segs) >= 2 && segs[len(segs)-2] == list && chain.IsDigits(segs[len(segs)-1])
+	})
 }
 
 func keysIn[V any](m map[string]V, keep map[string]bool) []string {

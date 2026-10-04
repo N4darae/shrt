@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,16 +23,12 @@ var (
 )
 
 func uniquenessNoun(f Failure) (string, bool) {
-	if m := duplicateReason().FindStringSubmatch(f.Reason); m != nil {
-		return m[1], true
+	for _, re := range []*regexp.Regexp{duplicateReason(), takenReason()} {
+		if m := re.FindStringSubmatch(f.Reason); m != nil {
+			return m[1], true
+		}
 	}
-	if m := takenReason().FindStringSubmatch(f.Reason); m != nil {
-		return m[1], true
-	}
-	if uniqueWhen().MatchString(f.When) {
-		return "", true
-	}
-	return "", false
+	return "", uniqueWhen().MatchString(f.When)
 }
 
 func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun string) string {
@@ -213,18 +210,12 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 
 func refusalExpectations(m *catalog.Method, f Failure, absentCarrier bool) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
-	fields := catalog.DescribeMessage(m.Output()).Fields
 	root := ""
 	if CarriesEnvelope(m) {
 		out = append(out, chain.Expectation{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()})
 		root = chain.EnvelopeField()
 	}
-	selected := []*catalog.Field{}
-	for _, fd := range fields {
-		if root == "" || fd.Name == root {
-			selected = append(selected, fd)
-		}
-	}
+	selected := slices.DeleteFunc(catalog.DescribeMessage(m.Output()).Fields, func(fd *catalog.Field) bool { return root != "" && fd.Name != root })
 	codes, pinned := codeExpectations(selected, "", f)
 	out = append(out, codes...)
 	if !pinned && f.ConnectCode != "" && f.Code == 0 {

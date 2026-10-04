@@ -20,13 +20,11 @@ var (
 )
 
 func isQuantityName(name string) bool {
-	for _, w := range namecase.Words(name) {
-		switch strings.ToLower(w) {
-		case "qty", "quantity", "count", "units", "amount":
-			return true
-		}
-	}
-	return false
+	return nameHasWord(name, "qty", "quantity", "count", "units", "amount")
+}
+
+func nameHasWord(name string, words ...string) bool {
+	return slices.ContainsFunc(namecase.Words(name), func(w string) bool { return slices.Contains(words, strings.ToLower(w)) })
 }
 
 func quantityPaths(body map[string]any, fields []*catalog.Field) []string {

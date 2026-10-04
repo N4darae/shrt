@@ -66,14 +66,7 @@ func distinctItem(item map[string]any, fields []*catalog.Field) {
 	})
 }
 
-func idLike(name string) bool {
-	for _, w := range namecase.Words(name) {
-		if strings.EqualFold(w, "id") || strings.EqualFold(w, "uuid") || strings.EqualFold(w, "key") {
-			return true
-		}
-	}
-	return false
-}
+func idLike(name string) bool { return nameHasWord(name, "id", "uuid", "key") }
 
 func nextValue(v any, kind string) any {
 	if isNumericZero(v) {
