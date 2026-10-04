@@ -160,25 +160,32 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 			return node
 		}
 	}
-	if chain.IsReadOnlyCall(m.Name) {
-		return scaffoldReadOnly(m, all)
+	readOnly := chain.IsReadOnlyCall(m.Name)
+	summary, hint, refusal, todo := m.Doc, readOnlyHint, "", ""
+	if !readOnly {
+		hint, refusal, todo = fieldHint, m.StreamRefusal(), effectsTodo(m, all)
 	}
-	return scaffoldWrite(m, all)
-}
-
-func scaffoldReadOnly(m *catalog.Method, all []*catalog.Method) *yaml.Node {
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	summary := m.Doc
-	if summary == "" {
+	if summary == "" && readOnly {
 		summary = fmt.Sprintf("%s: what %s returns, and which request fields the handler actually requires",
 			TodoMarker, m.Name)
+	} else if summary == "" {
+		summary = TodoMarker + ": what this rpc does and when to call it"
 	}
+	node := &yaml.Node{Kind: yaml.MappingNode}
 	put(node, "summary", scalar(summary))
+	if refusal != "" {
+		put(node, "note", scalar(refusal))
+	}
 	put(node, "required", requiredTodo())
-	if fields := scaffoldFields(m, all, readOnlyHint); len(fields.Content) > 0 {
+	if fields := scaffoldFields(m, all, hint); len(fields.Content) > 0 {
 		put(node, "fields", fields)
 	}
-	put(node, "exports", exportsNode(m))
+	if todo != "" {
+		put(node, "effects", scalar(todo))
+	}
+	if exports := exportsNode(m); readOnly || len(exports.Content) > 0 {
+		put(node, "exports", exports)
+	}
 	put(node, "status", scalar(StatusDraft))
 	return node
 }
@@ -193,30 +200,6 @@ func readOnlyHint(f *catalog.Field) string {
 	default:
 		return TodoMarker + ": filter or required? and if it filters, where does the value come from"
 	}
-}
-
-func scaffoldWrite(m *catalog.Method, all []*catalog.Method) *yaml.Node {
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	summary := m.Doc
-	if summary == "" {
-		summary = TodoMarker + ": what this rpc does and when to call it"
-	}
-	put(node, "summary", scalar(summary))
-	if refusal := m.StreamRefusal(); refusal != "" {
-		put(node, "note", scalar(refusal))
-	}
-	put(node, "required", requiredTodo())
-	if fields := scaffoldFields(m, all, fieldHint); len(fields.Content) > 0 {
-		put(node, "fields", fields)
-	}
-	if todo := effectsTodo(m, all); todo != "" {
-		put(node, "effects", scalar(todo))
-	}
-	if exports := exportsNode(m); len(exports.Content) > 0 {
-		put(node, "exports", exports)
-	}
-	put(node, "status", scalar(StatusDraft))
-	return node
 }
 
 const RequiredTodoText = TodoMarker + ": which fields the server rejects without, or " +
