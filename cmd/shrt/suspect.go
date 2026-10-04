@@ -137,21 +137,28 @@ func (a attribution) itemIDs(st *runner.StepRecord, path string) []string {
 }
 
 func (a attribution) producer(at int, id string) string {
+	if produced, ok := a.produced[at]; ok {
+		return produced[id]
+	}
+	produced := map[string]string{}
 	for _, st := range a.rec.Steps[:at] {
 		var body any
 		if st == nil || !a.decode(st, &body) {
 			continue
 		}
-		found := false
 		eachLeaf(body, "", func(p string, v any) {
 			segs := chain.SplitPath(p)
-			found = found || v == id && diff.IDNamedPath(segs[len(segs)-1])
+			if s, ok := v.(string); ok && diff.IDNamedPath(segs[len(segs)-1]) {
+				if _, seen := produced[s]; !seen {
+					produced[s] = st.ID
+				}
+			}
 		})
-		if found {
-			return st.ID
-		}
 	}
-	return ""
+	if a.produced != nil {
+		a.produced[at] = produced
+	}
+	return produced[id]
 }
 
 func (a attribution) inert(i int, bad map[string]bool) bool {
@@ -237,6 +244,7 @@ type attribution struct {
 	rec       *runner.Record
 	bad       map[string]bool
 	bodies    map[*runner.StepRecord]stepBody
+	produced  map[int]map[string]string
 	unchanged func(step, path string) bool
 	reordered func(step, path string) bool
 	changed   func(step string) []string
