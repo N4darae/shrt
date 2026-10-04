@@ -164,11 +164,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		if sent, ok := chain.Get(req, path); ok {
 			f.sent = fmt.Sprint(sent)
 		}
-		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-			if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-				f.vars = append(f.vars, n[1])
-			}
-		}
+		f.vars = append(f.vars, varRefs(text)...)
 		fields = append(fields, f)
 	})
 	if refusalBlamesAnotherField(req, why, fields) {

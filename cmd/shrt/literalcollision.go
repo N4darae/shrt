@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -302,18 +303,10 @@ func allSame(paths []string, same func(string) bool) bool {
 }
 
 func referencesSentRequest(c *chain.Chain, step, path string) bool {
-	v, ok := requestTemplate(c, step, path)
-	text, isText := v.(string)
-	if !ok || !isText {
-		return false
-	}
-	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-		r := chain.ParseRef(m[1])
-		if r.Kind == chain.RefStep && (r.Rest == "request" || strings.HasPrefix(r.Rest, "request.")) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(templateRefs(c, step, path), func(ref string) bool {
+		r := chain.ParseRef(ref)
+		return r.Kind == chain.RefStep && (r.Rest == "request" || strings.HasPrefix(r.Rest, "request."))
+	})
 }
 
 func repeatAcceptedBefore(e *env, rec *runner.Record, step, earlier, path string) bool {
