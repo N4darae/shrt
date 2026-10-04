@@ -185,12 +185,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	}
 	comparable := []entityRead{}
 	for _, e := range entities {
-		kept := []string{}
-		for _, name := range e.scalars {
-			if !isStampName(name) && !isExpiryName(name) {
-				kept = append(kept, name)
-			}
-		}
+		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || isExpiryName(name) })
 		if len(kept) > 0 {
 			e.scalars = kept
 			comparable = append(comparable, e)

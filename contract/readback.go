@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -71,17 +72,14 @@ func meaningfulValue(v any) bool {
 }
 
 func (p *Plan) replaysAnother(st *chain.Step, idPath string) bool {
-	for _, e := range st.Expect {
-		if e.Path != idPath {
-			continue
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		text, ok := e.Equals.(string)
+		if !ok || e.Path != idPath {
+			return false
 		}
-		if text, ok := e.Equals.(string); ok {
-			if src, isRef := refSource(text); isRef && src != st.ID {
-				return true
-			}
-		}
-	}
-	return false
+		src, isRef := refSource(text)
+		return isRef && src != st.ID
+	})
 }
 
 func (p *Plan) readProducer(r *chain.Step, carrier *catalog.Field) (*chain.Step, string) {

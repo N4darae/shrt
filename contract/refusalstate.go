@@ -169,14 +169,8 @@ func (p *Plan) shortagePaths(st *chain.Step, m *catalog.Method) (*chain.Step, []
 }
 
 func (p *Plan) shortageFailure(lib *Library, st *chain.Step) (*catalog.Method, Failure, bool) {
-	if chain.IsReadOnlyCall(st.Call) {
-		return nil, Failure{}, false
-	}
-	if _, ok := lib.Get(st.Call); !ok {
-		return nil, Failure{}, false
-	}
-	m, err := p.cat.Lookup(st.Call)
-	if err != nil {
+	_, m, ok := p.contractOf(lib, st.Call)
+	if !ok || chain.IsReadOnlyCall(st.Call) {
 		return nil, Failure{}, false
 	}
 	for _, f := range lib.AllFailures(st.Call) {
@@ -455,14 +449,9 @@ func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
 }
 
 func withoutAbsentCarrier(expect []chain.Expectation, _ bool) []chain.Expectation {
-	out := []chain.Expectation{}
-	for _, e := range expect {
-		if e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".") {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
+	return slices.DeleteFunc(slices.Clone(expect), func(e chain.Expectation) bool {
+		return e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".")
+	})
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {
