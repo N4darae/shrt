@@ -253,13 +253,9 @@ func TestAnUnfilteredListAfterTheStateMovesAssertsEveryFixtureInItsState(t *test
 }
 
 func TestALoginTargetIsPlannedWithItsDeclaredFailureAndEachProfilesRole(t *testing.T) {
-	opts := contract.PlanOptions{
-		Auth:          true,
-		Profiles:      []string{"clerk"},
-		Logins:        []string{"shop.auth.v1.AuthService/Login"},
-		LoginBodies:   map[string]map[string]any{"shop.auth.v1.AuthService/Login": {"username": "${env.API_USER}", "password": "${env.API_PASSWORD}"}},
-		ProfileBodies: map[string]map[string]any{"clerk": {"username": "${env.CLERK_USER}", "password": "${env.CLERK_PASSWORD}"}},
-	}
+	opts := loginOptions()
+	opts.Profiles = []string{"clerk"}
+	opts.ProfileBodies = map[string]map[string]any{"clerk": {"username": "${env.CLERK_USER}", "password": "${env.CLERK_PASSWORD}"}}
 	p, text, _ := shopDemoPlanWith(t, opts, "Login")
 	bad := planStep(t, p, "login_bad_password")
 	if got := bodyAt(t, bad, "password"); got == "${env.API_PASSWORD}" || !strings.HasPrefix(got, "${env.API_PASSWORD}") {

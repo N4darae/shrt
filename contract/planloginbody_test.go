@@ -3,19 +3,10 @@ package contract_test
 import (
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestPlanForTheLoginSendsTheAuthBlocksCredentialsNotEmptyStrings(t *testing.T) {
-	opts := contract.PlanOptions{
-		Auth:   true,
-		Logins: []string{"shop.auth.v1.AuthService/Login"},
-		LoginBodies: map[string]map[string]any{
-			"shop.auth.v1.AuthService/Login": {"username": "${env.API_USER}", "password": "${env.API_PASSWORD}"},
-		},
-	}
-	p, text, _ := shopDemoPlanWith(t, opts, "Login")
+	p, text, _ := shopDemoPlanWith(t, loginOptions(), "Login")
 	login := planStep(t, p, "login")
 	if got := bodyAt(t, login, "username"); got != "${env.API_USER}" {
 		t.Fatalf("username comes from the auth block, got %q:\n%s", got, text)
@@ -26,14 +17,8 @@ func TestPlanForTheLoginSendsTheAuthBlocksCredentialsNotEmptyStrings(t *testing.
 }
 
 func TestPlanForTheLoginSendsThePasswordPaddedAndExpectsItRefused(t *testing.T) {
-	opts := contract.PlanOptions{
-		Auth:   true,
-		Logins: []string{"shop.auth.v1.AuthService/Login"},
-		LoginBodies: map[string]map[string]any{
-			"shop.auth.v1.AuthService/Login": {"username": "${env.API_USER}", "password": "${env.API_PASSWORD}"},
-		},
-		Redact: []string{"**.*password"},
-	}
+	opts := loginOptions()
+	opts.Redact = []string{"**.*password"}
 	p, text, notes := shopDemoPlanWith(t, opts, "Login")
 	padded := planStep(t, p, "login_padded_password")
 	if got := bodyAt(t, padded, "password"); got != " ${env.API_PASSWORD} " {
