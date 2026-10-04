@@ -1233,10 +1233,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 			continue
 		}
 		items, _ := order.Body[v.list].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		first, ok := firstItem(items)
 		if !ok {
 			continue
 		}
@@ -1294,15 +1291,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		} else {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, list)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		key, first, ok := firstLine(st.Body, list)
 		if !ok {
 			continue
 		}

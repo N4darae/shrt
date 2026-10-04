@@ -416,12 +416,7 @@ func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step,
 		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, rf.Name)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		first, ok := firstItem(items)
+		key, first, ok := firstLine(st.Body, rf.Name)
 		if !ok {
 			continue
 		}
@@ -465,6 +460,16 @@ func firstItem(items []any) (map[string]any, bool) {
 	}
 	m, ok := items[0].(map[string]any)
 	return m, ok
+}
+
+func firstLine(body map[string]any, list string) (string, map[string]any, bool) {
+	key, ok := namecase.LookupKey(body, list)
+	if !ok {
+		return "", nil, false
+	}
+	items, _ := body[key].([]any)
+	first, ok := firstItem(items)
+	return key, first, ok
 }
 
 func (p *Plan) singleItemLarge(lib *Library, rules *effectRules, batch string, rf *catalog.Field) (string, string, *stockRule) {
@@ -574,15 +579,7 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		if !is64BitKind(kind) {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, t.list)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		key, first, ok := firstLine(st.Body, t.list)
 		if !ok {
 			continue
 		}
