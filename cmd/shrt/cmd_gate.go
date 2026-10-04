@@ -1409,7 +1409,11 @@ func settleGate(chains []*gateChain) []string {
 			g.first += "; " + it.Reason.in(said{row: true, head: &it})
 		}
 		if more {
-			g.first += "; also " + other.Reason.in(said{row: true})
+			also, path := other.Reason.in(said{row: true}), ""
+			if path, _ = other.shown(); other.Reason.Kind == reasonWrite || len(other.Reason.Or) > 0 {
+				also += " at " + path
+			}
+			g.first += "; also " + also
 		}
 		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
 			seen[it.root()] = g.name

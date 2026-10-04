@@ -110,9 +110,9 @@ otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 onc
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, judged against the pinned value, a pin that held counting as no change |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
-Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one, or `same
-fault as <chain>` when an earlier line named it and every other suspect of this chain; a slice failing at its parent's
-first change, and not a kept-red slice failing not as pinned, has no line of its own, the
+Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
+write, the field it changed), or `same fault as <chain>` when an earlier line named it and every other suspect of
+this chain; a slice failing at its parent's first change, and not a kept-red slice failing not as pinned, has no line of its own, the
 parent's says `(+N slice(s) fail the same: ...)`. Then `failures by suspect rpc:`, one line per suspect rpc (or per
 `unclear` set of rpcs), headed by the field each failing step changed, wherever a read shows it. `-v` adds the suspect's
 request, every changed path and the knock-on counts. How a suspect is chosen: `PLAYBOOK.md` §8.

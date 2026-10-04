@@ -142,6 +142,12 @@ func gateCases() []gateCase {
 				{Step: "list_prefix", Call: shopList, Path: "products.1.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: byConfirm},
 			}}}
 		}},
+		{name: "an also suspect write names the field it changed", chains: func() []*gateChain {
+			total := gateItem{Step: "order_short", Call: shopOrder, Path: "order.total_minor", Want: "160", Got: "130", Failed: true, Reason: reason{Kind: reasonWrite, Step: "order_short", RPC: shopOrder}}
+			return []*gateChain{{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{
+				stock("get_b", reason{Kind: reasonWrite, Step: "stock_batch", RPC: shopBatch}, "2"), total,
+			}}}
+		}},
 		{name: "a role is named only when no other role fails the same way", chains: func() []*gateChain {
 			confirmAs := func(step, profile string) gateItem {
 				return gateItem{Step: step, Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: shopConfirm, Profile: profile}}
@@ -281,7 +287,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 			}
 		}
 	}
-	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder)") {
+	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor") {
 		t.Errorf("%s: got %q", b, chains[1].first)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")

@@ -29,7 +29,7 @@ failures by suspect rpc:
   OrderService/CancelOrder product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. cancels get_b; write cancel
 
 # an unclear row is labelled with the path its read changed, not its first write's own field
-FAIL       guard  order_short (OrderService/CreateOrder) order.total_minor want=160 got=130; suspect the write; also suspect write confirm (OrderService/ConfirmOrder)
+FAIL       guard  order_short (OrderService/CreateOrder) order.total_minor want=160 got=130; suspect the write; also suspect write confirm (OrderService/ConfirmOrder) at order.status
 FAIL       guard-slice  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; suspect write confirm (OrderService/ConfirmOrder)
 failures by suspect rpc:
   OrderService/ConfirmOrder order.status, product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. guard confirm
@@ -38,7 +38,7 @@ failures by suspect rpc:
 # one suspect rpc is one row naming each field it changed, wherever a read shows it
 FAIL       clerk  admin_read_back (ProductService/GetProduct) product.qty_on_hand want=0 got=-3; suspect write clerk_confirm (OrderService/ConfirmOrder) as clerk
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; same fault as clerk (ConfirmOrder)
-FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer)
+FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer) at code
 failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. clerk admin_read_back; write clerk_confirm as clerk
   CustomerService/CreateCustomer customer.name, code: 2 step(s) in 1 chain(s); e.g. customers create_long
@@ -47,6 +47,12 @@ failures by suspect rpc:
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; suspect write confirm_two (OrderService/ConfirmOrder) as clerk
 failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 2 step(s) in 1 chain(s); e.g. explore a_after_two; write confirm_two as clerk
+
+# an also suspect write names the field it changed
+FAIL       guard-slice  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; suspect write stock_batch (StockService/AddStockBatch); also suspect write order_short (OrderService/CreateOrder) at order.total_minor
+failures by suspect rpc:
+  StockService/AddStockBatch product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. guard-slice get_b; write stock_batch
+  OrderService/CreateOrder order.total_minor: 1 step(s) in 1 chain(s); e.g. guard-slice order_short
 
 # a role is named only when no other role fails the same way
 FAIL       clerk-vs-admin  clerk_confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write
@@ -70,8 +76,8 @@ failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. orders get_b; write confirm
 
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
-FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct)
-FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct)
+FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct) at product.created_at
+FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct) at product.created_at
 FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
 failures by suspect rpc:
   ProductService/CreateProduct product.created_at: 2 step(s) in 2 chain(s); e.g. stock create_product
@@ -122,7 +128,7 @@ failures by suspect rpc:
 
 # a chain with a root the earlier chain lacks names that root, not the same fault
 FAIL       replay  replay (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write
-FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (OrderService/CreateOrder)
+FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor
 FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
 failures by suspect rpc:
   OrderService/CreateOrder order.status, order.total_minor: 4 step(s) in 3 chain(s); e.g. replay replay
