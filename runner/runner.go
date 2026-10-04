@@ -517,10 +517,8 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.T
 }
 
 func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
-	for i := range refusals {
-		if refusals[i].Early() {
-			return &refusals[i]
-		}
+	if i := slices.IndexFunc(refusals, transport.TokenRefusal.Early); i >= 0 {
+		return &refusals[i]
 	}
 	return nil
 }
@@ -2094,24 +2092,24 @@ func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
 }
 
 func seedingNote(s seeding) string {
+	all := slices.Concat(s.refused, s.tokenless)
 	if len(s.seeded) > 0 {
 		notes := make([]string, 0, len(s.seeded)+1)
 		for _, profile := range s.seeded {
 			notes = append(notes, seededNote(profile))
 		}
-		if others := append(append([]string{}, s.refused...), s.tokenless...); len(others) > 0 {
-			if len(others) == 1 {
-				notes = append(notes, "the "+profileNames(others)+" profile on the same login rpc was not seeded: "+
+		if len(all) > 0 {
+			if len(all) == 1 {
+				notes = append(notes, "the "+profileNames(all)+" profile on the same login rpc was not seeded: "+
 					"its configured body differs from what this login sent, so steps under it keep logging in with that body")
 			} else {
-				notes = append(notes, "the "+profileNames(others)+" profiles on the same login rpc were not seeded: "+
+				notes = append(notes, "the "+profileNames(all)+" profiles on the same login rpc were not seeded: "+
 					"each one's configured body differs from what this login sent, so steps under each keep logging in "+
 					"with that profile's own body")
 			}
 		}
 		return strings.Join(notes, "\n")
 	}
-	all := append(append([]string{}, s.refused...), s.tokenless...)
 	switch {
 	case len(s.refused) > 0:
 		return "did not seed any auth token: what this login sent differs from the configured body of every " +

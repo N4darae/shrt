@@ -59,11 +59,6 @@ func routedProfile(router *transport.AuthRouter, cat *catalog.Catalog, s *chain.
 	return p, true
 }
 
-func authHeader(spec *transport.AuthSpec) string {
-	header, _ := (&transport.AuthProfile{Spec: *spec}).HeaderScheme()
-	return header
-}
-
 func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 	if len(r.Auth) == 0 {
 		return nil
