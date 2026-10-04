@@ -147,12 +147,9 @@ Produced by resolving each form against a fixture scope:
 | `${vars.book_code}` | `"BOOK-A"` | a chain var |
 | `${vars.nested.qty}` | `7` | a dotted path inside a var |
 | `${env.API_USER}` | `"someone"` | an environment variable; missing is an error, never `""` |
-| `${create_deal.id_deal}` | `"d-9"` | a field of an earlier step's RESPONSE |
-| `${steps.create_deal.response.id_deal}` | `"d-9"` | the same, written out |
-| `${steps.create_deal.request.id_book}` | `"b-1"` | a field of an earlier step's REQUEST, or inside `expect` this step's own, to assert the response echoes what was sent |
+| `${create_deal.id_deal}` | `"d-9"` | a field of an earlier step's RESPONSE: write `${<step>.<path>}` |
+| `${steps.create_deal.request.id_book}` | `"b-1"` | a field of an earlier step's REQUEST: write `${steps.<step>.request.<field>}`; or, inside `expect`, this step's own, to assert the response echoes what was sent |
 | `${create_deal.deals.0.id_deal}` | `"d-9"` | a list index |
-| `${exports.deal_id}` | `"d-9"` | a value an earlier step exported |
-| `${deal_id}` | `"d-9"` | the same export, bare |
 | `${now}` | `"2026-09-11T10:44:34Z"` | RFC3339, pinned here for reproducibility |
 | `${nowunix}` | `"1789123474"` | unix seconds |
 | `${nowunix+3600}` | `"1789127074"` | an hour ahead — a bounded-future `expires_at` without a literal that goes stale |
@@ -162,6 +159,8 @@ Produced by resolving each form against a fixture scope:
 | `${uuid}` | `^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$` | fresh per reference — idempotency keys; verify and diff mask a response that only echoes it |
 | `deal-${create_deal.id_deal}-x` | `"deal-d-9-x"` | interpolated inside a longer string, so the result is text |
 | `${vars.ref_in_a_var}` | `"${uuid}"` | a var whose own value is `${uuid}` — handed back **VERBATIM**, never resolved. `lint` and `run` reject it |
+
+`contract plan` and `chain new` write those two forms. Also accepted, for chains already written so: `${steps.create_deal.response.id_deal}` (the response field written out), `${exports.deal_id}` (a value an earlier step's `export:` named) and `${deal_id}` (the same export, bare), each `"d-9"`.
 
 ## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`
 

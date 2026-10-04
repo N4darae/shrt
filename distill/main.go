@@ -629,6 +629,22 @@ func exerciseRefs() (string, error) {
 		}
 		fmt.Fprintf(&b, "| `%s` | %s | %s |\n", f.Ref, shown, f.Meaning)
 	}
+	older, values := []string{}, map[string]bool{}
+	for _, f := range chain.OlderReferenceExamples {
+		v, err := sc.ResolveValue(f.Ref)
+		if err != nil {
+			return "", fmt.Errorf("reference %s no longer resolves: %w", f.Ref, err)
+		}
+		older = append(older, fmt.Sprintf("`%s` (%s)", f.Ref, f.Meaning))
+		values[fmt.Sprintf("`%q`", v)] = true
+	}
+	if len(values) != 1 {
+		return "", fmt.Errorf("the older reference spellings resolve to %d values, not one", len(values))
+	}
+	for v := range values {
+		fmt.Fprintf(&b, "\n`contract plan` and `chain new` write those two forms. Also accepted, for chains already written so: %s and %s, each %s.\n",
+			strings.Join(older[:len(older)-1], ", "), older[len(older)-1], v)
+	}
 	return b.String(), nil
 }
 

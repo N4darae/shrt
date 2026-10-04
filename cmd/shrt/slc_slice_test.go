@@ -163,7 +163,7 @@ func TestSliceCases(t *testing.T) {
 	var round2Code *string
 	cases := []slcCase{
 		{name: "a dropped write makes a match inconclusive and next settles it", setup: slcNoisy, args: noisy, code: 3,
-			want: []string{"verify INCONCLUSIVE", "slice run not kept", "-keep writes"},
+			want: []string{"verify INCONCLUSIVE: step fetch, source run ", "the verdict matched in 3 of 3 slice runs", "slice run not kept", "-keep writes"}, not: []string{"0/3"},
 			check: func(t *testing.T, out string) {
 				slcExists(t, ".shrt/runs/cli-noisy-flow-slice-fetch", false)
 				if hollow := captureStdout(t, func() { _ = chainHollow(nil) }); strings.Contains(hollow, "orphan") {
@@ -183,7 +183,7 @@ func TestSliceCases(t *testing.T) {
 			args: append(noisy, "-write", ".shrt/scratch/noisy-repro.yaml"), code: 3,
 			want: []string{"-verify -write .shrt/scratch/noisy-repro.yaml\n"},
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "INCONCLUSIVE by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") {
+				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "INCONCLUSIVE by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") || strings.Contains(raw, "0 of 3 reproduced") {
 					t.Fatalf("the verdict replaces the hypothesis:\n%s", raw)
 				}
 			}},
@@ -461,6 +461,13 @@ func TestSliceCases(t *testing.T) {
 		{name: "a partial match over the repeats is intermittent", setup: slcShop(func(s *fakeShop) { s.getProductFailAt = map[int]bool{2: true, 3: true, 4: true, 5: true} }, ".shrt/scratch/probe-get.yaml", flakyGetChain, "-keep-going"),
 			args: []string{".shrt/scratch/probe-get.yaml", "-step", "get_b", "-run", "latest", "-verify"}, code: 1,
 			want: []string{"intermittent: reproduced 1/3"}, not: []string{"verify reproduced", "verify NOT REPRODUCED"}},
+		{name: "a repeat a kept step's own failure spoiled is not counted", setup: slcShop(func(s *fakeShop) { s.skuEchoBug, s.addStockFailAt = true, map[int]int{3: 503} }, ".shrt/scratch/stocked-echo.yaml", stockedEchoChain),
+			args: []string{".shrt/scratch/stocked-echo.yaml", "-step", "get", "-run", "latest", "-verify", "-var", "tag=rep1"},
+			want: []string{"repeat 2 of 3: not counted", "verify reproduced 2/2 (repeat 2 not counted: kept step add_stock failed, unavailable)"},
+			not:  []string{"intermittent", "INCONCLUSIVE"}},
+		{name: "a repeat that did not run is not counted", setup: slcShop(func(s *fakeShop) { s.skuEchoBug, s.addStockFailAt = true, map[int]int{3: 500} }, ".shrt/scratch/stocked-echo.yaml", stockedEchoChain),
+			args: []string{".shrt/scratch/stocked-echo.yaml", "-step", "get", "-run", "latest", "-verify", "-var", "tag=rep1"},
+			want: []string{"repeat 2 of 3: not counted", "verify reproduced 2/2 (repeat 2 not counted: kept step add_stock failed, internal)"}, not: []string{"intermittent", "DID NOT RUN"}},
 		{name: "every repeat reproduced", setup: slcShop(func(s *fakeShop) { s.getProductFailN = 1 }, ".shrt/scratch/probe-get.yaml", flakyGetChain, "-keep-going"),
 			args: []string{".shrt/scratch/probe-get.yaml", "-step", "get_b", "-run", "latest", "-verify"}, want: []string{"verify reproduced 3/3"}},
 		{name: "a slice of a scratch chain lands next to it", setup: minimalScratch,
@@ -596,7 +603,7 @@ func TestSliceCases(t *testing.T) {
 
 		{name: "-without names the failures the left-out write caused", setup: func(t *testing.T) { stockWorkspace(t, 0) },
 			args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
-			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total", "still fail, so another cause: fetch_name"}},
+			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total\n", "still fail, so another cause: fetch_name"}, not: []string{"not proof"}},
 		{name: "-without is inconclusive when the steps still failing read what the left-out write writes", setup: func(t *testing.T) {
 			srv := stockBackend(0)
 			t.Cleanup(srv.Close)
@@ -605,6 +612,15 @@ func TestSliceCases(t *testing.T) {
 			slcRunAny("stock", "-keep-going")
 		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 3,
 			want: []string{"verify INCONCLUSIVE without stray_add: the 1 step(s) that failed", "still fail, but they read what the left-out steps write: fetch_total"}, not: []string{"NOT REPRODUCED"}},
+		{name: "-without says the failures that persist are not the left-out step's", setup: func(t *testing.T) {
+			srv := stockBackend(1)
+			t.Cleanup(srv.Close)
+			chdirToFreshCLIWorkspace(t, srv.URL)
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "equals: 6", "equals: 15").Replace(stockChain))
+			slcRunAny("stock", "-keep-going")
+		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
+			want: []string{"verify STILL FAILS without stray_add: the 2 step(s) that failed in source run ", " still fail (fetch_total, fetch_name), so stray_add is not their cause\n", "STILL FAILS without stray_add"},
+			not:  []string{"NOT REPRODUCED"}},
 		{name: "-without counts a failure with another value as still failing", setup: func(t *testing.T) {
 			srv := stockBackend(1)
 			t.Cleanup(srv.Close)
@@ -626,7 +642,7 @@ func TestSliceCases(t *testing.T) {
 			b.cancelBug = true
 			slcRunAny("life", "-keep-going")
 		}, args: []string{"life", "-without", "confirm", "-verify"},
-			want: []string{"1 of 1 step(s) that failed in source run", "pass without it: cancel", "fail only without it: fetch_confirmed"}},
+			want: []string{"1 of 1 step(s) that failed in source run", "pass without it: cancel (it acts on the record confirm changed and may need that state: not proof confirm is the cause)\n", "fail only without it: fetch_confirmed"}},
 
 		{name: "an identical re-write keeps a verified slice's verdict", setup: slcVerifiedProbe,
 			args: []string{"cli-thing-flow", "-step", "fetch", "-write", "probe"},
@@ -666,7 +682,7 @@ func TestSliceCases(t *testing.T) {
 				captureStdout(t, func() { _ = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"}) })
 			}
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"},
-			want: []string{"(a shrt verify replay)", "a `shrt verify` replay in which fetch drifted", "drifted: total source got=1, slice got=1", "verify reproduced"},
+			want: []string{"(a shrt verify replay)", "note: -run latest: verify replay ", "drifted: total source got=1, slice got=1", "verify reproduced"},
 			check: func(t *testing.T, _ string) {
 				total = 2
 				if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"); code != 1 || !strings.Contains(out, "NOT REPRODUCED") || !strings.Contains(out, "total (") || !strings.Contains(out, "the slice run did not") {
@@ -762,8 +778,9 @@ func TestSliceExitCodesAreDocumented(t *testing.T) {
 	if !strings.Contains(sliceExitCodes, "  3  ") || !strings.Contains(sliceExitCodes, "DID NOT RUN") || strings.Contains(sliceExitCodes, "  2  ") {
 		t.Errorf("chain slice -h must state the 0/1/3 exit codes:\n%s", sliceExitCodes)
 	}
-	if raw, _ := coredistillation.Docs.ReadFile("README.md"); !strings.Contains(string(raw), "| `chain slice` |") {
-		t.Error("README's exit code table must have a row for chain slice")
+	raw, _ := coredistillation.Docs.ReadFile("README.md")
+	if _, row, _ := strings.Cut(string(raw), "| `shrt chain slice <c> -step <id>` |"); !strings.Contains(row, "DID NOT RUN") {
+		t.Error("README's command table must give chain slice its exit codes")
 	}
 }
 

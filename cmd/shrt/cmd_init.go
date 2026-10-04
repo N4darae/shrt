@@ -65,7 +65,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	build := fs.Bool("build", true, "build the descriptor now")
 	agents := fs.Bool("agents", true, "install the Claude skill and subagent into .claude/")
 	force := fs.Bool("force", false, "overwrite the installed docs, the agent kit, .shrt/ci-gate.sh and .shrt/chains/example.yaml.template, which are build output; your config and your own chains are kept")
-	verbose := fs.Bool("v", false, "also print the conventions: block to paste when init cannot observe it")
+	verbose := fs.Bool("v", false, "also explain what the written files do, and print the conventions: block to paste when init cannot observe it")
 	forceConfig := fs.Bool("force-config", false, "ALSO rewrite an existing .shrt/config.yaml from defaults, discarding your auth, conventions and volatile paths")
 	setUsage(fs, "usage: shrt init [flags]   write .shrt/, build the descriptor, install the Claude skill and subagent; "+
 		"re-running keeps your config and chains",
@@ -113,21 +113,13 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if _, err := os.Stat(cfgPath); err == nil && !*forceConfig {
 		fmt.Printf("keep  %s (already exists)\n", rel(root, cfgPath))
 		if *force {
-			fmt.Println("      -force refreshes the docs, the agent kit, .shrt/ci-gate.sh and .shrt/chains/example.yaml.template only. Your config is yours: it holds " +
-				"auth, conventions and volatile paths that no default can reconstruct, and rewriting it " +
-				"silently is how a declared convention disappears and a red chain turns green. " +
-				"Pass -force-config if you really want it rebuilt from defaults.")
+			fmt.Println("      -force keeps your config; -force-config rebuilds it from defaults, discarding its auth, conventions and volatile paths")
 		}
 	} else {
 		if err := cfg.Save(); err != nil {
 			return err
 		}
-		fmt.Printf("write %s\n", rel(root, cfgPath))
-		fmt.Println("      latency: {fail: true}: a slowdown verify confirms (a slow read re-sent and slow every time) fails it, so a CI gate " +
-			"is red on one; set fail: false to keep it a LATENCY warning line")
-		if portFile != "" {
-			fmt.Printf("      target.base_url: %s, from the port in .port at the repo root (pass -base-url to choose another)\n", portFile)
-		}
+		fmt.Printf("write %s: target.base_url %s%s\n", rel(root, cfgPath), cfg.Target.BaseURL, baseURLSource(portFile != "", baseURLGiven))
 		wroteConfig = true
 	}
 	loaded, err := config.Load(root)
@@ -138,7 +130,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		return err
 	}
 
-	kept := []string{}
+	kept, made := []string{}, []string{}
 	for _, dir := range []string{loaded.Paths.Chains, loaded.Paths.Runs, loaded.Paths.SafeSpots, loaded.Paths.Contracts} {
 		if dir == "" {
 			continue
@@ -151,7 +143,10 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		if err := os.MkdirAll(loaded.Abs(dir), 0o755); err != nil {
 			return err
 		}
-		fmt.Printf("write %s\n", shown)
+		made = append(made, shown)
+	}
+	if len(made) > 0 {
+		fmt.Printf("write %s\n", strings.Join(made, ", "))
 	}
 	if len(kept) > 0 {
 		fmt.Printf("keep  %s (already present)\n", strings.Join(kept, ", "))
@@ -161,17 +156,27 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if err != nil {
 		return err
 	}
-	for _, w := range docs {
-		fmt.Printf("write %s\n", w)
+	if len(docs) > 0 {
+		fmt.Printf("write %s\n", strings.Join(docs, ", "))
 	}
 	if len(docs) == 0 {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
+	gateFiles := []string{}
 	switch wrote, err := agentkit.InstallGateScript(root, *force); {
 	case err != nil:
 		return err
 	case wrote:
-		fmt.Printf("write %s (static checks, then shrt gate; run it with bash %s)\n", agentkit.GateScriptPath, agentkit.GateScriptPath)
+		gateFiles = append(gateFiles, agentkit.GateScriptPath)
+	}
+	switch wrote, err := agentkit.InstallQualityBaseline(root); {
+	case err != nil:
+		return err
+	case wrote:
+		gateFiles = append(gateFiles, agentkit.QualityBaselinePath+" (0)")
+	}
+	if len(gateFiles) > 0 {
+		fmt.Printf("write %s\n", strings.Join(gateFiles, ", "))
 	}
 
 	switch added, err := ensureGitignore(root, initGitignore(loaded)); {
@@ -186,8 +191,8 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		if err != nil {
 			return err
 		}
-		for _, w := range written {
-			fmt.Printf("write %s\n", w)
+		if len(written) > 0 {
+			fmt.Printf("write %s\n", strings.Join(written, ", "))
 		}
 		if len(written) == 0 {
 			fmt.Println("keep  .claude/ agent kit (already present)")
@@ -199,7 +204,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 			if wroteConfig {
 				fmt.Print("\n" + config.ConventionsGuide + "\n")
 			}
-			if werr := writeExampleChain(root, loaded, *force); werr != nil {
+			if werr := writeExampleChain(root, loaded, *force, *verbose); werr != nil {
 				return werr
 			}
 			fmt.Printf("\nwrote %s/ and the agent kit, but the descriptor did NOT build:\n\n%v\n\n",
@@ -210,7 +215,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		fmt.Printf("write %s\n", loaded.Descriptor.File)
 	}
 	if loaded.Auth == nil {
-		if err := scaffoldAuth(loaded); err != nil {
+		if err := scaffoldAuth(loaded, *verbose); err != nil {
 			return err
 		}
 	} else if !wroteConfig {
@@ -246,60 +251,37 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 			fmt.Printf("conventions: not declared, and init did not read envelope_ok: %s (shrt doctor says what to set)\n", unobserved)
 		}
 	}
-	if err := writeExampleChain(root, loaded, *force); err != nil {
+	if err := writeExampleChain(root, loaded, *force, *verbose); err != nil {
 		return err
 	}
 	if *loginUnsent {
 		return nil
 	}
-
+	fmt.Println()
+	if !wroteConfig && baseURLGiven && loaded.Target.BaseURL != *baseURL {
+		fmt.Printf("-base-url %s was NOT applied: %s/%s already existed and still says target.base_url: %s; edit it, or pass -force-config to rebuild it\n",
+			*baseURL, config.DirName, config.FileName, loaded.Target.BaseURL)
+	}
+	if loaded.Auth == nil {
+		fmt.Printf("declare auth: in %s/%s: nothing in the descriptor looked like a login rpc, so every authenticated call is a 401 until it exists\n",
+			config.DirName, config.FileName)
+	}
 	if !wroteConfig {
-		fmt.Println("\nthis repo was already set up: init kept what it says it kept and wrote only the lines marked write.")
-		if baseURLGiven && loaded.Target.BaseURL != *baseURL {
-			printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven)
-		}
-		if loaded.Auth == nil {
-			fmt.Printf("  %s/%s still declares no auth:, so every authenticated call is a 401\n",
-				config.DirName, config.FileName)
-		}
-		fmt.Println("next: shrt doctor   # check this installation before you trust a green")
+		fmt.Println("next: shrt doctor")
 		return nil
 	}
-
-	fmt.Println("\nnext:")
-	fmt.Printf("  read %s/README.md\n", agentkit.DocsDir)
-	printBaseURLNext(loaded.Target.BaseURL, *baseURL, baseURLGiven || portFile != "")
-	if loaded.Auth == nil {
-		fmt.Printf("  declare auth: in %s/%s — nothing in this descriptor looked like a login rpc, so\n",
-			config.DirName, config.FileName)
-		fmt.Println("    shrt could not scaffold one; until it exists every authenticated call is a 401")
-	} else {
-		fmt.Printf("  export the credentials %s/%s names, and check the login it picked\n",
-			config.DirName, config.FileName)
-	}
-	fmt.Println("  shrt doctor                        # check this installation before you trust a green")
-	fmt.Println("  shrt catalog ls -filter <domain>")
-	fmt.Println("  shrt contract init -all            # one curated overlay per domain, then fill the TODOs")
-	fmt.Println("  shrt contract quality -phase happy # what still blocks a working chain; failures come later")
-	fmt.Println("  shrt contract plan <Rpc> -write    # let the contract compose the chain")
-	fmt.Println("\nan agent can author the overlays for you: ask it to use the shrt-contract-author subagent,")
-	fmt.Println("one domain at a time. It reads your backend's own source; it never sends traffic.")
+	fmt.Printf("next: shrt doctor, then %s/README.md \"Quickstart\"\n", agentkit.DocsDir)
 	return nil
 }
 
-func printBaseURLNext(have, flagValue string, given bool) {
-	where := config.DirName + "/" + config.FileName
+func baseURLSource(portFile, given bool) string {
 	switch {
-	case !given:
-		fmt.Printf("  set target.base_url in %s to the backend the chains run against — it is %s now,\n", where, have)
-		fmt.Println("    and every run and confirm goes there (or pass -base-url to init)")
-	case have != flagValue:
-		fmt.Printf("  -base-url %s was NOT applied: %s already existed and still says target.base_url: %s,\n",
-			flagValue, where, have)
-		fmt.Println("    and every run and confirm goes there — edit it, or pass -force-config to rebuild it")
-	default:
-		fmt.Printf("  check target.base_url in %s: every run and confirm goes to %s\n", where, have)
+	case portFile:
+		return ", from .port (-base-url picks another)"
+	case given:
+		return ""
 	}
+	return ", the default: set it to your backend, or pass -base-url"
 }
 
 func initGitignore(cfg *config.Config) []string {
@@ -347,7 +329,7 @@ func ensureGitignore(root string, want []string) (bool, error) {
 	return true, nil
 }
 
-func scaffoldAuth(cfg *config.Config) error {
+func scaffoldAuth(cfg *config.Config, verbose bool) error {
 	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
 	if err != nil {
 		return nil
@@ -374,21 +356,27 @@ func scaffoldAuth(cfg *config.Config) error {
 	if err := cfg.Save(); err != nil {
 		return err
 	}
-	fmt.Printf("write %s/%s auth: %s\n", config.DirName, config.FileName, best.Method.FullName)
+	fmt.Printf("write %s/%s auth: %s, GUESSED from the descriptor: check it and the credential variables it names\n",
+		config.DirName, config.FileName, best.Method.FullName)
 	names := make([]string, 0, len(cfg.Auth.Profiles))
 	for name := range cfg.Auth.Profiles {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	role := map[string]bool{}
+	for _, r := range roles {
+		name, _, _ := strings.Cut(r, " ")
+		role[name] = true
+	}
 	for _, name := range names {
-		fmt.Printf("      profile %-10s %s\n", name, cfg.Auth.Profiles[name].Call)
+		if !role[name] {
+			fmt.Printf("      profile %-10s %s\n", name, cfg.Auth.Profiles[name].Call)
+		}
 	}
 	for _, r := range roles {
 		fmt.Printf("      role profile %s\n", r)
 	}
-	fmt.Println("      shrt GUESSED this from the descriptor — check it, and check the credential")
-	fmt.Println("      variables it names before the first run")
-	if hint := roleProfileHint(cfg); hint != "" {
+	if hint := roleProfileHint(cfg); hint != "" && (verbose || len(readmeAccounts(rootReadme(cfg.Root))) > 0) {
 		fmt.Println(hint)
 	}
 	return nil
@@ -457,7 +445,7 @@ func renderExampleChain(template []byte, path, ok string) []byte {
 	return []byte(strings.ReplaceAll(string(template), exampleEnvelopeExpect, expect))
 }
 
-func writeExampleChain(root string, cfg *config.Config, force bool) error {
+func writeExampleChain(root string, cfg *config.Config, force, verbose bool) error {
 	example := cfg.Abs(filepath.Join(cfg.Paths.Chains, "example.yaml.template"))
 	raw, err := agentkit.Read("templates/chain.example.yaml")
 	if err != nil {
@@ -478,7 +466,9 @@ func writeExampleChain(root string, cfg *config.Config, force bool) error {
 		return err
 	}
 	fmt.Printf("write %s\n", rel(root, example))
-	fmt.Println("      every REPLACE_ME in it is a placeholder for your rpcs and fields; copy it to <name>.yaml and fill them in")
+	if verbose {
+		fmt.Println("      every REPLACE_ME in it is a placeholder for your rpcs and fields; copy it to <name>.yaml and fill them in")
+	}
 	if ok == "" {
 		fmt.Printf("      its steps assert %s equals %s: envelope_ok is not declared, and the\n"+
 			"      success value is data shrt will not guess. Declare it, then write that value there\n", path, exampleOKPlaceholder)

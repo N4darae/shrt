@@ -482,6 +482,8 @@ type modelOrder struct {
 	held     string
 	reserved bool
 	took     int64
+	before   map[string]int64
+	moves    map[string]int
 }
 
 type effectModel struct {
@@ -491,6 +493,7 @@ type effectModel struct {
 	orders  map[string]*modelOrder
 	alias   map[string]string
 	dirty   map[string]bool
+	moves   map[string]int
 	apply   bool
 	pending *chain.Step
 	waiting []string
@@ -665,7 +668,7 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 
 func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string][]string, map[string]string, map[string][]string) {
 	md := &effectModel{level: map[string]int64{}, known: map[string]bool{}, stockOf: map[string]*stockRule{}, orders: map[string]*modelOrder{},
-		alias: map[string]string{}, dirty: map[string]bool{}, apply: apply, unread: map[string][]string{}, below: map[string]string{}, met: p.met}
+		alias: map[string]string{}, dirty: map[string]bool{}, moves: map[string]int{}, apply: apply, unread: map[string][]string{}, below: map[string]string{}, met: p.met}
 	asserted := map[string][]string{}
 	silent := map[string]string{}
 	mark := func(kind, id string) {
@@ -684,10 +687,13 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 			}
 			continue
 		}
+		out := effectOutcome(st)
+		if out == outcomeRefused && p.noun != "" {
+			continue
+		}
 		md.flush()
 		md.dirty = map[string]bool{}
 		md.at = st
-		out := effectOutcome(st)
 		if s := r.byEntity[rpc]; s != nil && out == outcomeSuccess {
 			md.stockOf[st.ID] = s
 			md.level[st.ID], md.known[st.ID] = 0, p.startsEmpty(lib, rpc, s)
@@ -738,8 +744,17 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 			handled = true
 			o := md.order(stepRefIn(st.Body[v.orderField]))
 			if o != nil && !o.reserved {
+				o.before, o.moves = map[string]int64{}, map[string]int{}
+				for _, l := range o.lines {
+					if md.known[l.entity] {
+						o.before[l.entity] = md.level[l.entity]
+					}
+				}
 				for _, l := range o.lines {
 					p.moveStock(md, l.entity, v.sign*l.qty, l.known && out == outcomeSuccess)
+				}
+				for e := range o.before {
+					o.moves[e] = md.moves[e]
 				}
 				o.reserved, o.took = out == outcomeSuccess, v.sign
 				o.held = p.heldState(lib, st)
@@ -875,6 +890,7 @@ func (p *Plan) moveStock(md *effectModel, e string, by int64, ok bool) {
 	if md.stockOf[e] == nil {
 		return
 	}
+	md.moves[e]++
 	if !ok || (by < 0 && md.known[e] && md.level[e]+by < 0) {
 		if _, seen := md.below[md.at.ID]; ok && !seen {
 			md.below[md.at.ID] = e
@@ -1060,8 +1076,17 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || !restoresFrom(texts, o.held)) {
 		return false
 	}
+	restored := map[string]int64{}
+	for e, level := range o.before {
+		if out == outcomeSuccess && md.moves[e] == o.moves[e] && p.noun != "" {
+			restored[e] = level
+		}
+	}
 	for _, l := range o.lines {
 		p.moveStock(md, l.entity, -o.took*l.qty, l.known && out == outcomeSuccess)
+	}
+	for e, level := range restored {
+		md.level[e], md.known[e], md.dirty[e] = level, true, true
 	}
 	o.reserved = out != outcomeSuccess
 	md.watch(st, o)
@@ -1104,6 +1129,9 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 }
 
 func (p *Plan) isTargetStep(id string) bool {
+	if p.noun != "" {
+		return true
+	}
 	for _, node := range p.Targets {
 		if p.stepOf[node] == id {
 			return true

@@ -23,6 +23,7 @@ var goldenNoise = []struct {
 	{regexp.MustCompile(`\d{8}T\d{6}(\.\d+)?Z?(-[0-9a-f]+)?`), "RUNID"},
 	{regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})`), "TIME"},
 	{regexp.MustCompile(`[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`), "UUID"},
+	{regexp.MustCompile(`(?m) +\d+ms$`), " DUR"},
 	{regexp.MustCompile(`\b\d+(\.\d+)?(ms|µs|s)\b`), "DUR"},
 	{regexp.MustCompile(`digest: +[0-9a-f]+`), "digest: DIGEST"},
 }

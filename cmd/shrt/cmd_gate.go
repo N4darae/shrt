@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -807,6 +808,7 @@ func settleFlaky(chains []*gateChain) []string {
 		}
 	}
 	var out []string
+	said := map[string]bool{}
 	for _, call := range order {
 		t := totals[call]
 		kind := "intermittent"
@@ -827,7 +829,12 @@ func settleFlaky(chains []*gateChain) []string {
 				r.Every = k
 			}
 		}
-		out = append(out, fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains))
+		line := fmt.Sprintf("FINDING: %s failure at %s (%s) in %d chain(s)", kind, shortRPC(call), r.text(), t.chains)
+		if !said[kind] {
+			said[kind] = true
+			line += ": " + findingMeaning(kind == "repeated", "those steps")
+		}
+		out = append(out, line)
 	}
 	return out
 }
@@ -983,7 +990,7 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println("  " + capText(n, 240))
 		}
 		if *verbose && g.failed && !g.findingOnly() {
-			g.printChanges()
+			g.printChanges(e)
 		}
 	}
 	failed, unverified := 0, 0
@@ -1248,10 +1255,13 @@ func (g *gateChain) firstItem() (gateItem, bool) {
 	return gateItem{}, false
 }
 
-func (g *gateChain) printChanges() {
+func (g *gateChain) printChanges(e *env) {
 	if it, ok := g.firstItem(); ok {
 		if req := requestLine(it.Reason, it.Step, func(s string) string { return g.sent[s] }); req != "" {
 			fmt.Println("  " + req)
+		}
+		if hint := tellApart(e, it.Reason, it.Path); hint != "" {
+			fmt.Println("  " + hint)
 		}
 	}
 	seen, paths := map[string]bool{}, []string{}
@@ -1355,6 +1365,14 @@ func settleGate(chains []*gateChain) []string {
 		if !g.failed || g.findingOnly() || len(g.items) == 0 {
 			continue
 		}
+		for i := range g.items {
+			r := &g.items[i].Reason
+			for _, o := range r.Or {
+				if seen[g.items[i].root()] == "" && seen[shortRPC(o.RPC)+" "+leafOf(g.items[i].Path)] != "" {
+					r.Step, r.RPC, r.Profile = o.Step, o.RPC, o.Profile
+				}
+			}
+		}
 		lead, rank, verified := -1, -1, false
 		for i, it := range g.items {
 			r := 0
@@ -1386,14 +1404,18 @@ func settleGate(chains []*gateChain) []string {
 		other, more := lacks(seen[it.root()], g, it)
 		switch first := seen[it.root()]; {
 		case first != "" && first != g.name && !more:
-			g.first += "; " + sameFault + first
+			named := methodName(it.rpc())
+			if r := it.Reason; r.Kind == reasonUnclear && len(r.Or) == 0 && r.ReadRPC != "" {
+				named += " or " + methodName(r.ReadRPC)
+			}
+			g.first += "; " + sameFault + first + " (" + named + ")"
 		case it.Reason.Kind != "":
-			g.first += "; " + it.Reason.String()
+			g.first += "; " + it.Reason.inRow(&it)
 		}
 		if more {
-			g.first += "; also " + other.Reason.String()
+			g.first += "; also " + other.Reason.inRow(nil)
 		}
-		if seen[it.root()] == "" && it.Reason.Kind != "" {
+		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
 			seen[it.root()] = g.name
 		}
 		switch {
@@ -1455,6 +1477,49 @@ func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	}
 }
 
+func unclearLabel(chains []*gateChain) func(gateItem) string {
+	decisive := map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if k := it.Reason.Kind; !it.Passes && (k != "" || !chain.IsReadOnlyCall(it.Call)) && k != reasonUnclear && k != reasonKnockOn {
+				decisive[it.rpc()+" "+leafOf(it.Path)] = true
+			}
+		}
+	}
+	return func(it gateItem) string {
+		r := it.Reason
+		if r.Kind != reasonUnclear {
+			return it.rpc()
+		}
+		var names []string
+		add := func(call string) {
+			if n := shortRPC(call); call != "" && !slices.Contains(names, n) {
+				names = append(names, n)
+			}
+		}
+		if len(r.Or) > 0 {
+			for _, o := range r.Or {
+				add(o.RPC)
+			}
+		} else {
+			add(r.RPC)
+			add(r.ReadRPC)
+		}
+		for _, n := range names {
+			if decisive[n+" "+leafOf(it.Path)] {
+				return n
+			}
+		}
+		switch {
+		case len(names) < 2:
+			return it.rpc()
+		case len(r.Or) == 0:
+			return names[0] + " or the read " + names[1]
+		}
+		return strings.Join(names, " or ")
+	}
+}
+
 func printGateGroups(chains []*gateChain, verbose bool) {
 	type group struct {
 		rpc, path            string
@@ -1463,16 +1528,19 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		in                   string
 		rank                 int
 	}
-	groups, order, keyOf := map[string]*group{}, []*group{}, groupKeys(chains)
+	groups, order, keyOf, label := map[string]*group{}, []*group{}, groupKeys(chains), unclearLabel(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
-			key := keyOf(g.name, it)
+			key, rpc := keyOf(g.name, it), it.rpc()
+			if l := label(it); l != rpc && strings.HasPrefix(key, rpc+" ") {
+				key, rpc = l+strings.TrimPrefix(key, rpc), l
+			}
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: it.rpc(), path: strings.TrimPrefix(key, it.rpc()+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &group{rpc: rpc, path: strings.TrimPrefix(key, rpc+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
 			}
@@ -1483,12 +1551,14 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			}
 			gr.chains[g.name] = true
 			rank := 0
-			switch it.Reason.Kind {
-			case "", reasonKnockOn:
-			case reasonWrite:
+			switch {
+			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
+			case len(it.Reason.Or) > 0:
 				rank += 4
-			default:
+			case it.Reason.Kind == reasonWrite:
 				rank += 8
+			default:
+				rank += 16
 			}
 			if it.Failed {
 				rank += 2
@@ -1525,9 +1595,9 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			head += " " + gr.path
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
-		if r := it.Reason.String(); r != "" {
+		if r := it.Reason.inGroup(gr.rpc, it.Step); r != "" {
 			line += "; " + r
-		} else {
+		} else if it.Reason.Kind == "" {
 			path, eg := it.shown()
 			line += " " + path + " " + eg
 		}

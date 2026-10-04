@@ -576,8 +576,8 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 		{name: "an envelope is never a stored field", envelope: true, env: "shop", rec: envelopeBatch, step: "batch", path: "status.code", kind: "!" + reasonStored, blamed: "?"},
 		{name: "an item envelope is never a stored field", envelope: true, env: "shop", rec: envelopeBatch, step: "batch", path: "results.0.status.code", kind: "!" + reasonStored, blamed: "?"},
 		{name: "without a reference the nearest write is named", envelope: true, env: "shop", rec: func() *runner.Record { return replaysRecord(true) }, step: "get_product", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
-		{name: "against a reference a write refused as before is no candidate", envelope: true, env: "shop", moved: changed("get_product", "product.qty_on_hand", "15", "14"), rec: func() *runner.Record { return replaysRecord(true) }, step: "get_product", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "create_order"},
-		{name: "a refused write whose contract effects move the field stays the first candidate", envelope: true, env: "effects", moved: changed("get_product", "product.qty_on_hand", "15", "14"), rec: func() *runner.Record { return replaysRecord(true) }, step: "get_product", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order"},
+		{name: "against a reference a write refused as before is no candidate", envelope: true, env: "shop", moved: changed("get_product", "product.qty_on_hand", "15", "14"), rec: func() *runner.Record { return replaysRecord(true) }, step: "get_product", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "create_product", check: orSteps("create_product", "create_order")},
+		{name: "a refused write whose contract effects move the field stays a candidate", envelope: true, env: "effects", moved: changed("get_product", "product.qty_on_hand", "15", "14"), rec: func() *runner.Record { return replaysRecord(true) }, step: "get_product", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "create_product", check: orSteps("create_product", "confirm_order")},
 		{name: "a total that recomputes from a changed price is filed under the price write", envelope: false, env: "shop", rec: priceTotal("3498"), step: "create_order", path: "order.total_minor", kind: reasonWrite, blamed: "create_product"},
 		{name: "a read of a total that recomputes from a changed price is filed under the price write", env: "shop", rec: priceTotal("3498"), step: "fetch_order", path: "order.total_minor", kind: reasonWrite, blamed: "create_product"},
 		{name: "a total the prices do not give is the order write's own", env: "shop", rec: priceTotal("3497"), step: "create_order", path: "order.total_minor", kind: reasonWrite, blamed: ""},
@@ -653,29 +653,43 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 			}, step: "list_orders", path: "orders", kind: reasonWrite, blamed: "replay"},
 		{name: "a record emptied under another profile is filed under the read as that profile", envelope: true, env: "effects", moved: changed("clerk_get", "product.sku", "s1", ""),
 			rec: emptied, step: "clerk_get", path: "product.sku", kind: reasonProfile, blamed: "", check: func(r reason) bool { return r.Profile == "clerk" && r.blamed("clerk_get") == "" }},
-		{name: "a read after the other movers is unclear between the write that answered as before and the read", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),
-			rec: asBefore(true, asBeforeGet), step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return r.Read == "get" }},
+		{name: "a cancel of an order never seen in the state it restores from moves nothing", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),
+			rec: asBefore(true, asBeforeGet), step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
 		{name: "an item of a list is linked to the writes naming its id", env: "effects", moved: changed("list", "products.1.qty_on_hand", "8", "7"),
-			rec: asBefore(true, asBeforeList), step: "list", path: "products.1.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return r.Read == "list" }},
-		{name: "with no read in between the write that answered as before is still unclear", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),
-			rec: asBefore(false, asBeforeGet), step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order"},
-		{name: "with no read in between a list item is still unclear", env: "effects", moved: changed("list", "products.1.qty_on_hand", "8", "7"),
-			rec: asBefore(false, asBeforeList), step: "list", path: "products.1.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order"},
+			rec: asBefore(true, asBeforeList), step: "list", path: "products.1.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "with no read in between the writes after the last answer of the field that still matched are the candidates", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),
+			rec: asBefore(false, asBeforeGet), step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "with no read in between a list item is filed the same", env: "effects", moved: changed("list", "products.1.qty_on_hand", "8", "7"),
+			rec: asBefore(false, asBeforeList), step: "list", path: "products.1.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
 		{name: "a read no longer refused is its own suspect", envelope: true, rec: func() *runner.Record {
 			return shopRecord(shopStep("get_unknown", "shop.customers.v1.CustomerService/GetCustomer", `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
 		}, step: "get_unknown", path: "customer", kind: reasonCode, blamed: "", check: func(r reason) bool { return r.Want == "REJECTED" && r.Got == "SUCCESS" }},
 		{name: "a hedged read is filed under the write that heads the hedge", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "9"), rec: func() *runner.Record {
 			order := `{"order":{"id_order":"o1","status":"CONFIRMED","lines":[{"id_product":"p1","qty":"2"}]}}`
 			return shopRecord(shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
-				shopStep("add_stock", shopAdd, `{"qty_on_hand":"10"}`, "create_product"),
+				shopStep("add_stock", shopAdd, `{}`, "create_product"),
 				shopStep("create_order", shopOrder, order, "create_product"),
 				shopStep("confirm_order", shopConfirm, order, "create_order"),
 				shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"9"}}`, "create_product"))
-		}, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return shortRPC(r.rpc(shopGet)) == "OrderService/ConfirmOrder" }},
+		}, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "add_stock", check: func(r reason) bool { return shortRPC(r.rpc(shopGet)) == "StockService/AddStock" }},
+		{name: "a kept-red read after two movers the contracts name is unclear between them, earliest first", env: "effects", pinned: true, rec: twoMovers(false), step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order",
+			check: func(r reason) bool {
+				return r.String() == "unclear: write confirm_order (OrderService/ConfirmOrder) or cancel_order (OrderService/CancelOrder)"
+			}},
+		{name: "a kept-red read after a read that still matched between the movers is filed under the later one", env: "effects", pinned: true, rec: twoMovers(true), step: "get_b", path: "product.qty_on_hand", kind: reasonWrite, blamed: "cancel_order"},
+		{name: "against a reference the same two movers are unclear", env: "effects", moved: changed("get_b", "product.qty_on_hand", "2", "1"), rec: twoMovers(false), step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: orSteps("confirm_order", "cancel_order")},
+		{name: "more than two movers name the first two and how many more", env: "effects", moved: changed("get_b", "product.qty_on_hand", "2", "1"), rec: func() *runner.Record {
+			rec := twoMovers(false)()
+			rec.Steps[1].Response = json.RawMessage(`{"results":[{"id_product":"p1"},{"id_product":"p2"}]}`)
+			return rec
+		}, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "add_stock_batch",
+			check: func(r reason) bool {
+				return strings.HasSuffix(r.String(), " or confirm_order (OrderService/ConfirmOrder) +1 more")
+			}},
 		{name: "a read after a read of the record that still matched is filed under the write between them", env: "effects", moved: lostStamp(),
 			rec: func() *runner.Record { return stampRecord(true) }, step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
 		{name: "a write changed only in another field is no stored-value suspect of the stock", env: "effects", moved: lostStamp(),
-			rec: func() *runner.Record { return stampRecord(false) }, step: "get", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order"},
+			rec: func() *runner.Record { return stampRecord(false) }, step: "get", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
 		{name: "a read held back by another field still answers as before for the profile comparison", env: "effects", moved: heldPriceMoved(),
 			rec: heldPriceRecord, step: "clerk_get", path: "product.price_minor", kind: reasonProfile, blamed: "", check: func(r reason) bool { return r.Profile == "clerk" && r.Other == "default" }},
 		{name: "a refused write on another record leaves a shrunk read its own", envelope: true, env: "shop", moved: refusedElsewhereMoved(),
@@ -687,7 +701,13 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 				again := shopStep("get_again", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"4"}}`, "create_product").heldBy("create_product", "product.created_at")
 				rec.Steps = append(rec.Steps, again.StepRecord)
 				return rec
-			}, step: "get_again", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "confirm_order", check: func(r reason) bool { return r.Read == "get" }},
+			}, step: "get_again", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "a cancel whose own status changed is its own suspect though a stock read before it changed", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "cancel_order", path: "order.status", kind: reasonWrite, blamed: ""},
+		{name: "a repeat cancel answered otherwise is filed under the first cancel", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "cancel_order_again", path: "status.code", kind: reasonWrite, blamed: "cancel_order"},
+		{name: "a read of the status after the cancel is filed under the cancel", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "fetch_order_after_cancel_order", path: "order.status", kind: reasonWrite, blamed: "cancel_order"},
+		{name: "the stock read stays on the confirm", envelope: true, env: "effects", pinned: true, rec: cancelConfirmed, step: "get_product_after_confirm_order", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_order"},
+		{name: "against a reference a cancel whose own status changed is its own suspect", envelope: true, env: "effects", moved: cancelConfirmedMoved(), rec: cancelConfirmed, step: "cancel_order", path: "order.status", kind: reasonWrite, blamed: ""},
+		{name: "against a reference a repeat cancel answered otherwise is filed under the first cancel", envelope: true, env: "effects", moved: cancelConfirmedMoved(), rec: cancelConfirmed, step: "cancel_order_again", path: "status.code", kind: reasonWrite, blamed: "cancel_order"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if c.envelope {
@@ -832,6 +852,67 @@ func TestAttributionHelpers(t *testing.T) {
 	}
 }
 
+func orSteps(steps ...string) func(reason) bool {
+	return func(r reason) bool {
+		var got []string
+		for _, o := range r.Or {
+			got = append(got, o.Step)
+		}
+		return slices.Equal(got, steps)
+	}
+}
+
+func twoMovers(readBetween bool) func() *runner.Record {
+	return func() *runner.Record {
+		order := func(status string) string {
+			return `{"order":{"id_order":"o1","status":"` + status + `","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p2","qty":"3"}]}}`
+		}
+		steps := []recStep{
+			shopStep("create_product_b", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"0"}}`).held("product.qty_on_hand", "0"),
+			shopStep("add_stock_batch", shopBatch, `{"results":[{"id_product":"p1","qty_on_hand":"11"},{"id_product":"p2","qty_on_hand":"5"}]}`, "create_product_b").held("results.1.qty_on_hand", "5"),
+			shopStep("create_order", shopOrder, order("PENDING"), "create_product_b"),
+			shopStep("confirm_order", shopConfirm, order("CONFIRMED"), "create_order"),
+		}
+		if readBetween {
+			steps = append(steps, shopStep("get_b_after_confirm", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"1"}}`, "create_product_b").held("product.qty_on_hand", "1"))
+		}
+		cancel := shopStep("cancel_order", shopCancel, order("CANCELLED"), "create_order").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(`{"id_order":"o1"}`) })
+		return shopRecord(append(steps, cancel,
+			shopStep("get_b", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"1"}}`, "create_product_b").failing("product.qty_on_hand", "2", "1"))...)
+	}
+}
+
+func cancelConfirmed() *runner.Record {
+	order := func(status string) string {
+		return `{"order":{"id_order":"o1","status":"` + status + `","lines":[{"id_product":"p1","qty":"2"},{"id_product":"p1","qty":"4"}]},` + shopOK + `}`
+	}
+	return shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"},`+shopOK+`}`),
+		shopStep("add_stock", shopAdd, `{"qty_on_hand":"10",`+shopOK+`}`, "create_product"),
+		shopStep("create_order", shopOrder, order("ORDER_STATUS_PENDING"), "create_product"),
+		shopStep("get_product_after_create_order", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"10"},`+shopOK+`}`, "create_product").held("product.qty_on_hand", "10"),
+		shopStep("confirm_order", shopConfirm, order("ORDER_STATUS_CONFIRMED"), "create_order"),
+		shopStep("get_product_after_confirm_order", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"8"},`+shopOK+`}`, "create_product").failing("product.qty_on_hand", "4", "8"),
+		shopStep("cancel_order", shopCancel, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+		shopStep("fetch_order_after_cancel_order", shopFetch, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+		shopStep("cancel_order_again", shopCancel, order("ORDER_STATUS_CONFIRMED"), "create_order").failing("status.code", "REJECTED", "SUCCESS").failing("order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"),
+	)
+}
+
+func cancelConfirmedMoved() []diff.Change {
+	var out []diff.Change
+	for _, c := range [][4]string{
+		{"get_product_after_confirm_order", "product.qty_on_hand", "4", "8"},
+		{"cancel_order", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+		{"fetch_order_after_cancel_order", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+		{"cancel_order_again", "status.code", "REJECTED", "SUCCESS"},
+		{"cancel_order_again", "order.status", "ORDER_STATUS_CANCELLED", "ORDER_STATUS_CONFIRMED"},
+	} {
+		out = append(out, changed(c[0], c[1], c[2], c[3])...)
+	}
+	return out
+}
+
 func lostStamp() []diff.Change {
 	return append(changed("get", "product.qty_on_hand", "5", "4"), diff.Change{Step: "create_product", Path: "product.created_at", Kind: diff.KindChanged, Want: "t"})
 }
@@ -899,4 +980,85 @@ func replaysRecord(firstRefused bool) *runner.Record {
 		steps = append(steps[:4], steps[5])
 	}
 	return shopRecord(steps...)
+}
+
+func TestAnUnclearWriteOrReadNamesAnotherReadOfTheField(t *testing.T) {
+	shop := &env{cat: catalogtest.Shop()}
+	rec := shopRecord(
+		shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),
+		shopStep("add_stock", shopAdd, `{"qty_on_hand":"10"}`, "create_product").held("qty_on_hand", "10").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(`{"qty":"10"}`) }),
+		shopStep("get", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"9"}}`, "create_product").failing("product.qty_on_hand", "10", "9"),
+	)
+	rec.Status = runner.StatusFailed
+	r := runAttribution(shop, rec).of("get", "product.qty_on_hand")
+	const hint = "tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)"
+	if r.Kind != reasonUnclear || tellApart(shop, r, "product.qty_on_hand") != hint {
+		t.Fatalf("got %s, hint %q", r, tellApart(shop, r, "product.qty_on_hand"))
+	}
+	if lines := failureRequests(shop, rec, false); !slices.Contains(lines, hint) {
+		t.Errorf("run prints the hint once under the suspect, got %q", lines)
+	}
+	list := reason{Kind: reasonUnclear, Step: "add_stock", RPC: shopAdd, Read: "list", ReadRPC: shopList, Path: "qty_on_hand"}
+	if got := tellApart(shop, list, "products.1.qty_on_hand"); got != "tell them apart: read products[].qty_on_hand through ProductService/GetProduct (product.qty_on_hand)" {
+		t.Errorf("a list read is told apart by the single read, got %q", got)
+	}
+	writes := reason{Kind: reasonUnclear, Step: "a", RPC: shopConfirm, Or: []reason{{Step: "a", RPC: shopConfirm}, {Step: "b", RPC: shopCancel}}}
+	if got := tellApart(shop, writes, "product.qty_on_hand"); got != "" {
+		t.Errorf("an unclear between writes needs a read between them, not another read rpc, got %q", got)
+	}
+	item := reason{Kind: reasonUnclear, Step: "create", RPC: "shrt.stamped.v1.ItemService/CreateItem", ReadRPC: "shrt.stamped.v1.ItemService/GetItem", Path: "item.name"}
+	if got := tellApart(&env{cat: catalogtest.Stamped()}, item, "item.name"); got != "" {
+		t.Errorf("no other read carries the field, so no hint, got %q", got)
+	}
+	stamped := &env{cat: catalogtest.Stamped()}
+	for _, c := range []struct{ sent, want string }{
+		{`{"name":"Ann"}`, "create answered name as sent; only GetItem differs"},
+		{`{"name":"ann"}`, ""},
+	} {
+		rec := shopRecord(
+			shopStep("create", "shrt.stamped.v1.ItemService/CreateItem", `{"item":{"id_item":"i1","name":"Ann"}}`).held("item.name", "Ann").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(c.sent) }),
+			shopStep("get", "shrt.stamped.v1.ItemService/GetItem", `{"item":{"id_item":"i1","name":"ann@example.test"}}`, "create").failing("item.name", "Ann", "ann@example.test"),
+		)
+		rec.Status = runner.StatusFailed
+		r := runAttribution(stamped, rec).of("get", "item.name")
+		if got := tellApart(stamped, r, "item.name"); r.Kind != reasonUnclear || got != c.want {
+			t.Errorf("sent %s: got %s, hint %q, want %q", c.sent, r, got, c.want)
+		}
+		if lines := failureRequests(stamped, rec, false); c.want != "" && !slices.Contains(lines, c.want) {
+			t.Errorf("run prints the fact once under the suspect, got %q", lines)
+		}
+	}
+}
+
+func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	changes := append(cancelConfirmedMoved(), changed("cancel_order_again", "status.message", "order is already cancelled", "")...)
+	report := &diff.Report{Changes: changes}
+	out := otherRoots(effectsEnv(t), cancelConfirmed(), report, &changes[0])
+	want := []string{
+		"  also: cancel_order (OrderService/CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (OrderService/CancelOrder)",
+		"  also: cancel_order_again (OrderService/CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (OrderService/CancelOrder)",
+	}
+	if got := strings.Split(strings.TrimRight(out, "\n"), "\n"); !slices.Equal(got, want) {
+		t.Errorf("got\n%s\nwant\n%s", out, strings.Join(want, "\n"))
+	}
+}
+
+func TestAFoldedAlsoLineStillCountsItsField(t *testing.T) {
+	busy := `{"code":"unavailable","message":"stock store busy"}`
+	rec := shopRecord(
+		shopStep("create", shopCreate, `{"product":{"id_product":"p1"}}`),
+		shopStep("add", shopAdd, busy, "create").failing("qty_on_hand", "7", nil),
+		shopStep("add_more", shopAdd, busy, "create").failing("qty_on_hand", "9", nil),
+	)
+	var changes []diff.Change
+	for _, st := range []string{"add", "add_more"} {
+		for _, p := range []string{"code", "message"} {
+			changes = append(changes, diff.Change{Step: st, Path: p, Kind: diff.KindUnexpected, Got: "x"})
+		}
+	}
+	if out := otherRoots(&env{cat: catalogtest.Shop()}, rec, &diff.Report{Changes: changes}, &changes[0]); out != "" {
+		t.Errorf("the fields the first step's lines already named are not listed again for another step:\n%s", out)
+	}
 }

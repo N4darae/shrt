@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"flag"
@@ -230,8 +231,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 			fmt.Println("  note: " + line)
 		}
 		if flaky.finding() {
-			fmt.Println("  FINDING: " + flaky.line())
-			if others := flaky.otherFailures(rec); len(others) > 0 && rec.KeptRed == "" {
+			fmt.Println("  FINDING: " + flaky.line(true))
+			if others := flaky.otherFailures(e, rec); len(others) > 0 && rec.KeptRed == "" {
 				return fmt.Errorf("chain %s: failed at %s, not an intermittent failure; also %s", rec.Chain, strings.Join(others, ", "), flaky.short())
 			}
 			flakyOnly = rec.KeptRed == "" || rec.KeptRed == runner.KeptRedAsPinned
@@ -242,6 +243,9 @@ func runRun(ctx context.Context, args []string) (err error) {
 		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
+		if rec.KeptRed == "" {
+			return shownError{err}
+		}
 		return err
 	}
 	if rec.KeptRed == runner.KeptRedAsPinned {
@@ -253,7 +257,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 const runExitCodes = "\nexit codes:\n" +
 	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
-	"  3  no verdict: unreachable, a gateway answered, a restart mid-run, login or auth refused; re-run\n"
+	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {
@@ -642,28 +646,23 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 	}
 	att := runAttribution(e, rec)
 	type failure struct {
-		st *runner.StepRecord
-		r  reason
+		st   *runner.StepRecord
+		r    reason
+		path string
 	}
 	failures, writes := []failure{}, map[string]bool{}
 	for _, st := range rec.Steps {
 		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
 			continue
 		}
-		path := ""
-		for _, ex := range st.Expect {
-			if !ex.Passed && ex.Rule != "unevaluated" {
-				path = ex.Path
-				break
-			}
-		}
+		path := failedPath(st)
 		r := att.of(st.ID, path)
 		if w := r.blamed(st.ID); w != "" {
 			writes[w] = true
 		}
-		failures = append(failures, failure{st, r})
+		failures = append(failures, failure{st, r, path})
 	}
-	lines, count, order, named := map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
+	lines, hints, count, order, named := map[string]string{}, map[string]string{}, map[string]int{}, []string{}, map[string]bool{}
 	for _, f := range failures {
 		key, w := "", f.r.blamed(f.st.ID)
 		switch {
@@ -678,16 +677,20 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 			order = append(order, key)
 		}
 		if lines[key] == "" || !named[key] && f.r.Kind != "" {
-			lines[key], named[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != ""
+			lines[key], named[key], hints[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != "", tellApart(e, f.r, f.path)
 		}
 		count[key]++
 	}
 	sort.SliceStable(order, func(i, j int) bool { return count[order[i]] > count[order[j]] })
-	out := []string{}
+	out, hint := []string{}, ""
 	for _, key := range order {
 		if lines[key] != "" && len(out) < 3 {
 			out = append(out, lines[key])
+			hint = cmp.Or(hint, hints[key])
 		}
+	}
+	if hint != "" {
+		out = append(out, hint)
 	}
 	return out
 }

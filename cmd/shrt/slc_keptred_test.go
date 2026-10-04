@@ -82,7 +82,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	shop := newFakeShop()
 	shop.cancelConfirmedBug = true
 	chdirToFakeShop(t, shop)
-	source := strings.Replace(cancelConfirmedChain, "vars:\n    tag: probe\n", "", 1) + pinFetchAfterCancel
+	source := strings.Replace(cancelConfirmedChain, "vars:\n    tag: probe\n", "description: Cancelling a confirmed order gives its stock back.\n", 1) + pinFetchAfterCancel
 	writeFile(t, ".shrt/chains/probe-orders.yaml", source)
 	var err error
 	out := captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
@@ -106,6 +106,9 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	}
 	if _, kept := rest.Step("fetch_after_cancel"); !kept {
 		t.Fatalf("steps that did not fail stay in the chain")
+	}
+	if want := "Cancelling a confirmed order gives its stock back.\nKept red in probe-orders-slice-cancel_confirmed: cancel_confirmed"; !strings.HasPrefix(rest.Description, want) {
+		t.Fatalf("the description says where the pinned steps went:\n%q", rest.Description)
 	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
 	if err != nil {
@@ -342,8 +345,106 @@ func TestChainPinTakesTheFailingReadBacksOfAPinnedWriteAndLeavesTheRestOfTheFile
 	cancelAt := strings.Index(pinReadBackChain, "\n  - call: OrderService/CancelOrder")
 	getAt := strings.Index(pinReadBackChain, "  - call: ProductService/GetProduct")
 	want := pinReadBackChain[:cancelAt+1] + pinReadBackChain[getAt:]
+	want = strings.Replace(want, "name: probe-wipe\n", "name: probe-wipe\ndescription: |-\n    Kept red in probe-wipe-slice-cancel_order: cancel_order, fetch_after_cancel.\n", 1)
 	if raw, _ := os.ReadFile(".shrt/chains/probe-wipe.yaml"); string(raw) != want {
-		t.Fatalf("only the pinned steps leave the file, the rest stays as written:\n%s\nwant:\n%s", raw, want)
+		t.Fatalf("only the pinned steps leave the file and one description line names where, the rest stays as written:\n%s\nwant:\n%s", raw, want)
+	}
+}
+
+const pinCheckpointChain = `apiVersion: shrt/v1
+name: probe-restock
+steps:
+  - call: ProductService/CreateProduct
+    id: create_product
+    body: {sku: 'sku-${uuid}', price_minor: "100"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: StockService/AddStock
+    id: add_stock
+    body: {id_product: "${create_product.product.id_product}", qty: "5"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: CustomerService/CreateCustomer
+    id: create_customer
+    body: {email: "restock-${uuid}@example.test"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: OrderService/CreateOrder
+    id: create_order
+    body:
+      id_customer: ${create_customer.customer.id_customer}
+      lines:
+        - {id_product: "${create_product.product.id_product}", qty: "2"}
+      idempotency_key: ${uuid}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: ProductService/GetProduct
+    id: get_after_create
+    body: {id_product: "${create_product.product.id_product}"}
+    expect:
+      - {path: product.qty_on_hand, equals: "5"}
+  - call: OrderService/ConfirmOrder
+    id: confirm_order
+    body: {id_order: "${create_order.order.id_order}"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: ProductService/GetProduct
+    id: get_after_confirm
+    body: {id_product: "${create_product.product.id_product}"}
+    expect:
+      - {path: product.qty_on_hand, equals: "3"}
+  - call: OrderService/CancelOrder
+    id: cancel_order
+    body: {id_order: "${create_order.order.id_order}"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - call: ProductService/GetProduct
+    id: get_after_cancel
+    body: {id_product: "${create_product.product.id_product}"}
+    expect:
+      - {path: product.qty_on_hand, equals: "5"}
+`
+
+func TestAPinnedSliceKeepsTheLastPassingReadOfItsFieldBeforeTheKeptWrites(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct = true
+	chdirToFakeShop(t, shop)
+	writeFile(t, ".shrt/chains/probe-restock.yaml", pinCheckpointChain)
+	var err error
+	out := captureStdout(t, func() { err = chainPin(context.Background(), []string{"probe-restock"}) })
+	if err != nil {
+		t.Fatalf("pin: %v\n%s", err, out)
+	}
+	path := ".shrt/chains/probe-restock-slice-get_after_cancel.yaml"
+	slice, ids := slcSteps(t, path)
+	if !strings.Contains(ids, "confirm_order,get_after_confirm,cancel_order,get_after_cancel") || strings.Contains(ids, "get_after_create") {
+		t.Fatalf("the slice keeps the read between the kept writes, and only the nearest: %s", ids)
+	}
+	if !strings.Contains(slice.Description, "get_after_confirm (last passing read of product.qty_on_hand before cancel_order)") {
+		t.Fatalf("the description names the checkpoint and why:\n%s", slice.Description)
+	}
+	if _, err := quietly(func() error {
+		return runRun(context.Background(), []string{"probe-restock-slice-get_after_cancel", "-quiet"})
+	}); err != nil {
+		t.Fatalf("green as pinned on the same backend: %v", err)
+	}
+	shop.confirmExtraUnit = true
+	out, err = quietly(func() error {
+		return runRun(context.Background(), []string{"probe-restock-slice-get_after_cancel", "-quiet"})
+	})
+	if err == nil || !strings.Contains(out, "NEW FAILURE outside the pinned defect: get_after_confirm product.qty_on_hand want=3 got=2") {
+		t.Fatalf("a later confirm defect fails the checkpoint: %v\n%s", err, out)
+	}
+	inProcessGate(t)
+	out, _ = quietly(func() error { return runGate(context.Background(), []string{"probe-restock-slice-get_after_cancel"}) })
+	if !strings.Contains(out, "suspect write confirm_order (OrderService/ConfirmOrder)") || strings.Contains(out, "suspect write cancel_order") {
+		t.Fatalf("the gate names the write before the checkpoint:\n%s", out)
+	}
+	sliced, err := quietly(func() error {
+		return chainSlice(context.Background(), []string{"probe-restock", "-step", "get_after_confirm", "-run", "latest", "-v"})
+	})
+	if err != nil || strings.Contains(sliced, "checkpoint") {
+		t.Fatalf("a plain slice keeps no checkpoint: %v\n%s", err, sliced)
 	}
 }
 
@@ -355,9 +456,12 @@ func TestPinNamesTheReadsOfAPinnedStepThatNoSliceHolds(t *testing.T) {
 		{ID: "read_make", Call: "S/Get", Body: map[string]any{"id": "${id}"}},
 	}}
 	slice := &chain.Chain{Name: "src-slice-confirm", Steps: c.Steps[:2]}
-	got := movedSteps(c, slice, []string{"confirm"})
+	got, line := movedSteps(c, slice, []string{"confirm"})
 	if want := "confirm: kept red in src-slice-confirm; read_ref: in no slice"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
+	}
+	if want := "Kept red in src-slice-confirm: confirm. In no slice: read_ref."; line != want {
+		t.Fatalf("description line: got %q, want %q", line, want)
 	}
 }
 
@@ -611,7 +715,7 @@ func TestAGateGroupExampleIsARealChangeNotAMaskedPinThatNowPasses(t *testing.T) 
 	}
 	settleGate(chains)
 	out := captureStdout(t, func() { printGateGroups(chains, false) })
-	if !strings.Contains(out, "e.g. lifecycle get; suspect read get") {
+	if !strings.Contains(out, "e.g. lifecycle get; answers another set of product") {
 		t.Errorf("the example is the step that changed, not the pin that now passes:\n%s", out)
 	}
 	if got := chains[0].items[0].wantGot(); got != "pinned got=-1, now got=1" {
@@ -814,5 +918,30 @@ func TestRunExitsZeroOnlyWhenAKeptRedChainFailsAsPinned(t *testing.T) {
 		if head, _, _ := strings.Cut(summary(rec, false), "\n"); !strings.Contains(head, tc.head) || strings.Contains(head, "PASSED in") {
 			t.Fatalf("%s/%s: headline %q", tc.status, tc.kept, head)
 		}
+	}
+}
+
+func TestPinPutsListReadsThatIgnoreTheSameFilterInOneSlice(t *testing.T) {
+	orders := `{"orders":[{"id_order":"o1","status":"PENDING"},{"id_order":"o2","status":"CANCELLED"}]}`
+	list := func(id, request, response string, failed ...string) *runner.StepRecord {
+		sr := &runner.StepRecord{ID: id, Call: "shop.orders.v1.OrderService/ListOrders", Status: runner.StatusFailed,
+			Request: json.RawMessage(request), Response: json.RawMessage(response)}
+		for _, p := range failed {
+			sr.Expect = append(sr.Expect, chain.ExpectResult{Path: p, Rule: "equals"})
+		}
+		return sr
+	}
+	rec := &runner.Record{Steps: []*runner.StepRecord{
+		{ID: "create", Call: "shop.orders.v1.OrderService/CreateOrder", Status: runner.StatusPassed},
+		list("list_pending", `{"id_customer":"c1","status":"PENDING"}`, orders, "orders.1"),
+		list("list_cancelled", `{"id_customer":"c1","status":"CANCELLED"}`, orders, "orders.0.id_order", "orders.0.status", "orders.1"),
+		list("list_totals", `{"id_customer":"c1"}`, orders, "orders.0.total_minor"),
+	}}
+	c := &chain.Chain{Name: "orders"}
+	for _, sr := range rec.Steps {
+		c.Steps = append(c.Steps, &chain.Step{ID: sr.ID, Call: sr.Call})
+	}
+	if got := strings.Join(pinGroup(c, rec, []string{"list_pending", "list_cancelled", "list_totals"}), ","); got != "list_pending,list_cancelled" {
+		t.Fatalf("one slice for the filter the rpc ignores, another for the other defect: %s", got)
 	}
 }

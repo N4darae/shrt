@@ -40,7 +40,7 @@ resolve before the cache is read. **Fix.** Export the variables `auth.body` in
 
 ## 6. Exit 3 from `run` or `verify`
 
-**Cause.** No verdict: the backend was unreachable, a gateway answered, it restarted mid-run, a
+**Cause.** No verdict: the backend was unreachable, answered unavailable, restarted mid-run, a
 fixture was reused, or authentication was refused. The output says which and ends in `re-run`.
 **Fix.** Re-run once (with a fresh `-var tag` if the line says so). Do not count 3 as red or green.
 
@@ -298,8 +298,8 @@ Declare it where it belongs.
 
 **Cause.** A server error on a request answered on its one re-send (reads only, judged on that
 answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
-call, reported on every chain it explains. **Fix.** A real backend defect (exit 1), just not
-deterministic.
+call, reported on every chain it explains. A step whose suspect is that call (a read missing the
+refused write) counts with it. **Fix.** A real backend defect (exit 1), just not deterministic.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 

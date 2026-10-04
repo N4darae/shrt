@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
@@ -395,26 +396,37 @@ func TestSliceNextIsWithheldWhenItsClosurePullsInAStepThatErredInTheSourceRun(t 
 func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 	for _, c := range []struct {
 		name    string
+		runs    []string
 		replays []string
 		fetch   string
 		without bool
 		picked  string
 		err     []string
 		note    []string
+		lack    []string
 	}{
 		{name: "the chain's own run over a verify replay", replays: []string{"29990101T000000Z-replay01"}, picked: "base",
-			note: []string{"the newest `shrt run` record", "29990101T000000Z-replay01, is a `shrt verify` replay", "pass -run 29990101T000000Z-replay01"}},
+			note: []string{"note: -run latest: shrt run BASE\n"}, lack: []string{"replay01"}},
 		{name: "a newer replay that did not reach the step is refused", replays: []string{"29990101T000000Z-replay02"}, fetch: runner.StatusSkipped,
 			err: []string{"run 29990101T000000Z-replay02, which did not evaluate step fetch", "-run BASE"}},
 		{name: "the newer replay in which only it failed the step", replays: []string{"29990101T000000Z-replay03"}, fetch: runner.StatusFailed, picked: "29990101T000000Z-replay03",
-			note: []string{"run 29990101T000000Z-replay03, the newest record, a `shrt verify` replay in which fetch failed", "BASE, it passed"}},
+			note: []string{"note: -run latest: verify replay 29990101T000000Z-replay03\n"}, lack: []string{"BASE"}},
 		{name: "the newest replay when no run was recorded beside it", replays: []string{"29990101T000000Z-replay04", "29990101T000001Z-replay05"}, picked: "29990101T000001Z-replay05",
-			note: []string{"as shrt diff picks it", "-run BASE"}},
+			note: []string{"note: -run latest: verify replay 29990101T000001Z-replay05\n"}, lack: []string{"BASE"}},
 		{name: "-without picks the newer replay in which steps failed", replays: []string{"29990101T000000Z-replay06"}, fetch: runner.StatusFailed, without: true, picked: "29990101T000000Z-replay06",
-			note: []string{"replay in which 1 step failed", "BASE, no step failed"}},
+			note: []string{"note: -run latest: verify replay 29990101T000000Z-replay06\n"}, lack: []string{"BASE"}},
+		{name: "a run made after the approval that disagrees is named", runs: []string{"29990101T000000Z-run07"}, replays: []string{"29990101T000001Z-replay08"}, fetch: runner.StatusFailed, picked: "29990101T000001Z-replay08",
+			note: []string{"note: -run latest: verify replay 29990101T000001Z-replay08, in which fetch failed; in shrt run 29990101T000000Z-run07, made after the safe spot's approval, it passed\n"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, e, base := approvedThingFlowRun(t)
+			for _, id := range c.runs {
+				run := copyRun(t, base, id)
+				run.StartedAt = time.Now().Add(time.Hour)
+				if _, err := e.store.SaveRun(run); err != nil {
+					t.Fatal(err)
+				}
+			}
 			for _, id := range c.replays {
 				replay := copyRun(t, base, id)
 				replay.ReplayOf = base.RunID
@@ -459,6 +471,11 @@ func TestSliceRunLatestPicksTheRecordASliceShouldCompare(t *testing.T) {
 					t.Errorf("missing %q in %q", fill(w), note)
 				}
 			}
+			for _, w := range c.lack {
+				if strings.Contains(note, fill(w)) {
+					t.Errorf("want no %q in %q", fill(w), note)
+				}
+			}
 			if c.without {
 				if got := newerFailing(e, base); got == nil || got.RunID != c.picked {
 					t.Fatalf("newerFailing = %v", got)
@@ -493,5 +510,67 @@ func TestAPartlyClearedWithoutIsInconclusiveWhenTheRestReadTheLeftOutWrites(t *t
 	v := &withoutVerdict{Without: []string{"stray_add"}, Cleared: []string{"fetch_total"}, StillFail: []string{"fetch_name"}, readsOut: true}
 	if err := v.err(); exitCodeOf(err) != 3 || !strings.Contains(err.Error(), "INCONCLUSIVE without stray_add: 1 failing step(s) still fail") {
 		t.Fatalf("exit %d: %v", exitCodeOf(err), err)
+	}
+}
+
+func TestRepeatsCombineOverTheRunsThatCount(t *testing.T) {
+	rv := func(outcome, broke string, matched bool) *sliceVerdict {
+		return &sliceVerdict{Step: "get", SourceRun: "src", Outcome: outcome, brokeWhy: broke, matched: matched, SliceRun: "run-" + outcome}
+	}
+	cases := []struct {
+		name     string
+		verdicts []*sliceVerdict
+		outcome  string
+		head     string
+		not      string
+	}{
+		{"a broken kept step leaves its repeat out", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceInconclusive, "kept step add failed, unavailable", true), rv(sliceReproduced, "", true)},
+			sliceReproduced, "verify reproduced 2/2 (repeat 2 not counted: kept step add failed, unavailable): step get", "slice runs"},
+		{"a counted miss is intermittent and gives the details", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceDidNotRun, "", false), rv(sliceNotReproduced, "", false)},
+			sliceIntermittent, "verify intermittent: reproduced 1/2 (repeat 2 not counted: did not run): step get, source run src, details from slice run run-not_reproduced", ""},
+		{"a matched inconclusive beside reproduced runs is not intermittent", []*sliceVerdict{rv(sliceReproduced, "", true), rv(sliceInconclusive, "", true), rv(sliceInconclusive, "", true)},
+			sliceInconclusive, "verify INCONCLUSIVE: step get, source run src, the verdict matched in 3 of 3 slice runs,", "1/3"},
+		{"no count on a run of misses", []*sliceVerdict{rv(sliceNotReproduced, "", false), rv(sliceNotReproduced, "", false)},
+			sliceNotReproduced, "verify NOT REPRODUCED: step get, source run src, 2 slice runs,", "0/2"},
+		{"every repeat broken stays inconclusive", []*sliceVerdict{rv(sliceInconclusive, "kept step add failed, internal", false), rv(sliceInconclusive, "kept step add failed, internal", false)},
+			sliceInconclusive, "verify INCONCLUSIVE: step get, source run src, 2 slice runs,", "0/2"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v, _ := combineSliceVerdicts(c.verdicts)
+			text := v.text()
+			if v.Outcome != c.outcome || !strings.Contains(text, c.head) || c.not != "" && strings.Contains(text, c.not) {
+				t.Fatalf("outcome %s:\n%s", v.Outcome, text)
+			}
+		})
+	}
+}
+
+func TestAStreamedStepsVerdictIsReadFromItsMessages(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	step := func(response string) *runner.StepRecord {
+		return &runner.StepRecord{ID: "watch", Status: runner.StatusFailed, Response: json.RawMessage(response)}
+	}
+	ok := step(`{"messages":[{"status":{"code":"SUCCESS"},"order":{"id_order":"o1"}},{"status":{"code":"SUCCESS"}}]}`)
+	refused := step(`{"messages":[{"status":{"code":"SUCCESS"}},{"status":{"code":"REJECTED","message":"gone","details":[{"app_code":1302,"reason":"OrderNotFound"}]}}]}`)
+	for _, c := range []struct {
+		name, code, refusal string
+		st                  *runner.StepRecord
+	}{
+		{"every message answered", "SUCCESS", "", ok},
+		{"a message refused", "REJECTED", "1302 OrderNotFound", refused},
+		{"a unary answer", "REJECTED", "1302", step(`{"status":{"code":"REJECTED","details":[{"app_code":1302}]}}`)},
+	} {
+		if v := verdictOf(c.st); v.ErrorCode != c.code || refusalOf(c.st) != c.refusal {
+			t.Errorf("%s: got %q refusal %q, want %q %q", c.name, v.ErrorCode, refusalOf(c.st), c.code, c.refusal)
+		}
+	}
+	if got := verdictPath(ok); got != "messages[].status.code" {
+		t.Errorf("a streamed step's envelope is labelled %q", got)
+	}
+	v := &sliceVerdict{Step: "watch", Outcome: sliceReproduced, EnvelopePath: verdictPath(ok), Source: verdictOf(ok), Replay: verdictOf(ok), SourceRun: "a", SliceRun: "b"}
+	if out := v.text(); !strings.Contains(out, `source: status failed, messages[].status.code "SUCCESS"`) {
+		t.Errorf("%s", out)
 	}
 }

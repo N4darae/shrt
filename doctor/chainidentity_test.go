@@ -74,7 +74,7 @@ func TestAChainFileWhoseNameDiffersFromItsFileIsAWarning(t *testing.T) {
 	r := run(t, cfg, options())
 	f := find(t, r, doctor.CheckSafeSpots)
 	if f.Level != doctor.LevelWarn || !strings.Contains(f.Detail, "conf.yaml declares name: conf-new") {
-		t.Fatalf("conf.yaml named conf-new splits its runs from its safe spot, so doctor warns: %+v\n%s", f, r.Text())
+		t.Fatalf("conf.yaml named conf-new splits its runs from its safe spot, so doctor warns: %+v\n%s", f, r.Text(true))
 	}
 	if !strings.Contains(f.Remedy, "rename the file to conf-new.yaml, or set name: conf") {
 		t.Errorf("the remedy says how to make them agree: %s", f.Remedy)
@@ -84,6 +84,6 @@ func TestAChainFileWhoseNameDiffersFromItsFileIsAWarning(t *testing.T) {
 		orphan = orphan || strings.Contains(g.Detail, `no chain "conf"`) && strings.Contains(g.Detail, `chain "conf-new"`)
 	}
 	if !orphan {
-		t.Errorf("conf.json belongs to no chain now that conf.yaml is chain conf-new, so it is an orphan naming conf-new:\n%s", r.Text())
+		t.Errorf("conf.json belongs to no chain now that conf.yaml is chain conf-new, so it is an orphan naming conf-new:\n%s", r.Text(true))
 	}
 }

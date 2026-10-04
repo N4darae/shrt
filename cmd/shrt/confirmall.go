@@ -66,11 +66,10 @@ func proposeAll(e *env, note, by string) error {
 
 func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 	fmt.Printf("\nproposed %d chain(s), NOT safe spots yet; what the proposer checked: %s\n\n", len(rows), strings.Join(strings.Fields(note), " "))
-	fmt.Println("| chain | run | steps passed | refusals asserted | check before approving |\n|---|---|---|---|---|")
+	fmt.Print(proposalTable(rows))
 	volatile := map[string][]string{}
 	order := []string{}
 	for _, r := range rows {
-		fmt.Printf("| %s | `%s` | %s | %s | %s |\n", r.Chain, r.Run, r.Steps, r.Refusals, r.Check)
 		if volatile[r.Volatile] == nil {
 			order = append(order, r.Volatile)
 		}
@@ -91,6 +90,29 @@ func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 	fmt.Printf("\nshow the user this table, with what you checked, and ask them to approve or reject each:\n" +
 		"only after the user says yes to every one:  shrt confirm -all -approve -by <their email>\n" +
 		"for each one they reject, first:             shrt confirm <chain> -reject\n")
+}
+
+func proposalTable(rows []store.ProposalRow) string {
+	var b strings.Builder
+	b.WriteString("| chain | run | steps passed | refusals asserted |\n|---|---|---|---|\n")
+	chains, order := map[string][]string{}, []string{}
+	for _, r := range rows {
+		fmt.Fprintf(&b, "| %s | `%s` | %s | %s |\n", r.Chain, r.Run, r.Steps, r.Refusals)
+		if r.Check == "" || r.Check == "none" {
+			continue
+		}
+		if chains[r.Check] == nil {
+			order = append(order, r.Check)
+		}
+		chains[r.Check] = append(chains[r.Check], "`"+r.Chain+"`")
+	}
+	if len(order) > 0 {
+		b.WriteString("\n**Check before approving:**\n")
+	}
+	for _, check := range order {
+		fmt.Fprintf(&b, "- %s: %s\n", strings.Join(chains[check], ", "), check)
+	}
+	return b.String()
 }
 
 func proposable(e *env, c *chain.Chain) (*runner.Record, string) {

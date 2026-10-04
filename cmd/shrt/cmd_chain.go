@@ -166,7 +166,8 @@ func chainList(args []string) error {
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
 	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot and which are kept red",
-		"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
+		"\nmarks: * has a safe spot, ? a proposal awaits approval, R kept red (fails on purpose, its kept_red pins name what the backend still gets wrong)\n"+
+			"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
 			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -240,13 +241,23 @@ func chainList(args []string) error {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
 	}
-	fmt.Printf("\n%d chain(s), * = has a safe spot, ? = a proposal awaits approval, R = kept red (fails on purpose, "+
-		"its kept_red pins name what the backend still gets wrong)", len(rows))
-	if *long {
-		fmt.Print("\n")
-		return nil
+	shown := map[string]bool{}
+	for _, r := range rows {
+		shown["*"] = shown["*"] || r.SafeSpot && !r.Proposed
+		shown["?"] = shown["?"] || r.Proposed
+		shown["R"] = shown["R"] || r.KeptRed
 	}
-	fmt.Print("; -long for the full description, -json for every field\n")
+	legend := []string{}
+	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"}} {
+		if shown[m.mark] {
+			legend = append(legend, m.mark+" = "+m.means)
+		}
+	}
+	fmt.Printf("\n%d chain(s)", len(rows))
+	if len(legend) > 0 {
+		fmt.Print("; " + strings.Join(legend, ", "))
+	}
+	fmt.Println()
 	return nil
 }
 
@@ -261,10 +272,15 @@ func descriptionLines(description string) []string {
 	return out
 }
 
+type lintReport struct {
+	Chain  string        `json:"chain"`
+	Issues []chain.Issue `json:"issues"`
+}
+
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	verbose := fs.Bool("v", false, "print each chain's unasserted-timestamp warning under it, not one line for the whole lint")
+	verbose := fs.Bool("v", false, "also print each clean chain, and each chain's unasserted-timestamp warning under it, not one line for the whole lint")
 	strict := fs.Bool("strict", false, "treat the assertion-quality warnings as errors: an assertion that cannot fail (unfailable-assertion), "+
 		"a step asserting nothing (asserts-nothing), an allow_fail that does nothing (inert-allow-fail), an export a later step "+
 		"silently overwrites (export-overwritten), arithmetic such as ${a.qty}+${b.qty} in an equals on a numeric field, compared "+
@@ -290,14 +306,10 @@ func chainLint(args []string) error {
 			"or let the contract compose it: 'shrt contract plan <rpc> -write'", e.chainsDir())
 	}
 
-	type report struct {
-		Chain  string        `json:"chain"`
-		Issues []chain.Issue `json:"issues"`
-	}
-	reports := []report{}
+	reports := []lintReport{}
 	errCount := len(broken)
 	for _, b := range broken {
-		reports = append(reports, report{Chain: "<unloadable>", Issues: []chain.Issue{
+		reports = append(reports, lintReport{Chain: "<unloadable>", Issues: []chain.Issue{
 			{Severity: chain.SeverityError, Message: b.Error()},
 		}})
 	}
@@ -316,11 +328,11 @@ func chainLint(args []string) error {
 	opts.Chain.AuthProfiles = append([]string{}, e.cfg.AuthProfileNames()...)
 	if authIssues := lintAuthBodies(e.cfg); len(authIssues) > 0 {
 		errCount += len(authIssues)
-		reports = append(reports, report{Chain: "<config>", Issues: authIssues})
+		reports = append(reports, lintReport{Chain: "<config>", Issues: authIssues})
 	}
 	if dupes := chain.LintCorpus(targets); len(dupes) > 0 {
 		errCount += len(dupes)
-		reports = append(reports, report{Chain: "<corpus>", Issues: dupes})
+		reports = append(reports, lintReport{Chain: "<corpus>", Issues: dupes})
 	}
 	shellUnset := map[string][]string{}
 	shellChains := 0
@@ -340,7 +352,7 @@ func chainLint(args []string) error {
 				errCount++
 			}
 		}
-		reports = append(reports, report{Chain: c.Name, Issues: issues})
+		reports = append(reports, lintReport{Chain: c.Name, Issues: issues})
 	}
 	if len(shellUnset) > 0 {
 		profiles := make([]string, 0, len(shellUnset))
@@ -352,7 +364,7 @@ func chainLint(args []string) error {
 		for _, p := range profiles {
 			named = append(named, fmt.Sprintf("%s (auth profile %q)", strings.Join(shellUnset[p], ", "), p))
 		}
-		reports = append([]report{{Chain: "<shell>", Issues: []chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindAuthEnvUnset, Message: fmt.Sprintf(
+		reports = append([]lintReport{{Chain: "<shell>", Issues: []chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindAuthEnvUnset, Message: fmt.Sprintf(
 			"login bodies read environment variables not exported in this shell: %s — shrt run refuses "+
 				"the %d chain(s) that use them before sending anything until they are set",
 			strings.Join(named, "; "), shellChains)}}}}, reports...)
@@ -367,7 +379,9 @@ func chainLint(args []string) error {
 		for _, r := range reports {
 			said := map[string]bool{}
 			if len(r.Issues) == 0 {
-				fmt.Printf("ok   %s\n", r.Chain)
+				if *verbose {
+					fmt.Printf("ok   %s\n", r.Chain)
+				}
 				continue
 			}
 			status := "warn"
@@ -404,13 +418,21 @@ func chainLint(args []string) error {
 			}
 		}
 		stamps.print(explained)
+		fmt.Println(lintTally(reports))
 	}
 	if errCount > 0 {
 		return fmt.Errorf("%d lint error(s)", errCount)
 	}
 	if !*strict && !*asJSON {
+		gated := map[string]bool{}
+		for _, c := range targets {
+			gated[c.Name] = inChainsDir(e, c)
+		}
 		quality := 0
 		for _, r := range reports {
+			if !gated[r.Chain] {
+				continue
+			}
 			for _, i := range r.Issues {
 				if i.Severity == chain.SeverityWarn && chain.IsAssertionQualityIssue(i) {
 					quality++
@@ -422,6 +444,40 @@ func chainLint(args []string) error {
 		}
 	}
 	return nil
+}
+
+func lintTally(reports []lintReport) string {
+	total, failing, warned := 0, 0, 0
+	for _, r := range reports {
+		if strings.HasPrefix(r.Chain, "<") && r.Chain != "<unloadable>" {
+			continue
+		}
+		total++
+		failed := false
+		for _, i := range r.Issues {
+			failed = failed || i.Severity == chain.SeverityError
+		}
+		switch {
+		case failed:
+			failing++
+		case len(r.Issues) > 0:
+			warned++
+		}
+	}
+	if failing == 0 && warned == 0 {
+		return fmt.Sprintf("%d chain(s) lint clean", total)
+	}
+	parts := []string{}
+	if failing > 0 {
+		parts = append(parts, fmt.Sprintf("%d failing", failing))
+	}
+	if warned > 0 {
+		parts = append(parts, fmt.Sprintf("%d with warnings", warned))
+	}
+	if clean := total - failing - warned; clean > 0 {
+		parts = append(parts, fmt.Sprintf("%d clean", clean))
+	}
+	return fmt.Sprintf("%d chain(s): %s", total, strings.Join(parts, ", "))
 }
 
 type stampSummary struct {
@@ -532,14 +588,15 @@ func (o *optionalString) Set(s string) error {
 	return nil
 }
 
-func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
-	var mm *chain.NameMismatchError
-	if c == nil || !errors.As(chain.NameMismatch(c), &mm) {
-		return nil
-	}
+func inChainsDir(e *env, c *chain.Chain) bool {
 	dir, err1 := filepath.Abs(filepath.Dir(c.SourcePath))
 	chains, err2 := filepath.Abs(e.chainsDir())
-	if err1 != nil || err2 != nil || dir != chains {
+	return err1 == nil && err2 == nil && dir == chains
+}
+
+func nameMismatchIn(e *env, c *chain.Chain) *chain.NameMismatchError {
+	var mm *chain.NameMismatchError
+	if c == nil || !errors.As(chain.NameMismatch(c), &mm) || !inChainsDir(e, c) {
 		return nil
 	}
 	return mm

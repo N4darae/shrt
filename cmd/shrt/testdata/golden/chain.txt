@@ -8,13 +8,7 @@ apiVersion: shrt/v1
 name: probe-orders-slice-cancel_confirmed
 description: |
     Slice of probe-orders reproducing step cancel_confirmed: 5 of 10 steps.
-
-    Computed by 'shrt chain slice': the target, the producers and contract prerequisites of kept steps,
-    and earlier writes on what they use or sending a unique value the target sends again.
-
-    This slice is a HYPOTHESIS until it is run. A dependency that is state rather than a
-    reference leaves no trace in the YAML, so a slice can be too small and still go green.
-
+    HYPOTHESIS: not verified by 'shrt chain slice -verify'.
     5 dropped step(s) WRITE: create_product_2, add_stock, retry_single, create_order_three, cancel_pending.
 steps:
     - id: create_customer
@@ -83,12 +77,12 @@ probe-orders without confirm_single: the new chain holds 9 of the 10 steps, the 
 
 9 step(s) passed (-v prints every step)
 
-verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed
+verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pass without it: cancel_confirmed (it acts on the order confirm_single changed and may need that state: not proof confirm_single is the cause)
 
 $ shrt chain pin probe-orders  [exit 0]
 slice of cancel_confirmed did not reproduce without the writes it needs: again with -keep add_stock
 wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red on cancel_confirmed at status.code
-verify reproduced 3/3: step cancel_confirmed, source run RUNID, 3 slice runs, details from slice run RUNID
+verify reproduced 3/3: step cancel_confirmed, source run RUNID, details from slice run RUNID
 ran probe-orders -keep-going: run RUNID, passed
 wrote .shrt/chains/probe-orders.yaml: probe-orders no longer runs cancel_confirmed: kept red in probe-orders-slice-cancel_confirmed
 

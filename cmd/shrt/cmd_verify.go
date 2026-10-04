@@ -104,7 +104,7 @@ func (v *verification) parse(args []string) error {
 	fs.BoolVar(&v.quiet, "quiet", false, "a clean replay prints its verdict line only")
 	fs.BoolVar(&v.save, "save", true, "persist the replay record")
 	fs.StringVar(&v.build, "build", "", buildFlagUsage)
-	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch")
+	fs.BoolVar(&v.verbose, "v", false, "list each change at a step not judged for a descriptor mismatch, say what an intermittent or repeated FINDING means, and how a person approves an intended regression")
 	fs.BoolVar(&v.showLatency, "latency", false, "list each step's latency against the safe spot's run")
 	fs.BoolVar(&v.listMasked, "masked", false, "list every value kept out of the comparison, with both values, and the targets when they differ")
 	setUsage(fs, "usage: shrt verify <chain> [flags]", verifyExitCodes)
@@ -395,8 +395,8 @@ func (v *verification) unansweredHeadline() {
 	switch {
 	case strings.Contains(why, transport.NoAnswerBeforeTimeout):
 		v.headline = fmt.Sprintf("step %s was sent and got no answer before target.timeout", step)
-	case strings.Contains(why, "a gateway answered for the service"):
-		v.headline = fmt.Sprintf("step %s was not answered by the service (a gateway answered for it)", step)
+	case strings.Contains(why, unavailableAnswered):
+		v.headline = fmt.Sprintf("step %s was answered unavailable", step)
 	case strings.HasPrefix(why, "the backend refused authentication") && refusedFreshAt(rec, step):
 		v.headline = fmt.Sprintf("step %s was refused at authentication with a token a login in this run had just issued, "+
 			"so the credentials work: this may be an auth regression", step)
@@ -443,7 +443,7 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 	case v.dropped != nil:
 		v.note(body, "FINDING: "+v.dropped.line())
 	case v.flaky.finding():
-		fmt.Fprintln(body, "FINDING: "+v.flaky.line())
+		fmt.Fprintln(body, "FINDING: "+v.flaky.line(v.verbose))
 	case loss != nil:
 		v.note(body, "WARNING: "+loss.line())
 	}
@@ -649,7 +649,11 @@ func (v *verification) drift() error {
 		if first != nil {
 			at = fmt.Sprintf(" at %d step(s), first %s %s", steps, first.Step, first.Path)
 		}
-		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s\n%s", report.Counted(), at, regressionShape(report), capitalized(intendedChangeNext(name)))
+		next := ""
+		if v.verbose {
+			next = "\n" + capitalized(intendedChangeNext(name))
+		}
+		return fmt.Errorf("regression: %d change(s) vs safe spot%s%s%s", report.Counted(), at, regressionShape(report), next)
 	}
 	if len(report.UnapprovedRedact) > 0 {
 		blanked := "the value(s) they blanked were not compared"
@@ -1236,6 +1240,9 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if req := requestLine(r, first.Step, recordSent(e, rec)); req != "" && strings.HasPrefix(why, "regression") {
 		line += "\n  " + req
 	}
+	if hint := tellApart(e, r, first.Path); hint != "" {
+		line += "\n  " + hint
+	}
 	return line + "\n" + otherRoots(e, rec, report, first), body
 }
 
@@ -1244,7 +1251,7 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
-			seen[it.root()] = true
+			seen[it.root()], seen[it.Step+" "+it.Reason.String()] = true, it.Reason.Kind != ""
 		}
 	}
 	if len(seen) == 0 {
@@ -1252,11 +1259,12 @@ func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Cha
 	}
 	out := ""
 	for _, it := range items {
-		r := it.root()
-		if seen[r] {
+		r, same := it.root(), it.Step+" "+it.Reason.String()
+		if seen[r] || it.Reason.Kind != "" && seen[same] {
+			seen[r] = true
 			continue
 		}
-		seen[r] = true
+		seen[r], seen[same] = true, true
 		out += fmt.Sprintf("  also: %s (%s) %s", it.Step, shortRPC(it.Call), it.headline())
 		if s := it.Reason.String(); s != "" {
 			out += "; " + s
@@ -1446,11 +1454,10 @@ func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error
 			"issued, so the credentials work: this may be an auth regression in the backend. Nothing before it drifted, and %s. "+
 			"The step record says what was tried (auth_retry, error); %s", name, step, why, past, tail)
 	}
-	remedy := unansweredRemedy(why)
+	remedy, got := unansweredRemedy(why), "never got an answer"
 	for _, st := range rec.Steps {
 		if st.ID == step && runner.NotAnsweredByService(st) {
-			remedy = "the service did not answer (a gateway answered unavailable for it, as during a rolling restart), " +
-				"so wait until it is up and run verify again"
+			remedy, got = "wait until it is up (as after a restart) and run verify again", "was answered unavailable"
 		}
 	}
 	if strings.Contains(why, transport.NoAnswerBeforeTimeout) {
@@ -1469,9 +1476,11 @@ func couldNotVerifyAfter(name, step, why string, rec, prev *runner.Record) error
 				"it as a finding about that step", st.ID)
 		}
 	}
-	return exitWith(3, "could not verify %s: step %q never got an answer (%s); nothing before it drifted, and %s. "+
-		"This is not a verdict about the backend: %s", name, step, why, past, remedy)
+	return exitWith(3, "could not verify %s: step %q %s (%s); nothing before it drifted, and %s. "+
+		"This is not a verdict about the backend: %s", name, step, got, why, past, remedy)
 }
+
+const unavailableAnswered = "the backend or a gateway in front of it answered unavailable"
 
 var gatewayLogin = regexp.MustCompile(`(?i)login rejected: (http_50[234]|unavailable)\b`)
 
@@ -1479,7 +1488,7 @@ func unansweredRemedy(why string) string {
 	lower := strings.ToLower(why)
 	switch {
 	case gatewayLogin.MatchString(why):
-		return "the login was answered by a gateway, not by the service (as during a rolling restart), so wait until it is up " +
+		return "the login was answered unavailable, by the backend or a gateway in front of it (as during a restart), so wait until it is up " +
 			"and run verify again"
 	case strings.Contains(lower, "refused authentication") || strings.Contains(lower, "login rejected") ||
 		strings.Contains(lower, "unauthenticated") || strings.Contains(lower, "permission_denied"):
@@ -1503,7 +1512,7 @@ func unansweredOnly(rec *runner.Record, report *diff.Report) (string, string, bo
 			why := st.Error
 			if gateway {
 				why, _, _ = strings.Cut(st.Error, "\n")
-				why = fmt.Sprintf("HTTP %d %s: a gateway answered for the service", st.HTTPStatus, why)
+				why = fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, why, unavailableAnswered)
 			} else if authRefused {
 				line, _, _ := strings.Cut(st.Error, "\n")
 				why = "the backend refused authentication: " + line

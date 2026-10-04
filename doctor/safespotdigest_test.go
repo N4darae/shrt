@@ -34,7 +34,7 @@ func TestDoctorFailsASafeSpotWhoseDigestNoLongerMatches(t *testing.T) {
 	write(t, filepath.Join(dir, "good.json"), spotJSON(t, sealedSpot(t, "good")))
 	r := run(t, cfg, options())
 	if f := find(t, r, doctor.CheckSafeSpotDigests); f.Level != doctor.LevelOK {
-		t.Fatalf("a sealed safe spot is ok:\n%s", r.Text())
+		t.Fatalf("a sealed safe spot is ok:\n%s", r.Text(true))
 	}
 	edited := sealedSpot(t, "edited")
 	edited.ConfirmedBy = "mallory@example.test"
@@ -42,7 +42,7 @@ func TestDoctorFailsASafeSpotWhoseDigestNoLongerMatches(t *testing.T) {
 	r = run(t, cfg, options())
 	f := find(t, r, doctor.CheckSafeSpotDigests)
 	if f.Level != doctor.LevelError || !strings.Contains(f.Detail, "edited.json") || strings.Contains(f.Detail, "good.json") {
-		t.Fatalf("a safe spot edited after approval FAILs, naming only it:\n%s", r.Text())
+		t.Fatalf("a safe spot edited after approval FAILs, naming only it:\n%s", r.Text(true))
 	}
 }
 
@@ -60,7 +60,7 @@ func TestDoctorFailsASafeSpotLeftWithMergeConflictMarkers(t *testing.T) {
 		}
 	}
 	if hit == nil || hit.Level != doctor.LevelError {
-		t.Fatalf("conflict markers in a safe spot FAIL and say so:\n%s", r.Text())
+		t.Fatalf("conflict markers in a safe spot FAIL and say so:\n%s", r.Text(true))
 	}
 	if !strings.Contains(hit.Remedy, "--ours") || !strings.Contains(hit.Remedy, "git history") {
 		t.Fatalf("the remedy says to take one side and where the other approval stays: %s", hit.Remedy)

@@ -60,9 +60,10 @@ func TestDoctorFailsOnDriftedDocsOrKitAndOnWarningsOnlyUnderStrict(t *testing.T)
 		want  []string
 		not   []string
 	}{
-		{name: "freshly installed, no kit", not: []string{"FAIL  agentkit"}},
-		{name: "json", args: []string{"-json"}, want: []string{`"Findings"`, `"Check"`, `"Level"`, `"Detail"`}},
-		{name: "matching kit", want: []string{"agent kit"}, not: []string{"FAIL  agentkit"},
+		{name: "freshly installed, no kit", not: []string{"FAIL  agentkit", "ok   "}},
+		{name: "-v lists every ok check", args: []string{"-v"}, want: []string{"ok   build: ", "ok   docs: ", "\n\n"}},
+		{name: "json", args: []string{"-json"}, want: []string{`"Findings"`, `"Check"`, `"Level"`, `"Detail"`, `"ok"`}},
+		{name: "matching kit", args: []string{"-v"}, want: []string{"agent kit"}, not: []string{"FAIL  agentkit"},
 			setup: func(t *testing.T, root string) {
 				if _, err := agentkit.Install(root, agentkit.ClaudeAssets(), true); err != nil {
 					t.Fatal(err)
@@ -80,7 +81,7 @@ func TestDoctorFailsOnDriftedDocsOrKitAndOnWarningsOnlyUnderStrict(t *testing.T)
 				installed := filepath.Join(root, config.DocsDir, coredistillation.DocNames[0])
 				writeFile(t, installed, string(mustRead(t, installed))+"\na rule from an older binary\n")
 			}},
-		{name: "a warning", setup: func(t *testing.T, root string) {
+		{name: "a warning", want: []string{"WARN gitignore: ", "\n\n"}, not: []string{"ok   "}, setup: func(t *testing.T, root string) {
 			writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n")
 		}},
 		{name: "a warning under -strict", args: []string{"-strict"}, code: 1,
@@ -108,6 +109,22 @@ func TestDoctorFailsOnDriftedDocsOrKitAndOnWarningsOnlyUnderStrict(t *testing.T)
 				}
 			}
 		})
+	}
+}
+
+func TestDoctorStatesItsCountsOnceWhenItFails(t *testing.T) {
+	root := adoptedRepo(t)
+	writeFile(t, filepath.Join(root, ".gitignore"), ".shrt/tokens.json\n")
+	for _, c := range []struct {
+		args  []string
+		shown bool
+	}{{[]string{"-strict"}, true}, {[]string{"-strict", "-json"}, false}} {
+		var err error
+		out := captureStdout(t, func() { err = runDoctor(context.Background(), c.args) })
+		var shown shownError
+		if exitCodeOf(err) != 1 || errors.As(err, &shown) != c.shown {
+			t.Errorf("%v: exit 1, and the error is printed only when the text summary did not already say it: %v\n%s", c.args, err, out)
+		}
 	}
 }
 

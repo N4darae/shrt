@@ -75,7 +75,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
 				if p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
 					for field, ef := range c.Effects {
-						if ef != nil && ef.Restore != "" && sameState(ef.Restore, short[tr.value]) {
+						if ef != nil && ef.Restore != "" && SameState(ef.Restore, short[tr.value]) {
 							p.met[[2]string{st.Call, field}] = true
 						}
 					}

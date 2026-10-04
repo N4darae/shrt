@@ -106,8 +106,8 @@ func TestContractStatusGapsNamesWhatNoChainCallsAndWhatIsOutOfScope(t *testing.T
 	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
 	if err != nil || !strings.Contains(out, "no chain     shop.orders.v1.OrderService/CreateOrder (repeated request field(s) no chain sends at all: lines)") ||
 		strings.Contains(out, "no chain     shop.catalog.v1.ProductService/CreateProduct") ||
-		!strings.Contains(out, "no chain     shop.orders.v1.OrderService/WatchOrder") || !strings.Contains(out, "no chain         no chain calls the rpc") {
-		t.Fatalf("an rpc no chain calls, and its repeated fields, are gaps, explained in the legend: %v\n%s", err, out)
+		!strings.Contains(out, "no chain     shop.orders.v1.OrderService/WatchOrder") || !strings.Contains(out, "shrt contract plan <rpc> (no chain") {
+		t.Fatalf("an rpc no chain calls, and its repeated fields, are gaps, with what to run for them: %v\n%s", err, out)
 	}
 
 	writeFile(t, ".shrt/descriptor.binpb", string(catalogtest.RichDescriptor()))
@@ -158,8 +158,11 @@ func TestContractStatusGapsLeavesTheConfiguredLoginOut(t *testing.T) {
 	var err error
 	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
 	if err != nil || strings.Contains(out, "no path to   shop.catalog.v1.ProductService/GetProduct") ||
-		!strings.Contains(out, "no path to   shop.customers.v1.CustomerService/CreateCustomer") || !strings.Contains(out, "login") {
-		t.Fatalf("the configured login needs no path, other rpcs are still listed, and the legend says why: %v\n%s", err, out)
+		!strings.Contains(out, "no path to   shop.customers.v1.CustomerService/CreateCustomer") || !strings.Contains(out, "needs: or from: (no path to)") {
+		t.Fatalf("the configured login needs no path, other rpcs are still listed with what to add: %v\n%s", err, out)
+	}
+	if out = captureStdout(t, func() { err = contractStatus([]string{"-gaps", "-v"}) }); !strings.Contains(out, "A login the config's") {
+		t.Fatalf("-v says why the login is not listed: %v\n%s", err, out)
 	}
 }
 

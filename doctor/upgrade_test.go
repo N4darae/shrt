@@ -69,7 +69,7 @@ func TestDoctorListsPreUpgradeArtefactsWithTheFixForEach(t *testing.T) {
 		"http://old.example.test", "1 cached token(s) minted against another base_url",
 	} {
 		if !strings.Contains(text, want) {
-			t.Fatalf("the upgrade findings must mention %q:\n%s", want, r.Text())
+			t.Fatalf("the upgrade findings must mention %q:\n%s", want, r.Text(true))
 		}
 	}
 	tokens := ""
@@ -86,7 +86,7 @@ func TestDoctorReportsNoPreUpgradeArtefactsInAFreshRepo(t *testing.T) {
 	r := run(t, repo(t), options())
 	for _, f := range findAll(r, doctor.CheckUpgrade) {
 		if f.Level != doctor.LevelOK {
-			t.Fatalf("a fresh repo has nothing from before the upgrade:\n%s", r.Text())
+			t.Fatalf("a fresh repo has nothing from before the upgrade:\n%s", r.Text(true))
 		}
 	}
 }
