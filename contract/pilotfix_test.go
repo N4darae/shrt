@@ -28,10 +28,7 @@ rpcs:
     required: [name, kind]
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Create", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Create", lib, "c")
 	joined := strings.Join(plan.Notes, "\n")
 	if !strings.Contains(joined, "kind") {
 		t.Fatalf("the zero enum value is not a usable value and must be reported, got:\n%s", joined)
@@ -53,10 +50,7 @@ rpcs:
         value: "0"
     status: draft
 `)
-	plan, err := contract.BuildPlan("AuthService/Login", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "AuthService/Login", lib, "c")
 	if !strings.Contains(strings.Join(plan.Notes, "\n"), "username") {
 		t.Fatalf(`a value of "0" is the int64 scaffold placeholder, not a real value: %v`, plan.Notes)
 	}
@@ -86,10 +80,7 @@ rpcs:
     needs: ["shrt.test.v1.ThingService/Create@right"]
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Fetch", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", lib, "c")
 	left, ok := plan.Chain.Step("create_left")
 	if !ok {
 		t.Fatalf("no create_left in %v", plan.Order)
@@ -134,10 +125,7 @@ rpcs:
     summary: s
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Create", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Create", lib, "c")
 	if len(plan.Order) != 2 {
 		t.Fatalf("before must pull the declaring rpc into the plan, got %v", plan.Order)
 	}
@@ -336,10 +324,7 @@ rpcs:
         value: shrt-pilot
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Create", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Create", lib, "c")
 	step, _ := plan.Chain.Step("create")
 	meta, ok := step.Body["meta"].(map[string]any)
 	if !ok {
@@ -374,10 +359,7 @@ rpcs:
     needs: ["shrt.test.v1.ThingService/Create@right"]
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Fetch", lib, catalogtest.New(), "c")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", lib, "c")
 	seen := map[string]string{}
 	for _, step := range plan.Chain.Steps {
 		for name := range step.Export {
