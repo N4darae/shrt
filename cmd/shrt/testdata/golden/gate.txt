@@ -5,7 +5,7 @@ failures by suspect rpc:
   OrderService/CancelOrder status.code: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed
 offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those)
 
 $ shrt gate -v -no-session-check -hollow-baseline   [exit 1]
 FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
@@ -26,7 +26,7 @@ failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
 offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-shrt gate: FAIL: 1 of 3 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+shrt gate: FAIL: 1 of 3 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those)
 
 # a read unclear between two writes names both and is grouped once, under the earlier
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)

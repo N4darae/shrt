@@ -1099,7 +1099,7 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	switch {
 	case failed > 0 || len(findings) > 0:
-		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
+		next := "every changed value: shrt gate -v <chain>... (re-sends only those)"
 		switch {
 		case *repro:
 			next = answer + "; probe further only for " + probe
