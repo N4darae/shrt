@@ -2,7 +2,6 @@ package diff
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -394,10 +393,67 @@ func underMask(m *pathmask.Masker, path string) bool {
 	return ok
 }
 
-var (
-	uuidShape  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	digitsOnly = regexp.MustCompile(`^[0-9]+$`)
-)
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isHex(c byte) bool { return isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' }
+
+func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+
+func isAlnum(c byte) bool { return isDigit(c) || isLetter(c) }
+
+func allOf(s string, class func(byte) bool) bool {
+	for i := 0; i < len(s); i++ {
+		if !class(s[i]) {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func digitsOnly(s string) bool { return allOf(s, isDigit) }
+
+func hexRun(s string) bool { return len(s) >= 8 && allOf(s, isHex) }
+
+func uuidShape(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if dash := i == 8 || i == 13 || i == 18 || i == 23; dash != (s[i] == '-') || !dash && !isHex(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func alnumRuns(s string) []string {
+	var runs []string
+	for i := 0; i < len(s); {
+		if !isAlnum(s[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isAlnum(s[j]) {
+			j++
+		}
+		runs = append(runs, s[i:j])
+		i = j
+	}
+	return runs
+}
+
+func runShape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if !isAlnum(s[i]) {
+			b.WriteByte(s[i])
+		} else if i == 0 || !isAlnum(s[i-1]) {
+			b.WriteByte('x')
+		}
+	}
+	return b.String()
+}
 
 func LooksVolatile(path string, a, b any) bool {
 	return looksVolatile(path, a, b)
@@ -417,10 +473,8 @@ func looksVolatile(path string, a, b any) bool {
 		camelIDPrefix(key):
 		return sameShape(a, b)
 	}
-	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString)
+	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape)
 }
-
-var alnumRun = regexp.MustCompile(`[A-Za-z0-9]+`)
 
 func sameShape(a, b any) bool {
 	if x, ok := a.(float64); ok {
@@ -432,23 +486,20 @@ func sameShape(a, b any) bool {
 	if !ok1 || !ok2 || x == "" || y == "" || zeroID(x) != zeroID(y) {
 		return false
 	}
-	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString) {
+	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape) {
 		return true
 	}
-	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && sameRunClasses(x, y) &&
-		kindPrefix(x) == kindPrefix(y)
+	return runShape(x) == runShape(y) && sameRunClasses(x, y) && kindPrefix(x) == kindPrefix(y)
 }
 
-var hexRun = regexp.MustCompile(`^[0-9a-fA-F]{8,}$`)
-
 func sameRunClasses(x, y string) bool {
-	xs, ys := alnumRun.FindAllString(x, -1), alnumRun.FindAllString(y, -1)
+	xs, ys := alnumRuns(x), alnumRuns(y)
 	if len(xs) != len(ys) {
 		return false
 	}
 	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
 	for i := range xs {
-		if len(xs[i]) == len(ys[i]) && hexRun.MatchString(xs[i]) && hexRun.MatchString(ys[i]) {
+		if len(xs[i]) == len(ys[i]) && hexRun(xs[i]) && hexRun(ys[i]) {
 			continue
 		}
 		if hasDigit(xs[i]) != hasDigit(ys[i]) {
@@ -458,23 +509,28 @@ func sameRunClasses(x, y string) bool {
 	return true
 }
 
-var letterPrefix = regexp.MustCompile(`^([A-Za-z]+)[^A-Za-z0-9]`)
-
 func kindPrefix(s string) string {
-	if m := letterPrefix.FindStringSubmatch(s); m != nil {
-		return m[1]
+	i := 0
+	for i < len(s) && isLetter(s[i]) {
+		i++
 	}
-	return ""
+	if i == 0 || i == len(s) || isDigit(s[i]) {
+		return ""
+	}
+	return s[:i]
 }
 
 func lastKey(path string) string {
-	segs := strings.Split(path, ".")
-	for i := len(segs) - 1; i >= 0; i-- {
-		if !digitsOnly.MatchString(segs[i]) {
-			return segs[i]
+	for {
+		i := strings.LastIndexByte(path, '.')
+		if seg := path[i+1:]; !digitsOnly(seg) {
+			return seg
 		}
+		if i < 0 {
+			return ""
+		}
+		path = path[:i]
 	}
-	return ""
 }
 
 func camelIDPrefix(key string) bool {

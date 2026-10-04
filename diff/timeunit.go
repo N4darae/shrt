@@ -87,7 +87,7 @@ func epochDigits(v any) (string, bool) {
 		}
 		return strconv.FormatFloat(t, 'f', 0, 64), true
 	case string:
-		if t == "" || t[0] == '0' || !digitsOnly.MatchString(t) {
+		if t == "" || t[0] == '0' || !digitsOnly(t) {
 			return "", false
 		}
 		return t, true

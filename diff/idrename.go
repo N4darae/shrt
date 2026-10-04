@@ -56,7 +56,7 @@ func renameable(path string, want, got any) bool {
 	if namecase.IDNamed(lastKey(path)) {
 		return sameScalar(want, got) || sameShape(want, got)
 	}
-	return bothAre(want, got, uuidShape.MatchString)
+	return bothAre(want, got, uuidShape)
 }
 
 func idValue(v any) bool {
@@ -110,7 +110,7 @@ func zeroID(s string) bool {
 	if prefix := kindPrefix(s); prefix != "" {
 		rest = s[len(prefix)+1:]
 	}
-	runs := alnumRun.FindAllString(rest, -1)
+	runs := alnumRuns(rest)
 	if len(runs) == 0 {
 		return false
 	}
