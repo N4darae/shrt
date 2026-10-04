@@ -164,10 +164,7 @@ func (p *Plan) refusedLineReads(lib *Library, probe *chain.Step, lines []batchLi
 				fmt.Sprintf("the %s as it stands before %s, whose line naming it is refused.", e.carrier, probe.ID), "${"+prod.ID+"."+e.idPath+"}")
 			check := copyStep(read, p.freeStepID(base+"_after_"+probe.ID))
 			check.Description = fmt.Sprintf("the %s after %s is unchanged: its line was refused, so %s read as in %s.", e.carrier, probe.ID, strings.Join(e.scalars, ", "), read.ID)
-			for _, name := range e.scalars {
-				path := e.carrier + "." + name
-				check.Expect = append(check.Expect, chain.Expectation{Path: path, Equals: "${" + read.ID + "." + path + "}"})
-			}
+			check.Expect = append(check.Expect, e.asIn(read.ID)...)
 			before = append(before, read)
 			after = append(after, check)
 		}

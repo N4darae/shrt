@@ -290,10 +290,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			r.ID = readID(e, w.ID)
 			admin := adminReads[e.producer.ID]
 			r.Description = fmt.Sprintf("the %s as %s left it: %s as in %s.", e.carrier, w.ID, strings.Join(e.scalars, ", "), admin)
-			for _, name := range e.scalars {
-				path := e.carrier + "." + name
-				r.Expect = append(r.Expect, chain.Expectation{Path: path, Equals: "${" + admin + "." + path + "}"})
-			}
+			r.Expect = append(r.Expect, e.asIn(admin)...)
 			added = append(added, r)
 		}
 		p.Chain.Steps = append(p.Chain.Steps, added...)

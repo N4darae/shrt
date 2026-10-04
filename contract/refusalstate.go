@@ -262,6 +262,15 @@ type entityRead struct {
 	scalars  []string
 }
 
+func (e entityRead) asIn(id string) []chain.Expectation {
+	var out []chain.Expectation
+	for _, name := range e.scalars {
+		path := e.carrier + "." + name
+		out = append(out, chain.Expectation{Path: path, Equals: "${" + id + "." + path + "}"})
+	}
+	return out
+}
+
 func (p *Plan) entitiesOf(lib *Library, st *chain.Step) []entityRead {
 	out := []entityRead{}
 	seen := map[string]bool{}
@@ -420,10 +429,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 		read := e.echoingRead(beforeID, fmt.Sprintf("the %s as it stands before %s.", e.carrier, label))
 		check := copyStep(read, afterID)
 		check.Description = fmt.Sprintf("the %s after %s is unchanged: %s read as in %s.", e.carrier, label, strings.Join(e.scalars, ", "), beforeID)
-		for _, name := range e.scalars {
-			path := e.carrier + "." + name
-			check.Expect = append(check.Expect, chain.Expectation{Path: path, Equals: "${" + beforeID + "." + path + "}"})
-		}
+		check.Expect = append(check.Expect, e.asIn(beforeID)...)
 		before = append(before, read)
 		after = append(after, check)
 	}

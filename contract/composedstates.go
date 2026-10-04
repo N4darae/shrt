@@ -115,10 +115,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 			check.Description = fmt.Sprintf("the %s after %s holds what it held before %s: %s read as in %s, since the contract says "+
 				"%s on %s gives it back.", en.carrier, id, moved.ID, strings.Join(en.scalars, ", "), read.ID, shortRPC(st.Call),
 				withArticle(short[tr.value]+" "+e.carrier))
-			for _, name := range en.scalars {
-				path := en.carrier + "." + name
-				check.Expect = append(check.Expect, chain.Expectation{Path: path, Equals: "${" + read.ID + "." + path + "}"})
-			}
+			check.Expect = append(check.Expect, en.asIn(read.ID)...)
 			held = append(held, check.ID)
 		} else {
 			check.Description = fmt.Sprintf("the %s after %s, as it stands.", en.carrier, id)
