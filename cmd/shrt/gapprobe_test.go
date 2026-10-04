@@ -66,15 +66,17 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	pending := ", so it acts on a PENDING order too\n" +
 		"    OrderService/CancelOrder status.code, order.status: 2 step(s) in 1 chain(s); e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n" +
 		"    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls)\n" +
-		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml  (reproduced 3/3)\n"
+		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml  (6 of 62 steps, reproduced 3/3)\n"
 	if code != 0 || !strings.Contains(out, "No safe spot covers these states, so a failure here is no regression") || !strings.Contains(out, pending) ||
 		!strings.Contains(out, "though its plan calls it so\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
 		!strings.HasSuffix(out, "gate: PASS: 1 chain(s); 1 gap probe(s) failed above, which is no regression\n") {
 		t.Fatalf("the gate plans each gap into .shrt/scratch/, runs it, and rows the 3-line PENDING cancel it refuses with a trigger and a verified repro, got %d:\n%s", code, out)
 	}
 	slice, err := os.ReadFile(".shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml")
-	if err != nil || strings.Contains(string(slice), "id: cancel_order_1_lines\n") || strings.Contains(string(slice), "id: confirm_order") {
-		t.Fatalf("the repro keeps the gap's own calls and what they need, no cancel or confirm of another state (%v):\n%s", err, slice)
+	if err != nil || strings.Contains(string(slice), "id: cancel_order_1_lines\n") || strings.Contains(string(slice), "id: confirm_order") ||
+		strings.Contains(string(slice), "call: shop.catalog.v1.StockService/AddStock") || strings.Contains(string(slice), "id: create_order_1_lines") ||
+		!strings.Contains(string(slice), "cancel_order_3_lines_from_pending failed the same way in a run without each: add_stock_for_items, ") {
+		t.Fatalf("the repro keeps the gap's own call and what it reads, no cancel or confirm of another state, and no stock or order the cancel does without (%v):\n%s", err, slice)
 	}
 	if chains, _ := os.ReadDir(".shrt/chains"); len(chains) != 1 {
 		t.Fatalf("the probe writes nothing into the chains directory: %v", chains)

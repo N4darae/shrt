@@ -401,7 +401,7 @@ func TestGoldenGateTrigger(t *testing.T) {
 		trigger := "\n    trigger: " + c.trigger + "\n"
 		slice := strings.ReplaceAll(c.example, " ", "-slice-")
 		if code != 1 || strings.Contains(out, trigger) != (c.trigger != "") || strings.Contains(out, "trigger:") != (c.trigger != "") ||
-			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (reproduced 3/3)") {
+			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (3 of 4 steps, reproduced 3/3)") {
 			t.Errorf("%s: got %d:\n%s", c.name, code, out)
 		}
 	}

@@ -73,7 +73,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 
 | command | does | exits other than 0 |
 |---|---|---|
-| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), plans and runs the first 4 into `.shrt/scratch/`, and under each says `passes:` or prints a row with its trigger and verified repro, no regression since no safe spot covers that state; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
+| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (5 of 119 steps, reproduced 3/3)`, a slice in `.shrt/scratch/` shrunk by `-minimize` and verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), plans and runs the first 4 into `.shrt/scratch/`, and under each says `passes:` or prints a row with its trigger and verified repro, no regression since no safe spot covers that state; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -90,7 +90,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 | `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only`; a chain named by a path outside `paths.chains` (a scratch slice, a repro) gets no unasserted-timestamp or `envelope-only` warning unless `-strict` | 1 a lint error |
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red, `W` waits by design (its total wait at the end) | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command; under `-rpc`, the state and item count each write step acts on | 1 nothing matched |
-| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
+| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-minimize` first drops each step no kept step reads when a run without it fails the same way; `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records | 1 hollow reads, or `-gate` off baseline; 2 no run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, each run past a failed step (`-keep-going=false` stops at the first), 0 when every run failed the same way (`reproduced n/n`); its last line, `exit <code>: <outcome>`, says which | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
@@ -170,11 +170,14 @@ such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <
 `-repro` follows the summary with one block per row: for each `unclear` write and read pair in the
 row whose field another read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
 that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
-<path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
-the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
-the slice says so, or `repro: none:` and why. When the row's write answered other than a later read returns
+<path>  (5 of 119 steps, reproduced 3/3)`, `chain slice -minimize` of the row's step (in a chain with a safe spot when
+the row has one), keeping the row's suspect writes, written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
+the slice says so, or `repro: none:` and why. `-minimize` re-runs the slice once without each step no kept step
+reads, earliest writes first, at most 8 runs, and drops it when the step fails the same way (same fields, same got);
+a write refused in that run and in the approved run goes without a run; the slice's description names what it dropped,
+and a minimized slice that does not reproduce gives way to the unminimized one. When the row's write answered other than a later read returns
 (`answered <x>, but <rpc> read <y>`), that read is appended to the slice expecting what the write answered and run once
-more: `repro: shrt run <path> -keep-going  (reproduced 3/3; the read-back <step> (<rpc>) reads <field>=<y> where the
+more: `repro: shrt run <path> -keep-going  (6 of 119 steps, reproduced 3/3; the read-back <step> (<rpc>) reads <field>=<y> where the
 write answered <x>)`, both sides in one run. One `masks:` line closes it: `verify -run latest -json`
 of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
 id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which

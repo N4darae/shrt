@@ -7,7 +7,7 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 repro, for each row of failures by suspect rpc:
   OrderService/CreateOrder order.total_minor
-    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (reproduced 3/3)
+    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (3 of 4 steps, reproduced 3/3)
 masks: no chain here has a safe spot, so verify masked nothing
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
 shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
@@ -21,7 +21,7 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 repro, for each row of failures by suspect rpc:
   OrderService/CreateOrder order.total_minor
-    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (reproduced 3/3)
+    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (3 of 4 steps, reproduced 3/3)
 masks: no chain here has a safe spot, so verify masked nothing
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
 shrt gate: FAIL: 1 of 2 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
@@ -37,7 +37,7 @@ failures by suspect rpc:
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 repro, for each row of failures by suspect rpc:
   OrderService/CreateOrder order.total_minor
-    repro: shrt run .shrt/scratch/wide-slice-order_2_3.yaml  (reproduced 3/3)
+    repro: shrt run .shrt/scratch/wide-slice-order_2_3.yaml  (3 of 4 steps, reproduced 3/3)
 masks: no chain here has a safe spot, so verify masked nothing
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
 shrt gate: FAIL: 2 of 3 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains

@@ -43,6 +43,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	step := fs.String("step", "", "step `id` the slice must reproduce")
 	runID := fs.String("run", "", "run record `id` or latest; -verify defaults to latest")
 	verify := fs.Bool("verify", false, "run the slice and compare the step's verdict with the run record")
+	minimize := fs.Bool("minimize", false, "drop each step no kept step reads, earliest writes first, when a run without it gives the step the same verdict (a write refused in the run and in the approved run goes unrun), then -verify")
 	asJSON := fs.Bool("json", false, "print JSON")
 	verbose := fs.Bool("v", false, "also print each kept step and why, the vars written, and the dropped writes")
 	vars := varFlags{}
@@ -61,6 +62,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	if keptRed == nil {
 		keptRed = &sliceKeptRed{}
 	}
+	*verify = *verify || *minimize
 	if len(rest) == 0 || len(rest) > 2 {
 		return errors.New(sliceUsage)
 	}
@@ -178,9 +180,25 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	if *verify && len(res.MissingVars) > 0 {
 		return missingVarsError(res, rec)
 	}
+	va := sliceVerifyArgs{
+		vars: vars, quiet: *asJSON, verbose: *verbose, persist: write.set, name: writeArg, keep: *keep,
+		otherTarget: sourceTargetDiffers(e, rec),
+		reslice: func(keep []string) *chain.SliceResult {
+			o := opts
+			o.Keep = append(append([]string{}, keep...), keptRed.steps...)
+			next, err := chain.Slice(c, *step, o)
+			if err != nil {
+				return nil
+			}
+			return next
+		},
+	}
 	if *verify {
 		if err := freshVarsError(res, c, rec, vars); err != nil {
 			return err
+		}
+		if *minimize && !keptRed.on {
+			res = minimizeSlice(ctx, e, res, rec, va)
 		}
 	}
 
@@ -227,19 +245,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		if !*asJSON {
 			printSliceHeader(res)
 		}
-		verdict, verifyErr = runSliceVerifyRepeated(ctx, e, res, rec, sliceVerifyArgs{
-			vars: vars, quiet: *asJSON, verbose: *verbose, persist: write.set, name: writeArg, keep: *keep,
-			otherTarget: sourceTargetDiffers(e, rec),
-			reslice: func(keep []string) *chain.SliceResult {
-				o := opts
-				o.Keep = append(append([]string{}, keep...), keptRed.steps...)
-				next, err := chain.Slice(c, *step, o)
-				if err != nil {
-					return nil
-				}
-				return next
-			},
-		}, sliceRepeat)
+		verdict, verifyErr = runSliceVerifyRepeated(ctx, e, res, rec, va, sliceRepeat)
 		if verdict == nil {
 			return verifyErr
 		}
@@ -458,15 +464,14 @@ func printSliceDetail(res *chain.SliceResult) {
 
 func sliceCountLine(res *chain.SliceResult, verdict *sliceVerdict) string {
 	line := fmt.Sprintf("kept %d of %d steps, dropped %d", len(res.Kept), res.Total, res.Total-len(res.Kept))
+	if len(res.Minimized) > 0 {
+		line += fmt.Sprintf(" (%s by -minimize)", capList(chain.DroppedIDs(res.Minimized), 3))
+	}
 	named := verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites)
 	if len(res.DroppedWrites) == 0 || named {
 		return line
 	}
-	names := make([]string, 0, len(res.DroppedWrites))
-	for _, d := range res.DroppedWrites {
-		names = append(names, d.ID)
-	}
-	line += fmt.Sprintf(", writes among them %s", capList(names, 3))
+	line += fmt.Sprintf(", writes among them %s", capList(chain.DroppedIDs(res.DroppedWrites), 3))
 	if res.UnderIncluded && (verdict == nil || verdict.Outcome != sliceReproduced) {
 		line += ": WARNING possible under-inclusion, a kept step may depend on state they left"
 	}
@@ -907,7 +912,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.OtherDropped = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(entityRelated, id) })
 			v.suggestKeep(res, rec, a, entityRelated)
 		} else if res.UnderIncluded {
-			v.suggestKeep(res, rec, a, droppedNames(res))
+			v.suggestKeep(res, rec, a, chain.DroppedIDs(res.DroppedWrites))
 		}
 	case len(v.Differences) > 0 && a.otherTarget != "":
 		v.Outcome = sliceInconclusive
@@ -928,7 +933,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.OtherDropped = other
 			v.suggestKeep(res, rec, a, related)
 		case res.UnderIncluded:
-			names := droppedNames(res)
+			names := chain.DroppedIDs(res.DroppedWrites)
 			v.Reason = fmt.Sprintf("the slice dropped write step(s): %s", capList(names, 5))
 			v.suggestKeep(res, rec, a, names)
 		}
@@ -1293,12 +1298,38 @@ func sliceVerifyCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs,
 	return strings.Join(parts, " ")
 }
 
-func droppedNames(res *chain.SliceResult) []string {
-	names := make([]string, 0, len(res.DroppedWrites))
-	for _, d := range res.DroppedWrites {
-		names = append(names, d.ID)
+var minimizeRuns = 8
+
+func minimizeSlice(ctx context.Context, e *env, res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs) *chain.SliceResult {
+	approved := &runner.Record{}
+	if spot, err := e.store.LoadSafeSpot(res.Source); err == nil {
+		approved.Steps = spot.Steps
 	}
-	return names
+	now, then := refusedIn(rec), refusedIn(approved)
+	tried, runs := map[string]bool{}, 0
+	for {
+		left := slices.DeleteFunc(res.Droppable(), func(id string) bool { return tried[id] })
+		if len(left) == 0 {
+			return res
+		}
+		id := left[0]
+		tried[id] = true
+		why, refused := now(id)
+		if _, before := then(id); refused && before && why != chain.RefusedNotSent && !slices.ContainsFunc(res.Chain.Steps, func(s *chain.Step) bool { return s.ID == id && chain.IsReadOnlyCall(s.Call) }) {
+			res = res.Without(id, why)
+			continue
+		}
+		if runs == minimizeRuns {
+			res.Untried = append(res.Untried, id)
+			continue
+		}
+		runs++
+		try, ai := res.Without(id, ""), a
+		ai.quiet, ai.persist, ai.vars = true, false, repeatVars(a.vars, res, sliceRepeat+runs)
+		if v, _ := runSliceVerify(ctx, e, try, rec, ai); v != nil && v.Outcome == sliceReproduced {
+			res = try
+		}
+	}
 }
 
 func writeSliceFile(path string, c *chain.Chain) error {

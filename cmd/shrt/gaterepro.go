@@ -175,28 +175,47 @@ func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[str
 func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain, string) []string) string {
 	step := ref.it.Step
 	file := filepath.Join(scratchDir(e), strings.TrimSuffix(filepath.Base(ref.chain), ".yaml")+"-slice-"+step+".yaml")
-	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-write=" + file, "-json"}
+	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-minimize", "-write=" + file, "-json"}
 	var vars []string
 	if c, err := e.resolveChain(ref.chain); err == nil {
 		vars = fresh(c, step)
 		for _, v := range vars {
 			args = append(args, "-var", v+"="+chain.NewRunTag())
 		}
-	}
-	v, written, why := sliceRepro(ctx, args)
-	if next := strings.Fields(nextOf(v)); len(next) > 1 && next[0] == "shrt" {
-		if w, wr, _ := sliceRepro(ctx, append(next[1:], "-json")); w != nil {
-			v, written = w, wr
+		at, keep := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step }), []string{}
+		for _, r := range append([]reason{{Step: ref.it.suspect()}}, ref.it.Reason.Or...) {
+			if j := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Step }); j >= 0 && j < at && !slices.Contains(keep, r.Step) {
+				keep = append(keep, r.Step)
+			}
+		}
+		if len(keep) > 0 {
+			args = append(args, "-keep", strings.Join(keep, ","))
 		}
 	}
-	switch {
-	case v == nil:
-		return "repro: none: " + why
-	case v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent:
-		file = cmp.Or(written, file)
-		flag, note := readBack(ctx, e, ref, file, vars)
-		return fmt.Sprintf("repro: shrt run %s%s  (%s%s%s)", shownPath(file), flag, outcomeWord(v.Outcome), v.countLabel(), note)
+	s, why := sliceRepro(ctx, args)
+	if s != nil && s.Verify.Outcome != sliceReproduced {
+		if w, _ := sliceRepro(ctx, append(args, "-minimize=false")); w != nil {
+			s = w
+		}
 	}
+	if next := strings.Fields(nextOf(s)); len(next) > 1 && next[0] == "shrt" {
+		if w, _ := sliceRepro(ctx, append(next[1:], "-minimize", "-json")); w != nil {
+			s = w
+		}
+	}
+	if s == nil {
+		return "repro: none: " + why
+	}
+	if v := s.Verify; v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
+		file = cmp.Or(s.Written, file)
+		flag, note := readBack(ctx, e, ref, file, vars)
+		kept := len(s.Kept)
+		if flag != "" {
+			kept++
+		}
+		return fmt.Sprintf("repro: shrt run %s%s  (%d of %d steps, %s%s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel(), note)
+	}
+	v := s.Verify
 	if why = outcomeWord(v.Outcome); v.err() != nil {
 		why = v.err().Error()
 	}
@@ -250,23 +269,26 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	return "", ""
 }
 
-func nextOf(v *sliceVerdict) string {
-	if v == nil || v.Outcome == sliceReproduced {
-		return ""
-	}
-	return strings.ReplaceAll(v.Next, "<fresh>", chain.NewRunTag())
+type sliceOut struct {
+	Written string        `json:"written"`
+	Kept    []chain.Keep  `json:"kept"`
+	Total   int           `json:"total"`
+	Verify  *sliceVerdict `json:"verify"`
 }
 
-func sliceRepro(ctx context.Context, args []string) (*sliceVerdict, string, string) {
-	out := gateExec(ctx, args)
-	var res struct {
-		Written string        `json:"written"`
-		Verify  *sliceVerdict `json:"verify"`
+func nextOf(s *sliceOut) string {
+	if s == nil || s.Verify.Outcome == sliceReproduced {
+		return ""
 	}
-	if json.Unmarshal([]byte(out.stdout), &res) != nil || res.Verify == nil {
-		return nil, "", lastLine(out)
+	return strings.ReplaceAll(s.Verify.Next, "<fresh>", chain.NewRunTag())
+}
+
+func sliceRepro(ctx context.Context, args []string) (*sliceOut, string) {
+	out, res := gateExec(ctx, args), &sliceOut{}
+	if json.Unmarshal([]byte(out.stdout), res) != nil || res.Verify == nil {
+		return nil, lastLine(out)
 	}
-	return res.Verify, res.Written, ""
+	return res, ""
 }
 
 func lastLine(out gateOutcome) string {
