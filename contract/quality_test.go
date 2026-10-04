@@ -400,7 +400,7 @@ func TestMeasureKeepsOnlyRPCsWithAGap(t *testing.T) {
 		RPCs:   map[string]*RPCContract{"svc/Clean": clean, "svc/Gap": gap},
 	}})
 	lib.Overlays[0].RPCs["svc/Nil"] = nil
-	report := Measure(lib, nil, "")
+	report := MeasurePhase(lib, nil, "", PhaseAll)
 	if len(report.RPCs) != 1 || report.RPCs[0].RPC != "svc/Gap" {
 		t.Fatalf("rows = %+v, want only svc/Gap", report.RPCs)
 	}
@@ -422,7 +422,7 @@ func TestMeasureSortsWorstFirst(t *testing.T) {
 			"svc/Three": settled(&RPCContract{Failures: []Failure{{Reason: "x"}, {Reason: "y"}}}),
 		}},
 	})
-	report := Measure(lib, nil, "")
+	report := MeasurePhase(lib, nil, "", PhaseAll)
 	order := []string{}
 	for _, r := range report.RPCs {
 		order = append(order, r.Domain+" "+r.RPC)
@@ -440,7 +440,7 @@ func TestMeasureFiltersByDomain(t *testing.T) {
 		{Domain: "a", RPCs: map[string]*RPCContract{"svc/A": settled(&RPCContract{Failures: []Failure{{Reason: "x"}}})}},
 		{Domain: "b", RPCs: map[string]*RPCContract{"svc/B": settled(&RPCContract{Failures: []Failure{{Reason: "x"}}})}},
 	})
-	report := Measure(lib, nil, "b")
+	report := MeasurePhase(lib, nil, "b", PhaseAll)
 	if len(report.RPCs) != 1 || report.RPCs[0].Domain != "b" {
 		t.Fatalf("rows = %+v, want only domain b", report.RPCs)
 	}

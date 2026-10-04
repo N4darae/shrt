@@ -114,7 +114,7 @@ func TestRequiredTodoValueIsSeenByLintPlanAndQuality(t *testing.T) {
 		t.Fatalf("plan lost the unfilled-required note: %v", plan.Notes)
 	}
 
-	for _, row := range contract.Measure(lib, cat, "").RPCs {
+	for _, row := range contract.MeasurePhase(lib, cat, "", contract.PhaseAll).RPCs {
 		if row.RPC == shopCreateProduct && !row.EmptyRequired {
 			t.Fatalf("quality must still score an unfilled required as empty: %+v", row)
 		}
@@ -542,7 +542,7 @@ rpcs:
                 checked_by: app_lookup
         status: draft
 `)
-	for _, row := range contract.Measure(lib, cat, "").RPCs {
+	for _, row := range contract.MeasurePhase(lib, cat, "", contract.PhaseAll).RPCs {
 		if row.RPC == shopCreateOrder && len(row.UnwiredIDs) > 0 {
 			t.Fatalf("lines.0.id_product sources the required lines.id_product, got unwired %v", row.UnwiredIDs)
 		}

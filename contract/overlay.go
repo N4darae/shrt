@@ -398,10 +398,6 @@ type Library struct {
 	before    map[string][]string
 }
 
-func LoadLibrary(dir string) (*Library, []error, error) {
-	return LoadLibraryIn(dir, nil)
-}
-
 func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {

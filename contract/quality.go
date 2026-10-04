@@ -198,10 +198,6 @@ func referenceableResponseField(f *catalog.Field) bool {
 	return f.Name != chain.EnvelopeField()
 }
 
-func Measure(lib *Library, cat *catalog.Catalog, domain string) QualityReport {
-	return MeasurePhase(lib, cat, domain, PhaseAll)
-}
-
 func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) QualityReport {
 	shapes := MethodShapes(cat)
 	report := QualityReport{RPCs: []QualityRPC{}, Phase: phase}

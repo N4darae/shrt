@@ -224,7 +224,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a, b := contract.Measure(lib, cat, domain).TotalScore, contract.Measure(contract.NewLibrary([]*contract.Overlay{without}), cat, domain).TotalScore; a != b {
+		if a, b := contract.MeasurePhase(lib, cat, domain, contract.PhaseAll).TotalScore, contract.MeasurePhase(contract.NewLibrary([]*contract.Overlay{without}), cat, domain, contract.PhaseAll).TotalScore; a != b {
 			t.Fatalf("an unfilled effects TODO costs nothing in quality: %d with it, %d without", a, b)
 		}
 	}

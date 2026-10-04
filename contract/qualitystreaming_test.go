@@ -25,13 +25,13 @@ func TestQualityDoesNotChargeAStreamingRPCShrtCannotCall(t *testing.T) {
 		Domain:     "orders",
 		RPCs:       map[string]*contract.RPCContract{watch: {}},
 	}})
-	report := contract.Measure(lib, cat, "")
+	report := contract.MeasurePhase(lib, cat, "", contract.PhaseAll)
 	for _, r := range report.RPCs {
 		if strings.EqualFold(r.RPC, watch) {
 			t.Fatalf("%s is out of scope for a unary-only tool, so it is not a gap, got %+v", watch, r)
 		}
 	}
-	without := contract.Measure(contract.NewLibrary(nil), cat, "")
+	without := contract.MeasurePhase(contract.NewLibrary(nil), cat, "", contract.PhaseAll)
 	if report.TotalScore != without.TotalScore {
 		t.Fatalf("an entry for %s moved the score from %d to %d; a streaming rpc is not measured", watch, without.TotalScore, report.TotalScore)
 	}
