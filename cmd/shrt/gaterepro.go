@@ -14,6 +14,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/namecase"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -296,4 +297,34 @@ func tagOnly(c diff.Change, tag string) bool {
 	}
 	pre, post := got[:i], got[i+len(tag):]
 	return len(want) > len(pre)+len(post) && strings.HasPrefix(want, pre) && strings.HasSuffix(want, post)
+}
+
+func gateGaps(e *env, gated []*gateChain) (string, int) {
+	lib, err := e.library()
+	if err != nil || e.cat == nil || len(lib.Overlays) == 0 {
+		return "", 0
+	}
+	chains, _, _ := chain.LoadDirPartial(e.chainsDir())
+	sent := []*chain.Chain{}
+	for _, c := range chains {
+		if slices.ContainsFunc(gated, func(g *gateChain) bool { return g.name == c.Name && !g.skipped }) {
+			sent = append(sent, c)
+		}
+	}
+	covered := calledRPCs(e, sent)
+	_, plans := reachableRPCs(lib, e.cat)
+	lines := []string{}
+	for _, g := range contract.StateGaps(chains, plans, lib, e.cat) {
+		if covered[g.RPC] {
+			lines = append(lines, "  "+g.Line())
+		}
+	}
+	n := len(lines)
+	if n == 0 {
+		return "gaps: none: each write this gate calls is called from every state its plan calls it from, with each item count", 0
+	}
+	if n > 8 {
+		lines = append(lines[:8], fmt.Sprintf("  and %d more: shrt contract status -gaps", n-8))
+	}
+	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; probe only these:\n%s", n, strings.Join(lines, "\n")), n
 }

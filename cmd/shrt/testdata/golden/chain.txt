@@ -61,7 +61,7 @@ kept 5 of 10 steps, dropped 5, writes among them create_product_2, add_stock, re
 unverified: a slice is a hypothesis until -verify reproduces the step's verdict
 
 verify DID NOT RUN: step cancel_confirmed, source run RUNID, slice run RUNID
-  source: status failed, status.code "REJECTED" message="StillConfirmed"
+  source: failed, answered status.code "REJECTED" message="StillConfirmed"
   slice:  step cancel_confirmed was never sent, so there is no verdict to compare
   the slice run stopped before step "cancel_confirmed" (failed): step "confirm_single": expectation failed: status.code want=SUCCESS got=REJECTED (message="InsufficientStock")
   confirm_single passed in source run RUNID and fails here; dropped writes on its entities: add_stock

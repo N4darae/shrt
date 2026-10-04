@@ -66,10 +66,12 @@ func runRun(ctx context.Context, args []string) (err error) {
 	asJSON := fs.Bool("json", false, "print the run record as JSON")
 	quiet := fs.Bool("quiet", false, "no per-step progress; a green chain prints its verdict line only")
 	build := fs.String("build", "", buildFlagUsage)
-	keepGoing := fs.Bool("keep-going", false, "run past a failed step; a step reading a failed step is recorded skipped")
+	keepGoing := fs.Bool("keep-going", false, "run past a failed step; a step reading a failed step is recorded skipped (-repeat does this "+
+		"unless -keep-going=false)")
 	verbose := fs.Bool("v", false, "with -keep-going, print every step, not only the ones that did not pass")
-	repeat := fs.Int("repeat", 0, "run the chain `n` times as written, changing nothing in it, and say whether every run failed the same way "+
-		"(steps, code, failed expectations and got): 0 reproduced n/n; 1 the runs differ, or none failed; 3 a run got no answer")
+	repeat := fs.Int("repeat", 0, "run the chain `n` times as written, changing nothing in it, each run past a failed step, and say whether "+
+		"every run failed the same way (steps, code, failed expectations and got): 0 reproduced n/n; 1 the runs differ, or none failed; "+
+		"3 a run got no answer")
 	setUsage(fs, "usage: shrt run <chain> [flags]", runExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -101,8 +103,14 @@ func runRun(ctx context.Context, args []string) (err error) {
 		if *repeat < 2 || *dry {
 			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
 		}
+		past := true
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "keep-going" {
+				past = *keepGoing
+			}
+		})
 		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
-			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing, Build: *build,
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: past, Build: *build,
 		}, *save, *quiet, *asJSON)
 	}
 

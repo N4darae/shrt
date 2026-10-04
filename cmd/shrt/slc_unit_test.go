@@ -586,7 +586,7 @@ func TestAStreamedStepsVerdictIsReadFromItsMessages(t *testing.T) {
 		t.Errorf("a streamed step's envelope is labelled %q", got)
 	}
 	v := &sliceVerdict{Step: "watch", Outcome: sliceReproduced, EnvelopePath: verdictPath(ok), Source: verdictOf(ok), Replay: verdictOf(ok), SourceRun: "a", SliceRun: "b"}
-	if out := v.text(); !strings.Contains(out, `source: status failed, messages[].status.code "SUCCESS"`) {
+	if out := v.text(); !strings.Contains(out, `source: failed, answered messages[].status.code "SUCCESS"`) {
 		t.Errorf("%s", out)
 	}
 }

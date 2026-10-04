@@ -35,10 +35,11 @@ const gateExitCodes = "\nexit codes:\n" +
 	"  0  every chain passed (or failed exactly as its kept_red pins) and every safe spot verified\n" +
 	"  1  a chain failed, a FINDING, tokens of one auth profile refused early twice, or the hollow ratchet\n" +
 	"  3  no verdict: a run or verify exited 3 twice (backend down, restarting, refusing auth); re-run;\n" +
-	"     or nothing failed and -skip-waits left out a chain that waits\n"
+	"     or nothing failed and -repro or -skip-waits left out a chain that waits\n"
 
 type gateSidecar struct {
 	KeptRed      string              `json:"kept_red,omitempty"`
+	Pins         string              `json:"pins,omitempty"`
 	PinsHeld     bool                `json:"pins_held,omitempty"`
 	EarlyProfile string              `json:"early_profile,omitempty"`
 	EarlyAge     time.Duration       `json:"early_age,omitempty"`
@@ -181,6 +182,9 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		side.Pins = pinnedText(c, rec)
+	}
 	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
@@ -755,6 +759,7 @@ type gateChain struct {
 	noVerdict bool
 	pinsHeld  bool
 	keptRed   string
+	pins      string
 	flaky     map[string]gateFlaky
 	flakyOnly bool
 	otherFail bool
@@ -933,12 +938,19 @@ func runGate(ctx context.Context, args []string) error {
 	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every change with its want and got, as verify prints it; knock-on counts in the summary")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
-	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps")
-	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps, each named SKIPPED and never counted as passing; not for CI")
+	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps; "+
+		"then the states no chain calls a gated write from (contract status -gaps), the only ones left to probe; leaves out the chains that wait, as -skip-waits does")
+	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps (W in shrt chain ls), each named SKIPPED and never counted as passing; on under -repro unless chains are named, -skip-waits=false keeps them; not for CI")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
 	if err != nil {
 		return err
+	}
+	skipBy := ""
+	if *skipWaits {
+		skipBy = "-skip-waits"
+	} else if *repro && len(only) == 0 && !flagGiven(fs, "skip-waits") {
+		skipBy = "-repro"
 	}
 	e, err := loadEnv(true)
 	if err != nil {
@@ -956,7 +968,7 @@ func runGate(ctx context.Context, args []string) error {
 		width = max(width, len(g.name))
 	}
 	began := time.Now()
-	outs := sendGate(ctx, e, chains, *wait, *skipWaits)
+	outs := sendGate(ctx, e, chains, *wait, skipBy)
 	early := map[string]int{}
 	earlyAt := map[string]gateEarly{}
 	reads := map[string]gateRead{}
@@ -1057,17 +1069,28 @@ func runGate(ctx context.Context, args []string) error {
 	if line := gateTime(chains, time.Since(began)); line != "" {
 		fmt.Println(line)
 	}
+	probe := "a support ticket no row explains"
 	if *repro {
 		gateRepro(ctx, e, chains, groups, *wait)
+		block, gaps := gateGaps(e, chains)
+		if block != "" {
+			fmt.Println(block)
+		}
+		if gaps > 0 {
+			probe = "what the gaps: lines name, or for " + probe
+		}
 	}
 	left := ""
 	if len(skipped) > 0 {
-		left = fmt.Sprintf("; -skip-waits left out %s: shrt gate %s runs it", strings.Join(skipped, ", "), strings.Join(skipped, " "))
+		left = fmt.Sprintf("; %s left out %s: shrt gate %s runs it", skipBy, strings.Join(skipped, ", "), strings.Join(skipped, " "))
 	}
 	switch {
 	case failed > 0 || len(findings) > 0:
 		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
-		if *verbose {
+		switch {
+		case *repro:
+			next = "the rows and repro lines above are the answer for what the chains cover; probe further only for " + probe
+		case *verbose:
 			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
 		}
 		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings)), next, left)
@@ -1079,6 +1102,12 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("gate: PASS: %d chain(s)\n", len(chains))
 	return nil
+}
+
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == name })
+	return given
 }
 
 func gateAlso(unverified, findings int) string {
@@ -1135,7 +1164,7 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	return out, nil
 }
 
-func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration, skipWaits bool) []map[string]gateOutcome {
+func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration, skipBy string) []map[string]gateOutcome {
 	outs := make([]map[string]gateOutcome, len(chains))
 	resolved := make([]*chain.Chain, len(chains))
 	var mu sync.Mutex
@@ -1146,8 +1175,8 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 		if g.waits, g.queued = gateWaits(e, resolved[i]); g.waits == 0 {
 			continue
 		}
-		if g.skipped = skipWaits; g.skipped {
-			fmt.Fprintf(os.Stderr, "gate: -skip-waits leaves out %s, which waits %s by design (its wait: steps); shrt gate %s runs it\n", g.name, waitText(g.waits), g.name)
+		if g.skipped = skipBy != ""; g.skipped {
+			fmt.Fprintf(os.Stderr, "gate: %s leaves out %s, which waits %s by design (its wait: steps); shrt gate %s runs it\n", skipBy, g.name, waitText(g.waits), g.name)
 			continue
 		}
 		if g.queued != "" {
@@ -1318,7 +1347,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			g.keptRed = out.side.KeptRed
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
-			g.verdict = "KEPT RED"
+			g.verdict, g.pins = "KEPT RED", out.side.Pins
 		}
 	case out.code == 3:
 		g.noVerdict = true
@@ -1417,51 +1446,52 @@ func (g *gateChain) printChanges(e *env) {
 	}
 	type row struct {
 		key, line string
-		steps, at []string
-		more      int
+		head      foldedChange
+		steps     []string
+		more      []foldedChange
 	}
 	var rows []*row
 	byKey, seen := map[string]*row{}, map[string]bool{}
-	add := func(key, step, id, line string) {
-		if seen[step+" "+id] {
+	add := func(key, id, line string, c foldedChange) {
+		if seen[c.step+" "+id] {
 			return
 		}
-		seen[step+" "+id] = true
+		seen[c.step+" "+id] = true
 		r := byKey[key]
 		if r == nil {
-			r = &row{key: key, line: line}
+			r = &row{key: key, line: line, head: c}
 			byKey[key], rows = r, append(rows, r)
-		} else if r.more++; !slices.Contains(r.at, step) {
-			r.at = append(r.at, step)
+		} else {
+			r.more = append(r.more, c)
 		}
-		if !slices.Contains(r.steps, step) {
-			r.steps = append(r.steps, step)
+		if !slices.Contains(r.steps, c.step) {
+			r.steps = append(r.steps, c.step)
 		}
 	}
 	for _, l := range g.shown {
-		key, step := l, ""
+		key, c := l, foldedChange{value: l}
 		if m := verifyChangeLine.FindStringSubmatch(l); m != nil {
-			key, step = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), m[1]
+			key, c = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), foldedChange{step: m[1], path: m[3], value: strings.TrimSpace(l[len(m[0]):])}
 		}
-		add(key, step, l, l)
+		add(key, l, l, c)
 	}
 	for _, it := range g.items {
 		path, _ := it.shown()
 		switch {
 		case len(g.shown) > 0:
 		case it.Reason.Kind == reasonKnockOn:
-			add("\x00"+it.Reason.String(), it.Step, "", it.Reason.String())
+			add("\x00"+it.Reason.String(), "", it.Reason.String(), foldedChange{step: it.Step})
 		default:
 			line := "[" + it.Step + "] " + it.headline()
-			add(path, it.Step, line, line)
+			add(path, line, line, foldedChange{step: it.Step, path: it.Path, value: strings.TrimPrefix(it.headline(), it.Path+" ")})
 		}
 	}
 	for _, r := range rows {
 		switch {
 		case strings.HasPrefix(r.key, "\x00"):
-			fmt.Printf("    %d step(s) %s (%s)\n", len(r.steps), r.line, capList(r.steps, 3))
-		case r.more > 0:
-			fmt.Printf("    %s (and %d more at %s)\n", r.line, r.more, capList(r.at, 3))
+			fmt.Println(wrapNames(fmt.Sprintf("    %d step(s) %s (", len(r.steps), r.line), r.steps, ")"))
+		case len(r.more) > 0:
+			printFold(r.line, r.head, r.more)
 		default:
 			fmt.Println("    " + r.line)
 		}
@@ -1495,6 +1525,9 @@ func (g *gateChain) line(width int) string {
 		verdict = g.verdict
 	}
 	line := fmt.Sprintf("%-10s %-*s", verdict, width, g.name)
+	if verdict == "KEPT RED" && g.pins != "" {
+		line += "  pins " + g.pins
+	}
 	if g.first != "" && verdict != "PASS" && verdict != "KEPT RED" {
 		line += "  "
 		switch {
