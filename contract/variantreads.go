@@ -92,10 +92,8 @@ func (p *Plan) actedOnLater(st *chain.Step) bool {
 
 func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, car *catalog.Field) (entityRead, bool) {
 	for _, e := range p.entitiesOf(lib, st) {
-		for _, f := range catalog.DescribeMessage(e.reader.Output()).Fields {
-			if f.Name == e.carrier && f.Message == car.Message {
-				return e, true
-			}
+		if f := fieldByName(catalog.DescribeMessage(e.reader.Output()).Fields, e.carrier); f != nil && f.Message == car.Message {
+			return e, true
 		}
 	}
 	if idPath := p.createdIDPath(m); idPath != "" {

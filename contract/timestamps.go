@@ -90,12 +90,10 @@ func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPC
 		}
 		switch {
 		case chain.IsExpiryName(last):
-			texts := []string{note, c.Summary, c.Note, domain}
 			var secs int64
 			phrase := ""
-			for _, t := range texts {
-				if s, ph, ok := durationSeconds(t); ok {
-					secs, phrase = s, ph
+			for _, t := range []string{note, c.Summary, c.Note, domain} {
+				if secs, phrase, _ = durationSeconds(t); secs > 0 {
 					break
 				}
 			}

@@ -125,13 +125,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 	}
 	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
 	_, exact := assertedLength(st, listPath)
-	kept := v.Expect[:0]
-	for _, e := range v.Expect {
-		if e.Path != listPath && !strings.HasPrefix(e.Path, listPath+".") {
-			kept = append(kept, e)
-		}
-	}
-	v.Expect = kept
+	v.Expect = slices.DeleteFunc(v.Expect, func(e chain.Expectation) bool { return e.Path == listPath || strings.HasPrefix(e.Path, listPath+".") })
 	listed := want
 	if stated {
 		listed = want - 1

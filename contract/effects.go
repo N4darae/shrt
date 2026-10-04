@@ -307,10 +307,8 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 			continue
 		}
 		b := &batchRule{rpc: rpc, stock: stock}
-		for _, in := range catalog.DescribeMessage(m.Input()).Fields {
-			if in.Name == name && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
-				b.list = in.Name
-			}
+		if in := fieldByName(catalog.DescribeMessage(m.Input()).Fields, name); in != nil && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
+			b.list = in.Name
 		}
 		for _, out := range catalog.DescribeMessage(m.Output()).Fields {
 			if out.Repeated && out.Kind == "message" && fieldByName(out.Fields, stock.moved) != nil {

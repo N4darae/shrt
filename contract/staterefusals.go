@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -53,16 +54,12 @@ func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 		if len(segs) != 2 {
 			continue
 		}
-		for _, fd := range catalog.DescribeMessage(pm.Output()).Fields {
-			if fd.Name != segs[0] || fd.Kind != "message" || fd.Repeated {
-				continue
-			}
-			for _, sf := range fd.Fields {
-				if len(sf.EnumValues) > 1 && !sf.Repeated {
-					out = append(out, stateEntity{field: key, producer: prod, idPath: ref.Path, carrier: fd.Name, itemMsg: fd.Message, idField: segs[1], state: sf})
-					break
-				}
-			}
+		fd := fieldByName(catalog.DescribeMessage(pm.Output()).Fields, segs[0])
+		if fd == nil || fd.Kind != "message" || fd.Repeated {
+			continue
+		}
+		if i := slices.IndexFunc(fd.Fields, func(sf *catalog.Field) bool { return len(sf.EnumValues) > 1 && !sf.Repeated }); i >= 0 {
+			out = append(out, stateEntity{field: key, producer: prod, idPath: ref.Path, carrier: fd.Name, itemMsg: fd.Message, idField: segs[1], state: fd.Fields[i]})
 		}
 	}
 	return out
@@ -117,19 +114,14 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 					t := &listTarget{step: st, itemMsg: e.itemMsg, itemID: e.idField, carrier: e.carrier}
 					transitions, _ = p.transitionsFor(lib, t, e.producer, values, short, initial)
 				}
-				var move *transition
-				for i := range transitions {
-					if transitions[i].value == state {
-						move = &transitions[i]
-					}
-				}
-				if move == nil {
+				at := slices.IndexFunc(transitions, func(tr transition) bool { return tr.value == state })
+				if at < 0 {
 					p.note("step %s: its contract declares %s for %s in %s, but no write rpc in the contracts says it moves "+
 						"%s there (a summary or export naming %s), so no fixture is put in that state to probe it",
 						st.ID, f.Label(), withArticle(e.carrier), short[state], withArticle(e.carrier), short[state])
 					continue
 				}
-				p.addStateRefusal(lib, st, m, e, f, *move, short)
+				p.addStateRefusal(lib, st, m, e, f, transitions[at], short)
 			}
 		}
 	}

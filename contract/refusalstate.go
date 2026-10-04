@@ -317,10 +317,8 @@ func (e entityRead) echoingRead(id, description string) *chain.Step {
 	ref := "${" + e.producer.ID + "." + e.idPath + "}"
 	read := e.readStep(id, description, ref)
 	leaf := chain.PathLeaf(e.idPath)
-	for _, sf := range carrierFields(e.reader, e.carrier) {
-		if sf.Name == leaf {
-			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
-		}
+	if fieldByName(carrierFields(e.reader, e.carrier), leaf) != nil {
+		read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
 	}
 	return read
 }
@@ -342,10 +340,8 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 	}
 	carrierMsg := ""
 	head := chain.SplitPath(idPath)[0]
-	for _, f := range catalog.DescribeMessage(pm.Output()).Fields {
-		if f.Name == head && f.Kind == "message" && !f.Repeated {
-			carrierMsg = f.Message
-		}
+	if f := fieldByName(catalog.DescribeMessage(pm.Output()).Fields, head); f != nil && f.Kind == "message" && !f.Repeated {
+		carrierMsg = f.Message
 	}
 	rpcs := lib.RPCs()
 	for _, rpc := range rpcs {
@@ -440,10 +436,8 @@ func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-		if f.Name == carrier {
-			return f.Fields
-		}
+	if f := fieldByName(catalog.DescribeMessage(m.Output()).Fields, carrier); f != nil {
+		return f.Fields
 	}
 	return nil
 }

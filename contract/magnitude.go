@@ -366,11 +366,9 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 			[]batchLine{{item: large}, {item: cloneBody(last)}})
 		grew := ""
 		if inc != nil {
-			for _, f := range results.Fields {
-				if f.Name == inc.moved && chain.IsNumericKind(f.Kind) && !f.Repeated {
-					probe.Expect = append(probe.Expect, chain.Expectation{Path: fmt.Sprintf("%s.0.%s", listPath, f.Name), Gte: strconv.Itoa(largeValue)})
-					grew = fmt.Sprintf(", %s.0.%s at least %d", listPath, f.Name, largeValue)
-				}
+			if f := fieldByName(results.Fields, inc.moved); f != nil && chain.IsNumericKind(f.Kind) && !f.Repeated {
+				probe.Expect = append(probe.Expect, chain.Expectation{Path: fmt.Sprintf("%s.0.%s", listPath, f.Name), Gte: strconv.Itoa(largeValue)})
+				grew = fmt.Sprintf(", %s.0.%s at least %d", listPath, f.Name, largeValue)
 			}
 		}
 		return fmt.Sprintf("%s (%s.0.%s = %d beside a normal line, as %s gets, each line applied%s, and %s read back what each line "+
@@ -531,17 +529,11 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		if err != nil {
 			continue
 		}
-		kind := ""
 		fields := catalog.DescribeMessage(m.Output()).Fields
 		if t.carrier != "" {
 			fields = carrierFields(m, t.carrier)
 		}
-		for _, sf := range fields {
-			if sf.Name == t.field {
-				kind = sf.Kind
-			}
-		}
-		if !strings.Contains(kind, "64") {
+		if sf := fieldByName(fields, t.field); sf == nil || !strings.Contains(sf.Kind, "64") {
 			continue
 		}
 		key, first, ok := firstLine(st.Body, t.list)

@@ -140,18 +140,11 @@ func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, pro
 func (p *Plan) latestReference(st *chain.Step) int {
 	at := -1
 	for _, id := range referencedSteps(st.Body) {
-		found := false
-		for i, s := range p.Chain.Steps {
-			if s.ID == id {
-				found = true
-				if i > at {
-					at = i
-				}
-			}
-		}
-		if !found {
+		i := stepIndex(p.Chain.Steps, id)
+		if i < 0 {
 			return -1
 		}
+		at = max(at, i)
 	}
 	return at
 }
