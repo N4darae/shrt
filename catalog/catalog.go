@@ -83,8 +83,6 @@ func registerEnums(types *protoregistry.Types, enums protoreflect.EnumDescriptor
 	}
 }
 
-func (c *Catalog) Types() *protoregistry.Types { return c.types }
-
 func (c *Catalog) Methods() []*Method {
 	out := make([]*Method, 0, len(c.order))
 	for _, k := range c.order {

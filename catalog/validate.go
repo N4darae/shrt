@@ -13,24 +13,17 @@ import (
 )
 
 func (c *Catalog) ValidateInput(m *Method, body []byte) error {
-	return c.validate(m.Input(), body, "request")
-}
-
-func (c *Catalog) ValidateOutput(m *Method, body []byte) error {
-	return c.validate(m.Output(), body, "response")
-}
-
-func (c *Catalog) validate(md protoreflect.MessageDescriptor, body []byte, side string) error {
 	if len(body) == 0 {
 		return nil
 	}
+	md := m.Input()
 	msg := dynamicpb.NewMessage(md)
 	opts := protojson.UnmarshalOptions{Resolver: c.types, DiscardUnknown: false}
 	if err := opts.Unmarshal(body, msg); err != nil {
 		if hint := nameHint(md, body); hint != "" {
-			return fmt.Errorf("%s does not match %s: %w\n       %s", side, md.FullName(), err, hint)
+			return fmt.Errorf("request does not match %s: %w\n       %s", md.FullName(), err, hint)
 		}
-		return fmt.Errorf("%s does not match %s: %w", side, md.FullName(), err)
+		return fmt.Errorf("request does not match %s: %w", md.FullName(), err)
 	}
 	return nil
 }
