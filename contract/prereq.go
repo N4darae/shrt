@@ -22,8 +22,7 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 			seen[key] = true
 			out = append(out, p)
 		}
-		addFor := func(node, edge, forAlias string) { addField(node, edge, forAlias, "") }
-		add := func(node, edge string) { addFor(node, edge, "") }
+		add := func(node, edge string) { addField(node, edge, "", "") }
 		if c, ok := lib.Get(rpc); ok {
 			for _, n := range c.Needs {
 				before := len(out)
@@ -55,7 +54,7 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 }
 
 func sameEffectRPCs(lib *Library, rpc string) []string {
-	short := rpc[strings.LastIndex(rpc, "/")+1:]
+	short := shortRPC(rpc)
 	increased := map[string]bool{}
 	if need, ok := lib.Get(rpc); ok {
 		for field, e := range need.Effects {
