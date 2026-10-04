@@ -37,11 +37,16 @@ failures by suspect rpc:
 
 # one suspect rpc is one row naming each field it changed, wherever a read shows it
 FAIL       clerk  admin_read_back (ProductService/GetProduct) product.qty_on_hand want=0 got=-3; suspect write clerk_confirm (OrderService/ConfirmOrder) as clerk
-FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; suspect write confirm_two (OrderService/ConfirmOrder) as clerk; also suspect write confirm_two (OrderService/ConfirmOrder) as clerk
+FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; same fault as clerk (ConfirmOrder)
 FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer)
 failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. clerk admin_read_back; write clerk_confirm as clerk
   CustomerService/CreateCustomer customer.name, code: 2 step(s) in 1 chain(s); e.g. customers create_long
+
+# two reads of one write's field in other shapes name that write once
+FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; suspect write confirm_two (OrderService/ConfirmOrder) as clerk
+failures by suspect rpc:
+  OrderService/ConfirmOrder product.qty_on_hand: 2 step(s) in 1 chain(s); e.g. explore a_after_two; write confirm_two as clerk
 
 # a role is named only when no other role fails the same way
 FAIL       clerk-vs-admin  clerk_confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write

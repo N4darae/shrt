@@ -135,6 +135,13 @@ func gateCases() []gateCase {
 				{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abcdefghijklmnopqrstuvwxyz", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}},
 			}
 		}},
+		{name: "two reads of one write's field in other shapes name that write once", chains: func() []*gateChain {
+			byConfirm := reason{Kind: reasonWrite, Step: "confirm_two", RPC: shopConfirm, Profile: "clerk"}
+			return []*gateChain{{name: "explore", failed: true, items: []gateItem{
+				{Step: "a_after_two", Call: shopGet, Path: "product.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: byConfirm},
+				{Step: "list_prefix", Call: shopList, Path: "products.1.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: byConfirm},
+			}}}
+		}},
 		{name: "a role is named only when no other role fails the same way", chains: func() []*gateChain {
 			confirmAs := func(step, profile string) gateItem {
 				return gateItem{Step: step, Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: shopConfirm, Profile: profile}}

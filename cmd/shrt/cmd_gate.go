@@ -1468,8 +1468,11 @@ func foldSlices(chains []*gateChain) {
 func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	keys := map[string]string{}
 	keyOf := func(it gateItem, path string) string {
-		if chain.IsEnvelopePath(path) {
+		switch {
+		case chain.IsEnvelopePath(path):
 			path = chain.EnvelopeField()
+		case it.Reason.blames() && it.Reason.Kind != reasonStoredOrder:
+			return it.rpc() + " " + leafOf(path)
 		}
 		return it.rpc() + " " + listOf(path)
 	}
@@ -1477,7 +1480,7 @@ func groupKeys(chains []*gateChain) func(string, gateItem) string {
 		for _, it := range g.items {
 			at, path := it.Step, it.Path
 			if s := it.suspect(); s != "" {
-				at, path = s, it.Reason.Path
+				at, path = s, cmp.Or(it.Reason.Path, it.Path)
 			}
 			if !it.Passes && path != "" && keys[g.name+" "+at] == "" {
 				keys[g.name+" "+at] = keyOf(it, path)
