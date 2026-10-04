@@ -80,8 +80,8 @@ pass the value with `-var key=...`.
 ## 12. A green `-dry-run` and a red first real run
 
 **Cause.** Dry run has no responses, so references resolve to scaffold values (`""`, `"0"`). It
-proves the chain's shape and step 1's body, not bodies built from references. It also does not run
-lint. **Fix.** `chain lint` first, then a real run.
+proves the chain's shape and step 1's body, not bodies built from references. Of lint it runs only
+the expect-path check. **Fix.** `chain lint` first, then a real run.
 
 ## 13. An expectation comparing a number fails on equal-looking values
 
@@ -390,6 +390,12 @@ keep the defect red with `shrt chain pin`, which writes its slices beside the ch
 
 **Cause.** A kept write interpolates that var into what it creates, and its earlier values already
 exist on the backend. **Fix.** Pass a value never used before.
+
+## 62. `chain slice -write` refuses the chain's own file
+
+**Cause.** The slice drops a step or an expectation of the chain you wrote, so writing it there
+would lose them. **Fix.** To prove that chain reproduces, run it unchanged: `shrt run <file>
+-repeat 3`. To keep the slice, `-write` another name, or `-write` alone.
 
 ## 63. "220 of 229 steps kept" read as 220 passing steps
 

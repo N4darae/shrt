@@ -454,6 +454,8 @@ func TestLint(t *testing.T) {
 			pick: h("", "", "can never be present"), n: 2, want: []hit{
 				h("", "", "error.kode", "if it was renamed in the proto, assert the new name: error declares code"),
 				{has: []string{"no_such.deep"}, lacks: []string{"renamed"}}}},
+		{name: "a leaf under a parent the response lacks names where it is declared", c: fetching(chain.Expectation{Path: "thing.name", Equals: "x"}),
+			pick: h("", "", "can never be present"), n: 1, want: []hit{h(sevE, "", "did you mean name? The response declares name there")}},
 		{name: "a folded field path", c: fetching(chain.Expectation{Path: "createdat", NotEmpty: true}), pick: h("", chain.KindUnreachable)},
 		{name: "a folded exists false", c: fetching(chain.Expectation{Path: "CreatedAt", Exists: &no}), pick: h("", chain.KindUnfailable)},
 		{name: "a path no folding resolves", c: fetching(chain.Expectation{Path: "no_such_field", NotEmpty: true}), pick: h("", chain.KindUnreachable), want: []hit{{}}},
@@ -885,5 +887,39 @@ func TestDescribeMarksADeprecatedMethod(t *testing.T) {
 	}
 	if text := catalog.DescribeMessage(m.Output()).Text(); !strings.Contains(text, "DEPRECATED") {
 		t.Fatalf("describe marks a deprecated field:\n%s", text)
+	}
+}
+
+func TestUnreachableExpectationsAreTheLintErrorsRunRefuses(t *testing.T) {
+	cat := catalogtest.New()
+	c := twoStep("${create.id}", chain.Expectation{Path: "no_such_field", Equals: "x"}, chain.Expectation{Path: "name", Equals: "${create.nope}"})
+	c.Steps[0].Expect = nil
+	got := chain.UnreachableExpectations(c, cat)
+	if len(got) != 1 || got[0].Step != "fetch" || got[0].Kind != chain.KindUnreachable || !strings.Contains(got[0].Message, `expect on "no_such_field"`) {
+		t.Fatalf("only the path the response has no field for, got %+v", got)
+	}
+	if !slices.ContainsFunc(chain.Lint(c, cat), func(i chain.Issue) bool { return i.Kind != chain.KindUnreachable && i.IsError() }) {
+		t.Fatalf("the fixture also carries another lint error, which run does not refuse here")
+	}
+	if got := chain.UnreachableExpectations(fetching(), cat); len(got) != 0 {
+		t.Fatalf("a clean chain: %+v", got)
+	}
+}
+
+func TestEnvelopeOnlyWarningsFoldIntoOneLinePerChain(t *testing.T) {
+	warn := func(step string) chain.Issue {
+		return chain.Issue{Step: step, Severity: chain.SeverityWarn, Kind: chain.KindEnvelopeOnly, Message: "asserts only the verdict at " + step, Why: "why"}
+	}
+	other := chain.Issue{Step: "b", Severity: chain.SeverityWarn, Message: "something else"}
+	got := chain.FoldEnvelopeOnly([]chain.Issue{warn("a"), other, warn("c")})
+	if len(got) != 2 || got[0].Step != "a, c" || !strings.HasPrefix(got[0].Message, "2 steps assert only the verdict") || got[0].Why != "why" || got[1] != other {
+		t.Fatalf("one line at the first, naming both steps: %+v", got)
+	}
+	strict := warn("c")
+	strict.Severity = chain.SeverityError
+	for _, issues := range [][]chain.Issue{{warn("a"), other}, {warn("a"), strict}} {
+		if got := chain.FoldEnvelopeOnly(issues); !slices.Equal(got, issues) {
+			t.Fatalf("a lone warning, or one -strict made an error, stays as it was: %+v", got)
+		}
 	}
 }

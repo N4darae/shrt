@@ -510,12 +510,41 @@ func TestSliceCases(t *testing.T) {
 				slcExists(t, ".shrt/chains/min-stock-slice-get_after.yaml", false)
 				slcExists(t, ".shrt/scratch/min-stock-slice-get_after.yaml", true)
 			}},
-		{name: "-write may replace the source named explicitly", setup: minimalScratch,
+		{name: "-write naming the source refuses to drop a step of it, and points at run -repeat", setup: minimalScratch,
 			args: []string{".shrt/scratch/min-stock.yaml", "-step", "get_after", "-run", "latest", "-keep", "writes", "-verify", "-var", "tag=v1", "-write", ".shrt/scratch/min-stock.yaml"},
-			not:  []string{"already exists and is not a slice"},
+			code: 1, want: []string{"-write .shrt/scratch/min-stock.yaml is min-stock itself, and writing the slice there would drop 1 of its 4 steps (peek)",
+				"Nothing was sent or written", "shrt run .shrt/scratch/min-stock.yaml -repeat 3", "-write alone for .shrt/scratch/min-stock-slice-get_after.yaml"},
+			not: []string{"verify reproduced"},
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/scratch/min-stock.yaml", "VERIFIED by 'shrt chain slice -verify'"); strings.Contains(raw, "id: peek") {
-					t.Fatalf("the source holds the slice:\n%s", raw)
+				if raw := string(mustRead(t, ".shrt/scratch/min-stock.yaml")); raw != minimalScratchChain {
+					t.Fatalf("the source changed:\n%s", raw)
+				}
+				if out, code := slcSlice(t, false, ".shrt/scratch/min-stock.yaml", "-step", "get_after", "-keep", "writes", "-write", "min-stock"); code != 1 || !strings.Contains(out, "is min-stock itself") {
+					t.Fatalf("a bare name that resolves to the source is the source too: exit %d\n%s", code, out)
+				}
+			}},
+		{name: "-write naming the source of a slice that keeps every step as written records only the verdict", setup: minimalScratch,
+			args: []string{".shrt/scratch/min-stock.yaml", "-step", "get_after", "-run", "latest", "-keep", "writes,peek", "-verify", "-var", "tag=v1", "-write", ".shrt/scratch/min-stock.yaml"},
+			want: []string{"the slice keeps all 4 steps of min-stock, so it is min-stock itself: nothing written", "verify reproduced 3/3"},
+			check: func(t *testing.T, _ string) {
+				c, _ := slcSteps(t, ".shrt/scratch/min-stock.yaml")
+				orig := filepath.Join(t.TempDir(), "min-stock.yaml")
+				writeFile(t, orig, minimalScratchChain)
+				was, _ := slcSteps(t, orig)
+				verified := c.Description
+				c.Description, c.SourcePath, was.SourcePath = "", "", ""
+				got, _ := c.Marshal()
+				want, _ := was.Marshal()
+				if !strings.Contains(verified, "VERIFIED by 'shrt chain slice -verify'") || string(got) != string(want) {
+					t.Fatalf("only the description gains the verdict:\n%s\n%s", verified, got)
+				}
+			}},
+		{name: "a slice of the source that drops a failing expectation is refused over the source", setup: slcShop(func(s *fakeShop) { s.priceBug = true }, ".shrt/scratch/order-happy.yaml", pricedOrderChain, "-keep-going", "-var", "tag=src"),
+			args: []string{".shrt/scratch/order-happy.yaml", "-step", "confirm_order", "-run", "latest", "-keep", "writes", "-var", "tag=s1", "-write", ".shrt/scratch/order-happy.yaml"},
+			code: 1, want: []string{"is order-happy itself, and writing the slice there would drop the expectations a kept step failed: create_product product.price_minor equals"},
+			check: func(t *testing.T, _ string) {
+				if raw := string(mustRead(t, ".shrt/scratch/order-happy.yaml")); raw != pricedOrderChain {
+					t.Fatalf("the source changed:\n%s", raw)
 				}
 			}},
 		{name: "a write refusal under -verify exits 1", setup: func(t *testing.T) {
@@ -985,5 +1014,11 @@ func TestOwnsFieldNeedsTheFieldOnTheEntityTheReaderUses(t *testing.T) {
 		if got := ownsField(c.v, "", c.field, c.ids); got != c.want {
 			t.Errorf("%s with %v: got %v, want %v", c.field, c.ids, got, c.want)
 		}
+	}
+}
+
+func TestSliceHelpSaysTheWordWritesCombinesWithIds(t *testing.T) {
+	if out := helpOf(t, "chain", "slice"); !strings.Contains(out, "the word writes keeps every earlier write and combines with ids: -keep writes,<id>") {
+		t.Fatalf("slice -h:\n%s", out)
 	}
 }

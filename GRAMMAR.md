@@ -40,7 +40,7 @@ A `+` in the `req` column means the key is always written out (no `omitempty`).
 
 | key | type | req | meaning |
 |---|---|---|---|
-| `path` | string | + | JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error. Field names match case- and separator-insensitively. |
+| `path` | string | + | JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error, and `run` refuses the chain before sending. Field names match case- and separator-insensitively. |
 | `equals` | any |  | Compared as text, so `1` matches `"1"`. May carry `${...}` (an earlier step, or this step's own request). No arithmetic is done. |
 | `includes` | any |  | The path holds a list and at least one item matches: a map names item fields compared as `equals`, a scalar is compared with the item. Order and other items do not matter. May carry `${...}`. |
 | `not_equal` | any |  | Present AND different; an absent path fails it. May carry `${...}`. |
