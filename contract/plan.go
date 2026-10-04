@@ -377,18 +377,10 @@ func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*y
 	}
 	nodes := make([]*yaml.Node, 0, len(refs))
 	for _, step := range p.Chain.Steps {
-		m, err := cat.Lookup(step.Call)
+		node, err := p.stepNode(step, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		body := step.Body
-		bare := *step
-		bare.Body = nil
-		node := &yaml.Node{}
-		if err := node.Encode(&bare); err != nil {
-			return nil, nil, err
-		}
-		inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, body))
 		nodes = append(nodes, node)
 	}
 	return nodes, p.Notes, nil
@@ -838,7 +830,9 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 	body := step.Body
 	shallow := *step
 	shallow.Body = nil
-	shallow.Export = readExports(step.Export, read)
+	if read != nil {
+		shallow.Export = readExports(step.Export, read)
+	}
 	node := &yaml.Node{}
 	if err := node.Encode(&shallow); err != nil {
 		return nil, err
