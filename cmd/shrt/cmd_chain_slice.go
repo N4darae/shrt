@@ -40,7 +40,7 @@ func chainSlice(ctx context.Context, args []string) error {
 func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error {
 	fs := flag.NewFlagSet("chain slice", flag.ContinueOnError)
 	step := fs.String("step", "", "step `id` the slice must reproduce")
-	runID := fs.String("run", "", "run record `id` or latest, required by -verify")
+	runID := fs.String("run", "", "run record `id` or latest; -verify defaults to latest")
 	verify := fs.Bool("verify", false, "run the slice and compare the step's verdict with the run record")
 	asJSON := fs.Bool("json", false, "print JSON")
 	verbose := fs.Bool("v", false, "also print each kept step and why, the vars written, and the dropped writes")
@@ -89,11 +89,8 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		return fmt.Errorf("-step is required: name the step the slice must reproduce")
 	}
 	keptRed.steps = slices.DeleteFunc(append([]string{}, keptRed.steps...), func(id string) bool { return id == *step })
-	if keptRed.on && *runID == "" {
+	if (keptRed.on || *verify) && *runID == "" {
 		*runID = "latest"
-	}
-	if *verify && *runID == "" {
-		return fmt.Errorf("-verify needs -run <run-id|latest>: it compares the target's verdict against that run's")
 	}
 	writePath, writeArg := "", name
 	bare := bareSliceFile(name)

@@ -199,8 +199,8 @@ func TestSliceCases(t *testing.T) {
 
 		{name: "unknown step", setup: freshTagWorkspace, args: []string{"cli-fresh-flow", "-step", "fetchh", "-run", "latest"}, code: 1},
 		{name: "unknown step under -verify", setup: freshTagWorkspace, args: []string{"cli-fresh-flow", "-step", "fetchh", "-run", "latest", "-verify"}, code: 1},
-		{name: "-verify needs -run", setup: freshTagWorkspace, args: []string{"cli-fresh-flow", "-step", "fetch", "-verify"}, code: 1,
-			want: []string{"-verify needs -run"}, not: []string{"-mode closure"}},
+		{name: "-verify without -run verifies against the latest run", setup: freshTagWorkspace, args: []string{"cli-fresh-flow", "-step", "fetch", "-verify"}, code: 1,
+			want: []string{"-var tag=<fresh>"}, not: []string{"-verify needs -run"}},
 		{name: "unknown chain", setup: freshTagWorkspace, args: []string{"no-such-chain", "-step", "fetch"}, code: 1},
 		{name: "unknown chain under -verify", setup: freshTagWorkspace, args: []string{"no-such-chain", "-step", "fetch", "-run", "latest", "-verify"}, code: 1},
 		{name: "a kept write interpolating a var needs a fresh one", setup: freshTagWorkspace,

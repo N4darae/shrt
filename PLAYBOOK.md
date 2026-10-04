@@ -501,7 +501,7 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 3. **`-write [name]`, then `chain lint` it.** The file lands beside the source chain, where gates
    run it; a value with a slash is a path (`-write .shrt/scratch/<name>.yaml`, run by that path).
    A slice of the same chain and step is replaced in place; any other file is refused.
-4. **`-verify -run <id|latest>` turns the slice into a receipt.** It runs the slice 3 times and
+4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
    compares the target step's verdict with the source run's: envelope code, reason and app code,
    transport refusal, and each expectation's pass, want and got; when those match and the target
    passed in the source run, the slice must drift exactly the paths the source run drifted against
