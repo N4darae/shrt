@@ -711,11 +711,14 @@ func (a attribution) recomputed(step, path string) int {
 	if !ok {
 		return -1
 	}
-	inputs := a.inputsBefore(at)
+	var inputs map[string]map[string]input
 	for _, v := range obj {
 		lines, ok := v.([]any)
 		if !ok || len(lines) == 0 {
 			continue
+		}
+		if inputs == nil {
+			inputs = a.inputsBefore(at)
 		}
 		for _, known := range inputs {
 			if w := linesSum(lines, known, nv, wv); w >= 0 {
