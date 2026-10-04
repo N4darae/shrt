@@ -9,6 +9,14 @@ Record, replay and verify ordered chains of internal API calls. A **chain** is a
 RPC calls that reproduces a backend state. A **safe spot** is a run a person approved as correct;
 later replays are diffed against it, so a regression names the rpc that changed.
 
+## Check a release for bugs
+
+Run `shrt gate -repro`, adding `-skip-waits` when the gate's start line says a chain waits by
+design. Each row of `failures by suspect rpc:` then gets the read that settles an unclear write or
+read, and a verified one-line repro (`repro: shrt run <path>  (reproduced 3/3)`). One `masks:`
+line says whether a mask hid more than run tags, ids and timestamps. Report these lines; there is
+no need to slice, probe or sweep `verify -masked` again.
+
 ## Start here
 
 On a fresh clone `.shrt/docs/` is missing: `shrt init -agents=false -build=false` restores it. Then

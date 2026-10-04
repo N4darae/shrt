@@ -65,8 +65,12 @@ traffic.
 Any command exits 2 for an unknown command, 1 for a bad flag or a setup it cannot load, 0 for `-h`
 and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
+To check a release for bugs, run `shrt gate -repro` (first row): it does the work that otherwise
+follows the gate, a settled suspect, a verified repro per suspect rpc and a check of the masks.
+
 | command | does | exits other than 0 |
 |---|---|---|
+| `shrt gate -repro [-skip-waits]` | the gate, then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps. `-skip-waits` leaves out chains with `wait:` steps, each `SKIPPED` and never counted as passing; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
