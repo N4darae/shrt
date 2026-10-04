@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"maps"
 	"strconv"
 	"strings"
 
@@ -211,24 +212,11 @@ func sharedResource(c *chain.Chain, at *chain.Step, list []any) (string, bool) {
 	for _, item := range list {
 		got := map[string]string{}
 		resourceLeaves(c, at, item, "", "", got)
-		if len(got) == 0 {
+		if len(got) == 0 || want != nil && !maps.Equal(got, want) {
 			return "", false
 		}
 		if want == nil {
-			want = got
-			for _, k := range sortedKeys(got) {
-				first = got[k]
-				break
-			}
-			continue
-		}
-		if len(got) != len(want) {
-			return "", false
-		}
-		for k, v := range want {
-			if got[k] != v {
-				return "", false
-			}
+			want, first = got, got[sortedKeys(got)[0]]
 		}
 	}
 	return first, true

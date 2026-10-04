@@ -222,16 +222,8 @@ func (p *Plan) freshen(lib *Library, st *chain.Step) {
 }
 
 func isIdempotencyField(f *catalog.Field) bool {
-	if f.Kind != "string" || f.Repeated {
-		return false
-	}
 	folded := namecase.Fold(f.Name)
-	for _, w := range []string{"idempotency", "idempotent", "dedup", "requestid", "clientrequest", "clienttoken"} {
-		if strings.Contains(folded, w) {
-			return true
-		}
-	}
-	return false
+	return f.Kind == "string" && !f.Repeated && slices.ContainsFunc([]string{"idempotency", "idempotent", "dedup", "requestid", "clientrequest", "clienttoken"}, func(w string) bool { return strings.Contains(folded, w) })
 }
 
 func referencedSteps(v any) []string {
