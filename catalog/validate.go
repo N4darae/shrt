@@ -272,46 +272,14 @@ func UnknownFields(md protoreflect.MessageDescriptor, body []byte) []string {
 	}
 	seen := map[string]bool{}
 	var out []string
-	collectUnknown(md, v, "", seen, &out)
+	undeclaredIn(md, v, "", func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			out = append(out, path)
+		}
+	})
 	sort.Strings(out)
 	return out
-}
-
-func collectUnknown(md protoreflect.MessageDescriptor, v any, at string, seen map[string]bool, out *[]string) {
-	obj, ok := v.(map[string]any)
-	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
-		return
-	}
-	for k, inner := range obj {
-		fd := fieldByJSONKey(md, k)
-		if fd == nil {
-			if !seen[at+k] {
-				seen[at+k] = true
-				*out = append(*out, at+k)
-			}
-			continue
-		}
-		if fd.Kind() != protoreflect.MessageKind && fd.Kind() != protoreflect.GroupKind {
-			continue
-		}
-		name := string(fd.Name())
-		switch {
-		case fd.IsMap():
-			if m, ok := inner.(map[string]any); ok && fd.MapValue().Message() != nil {
-				for _, x := range m {
-					collectUnknown(fd.MapValue().Message(), x, at+name+"[].", seen, out)
-				}
-			}
-		case fd.IsList():
-			if list, ok := inner.([]any); ok {
-				for _, x := range list {
-					collectUnknown(fd.Message(), x, at+name+"[].", seen, out)
-				}
-			}
-		default:
-			collectUnknown(fd.Message(), inner, at+name+".", seen, out)
-		}
-	}
 }
 
 func (c *Catalog) canonicalize(md protoreflect.MessageDescriptor, body []byte, discard bool) (full, present []byte, err error) {
