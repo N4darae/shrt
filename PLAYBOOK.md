@@ -417,10 +417,11 @@ from the rpc's other faults.
 **What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
 failing calls of that rpc set against its calls that passed in the same gate, split by what the
 requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
-`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile of the steps the
-call uses does not decide it, with `2 calls using only steps sent as default` among the failing ones
-or `1 call using steps sent as clerk, so those steps' profile does not matter` among the passing
-ones. A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
+`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile that created what
+the call acts on does not decide it: `the profile that created what it acts on does not decide it: 2
+of the 3 failing calls act on records created as default` (or of the passing calls, `act on records
+created as clerk`).
+A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
 calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
 3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
 empty: `fails with sku_prefix empty or absent`. A number in a field or in a list's first or last
@@ -436,8 +437,10 @@ last bytes, a count dropped, trimmed, another case; alone under the row when not
 calls. A passing call counts only where the gate checked the row's field on it, by its own
 expectation or, when a later read shows the fault, a later read of the same record; for a refusal,
 any call of it that succeeded, leaving out auth probes. Two splits that both hold are both said; a
-single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. No
-line means none of these splits them, so probe from the example. The example is the call that
+single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. With
+no passing call, `fails on every call (21 of 21; as clerk and default, lines of 1 to 6 items)` names
+what the failing calls span.
+No line means none of these splits them, so probe from the example. The example is the call that
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
 when another chain fails so, and `-repro` slices that step.
 

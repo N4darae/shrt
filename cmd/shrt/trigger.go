@@ -309,8 +309,11 @@ func (c cut) holds(call rowCall) bool {
 
 func triggerOf(fails, passes []rowCall) (string, []string) {
 	echo := echoRelation(fails)
-	if len(fails) == 0 || len(passes) == 0 {
+	switch {
+	case len(fails) == 0:
 		return echo, nil
+	case len(passes) == 0:
+		return strings.TrimSuffix("trigger: "+everyCall(fails)+"; "+echo, "; "), nil
 	}
 	all, keys := append(slices.Clone(fails), passes...), []string{}
 	for _, c := range all {
@@ -404,12 +407,55 @@ func ownProfile(fails, passes []rowCall) (string, string) {
 		for _, c := range n {
 			maps.Copy(used, c.before)
 		}
-		failNote = fmt.Sprintf("%s using only steps sent as %s", callCount(n), andList(sortedKeys(used)))
+		failNote = share(n, fails, "failing") + andList(sortedKeys(used))
 	}
 	if n := slices.DeleteFunc(slices.Clone(passes), func(c rowCall) bool { return !after(c) }); len(n) > 0 {
-		passNote = fmt.Sprintf("%s using steps sent as %s, so those steps' profile does not matter", callCount(n), andList(bad))
+		passNote = share(n, passes, "passing") + andList(bad)
+	}
+	if lead := "the profile that created what it acts on does not decide it: "; failNote != "" {
+		failNote = lead + failNote
+	} else if passNote != "" {
+		passNote = lead + passNote
 	}
 	return failNote, passNote
+}
+
+func share(some, all []rowCall, side string) string {
+	k, n := numCalls(some), numCalls(all)
+	lead := fmt.Sprintf("%d of the %d %s calls act", k, n, side)
+	switch {
+	case n == 1:
+		lead = "the " + side + " call acts"
+	case k == n:
+		lead = fmt.Sprintf("each of the %d %s calls acts", n, side)
+	case k == 1:
+		lead += "s"
+	}
+	return lead + " on records created as "
+}
+
+func everyCall(fails []rowCall) string {
+	n, span := numCalls(fails), []string{}
+	if as := dimValues(fails, "as"); as[0] != "" {
+		span = append(span, "as "+andList(as))
+	}
+	keys := map[string]bool{}
+	for _, c := range fails {
+		for k := range c.dims {
+			keys[k] = true
+		}
+	}
+	for _, k := range sortedKeys(keys) {
+		if list, ok := strings.CutPrefix(k, "len "); ok && !strings.Contains(list, "[") {
+			ns := numbers(dimValues(fails, k))
+			of := shown(ns[0])
+			if ns[0] != ns[len(ns)-1] {
+				of += " to " + shown(ns[len(ns)-1])
+			}
+			span = append(span, list+" of "+of+map[bool]string{true: " item", false: " items"}[of == "1"])
+		}
+	}
+	return strings.TrimSuffix(fmt.Sprintf("fails on every call (%d of %d; %s", n, n, strings.Join(span, ", ")), "; ") + ")"
 }
 
 func echoRelation(fails []rowCall) string {
@@ -484,12 +530,16 @@ func shown(n float64) string {
 	return strconv.FormatFloat(n, 'f', -1, 64)
 }
 
-func callCount(calls []rowCall) string {
+func numCalls(of []rowCall) int {
 	n := map[string]bool{}
-	for _, c := range calls {
+	for _, c := range of {
 		n[c.at] = true
 	}
-	return plural(len(n), "call")
+	return len(n)
+}
+
+func callCount(of []rowCall) string {
+	return plural(numCalls(of), "call")
 }
 
 func triggerSide(calls, other []rowCall, keys []string, notes ...string) string {
