@@ -279,7 +279,7 @@ func renderGateCase(t *testing.T, c gateCase) string {
 				g.printChanges(nil)
 			}
 		}
-		printGateGroups(chains, c.verbose)
+		printGateGroups(nil, chains, c.verbose)
 	})
 }
 

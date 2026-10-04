@@ -687,7 +687,7 @@ func TestAKeptRedPinThatMovedLeadsAndAGonePinKeepsTheRunsLine(t *testing.T) {
 	if chains[0].class != "not as pinned" {
 		t.Errorf("got class %q", chains[0].class)
 	}
-	out := captureStdout(t, func() { printGateGroups(chains, false) })
+	out := captureStdout(t, func() { printGateGroups(nil, chains, false) })
 	if strings.Contains(out, "GetProduct") || strings.Contains(out, "ListOrders") {
 		t.Errorf("a pin that passes is no failure to group:\n%s", out)
 	}
@@ -719,7 +719,7 @@ func TestAGateGroupExampleIsARealChangeNotAMaskedPinThatNowPasses(t *testing.T) 
 			{Step: "get", Call: maskGet, Path: "product.qty_on_hand", Want: "5", Got: "4", Reason: reason{Kind: reasonSet, Step: "get", RPC: maskGet, Path: "product"}}}},
 	}
 	settleGate(chains)
-	out := captureStdout(t, func() { printGateGroups(chains, false) })
+	out := captureStdout(t, func() { printGateGroups(nil, chains, false) })
 	if !strings.Contains(out, "e.g. lifecycle get; answers another set of product") {
 		t.Errorf("the example is the step that changed, not the pin that now passes:\n%s", out)
 	}

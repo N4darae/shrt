@@ -142,7 +142,7 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		"FAIL       cli-thing-flow  create (ThingService/Create) items.0.price want=250 got=249",
 		"  REGRESSION: something",
 		"FAIL       cli-unique      fetch_2 (ThingService/Fetch) count want≠0 got=0; suspect write create (ThingService/Create)\n",
-		"  ThingService/Create items[].price, count: 4 step(s) in 2 chain(s); e.g. cli-unique fetch_2; write create\n",
+		"  ThingService/Create items[].price, count: 4 step(s) in 2 chain(s); e.g. cli-thing-flow create items[].price want=250 got=249\n",
 		"  ThingService/Fetch name: 1 step(s) in 1 chain(s); e.g. cli-unique fetch name want=a got=b\n",
 		"FAIL: 2 of 2 chain(s) failed",
 	} {

@@ -412,6 +412,20 @@ from the rpc's other faults.
 | `same fault as <chain> (<rpc>)` | the suspect and field that chain's gate line names (or one of this line's `unclear` writes), and that line names every other suspect of this chain too; the chain is the first with a safe spot whose line leads with that fault, even one below, else the first above. Otherwise the line names its own suspect and `also` the first other one that chain's line leaves out, if any | fix it once, under that line |
 | `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
 
+**What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
+failing calls of that rpc set against its calls that passed in the same gate, split by what the
+requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`. A list's
+length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12 calls)`. A list
+repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and 3 items); passes
+with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or empty: `fails with
+sku_prefix empty or absent`. A passing call counts only where the gate checked the row's field on it,
+by its own expectation or, when a later read shows the fault, a later read of the same record; for a
+refusal, any call of it that succeeded, leaving out auth probes. Two splits that both hold are both
+said. No line means none of these splits them: a value can (a name's length, the last line's qty),
+so probe from the example. The example is the call that differs from a passing one only in the
+trigger, in a chain with a safe spot, never a kept-red slice when another chain fails so, and
+`-repro` slices that step.
+
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each
 expectation's got: `STILL FAILS` (exit 1) only when every one fails exactly as it did, so the write

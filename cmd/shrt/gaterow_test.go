@@ -49,7 +49,7 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 }
 
 func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
-	summary := captureStdout(t, func() { printGateGroups(rowChains(), false) })
+	summary := captureStdout(t, func() { printGateGroups(nil, rowChains(), false) })
 	for _, want := range []string{
 		"  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
 		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer customer.name: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
@@ -79,7 +79,7 @@ func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
 	if want := "; also suspect write create_unicode (CustomerService/CreateCustomer) at transport code internal"; !strings.HasSuffix(chains[0].first, want) {
 		t.Errorf("want the line to end %q, got %q", want, chains[0].first)
 	}
-	if summary := captureStdout(t, func() { printGateGroups(chains, false) }); !strings.Contains(summary, "  CustomerService/CreateCustomer customer.name, transport code: 2 step(s)") {
+	if summary := captureStdout(t, func() { printGateGroups(nil, chains, false) }); !strings.Contains(summary, "  CustomerService/CreateCustomer customer.name, transport code: 2 step(s)") {
 		t.Errorf("the row head names the transport code so:\n%s", summary)
 	}
 	for path, want := range map[string]string{"transport.code": transportCode, "code": transportCode, "status.code": "status.code"} {

@@ -126,7 +126,14 @@ own suspect and `also` for it; a slice failing at its parent's first change has 
 `(+N slice(s) fail the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way
 it does (by suspect rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
 line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
-shows it, its example from a chain with a safe spot when one fails so. `-v` adds, under each failing chain, the
+shows it. Its example is from a chain with a safe spot when one fails so, else not from a kept-red slice; then a call
+whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then
+the smallest slice. Under the row, `trigger: fails as clerk (3 calls); passes as default (12 calls)` sets that rpc's
+failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile, a
+list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat id_product`),
+or a field set or empty. A call passes only where the gate checked the row's field on it (its own expectation, or a
+later read of the same record; for a refusal, any call of it that succeeded). No line when nothing splits them, when
+a call alike in all of these passed, or when the failing calls should have been refused. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
 chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
 when they all have its value, else `(and N more below)` with `the same at ...` and one line per other value, each with
@@ -143,8 +150,8 @@ the stderr line names the step that keeps it there. Every line still comes in it
 such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <chain> <time> (waits
 <d> by design, ...)`, so a long gate is not mistaken for a hang.
 
-`-repro` follows the summary with one block per row: for an `unclear` suspect whose field another
-read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
+`-repro` follows the summary with one block per row: for each `unclear` write and read pair in the
+row whose field another read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
 that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
 <path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
 the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
