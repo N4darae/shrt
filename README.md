@@ -84,13 +84,13 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `shrt contract status [-gaps]` | coverage per domain; `-gaps` lists what no chain exercises | |
 | `shrt contract quality [-domain d]` | score contracts for what is missing; `-gate -baseline <file>` ratchets it | 1 off the baseline, or a contract error |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from the descriptor and contracts | |
-| `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only` | 1 a lint error |
+| `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only`; a chain named by a path outside `paths.chains` (a scratch slice, a repro) gets no unasserted-timestamp or `envelope-only` warning unless `-strict` | 1 a lint error |
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command; under `-rpc`, the state and item count each write step acts on | 1 nothing matched |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records | 1 hollow reads, or `-gate` off baseline; 2 no run records |
-| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, 0 when every run failed the same way (`reproduced n/n`) | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
+| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, each run past a failed step (`-keep-going=false` stops at the first), 0 when every run failed the same way (`reproduced n/n`); its last line, `exit <code>: <outcome>`, says which | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot: a short summary to show the user, the full report in `.shrt/safespots/pending/`; `-all` proposes every chain whose latest run passed and whose safe spot is missing or differs | 1 refused |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes (`-all` for each pending one); `-reject`, `-pending`; `<new> -rename-from <old>` carries one across a pure rename | 1 refused |
 | `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
@@ -126,8 +126,10 @@ it does (by suspect rpc and field), and one failing not as pinned keeps its line
 line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
 shows it, its example from a chain with a safe spot when one fails so. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
-chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
-counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
+chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
+when they all have its value, else `(and N more below)` with `the same at ...` and one line per other value, each with
+the steps that have it, past 6 such lines the steps named only), and the knock-on counts: no separate `verify` is
+needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
 `-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts

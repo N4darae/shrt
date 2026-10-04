@@ -1415,51 +1415,52 @@ func (g *gateChain) printChanges(e *env) {
 	}
 	type row struct {
 		key, line string
-		steps, at []string
-		more      int
+		head      foldedChange
+		steps     []string
+		more      []foldedChange
 	}
 	var rows []*row
 	byKey, seen := map[string]*row{}, map[string]bool{}
-	add := func(key, step, id, line string) {
-		if seen[step+" "+id] {
+	add := func(key, id, line string, c foldedChange) {
+		if seen[c.step+" "+id] {
 			return
 		}
-		seen[step+" "+id] = true
+		seen[c.step+" "+id] = true
 		r := byKey[key]
 		if r == nil {
-			r = &row{key: key, line: line}
+			r = &row{key: key, line: line, head: c}
 			byKey[key], rows = r, append(rows, r)
-		} else if r.more++; !slices.Contains(r.at, step) {
-			r.at = append(r.at, step)
+		} else {
+			r.more = append(r.more, c)
 		}
-		if !slices.Contains(r.steps, step) {
-			r.steps = append(r.steps, step)
+		if !slices.Contains(r.steps, c.step) {
+			r.steps = append(r.steps, c.step)
 		}
 	}
 	for _, l := range g.shown {
-		key, step := l, ""
+		key, c := l, foldedChange{value: l}
 		if m := verifyChangeLine.FindStringSubmatch(l); m != nil {
-			key, step = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), m[1]
+			key, c = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), foldedChange{step: m[1], path: m[3], value: strings.TrimSpace(l[len(m[0]):])}
 		}
-		add(key, step, l, l)
+		add(key, l, l, c)
 	}
 	for _, it := range g.items {
 		path, _ := it.shown()
 		switch {
 		case len(g.shown) > 0:
 		case it.Reason.Kind == reasonKnockOn:
-			add("\x00"+it.Reason.String(), it.Step, "", it.Reason.String())
+			add("\x00"+it.Reason.String(), "", it.Reason.String(), foldedChange{step: it.Step})
 		default:
 			line := "[" + it.Step + "] " + it.headline()
-			add(path, it.Step, line, line)
+			add(path, line, line, foldedChange{step: it.Step, path: it.Path, value: strings.TrimPrefix(it.headline(), it.Path+" ")})
 		}
 	}
 	for _, r := range rows {
 		switch {
 		case strings.HasPrefix(r.key, "\x00"):
-			fmt.Printf("    %d step(s) %s (%s)\n", len(r.steps), r.line, capList(r.steps, 3))
-		case r.more > 0:
-			fmt.Printf("    %s (and %d more at %s)\n", r.line, r.more, capList(r.at, 3))
+			fmt.Println(wrapNames(fmt.Sprintf("    %d step(s) %s (", len(r.steps), r.line), r.steps, ")"))
+		case len(r.more) > 0:
+			printFold(r.line, r.head, r.more)
 		default:
 			fmt.Println("    " + r.line)
 		}

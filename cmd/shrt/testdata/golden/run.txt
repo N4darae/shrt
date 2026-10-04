@@ -42,3 +42,13 @@ probe-orders: FAILED in DUR
   run RUNID -> TMP
 pin it: shrt chain pin probe-orders (re-runs with -keep-going when needed)
 
+$ shrt run probe-orders -repeat 2  [exit 0]
+repeat 1 of 2: run RUNID failed at cancel_confirmed
+repeat 2 of 2: run RUNID failed at cancel_confirmed, as run 1
+reproduced 2/2: cancel_confirmed failed the same way in every run
+  cancel_confirmed (OrderService/CancelOrder): answered status.code "REJECTED" message="StillConfirmed"
+    failed: status.code want=SUCCESS got=REJECTED
+  suspect write cancel_confirmed (OrderService/CancelOrder); cancel_confirmed sent {"id_order":"ord-0034"}
+  runs RUNID, RUNID in .shrt/runs/probe-orders; the chain ran as written and is unchanged
+exit 0: reproduced 2/2; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer
+

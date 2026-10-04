@@ -113,6 +113,20 @@ func TestChainLintJudgesTheAuthAndTheWarningsOfEachChain(t *testing.T) {
 			setup: func(t *testing.T) {
 				writeFile(t, ".shrt/scratch/bare.yaml", "apiVersion: shrt/v1\nname: bare\nsteps:\n  - id: fetch\n    call: shrt.test.v1.ThingService/Fetch\n    body: {id: x}\n")
 			}},
+		{name: "a repro run by path gets no warning that matters only for the suite", args: []string{".shrt/scratch/repro.yaml", ".shrt/repro/make.yaml"},
+			want: []string{"2 chain(s) lint clean\n"}, not: []string{"timestamp", "only the verdict"}, setup: throwawayChains},
+		{name: "the same chains in the suite get those warnings", args: []string{"repro", "make"},
+			want: []string{"timestamps unasserted in 1 chain(s), created_at", "[make] asserts only the verdict"}, setup: func(t *testing.T) {
+				throwawayChains(t)
+				for _, f := range []string{".shrt/scratch/repro.yaml", ".shrt/repro/make.yaml"} {
+					writeFile(t, ".shrt/chains/"+filepath.Base(f), string(mustRead(t, f)))
+					if err := os.Remove(f); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}},
+		{name: "-strict checks a repro as it checks the suite", args: []string{"-strict", ".shrt/scratch/repro.yaml", ".shrt/repro/make.yaml"}, failing: true,
+			want: []string{"timestamps unasserted in 1 chain(s), created_at", "[make] asserts only the verdict"}, setup: throwawayChains},
 		{name: "one warning on three steps", args: []string{"cli-probe"},
 			want: []string{"A step with no expect entry", "[fetch_2] asserts nothing at all, as above\n", "[fetch_3] asserts nothing at all, as above\n"},
 			setup: func(t *testing.T) {
@@ -173,4 +187,21 @@ func TestRunRefusesALoginItCannotSendNamingWhatIsMissing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "target.headers") || !strings.Contains(err.Error(), "nothing was sent") {
 		t.Fatalf("a hand-written Authorization in target.headers is refused before sending anything: %v", err)
 	}
+}
+
+func throwawayChains(t *testing.T) {
+	t.Helper()
+	writeFile(t, ".shrt/contracts/things.yaml", `apiVersion: shrt/contract/v1
+domain: things
+rpcs:
+    shrt.test.v1.ThingService/Create:
+        summary: Creates a thing.
+        required: [name]
+        terminal:
+            total: the total after the create
+        status: draft
+`)
+	writeFile(t, ".shrt/scratch/repro.yaml", strings.Replace(string(mustRead(t, cliFlow)), "name: cli-thing-flow", "name: repro", 1))
+	writeFile(t, ".shrt/repro/make.yaml", "apiVersion: shrt/v1\nname: make\nsteps:\n    - id: make\n      call: ThingService/Create\n"+
+		"      body:\n          name: n\n      expect:\n          - path: error.code\n            equals: OK\n")
 }

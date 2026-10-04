@@ -6,6 +6,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/runner"
 )
 
 const handReproChain = `apiVersion: shrt/v1
@@ -84,11 +87,13 @@ func TestRunRepeatProvesAHandWrittenChainAsWrittenAndLeavesItUnchanged(t *testin
 		t.Fatalf("exit %d, want 0:\n%s", code, out)
 	}
 	for _, want := range []string{
-		"repeat 2 of 3: run ", "get_after_confirm, as run 1",
-		"reproduced 3/3: get_after_confirm failed the same way in every run\n",
-		"  get_after_confirm (ProductService/GetProduct): status failed, status.code \"SUCCESS\"\n",
+		"repeat 2 of 3: run ", "get_after_confirm, restock, as run 1",
+		"reproduced 3/3: get_after_confirm, restock failed the same way in every run\n",
+		"  get_after_confirm (ProductService/GetProduct): answered status.code \"SUCCESS\"\n",
 		"    failed: product.qty_on_hand want=8 got=7\n",
-		"the chain ran as written and is unchanged",
+		"  restock (StockService/AddStock): answered status.code \"SUCCESS\"\n",
+		"the chain ran as written and is unchanged\n" +
+			"exit 0: reproduced 3/3; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -100,10 +105,10 @@ func TestRunRepeatProvesAHandWrittenChainAsWrittenAndLeavesItUnchanged(t *testin
 	if ids := runIDsOf(t, "repro-confirm"); len(ids) != 3 {
 		t.Fatalf("each repeat is a saved run, got %v", ids)
 	}
-	out, code = runOut(t, handReproPath, "-repeat", "2", "-keep-going", "-quiet")
-	if code != 0 || !strings.Contains(out, "reproduced 2/2: get_after_confirm, restock failed the same way in every run") ||
-		!strings.Contains(out, "failed: qty_on_hand want=9 got=8") || strings.Contains(out, "repeat 1 of 2") {
-		t.Fatalf("-keep-going compares every failed step; -quiet drops the per-repeat lines: exit %d\n%s", code, out)
+	out, code = runOut(t, handReproPath, "-repeat", "2", "-keep-going=false", "-quiet")
+	if code != 0 || !strings.Contains(out, "reproduced 2/2: get_after_confirm failed the same way in every run") ||
+		!strings.Contains(out, "  1 later step(s) were not run (restock)") || strings.Contains(out, "qty_on_hand want=9") || strings.Contains(out, "repeat 1 of 2") {
+		t.Fatalf("-keep-going=false stops each run at its first failed step and says what it left unchecked; -quiet drops the per-repeat lines: exit %d\n%s", code, out)
 	}
 	var v repeatVerdict
 	raw, code := runOut(t, handReproPath, "-repeat", "2", "-json")
@@ -120,8 +125,9 @@ func TestRunRepeatSaysWhatDifferedWhenTheRunsDoNotFailAlike(t *testing.T) {
 	}
 	for _, want := range []string{
 		"NOT REPRODUCED: 1 of 3 runs failed as run 1 did; below, source is run 1\n",
-		"): failed steps: source none, run 2 create_customer\n",
-		"repeat 3 of 3: run ", "failed at create_customer, not as run 1",
+		"): failed steps: source none, run 2 create_customer, get_after_confirm, restock\n",
+		"repeat 3 of 3: run ", "failed at create_customer, get_after_confirm, restock, not as run 1",
+		"\nexit 1: NOT REPRODUCED, 1 of 3 runs failed as run 1 did; -repeat exits 0 when every run failed the same way",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lacks %q:\n%s", want, out)
@@ -132,7 +138,8 @@ func TestRunRepeatSaysWhatDifferedWhenTheRunsDoNotFailAlike(t *testing.T) {
 func TestRunRepeatGivesEachLaterRunAFreshFixtureAndCallsAllGreenNothingToReproduce(t *testing.T) {
 	handReproShop(t, false, handReproChain)
 	out, code := runOut(t, handReproPath, "-repeat", "3", "-var", "tag=mine")
-	if code != 1 || !strings.Contains(out, "passed 3/3: no step failed in any run, so there is no failure to reproduce") {
+	if code != 1 || !strings.Contains(out, "passed 3/3: no step failed in any run, so there is no failure to reproduce") ||
+		!strings.Contains(out, "is unchanged\nexit 1: passed 3/3, nothing reproduced; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n") {
 		t.Fatalf("exit %d:\n%s", code, out)
 	}
 	out, code = runOut(t, handReproPath, "-repeat", "2")
@@ -150,8 +157,28 @@ func TestRunRepeatAgainstADeadTargetHasNoVerdict(t *testing.T) {
 	handReproShop(t, true, handReproChain)
 	writeFile(t, ".shrt/config.yaml", strings.Replace(string(mustRead(t, ".shrt/config.yaml")), "base_url: ", "base_url: "+deadCLITarget(t)+" #", 1))
 	out, code := runOut(t, handReproPath, "-repeat", "3")
-	if code != 3 || !strings.Contains(out, "DID NOT RUN: run 1 (") || strings.Contains(out, "reproduced") || strings.Contains(out, "repeat 2 of 3") {
+	if code != 3 || !strings.Contains(out, "DID NOT RUN: run 1 (") || strings.Contains(out, "reproduced") || strings.Contains(out, "repeat 2 of 3") ||
+		!strings.Contains(out, "\nexit 3: DID NOT RUN; -repeat exits 0 when every run failed the same way") {
 		t.Fatalf("exit %d, want 3 and no second run:\n%s", code, out)
+	}
+}
+
+func TestRunRepeatSaysWhatAFailedStepAnsweredNotItsStatus(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	for _, c := range []struct {
+		st   runner.StepRecord
+		want string
+	}{
+		{runner.StepRecord{Status: runner.StatusFailed, Response: json.RawMessage(`{"status":{"code":"SUCCESS"}}`)}, `answered status.code "SUCCESS"`},
+		{runner.StepRecord{Status: runner.StatusFailed, Response: json.RawMessage(`{"status":{"code":"REJECTED","message":"gone","details":[{"reason":"OrderNotFound"}]}}`)},
+			`answered status.code "REJECTED" message="gone" reason=OrderNotFound`},
+		{runner.StepRecord{Status: runner.StatusFailed, HTTPStatus: 500, Transport: &runner.TransportError{Code: "internal", Message: "boom"}}, "answered HTTP 500 internal: boom"},
+		{runner.StepRecord{Status: runner.StatusError, Error: "connection refused\nre-run"}, "got no answer: connection refused"},
+	} {
+		if got := answeredText(&c.st); got != c.want {
+			t.Errorf("got %q, want %q", got, c.want)
+		}
 	}
 }
 
