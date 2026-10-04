@@ -1,12 +1,13 @@
 package pathmask
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 )
 
 func RedactedPaths(raw json.RawMessage) []string {
-	if len(raw) == 0 {
+	if len(raw) == 0 || !bytes.Contains(raw, []byte(MaskRedacted)) && bytes.IndexByte(raw, '\\') < 0 {
 		return nil
 	}
 	var v any
