@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/runner"
@@ -114,7 +115,7 @@ func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 			continue
 		}
 		k := callKey(w)
-		if !samePositions(wasAt[k], nowAt[k]) {
+		if !slices.Equal(wasAt[k], nowAt[k]) {
 			continue
 		}
 		if c, ok := nowCall[w.ID]; ok && c != k {
@@ -129,18 +130,6 @@ func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 		return nil
 	}
 	return out
-}
-
-func samePositions(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func callKey(st *runner.StepRecord) string {

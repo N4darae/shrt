@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -253,7 +254,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
 	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)
-	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
+	masker := pathmask.NewMasker(slices.Concat(spot.Volatile, rec.Volatile, extra))
 	approvedPatterns := append([]string{}, spot.Volatile...)
 	for _, st := range spot.Steps {
 		approvedPatterns = append(approvedPatterns, st.Volatile...)
@@ -320,7 +321,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
 			}
 		}
-		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
+		stepMask := pathmask.NewMasker(slices.Concat(masker.Patterns(), want.Volatile, got.Volatile))
 		a, errA := decode(want.Response)
 		b, errB := decode(got.Response)
 		if everyFieldMasked(stepMask, a) && everyFieldMasked(stepMask, b) {
@@ -808,18 +809,8 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 	if want.Headers == nil || got.Headers == nil {
 		return nil
 	}
-	names := []string{}
-	for k := range want.Headers {
-		names = append(names, k)
-	}
-	for k := range got.Headers {
-		if _, ok := want.Headers[k]; !ok {
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
 	out := []Change{}
-	for _, k := range names {
+	for _, k := range sortedKeys(want.Headers, got.Headers) {
 		w, had := want.Headers[k]
 		g, has := got.Headers[k]
 		switch {
@@ -1092,7 +1083,7 @@ func sameScalar(a, b any) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-func sortedKeys(a, b map[string]any) []string {
+func sortedKeys[V any](a, b map[string]V) []string {
 	keys := make([]string, 0, len(a)+len(b))
 	for k := range a {
 		keys = append(keys, k)
@@ -1104,14 +1095,6 @@ func sortedKeys(a, b map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func mergePatterns(sets ...[]string) []string {
-	out := []string{}
-	for _, s := range sets {
-		out = append(out, s...)
-	}
-	return out
 }
 
 func pathOr(p string) string {

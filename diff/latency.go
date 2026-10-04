@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/config"
@@ -49,21 +50,16 @@ func (p LatencyPolicy) Describe() string {
 	return fmt.Sprintf("at least +%dms and %gx the safe spot's run", p.FloorMS, p.Ratio)
 }
 
-func LatencyBaseline(spot []*runner.StepRecord) map[string]int64 {
-	out := map[string]int64{}
-	for _, st := range spot {
-		if latencyMeasured(st) {
-			out[st.ID] = st.LatencyMS
-		}
-	}
-	return out
-}
-
 func (p LatencyPolicy) Suspect(spot []*runner.StepRecord) func(string, int64) bool {
 	if p.Off {
 		return nil
 	}
-	base := LatencyBaseline(spot)
+	base := map[string]int64{}
+	for _, st := range spot {
+		if latencyMeasured(st) {
+			base[st.ID] = st.LatencyMS
+		}
+	}
 	return func(id string, ms int64) bool {
 		before, ok := base[id]
 		return ok && p.Exceeds(before, ms)
@@ -85,16 +81,6 @@ func latencyMeasured(st *runner.StepRecord) bool {
 	return st != nil && st.Status != runner.StatusSkipped && st.HTTPStatus != 0
 }
 
-func minOf(xs []int64) int64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x < m {
-			m = x
-		}
-	}
-	return m
-}
-
 func LatencyRegressions(spot []*runner.StepRecord, rec *runner.Record, prev *runner.Record, p LatencyPolicy) []LatencyFlag {
 	if p.Off || rec == nil {
 		return nil
@@ -112,7 +98,7 @@ func LatencyRegressions(spot []*runner.StepRecord, rec *runner.Record, prev *run
 			continue
 		}
 		samples := append([]int64{st.LatencyMS}, st.LatencyResent...)
-		after := minOf(samples)
+		after := slices.Min(samples)
 		if !p.Exceeds(was.LatencyMS, after) {
 			continue
 		}
@@ -191,7 +177,7 @@ func LatencyTable(spot []*runner.StepRecord, rec *runner.Record, p LatencyPolicy
 			continue
 		}
 		samples := append([]int64{st.LatencyMS}, st.LatencyResent...)
-		after := minOf(samples)
+		after := slices.Min(samples)
 		mark := ""
 		if p.Exceeds(was.LatencyMS, after) {
 			mark = "  slow"

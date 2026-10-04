@@ -374,13 +374,8 @@ func filterMisses(request json.RawMessage, added []map[string]any) string {
 	if len(added) == 0 || json.Unmarshal(request, &req) != nil {
 		return ""
 	}
-	fields := make([]string, 0, len(req))
-	for f := range req {
-		fields = append(fields, f)
-	}
-	sort.Strings(fields)
 	out := ""
-	for _, f := range fields {
+	for _, f := range sortedKeys(req, nil) {
 		want, ok := req[f].(string)
 		if !ok || want == "" || strings.HasSuffix(want, "_UNSPECIFIED") {
 			continue

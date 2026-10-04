@@ -2,6 +2,7 @@ package diff
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -141,7 +142,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		allA[s.ID] = s
 	}
 	inA := map[string]bool{}
-	base := mergePatterns(a.Volatile, b.Volatile, extra)
+	base := slices.Concat(a.Volatile, b.Volatile, extra)
 	for _, sa := range a.Steps {
 		if !StepReached(a, sa) {
 			continue
@@ -159,7 +160,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 			rep.StatusChanges = append(rep.StatusChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status,
 				ErrorA: stepError(sa), ErrorB: stepError(sb)})
 		}
-		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
+		masker := pathmask.NewMasker(slices.Concat(base, sa.Volatile, sb.Volatile))
 		rep.compareRequests(sa, sb, masker, fx)
 		if x, y := rep.compareResponses(sa, sb, masker); everyFieldMasked(masker, x) && everyFieldMasked(masker, y) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
@@ -219,20 +220,8 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 }
 
 func varChanges(a, b map[string]any) []VarChange {
-	names := map[string]bool{}
-	for k := range a {
-		names[k] = true
-	}
-	for k := range b {
-		names[k] = true
-	}
-	sorted := make([]string, 0, len(names))
-	for k := range names {
-		sorted = append(sorted, k)
-	}
-	sort.Strings(sorted)
 	out := []VarChange{}
-	for _, k := range sorted {
+	for _, k := range sortedKeys(a, b) {
 		va, inA := a[k]
 		vb, inB := b[k]
 		if inA && inB && fmt.Sprint(va) == fmt.Sprint(vb) {

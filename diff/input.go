@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"github.com/N4darae/shrt/chain"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/pathmask"
@@ -34,7 +35,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
 	fixture := fx.Named
-	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)
+	patterns := slices.Concat(spot.Volatile, rec.Volatile, extra)
 	stepVolatile := map[string][]string{}
 	for _, st := range append(append([]*runner.StepRecord{}, spot.Steps...), rec.Steps...) {
 		stepVolatile[st.ID] = append(stepVolatile[st.ID], st.Volatile...)
@@ -43,7 +44,7 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	pairs := [][2]string{}
 	for _, c := range r.RequestChanges {
 		if c.Path != AuthProfilePath && !expectationChange(c) && !chainLevel(c) {
-			m := pathmask.NewMasker(mergePatterns(patterns, stepVolatile[c.Step]))
+			m := pathmask.NewMasker(slices.Concat(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
 				a, okA := c.Want.(string)

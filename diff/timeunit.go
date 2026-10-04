@@ -95,11 +95,6 @@ func epochDigits(v any) (string, bool) {
 	return "", false
 }
 
-func numberDigits(v any) (int, bool) {
-	s, ok := epochDigits(v)
-	return len(s), ok
-}
-
 func timeOf(v any, named bool) (timeValue, bool) {
 	if s, ok := v.(string); ok && isTimestamp(s) {
 		at, _ := time.Parse(time.RFC3339Nano, s)
@@ -135,8 +130,8 @@ func unitName(v any, named bool) string {
 	if t, ok := timeOf(v, named); ok {
 		return t.unit
 	}
-	if n, ok := numberDigits(v); ok && named {
-		return fmt.Sprintf("a %d-digit number", n)
+	if digits, ok := epochDigits(v); ok && named {
+		return fmt.Sprintf("a %d-digit number", len(digits))
 	}
 	return ""
 }
