@@ -3,6 +3,8 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -41,13 +43,8 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return ""
 	}
-	keys := make([]string, 0, len(obj))
-	for k := range obj {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	fields := md.Fields()
-	for _, k := range keys {
+	for _, k := range slices.Sorted(maps.Keys(obj)) {
 		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			names := make([]string, 0, fields.Len())

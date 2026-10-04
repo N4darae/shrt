@@ -165,10 +165,7 @@ func (c *Catalog) closestRPC(ref string) string {
 }
 
 func rpcName(ref string) string {
-	if i := strings.LastIndexAny(ref, "/."); i >= 0 {
-		return ref[i+1:]
-	}
-	return ref
+	return ref[strings.LastIndexAny(ref, "/.")+1:]
 }
 
 func (c *Catalog) SuggestRPC(ref string) string {
@@ -176,8 +173,5 @@ func (c *Catalog) SuggestRPC(ref string) string {
 }
 
 func shortService(full string) string {
-	if i := strings.LastIndex(full, "."); i >= 0 {
-		return full[i+1:]
-	}
-	return full
+	return full[strings.LastIndex(full, ".")+1:]
 }

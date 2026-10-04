@@ -402,10 +402,7 @@ func clipList(items []string, max int) string {
 }
 
 func shortCall(call string) string {
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		return call[i+1:]
-	}
-	return call
+	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func answerKind(st *runner.StepRecord, envelope string) string {
@@ -774,12 +771,7 @@ func sentSummary(st *runner.StepRecord) string {
 	walk = func(prefix string, v any) {
 		switch t := v.(type) {
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range slices.Sorted(maps.Keys(t)) {
 				walk(pathmask.Join(prefix, k), t[k])
 			}
 		case []any:
@@ -812,10 +804,7 @@ func sentSummary(st *runner.StepRecord) string {
 var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func referenceLike(path string, v any) bool {
-	key := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		key = path[i+1:]
-	}
+	key := path[strings.LastIndex(path, ".")+1:]
 	lower := strings.ToLower(key)
 	switch {
 	case lower == "id", strings.HasPrefix(lower, "id_"), strings.HasSuffix(lower, "_id"),
