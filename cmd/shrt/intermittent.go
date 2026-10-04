@@ -34,7 +34,7 @@ type intermittentFailure struct {
 }
 
 func serverError(st *runner.StepRecord) string {
-	if st == nil || st.Transport == nil || (st.Status != runner.StatusFailed && st.Status != runner.StatusError) {
+	if st == nil || st.Transport == nil || !failing(st) {
 		return ""
 	}
 	if runner.NotAnsweredByService(st) || st.HTTPStatus == 0 {
@@ -202,7 +202,7 @@ func (i *intermittentFailure) otherFailures(e *env, rec *runner.Record) []string
 	}
 	a, out := runAttribution(e, rec), []string{}
 	for _, st := range rec.Steps {
-		if (st.Status == runner.StatusFailed || st.Status == runner.StatusError) && !flaky[st.ID] && !flaky[a.of(st.ID, failedPath(st)).blamed(st.ID)] {
+		if failing(st) && !flaky[st.ID] && !flaky[a.of(st.ID, failedPath(st)).blamed(st.ID)] {
 			out = append(out, st.ID)
 		}
 	}

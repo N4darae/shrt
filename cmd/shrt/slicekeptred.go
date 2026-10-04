@@ -140,7 +140,7 @@ func producedBy(text string, rec *runner.Record, c *chain.Chain, step string) st
 func failedSteps(rec *runner.Record) []string {
 	out := []string{}
 	for _, s := range rec.Steps {
-		if s.Status == runner.StatusFailed || s.Status == runner.StatusError {
+		if failing(s) {
 			out = append(out, s.ID)
 		}
 	}

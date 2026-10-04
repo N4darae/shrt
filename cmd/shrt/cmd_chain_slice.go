@@ -990,7 +990,7 @@ func stopsEarly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, k
 		switch {
 		case sr.Status == runner.StatusSkipped:
 			out = append(out, k.ID+" (not sent)")
-		case (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID):
+		case failing(sr) && !relaxable(k.ID):
 			out = append(out, k.ID+" ("+sr.Status+")")
 		}
 	}
@@ -1217,7 +1217,7 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 		if k.ID == res.Target {
 			continue
 		}
-		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID) {
+		if sr, ok := rec.Step(k.ID); ok && failing(sr) && !relaxable(k.ID) {
 			return false
 		}
 	}
@@ -1593,7 +1593,7 @@ func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 	relaxable := relaxableIn(rec)
 	for _, id := range ids {
 		sr, ok := rec.Step(id)
-		if ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(id) {
+		if ok && failing(sr) && !relaxable(id) {
 			blocked = append(blocked, id+" ("+sr.Status+")")
 			continue
 		}

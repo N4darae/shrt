@@ -303,7 +303,7 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 	relaxable := relaxableIn(source)
 	for _, sr := range replay.Steps {
-		if sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+		if !failing(sr) {
 			continue
 		}
 		was, ok := source.Step(sr.ID)
@@ -318,7 +318,7 @@ func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 func keptStepsBroken(replay, source *runner.Record, target string) []string {
 	var out []string
 	for _, sr := range replay.Steps {
-		if sr.ID == target || sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+		if sr.ID == target || !failing(sr) {
 			continue
 		}
 		if was, ok := source.Step(sr.ID); ok && was.Status == runner.StatusPassed {

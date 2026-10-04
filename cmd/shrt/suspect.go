@@ -798,7 +798,7 @@ func (a attribution) afterFailedWrite(step, path string) int {
 	}
 	touched := refReach(a.rec)(at)
 	for i, w := range a.rec.Steps[:at] {
-		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || (w.Status != runner.StatusFailed && w.Status != runner.StatusError) {
+		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || !failing(w) {
 			continue
 		}
 		same := false

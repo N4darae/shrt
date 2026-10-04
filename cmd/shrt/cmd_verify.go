@@ -1260,7 +1260,7 @@ func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 			return false
 		}
 		st, ok := rec.Step(step)
-		return ok && st != nil && (st.Status == runner.StatusFailed || st.Status == runner.StatusError)
+		return ok && st != nil && failing(st)
 	}
 	best := 0
 	for i, c := range report.Changes {
