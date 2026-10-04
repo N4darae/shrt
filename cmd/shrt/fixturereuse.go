@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -125,32 +126,14 @@ func capitalized(s string) string {
 }
 
 func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReuse {
-	if c == nil || rec == nil || rec.DryRun {
-		return nil
-	}
-	var first *runner.StepRecord
-	index := -1
-	for i, st := range rec.Steps {
-		if st.Status == runner.StatusFailed || st.Status == runner.StatusError {
-			first, index = st, i
-			break
-		}
-	}
+	first, index, why, req := uniquenessRefusal(c, rec)
 	if first == nil {
 		return nil
 	}
-	why := stepRefusalText(first)
-	if why == "" || !uniquenessConflict.MatchString(why) {
-		return nil
-	}
 	named := fixtureRequestPath(c)
-	var req any
-	if err := json.Unmarshal(first.Request, &req); err != nil {
-		return nil
-	}
 	fields := []fixtureField{}
 	generated := generatedRequestPath(c)
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		unique := generated(first.ID, path)
 		if !named(first.ID, path) && !unique {
 			return
@@ -164,11 +147,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		if sent, ok := chain.Get(req, path); ok {
 			f.sent = fmt.Sprint(sent)
 		}
-		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-			if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-				f.vars = append(f.vars, n[1])
-			}
-		}
+		f.vars = append(f.vars, varRefs(text)...)
 		fields = append(fields, f)
 	})
 	if refusalBlamesAnotherField(req, why, fields) {
@@ -201,11 +180,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	ids, _ := e.store.ListRuns(rec.Chain)
-	names := make([]string, 0, len(fed))
-	for n := range fed {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := sortedKeys(fed)
 	for i := len(ids) - 1; i >= 0; i-- {
 		if ids[i] == rec.RunID {
 			continue
@@ -223,7 +198,8 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			}
 		}
 		if len(same) > 0 {
-			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdBy(prev, first.ID)}
+			st, _ := prev.Step(first.ID)
+			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdStep(st)}
 		}
 	}
 	sentValues := []string{}
@@ -259,6 +235,24 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 	}
 	return f
+}
+
+func uniquenessRefusal(c *chain.Chain, rec *runner.Record) (*runner.StepRecord, int, string, any) {
+	if c == nil || rec == nil || rec.DryRun {
+		return nil, -1, "", nil
+	}
+	for i, st := range rec.Steps {
+		if !failing(st) {
+			continue
+		}
+		why := stepRefusalText(st)
+		var req any
+		if why == "" || !uniquenessConflict.MatchString(why) || json.Unmarshal(st.Request, &req) != nil {
+			return nil, -1, "", nil
+		}
+		return st, i, why, req
+	}
+	return nil, -1, "", nil
 }
 
 func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, all, fields []fixtureField, unique []string) *fixtureReuse {
@@ -357,7 +351,7 @@ func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool 
 		fixture[f.path] = true
 	}
 	others := []fixtureField{}
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		if fixture[path] {
 			return
 		}
@@ -368,27 +362,17 @@ func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool 
 		}
 		others = append(others, fixtureField{path: path, sent: text})
 	})
-	quoted := func(set []fixtureField) bool {
-		for _, f := range set {
-			if f.sent != "" && strings.Contains(why, f.sent) {
-				return true
-			}
-		}
-		return false
-	}
 	named := func(set []fixtureField, shortest int) bool {
 		folded := foldName(why)
-		for _, f := range set {
-			if name := foldName(leafName(f.path)); name != "" && len(name) >= shortest && strings.Contains(folded, name) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(set, func(f fixtureField) bool {
+			name := foldName(leafName(f.path))
+			return name != "" && len(name) >= shortest && strings.Contains(folded, name)
+		})
 	}
 	switch {
-	case quoted(fields):
+	case quotesSent(why, fields):
 		return false
-	case quoted(others):
+	case quotesSent(why, others):
 		return true
 	case named(fields, 1):
 		return false
@@ -447,12 +431,7 @@ func refusalCodes(why string, fields []fixtureField) string {
 }
 
 func quotesSent(text string, fields []fixtureField) bool {
-	for _, f := range fields {
-		if f.sent != "" && strings.Contains(text, f.sent) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fields, func(f fixtureField) bool { return f.sent != "" && strings.Contains(text, f.sent) })
 }
 
 type fixtureField struct {
@@ -469,11 +448,7 @@ func conflictingFields(fields []fixtureField, why string) []fixtureField {
 		if f.sent != "" && strings.Contains(why, f.sent) {
 			byValue = append(byValue, f)
 		}
-		leaf := f.path
-		if i := strings.LastIndex(leaf, "."); i >= 0 {
-			leaf = leaf[i+1:]
-		}
-		if name := foldName(leaf); name != "" && strings.Contains(folded, name) {
+		if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
 			byName = append(byName, f)
 		}
 	}
@@ -599,16 +574,6 @@ func createdStep(st *runner.StepRecord) bool {
 	return st != nil && st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
 }
 
-func createdBy(rec *runner.Record, step string) bool {
-	for _, st := range rec.Steps {
-		if st == nil || st.ID != step {
-			continue
-		}
-		return st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
-	}
-	return false
-}
-
 func stepRefusalText(st *runner.StepRecord) string {
 	if st.Transport != nil {
 		return strings.TrimSpace(st.Transport.Code + ": " + st.Transport.Message)
@@ -631,30 +596,10 @@ func stepRefusalText(st *runner.StepRecord) string {
 	return strings.Join(parts, ": ")
 }
 
-func visitLeaves(v any, path string, visit func(string)) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, x := range t {
-			visitLeaves(x, pathmask.Join(path, k), visit)
-		}
-	case []any:
-		for i, x := range t {
-			visitLeaves(x, pathmask.Join(path, pathmask.IndexKey(i)), visit)
-		}
-	default:
-		visit(path)
-	}
-}
-
 func visitStrings(v any, visit func(string)) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(t) {
 			visitStrings(t[k], visit)
 		}
 	case []any:

@@ -146,7 +146,7 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 	if err != nil || !strings.Contains(out, "skip     safe spot unchanged: cli-thing-again, cli-thing-flow") || !strings.Contains(out, "nothing proposed") {
 		t.Fatalf("a chain whose latest run is its safe spot is not proposed again: %v\n%s", err, out)
 	}
-	out = captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })
+	captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })
 	if err == nil {
 		t.Fatal("-all names no chain")
 	}
@@ -347,7 +347,7 @@ func TestSupersedeDoesNotListFixtureEchoesAsDifferences(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	captureStdout(t, func() {
 		if err := runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=second"}); err != nil {
 			t.Fatalf("shrt run: %v", err)

@@ -73,18 +73,6 @@ const (
 	shopOK      = `"status":{"code":"SUCCESS"}`
 )
 
-func blameOf(t *testing.T, rec *runner.Record, step, path string) (string, string, string) {
-	t.Helper()
-	r := runAttribution(&env{cat: catalogtest.Shop()}, rec).of(step, path)
-	own, cascade := "", ""
-	if r.Kind == reasonKnockOn {
-		cascade = r.Kind
-	} else if !r.blames() {
-		own = r.Kind
-	}
-	return r.blamed(step), own, cascade
-}
-
 const stockEffects = `apiVersion: shrt/contract/v1
 domain: shop
 rpcs:
@@ -804,11 +792,7 @@ func TestAttributionHelpers(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	for _, firstRefused := range []bool{false, true} {
 		rec := replaysRecord(firstRefused)
-		pos := map[string]int{}
-		for i, st := range rec.Steps {
-			pos[st.ID] = i
-		}
-		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, pos, -1); !slices.Equal(got, []int{2, 1, 0}) {
+		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, -1); !slices.Equal(got, []int{2, 1, 0}) {
 			t.Errorf("entityWrites (first refused %v): got steps %v, want the writes before the read without the repeats", firstRefused, got)
 		}
 	}

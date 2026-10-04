@@ -34,7 +34,7 @@ type intermittentFailure struct {
 }
 
 func serverError(st *runner.StepRecord) string {
-	if st == nil || st.Transport == nil || (st.Status != runner.StatusFailed && st.Status != runner.StatusError) {
+	if st == nil || st.Transport == nil || !failing(st) {
 		return ""
 	}
 	if runner.NotAnsweredByService(st) || st.HTTPStatus == 0 {
@@ -95,24 +95,7 @@ func sameRequest(a, b *runner.StepRecord) bool {
 }
 
 func latestRunBefore(e *env, rec *runner.Record) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	var best *runner.Record
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
-			break
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) {
-			continue
-		}
-		if best == nil || ranBefore(best, prev) {
-			best = prev
-		}
-	}
-	return best
+	return previousRun(e, rec, true, nil)
 }
 
 func runKind(rec *runner.Record) string {
@@ -219,7 +202,7 @@ func (i *intermittentFailure) otherFailures(e *env, rec *runner.Record) []string
 	}
 	a, out := runAttribution(e, rec), []string{}
 	for _, st := range rec.Steps {
-		if (st.Status == runner.StatusFailed || st.Status == runner.StatusError) && !flaky[st.ID] && !flaky[a.of(st.ID, failedPath(st)).blamed(st.ID)] {
+		if failing(st) && !flaky[st.ID] && !flaky[a.of(st.ID, failedPath(st)).blamed(st.ID)] {
 			out = append(out, st.ID)
 		}
 	}

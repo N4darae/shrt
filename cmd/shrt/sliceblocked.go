@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -60,15 +61,7 @@ func (b blockedRead) line(sourceRun string) string {
 }
 
 func evaluatedBlocked(blocked []blockedRead) bool {
-	if len(blocked) == 0 {
-		return false
-	}
-	for _, b := range blocked {
-		if b.eval == nil {
-			return false
-		}
-	}
-	return true
+	return len(blocked) > 0 && !slices.ContainsFunc(blocked, func(b blockedRead) bool { return b.eval == nil })
 }
 
 func withoutBlocked(source, replay chain.Verdict, blocked []blockedRead) chain.Verdict {
@@ -101,7 +94,7 @@ func blockedReason(sourceRun string, blocked []blockedRead) string {
 	upstream := []string{}
 	for _, b := range blocked {
 		lines = append(lines, b.line(sourceRun))
-		if !containsStr(upstream, b.upstream) {
+		if !slices.Contains(upstream, b.upstream) {
 			upstream = append(upstream, b.upstream)
 		}
 	}

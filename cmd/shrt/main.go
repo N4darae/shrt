@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"sort"
 	"strings"
 )
 
@@ -97,12 +96,7 @@ func usage() {
 	fmt.Println()
 	fmt.Println("usage: shrt <command> [flags]")
 	fmt.Println()
-	names := make([]string, 0, len(commands))
-	for n := range commands {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, n := range names {
+	for _, n := range sortedKeys(commands) {
 		fmt.Printf("  %-10s %s\n", n, commands[n].summary)
 	}
 	fmt.Println()

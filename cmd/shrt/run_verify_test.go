@@ -126,7 +126,7 @@ func approvedThingFlow(t *testing.T) *httptest.Server {
 	srv := newEchoNameBackend()
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
-	verTApprove(t, "cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 	return srv
 }
 
@@ -172,7 +172,7 @@ func driftWorkspace(t *testing.T, name *string, extra *bool) {
 			w.WriteHeader(404)
 		}
 	}, true)
-	verTApprove(t, "cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 }
 
 func newSlowFetchBackend(delay *atomic.Int64) *httptest.Server {
@@ -194,7 +194,7 @@ func newSlowFetchBackend(delay *atomic.Int64) *httptest.Server {
 func resealSafeSpot(t *testing.T, path string) {
 	t.Helper()
 	spot := &store.SafeSpot{}
-	if err := json.Unmarshal(verTRead(t, path), spot); err != nil {
+	if err := json.Unmarshal(mustRead(t, path), spot); err != nil {
 		t.Fatal(err)
 	}
 	spot.Digest = spot.ComputeDigest()
@@ -247,28 +247,13 @@ func verTOK(kv ...any) map[string]any {
 	return m
 }
 
-func verTHangUp(w http.ResponseWriter) {
-	if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
-		conn.Close()
-	}
-}
-
-func verTRead(t *testing.T, path string) []byte {
-	t.Helper()
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return raw
-}
-
 func verTServe(t *testing.T, h http.HandlerFunc, validate bool, chains ...string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	if validate {
-		writeFile(t, ".shrt/config.yaml", string(verTRead(t, ".shrt/config.yaml"))+"conventions:\n    validate_output: true\n")
+		writeFile(t, ".shrt/config.yaml", string(mustRead(t, ".shrt/config.yaml"))+"conventions:\n    validate_output: true\n")
 	}
 	for _, c := range chains {
 		writeFile(t, ".shrt/chains/"+verTName(c)+".yaml", c)
@@ -280,22 +265,6 @@ func verTName(chainYAML string) string {
 	_, rest, _ := strings.Cut(chainYAML, "\nname: ")
 	name, _, _ := strings.Cut(rest, "\n")
 	return name
-}
-
-func verTApprove(t *testing.T, name string, runArgs ...string) {
-	t.Helper()
-	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, append([]string{name, "-quiet"}, runArgs...)); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		if err := runConfirm(ctx, []string{name, "-note", "baseline"}); err != nil {
-			t.Fatalf("propose: %v", err)
-		}
-		if err := runConfirm(ctx, []string{name, "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
 }
 
 type verTCheck struct {
@@ -361,7 +330,7 @@ func verTRebuild(t *testing.T, matches bool) func() {
 
 func verTEdit(t *testing.T, path, from, to string) func() {
 	return func() {
-		raw := string(verTRead(t, path))
+		raw := string(mustRead(t, path))
 		edited := strings.Replace(raw, from, to, 1)
 		if edited == raw {
 			t.Fatalf("edit of %s did not apply: %q", path, from)

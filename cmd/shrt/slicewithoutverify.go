@@ -171,12 +171,7 @@ func ownsField(v any, parent, field string, ids map[string]bool) bool {
 			}
 		}
 	}
-	for _, item := range items {
-		if ownsField(item, parent, field, ids) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(items, func(item any) bool { return ownsField(item, parent, field, ids) })
 }
 
 func failing(sr *runner.StepRecord) bool {

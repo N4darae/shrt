@@ -279,7 +279,7 @@ func TestRunHandsItsNotesAndErrorToTheGateInTheSidecar(t *testing.T) {
 	srv := b.server()
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
-	writeFile(t, ".shrt/chains/cli-unique.yaml", shortLiteralChain("@"))
+	writeFile(t, ".shrt/chains/cli-unique.yaml", fixLiteralChain("@"))
 	ctx := context.Background()
 	captureStdout(t, func() { _ = runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=one"}) })
 	path := t.TempDir() + "/side.json"

@@ -534,10 +534,6 @@ func statusMark(s string, dry bool) string {
 	}
 }
 
-func summary(rec *runner.Record, dry bool) string {
-	return runSummary(nil, rec, dry, false, "", false)
-}
-
 func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
 	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
 		return ""
@@ -622,11 +618,7 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 		fmt.Fprintf(&b, "\n  %s", line)
 	}
 	if len(rec.Exports) > 0 {
-		names := make([]string, 0, len(rec.Exports))
-		for k := range rec.Exports {
-			names = append(names, k)
-		}
-		sort.Strings(names)
+		names := sortedKeys(rec.Exports)
 		if dry {
 			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
 				strings.Join(names, ", "))
@@ -677,7 +669,10 @@ func failureRequests(e *env, rec *runner.Record, dry bool) []string {
 			order = append(order, key)
 		}
 		if lines[key] == "" || !named[key] && f.r.Kind != "" {
-			lines[key], named[key], hints[key] = suspectLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != "", tellApart(e, f.r, f.path)
+			lines[key], named[key], hints[key] = requestLine(f.r, f.st.ID, recordSent(e, rec)), f.r.Kind != "", tellApart(e, f.r, f.path)
+			if s := f.r.String(); s != "" && lines[key] != "" {
+				lines[key] = s + "; " + lines[key]
+			}
 		}
 		count[key]++
 	}
@@ -811,7 +806,7 @@ func closestReads(unused, reads []string) []string {
 	out := []string{}
 	for _, name := range unused {
 		for _, c := range namecase.Closest(name, reads, 1) {
-			if !containsName(out, c) {
+			if !slices.Contains(out, c) {
 				out = append(out, c)
 			}
 		}
@@ -824,13 +819,4 @@ func pluralWord(n int, one, many string) string {
 		return one
 	}
 	return many
-}
-
-func containsName(list []string, name string) bool {
-	for _, s := range list {
-		if s == name {
-			return true
-		}
-	}
-	return false
 }

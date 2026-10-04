@@ -172,7 +172,7 @@ func TestInitAndCatalogBuildNameTheMissingToolAndExitTwo(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(dir, ".shrt", "config.yaml")); statErr != nil {
 		t.Errorf("init still writes the config it got as far as: %v", statErr)
 	}
-	err = runCatalog(context.Background(), []string{"build"})
+	err = catalogGroup.run(context.Background(), []string{"build"})
 	if err == nil || !strings.Contains(err.Error(), "not on PATH") || !strings.Contains(err.Error(), "buf") {
 		t.Fatalf("catalog build names buf missing from PATH: %v", err)
 	}

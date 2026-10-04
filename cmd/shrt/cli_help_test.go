@@ -7,7 +7,6 @@ import (
 	"os"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -16,30 +15,13 @@ import (
 )
 
 func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	saved := os.Stdout
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.Stdout = w
-	done := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 0, 4096)
-		chunk := make([]byte, 1024)
-		for {
-			n, err := r.Read(chunk)
-			buf = append(buf, chunk[:n]...)
-			if err != nil {
-				break
-			}
-		}
-		done <- string(buf)
-	}()
-	fn()
-	_ = w.Close()
-	os.Stdout = saved
-	return <-done
+	out, _ := capturing(&os.Stdout, func() error { fn(); return nil })
+	return out
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	out, _ := capturing(&os.Stderr, func() error { fn(); return nil })
+	return out
 }
 
 func helpOf(t *testing.T, command string, args ...string) string {
@@ -52,12 +34,7 @@ func helpOf(t *testing.T, command string, args ...string) string {
 var cliGroups = []group{catalogGroup, chainGroup, contractGroup}
 
 func TestEveryCommandAnswersHelpAndEveryGroupListsItsSubcommands(t *testing.T) {
-	names := make([]string, 0, len(commands))
-	for n := range commands {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(commands) {
 		for _, arg := range []string{"-h", "--help"} {
 			if err := commands[name].run(context.Background(), []string{arg}); err != nil && !errors.Is(err, flag.ErrHelp) {
 				t.Errorf("shrt %s %s: %v", name, arg, err)

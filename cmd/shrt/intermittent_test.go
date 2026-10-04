@@ -96,17 +96,7 @@ func flakyWorkspace(t *testing.T) (*flakyServer, context.Context) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-flaky.yaml", flakyChain)
 	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, []string{"cli-flaky", "-quiet"}); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-flaky", "-note", "baseline"}); err != nil {
-			t.Fatalf("propose: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-flaky", "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
+	fixApprove(t, "cli-flaky")
 	return f, ctx
 }
 

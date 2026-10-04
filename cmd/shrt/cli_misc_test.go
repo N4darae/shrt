@@ -152,20 +152,6 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	ctx := context.Background()
-	confirmAs := func(ref string) {
-		t.Helper()
-		captureStdout(t, func() {
-			for _, err := range []error{
-				runRun(ctx, []string{ref, "-quiet"}),
-				runConfirm(ctx, []string{ref, "-note", "baseline"}),
-				runConfirm(ctx, []string{ref, "-approve", "-by", "alice@example.test"}),
-			} {
-				if err != nil {
-					t.Fatalf("confirm %s: %v", ref, err)
-				}
-			}
-		})
-	}
 	verify := func(want string, wantErr bool) {
 		t.Helper()
 		for _, ref := range []string{"cli-thing-flow", "thing-new"} {
@@ -176,20 +162,20 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 			}
 		}
 	}
-	confirmAs("cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 	cliEdit(t, cliFlow, "name: cli-thing-flow\n", "name: thing-new\n")
 	verify("thing-new has no safe spot", true)
-	confirmAs("cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 	if _, err := os.Stat(".shrt/safespots/thing-new.json"); err != nil {
 		t.Fatalf("confirming by the file name writes the safe spot of the chain's name: %v", err)
 	}
 	verify("thing-new: no drift", false)
 	var err error
-	out := captureStdout(t, func() { err = runChain(ctx, []string{"lint", "cli-thing-flow"}) })
+	out := captureStdout(t, func() { err = chainGroup.run(ctx, []string{"lint", "cli-thing-flow"}) })
 	if err != nil || !strings.Contains(out, "declares name: thing-new") || !strings.Contains(out, "rename the file to thing-new.yaml") {
 		t.Errorf("lint warns about the mismatch and passes: %v\n%s", err, out)
 	}
-	out = captureStdout(t, func() { err = runChain(ctx, []string{"ls"}) })
+	out = captureStdout(t, func() { err = chainGroup.run(ctx, []string{"ls"}) })
 	if err != nil || !regexp.MustCompile(`\*\s+thing-new`).MatchString(out) || !strings.Contains(out, "file cli-thing-flow.yaml") {
 		t.Errorf("chain ls lists thing-new with its safe spot and notes its file: %v\n%s", err, out)
 	}
@@ -235,7 +221,7 @@ func TestTwoChainFilesClaimingOneNameAreRefused(t *testing.T) {
 			t.Errorf("verify %s is refused the same way: %v\n%s", ref, err, out)
 		}
 	}
-	out := captureStdout(t, func() { _ = runChain(ctx, []string{"lint", "sw1"}) })
+	out := captureStdout(t, func() { _ = chainGroup.run(ctx, []string{"lint", "sw1"}) })
 	if strings.Contains(out, "verify the same chain") || !strings.Contains(out, "is another chain (name: sw1)") {
 		t.Errorf("lint does not call two different chains one chain:\n%s", out)
 	}
@@ -348,7 +334,7 @@ func TestVerifyAGatewayUnavailableIsCouldNotVerify(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	down.Store(true)
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-unique", "-quiet", "-var", "tag=gw1"}) })

@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"net/mail"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -151,7 +149,7 @@ func ranOtherChainFile(e *env, rec *runner.Record) string {
 		return ""
 	}
 	now := rel(e.cfg.Root, c.SourcePath)
-	if rec.ChainSource != "" && !sameFilePath(rec.ChainSource, c.SourcePath) {
+	if rec.ChainSource != "" && !sameFile(rec.ChainSource, c.SourcePath) {
 		return fmt.Sprintf("run %s ran %s, but chain %s is %s now: approving makes a run of another file %s's ground truth",
 			rec.RunID, rel(e.cfg.Root, rec.ChainSource), rec.Chain, now, rec.Chain)
 	}
@@ -160,17 +158,6 @@ func ranOtherChainFile(e *env, rec *runner.Record) string {
 			now, rec.RunID, rec.ChainDigest, c.Digest())
 	}
 	return ""
-}
-
-func sameFilePath(a, b string) bool {
-	x, err1 := filepath.Abs(a)
-	y, err2 := filepath.Abs(b)
-	if err1 == nil && err2 == nil && x == y {
-		return true
-	}
-	ia, err1 := os.Stat(a)
-	ib, err2 := os.Stat(b)
-	return err1 == nil && err2 == nil && os.SameFile(ia, ib)
 }
 
 func keptRedNeverConfirmed(e *env, name string) error {

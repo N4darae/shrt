@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -450,7 +450,7 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 	if life != nil && !life.finding() && !life.cachedFirstUse() && v.nonBackend == nil {
 		v.note(body, life.label()+life.line())
 	}
-	if v.nonBackend == nil && (!v.unanswered || anyAnswered(rec)) {
+	if v.nonBackend == nil && (!v.unanswered || slices.ContainsFunc(rec.Steps, answeredByService)) {
 		v.writeReport(ctx, body)
 	}
 	if quiet {
@@ -684,18 +684,8 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 	} else {
 		return ""
 	}
-	names := []string{}
-	for k := range rec.Vars {
-		names = append(names, k)
-	}
-	for k := range confirmed {
-		if _, ok := rec.Vars[k]; !ok {
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
 	out := []string{}
-	for _, k := range names {
+	for _, k := range keysOfBoth(rec.Vars, confirmed) {
 		if _, supplied := only[k]; only != nil && !supplied {
 			continue
 		}
@@ -722,13 +712,8 @@ func varsConfirmedOtherwise(e *env, spotRun string, rec *runner.Record, supplied
 	if err != nil {
 		return nil
 	}
-	names := make([]string, 0, len(fed))
-	for k := range fed {
-		names = append(names, k)
-	}
-	sort.Strings(names)
 	out := []string{}
-	for _, k := range names {
+	for _, k := range sortedKeys(fed) {
 		if _, set := supplied[k]; set {
 			continue
 		}
@@ -817,33 +802,21 @@ func namedAround(text string) bool {
 
 func isolationVars(c *chain.Chain) map[string]bool {
 	named, numeric := map[string]bool{}, map[string]bool{}
-	var visit func(v any, path string)
-	visit = func(v any, path string) {
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				visit(x, pathmask.Join(path, k))
-			}
-		case []any:
-			for i, x := range t {
-				visit(x, pathmask.Join(path, pathmask.IndexKey(i)))
-			}
-		case string:
-			refs := requestRef.FindAllStringSubmatch(t, -1)
-			if len(refs) == 0 || strings.TrimSpace(requestRef.ReplaceAllString(t, "")) == "" {
+	visit := func(v any, prefix string) {
+		eachLeaf(v, prefix, func(path string, leaf any) {
+			t, ok := leaf.(string)
+			if !ok || strings.TrimSpace(requestRef.ReplaceAllString(t, "")) == "" {
 				return
 			}
-			for _, m := range refs {
-				n := varName.FindStringSubmatch(strings.TrimSpace(m[1]))
+			for _, n := range varRefs(t) {
 				switch {
-				case n == nil:
 				case !namedAround(t):
-					numeric[n[1]] = true
+					numeric[n] = true
 				case !diff.IDNamedPath(path):
-					named[n[1]] = true
+					named[n] = true
 				}
 			}
-		}
+		})
 	}
 	for _, s := range c.Steps {
 		if s != nil {
@@ -913,83 +886,64 @@ func fixtureOnlyVar(c *chain.Chain) func(string) bool {
 	isolating := isolationVars(c)
 	fixture := fixtureTemplate(c)
 	disqualified := map[string]bool{}
-	var visit func(v any)
-	visit = func(v any) {
-		switch t := v.(type) {
-		case map[string]any:
-			for _, x := range t {
-				visit(x)
-			}
-		case []any:
-			for _, x := range t {
-				visit(x)
-			}
-		case string:
-			refs := requestRef.FindAllStringSubmatch(t, -1)
-			if len(refs) == 0 || fixture(t) {
-				return
-			}
-			for _, m := range refs {
-				if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-					disqualified[n[1]] = true
-				}
-			}
-		}
-	}
 	raw, err := c.Marshal()
 	var doc map[string]any
 	if err != nil || yaml.Unmarshal(raw, &doc) != nil {
 		return func(string) bool { return false }
 	}
 	delete(doc, "vars")
-	visit(doc)
+	visitStrings(doc, func(t string) {
+		if refs := varRefs(t); len(refs) > 0 && !fixture(t) {
+			for _, n := range refs {
+				disqualified[n] = true
+			}
+		}
+	})
 	return func(name string) bool { return isolating[name] && !disqualified[name] }
 }
 
 func generatedRequestPath(c *chain.Chain) func(step, path string) bool {
 	return func(step, path string) bool {
-		v, ok := requestTemplate(c, step, path)
-		if !ok {
-			return false
-		}
-		text, ok := v.(string)
-		if !ok {
-			return false
-		}
-		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-			if k := chain.ParseRef(m[1]).Kind; k == chain.RefUUID || k == chain.RefClock {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(templateRefs(c, step, path), func(ref string) bool {
+			k := chain.ParseRef(ref).Kind
+			return k == chain.RefUUID || k == chain.RefClock
+		})
 	}
 }
 
+func templateRefs(c *chain.Chain, step, path string) []string {
+	v, _ := requestTemplate(c, step, path)
+	text, _ := v.(string)
+	var out []string
+	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 var varName = regexp.MustCompile(`^vars\.([A-Za-z0-9_-]+)`)
+
+func varRefs(text string) []string {
+	var out []string
+	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
+		if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
+			out = append(out, n[1])
+		}
+	}
+	return out
+}
 
 func inputVars(c *chain.Chain, changes []diff.Change) map[string]bool {
 	if c == nil {
 		return nil
 	}
 	out := map[string]bool{}
-	var collect func(v any)
-	collect = func(v any) {
-		switch t := v.(type) {
-		case string:
-			for _, m := range requestRef.FindAllStringSubmatch(t, -1) {
-				if n := varName.FindStringSubmatch(strings.TrimSpace(m[1])); n != nil {
-					out[n[1]] = true
-				}
+	collect := func(v any) {
+		visitStrings(v, func(t string) {
+			for _, n := range varRefs(t) {
+				out[n] = true
 			}
-		case map[string]any:
-			for _, x := range t {
-				collect(x)
-			}
-		case []any:
-			for _, x := range t {
-				collect(x)
-			}
-		}
+		})
 	}
 	for _, ch := range changes {
 		if ch.Path == diff.ExpectValuePath {
@@ -1005,31 +959,11 @@ func inputVars(c *chain.Chain, changes []diff.Change) map[string]bool {
 
 func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 	return func(step, path string) bool {
-		v, ok := requestTemplate(c, step, path)
-		if !ok {
-			return false
-		}
-		text, ok := v.(string)
-		if !ok {
-			return false
-		}
-		for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-			head, _, _ := strings.Cut(strings.TrimSpace(m[1]), ".")
-			if head != "vars" && head != "env" {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(templateRefs(c, step, path), func(ref string) bool {
+			head, _, _ := strings.Cut(strings.TrimSpace(ref), ".")
+			return head != "vars" && head != "env"
+		})
 	}
-}
-
-func anyAnswered(rec *runner.Record) bool {
-	for _, st := range rec.Steps {
-		if answeredByService(st) {
-			return true
-		}
-	}
-	return false
 }
 
 func answeredByService(st *runner.StepRecord) bool {
@@ -1291,13 +1225,8 @@ func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Chan
 			counts[cl]++
 		}
 	}
-	names := make([]string, 0, len(counts))
-	for cl := range counts {
-		names = append(names, cl)
-	}
-	sort.Strings(names)
 	out := ""
-	for _, cl := range names {
+	for _, cl := range sortedKeys(counts) {
 		out += fmt.Sprintf("; also %s at %d step(s)", cl, counts[cl])
 	}
 	return out
@@ -1311,7 +1240,7 @@ func firstChange(report *diff.Report, rec *runner.Record) (*diff.Change, int) {
 			return false
 		}
 		st, ok := rec.Step(step)
-		return ok && st != nil && (st.Status == runner.StatusFailed || st.Status == runner.StatusError)
+		return ok && st != nil && failing(st)
 	}
 	best := 0
 	for i, c := range report.Changes {

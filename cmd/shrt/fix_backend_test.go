@@ -184,24 +184,8 @@ func fixApprove(t *testing.T, chainName string, args ...string) {
 func fixCmd(t *testing.T, name string, args ...string) (string, error) {
 	t.Helper()
 	var err error
-	out := captureStdout(t, func() {
-		switch name {
-		case "run":
-			err = runRun(context.Background(), args)
-		case "verify":
-			err = runVerify(context.Background(), args)
-		case "diff":
-			err = runDiff(context.Background(), args)
-		default:
-			t.Fatalf("unknown command %s", name)
-		}
-	})
+	out := captureStdout(t, func() { err = commands[name].run(context.Background(), args) })
 	return out, err
-}
-
-func approveUniqueChain(t *testing.T, ctx context.Context) {
-	t.Helper()
-	fixApprove(t, "cli-unique")
 }
 
 func createForeignThing(t *testing.T, base, name string) {
@@ -318,22 +302,4 @@ func (b *resettableUniqueBackend) server() *httptest.Server {
 		b.seen[name] = true
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": "thing-1", "name": name})
 	}))
-}
-
-func shortLiteralChain(name string) string {
-	return `apiVersion: shrt/v1
-name: cli-unique
-vars:
-    tag: first
-steps:
-    - id: create
-      call: ThingService/Create
-      body:
-          name: '` + name + `'
-          idempotency_key: key ${vars.tag}
-          kind: KIND_A
-      expect:
-          - path: error.code
-            equals: OK
-`
 }

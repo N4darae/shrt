@@ -67,17 +67,17 @@ func TestRunOutputPieces(t *testing.T) {
 			t.Errorf("status %s dry=%v: progress mark %q, want %q", c.status, c.dry, got, c.want)
 		}
 	}
-	warned := summary(&runner.Record{Chain: "green-with-warnings", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+	warned := runSummary(nil, &runner.Record{Chain: "green-with-warnings", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
 		{Index: 1, ID: "login", Status: runner.StatusPassed},
 		{Index: 2, ID: "probe", Status: runner.StatusPassed, Warning: "refused in-band (status.code = REJECTED, not SUCCESS)\n       and a second line"},
-	}}, false)
+	}}, false, false, "", false)
 	if !strings.Contains(warned, "probe") || !strings.Contains(warned, "a second line") || strings.Contains(warned, "login") {
 		t.Errorf("a green run's step warnings reach the summary, and only those steps:\n%s", warned)
 	}
-	shared := summary(&runner.Record{Chain: "access", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+	shared := runSummary(nil, &runner.Record{Chain: "access", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
 		{ID: "admin_create", Status: runner.StatusPassed, Warning: runner.CachedTokenResent},
 		{ID: "clerk_create", Status: runner.StatusPassed, Warning: runner.CachedTokenResent},
-	}}, false)
+	}}, false, false, "", false)
 	if strings.Count(shared, runner.CachedTokenResent) != 1 || !strings.Contains(shared, "warning [admin_create, clerk_create]: ") {
 		t.Errorf("a warning shared by steps is one line naming them all:\n%s", shared)
 	}
@@ -349,15 +349,7 @@ steps:
 `
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", flow)
 	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, []string{"cli-three-flow", "-quiet"}); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		_ = runConfirm(ctx, []string{"cli-three-flow", "-note", "baseline"})
-		if err := runConfirm(ctx, []string{"cli-three-flow", "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
+	fixApprove(t, "cli-three-flow")
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", strings.Replace(flow, "not_empty: true", "equals: nope", 1))
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-three-flow", "-quiet", "-save=false"}) })
@@ -374,7 +366,7 @@ func TestVerifyVerdictsOnTheUniqueChain(t *testing.T) {
 		chdirToFreshCLIWorkspace(t, srv.URL)
 		writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 		ctx := context.Background()
-		approveUniqueChain(t, ctx)
+		fixApprove(t, "cli-unique")
 		return ctx, srv
 	}
 	t.Run("a non-backend verdict leads and skips the drift dump", func(t *testing.T) {
@@ -451,7 +443,7 @@ func TestARefusalOverAnotherFieldIsNotTheSameWay(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", twoUUIDFieldsChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	for _, want := range []verifyOutcome{
 		{code: 3, has: []string{"meta.source="}},
 		{code: 3, lack: []string{"FINDING"}},

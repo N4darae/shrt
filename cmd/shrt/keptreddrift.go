@@ -83,18 +83,6 @@ func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Re
 	return changes, report
 }
 
-func pinPathsOf(pins []chain.Pin) string {
-	parts := make([]string, 0, len(pins))
-	for _, k := range pins {
-		s := k.Step + " " + k.Path
-		if k.Got != nil {
-			s += " got=" + *k.Got
-		}
-		parts = append(parts, s)
-	}
-	return strings.Join(parts, ", ")
-}
-
 func keptRedLatencyFailure(name string, flags []diff.LatencyFlag, p diff.LatencyPolicy) error {
 	slow := confirmedLatency(flags)
 	if !p.Fail || len(slow) == 0 {

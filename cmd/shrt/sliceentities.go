@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -117,12 +116,7 @@ func primaryEntities(resp any) []primaryEntity {
 		return nil
 	}
 	out := []primaryEntity{}
-	keys := make([]string, 0, len(top))
-	for k := range top {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(top) {
 		switch t := top[k].(type) {
 		case string:
 			if isIDKey(k) && t != "" {
@@ -160,14 +154,13 @@ type stepEntityFacts struct {
 }
 
 func decodedRecordStep(sr *runner.StepRecord) (any, any) {
-	var request, response any
-	if len(sr.Request) > 0 {
-		_ = json.Unmarshal(sr.Request, &request)
-	}
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
-	return request, response
+	return decoded(sr.Request), decoded(sr.Response)
+}
+
+func decoded(raw []byte) any {
+	var v any
+	_ = json.Unmarshal(raw, &v)
+	return v
 }
 
 func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {
@@ -279,13 +272,7 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 				continue
 			}
 			f := entityFactsWith(rec, d.ID, res.StateWriters[d.ID])
-			touches := !f.known
-			for id := range f.acts {
-				if used[id] {
-					touches = true
-				}
-			}
-			if !touches {
+			if f.known && !overlaps(f.acts, used) {
 				continue
 			}
 			related[d.ID] = true
@@ -309,7 +296,7 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 	relaxable := relaxableIn(source)
 	for _, sr := range replay.Steps {
-		if sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+		if !failing(sr) {
 			continue
 		}
 		was, ok := source.Step(sr.ID)
@@ -324,7 +311,7 @@ func stoppedWhereSourcePassed(replay, source *runner.Record) string {
 func keptStepsBroken(replay, source *runner.Record, target string) []string {
 	var out []string
 	for _, sr := range replay.Steps {
-		if sr.ID == target || sr.Status != runner.StatusFailed && sr.Status != runner.StatusError {
+		if sr.ID == target || !failing(sr) {
 			continue
 		}
 		if was, ok := source.Step(sr.ID); ok && was.Status == runner.StatusPassed {
@@ -371,14 +358,7 @@ func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResu
 		keptRequest, keptResponse := decodedRecordStep(ks)
 		filters := map[string]bool{}
 		collectIDs(keptRequest, filters)
-		shared := false
-		for id := range parents {
-			if filters[id] {
-				shared = true
-				break
-			}
-		}
-		if !shared {
+		if !overlaps(parents, filters) {
 			continue
 		}
 		for _, p := range prim {
@@ -401,24 +381,12 @@ func assertsListItemKey(c *chain.Chain, stepID, key string) bool {
 	for _, e := range s.Expect {
 		segs := chain.SplitPath(e.Path)
 		for i := 1; i < len(segs); i++ {
-			if segs[i] == key && isIndex(segs[i-1]) {
+			if segs[i] == key && chain.IsDigits(segs[i-1]) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func isIndex(seg string) bool {
-	if seg == "" {
-		return false
-	}
-	for _, r := range seg {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func listsItemsKeyed(v any, key string) bool {

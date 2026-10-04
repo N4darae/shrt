@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
@@ -32,7 +33,7 @@ func (a attribution) bears(i int, path string) bool {
 
 func (a attribution) bearing(at int, path string) int {
 	from, _ := a.lastMatch(a.rec.Steps[at], path)
-	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
+	for _, i := range entityWrites(a.rec, at, path, a.bad, from) {
 		if a.bears(i, path) {
 			return i
 		}
@@ -84,12 +85,7 @@ func (a attribution) answeredAs(st *runner.StepRecord, path, want string, held b
 }
 
 func (a attribution) changedBetween(from, to int) bool {
-	for _, w := range a.rec.Steps[from+1 : to] {
-		if isWrite(w) && a.bad[w.ID] {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a.rec.Steps[from+1:to], func(w *runner.StepRecord) bool { return isWrite(w) && a.bad[w.ID] })
 }
 
 func (a attribution) listedFrom(step, path string) int {

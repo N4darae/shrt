@@ -210,7 +210,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			it.Length = pastEnd(st, ex.Path)
 			side.Items = append(side.Items, it)
 		}
-		if !found && st.Status != runner.StatusPassed && st.Error != "" && !pinnedStep(c, st.ID) {
+		if !found && st.Status != runner.StatusPassed && st.Error != "" && !slices.ContainsFunc(c.KeptRed, func(p chain.Pin) bool { return p.Step == st.ID }) {
 			why, _, _ := strings.Cut(st.Error, "\n")
 			side.Items = append(side.Items, a.item(gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)}))
 		}
@@ -501,12 +501,9 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			return true
 		},
 		reordered: func(step, path string) bool {
-			for _, c := range changes {
-				if c.Step == step && c.Kind == diff.KindOrder && (c.Path == path || strings.HasPrefix(path, c.Path+".")) {
-					return true
-				}
-			}
-			return false
+			return slices.ContainsFunc(changes, func(c diff.Change) bool {
+				return c.Step == step && c.Kind == diff.KindOrder && (c.Path == path || strings.HasPrefix(path, c.Path+"."))
+			})
 		},
 		changed: func(step string) []string {
 			var out []string
@@ -617,15 +614,6 @@ func (it gateItem) wantGot() string {
 	return chain.WantGot(it.Rule, it.Want, it.Got)
 }
 
-func pinnedStep(c *chain.Chain, step string) bool {
-	for _, p := range c.KeptRed {
-		if p.Step == step {
-			return true
-		}
-	}
-	return false
-}
-
 func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {
 	var items []gateItem
 	changed := map[string]bool{}
@@ -685,8 +673,6 @@ func latencyItems(flags []diff.LatencyFlag) []gateItem {
 	}
 	return out
 }
-
-var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
 
 func earlySidecar(e *env, rec *runner.Record) gateSidecar {
 	side := gateSidecar{Reads: sessionReads(e, rec), Errors: serverErrors(rec)}
@@ -761,12 +747,7 @@ func (g *gateChain) findingOnly() bool {
 }
 
 func (g *gateChain) flakyCalls() []string {
-	calls := make([]string, 0, len(g.flaky))
-	for c := range g.flaky {
-		calls = append(calls, c)
-	}
-	sort.Strings(calls)
-	return calls
+	return sortedKeys(g.flaky)
 }
 
 func (g *gateChain) flakyKindOf(call string) string {
@@ -1007,11 +988,7 @@ func runGate(ctx context.Context, args []string) error {
 			findings = append(findings, f)
 		}
 	}
-	profiles := []string{}
-	for p := range early {
-		profiles = append(profiles, p)
-	}
-	sort.Strings(profiles)
+	profiles := sortedKeys(early)
 	once, check := []string{}, []string{}
 	for _, p := range profiles {
 		if early[p] <= 1 && !*noSessionCheck {
@@ -1105,7 +1082,7 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	}
 	names := make([]string, 0, len(byName))
 	for n := range byName {
-		if len(only) == 0 || containsName(only, n) {
+		if len(only) == 0 || slices.Contains(only, n) {
 			names = append(names, n)
 		}
 	}
@@ -1153,7 +1130,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		g.errors[f.Call] = f
 	}
 	for _, n := range out.side.Notes {
-		if !containsName(g.notes, n) {
+		if !slices.Contains(g.notes, n) {
 			g.notes = append(g.notes, n)
 		}
 	}
@@ -1220,7 +1197,7 @@ func (g *gateChain) intermittentFirst() string {
 	if !ok {
 		return ""
 	}
-	if f, ok := g.flaky[it.Call]; ok && containsName(f.Steps, it.Step) {
+	if f, ok := g.flaky[it.Call]; ok && slices.Contains(f.Steps, it.Step) {
 		return g.flakyKindOf(it.Call)
 	}
 	return ""
@@ -1279,7 +1256,7 @@ func (g *gateChain) printChanges(e *env) {
 			paths = append(paths, path)
 			example[path] = eg
 		}
-		if !containsName(steps[path], it.Step) {
+		if !slices.Contains(steps[path], it.Step) {
 			steps[path] = append(steps[path], it.Step)
 		}
 	}
@@ -1379,7 +1356,7 @@ func settleGate(chains []*gateChain) []string {
 			if it.Pinned != "" {
 				r += 32
 			}
-			if fl, ok := g.flaky[it.Call]; !ok || !containsName(fl.Steps, it.Step) {
+			if fl, ok := g.flaky[it.Call]; !ok || !slices.Contains(fl.Steps, it.Step) {
 				r += 16
 			}
 			if it.from == "verify" && !verified {
@@ -1410,10 +1387,10 @@ func settleGate(chains []*gateChain) []string {
 			}
 			g.first += "; " + sameFault + first + " (" + named + ")"
 		case it.Reason.Kind != "":
-			g.first += "; " + it.Reason.inRow(&it)
+			g.first += "; " + it.Reason.in(said{row: true, head: &it})
 		}
 		if more {
-			g.first += "; also " + other.Reason.inRow(nil)
+			g.first += "; also " + other.Reason.in(said{row: true})
 		}
 		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
 			seen[it.root()] = g.name
@@ -1595,7 +1572,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			head += " " + gr.path
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
-		if r := it.Reason.inGroup(gr.rpc, it.Step); r != "" {
+		if r := it.Reason.in(said{step: it.Step, rpc: gr.rpc}); r != "" {
 			line += "; " + r
 		} else if it.Reason.Kind == "" {
 			path, eg := it.shown()

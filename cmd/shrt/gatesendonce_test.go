@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -29,15 +28,7 @@ func TestAChainWithASafeSpotIsSentOnceByTheGateAndFailsWithTheRunsHeadline(t *te
 	}))
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
-	ctx := context.Background()
-	captureStdout(t, func() {
-		for _, args := range [][]string{{"run", "cli-thing-flow", "-quiet"}, {"confirm", "cli-thing-flow", "-note", "baseline"},
-			{"confirm", "cli-thing-flow", "-approve", "-by", "alice@example.test"}} {
-			if err := commands[args[0]].run(ctx, args[1:]); err != nil {
-				t.Fatalf("%v: %v", args, err)
-			}
-		}
-	})
+	fixApprove(t, "cli-thing-flow")
 	mu.Lock()
 	creates, name = 0, "gadget"
 	mu.Unlock()

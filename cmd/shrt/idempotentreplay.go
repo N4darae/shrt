@@ -135,7 +135,7 @@ func sendsIdempotencyKey(st *runner.StepRecord) bool {
 		return false
 	}
 	found := false
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		if chain.IdempotencyKeyName(leafName(path)) {
 			found = true
 		}
@@ -206,7 +206,7 @@ func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay 
 	var a, b any
 	if json.Unmarshal(now.Request, &b) == nil && json.Unmarshal(was.Request, &a) == nil {
 		paths := []string{}
-		visitLeaves(b, "", func(path string) {
+		eachLeaf(b, "", func(path string, _ any) {
 			if chain.IdempotencyKeyName(leafName(path)) {
 				paths = append(paths, path)
 			}
@@ -224,12 +224,7 @@ func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay 
 			}
 		}
 	}
-	names := make([]string, 0, len(now.Headers))
-	for k := range now.Headers {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	for _, k := range sortedKeys(now.Headers) {
 		if !chain.IdempotencyKeyName(k) {
 			continue
 		}
@@ -262,17 +257,15 @@ func sameKey(step, field, was, now, template string) *idempotentReplay {
 }
 
 func sameIDAnswered(now, was *runner.StepRecord) (string, string) {
-	var a, b, req, prior any
+	var a, b any
 	if json.Unmarshal(was.Response, &a) != nil || json.Unmarshal(now.Response, &b) != nil {
 		return "", ""
 	}
-	_ = json.Unmarshal(now.Request, &req)
-	_ = json.Unmarshal(was.Request, &prior)
 	sent := map[string]bool{}
-	visitStrings(req, func(v string) { sent[v] = true })
-	visitStrings(prior, func(v string) { sent[v] = true })
+	visitStrings(decoded(now.Request), func(v string) { sent[v] = true })
+	visitStrings(decoded(was.Request), func(v string) { sent[v] = true })
 	paths := []string{}
-	visitLeaves(b, "", func(path string) {
+	eachLeaf(b, "", func(path string, _ any) {
 		if diff.IDNamedPath(path) {
 			paths = append(paths, path)
 		}

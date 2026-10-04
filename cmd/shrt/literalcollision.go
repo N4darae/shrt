@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -48,26 +49,8 @@ func (l *literalCollision) line() string {
 }
 
 func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literalCollision {
-	if c == nil || rec == nil || rec.DryRun {
-		return nil
-	}
-	var first *runner.StepRecord
-	index := -1
-	for i, st := range rec.Steps {
-		if st.Status == runner.StatusFailed || st.Status == runner.StatusError {
-			first, index = st, i
-			break
-		}
-	}
+	first, index, why, req := uniquenessRefusal(c, rec)
 	if first == nil {
-		return nil
-	}
-	why := stepRefusalText(first)
-	if why == "" || !uniquenessConflict.MatchString(why) {
-		return nil
-	}
-	var req any
-	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
 	}
 	if l := collisionWithinRun(e, c, rec, first, index, why, req); l != nil {
@@ -77,7 +60,7 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 	var byValue, byName []string
 	varBuilt, onlyGenerated := false, true
 	sent := map[string]string{}
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		v, ok := requestTemplate(c, first.ID, path)
 		if !ok {
 			return
@@ -154,18 +137,11 @@ func builtOnlyFromGenerators(text string) bool {
 }
 
 func leafName(path string) string {
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		return path[i+1:]
-	}
-	return path
+	return path[strings.LastIndex(path, ".")+1:]
 }
 
 func suggestedVar(c *chain.Chain) string {
-	names := []string{}
-	for n := range isolationVars(c) {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := sortedKeys(isolationVars(c))
 	for _, n := range names {
 		if n == "tag" {
 			return n
@@ -181,12 +157,7 @@ func quotesValue(why, value string) bool {
 	if len(value) >= 3 {
 		return strings.Contains(why, value)
 	}
-	for _, word := range strings.Fields(why) {
-		if strings.Trim(word, "\"'`()[]{}<>,;:.!?") == value {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(strings.Fields(why), func(word string) bool { return strings.Trim(word, "\"'`()[]{}<>,;:.!?") == value })
 }
 
 func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord, paths []string, sent map[string]string) []string {
@@ -240,7 +211,7 @@ func collisionWithinRun(e *env, c *chain.Chain, rec *runner.Record, first *runne
 	sent := map[string]string{}
 	var quoted, named, all []string
 	folded := foldName(why)
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		got, ok := chain.Get(req, path)
 		text, isText := got.(string)
 		if !ok || !isText || text == "" {
@@ -306,18 +277,10 @@ func allSame(paths []string, same func(string) bool) bool {
 }
 
 func referencesSentRequest(c *chain.Chain, step, path string) bool {
-	v, ok := requestTemplate(c, step, path)
-	text, isText := v.(string)
-	if !ok || !isText {
-		return false
-	}
-	for _, m := range requestRef.FindAllStringSubmatch(text, -1) {
-		r := chain.ParseRef(m[1])
-		if r.Kind == chain.RefStep && (r.Rest == "request" || strings.HasPrefix(r.Rest, "request.")) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(templateRefs(c, step, path), func(ref string) bool {
+		r := chain.ParseRef(ref)
+		return r.Kind == chain.RefStep && (r.Rest == "request" || strings.HasPrefix(r.Rest, "request."))
+	})
 }
 
 func repeatAcceptedBefore(e *env, rec *runner.Record, step, earlier, path string) bool {

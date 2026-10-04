@@ -91,24 +91,7 @@ func examineSessionLoss(e *env, rec *runner.Record) *sessionLoss {
 }
 
 func previousRunSending(e *env, rec *runner.Record, step string) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	var best *runner.Record
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
-			break
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) || !sent(prev, step) {
-			continue
-		}
-		if best == nil || ranBefore(best, prev) {
-			best = prev
-		}
-	}
-	return best
+	return previousRun(e, rec, true, func(prev *runner.Record) bool { return sent(prev, step) })
 }
 
 func ranBefore(a, b *runner.Record) bool {
@@ -172,20 +155,8 @@ func restartEvidence(rec *runner.Record, index int) string {
 		if st.Call == refused.Call && st.AuthProfile == refused.AuthProfile && answeredCleanly(st) {
 			return fmt.Sprintf("Step %s, the same rpc, was accepted after the fresh login, so the refusal did not persist", st.ID)
 		}
-		if prior := scan.shrunkList(st); prior != "" {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s lists fewer items than step %s did before the refusal)", st.ID, prior)
-		}
-		if scan.conflictVanished(st) {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s expected a refusal over a value created before it and was accepted)", st.ID)
-		}
-		why := stepRefusalText(st)
-		if why == "" || st.Status == runner.StatusPassed || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
-			continue
-		}
-		for _, value := range scan.createdValues(st) {
-			if strings.Contains(why, value) || notFound(why) {
-				return fmt.Sprintf("Data created before it was gone after the re-login (step %s: %s)", st.ID, why)
-			}
+		if gone := scan.goneAt(st); gone != "" {
+			return gone
 		}
 	}
 	return ""

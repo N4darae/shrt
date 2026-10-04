@@ -200,7 +200,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		if writePath != "" {
 			path = writePath
 		}
-		source := writePath != "" && sameSliceFile(path, c.SourcePath)
+		source := writePath != "" && sameFile(path, c.SourcePath)
 		if source {
 			res.Chain.Name = c.Name
 		}
@@ -280,7 +280,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		printSliceHeader(res)
 	}
 	printSlice(res, written, verdict, *verbose)
-	if written != "" && !sameSliceFile(written, c.SourcePath) && len(res.Chain.KeptRed) == 0 {
+	if written != "" && !sameFile(written, c.SourcePath) && len(res.Chain.KeptRed) == 0 {
 		fmt.Print(sweepNote(e, written))
 	}
 	if !write.set && !*verify {
@@ -356,12 +356,8 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, v
 		printSliceDetail(res)
 	}
 	if len(res.FreshVars) > 0 {
-		flags := make([]string, 0, len(res.FreshVars))
-		for _, name := range res.FreshVars {
-			flags = append(flags, "-var "+name+"=<fresh>")
-		}
 		fmt.Printf("\nkept writes create with %s, so each run needs a value this backend has not seen: %s\n",
-			strings.Join(res.FreshVars, ", "), strings.Join(flags, " "))
+			strings.Join(res.FreshVars, ", "), freshFlags(res.FreshVars))
 	}
 	if len(res.MissingVars) > 0 {
 		fmt.Printf("\nundeclared vars the kept steps read, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
@@ -398,12 +394,12 @@ func printSliceDetail(res *chain.SliceResult) {
 		if n := len(k.ID); n > idW {
 			idW = n
 		}
-		if n := len(shortCall(k.Call)); n > callW {
+		if n := len(shortRPC(k.Call)); n > callW {
 			callW = n
 		}
 	}
 	for _, k := range res.Kept {
-		fmt.Printf("  %4d  %-*s  %-*s  %s\n", k.Index, idW, k.ID, callW, shortCall(k.Call), k.Reason)
+		fmt.Printf("  %4d  %-*s  %-*s  %s\n", k.Index, idW, k.ID, callW, shortRPC(k.Call), k.Reason)
 	}
 	if len(res.FilledVars) > 0 {
 		fmt.Println("\nvars written into the slice:")
@@ -418,11 +414,11 @@ func printSliceDetail(res *chain.SliceResult) {
 	if len(res.DroppedWrites) > 0 {
 		fmt.Println("\ndropped write steps:")
 		for _, d := range res.DroppedWrites {
-			fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortCall(d.Call))
+			fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortRPC(d.Call))
 		}
 	}
 	for _, d := range res.RefusedWrites {
-		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted\n", d.Index, d.ID, shortCall(d.Call), d.Reason, res.Run)
+		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted\n", d.Index, d.ID, shortRPC(d.Call), d.Reason, res.Run)
 	}
 }
 
@@ -509,13 +505,6 @@ func slicePathAndName(value string) (string, string, error) {
 		return "", "", fmt.Errorf("-write %s: the file name must name the chain, as in -write .shrt/scratch/<name>.yaml", value)
 	}
 	return abs, name, nil
-}
-
-func shortCall(call string) string {
-	if i := strings.LastIndex(call, "."); i >= 0 {
-		return call[i+1:]
-	}
-	return call
 }
 
 func rpcOf(e *env) func(*chain.Step) string {
@@ -624,13 +613,11 @@ func sourceTargetDiffers(e *env, rec *runner.Record) string {
 
 func (v *sliceVerdict) text() string {
 	var b strings.Builder
-	head := map[string]string{
-		sliceReproduced:    "reproduced",
-		sliceNotReproduced: "NOT REPRODUCED",
-		sliceInconclusive:  "INCONCLUSIVE",
-		sliceDidNotRun:     "DID NOT RUN",
-		sliceIntermittent:  "intermittent: reproduced",
-	}[v.Outcome] + v.countLabel()
+	head := outcomeWord(v.Outcome)
+	if v.Outcome == sliceIntermittent {
+		head += ": reproduced"
+	}
+	head += v.countLabel()
 	slice := v.SliceRun
 	if slice == "" {
 		slice = "none"
@@ -933,12 +920,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 
 func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) string {
 	out := []string{}
-	names := make([]string, 0, len(replay.Vars))
-	for k := range replay.Vars {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	for _, k := range sortedKeys(replay.Vars) {
 		was, ok := source.Vars[k]
 		if !ok || fresh[k] || fmt.Sprint(was) == pathmask.MaskRedacted {
 			continue
@@ -1008,7 +990,7 @@ func stopsEarly(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, k
 		switch {
 		case sr.Status == runner.StatusSkipped:
 			out = append(out, k.ID+" (not sent)")
-		case (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID):
+		case failing(sr) && !relaxable(k.ID):
 			out = append(out, k.ID+" ("+sr.Status+")")
 		}
 	}
@@ -1038,21 +1020,14 @@ func streamedEnvelope(response any) string {
 }
 
 func verdictPath(sr *runner.StepRecord) string {
-	var response any
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
-	if streamedEnvelope(response) != "" {
+	if streamedEnvelope(decoded(sr.Response)) != "" {
 		return catalog.StreamMessages + "[]." + chain.EnvelopePath()
 	}
 	return chain.EnvelopePath()
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
-	var response any
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
+	response := decoded(sr.Response)
 	path := streamedEnvelope(response) + chain.EnvelopePath()
 	code := ""
 	if v, ok := chain.Get(response, path); ok {
@@ -1235,7 +1210,7 @@ func keepsEveryWriteCleanly(res *chain.SliceResult, rec *runner.Record, a sliceV
 		if k.ID == res.Target {
 			continue
 		}
-		if sr, ok := rec.Step(k.ID); ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(k.ID) {
+		if sr, ok := rec.Step(k.ID); ok && failing(sr) && !relaxable(k.ID) {
 			return false
 		}
 	}
@@ -1574,12 +1549,8 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 	if len(reused) == 0 {
 		return nil
 	}
-	flags := make([]string, 0, len(reused))
-	for _, name := range reused {
-		flags = append(flags, "-var "+name+"=<fresh>")
-	}
 	return fmt.Errorf("kept writes create with %s, which already exists (%s): pass %s, a value this backend has not seen",
-		strings.Join(reused, ", "), strings.Join(from, "; "), strings.Join(flags, " "))
+		strings.Join(reused, ", "), strings.Join(from, "; "), freshFlags(reused))
 }
 
 func recordVerdictIn(path string, record func(string) string) error {
@@ -1615,7 +1586,7 @@ func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 	relaxable := relaxableIn(rec)
 	for _, id := range ids {
 		sr, ok := rec.Step(id)
-		if ok && (sr.Status == runner.StatusFailed || sr.Status == runner.StatusError) && !relaxable(id) {
+		if ok && failing(sr) && !relaxable(id) {
 			blocked = append(blocked, id+" ("+sr.Status+")")
 			continue
 		}
@@ -1639,7 +1610,7 @@ func sliceDir(e *env, c *chain.Chain) string {
 	return dir
 }
 
-func sameSliceFile(a, b string) bool {
+func sameFile(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}

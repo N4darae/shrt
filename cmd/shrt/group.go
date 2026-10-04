@@ -1,13 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
 
 type subcommand struct {
 	name    string
+	alias   string
 	summary string
+	run     func(context.Context, []string) error
+}
+
+func noCtx(run func([]string) error) func(context.Context, []string) error {
+	return func(_ context.Context, args []string) error { return run(args) }
 }
 
 type group struct {
@@ -46,6 +53,22 @@ func (g group) printHelp() {
 	}
 	fmt.Println()
 	fmt.Printf("run 'shrt %s <subcommand> -h' for its flags\n", g.name)
+}
+
+func (g group) run(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return g.missing()
+	}
+	if isHelpArg(args[0]) {
+		g.printHelp()
+		return nil
+	}
+	for _, s := range g.subs {
+		if args[0] == s.name || s.alias != "" && args[0] == s.alias {
+			return s.run(ctx, args[1:])
+		}
+	}
+	return g.unknown(args[0])
 }
 
 func (g group) missing() error {

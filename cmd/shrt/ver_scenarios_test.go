@@ -291,7 +291,7 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, verTOK("id", body["id"], "name", name))
 			}, true)
-			verTApprove(t, "cli-thing-flow")
+			fixApprove(t, "cli-thing-flow")
 			v := []string{"verify", "cli-thing-flow", "-quiet"}
 			return []verTCheck{
 				{args: v, set: func() { name = 7; verTRebuild(t, false)() }, code: 3, has: []string{"shrt catalog build"}},
@@ -317,7 +317,7 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, out)
 			}, true, verTDriftIndependentChain)
-			verTApprove(t, "cli-drift-independent")
+			fixApprove(t, "cli-drift-independent")
 			return []verTCheck{{args: []string{"verify", "cli-drift-independent", "-quiet"}, set: func() { broken = true }, code: 1,
 				has: []string{"ERR: regression", "other name"}, not: []string{"ERR: regression: fetch_again"}}}
 		}},
@@ -340,7 +340,7 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, out)
 			}, true, verTSkippedWriteChain)
-			verTApprove(t, "cli-drift-skipped-write")
+			fixApprove(t, "cli-drift-skipped-write")
 			return []verTCheck{{args: []string{"verify", "cli-drift-skipped-write", "-quiet"}, set: func() { broken = true }, code: 3,
 				has: []string{"confirm"}, not: []string{"regression"}}}
 		}},
@@ -361,7 +361,7 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, verTOK("id", "thing-fixed", "name", name))
 			}, true, verTUnjudgedChain)
-			verTApprove(t, "cli-unjudged")
+			fixApprove(t, "cli-unjudged")
 			return []verTCheck{
 				{args: []string{"verify", "cli-unjudged", "-quiet"}, set: func() { drift = true }, code: 1,
 					has: []string{"[create] not_judged", "shrt catalog build", "[fetch_other] changed    name"}, not: []string{"[create] changed", "[create] status"}},
@@ -382,7 +382,7 @@ func TestVerifyScenarios(t *testing.T) {
 				next++
 				verTWrite(w, verTOK("id", "thing-"+itoa(next), "name", body["name"]))
 			}, false, verTThreeCreatesChain)
-			verTApprove(t, "cli-two")
+			fixApprove(t, "cli-two")
 			return []verTCheck{{args: []string{"verify", "cli-two", "-quiet"}, set: func() { down.Store(true) }, code: 3,
 				has: []string{"nothing after it got an answer"}, not: []string{"got an answer were compared"}}}
 		}},
@@ -390,12 +390,12 @@ func TestVerifyScenarios(t *testing.T) {
 			var drop, dropAll atomic.Bool
 			verTServe(t, func(w http.ResponseWriter, r *http.Request) {
 				if drop.Load() && (r.URL.Path == "/shrt.test.v1.ThingService/Fetch" || dropAll.Load()) {
-					verTHangUp(w)
+					hangUp(w)
 					return
 				}
 				verTWrite(w, verTOK("id", "thing-9", "name", "widget"))
 			}, false, dropChain)
-			verTApprove(t, "cli-drop")
+			fixApprove(t, "cli-drop")
 			v := []string{"verify", "cli-drop", "-quiet"}
 			return []verTCheck{
 				{args: v, set: func() { drop.Store(true) }, code: 3, not: []string{"FINDING"}},
@@ -408,13 +408,13 @@ func TestVerifyScenarios(t *testing.T) {
 			verTServe(t, func(w http.ResponseWriter, r *http.Request) {
 				body := verTBody(r)
 				if drop.Load() && body["id"] == "thing-9" {
-					verTHangUp(w)
+					hangUp(w)
 					return
 				}
 				verTWrite(w, verTOK("id", body["id"], "name", "widget"))
 			}, false, verTDropFirstChain, verTDropMiddleChain)
-			verTApprove(t, "cli-drop-twice")
-			verTApprove(t, "cli-drop-one")
+			fixApprove(t, "cli-drop-twice")
+			fixApprove(t, "cli-drop-one")
 			first, middle := []string{"verify", "cli-drop-twice", "-quiet"}, []string{"verify", "cli-drop-one", "-quiet"}
 			return []verTCheck{
 				{args: first, set: func() { drop.Store(true) }, code: 3, has: []string{"looks intermittent"}, not: []string{"FINDING"}},
@@ -442,22 +442,22 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, verTOK("id", id, "name", "widget"))
 			}, false, verTRewiredChain)
-			verTApprove(t, "cli-rewired")
-			verTApprove(t, "cli-thing-flow")
+			fixApprove(t, "cli-rewired")
+			fixApprove(t, "cli-thing-flow")
 			added := "          - path: name\n            equals: widget\n          - path: id\n            not_empty: true\n"
 			v := []string{"verify", "cli-thing-flow", "-quiet", "-save=false"}
 			return []verTCheck{
 				{args: []string{"verify", "cli-rewired", "-quiet"}, set: verTEdit(t, ".shrt/chains/cli-rewired.yaml", "${create_a.id}", "${create_b.id}"), code: 1,
 					has: []string{"chain differs from the confirmed run at fetch body.id (${create_a.id} -> ${create_b.id})", "ERR: drift after a chain change"},
 					then: func(t *testing.T, _ string) {
-						if !strings.Contains(string(verTRead(t, ".shrt/safespots/cli-rewired.json")), `"body_refs"`) {
+						if !strings.Contains(string(mustRead(t, ".shrt/safespots/cli-rewired.json")), `"body_refs"`) {
 							t.Error("the safe spot keeps the body references it was built from")
 						}
 					}},
 				{args: v, set: verTEdit(t, thing, "          - path: name\n            equals: widget\n", added), code: 0,
 					has: []string{"chain differs from the confirmed run at fetch expect", "the chain changed since it was confirmed"}, not: []string{"input changed"}},
 				{args: v, set: func() {
-					raw := string(verTRead(t, thing))
+					raw := string(mustRead(t, thing))
 					cut := strings.LastIndex(raw, "not_empty: true")
 					writeFile(t, thing, raw[:cut]+"equals: nope"+raw[cut+len("not_empty: true"):])
 				}, code: 1, has: []string{"ERR: drift after a chain change"}, not: []string{"input changed"}},
@@ -470,7 +470,7 @@ func TestVerifyScenarios(t *testing.T) {
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
 			writeFile(t, ".shrt/chains/cli-fixture-flow.yaml", verTFixtureChain)
-			verTApprove(t, "cli-fixture-flow")
+			fixApprove(t, "cli-fixture-flow")
 			v := func(args ...string) []string {
 				return append([]string{"verify", "cli-fixture-flow", "-quiet"}, args...)
 			}
@@ -510,13 +510,13 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, map[string]any{"error": map[string]any{"code": "NOT_FOUND", "message": "no thing " + body["id"].(string)}})
 			}, false, verTGeneratedChain)
-			verTApprove(t, "cli-generated")
+			fixApprove(t, "cli-generated")
 			v := []string{"verify", "cli-generated", "-quiet"}
 			return []verTCheck{
 				{args: v, code: 0, has: []string{"no drift"}},
 				{args: v, set: func() {
 					spot := &store.SafeSpot{}
-					if err := json.Unmarshal(verTRead(t, ".shrt/safespots/cli-generated.json"), spot); err != nil {
+					if err := json.Unmarshal(mustRead(t, ".shrt/safespots/cli-generated.json"), spot); err != nil {
 						t.Fatal(err)
 					}
 					var resp map[string]any
@@ -546,14 +546,14 @@ func TestVerifyScenarios(t *testing.T) {
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
 			writeFile(t, ".shrt/chains/cli-var-flow.yaml", verTVarChain)
-			verTApprove(t, "cli-var-flow")
+			fixApprove(t, "cli-var-flow")
 			bad := []string{"its input changed since it was confirmed", "Restore the chain's input"}
 			return []verTCheck{
 				{args: []string{"verify", "cli-var-flow", "-quiet", "-var", "label=gadget"}, code: 1, has: []string{"label=gadget"}, not: bad},
 				{argsFn: func() []string {
 					entries, _ := os.ReadDir(".shrt/runs/cli-var-flow")
 					for _, e := range entries {
-						if strings.Contains(string(verTRead(t, ".shrt/runs/cli-var-flow/"+e.Name())), `"label": "gadget"`) {
+						if strings.Contains(string(mustRead(t, ".shrt/runs/cli-var-flow/"+e.Name())), `"label": "gadget"`) {
 							return []string{"verify", "cli-var-flow", "-quiet", "-run", strings.TrimSuffix(e.Name(), ".json")}
 						}
 					}
@@ -567,7 +567,7 @@ func TestVerifyScenarios(t *testing.T) {
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
 			writeFile(t, ".shrt/chains/cli-var-flow.yaml", verTVarChain)
-			verTApprove(t, "cli-var-flow", "-var", "label=k-b1")
+			fixApprove(t, "cli-var-flow", "-var", "label=k-b1")
 			return []verTCheck{{args: []string{"verify", "cli-var-flow", "-quiet"}, code: 1,
 				has: []string{"label=widget, confirmed with k-b1", "-var label=k-b1"},
 				not: []string{"its input changed since it was confirmed", "Restore the chain's input", "the chain file changed"}}}
@@ -587,7 +587,7 @@ func TestVerifyScenarios(t *testing.T) {
 					verTWrite(w, verTOK("id", "thing-"+itoa(next)))
 				}
 			}, false, verTDupMidChain)
-			verTApprove(t, "cli-dupmid")
+			fixApprove(t, "cli-dupmid")
 			noEcho := func(t *testing.T, out string) {
 				if listed, _, _ := strings.Cut(out, "values echoing a fixture name, not compared:"); strings.Contains(listed, "error.message") {
 					t.Errorf("the refusal message only echoes the fixture name:\n%s", out)
@@ -612,7 +612,7 @@ func TestVerifyScenarios(t *testing.T) {
 				}
 				verTWrite(w, out)
 			}, false)
-			verTApprove(t, "cli-thing-flow")
+			fixApprove(t, "cli-thing-flow")
 			return []verTCheck{{args: []string{"verify", "cli-thing-flow", "-quiet"}, set: func() { extra.Store(true) }, code: 0, has: []string{"warning", "tier"}}}
 		}},
 		{"a latency regression warns and fails only when configured", func(t *testing.T) []verTCheck {
@@ -620,8 +620,8 @@ func TestVerifyScenarios(t *testing.T) {
 			srv := newSlowFetchBackend(&delay)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
-			verTApprove(t, "cli-thing-flow")
-			cfg := string(verTRead(t, ".shrt/config.yaml"))
+			fixApprove(t, "cli-thing-flow")
+			cfg := string(mustRead(t, ".shrt/config.yaml"))
 			v := []string{"verify", "cli-thing-flow", "-quiet"}
 			return []verTCheck{
 				{args: append(v, "-latency"), set: func() { writeFile(t, ".shrt/config.yaml", cfg+"latency:\n    floor_ms: 100\n"); delay.Store(150) }, code: 0,
@@ -633,7 +633,7 @@ func TestVerifyScenarios(t *testing.T) {
 		{"verify refuses what the approval does not cover", func(t *testing.T) []verTCheck {
 			approvedThingFlow(t)
 			const spot = ".shrt/safespots/cli-thing-flow.json"
-			orig := string(verTRead(t, spot))
+			orig := string(mustRead(t, spot))
 			restore := func() { writeFile(t, spot, orig) }
 			v := []string{"verify", "cli-thing-flow", "-quiet", "-save=false"}
 			return []verTCheck{
@@ -711,7 +711,7 @@ func TestVerifyScenarios(t *testing.T) {
 			}
 			const path = ".shrt/safespots/cli-thing-flow.json"
 			spot := map[string]any{}
-			if err := json.Unmarshal(verTRead(t, path), &spot); err != nil {
+			if err := json.Unmarshal(mustRead(t, path), &spot); err != nil {
 				t.Fatal(err)
 			}
 			for _, s := range spot["steps"].([]any) {

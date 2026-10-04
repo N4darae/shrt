@@ -1,8 +1,8 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -20,10 +20,7 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 	if run == nil || target == nil {
 		return nil
 	}
-	var body any
-	if len(target.Response) > 0 {
-		_ = json.Unmarshal(target.Response, &body)
-	}
+	body := decoded(target.Response)
 	candidates := []outsideValue{}
 	seen := map[string]bool{}
 	addCandidate := func(path string, v any) {
@@ -73,14 +70,7 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 	}
 	out := []string{}
 	for _, c := range candidates {
-		found := false
-		for _, text := range others {
-			if strings.Contains(text, c.value) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.ContainsFunc(others, func(text string) bool { return strings.Contains(text, c.value) }) {
 			out = append(out, fmt.Sprintf("%s %s", c.path, c.value))
 		}
 	}
@@ -90,23 +80,11 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 func listItemPrefix(path string) string {
 	segs := strings.Split(path, ".")
 	for i := len(segs) - 1; i > 0; i-- {
-		if digitsOnly(segs[i]) {
+		if chain.IsDigits(segs[i]) {
 			return strings.Join(segs[:i+1], ".")
 		}
 	}
 	return ""
-}
-
-func digitsOnly(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func lookupPath(v any, path string) any {
@@ -115,7 +93,7 @@ func lookupPath(v any, path string) any {
 		case map[string]any:
 			v = t[seg]
 		case []any:
-			if !digitsOnly(seg) {
+			if !chain.IsDigits(seg) {
 				return nil
 			}
 			i := 0

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -62,15 +63,9 @@ func isWrite(st *runner.StepRecord) bool {
 }
 
 func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, from int) (int, bool) {
-	at, pos := -1, map[string]int{}
+	at := -1
 	for i, st := range rec.Steps {
-		if st == nil {
-			continue
-		}
-		if _, seen := pos[st.ID]; !seen {
-			pos[st.ID] = i
-		}
-		if st.ID == step {
+		if st != nil && st.ID == step {
 			at = i
 		}
 	}
@@ -78,7 +73,7 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, fr
 		return -1, false
 	}
 	nearest, nearestBad := -1, -1
-	for _, i := range entityWrites(rec, at, path, bad, pos, from) {
+	for _, i := range entityWrites(rec, at, path, bad, from) {
 		if nearest < 0 {
 			nearest = i
 		}
@@ -100,8 +95,8 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, fr
 	return -1, false
 }
 
-func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int, from int) []int {
-	reach := refReach(rec, pos)
+func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, from int) []int {
+	reach := refReach(rec)
 	entities := stepRefs(rec, at)
 	for _, id := range itemIDs(rec.Steps[at], path) {
 		if src := producer(rec, at, id); src != "" {
@@ -169,10 +164,8 @@ func inert(rec *runner.Record, i int, bad map[string]bool) bool {
 			if o == nil || o.Call != w.Call || refusalOf(o) != "" {
 				continue
 			}
-			for ref := range stepRefs(rec, j) {
-				if refs[ref] {
-					return true
-				}
+			if overlaps(stepRefs(rec, j), refs) {
+				return true
 			}
 		}
 	}
@@ -215,7 +208,8 @@ func sameIDs(a, b json.RawMessage) bool {
 	return found
 }
 
-func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool {
+func refReach(rec *runner.Record) func(int) map[string]bool {
+	pos := positions(rec)
 	closure := map[int]map[string]bool{}
 	var reach func(i int) map[string]bool
 	reach = func(i int) map[string]bool {
@@ -405,7 +399,7 @@ func (a attribution) asBefore(at int, path string, w int) reason {
 	st := a.rec.Steps[at]
 	from, _ := a.lastMatch(st, path)
 	var ws []reason
-	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
+	for _, i := range entityWrites(a.rec, at, path, a.bad, from) {
 		if a.answers(a.rec.Steps[i], st, path) {
 			break
 		}
@@ -434,9 +428,7 @@ func (a attribution) moves(i int, path string) bool {
 }
 
 func (a attribution) seenIn(i int, state string) bool {
-	var req map[string]any
-	_ = json.Unmarshal(a.rec.Steps[i].Request, &req)
-	ids, found := idsOf(req), false
+	ids, found := idsOf(decoded(a.rec.Steps[i].Request)), false
 	for _, st := range a.rec.Steps[:i] {
 		var body any
 		if st == nil || json.Unmarshal(st.Response, &body) != nil {
@@ -541,7 +533,7 @@ func (a attribution) writeChangedBefore(step string) bool {
 
 func (a attribution) writeRefusedBefore(step string) bool {
 	at := a.index(step)
-	reach := refReach(a.rec, positions(a.rec))
+	reach := refReach(a.rec)
 	for i, st := range a.rec.Steps {
 		if st == nil || st.ID == step {
 			return false
@@ -630,12 +622,10 @@ func (a attribution) explains(wi int, st *runner.StepRecord, path string) bool {
 	if !ok {
 		return false
 	}
-	for _, p := range a.changed(w.ID) {
-		if v, ok := chain.Get(wb, p); ok && compactValue(v) == compactValue(rv) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a.changed(w.ID), func(p string) bool {
+		v, ok := chain.Get(wb, p)
+		return ok && compactValue(v) == compactValue(rv)
+	})
 }
 
 func number(v any) (float64, bool) {
@@ -699,6 +689,12 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func keysOfBoth[V any](a, b map[string]V) []string {
+	keys := append(slices.Collect(maps.Keys(a)), slices.Collect(maps.Keys(b))...)
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 func (a attribution) inputsBefore(at int) map[string]map[string]input {
@@ -801,10 +797,9 @@ func (a attribution) afterFailedWrite(step, path string) int {
 			leaf = seg
 		}
 	}
-	pos := positions(a.rec)
-	touched := refReach(a.rec, pos)(at)
+	touched := refReach(a.rec)(at)
 	for i, w := range a.rec.Steps[:at] {
-		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || (w.Status != runner.StatusFailed && w.Status != runner.StatusError) {
+		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || !failing(w) {
 			continue
 		}
 		same := false
@@ -846,10 +841,8 @@ func (a attribution) earlier(step, path string) (int, string) {
 	if !ok {
 		return -1, ""
 	}
-	var body any
-	_ = json.Unmarshal(st.Response, &body)
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	body := decoded(st.Response)
+	reach := refReach(a.rec)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
 		if w == nil || isWrite(st) && isWrite(w) && !related(reach, at, i, w.ID) {
@@ -859,14 +852,13 @@ func (a attribution) earlier(step, path string) (int, string) {
 		if err != nil {
 			continue
 		}
-		var wb any
-		_ = json.Unmarshal(w.Response, &wb)
+		wb := decoded(w.Response)
 		for _, p := range a.changed(w.ID) {
 			c, ok := carrierOf(wm, p)
 			if !ok || !sameEntity(body, path, wb, p) {
 				continue
 			}
-			if c == want || isWrite(w) && fieldOf(c) == fieldOf(want) && related(reach, at, i, w.ID) {
+			if c == want || isWrite(w) && leafName(c) == leafName(want) && related(reach, at, i, w.ID) {
 				return i, p
 			}
 		}
@@ -894,8 +886,7 @@ func (a attribution) upstream(step string) int {
 	if at < 0 || a.changed == nil {
 		return -1
 	}
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	reach := refReach(a.rec)
 	uses := func(call, path string) bool {
 		eff := a.e.effectsOf(call)[leafOf(path)]
 		return eff != nil && eff.Is != contract.EffectNone
@@ -932,8 +923,7 @@ func (a attribution) changedWriteBefore(step string) int {
 	if at < 0 || a.changed == nil {
 		return -1
 	}
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	reach := refReach(a.rec)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
 		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) || !a.reaches(i, at) {
@@ -954,12 +944,10 @@ func (a attribution) reaches(i, at int) bool {
 	if c == nil {
 		return true
 	}
-	if m, err := a.e.cat.Lookup(w.Call); err == nil && containsName(c.Needs, m.FullName) {
+	if m, err := a.e.cat.Lookup(w.Call); err == nil && slices.Contains(c.Needs, m.FullName) {
 		return true
 	}
-	var wb, req any
-	_ = json.Unmarshal(w.Response, &wb)
-	_ = json.Unmarshal(st.Request, &req)
+	wb, req := decoded(w.Response), decoded(st.Request)
 	sent := map[string]bool{}
 	eachLeaf(req, "", func(p string, v any) {
 		sent[compactValue(v)] = sent[compactValue(v)] || p != "" && !diff.IDNamedPath(leafOf(p))
@@ -983,7 +971,7 @@ func (a attribution) sameRecordWriteBefore(step string) int {
 	call := a.rec.Steps[at].Call
 	for i := at - 1; i >= 0; i-- {
 		w := a.rec.Steps[i]
-		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && (w.Call != call || !sharesField(fields, leafFields(a.changed(w.ID)))) {
+		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && (w.Call != call || !overlaps(fields, leafFields(a.changed(w.ID)))) {
 			continue
 		}
 		for ref := range stepRefs(a.rec, i) {
@@ -1011,15 +999,10 @@ func leafFields(paths []string) map[string]bool {
 }
 
 func verdictMoved(paths []string) bool {
-	for _, p := range paths {
-		if envelopeOnly(p) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(paths, envelopeOnly)
 }
 
-func sharesField(a, b map[string]bool) bool {
+func overlaps(a, b map[string]bool) bool {
 	for f := range a {
 		if b[f] {
 			return true
@@ -1028,21 +1011,9 @@ func sharesField(a, b map[string]bool) bool {
 	return false
 }
 
-func fieldOf(carrier string) string {
-	return carrier[strings.LastIndex(carrier, ".")+1:]
-}
-
 func related(reach func(int) map[string]bool, at, i int, id string) bool {
 	touched := reach(at)
-	if touched[id] {
-		return true
-	}
-	for ref := range reach(i) {
-		if touched[ref] {
-			return true
-		}
-	}
-	return false
+	return touched[id] || overlaps(reach(i), touched)
 }
 
 func heldBackBy(st *runner.StepRecord) (string, string) {
@@ -1104,7 +1075,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 			return
 		}
 		c, ok := carrierOf(wm, p)
-		if !ok || envelopeOnly(p) || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
+		if !ok || envelopeOnly(p) || c != want && !(agreed && leafName(c) == leafName(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/runner"
@@ -79,12 +80,7 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 }
 
 func refusedEarly(st *runner.StepRecord) bool {
-	for _, r := range st.TokenRefused {
-		if r.Early() && !(r.FirstUse && !r.Cached) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.TokenRefused, func(r transport.TokenRefusal) bool { return r.Early() && !(r.FirstUse && !r.Cached) })
 }
 
 func firstInRun(all []earlyRefusal) *earlyRefusal {
@@ -97,24 +93,7 @@ func firstInRun(all []earlyRefusal) *earlyRefusal {
 }
 
 func previousRecord(e *env, rec *runner.Record) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	var best *runner.Record
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
-			break
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) {
-			continue
-		}
-		if best == nil || ranBefore(best, prev) {
-			best = prev
-		}
-	}
-	return best
+	return previousRun(e, rec, false, nil)
 }
 
 func sessionRestartEvidence(rec *runner.Record, index int) string {
@@ -134,20 +113,8 @@ func sessionRestartEvidence(rec *runner.Record, index int) string {
 		if unansweredCall(st) {
 			return fmt.Sprintf("Step %s after it got no answer from the service", st.ID)
 		}
-		if prior := scan.shrunkList(st); prior != "" {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s lists fewer items than step %s did before the refusal)", st.ID, prior)
-		}
-		if scan.conflictVanished(st) {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s expected a refusal over a value created before it and was accepted)", st.ID)
-		}
-		why := stepRefusalText(st)
-		if why == "" || st.Status == runner.StatusPassed || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
-			continue
-		}
-		for _, value := range scan.createdValues(st) {
-			if strings.Contains(why, value) || notFound(why) {
-				return fmt.Sprintf("Data created before it was gone after the re-login (step %s: %s)", st.ID, why)
-			}
+		if gone := scan.goneAt(st); gone != "" {
+			return gone
 		}
 	}
 	return ""

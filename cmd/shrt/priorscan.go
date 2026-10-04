@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -152,16 +153,32 @@ func (s *priorScan) shrunkList(st *runner.StepRecord) string {
 	return g.ids[best]
 }
 
+func (s *priorScan) goneAt(st *runner.StepRecord) string {
+	if prior := s.shrunkList(st); prior != "" {
+		return fmt.Sprintf("Data created before it was gone after the re-login (step %s lists fewer items than step %s did before the refusal)", st.ID, prior)
+	}
+	if s.conflictVanished(st) {
+		return fmt.Sprintf("Data created before it was gone after the re-login (step %s expected a refusal over a value created before it and was accepted)", st.ID)
+	}
+	why := stepRefusalText(st)
+	if why == "" || st.Status == runner.StatusPassed || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
+		return ""
+	}
+	for _, value := range s.createdValues(st) {
+		if strings.Contains(why, value) || notFound(why) {
+			return fmt.Sprintf("Data created before it was gone after the re-login (step %s: %s)", st.ID, why)
+		}
+	}
+	return ""
+}
+
 func (s *priorScan) conflictVanished(st *runner.StepRecord) bool {
 	if !answeredCleanly(st) || st.Status != runner.StatusFailed || !s.readsBefore(st) {
 		return false
 	}
-	for _, e := range st.Expect {
-		if !e.Passed && e.Path == chain.EnvelopePath() && e.Want != nil && fmt.Sprint(e.Want) != chain.EnvelopeOK() {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.ExpectResult) bool {
+		return !e.Passed && e.Path == chain.EnvelopePath() && e.Want != nil && fmt.Sprint(e.Want) != chain.EnvelopeOK()
+	})
 }
 
 func (s *priorScan) readsBefore(st *runner.StepRecord) bool {

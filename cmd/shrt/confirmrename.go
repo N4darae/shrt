@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -126,24 +126,11 @@ func renameDifference(e *env, spot *store.SafeSpot, c *chain.Chain, from string)
 }
 
 func volatileDiffers(recorded, now []string) string {
-	a, b := sortedSet(recorded), sortedSet(now)
-	if reflect.DeepEqual(a, b) {
+	a, b := slices.Compact(slices.Sorted(slices.Values(recorded))), slices.Compact(slices.Sorted(slices.Values(now)))
+	if slices.Equal(a, b) {
 		return ""
 	}
 	return fmt.Sprintf("paths differ: recorded [%s], now [%s]", strings.Join(a, ", "), strings.Join(b, ", "))
-}
-
-func sortedSet(items []string) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, it := range items {
-		if !seen[it] {
-			seen[it] = true
-			out = append(out, it)
-		}
-	}
-	sort.Strings(out)
-	return out
 }
 
 func stepDiffers(st *runner.StepRecord, s *chain.Step, c *chain.Chain, isDefault func(procedure, path string, v any) bool) string {
@@ -186,21 +173,8 @@ func stepDiffers(st *runner.StepRecord, s *chain.Step, c *chain.Chain, isDefault
 	}
 	wanted := map[string]bool{}
 	var why string
-	var walk func(v any, path string)
-	walk = func(v any, path string) {
+	eachLeaf(s.Body, "", func(path string, v any) {
 		if why != "" {
-			return
-		}
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				walk(x, pathmask.Join(path, k))
-			}
-			return
-		case []any:
-			for i, x := range t {
-				walk(x, pathmask.Join(path, pathmask.IndexKey(i)))
-			}
 			return
 		}
 		wanted[path] = true
@@ -216,33 +190,15 @@ func stepDiffers(st *runner.StepRecord, s *chain.Step, c *chain.Chain, isDefault
 		case !templateMatches(text, fmt.Sprint(got)):
 			why = fmt.Sprintf("body %s %q does not produce the recorded %q", path, text, fmt.Sprint(got))
 		}
-	}
-	walk(s.Body, "")
+	})
 	if why != "" {
 		return why
 	}
-	var extra func(v any, path string)
-	extra = func(v any, path string) {
-		if why != "" {
-			return
-		}
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				extra(x, pathmask.Join(path, k))
-			}
-			return
-		case []any:
-			for i, x := range t {
-				extra(x, pathmask.Join(path, pathmask.IndexKey(i)))
-			}
-			return
-		}
-		if path != "" && !wanted[path] && !chainSetsBelow(wanted, path) {
+	eachLeaf(sent, "", func(path string, _ any) {
+		if why == "" && path != "" && !wanted[path] && !chainSetsBelow(wanted, path) {
 			why = "body " + path + " was sent by the confirmed run and the chain no longer sets it"
 		}
-	}
-	extra(sent, "")
+	})
 	return why
 }
 
@@ -324,12 +280,9 @@ func chainFileDiffers(old, now *chain.Chain) string {
 	a, b := *old, *now
 	a.Name, b.Name = "", ""
 	a.SourcePath, b.SourcePath = "", ""
-	var x, y any
 	ra, _ := json.Marshal(a)
 	rb, _ := json.Marshal(b)
-	_ = json.Unmarshal(ra, &x)
-	_ = json.Unmarshal(rb, &y)
-	return firstJSONDifference(x, y, "")
+	return firstJSONDifference(decoded(ra), decoded(rb), "")
 }
 
 func firstJSONDifference(a, b any, path string) string {
@@ -339,17 +292,7 @@ func firstJSONDifference(a, b any, path string) string {
 		if !ok {
 			return orRoot(path)
 		}
-		keys := []string{}
-		for k := range x {
-			keys = append(keys, k)
-		}
-		for k := range y {
-			if _, seen := x[k]; !seen {
-				keys = append(keys, k)
-			}
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range keysOfBoth(x, y) {
 			if d := firstJSONDifference(x[k], y[k], pathmask.Join(path, k)); d != "" {
 				return d
 			}

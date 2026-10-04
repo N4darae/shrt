@@ -75,14 +75,7 @@ func fieldReadsOf(cat *catalog.Catalog, lib *contract.Library, res *chain.SliceR
 		if !ok || recordIndex(rec, readerID) < at {
 			continue
 		}
-		mentions := entityFactsOf(rec, readerID).mentions
-		touches := false
-		for id := range facts.acts {
-			if mentions[id] {
-				touches = true
-			}
-		}
-		if !touches {
+		if !overlaps(facts.acts, entityFactsOf(rec, readerID).mentions) {
 			continue
 		}
 		km, err := cat.Lookup(ks.Call)
@@ -93,10 +86,8 @@ func fieldReadsOf(cat *catalog.Catalog, lib *contract.Library, res *chain.SliceR
 		names := map[string]bool{}
 		messageFieldNames(catalog.DescribeMessage(km.Input()).Fields, names)
 		messageFieldNames(catalog.DescribeMessage(km.Output()).Fields, names)
-		for f := range changed {
-			if names[f] {
-				return true
-			}
+		if overlaps(changed, names) {
+			return true
 		}
 		rc, has := lib.Get(km.FullName)
 		if !has {

@@ -29,7 +29,7 @@ func TestRunSavesAStampedRecordAndADryRunSendsNothing(t *testing.T) {
 				t.Fatalf("want one saved run record: %v", err)
 			}
 			var rec map[string]any
-			if err := json.Unmarshal(verTRead(t, filepath.Join(".shrt/runs/cli-thing-flow", entries[0].Name())), &rec); err != nil {
+			if err := json.Unmarshal(mustRead(t, filepath.Join(".shrt/runs/cli-thing-flow", entries[0].Name())), &rec); err != nil {
 				t.Fatal(err)
 			}
 			if rec["status"] != "passed" || rec["build"] != "rc-2" {
@@ -114,7 +114,7 @@ func TestCLIConfirmProposesAndOnlyAPersonApproves(t *testing.T) {
 		{args: c("-note", "fetch returns the created name"), code: 0, has: []string{"NOT a safe spot yet", "-approve -by <their email>", "2 steps calling"},
 			not: []string{"| # | step |"}, then: func(t *testing.T, _ string) {
 				exists(spot, false)(t, "")
-				report := string(verTRead(t, pending+".md"))
+				report := string(mustRead(t, pending+".md"))
 				for _, want := range []string{"fetch returns the created name", "## Steps", "shrt confirm cli-thing-flow -approve", "| # | step | sent | asserted, all held | backend answered |"} {
 					if !strings.Contains(report, want) {
 						t.Errorf("report lacks %q:\n%s", want, report)

@@ -140,7 +140,7 @@ func producedBy(text string, rec *runner.Record, c *chain.Chain, step string) st
 func failedSteps(rec *runner.Record) []string {
 	out := []string{}
 	for _, s := range rec.Steps {
-		if s.Status == runner.StatusFailed || s.Status == runner.StatusError {
+		if failing(s) {
 			out = append(out, s.ID)
 		}
 	}
@@ -190,7 +190,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 	}
 	for _, id := range drop {
 		if id != "failed" {
-			if !containsStr(ids, id) {
+			if !slices.Contains(ids, id) {
 				ids = append(ids, id)
 			}
 			continue
@@ -204,7 +204,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 			return fmt.Errorf("run %s of %s has no failed step: -without failed leaves nothing out", rec.RunID, c.Name)
 		}
 		for _, f := range failed {
-			if _, ok := c.Step(f); ok && !containsStr(ids, f) {
+			if _, ok := c.Step(f); ok && !slices.Contains(ids, f) {
 				ids = append(ids, f)
 			}
 		}
@@ -219,7 +219,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		if writePath != "" {
 			path = writePath
 		}
-		source := sameSliceFile(path, c.SourcePath)
+		source := sameFile(path, c.SourcePath)
 		if source {
 			res.Chain.Name = c.Name
 		}
@@ -301,15 +301,6 @@ func writeWithout(path string, source bool, res *chain.WithoutResult) error {
 	return writeSliceFile(path, res.Chain)
 }
 
-func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 type sliceKeptRed struct {
 	on      bool
 	steps   []string
@@ -323,7 +314,7 @@ func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([
 		if k.ID == res.Target {
 			continue
 		}
-		if containsStr(named, k.ID) {
+		if slices.Contains(named, k.ID) {
 			pins, err := failurePins(res.Chain, rec, k.ID)
 			if err != nil {
 				return nil, fmt.Errorf("pin %s: %w", k.ID, err)
@@ -423,11 +414,8 @@ func checkpointFor(c *chain.Chain, rec *runner.Record, kept map[string]bool, at 
 			if !kept[w.ID] || chain.IsReadOnlyCall(w.Call) {
 				continue
 			}
-			for id := range entityFactsWith(rec, w.ID, true).acts {
-				if records[id] {
-					writes = append(writes, w.ID)
-					break
-				}
+			if overlaps(entityFactsWith(rec, w.ID, true).acts, records) {
+				writes = append(writes, w.ID)
 			}
 		}
 		if len(writes) == 0 {

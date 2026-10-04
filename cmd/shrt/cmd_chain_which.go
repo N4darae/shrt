@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -158,10 +157,7 @@ func runObservations(e *env) func(string) []chain.Observation {
 }
 
 func observedResponse(s *runner.StepRecord) any {
-	var response any
-	if len(s.Response) > 0 {
-		_ = json.Unmarshal(s.Response, &response)
-	}
+	response := decoded(s.Response)
 	if s.HTTPStatus == 0 && s.Transport == nil {
 		return response
 	}
@@ -217,7 +213,10 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 		if err != nil || len(kept.Kept) <= len(plain.Kept) {
 			continue
 		}
-		closure := "shrt chain slice " + c.Name + " -step " + h.Best + freshVarFlags(plain.FreshVars)
+		closure := "shrt chain slice " + c.Name + " -step " + h.Best
+		if len(plain.FreshVars) > 0 {
+			closure += " " + freshFlags(slices.Sorted(slices.Values(plain.FreshVars)))
+		}
 		if related, _ := relatedDroppedWrites(plain, rec); len(related) > 0 {
 			h.CommandSteps = len(kept.Kept)
 			continue
@@ -227,14 +226,12 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 	}
 }
 
-func freshVarFlags(fresh []string) string {
-	names := append([]string{}, fresh...)
-	sort.Strings(names)
-	out := ""
+func freshFlags(names []string) string {
+	flags := make([]string, 0, len(names))
 	for _, name := range names {
-		out += " -var " + name + "=<fresh>"
+		flags = append(flags, "-var "+name+"=<fresh>")
 	}
-	return out
+	return strings.Join(flags, " ")
 }
 
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string) []string {
@@ -289,19 +286,15 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 			if m.Kind == chain.WhichKindAuthProbe {
 				line += "  auth probe"
 			}
+			fmt.Println(line)
+			if m.ByReason != "" {
+				fmt.Printf("    %s\n", byReasonNote(m, q))
+			}
 			if m.Observed == nil {
-				fmt.Println(line)
-				if m.ByReason != "" {
-					fmt.Printf("    %s\n", byReasonNote(m, q))
-				}
 				if m.Newest != nil {
 					fmt.Printf("    no local run reached it; newest run %s: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 				}
 				continue
-			}
-			fmt.Println(line)
-			if m.ByReason != "" {
-				fmt.Printf("    %s\n", byReasonNote(m, q))
 			}
 			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
 			for _, f := range m.Observed.Failures {
@@ -463,7 +456,7 @@ func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichU
 			status = strings.ToUpper(status)
 		}
 		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n",
-			s.Chain, s.Index, s.Step, shortCall(s.Call), s.Run, s.Code, s.Path, status)
+			s.Chain, s.Index, s.Step, shortRPC(s.Call), s.Run, s.Code, s.Path, status)
 		if list := cover[i].siblings; len(list) > 0 {
 			fmt.Printf("    pins the same detail: %s, so a different refusal there fails shrt run\n", strings.Join(list, "; "))
 		}
