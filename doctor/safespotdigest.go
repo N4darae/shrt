@@ -24,20 +24,18 @@ func checkSafeSpotDigests(_ context.Context, cfg *config.Config, _ Options, r *R
 	for _, n := range names {
 		shown := filepath.ToSlash(filepath.Join(cfg.Paths.SafeSpots, n))
 		raw, err := os.ReadFile(filepath.Join(dir, n))
-		if err != nil {
-			unreadable = append(unreadable, shown+" ("+err.Error()+")")
-			continue
-		}
-		if store.HasConflictMarkers(raw) {
+		if err == nil && store.HasConflictMarkers(raw) {
 			conflicted = append(conflicted, shown)
 			continue
 		}
 		spot := &store.SafeSpot{}
-		if err := json.Unmarshal(raw, spot); err != nil {
-			unreadable = append(unreadable, shown+" ("+err.Error()+")")
-			continue
+		if err == nil {
+			err = json.Unmarshal(raw, spot)
 		}
-		if !spot.DigestMatches() {
+		switch {
+		case err != nil:
+			unreadable = append(unreadable, shown+" ("+err.Error()+")")
+		case !spot.DigestMatches():
 			edited = append(edited, shown)
 		}
 	}
