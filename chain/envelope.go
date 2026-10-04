@@ -187,9 +187,6 @@ type MisspeltItemVerdict struct {
 }
 
 func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
-	if ItemEnvelope() == "" {
-		return nil
-	}
 	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	if err != nil {
 		return nil
@@ -262,9 +259,6 @@ func declaresUnsetVerdict(item any, field string) bool {
 }
 
 func ItemEnvelopeDeclared(fields []*catalog.Field) bool {
-	if ItemEnvelope() == "" {
-		return false
-	}
 	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	return err == nil && listDeclares(fields, listPath, field)
 }
@@ -328,9 +322,6 @@ func joinDataPath(path string) string {
 func IsVerdictPath(path string) bool {
 	if IsEnvelopePath(path) {
 		return true
-	}
-	if ItemEnvelope() == "" {
-		return false
 	}
 	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	if err != nil {
