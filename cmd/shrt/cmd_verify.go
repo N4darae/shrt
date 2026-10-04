@@ -451,7 +451,7 @@ func (v *verification) writeBody(ctx context.Context, body *strings.Builder) {
 	if life != nil && !life.finding() && !life.cachedFirstUse() && v.nonBackend == nil {
 		v.note(body, life.label()+life.line())
 	}
-	if v.nonBackend == nil && (!v.unanswered || anyAnswered(rec)) {
+	if v.nonBackend == nil && (!v.unanswered || slices.ContainsFunc(rec.Steps, answeredByService)) {
 		v.writeReport(ctx, body)
 	}
 	if quiet {
@@ -975,15 +975,6 @@ func derivedRequestPath(c *chain.Chain) func(step, path string) bool {
 			return head != "vars" && head != "env"
 		})
 	}
-}
-
-func anyAnswered(rec *runner.Record) bool {
-	for _, st := range rec.Steps {
-		if answeredByService(st) {
-			return true
-		}
-	}
-	return false
 }
 
 func answeredByService(st *runner.StepRecord) bool {

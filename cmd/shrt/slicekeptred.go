@@ -414,11 +414,8 @@ func checkpointFor(c *chain.Chain, rec *runner.Record, kept map[string]bool, at 
 			if !kept[w.ID] || chain.IsReadOnlyCall(w.Call) {
 				continue
 			}
-			for id := range entityFactsWith(rec, w.ID, true).acts {
-				if records[id] {
-					writes = append(writes, w.ID)
-					break
-				}
+			if overlaps(entityFactsWith(rec, w.ID, true).acts, records) {
+				writes = append(writes, w.ID)
 			}
 		}
 		if len(writes) == 0 {

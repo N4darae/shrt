@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -69,14 +70,7 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 	}
 	out := []string{}
 	for _, c := range candidates {
-		found := false
-		for _, text := range others {
-			if strings.Contains(text, c.value) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.ContainsFunc(others, func(text string) bool { return strings.Contains(text, c.value) }) {
 			out = append(out, fmt.Sprintf("%s %s", c.path, c.value))
 		}
 	}

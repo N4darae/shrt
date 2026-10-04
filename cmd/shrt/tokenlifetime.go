@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/runner"
@@ -79,12 +80,7 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 }
 
 func refusedEarly(st *runner.StepRecord) bool {
-	for _, r := range st.TokenRefused {
-		if r.Early() && !(r.FirstUse && !r.Cached) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.TokenRefused, func(r transport.TokenRefusal) bool { return r.Early() && !(r.FirstUse && !r.Cached) })
 }
 
 func firstInRun(all []earlyRefusal) *earlyRefusal {

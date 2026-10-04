@@ -272,13 +272,7 @@ func relatedDroppedWrites(res *chain.SliceResult, rec *runner.Record) ([]string,
 				continue
 			}
 			f := entityFactsWith(rec, d.ID, res.StateWriters[d.ID])
-			touches := !f.known
-			for id := range f.acts {
-				if used[id] {
-					touches = true
-				}
-			}
-			if !touches {
+			if f.known && !overlaps(f.acts, used) {
 				continue
 			}
 			related[d.ID] = true
@@ -364,14 +358,7 @@ func createsListedChild(rec *runner.Record, writeID string, res *chain.SliceResu
 		keptRequest, keptResponse := decodedRecordStep(ks)
 		filters := map[string]bool{}
 		collectIDs(keptRequest, filters)
-		shared := false
-		for id := range parents {
-			if filters[id] {
-				shared = true
-				break
-			}
-		}
-		if !shared {
+		if !overlaps(parents, filters) {
 			continue
 		}
 		for _, p := range prim {

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/contract"
@@ -177,7 +178,7 @@ func contractLint(args []string) error {
 				"a lint of nothing is not a clean lint.\nScaffold one with 'shrt contract init <domain>'; "+
 				"'shrt contract init' with no argument lists the domains in this catalog", e.contractsDir())
 		}
-		if *only != "" && !hasDomain(lib, *only) {
+		if *only != "" && !slices.ContainsFunc(lib.Overlays, func(o *contract.Overlay) bool { return o.Domain == *only }) {
 			return fmt.Errorf("no overlay for domain %q in %s, so nothing was checked — "+
 				"scaffold it with 'shrt contract init %s'", *only, e.contractsDir(), *only)
 		}
@@ -242,15 +243,6 @@ func contractLint(args []string) error {
 		return fmt.Errorf("%d contract error(s)", errCount)
 	}
 	return nil
-}
-
-func hasDomain(lib *contract.Library, domain string) bool {
-	for _, o := range lib.Overlays {
-		if o.Domain == domain {
-			return true
-		}
-	}
-	return false
 }
 
 func tally(issues []contract.Issue) string {

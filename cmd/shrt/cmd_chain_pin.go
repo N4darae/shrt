@@ -304,12 +304,9 @@ func pinBlocker(e *env, c *chain.Chain, rec *runner.Record) string {
 }
 
 func refusedFailure(rec *runner.Record) bool {
-	for _, st := range rec.Steps {
-		if st.Status != runner.StatusPassed && len(st.TokenRefused) > 0 {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(rec.Steps, func(st *runner.StepRecord) bool {
+		return st.Status != runner.StatusPassed && len(st.TokenRefused) > 0
+	})
 }
 
 func quietly(fn func() error) (string, error) {

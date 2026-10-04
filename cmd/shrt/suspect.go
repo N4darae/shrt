@@ -163,10 +163,8 @@ func inert(rec *runner.Record, i int, bad map[string]bool) bool {
 			if o == nil || o.Call != w.Call || refusalOf(o) != "" {
 				continue
 			}
-			for ref := range stepRefs(rec, j) {
-				if refs[ref] {
-					return true
-				}
+			if overlaps(stepRefs(rec, j), refs) {
+				return true
 			}
 		}
 	}
@@ -968,7 +966,7 @@ func (a attribution) sameRecordWriteBefore(step string) int {
 	call := a.rec.Steps[at].Call
 	for i := at - 1; i >= 0; i-- {
 		w := a.rec.Steps[i]
-		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && (w.Call != call || !sharesField(fields, leafFields(a.changed(w.ID)))) {
+		if w == nil || !isWrite(w) || !a.bad[w.ID] || len(a.changed(w.ID)) == 0 || !verdictMoved(a.changed(w.ID)) && (w.Call != call || !overlaps(fields, leafFields(a.changed(w.ID)))) {
 			continue
 		}
 		for ref := range stepRefs(a.rec, i) {
@@ -996,15 +994,10 @@ func leafFields(paths []string) map[string]bool {
 }
 
 func verdictMoved(paths []string) bool {
-	for _, p := range paths {
-		if envelopeOnly(p) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(paths, envelopeOnly)
 }
 
-func sharesField(a, b map[string]bool) bool {
+func overlaps(a, b map[string]bool) bool {
 	for f := range a {
 		if b[f] {
 			return true
@@ -1019,15 +1012,7 @@ func fieldOf(carrier string) string {
 
 func related(reach func(int) map[string]bool, at, i int, id string) bool {
 	touched := reach(at)
-	if touched[id] {
-		return true
-	}
-	for ref := range reach(i) {
-		if touched[ref] {
-			return true
-		}
-	}
-	return false
+	return touched[id] || overlaps(reach(i), touched)
 }
 
 func heldBackBy(st *runner.StepRecord) (string, string) {

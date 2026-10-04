@@ -210,7 +210,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 			it.Length = pastEnd(st, ex.Path)
 			side.Items = append(side.Items, it)
 		}
-		if !found && st.Status != runner.StatusPassed && st.Error != "" && !pinnedStep(c, st.ID) {
+		if !found && st.Status != runner.StatusPassed && st.Error != "" && !slices.ContainsFunc(c.KeptRed, func(p chain.Pin) bool { return p.Step == st.ID }) {
 			why, _, _ := strings.Cut(st.Error, "\n")
 			side.Items = append(side.Items, a.item(gateItem{Step: st.ID, Call: st.Call, Path: "(" + st.Status + ")", Got: capText(why, 160)}))
 		}
@@ -615,15 +615,6 @@ func (it gateItem) wantGot() string {
 		return fmt.Sprintf("safe spot %s, now %s (%+dms)", it.Want, it.Got, now-was)
 	}
 	return chain.WantGot(it.Rule, it.Want, it.Got)
-}
-
-func pinnedStep(c *chain.Chain, step string) bool {
-	for _, p := range c.KeptRed {
-		if p.Step == step {
-			return true
-		}
-	}
-	return false
 }
 
 func verifyItems(e *env, rec *runner.Record, report *diff.Report) []gateItem {

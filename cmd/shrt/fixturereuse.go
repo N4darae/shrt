@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -440,12 +441,7 @@ func refusalCodes(why string, fields []fixtureField) string {
 }
 
 func quotesSent(text string, fields []fixtureField) bool {
-	for _, f := range fields {
-		if f.sent != "" && strings.Contains(text, f.sent) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(fields, func(f fixtureField) bool { return f.sent != "" && strings.Contains(text, f.sent) })
 }
 
 type fixtureField struct {
