@@ -97,24 +97,7 @@ func firstInRun(all []earlyRefusal) *earlyRefusal {
 }
 
 func previousRecord(e *env, rec *runner.Record) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	var best *runner.Record
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
-			break
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) {
-			continue
-		}
-		if best == nil || ranBefore(best, prev) {
-			best = prev
-		}
-	}
-	return best
+	return previousRun(e, rec, false, nil)
 }
 
 func sessionRestartEvidence(rec *runner.Record, index int) string {

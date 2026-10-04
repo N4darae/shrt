@@ -114,24 +114,7 @@ func repeatedUnanswered(e *env, rec *runner.Record, step string) *unansweredRepe
 }
 
 func previousRunAttempting(e *env, rec *runner.Record, step string) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	var best *runner.Record
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		if best != nil && runStamp(ids[i]) < runStamp(best.RunID) {
-			break
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) || !attempted(prev, step) {
-			continue
-		}
-		if best == nil || ranBefore(best, prev) {
-			best = prev
-		}
-	}
-	return best
+	return previousRun(e, rec, true, func(prev *runner.Record) bool { return attempted(prev, step) })
 }
 
 func attempted(rec *runner.Record, step string) bool {
