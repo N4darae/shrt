@@ -27,7 +27,8 @@ line names every pin of its slice with its pinned value (`status.code=SUCCESS`) 
 pinned, and a
 fold `(+N kept-red slice(s), every pin held, ...)` under a failing parent says those pins held, so
 no `shrt run` of the slices is needed. `shrt verify
-<chain> -run latest` shows every changed value of the gate's run offline; `shrt diff <chain> -step
+<chain> -run latest` shows every changed value of the gate's run offline (for a chain with no safe
+spot, its failed expectations); `shrt diff <chain> -step
 a,b` shows those steps as recorded. For what the chains
 cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
 `gaps:` block names each state no chain calls a gated write from; the gate has planned and run

@@ -3,7 +3,7 @@ FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder)
 PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder status.code: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those)
 
@@ -24,7 +24,7 @@ KEPT RED   probe-orders-slice-cancel_confirmed  pins cancel_confirmed CancelOrde
 PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 shrt gate: FAIL: 1 of 3 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those)
 
@@ -153,7 +153,7 @@ FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 
 FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders (CreateOrder)
 failures by suspect rpc:
   OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. orders create
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 
 # a chain with a fault the anchor's line does not name names it, though the anchor has it too
 FAIL       explore  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write confirm (OrderService/ConfirmOrder) at order.status
@@ -163,7 +163,7 @@ failures by suspect rpc:
   OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. explore create
   OrderService/ConfirmOrder order.status: 2 step(s) in 2 chain(s); e.g. explore confirm
   StockService/AddStockBatch product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. explore stock_b; write stock_batch
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+1 slice(s) fail the same: orders-slice-list) (+2 kept-red slice(s), every pin held, pinned 2026-09-28, 2026-09-30: list ListOrders orders, stock GetProduct product.qty_on_hand)

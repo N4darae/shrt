@@ -1966,7 +1966,7 @@ func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
 		}
 	}
 	if !verbose && slices.ContainsFunc(chains, func(g *gateChain) bool { return g.spot && g.failed }) {
-		fmt.Println("offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending")
+		fmt.Println("offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending")
 	}
 	return order
 }

@@ -3,7 +3,7 @@ $ shrt gate -repro  [exit 1]
 FAIL       shelf  regression: get_product (ProductService/GetProduct) product.qty_on_hand want=5 got=0; unclear: write add_stock (StockService/AddStock) or the read
 failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. shelf get_product
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 repro, for each row of failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand
@@ -18,7 +18,7 @@ $ shrt gate -repro  [exit 1]
 FAIL       shelf  regression: get_product (ProductService/GetProduct) product.qty_on_hand want=5 got=4; unclear: write add_stock (StockService/AddStock) or the read
 failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. shelf get_product
-offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
+offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made (every failed expectation for a chain with no safe spot), as -v does, without re-sending
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
 repro, for each row of failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand

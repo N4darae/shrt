@@ -316,3 +316,19 @@ func TestTheFailLineCountsTheGapProbesThatFailedApartFromTheChainsVerdict(t *tes
 		t.Errorf("no failed gap probe says nothing of gaps: %q", got)
 	}
 }
+
+func TestVerifyOfARecordedRunOfAChainWithoutASafeSpotListsItsFailedExpectations(t *testing.T) {
+	twoDefectWorkspace(t, "name", "gadget")
+	var err error
+	out := captureStdout(t, func() { err = runVerify(context.Background(), []string{"cli-two-defects", "-run", "latest"}) })
+	var shown shownError
+	if !errors.As(err, &shown) || !strings.Contains(err.Error(), "no safe spot yet") ||
+		!strings.Contains(out, "cli-two-defects: FAILED its own expectations in run ") || !strings.Contains(out, ", with no safe spot to diff it against; first: fetch (") ||
+		!strings.Contains(out, "    [fetch] name want=gadget got=widget (and 1 more at fetch_again)\n") {
+		t.Fatalf("the offline hint works for a chain with no safe spot: it lists the run's failed expectations as gate -v does (%v):\n%s", err, out)
+	}
+	out = captureStdout(t, func() { err = runVerify(context.Background(), []string{"cli-two-defects", "-run", "latest", "-json"}) })
+	if err == nil || !strings.Contains(err.Error(), "has no safe spot") || out != "" {
+		t.Fatalf("-json has no diff to emit, so it stays the error (%v):\n%s", err, out)
+	}
+}

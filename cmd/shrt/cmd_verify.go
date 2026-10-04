@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -133,6 +134,10 @@ func (v *verification) load(ctx context.Context) error {
 		return err
 	}
 	if v.spot, v.olderSpot, err = loadVerifySpot(e, v.name); err != nil {
+		var none noSpotError
+		if errors.As(err, &none) && v.useRun != "" && !v.asJSON {
+			return v.withoutSpot(err)
+		}
 		return err
 	}
 	if v.useRun != "" {
@@ -141,9 +146,12 @@ func (v *verification) load(ctx context.Context) error {
 	return v.replay(ctx)
 }
 
+type noSpotError struct{ error }
+
 func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 	spot, err := e.store.LoadSafeSpot(name)
-	if errors.Is(err, os.ErrNotExist) {
+	missing := errors.Is(err, os.ErrNotExist)
+	if missing {
 		err = fmt.Errorf("chain %s has no safe spot: nothing is confirmed at %s", name, e.store.SafeSpotPath(name))
 	}
 	if errors.Is(err, store.ErrMergeConflict) {
@@ -156,7 +164,11 @@ func loadVerifySpot(e *env, name string) (*store.SafeSpot, string, error) {
 		if c, cerr := chain.Resolve(e.chainsDir(), name); cerr == nil && len(c.KeptRed) > 0 {
 			return nil, "", fmt.Errorf("chain %s is kept red on purpose, so it has no safe spot by design: shrt gate compares its pins; check it with 'shrt run %s'", name, name)
 		}
-		return nil, "", fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
+		err = fmt.Errorf("%w\nno safe spot yet — run the chain, check the responses, propose it with 'shrt confirm %s -note \"...\"', and a person approves it", err, name)
+		if missing {
+			err = noSpotError{err}
+		}
+		return nil, "", err
 	}
 	if !spot.DigestMatches() {
 		return nil, "", fmt.Errorf("safe spot %s was changed after it was approved: its digest %s does not match its content, so it is not what a person approved.\n"+
@@ -185,7 +197,7 @@ func (v *verification) loadRun() error {
 		fmt.Fprintf(os.Stderr, "verify: -run %s is run %s, the newest run record of %s (a verify replay counts)\n",
 			asked, rec.RunID, name)
 	}
-	if v.useRun == v.spot.RunID {
+	if v.spot != nil && v.useRun == v.spot.RunID {
 		fmt.Fprintf(os.Stderr, "verify: run %s IS the safe spot's own run, so this is a control for the differ, NOT evidence about "+
 			"the backend; pass a later run id, or drop -run to replay live\n", v.useRun)
 	}
@@ -194,6 +206,22 @@ func (v *verification) loadRun() error {
 	}
 	v.rec = rec
 	return nil
+}
+
+func (v *verification) withoutSpot(none error) error {
+	if err := v.loadRun(); err != nil || v.c == nil {
+		return cmp.Or(err, none)
+	}
+	side := runSidecar(v.e, v.c, v.rec, nil, nil, nil)
+	if v.rec.Passed() || len(side.Items) == 0 {
+		fmt.Printf("%s: run %s passed; no safe spot to diff it against\n", v.name, v.rec.RunID)
+		return shownError{none}
+	}
+	it := side.Items[0]
+	fmt.Printf("%s: FAILED its own expectations in run %s, with no safe spot to diff it against; first: %s (%s) %s%s\n%s", v.name, v.rec.RunID, it.Step, shortRPC(it.Call), it.headline(),
+		suspectLines(v.e, v.rec, it.Reason, it.Step, it.Path, true), otherRoots(side.Items, &diff.Change{Step: it.Step, Path: it.Path}))
+	(&gateChain{items: side.Items}).printChanges(v.e)
+	return shownError{none}
 }
 
 func (v *verification) chain() (*chain.Chain, error) {
@@ -1206,17 +1234,22 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 		why = class(*first) + alsoClasses(report, first, class)
 	}
 	line := fmt.Sprintf("%s: DRIFT (%s), %d step(s) changed vs safe spot %s; first: %s", name, why, steps, report.SafeSpotID, changeAt(rec, *first))
-	r := a.of(first.Step, first.Path)
+	line += suspectLines(e, rec, a.of(first.Step, first.Path), first.Step, first.Path, strings.HasPrefix(why, "regression"))
+	return line + "\n" + otherRoots(items, first), body
+}
+
+func suspectLines(e *env, rec *runner.Record, r reason, step, path string, sent bool) string {
+	line := ""
 	if s := r.String(); s != "" {
 		line += "; " + s
 	}
-	if req := requestLine(r, first.Step, recordSent(e, rec)); req != "" && strings.HasPrefix(why, "regression") {
+	if req := requestLine(r, step, recordSent(e, rec)); req != "" && sent {
 		line += "\n  " + req
 	}
-	if hint := tellApart(e, r, first.Path); hint != "" {
+	if hint := tellApart(e, r, path); hint != "" {
 		line += "\n  " + hint
 	}
-	return line + "\n" + otherRoots(items, first), body
+	return line
 }
 
 func otherRoots(items []gateItem, first *diff.Change) string {

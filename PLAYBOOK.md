@@ -473,7 +473,7 @@ matches what a person approved.
 
 ```bash
 shrt run <name>                                  # before the change
-shrt verify <name> -run <run-id>                 # re-diff that record, offline
+shrt verify <name> -run <run-id>                 # re-diff that record, offline (no safe spot: its failed expectations)
 # change the code, then the same two lines
 ```
 
