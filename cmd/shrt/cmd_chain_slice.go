@@ -359,12 +359,6 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, v
 	if len(res.MissingVars) > 0 {
 		fmt.Printf("\nundeclared vars the kept steps read, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
 	}
-	if len(res.Unmet) > 0 {
-		fmt.Println("\nunmet prerequisites, no earlier step calls them:")
-		for _, u := range res.Unmet {
-			fmt.Printf("  %s %s (declared for %s)\n", u.Edge, u.RPC, u.Step)
-		}
-	}
 	if len(res.Relaxed) > 0 {
 		fmt.Printf("\nrelaxed: expectations kept steps failed in run %s after an answer, dropped so the slice reaches the target:\n", res.Run)
 		for _, r := range res.Relaxed {
@@ -397,6 +391,12 @@ func printSliceDetail(res *chain.SliceResult) {
 	}
 	for _, k := range res.Kept {
 		fmt.Printf("  %4d  %-*s  %-*s  %s\n", k.Index, idW, k.ID, callW, shortRPC(k.Call), k.Reason)
+	}
+	if len(res.Unmet) > 0 {
+		fmt.Println("\ncontract prerequisites the source chain did not meet before these steps either (no earlier step calls them, or it was refused), so the slice does not add them:")
+		for _, u := range res.Unmet {
+			fmt.Printf("  %s %s (declared for %s)\n", u.Edge, u.RPC, u.Step)
+		}
 	}
 	if len(res.FilledVars) > 0 {
 		fmt.Println("\nvars written into the slice:")

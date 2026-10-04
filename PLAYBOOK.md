@@ -499,8 +499,9 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    the contracts' prerequisites, earlier writes on an entity the kept steps use, and earlier writes
    sending a unique value (id, unique or idempotency field; any field without a contract) the target
    sends again, ignoring case.
-2. **Read `unmet prerequisites` and `WARNING possible under-inclusion`** before trusting the size:
-   a dropped earlier write can be state the target needed, and the slice can go green without it.
+2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
+   can be state the target needed, and the slice can go green without it. A contract prerequisite
+   no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.
 3. **`-write [name]`, then `chain lint` it.** The file lands beside the source chain, where gates
    run it; a value with a slash is a path (`-write .shrt/scratch/<name>.yaml`, run by that path).
    A slice of the same chain and step is replaced in place; any other file is refused.

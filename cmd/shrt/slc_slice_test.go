@@ -455,6 +455,20 @@ func TestSliceCases(t *testing.T) {
 			writeFile(t, ".shrt/contracts/orders.yaml", "apiVersion: shrt/contract/v1\ndomain: orders\nrpcs:\n    shop.orders.v1.OrderService/ConfirmOrder:\n        summary: confirms the order\n        required: [NONE]\n        status: draft\n    shop.orders.v1.OrderService/FetchOrder:\n        summary: reads the order\n        required: [NONE]\n        status: draft\n")
 		}, args: []string{".shrt/scratch/probe-confirm.yaml", "-step", "fetch_order", "-run", "latest", "-verify"}, code: 3,
 			want: []string{"kept step(s) confirm_order passed in source run"}, not: []string{"verify reproduced"}},
+		{name: "a contract prerequisite the source chain never met stays out of the repro's description", setup: func(t *testing.T) {
+			slcShop(nil, ".shrt/scratch/probe-confirm.yaml", confirmThenFetchChain)(t)
+			writeFile(t, ".shrt/contracts/orders.yaml", "apiVersion: shrt/contract/v1\ndomain: orders\nrpcs:\n    shop.orders.v1.OrderService/FetchOrder:\n        summary: reads the order\n        required: [NONE]\n        needs: [shop.orders.v1.OrderService/CancelOrder]\n        status: draft\n")
+		}, args: []string{".shrt/scratch/probe-confirm.yaml", "-step", "fetch_order", "-v", "-write", ".shrt/scratch/probe-fetch.yaml"},
+			want: []string{"contract prerequisites the source chain did not meet before these steps either", "needs shop.orders.v1.OrderService/CancelOrder (declared for fetch_order)"},
+			not:  []string{"unmet prerequisites"},
+			check: func(t *testing.T, _ string) {
+				if raw := slcHas(t, ".shrt/scratch/probe-fetch.yaml", "Slice of probe-confirm"); strings.Contains(raw, "CancelOrder") || strings.Contains(raw, "nmet") {
+					t.Fatalf("the description lists a prerequisite the source run did not meet either:\n%s", raw)
+				}
+				if out, _ := slcSlice(t, false, ".shrt/scratch/probe-confirm.yaml", "-step", "fetch_order"); strings.Contains(out, "CancelOrder") {
+					t.Fatalf("without -v the prerequisite is not printed:\n%s", out)
+				}
+			}},
 		{name: "a partial match over the repeats is intermittent", setup: slcShop(func(s *fakeShop) { s.getProductFailAt = map[int]bool{2: true, 3: true, 4: true, 5: true} }, ".shrt/scratch/probe-get.yaml", flakyGetChain, "-keep-going"),
 			args: []string{".shrt/scratch/probe-get.yaml", "-step", "get_b", "-run", "latest", "-verify"}, code: 1,
 			want: []string{"intermittent: reproduced 1/3"}, not: []string{"verify reproduced", "verify NOT REPRODUCED"}},

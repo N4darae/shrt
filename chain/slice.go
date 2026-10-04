@@ -583,18 +583,6 @@ func sliceDescription(res *SliceResult) string {
 		}
 		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
 	}
-	if len(res.Unmet) > 0 {
-		names := []string{}
-		seen := map[string]bool{}
-		for _, u := range res.Unmet {
-			if seen[u.RPC] {
-				continue
-			}
-			seen[u.RPC] = true
-			names = append(names, u.RPC)
-		}
-		fmt.Fprintf(&b, "Unmet contract prerequisite(s), no earlier step calls them: %s.\n", listSome(names, 8))
-	}
 	return b.String()
 }
 
