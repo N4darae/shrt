@@ -219,7 +219,7 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 		renameStepRefs(refused, st.ID, refused.ID)
 		refused.Body[tf.key] = over
 		if tf.fail != nil {
-			refused.Expect = refusalFor(m, *tf.fail)
+			refused.Expect = refusalFor(m, *tf.fail, true)
 			refused.Description = fmt.Sprintf("%s at %d characters, one over its maximum, is refused with %s.", tf.name, tf.max+1, tf.fail.Label())
 		} else {
 			refused.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}

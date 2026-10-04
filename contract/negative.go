@@ -24,7 +24,7 @@ func (p *Plan) negativeProbe(lib *Library, st *chain.Step, m *catalog.Method, f 
 	neg := p.probeCopy(lib, st, f.Name+"_negative")
 	neg.Body[key] = negativeValue
 	if failure != nil {
-		neg.Expect = refusalFor(m, *failure)
+		neg.Expect = refusalFor(m, *failure, true)
 		neg.Description = fmt.Sprintf("%s at %s, below its minimum and negative, is refused with %s, and nothing it would "+
 			"have changed moves: a backend that applies the sign subtracts or credits instead.", f.Name, negativeValue, failure.Label())
 	} else {

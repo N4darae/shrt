@@ -14,18 +14,17 @@ import (
 
 var normalisedClaim = lazyRegexp(`(?i)\b(?:lower|upper)[- ]?cased?\b|\bin (?:lower|upper)[- ]?case\b|\bnormali[sz]\w*|\bcase[- ]?fold\w*|\bcanonicali[sz]\w*|\bfolded\b`)
 
+func carriersOf(m *catalog.Method) []*catalog.Field {
+	return slices.DeleteFunc(catalog.DescribeMessage(m.Output()).Fields, func(fd *catalog.Field) bool {
+		return fd.Kind != "message" || fd.Repeated || IsVerdictFieldName(fd.Name)
+	})
+}
+
 func singleCarrier(m *catalog.Method) *catalog.Field {
-	var out *catalog.Field
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
-		if out != nil {
-			return nil
-		}
-		out = fd
+	if carriers := carriersOf(m); len(carriers) == 1 {
+		return carriers[0]
 	}
-	return out
+	return nil
 }
 
 func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, caseToo bool) bool {

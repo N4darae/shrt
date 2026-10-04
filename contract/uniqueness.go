@@ -140,7 +140,7 @@ func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, field string) {
-	expect, pinned := refusalExpectations(m, f)
+	expect, pinned := refusalExpectations(m, f, true)
 	text := strings.Join([]string{f.When, f.Message, c.Summary}, " ")
 	if fc := c.Fields[field]; fc != nil {
 		text += " " + fc.Note
@@ -211,7 +211,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), slices.Index(p.Chain.Steps, st)+1, added...)
 }
 
-func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, bool) {
+func refusalExpectations(m *catalog.Method, f Failure, absentCarrier bool) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
 	fields := catalog.DescribeMessage(m.Output()).Fields
 	root := ""
@@ -231,7 +231,7 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
 		pinned = true
 	}
-	if car := singleCarrier(m); car != nil {
+	if car := singleCarrier(m); absentCarrier && car != nil {
 		out = append(out, chain.Expectation{Path: car.Name, Exists: boolPtr(false)})
 	}
 	return out, pinned

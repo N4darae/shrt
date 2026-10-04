@@ -362,10 +362,7 @@ func stepIndex(steps []*chain.Step, id string) int {
 }
 
 func (p *Plan) createdIDPath(m *catalog.Method) string {
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
+	for _, fd := range carriersOf(m) {
 		for _, sf := range fd.Fields {
 			if IsEntityIDField(sf.Name) && sf.Kind == "string" && fieldByName(catalog.DescribeMessage(m.Input()).Fields, sf.Name) == nil {
 				return fd.Name + "." + sf.Name

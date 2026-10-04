@@ -81,7 +81,7 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 	add := func(suffix, key, value, what string) {
 		probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		probe.Body[key] = value
-		probe.Expect = refusalFor(m, f)
+		probe.Expect = refusalFor(m, f, true)
 		probe.Description = fmt.Sprintf("%s: refused with %s, as the contract declares.", what, f.Label())
 		p.Chain.Steps = append(p.Chain.Steps, probe)
 		out = append(out, fmt.Sprintf("%s (%s) expects %s", probe.ID, what, f.Label()))
@@ -123,7 +123,7 @@ func (p *Plan) paddedSecretLogin(st *chain.Step, m *catalog.Method, f Failure, d
 	probe.Body[key] = " " + cur + " "
 	refused := "refused with " + f.Label() + ", as a wrong one is"
 	if declared {
-		probe.Expect = refusalFor(m, f)
+		probe.Expect = refusalFor(m, f, true)
 	} else if CarriesEnvelope(m) {
 		probe.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
 		refused = "refused"

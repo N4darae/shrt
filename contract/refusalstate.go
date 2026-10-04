@@ -93,7 +93,7 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 	if f.Reason != "" {
 		name = defaultID(f.Reason)
 	}
-	expect := withoutAbsentCarrier(refusalExpectations(m, f))
+	expect, _ := refusalExpectations(m, f, false)
 	source, paths := p.shortagePaths(st, m)
 	if len(paths) == 0 {
 		p.gap("step %s: the contract declares %s, but no quantity field (qty, quantity, count, amount) was found in its "+
@@ -439,12 +439,6 @@ func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
 		}
 		id = fmt.Sprintf("%s_%d", base, i)
 	}
-}
-
-func withoutAbsentCarrier(expect []chain.Expectation, _ bool) []chain.Expectation {
-	return slices.DeleteFunc(slices.Clone(expect), func(e chain.Expectation) bool {
-		return e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".")
-	})
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {

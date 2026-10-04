@@ -38,10 +38,7 @@ func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
 			continue
 		}
 		carrier, idField, numbers := "", "", []string{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-				continue
-			}
+		for _, fd := range carriersOf(m) {
 			for _, sf := range fd.Fields {
 				if idField == "" && IsEntityIDField(sf.Name) && sf.Kind == "string" {
 					carrier, idField = fd.Name, sf.Name
@@ -83,7 +80,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	conflict := ""
 	for _, f := range lib.AllFailures(st.Call) {
 		if keyConflict().MatchString(f.Reason) || keyConflictWhen().MatchString(f.When) {
-			other.Expect = refusalFor(m, f)
+			other.Expect = refusalFor(m, f, true)
 			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, strings.Join(bumped, ", "), f.Label())
 			conflict = f.Label()
 			break

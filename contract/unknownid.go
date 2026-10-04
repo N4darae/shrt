@@ -130,7 +130,7 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 		unknown, wording = text+unknownIDSuffix, fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
 	}
 	setBodyPath(probe.Body, path, unknown)
-	probe.Expect = refusalOf(m, f)
+	probe.Expect = refusalFor(m, f, false)
 	probe.Description = fmt.Sprintf("%s names no existing record (%s), so the answer is the not-found failure %s (%s).",
 		path, wording, f.Label(), strings.TrimSpace(f.When))
 	p.addShape(lib, st, probe)

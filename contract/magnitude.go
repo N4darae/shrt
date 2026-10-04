@@ -196,7 +196,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				below := p.probeCopy(lib, st, f.Name+"_below_min")
 				below.Body[key] = strconv.FormatInt(min-1, 10)
 				if failure != nil {
-					below.Expect = refusalFor(m, *failure)
+					below.Expect = refusalFor(m, *failure, true)
 					below.Description = fmt.Sprintf("%s at %d, one below its minimum, is refused with %s.", f.Name, min-1, failure.Label())
 				} else {
 					below.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}

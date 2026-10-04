@@ -285,10 +285,7 @@ func (p *Plan) assertEcho(st *chain.Step) {
 		return
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
+	for _, fd := range carriersOf(m) {
 		for _, sf := range fd.Fields {
 			key, ok := namecase.LookupKey(st.Body, sf.Name)
 			if !ok {

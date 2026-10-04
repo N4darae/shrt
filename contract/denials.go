@@ -19,11 +19,11 @@ var (
 
 const invalidProfile = "invalid"
 
-func refusalFor(m *catalog.Method, f Failure) []chain.Expectation {
+func refusalFor(m *catalog.Method, f Failure, absentCarrier bool) []chain.Expectation {
 	if f.ConnectCode != "" && f.Code == 0 {
 		return []chain.Expectation{{Path: "transport.code", Equals: f.ConnectCode}}
 	}
-	out, _ := refusalExpectations(m, f)
+	out, _ := refusalExpectations(m, f, absentCarrier)
 	return out
 }
 
@@ -89,7 +89,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 				probe.Auth = prof
 				roles := strings.Join(c.RequiresRole, " or ")
 				if found {
-					probe.Expect = refusalFor(m, f)
+					probe.Expect = refusalFor(m, f, true)
 					probe.Description = fmt.Sprintf("as %s, who does not hold %s, refused with %s.", prof, roles, f.Label())
 				} else {
 					probe.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
@@ -107,7 +107,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 			expect := []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}}
 			how := "Connect unauthenticated, which no failure in its contract declares (declare one with connect_code: unauthenticated in the domain-level failures:, or once with scope: all in any overlay to share it with every domain)"
 			if f, found := unauthFailure(lib, st.Call); found {
-				expect = refusalFor(m, f)
+				expect = refusalFor(m, f, true)
 				how = f.Label()
 			}
 			without := p.probeCopy(lib, st, "without_token")

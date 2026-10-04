@@ -203,7 +203,7 @@ func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 }
 
 func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f Failure, cases []shapeCase) {
-	expect := refusalFor(m, f)
+	expect := refusalFor(m, f, true)
 	ids := []string{}
 	for _, sc := range cases {
 		probe := probeStep(st, p.freeStepID(st.ID+"_"+chain.PathLeaf(sc.field)+"_"+sc.kind))

@@ -149,7 +149,7 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 		p.freshen(lib, refused)
 	}
 	setBodyPath(refused.Body, e.field, fixtureID)
-	refused.Expect = refusalOf(m, f)
+	refused.Expect = refusalFor(m, f, false)
 	refused.Description = fmt.Sprintf("on %s already %s: refused with %s (%s), and nothing it would have changed moves.",
 		withArticle(e.carrier), short[move.value], f.Label(), strings.TrimSpace(f.When))
 	p.Chain.Steps = append(p.Chain.Steps, fixture, moved)
@@ -158,13 +158,6 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 		"%s, the reads around it asserting the %s and what it holds unchanged: a backend that answers another code, or "+
 		"acts on the %s anyway, fails", st.ID, f.Label(), withArticle(e.carrier), short[move.value], fixture.ID, e.carrier, moved.ID,
 		refused.ID, f.Label(), e.carrier, e.carrier)
-}
-
-func refusalOf(m *catalog.Method, f Failure) []chain.Expectation {
-	if f.ConnectCode != "" && f.Code == 0 {
-		return refusalFor(m, f)
-	}
-	return withoutAbsentCarrier(refusalExpectations(m, f))
 }
 
 func withArticle(noun string) string {

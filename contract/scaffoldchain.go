@@ -264,7 +264,7 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 			if !isRefusalStep(st) && cur != "" && cur != p.createdState(lib, e.producer, e.carrier, e.state) {
 				for _, f := range lib.AllFailures(m.FullName) {
 					if probeable(f) && failureState(f, values, short) == cur {
-						st.Expect = refusalOf(m, f)
+						st.Expect = refusalFor(m, f, false)
 						st.Description = fmt.Sprintf("refused with %s: %s left the %s %s.", f.Label(), by[e.producer.ID], e.carrier, short[cur])
 						break
 					}
