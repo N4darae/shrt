@@ -620,22 +620,8 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 					base += suffix
 				}
 			}
-			body := catalog.ScaffoldWith(en.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, en.field, "${"+prod.ID+"."+en.idPath+"}")
-			read := &chain.Step{
-				ID:          p.freeProbeID(base+"_after_"+st.ID, reserved),
-				Description: fmt.Sprintf("the %s after %s: %s is what the contract says %s leaves it at.", en.carrier, st.ID, s.moved, shortRPC(st.Call)),
-				Call:        en.reader.FullName,
-				Auth:        en.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(en.reader),
-			}
-			leaf := leafName(en.idPath)
-			for _, sf := range carrierFields(en.reader, en.carrier) {
-				if sf.Name == leaf {
-					read.Expect = append(read.Expect, chain.Expectation{Path: en.carrier + "." + leaf, Equals: "${" + prod.ID + "." + en.idPath + "}"})
-				}
-			}
+			read := en.echoingRead(p.freeProbeID(base+"_after_"+st.ID, reserved),
+				fmt.Sprintf("the %s after %s: %s is what the contract says %s leaves it at.", en.carrier, st.ID, s.moved, shortRPC(st.Call)))
 			p.insertAfter(at, read)
 			at = read.ID
 		}

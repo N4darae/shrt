@@ -318,6 +318,18 @@ func (e entityRead) readStep(id, description, ref string) *chain.Step {
 	return &chain.Step{ID: id, Description: description, Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
 }
 
+func (e entityRead) echoingRead(id, description string) *chain.Step {
+	ref := "${" + e.producer.ID + "." + e.idPath + "}"
+	read := e.readStep(id, description, ref)
+	leaf := leafName(e.idPath)
+	for _, sf := range carrierFields(e.reader, e.carrier) {
+		if sf.Name == leaf {
+			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
+		}
+	}
+	return read
+}
+
 func (p *Plan) readBase(e entityRead) string {
 	base := defaultID(e.reader.Name)
 	if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
@@ -406,13 +418,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 		base := p.readBase(e)
 		beforeID := p.freeProbeID(base+"_before_"+label, reserved)
 		afterID := p.freeProbeID(base+"_after_"+label, reserved)
-		read := e.readStep(beforeID, fmt.Sprintf("the %s as it stands before %s.", e.carrier, label), "${"+e.producer.ID+"."+e.idPath+"}")
-		leaf := leafName(e.idPath)
-		for _, sf := range carrierFields(e.reader, e.carrier) {
-			if sf.Name == leaf {
-				read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: "${" + e.producer.ID + "." + e.idPath + "}"})
-			}
-		}
+		read := e.echoingRead(beforeID, fmt.Sprintf("the %s as it stands before %s.", e.carrier, label))
 		check := copyStep(read, afterID)
 		check.Description = fmt.Sprintf("the %s after %s is unchanged: %s read as in %s.", e.carrier, label, strings.Join(e.scalars, ", "), beforeID)
 		for _, name := range e.scalars {
