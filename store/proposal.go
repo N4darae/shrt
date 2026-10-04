@@ -87,27 +87,17 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	if err := s.checkSealed(rec); err != nil {
 		return nil, err
 	}
-	replaces := ""
-	prev, err := s.LoadSafeSpot(rec.Chain)
-	switch {
-	case err == nil:
-		if !in.Supersede {
-			return nil, fmt.Errorf("%w at %s (confirmed by %s at %s); pass -supersede to propose replacing it",
-				ErrExists, s.SafeSpotPath(rec.Chain), prev.ConfirmedBy, prev.ConfirmedAt.Format(time.RFC3339))
-		}
-		replaces = prev.RunID
-	case errors.Is(err, os.ErrNotExist):
-	default:
+	prev, err := s.replaceable(rec.Chain, in.Supersede, "; pass -supersede to propose replacing it")
+	if err != nil {
 		return nil, err
 	}
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now()
+	replaces := ""
+	if prev != nil {
+		replaces = prev.RunID
 	}
-	by := cmp.Or(strings.TrimSpace(in.By), "agent")
 	p := &Proposal{
 		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
-		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
+		ProposedBy: cmp.Or(strings.TrimSpace(in.By), "agent"), ProposedAt: orNow(in.Now).UTC(), Checked: in.Checked,
 		Supersede: in.Supersede, Replaces: replaces,
 		Digest: recordDigest(rec), Report: s.ReportPath(rec.Chain),
 		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
