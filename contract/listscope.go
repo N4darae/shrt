@@ -2,6 +2,7 @@ package contract
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -88,14 +89,14 @@ func assertLowerBound(st *chain.Step, listPath string) {
 	if !ok || n == 0 {
 		return
 	}
-	last := listPath + "." + itoa(n-1)
+	last := listPath + "." + strconv.Itoa(n-1)
 	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == last || strings.HasPrefix(e.Path, last+".") }) {
 		st.Expect = append(st.Expect, chain.Expectation{Path: last, Exists: boolPtr(true)})
 	}
 }
 
 func (p *Plan) noteUnscopedList(t *listTarget, n int) {
-	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath + "." + itoa(n-1), Exists: boolPtr(true)})
+	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath + "." + strconv.Itoa(n-1), Exists: boolPtr(true)})
 	p.assertMembers(t)
 	p.note("step %s: nothing in its request scopes %s to what this run created (no field reads a var, a step or a "+
 		"generator), so it lists whatever else the backend holds too: the plan asserts at least %d item(s) and that each "+

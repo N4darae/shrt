@@ -96,11 +96,10 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 			out = append(out, stateExpectations(car, c)...)
 		}
 		if len(out) == 0 && !read {
-			for _, sub := range car.Fields {
-				if IsEntityIDField(sub.Name) && sub.Kind == "string" && !sub.Repeated {
-					out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, NotEmpty: true})
-					break
-				}
+			if i := slices.IndexFunc(car.Fields, func(sub *catalog.Field) bool {
+				return IsEntityIDField(sub.Name) && sub.Kind == "string" && !sub.Repeated
+			}); i >= 0 {
+				out = append(out, chain.Expectation{Path: car.Name + "." + car.Fields[i].Name, NotEmpty: true})
 			}
 		}
 		return out
@@ -222,12 +221,9 @@ func (p *Plan) assertTimestamps(lib *Library) {
 }
 
 func assertsAbsentPrefix(st *chain.Step, path string) bool {
-	for _, e := range st.Expect {
-		if e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+".")) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+"."))
+	})
 }
 
 func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
@@ -254,7 +250,7 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 	out := []chain.Expectation{}
 	for i, raw := range items {
 		item, _ := raw.(map[string]any)
-		prefix := results.Name + "." + itoa(i) + "."
+		prefix := results.Name + "." + strconv.Itoa(i) + "."
 		if verdict != "" {
 			out = append(out, chain.Expectation{Path: prefix + verdict, Equals: chain.EnvelopeOK()})
 		}
@@ -276,15 +272,11 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 			for _, o := range results.Fields {
 				if chain.IsNumericKind(o.Kind) && !o.Repeated && strings.HasPrefix(o.Name, f.Name+"_") {
 					out = append(out, chain.Expectation{Path: prefix + o.Name,
-						Gte: "${steps." + st.ID + ".request." + key + "." + itoa(i) + "." + k + "}"})
+						Gte: "${steps." + st.ID + ".request." + key + "." + strconv.Itoa(i) + "." + k + "}"})
 				}
 			}
 		}
 	}
-	out = append(out, chain.Expectation{Path: results.Name + "." + itoa(len(items)), Exists: boolPtr(false)})
+	out = append(out, chain.Expectation{Path: results.Name + "." + strconv.Itoa(len(items)), Exists: boolPtr(false)})
 	return out
-}
-
-func itoa(i int) string {
-	return strconv.Itoa(i)
 }
