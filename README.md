@@ -189,7 +189,9 @@ answered <w>, and <b> fell 1 from 0 to -1, as the approved run fell 1 from 1 to 
 when it has no safe spot), `settled on the write <b>` when `<a>` stored what it answered and `<b>` moved it otherwise,
 else `not settled:` with both; then `repro: shrt run
 <path>  (5 of 119 steps, reproduced 3/3)`, `chain slice -minimize` of the row's step (in a chain with a safe spot when
-the row has one), keeping the row's suspect writes, written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
+the row has one), keeping the row's suspect writes (and, for one suspect write, the last earlier read of the field that
+still matched, when it clears a write before it, so `shrt run` of the slice names the row's suspect), written to
+`.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
 the slice says so, or `repro: none:` and why. `-minimize` re-runs the slice once without each step no kept step
 reads, earliest writes first, at most 8 runs, and drops it when the step fails the same way (same fields, same got);
 a write refused in that run and in the approved run goes without a run; the slice's description names what it dropped,

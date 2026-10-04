@@ -292,7 +292,7 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 			args = append(args, "-var", v+"="+chain.NewRunTag())
 		}
 		at, keep := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step }), []string{}
-		for _, r := range append([]reason{{Step: ref.it.suspect()}}, ref.it.Reason.Or...) {
+		for _, r := range append([]reason{{Step: ref.it.suspect()}, {Step: clearingRead(e, ref)}}, ref.it.Reason.Or...) {
 			if j := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Step }); j >= 0 && j < at && !slices.Contains(keep, r.Step) {
 				keep = append(keep, r.Step)
 			}
@@ -334,6 +334,23 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 		why += ": " + v.Differences[0]
 	}
 	return fmt.Sprintf("repro: none: %s (slice of %s)", why, ref.chain), ""
+}
+
+func clearingRead(e *env, ref gateRef) string {
+	rec, err := e.store.LatestRun(ref.chain)
+	if err != nil || ref.it.Reason.Kind != reasonWrite {
+		return ""
+	}
+	a := runAttribution(e, rec)
+	at := a.index(ref.it.Step)
+	if at < 0 {
+		return ""
+	}
+	i, _ := a.lastMatch(rec.Steps[at], ref.it.Path)
+	if i < 0 || len(a.entityWrites(at, ref.it.Path, a.bad, i)) == len(a.entityWrites(at, ref.it.Path, a.bad, -1)) {
+		return ""
+	}
+	return rec.Steps[i].ID
 }
 
 func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
