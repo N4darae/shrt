@@ -137,6 +137,23 @@ func TestAServerErrorOnARequestTheBackendAnsweredInTheSameRunIsAnIntermittentFin
 	}
 }
 
+func TestAServerErrorBesideAnotherFailureOfItsRpcIsABackendChange(t *testing.T) {
+	f := &flakyServer{}
+	f.set("internal", http.StatusInternalServerError)
+	srv := httptest.NewServer(f)
+	t.Cleanup(srv.Close)
+	chdirToFreshCLIWorkspace(t, srv.URL)
+	writeFile(t, ".shrt/chains/cli-flaky.yaml", strings.Replace(flakyChain, "body: {id: thing-11}\n      expect:\n", "body: {id: thing-11}\n      expect:\n          - path: name\n            equals: widget\n", 1))
+	fixApprove(t, "cli-flaky")
+	f.set("internal", http.StatusInternalServerError, 3, 4)
+	f.name11 = "gadget"
+	out, err := verifyOnce(t, context.Background())
+	wantExit1(t, "fetch2 failed", err, out)
+	if strings.Contains(out, "looks intermittent") || !strings.Contains(out, "ThingService/Fetch also failed in this run at fetch3, without a server error: a backend change at that rpc") {
+		t.Fatalf("another call of the rpc answering otherwise in the same run points at a backend change, not chance: %v\n%s", err, out)
+	}
+}
+
 func TestAServerErrorThatMovesBetweenRunsIsIntermittentAndOneThatStaysIsARegression(t *testing.T) {
 	f, ctx := flakyWorkspace(t)
 	f.set("internal", 500, 3, 4)

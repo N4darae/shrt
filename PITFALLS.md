@@ -300,6 +300,9 @@ Declare it where it belongs.
 answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
 call, reported on every chain it explains. A step whose suspect is that call (a read missing the
 refused write) counts with it. **Fix.** A real backend defect (exit 1), just not deterministic.
+A lone server error the previous run answered gets a `note:` that it looks intermittent, unless
+another call of the same rpc failed in the run without one: then the note says it is a backend
+change at that rpc, and a re-run will not clear it.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 
