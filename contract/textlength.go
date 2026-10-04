@@ -33,31 +33,22 @@ type textField struct {
 }
 
 func statedMaximum(lib *Library, rpc string, c *RPCContract, name string) (int, *Failure, bool) {
-	for _, f := range lib.AllFailures(rpc) {
-		if f.Field != name && !mentionsField(f.When, name) {
-			continue
+	n, fail, ok := statedBound(lib, rpc, c, name, func(text string) (int64, bool) {
+		m := atMostN().FindStringSubmatch(text)
+		if m == nil {
+			return 0, false
 		}
-		if m := atMostN().FindStringSubmatch(f.When); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil {
-				failure := f
-				return n, &failure, true
+		n, err := strconv.Atoi(m[1])
+		return int64(n), err == nil
+	})
+	if ok && fail == nil {
+		for _, f := range lib.AllFailures(rpc) {
+			if f.Field == name && lengthWord().MatchString(f.When+" "+f.Reason) {
+				return int(n), &f, true
 			}
 		}
 	}
-	if fc := c.Fields[name]; fc != nil {
-		if m := atMostN().FindStringSubmatch(fc.Note); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil {
-				for _, f := range lib.AllFailures(rpc) {
-					if f.Field == name && lengthWord().MatchString(f.When+" "+f.Reason) {
-						failure := f
-						return n, &failure, true
-					}
-				}
-				return n, nil, true
-			}
-		}
-	}
-	return 0, nil, false
+	return int(n), fail, ok
 }
 
 func isFreeText(name string) bool {

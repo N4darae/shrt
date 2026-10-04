@@ -130,18 +130,17 @@ func mentionsField(text, name string) bool {
 	return err == nil && re.MatchString(text)
 }
 
-func statedMinimum(lib *Library, rpc string, c *RPCContract, name string) (int64, *Failure, bool) {
+func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
 	for _, f := range lib.AllFailures(rpc) {
 		if f.Field != name && !mentionsField(f.When, name) {
 			continue
 		}
-		if n, ok := parseMinimum(f.When); ok {
-			failure := f
-			return n, &failure, true
+		if n, ok := parse(f.When); ok {
+			return n, &f, true
 		}
 	}
 	if fc := c.Fields[name]; fc != nil {
-		if n, ok := parseMinimum(fc.Note); ok {
+		if n, ok := parse(fc.Note); ok {
 			return n, nil, true
 		}
 	}
@@ -184,7 +183,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				continue
 			}
 			quantity := isQuantityName(f.Name)
-			min, failure, stated := statedMinimum(lib, st.Call, c, f.Name)
+			min, failure, stated := statedBound(lib, st.Call, c, f.Name, parseMinimum)
 			if quantity && !(rules.increase[rpc] != nil && rules.increase[rpc].qtyField == f.Name) {
 				quantities = append(quantities, f.Name)
 			}

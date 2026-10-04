@@ -78,7 +78,7 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 			if !ok || sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) {
 				continue
 			}
-			min, failure, found := statedMinimum(lib, st.Call, c, sub.Name)
+			min, failure, found := statedBound(lib, st.Call, c, sub.Name, parseMinimum)
 			if !found || failure == nil {
 				continue
 			}
