@@ -118,6 +118,14 @@ failing chain, the suspect's request and every change with its want and got as `
 expectations for a chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`),
 and the knock-on counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
+A chain with `wait:` steps is named on stderr as the gate starts, with its total wait. It starts
+at once, beside the other chains, when it writes nothing (each step is the configured login or a
+read) and each read's request carries `${vars.tag}`, the gate's fresh tag: it then changes nothing
+another chain reads, and no other chain can change what it reads. Otherwise it runs in its turn and
+the stderr line names the step that keeps it there. Every line still comes in its place. A gate with
+such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <chain> <time> (waits
+<d> by design, ...)`, so a long gate is not mistaken for a hang.
+
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early
 (`-no-session-check` skips it). `shrt gate <chain>...` gates a subset, without the ratchet. With no

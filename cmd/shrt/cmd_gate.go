@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
@@ -742,6 +743,9 @@ type gateChain struct {
 	echoOf    string
 	slices    []string
 	shown     []string
+	waits     time.Duration
+	took      time.Duration
+	queued    string
 }
 
 func (g *gateChain) findingOnly() bool {
@@ -925,24 +929,14 @@ func runGate(ctx context.Context, args []string) error {
 	for _, g := range chains {
 		width = max(width, len(g.name))
 	}
+	began := time.Now()
+	outs := sendGate(ctx, e, chains, *wait)
 	early := map[string]int{}
 	earlyAt := map[string]gateEarly{}
 	reads := map[string]gateRead{}
-	for _, g := range chains {
-		readsTag, keptRed := false, false
-		if c, err := e.resolveChain(g.name); err == nil {
-			readsTag = len(c.UnusedVarNames(map[string]any{"tag": ""})) == 0
-			keptRed = len(c.KeptRed) > 0
-		}
-		outs := map[string]gateOutcome{}
-		if g.spot {
-			outs["verify"] = gateAttempt(ctx, "verify", g.name, readsTag, *wait)
-		}
-		if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
-			outs["run"] = gateAttempt(ctx, "run", g.name, readsTag, *wait)
-		}
+	for i, g := range chains {
 		for _, what := range []string{"run", "verify"} {
-			out, ok := outs[what]
+			out, ok := outs[i][what]
 			if !ok {
 				continue
 			}
@@ -1030,6 +1024,9 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println(line)
 		}
 	}
+	if line := gateTime(chains, time.Since(began)); line != "" {
+		fmt.Println(line)
+	}
 	switch {
 	case failed > 0 || len(findings) > 0:
 		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
@@ -1097,6 +1094,119 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 		out = append(out, byName[n])
 	}
 	return out, nil
+}
+
+func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration) []map[string]gateOutcome {
+	outs := make([]map[string]gateOutcome, len(chains))
+	resolved := make([]*chain.Chain, len(chains))
+	var mu sync.Mutex
+	var beside sync.WaitGroup
+	started := time.Now()
+	for i, g := range chains {
+		resolved[i], _ = e.resolveChain(g.name)
+		if g.waits, g.queued = gateWaits(e, resolved[i]); g.waits == 0 {
+			continue
+		}
+		if g.queued != "" {
+			fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it runs in turn (%s), so this gate takes at least that long\n", g.name, g.waits, g.queued)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now, beside the other chains, so this gate takes at least that long\n", g.name, g.waits)
+		beside.Add(1)
+		go func() {
+			defer beside.Done()
+			out := g.send(ctx, resolved[i], wait)
+			mu.Lock()
+			outs[i] = out
+			mu.Unlock()
+		}()
+	}
+	for i, g := range chains {
+		if !g.beside() {
+			outs[i] = g.send(ctx, resolved[i], wait)
+		}
+	}
+	mu.Lock()
+	for i, g := range chains {
+		if g.beside() && outs[i] == nil {
+			left := ""
+			if d := g.waits - time.Since(started); d > 0 {
+				left = fmt.Sprintf(", about %s left", d.Round(time.Second))
+			}
+			fmt.Fprintf(os.Stderr, "gate: the other chains are done; waiting for %s, which waits %s by design%s\n", g.name, g.waits, left)
+		}
+	}
+	mu.Unlock()
+	beside.Wait()
+	return outs
+}
+
+func (g *gateChain) beside() bool {
+	return g.waits > 0 && g.queued == ""
+}
+
+func gateWaits(e *env, c *chain.Chain) (time.Duration, string) {
+	if c == nil {
+		return 0, ""
+	}
+	var waits time.Duration
+	queued, logins := "", loginRPCs(e)
+	for _, s := range c.Steps {
+		d, _ := s.WaitFor()
+		waits += d
+		m, err := e.cat.Lookup(s.Call)
+		switch {
+		case queued != "" || err == nil && logins[m.FullName]:
+		case !chain.IsReadOnlyCall(s.Call):
+			queued = s.ID + " writes"
+		case !slices.Contains(s.SendReferences(), "vars."+chain.RunTagVar):
+			queued = s.ID + " reads without ${vars." + chain.RunTagVar + "}"
+		}
+	}
+	return waits, queued
+}
+
+func (g *gateChain) send(ctx context.Context, c *chain.Chain, wait time.Duration) map[string]gateOutcome {
+	began := time.Now()
+	defer func() { g.took = time.Since(began) }()
+	readsTag, keptRed := false, false
+	if c != nil {
+		readsTag = len(c.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0
+		keptRed = len(c.KeptRed) > 0
+	}
+	outs := map[string]gateOutcome{}
+	if g.spot {
+		outs["verify"] = gateAttempt(ctx, "verify", g.name, readsTag, wait)
+	}
+	if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
+		outs["run"] = gateAttempt(ctx, "run", g.name, readsTag, wait)
+	}
+	return outs
+}
+
+func gateTime(chains []*gateChain, total time.Duration) string {
+	var slow []*gateChain
+	for _, g := range chains {
+		if g.waits > 0 || total >= 30*time.Second && 4*g.took >= total {
+			slow = append(slow, g)
+		}
+	}
+	if len(slow) == 0 {
+		return ""
+	}
+	sort.SliceStable(slow, func(i, j int) bool { return slow[i].took > slow[j].took })
+	var parts []string
+	for _, g := range slow[:min(3, len(slow))] {
+		part := g.name + " " + g.took.Round(time.Second).String()
+		switch {
+		case g.beside():
+			part += fmt.Sprintf(" (waits %s by design, beside the other chains)", g.waits)
+		case g.waits > 0:
+			part += fmt.Sprintf(" (waits %s by design, in turn: %s)", g.waits, g.queued)
+		}
+		parts = append(parts, part)
+	}
+	return fmt.Sprintf("time: %s; slowest: %s", total.Round(time.Second), strings.Join(parts, ", "))
 }
 
 func gateAttempt(ctx context.Context, what, name string, readsTag bool, wait time.Duration) gateOutcome {

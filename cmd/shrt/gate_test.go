@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,12 +16,15 @@ import (
 )
 
 type fakeGate struct {
+	mu       sync.Mutex
 	calls    [][]string
 	outcomes map[string][]gateOutcome
 	tries    map[string]int
 }
 
 func (f *fakeGate) exec(_ context.Context, args []string) gateOutcome {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, args)
 	key := args[0]
 	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
