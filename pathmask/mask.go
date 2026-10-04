@@ -455,12 +455,5 @@ func Join(prefix, key string) string {
 }
 
 func IndexKey(i int) string {
-	if i < 10 {
-		return string(rune('0' + i))
-	}
-	digits := []byte{}
-	for n := i; n > 0; n /= 10 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-	}
-	return string(digits)
+	return strconv.Itoa(i)
 }
