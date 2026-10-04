@@ -5,9 +5,6 @@ import (
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
-	"github.com/N4darae/shrt/chain"
-	"github.com/N4darae/shrt/contract"
-	"gopkg.in/yaml.v3"
 )
 
 func TestChainNewReadRepeatedAfterAWriteReadsTheSameResourceAgain(t *testing.T) {
@@ -17,14 +14,7 @@ func TestChainNewReadRepeatedAfterAWriteReadsTheSameResourceAgain(t *testing.T) 
 		"shop.catalog.v1.ProductService/GetProduct", "shop.catalog.v1.ProductService/GetProduct",
 		"shop.catalog.v1.StockService/AddStock", "shop.catalog.v1.ProductService/GetProduct"}
 	ids := []string{"create_product", "create_product_2", "get_product", "get_product_2", "add_stock", "get_product_3"}
-	raw, notes, err := contract.ScaffoldChain("rr", "", refs, ids, lib, cat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
+	c, raw, notes := scaffolded(t, "rr", refs, ids, lib, cat)
 	want := map[string]string{
 		"get_product":                 "${create_product.product.id_product}",
 		"get_product_2":               "${create_product_2.product.id_product}",

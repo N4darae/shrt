@@ -4,9 +4,6 @@ import (
 	"testing"
 
 	"github.com/N4darae/shrt/catalog/catalogtest"
-	"github.com/N4darae/shrt/chain"
-	"github.com/N4darae/shrt/contract"
-	"gopkg.in/yaml.v3"
 )
 
 func TestChainNewWithoutContractsWiresIDsFromEarlierSteps(t *testing.T) {
@@ -15,14 +12,7 @@ func TestChainNewWithoutContractsWiresIDsFromEarlierSteps(t *testing.T) {
 		"shop.customers.v1.CustomerService/CreateCustomer", "shop.orders.v1.OrderService/CreateOrder",
 		"shop.orders.v1.OrderService/CancelOrder"}
 	ids := []string{"confirm_order", "create_product", "create_customer", "create_order", "cancel_order"}
-	raw, _, err := contract.ScaffoldChain("bare", "", refs, ids, nil, cat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
+	c, raw, _ := scaffolded(t, "bare", refs, ids, nil, cat)
 	order, _ := c.Step("create_order")
 	if order.Body["id_customer"] != "${create_customer.customer.id_customer}" {
 		t.Fatalf("id_customer should read the earlier CreateCustomer:\n%s", raw)
