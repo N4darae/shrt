@@ -3,8 +3,8 @@ package contract
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -145,21 +145,13 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 		}
 		all := map[string]bool{}
 		for _, id := range ids {
-			for r := range readers[id] {
-				all[r] = true
-			}
+			maps.Copy(all, readers[id])
 		}
 		for _, id := range ids {
-			missing := []string{}
-			for r := range all {
-				if !readers[id][r] {
-					missing = append(missing, r)
-				}
-			}
+			missing := slices.DeleteFunc(sortedKeys(all), func(r string) bool { return readers[id][r] })
 			if len(missing) == 0 {
 				continue
 			}
-			sort.Strings(missing)
 			p.note("step %s: another %s step is read by %s and this one is not: if it needs the same preparation, "+
 				"add one more %s step that reads it", id, shortRPC(rpc), strings.Join(missing, ", "), strings.Join(missing, " / "))
 		}
@@ -238,10 +230,8 @@ func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {
 	rc, _ := lib.Get(m.FullName)
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		key, ok := namecase.LookupKey(st.Body, f.Name)
-		if !ok || len(f.EnumValues) == 0 || st.Body[key] != f.EnumValues[0] || !IsPlaceholderEnumValue(f.EnumValues[0]) || contractRequiresField(rc, f.Name) {
-			continue
-		}
-		if rc != nil && rc.Fields[f.Name] != nil && rc.Fields[f.Name].Value != "" {
+		if !ok || len(f.EnumValues) == 0 || st.Body[key] != f.EnumValues[0] || !IsPlaceholderEnumValue(f.EnumValues[0]) || contractRequiresField(rc, f.Name) ||
+			rc != nil && rc.Fields[f.Name] != nil && rc.Fields[f.Name].Value != "" {
 			continue
 		}
 		delete(st.Body, key)
@@ -260,11 +250,7 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 	held, by := map[string]string{}, map[string]string{}
 	before := map[string]map[string]string{}
 	for _, st := range p.Chain.Steps {
-		snap := make(map[string]string, len(held))
-		for k, v := range held {
-			snap[k] = v
-		}
-		before[st.ID] = snap
+		before[st.ID] = maps.Clone(held)
 		if st.AllowFail || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}

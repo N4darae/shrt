@@ -1,8 +1,9 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -35,11 +36,8 @@ func ProducersOf(field string, methods []*catalog.Method, exclude string) []Prod
 		}
 	}
 	out = preferOwnID(out, leaf)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Path < out[j].Path
+	slices.SortStableFunc(out, func(a, b Producer) int {
+		return cmp.Or(strings.Compare(a.RPC, b.RPC), strings.Compare(a.Path, b.Path))
 	})
 	return out
 }
@@ -63,25 +61,16 @@ func preferOwnID(candidates []Producer, leaf string) []Producer {
 }
 
 func idSubject(leaf string) string {
-	words := []string{}
-	for _, w := range namecase.Words(leaf) {
-		if !isIDWord(w) {
-			words = append(words, w)
-		}
-	}
-	return strings.Join(words, "_")
+	return strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
 }
 
 func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
 	out := []string{}
 	for _, f := range fields {
-		if prefix == "" && f.Name == chain.EnvelopeField() {
+		if prefix == "" && f.Name == chain.EnvelopeField() || f.Repeated || f.MapKey != "" {
 			continue
 		}
 		path := join(prefix, f.Name)
-		if f.Repeated || f.MapKey != "" {
-			continue
-		}
 		if f.Kind == "message" || f.Kind == "group" {
 			out = append(out, responsePathsTo(f.Fields, leaf, path)...)
 			continue
@@ -123,12 +112,7 @@ func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library
 
 	rpcs := &yaml.Node{Kind: yaml.MappingNode}
 	for _, m := range methods {
-		var prior *RPCContract
-		if existing != nil {
-			if c, ok := existing.Get(m.FullName); ok {
-				prior = c
-			}
-		}
+		prior, _ := existing.Get(m.FullName)
 		put(rpcs, m.FullName, scaffoldRPC(m, prior, all))
 	}
 	put(doc, "rpcs", rpcs)
@@ -347,11 +331,8 @@ func (p *Plan) wireInferredIDs(step *chain.Step, m *catalog.Method, fields map[s
 	}
 	froms := inferredFroms(m, p.cat.Methods())
 	for _, path := range sortedKeys(froms) {
-		if f := fields[path]; f != nil && (f.Value != "" || f.From != "" || f.SameAs != "") {
-			continue
-		}
 		ref, err := ParseRef(froms[path])
-		if err != nil || !earlier[ref.Node()] {
+		if hasValueSource(fields[path]) || err != nil || !earlier[ref.Node()] {
 			continue
 		}
 		setBodyPath(step.Body, path, "${"+p.stepOf[ref.Node()]+"."+ref.Path+"}")
@@ -397,13 +378,8 @@ func exportsNode(m *catalog.Method) *yaml.Node {
 	out := catalog.DescribeMessage(m.Output())
 	exports := &yaml.Node{Kind: yaml.MappingNode}
 	for _, f := range out.Fields {
-		if f.Name == chain.EnvelopeField() {
+		if f.Name == chain.EnvelopeField() || (f.Kind == "message" || f.Kind == "group") && !f.Repeated {
 			continue
-		}
-		if f.Kind == "message" || f.Kind == "group" {
-			if !f.Repeated {
-				continue
-			}
 		}
 		put(exports, f.Name, scalar(withDoc(TodoMarker+": why a later step would need this, or move it to terminal: if nothing consumes it", f)))
 	}
@@ -478,20 +454,14 @@ func isVersionSegment(s string) bool {
 	if len(s) < 2 || s[0] != 'v' || s[1] < '0' || s[1] > '9' {
 		return false
 	}
-	rest := s[1:]
-	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-		rest = rest[1:]
-	}
+	rest := strings.TrimLeft(s[1:], "0123456789")
 	for _, suffix := range []string{"alpha", "beta", "test", "p"} {
 		if strings.HasPrefix(rest, suffix) {
 			rest = rest[len(suffix):]
 			break
 		}
 	}
-	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-		rest = rest[1:]
-	}
-	return rest == ""
+	return strings.TrimLeft(rest, "0123456789") == ""
 }
 
 func DomainNames(methods []*catalog.Method) []string {
@@ -524,10 +494,7 @@ func RenderOverlay(node *yaml.Node) ([]byte, error) {
 
 func ScanTodos(domain string, raw []byte) []Issue {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil
-	}
-	if len(doc.Content) == 0 {
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 {
 		return nil
 	}
 	issues := []Issue{}
@@ -602,12 +569,8 @@ func IsTodo(text string) bool {
 }
 
 func cleanTodo(raw string) string {
-	text := strings.TrimSpace(raw)
-	text = strings.TrimPrefix(text, "#")
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, TodoMarker)
-	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":"))
-	return FirstSentence(text)
+	text := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#")), TodoMarker)
+	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
 }
 
 func join(prefix, key string) string {
