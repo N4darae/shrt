@@ -235,27 +235,14 @@ func assertsAbsentPrefix(st *chain.Step, path string) bool {
 }
 
 func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
-	var results, lines *catalog.Field
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Repeated && fd.Kind == "message" && fd.MapKey == "" {
-			if results != nil {
-				return nil
-			}
-			results = fd
-		}
-	}
-	for _, fd := range catalog.DescribeMessage(m.Input()).Fields {
-		if fd.Repeated && fd.Kind == "message" && fd.MapKey == "" {
-			if lines != nil {
-				return nil
-			}
-			lines = fd
-		}
-	}
-	if results == nil || lines == nil {
+	notList := func(fd *catalog.Field) bool { return !fd.Repeated || fd.Kind != "message" || fd.MapKey != "" }
+	lists := slices.DeleteFunc(catalog.DescribeMessage(m.Output()).Fields, notList)
+	lines := slices.DeleteFunc(catalog.DescribeMessage(m.Input()).Fields, notList)
+	if len(lists) != 1 || len(lines) != 1 {
 		return nil
 	}
-	key, ok := namecase.LookupKey(st.Body, lines.Name)
+	results := lists[0]
+	key, ok := namecase.LookupKey(st.Body, lines[0].Name)
 	if !ok {
 		return nil
 	}
@@ -275,7 +262,7 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 		if verdict != "" {
 			out = append(out, chain.Expectation{Path: prefix + verdict, Equals: chain.EnvelopeOK()})
 		}
-		for _, f := range lines.Fields {
+		for _, f := range lines[0].Fields {
 			k, ok := namecase.LookupKey(item, f.Name)
 			if !ok || f.Repeated || f.Kind == "message" {
 				continue
