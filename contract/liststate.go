@@ -6,11 +6,13 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-func bodyText(v any, out *strings.Builder) {
+func bodyText(v any) string {
+	var out strings.Builder
 	mapStrings(v, func(t string) string {
 		out.WriteString(t + "\n")
 		return t
 	})
+	return out.String()
 }
 
 func (p *Plan) statesBefore(lib *Library, t *listTarget, values []string, short map[string]string) map[string]string {
@@ -38,10 +40,9 @@ func (p *Plan) statesBefore(lib *Library, t *listTarget, values []string, short 
 		if !ok {
 			continue
 		}
-		var text strings.Builder
-		bodyText(map[string]any(s.Body), &text)
+		text := bodyText(map[string]any(s.Body))
 		for _, prod := range t.producers {
-			if prod == s || !strings.Contains(text.String(), refs[prod.ID]) {
+			if prod == s || !strings.Contains(text, refs[prod.ID]) {
 				continue
 			}
 			if v := stateIn([]string{c.Exports[carrier], c.Summary}, values, short); v != "" {

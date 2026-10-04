@@ -99,12 +99,7 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 					"below have letters to vary", t.step.ID, key, shared, t.anchor, t.producers[0].ID, t.anchor)
 			}
 			if scope.target == "" {
-				want := namecase.Fold(strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(key), "prefix", ""), "_"), "_"))
-				for k := range t.producers[0].Body {
-					if namecase.Fold(k) == want {
-						scope.target = k
-					}
-				}
+				scope.target = prefixTargetKey(key, t.producers[0])
 			}
 			continue
 		}

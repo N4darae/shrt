@@ -10,9 +10,7 @@ import (
 )
 
 func listUnscoped(st *chain.Step) bool {
-	var text strings.Builder
-	bodyText(map[string]any(st.Body), &text)
-	return !strings.Contains(text.String(), "${")
+	return !strings.Contains(bodyText(map[string]any(st.Body)), "${")
 }
 
 func prefixTargetKey(prefixKey string, producer *chain.Step) string {

@@ -126,9 +126,7 @@ func (p *Plan) latestWriter(prod, r *chain.Step, ref, key string) *chain.Step {
 		if !started || chain.IsReadOnlyCall(s.Call) || isRefusalStep(s) || s.AllowFail || s.SkipAuth {
 			continue
 		}
-		var text strings.Builder
-		bodyText(map[string]any(s.Body), &text)
-		if !strings.Contains(text.String(), ref) {
+		if !strings.Contains(bodyText(map[string]any(s.Body)), ref) {
 			continue
 		}
 		if _, sends := namecase.LookupKey(s.Body, key); sends {

@@ -56,24 +56,23 @@ func credentialFailure(lib *Library, rpc string) (Failure, bool) {
 	return Failure{}, false
 }
 
-func secretKey(body map[string]any) string {
+func keyWhere(body map[string]any, match func(lower string) bool) string {
 	for _, k := range sortedKeys(body) {
-		low := strings.ToLower(k)
-		if strings.Contains(low, "pass") || strings.Contains(low, "secret") {
+		if match(strings.ToLower(k)) {
 			return k
 		}
 	}
 	return ""
 }
 
+func secretKey(body map[string]any) string {
+	return keyWhere(body, func(low string) bool { return strings.Contains(low, "pass") || strings.Contains(low, "secret") })
+}
+
 func userKey(body map[string]any) string {
-	for _, k := range sortedKeys(body) {
-		low := strings.ToLower(k)
-		if strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name" {
-			return k
-		}
-	}
-	return ""
+	return keyWhere(body, func(low string) bool {
+		return strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name"
+	})
 }
 
 func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string {

@@ -113,11 +113,8 @@ func inject(mapping *yaml.Node, body *yaml.Node) {
 		return
 	}
 	at := len(mapping.Content)
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == "call" {
-			at = i + 2
-			break
-		}
+	if i := mappingIndex(mapping, "call"); i >= 0 {
+		at = i + 2
 	}
 	key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "body"}
 	tail := append([]*yaml.Node{}, mapping.Content[at:]...)

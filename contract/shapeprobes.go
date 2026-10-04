@@ -206,10 +206,7 @@ func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f
 	expect := refusalFor(m, f, true)
 	ids := []string{}
 	for _, sc := range cases {
-		probe := probeStep(st, p.freeStepID(st.ID+"_"+chain.PathLeaf(sc.field)+"_"+sc.kind))
-		if !chain.IsReadOnlyCall(st.Call) {
-			p.freshen(lib, probe)
-		}
+		probe := p.probeCopy(lib, st, chain.PathLeaf(sc.field)+"_"+sc.kind)
 		setBodyPath(probe.Body, sc.path, sc.value)
 		probe.Expect = append([]chain.Expectation{}, expect...)
 		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, shapeWords(sc.kind), f.Label())

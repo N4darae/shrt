@@ -151,7 +151,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		body, _ := cloneBody(st.Body).(map[string]any)
 		setBodyPath(body, field, value)
 		return &chain.Step{
-			ID:          uniqueStepID(p.Chain, st.ID+"_same_"+leaf+suffix),
+			ID:          p.freeStepID(st.ID + "_same_" + leaf + suffix),
 			Description: description,
 			Call:        st.Call,
 			Auth:        st.Auth,

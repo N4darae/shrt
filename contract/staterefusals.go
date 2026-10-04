@@ -144,10 +144,7 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
 		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
-	refused := probeStep(st, p.freeStepID(st.ID+"_when_"+label))
-	if !chain.IsReadOnlyCall(st.Call) {
-		p.freshen(lib, refused)
-	}
+	refused := p.probeCopy(lib, st, "when_"+label)
 	setBodyPath(refused.Body, e.field, fixtureID)
 	refused.Expect = refusalFor(m, f, false)
 	refused.Description = fmt.Sprintf("on %s already %s: refused with %s (%s), and nothing it would have changed moves.",

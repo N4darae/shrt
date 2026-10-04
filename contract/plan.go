@@ -139,7 +139,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		if alias != "" {
 			base += "_" + alias
 		}
-		id := uniqueStepID(c, base)
+		id := p.freeStepID(base)
 		p.stepOf[node] = id
 		step := p.buildStep(id, alias, method, lib)
 		p.fillLoginBody(step, method)
@@ -792,24 +792,12 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 }
 
 func setMappingKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
+	if i := mappingIndex(mapping, key); i >= 0 {
+		mapping.Content[i+1] = value
+		return
 	}
 	mapping.Content = append(mapping.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
-}
-
-func uniqueStepID(c *chain.Chain, base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := c.Step(id); !exists {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
 }
 
 func exportName(stepID, path string) string {

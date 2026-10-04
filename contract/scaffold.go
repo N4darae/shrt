@@ -191,9 +191,7 @@ const RequiredTodoText = TodoMarker + ": which fields the server rejects without
 	RequiredNone + " if it rejects nothing"
 
 func requiredTodo() *yaml.Node {
-	n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
-	n.Content = append(n.Content, scalar(RequiredTodoText))
-	return n
+	return &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle, Content: []*yaml.Node{scalar(RequiredTodoText)}}
 }
 
 func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []*catalog.Method) {
@@ -236,17 +234,13 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	if len(added.Content) == 0 {
 		return
 	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "fields" && node.Content[i+1].Kind == yaml.MappingNode {
-			node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
-			return
-		}
+	if i := mappingIndex(node, "fields"); i >= 0 && node.Content[i+1].Kind == yaml.MappingNode {
+		node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
+		return
 	}
 	at := len(node.Content)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "required" {
-			at = i + 2
-		}
+	if i := mappingIndex(node, "required"); i >= 0 {
+		at = i + 2
 	}
 	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
 	node.Content = append(node.Content[:at:at], rest...)
@@ -265,14 +259,8 @@ func priorAliasField(prior *RPCContract, key string) bool {
 }
 
 func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
-	if !prior.IsUnfilled("required") || len(prior.Required) > 0 {
-		return
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "required" {
-			node.Content[i+1] = requiredTodo()
-			return
-		}
+	if i := mappingIndex(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
+		node.Content[i+1] = requiredTodo()
 	}
 }
 
@@ -315,8 +303,8 @@ func inferredFroms(m *catalog.Method, all []*catalog.Method) map[string]string {
 	out := map[string]string{}
 	fields := scaffoldFields(m, all, fieldHint)
 	for i := 0; i+1 < len(fields.Content); i += 2 {
-		if from := mappingValue(fields.Content[i+1], "from"); from != nil {
-			out[fields.Content[i].Value] = from.Value
+		if entry := fields.Content[i+1]; entry.Kind == yaml.MappingNode && mappingIndex(entry, "from") >= 0 {
+			out[fields.Content[i].Value] = entry.Content[mappingIndex(entry, "from")+1].Value
 		}
 	}
 	return out
@@ -466,8 +454,7 @@ func isVersionSegment(s string) bool {
 }
 
 func DomainNames(methods []*catalog.Method) []string {
-	seen := Domains(methods)
-	return sortedKeys(seen)
+	return sortedKeys(Domains(methods))
 }
 
 func scalar(v string) *yaml.Node {
@@ -574,14 +561,11 @@ func cleanTodo(raw string) string {
 	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
 }
 
-func mappingValue(node *yaml.Node, key string) *yaml.Node {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return nil
-	}
+func mappingIndex(node *yaml.Node, key string) int {
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value == key {
-			return node.Content[i+1]
+			return i
 		}
 	}
-	return nil
+	return -1
 }
