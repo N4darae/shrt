@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -163,17 +164,13 @@ func TestAuthRouterResolveNamesTheKnownProfilesWhenOneIsMissing(t *testing.T) {
 	if err == nil {
 		t.Fatal("resolving an undeclared profile must fail")
 	}
-	if !contains(err.Error(), "default") || !contains(err.Error(), "partner") {
+	if !strings.Contains(err.Error(), "default") || !strings.Contains(err.Error(), "partner") {
 		t.Fatalf("error must list the declared profiles so the author can fix the typo, got: %v", err)
 	}
 }
 
 func TestLoginTokenSourceLoginsCountsSuccessfulLogins(t *testing.T) {
-	src := NewLoginTokenSource(AuthSpec{
-		Procedure: "svc/Login",
-		Body:      func() ([]byte, error) { return []byte(`{}`), nil },
-		TokenPath: "access_token",
-	}, func(ctx context.Context, c *Call) (*Result, error) {
+	src := NewLoginTokenSource(loginSpec(), func(ctx context.Context, c *Call) (*Result, error) {
 		return &Result{Status: 200, Body: []byte(`{"access_token":"tok"}`)}, nil
 	})
 	if src.Logins() != 0 {

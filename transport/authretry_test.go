@@ -3,17 +3,14 @@ package transport
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestLogin_RetriesAResourceExhaustedRefusal(t *testing.T) {
 	calls := 0
-	src := NewLoginTokenSource(AuthSpec{
-		Procedure: "svc/Login",
-		Body:      func() ([]byte, error) { return []byte(`{}`), nil },
-		TokenPath: "access_token",
-	}, func(ctx context.Context, c *Call) (*Result, error) {
+	src := NewLoginTokenSource(loginSpec(), func(ctx context.Context, c *Call) (*Result, error) {
 		calls++
 		if calls < 3 {
 			return &Result{Status: 429, Error: &Error{Code: "resource_exhausted", Message: "rate limit exceeded, retry later"}}, nil
@@ -36,11 +33,7 @@ func TestLogin_RetriesAResourceExhaustedRefusal(t *testing.T) {
 
 func TestLogin_DoesNotRetryABadCredential(t *testing.T) {
 	calls := 0
-	src := NewLoginTokenSource(AuthSpec{
-		Procedure: "svc/Login",
-		Body:      func() ([]byte, error) { return []byte(`{}`), nil },
-		TokenPath: "access_token",
-	}, func(ctx context.Context, c *Call) (*Result, error) {
+	src := NewLoginTokenSource(loginSpec(), func(ctx context.Context, c *Call) (*Result, error) {
 		calls++
 		return &Result{Status: 401, Error: &Error{Code: "unauthenticated", Message: "bad credential"}}, nil
 	})
@@ -56,11 +49,7 @@ func TestLogin_DoesNotRetryABadCredential(t *testing.T) {
 }
 
 func TestLogin_GivesUpAndSaysWhy(t *testing.T) {
-	src := NewLoginTokenSource(AuthSpec{
-		Procedure: "svc/Login",
-		Body:      func() ([]byte, error) { return []byte(`{}`), nil },
-		TokenPath: "access_token",
-	}, func(ctx context.Context, c *Call) (*Result, error) {
+	src := NewLoginTokenSource(loginSpec(), func(ctx context.Context, c *Call) (*Result, error) {
 		return &Result{Status: 429, Error: &Error{Code: "resource_exhausted", Message: "rate limit exceeded, retry later"}}, nil
 	})
 	src.RetryBackoff = time.Millisecond
@@ -70,20 +59,11 @@ func TestLogin_GivesUpAndSaysWhy(t *testing.T) {
 		t.Fatal("an endless refusal must eventually surface")
 	}
 	var ce *Error
-	if !errors.As(err, &ce) && !contains(err.Error(), "resource_exhausted") {
+	if !errors.As(err, &ce) && !strings.Contains(err.Error(), "resource_exhausted") {
 		t.Fatalf("the final error must still name the refusal it gave up on, got %v", err)
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
+func loginSpec() AuthSpec {
+	return AuthSpec{Procedure: "svc/Login", Body: func() ([]byte, error) { return []byte(`{}`), nil }, TokenPath: "access_token"}
 }
