@@ -152,8 +152,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	}
 	if len(docs) > 0 {
 		fmt.Printf("write %s\n", strings.Join(docs, ", "))
-	}
-	if len(docs) == 0 {
+	} else {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
 	gateFiles := []string{}
@@ -187,8 +186,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		}
 		if len(written) > 0 {
 			fmt.Printf("write %s\n", strings.Join(written, ", "))
-		}
-		if len(written) == 0 {
+		} else {
 			fmt.Println("keep  .claude/ agent kit (already present)")
 		}
 	}
@@ -442,18 +440,17 @@ func writeExampleChain(root string, cfg *config.Config, force, verbose bool) err
 		return err
 	}
 	path, ok := exampleEnvelope(cfg)
-	if existing, err := os.ReadFile(example); err == nil && !force {
-		if ok == "" || !untouchedExample(existing, raw) {
-			return nil
-		}
-		if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+	existing, err := os.ReadFile(example)
+	kept := err == nil && !force
+	if kept && (ok == "" || !untouchedExample(existing, raw)) {
 		return nil
 	}
 	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
 		return err
+	}
+	if kept {
+		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+		return nil
 	}
 	fmt.Printf("write %s\n", rel(root, example))
 	if verbose {

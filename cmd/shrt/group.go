@@ -34,20 +34,13 @@ func (g group) usage() string {
 	return fmt.Sprintf("usage: shrt %s <%s> [flags]", g.name, g.names())
 }
 
-func (g group) width() int {
-	w := 0
-	for _, s := range g.subs {
-		if len(s.name) > w {
-			w = len(s.name)
-		}
-	}
-	return w
-}
-
 func (g group) printHelp() {
 	fmt.Println(g.usage())
 	fmt.Println()
-	w := g.width()
+	w := 0
+	for _, s := range g.subs {
+		w = max(w, len(s.name))
+	}
 	for _, s := range g.subs {
 		fmt.Printf("  %-*s  %s\n", w, s.name, s.summary)
 	}

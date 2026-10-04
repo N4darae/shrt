@@ -424,7 +424,12 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	condensed := len(everyStep) > 0 && !everyStep[0]
 	passed, behind, behindOrder, answered := 0, map[string]int{}, []string{}, map[string][]string{}
 	if !quiet {
-		idWidth := longestStepID(c)
+		idWidth := 0
+		for _, s := range c.Steps {
+			if s != nil {
+				idWidth = max(idWidth, len(s.ID))
+			}
+		}
 		unreachableShown := false
 		skips := runner.NewSkipCondenser()
 		warned := map[string]string{}
@@ -537,16 +542,6 @@ func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
 		line += fmt.Sprintf("  (sent after waiting %s)", (time.Duration(sr.WaitedMS) * time.Millisecond).Round(time.Millisecond))
 	}
 	return line
-}
-
-func longestStepID(c *chain.Chain) int {
-	n := 0
-	for _, s := range c.Steps {
-		if s != nil && len(s.ID) > n {
-			n = len(s.ID)
-		}
-	}
-	return n
 }
 
 func statusMark(s string, dry bool) string {

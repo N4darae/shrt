@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -149,7 +150,7 @@ func stepDiffers(st *runner.StepRecord, s *chain.Step, c *chain.Chain, isDefault
 	}
 	loginCall := st.AuthProfile == runner.NoAuthProfile && s.Auth == "" && !s.SkipAuth
 	if st.AuthProfile != "" && st.AuthProfile != profile && !loginCall {
-		return fmt.Sprintf("auth profile %s -> %s", st.AuthProfile, orNone(profile))
+		return fmt.Sprintf("auth profile %s -> %s", st.AuthProfile, profile)
 	}
 	for k, v := range s.Headers {
 		got, ok := st.Headers[k]
@@ -226,13 +227,6 @@ func templateMatches(template, got string) bool {
 	return err == nil && re.MatchString(got)
 }
 
-func orNone(s string) string {
-	if s == "" {
-		return "none"
-	}
-	return s
-}
-
 func chainLastCommitted(e *env, name string) (*chain.Chain, string, bool) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return nil, "", false
@@ -290,7 +284,7 @@ func firstJSONDifference(a, b any, path string) string {
 	case map[string]any:
 		y, ok := b.(map[string]any)
 		if !ok {
-			return orRoot(path)
+			return cmp.Or(path, "its content")
 		}
 		for _, k := range keysOfBoth(x, y) {
 			if d := firstJSONDifference(x[k], y[k], pathmask.Join(path, k)); d != "" {
@@ -301,7 +295,7 @@ func firstJSONDifference(a, b any, path string) string {
 	case []any:
 		y, ok := b.([]any)
 		if !ok || len(x) != len(y) {
-			return orRoot(path)
+			return cmp.Or(path, "its content")
 		}
 		for i := range x {
 			if d := firstJSONDifference(x[i], y[i], pathmask.Join(path, pathmask.IndexKey(i))); d != "" {
@@ -311,14 +305,7 @@ func firstJSONDifference(a, b any, path string) string {
 		return ""
 	}
 	if !reflect.DeepEqual(a, b) {
-		return orRoot(path)
+		return cmp.Or(path, "its content")
 	}
 	return ""
-}
-
-func orRoot(path string) string {
-	if path == "" {
-		return "its content"
-	}
-	return path
 }
