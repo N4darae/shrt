@@ -331,7 +331,7 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 		return nil
 	}
 	best := found[0]
-	cfg.Auth = authFromCandidate(best, "API")
+	cfg.Auth = authFromCandidate(best, "API_USER", "API_PASSWORD")
 	for _, c := range found[1:] {
 		if c.Score < loginConfidence || contract.DomainOf(c.Method) == contract.DomainOf(best.Method) {
 			continue
@@ -340,7 +340,7 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 		if cfg.Auth.Profiles == nil {
 			cfg.Auth.Profiles = map[string]*config.Auth{}
 		}
-		profile := authFromCandidate(c, strings.ToUpper(name))
+		profile := authFromCandidate(c, strings.ToUpper(name)+"_USER", strings.ToUpper(name)+"_PASSWORD")
 		profile.Calls = []string{contract.PackageRootOf(c.Method) + ".*"}
 		cfg.Auth.Profiles[name] = profile
 	}
@@ -372,13 +372,13 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 
 const loginConfidence = 6
 
-func authFromCandidate(c catalog.LoginCandidate, envPrefix string) *config.Auth {
+func authFromCandidate(c catalog.LoginCandidate, userVar, passwordVar string) *config.Auth {
 	body := map[string]any{}
 	if c.UserField != "" {
-		body[c.UserField] = "${env." + envPrefix + "_USER}"
+		body[c.UserField] = "${env." + userVar + "}"
 	}
 	if c.PasswordName != "" {
-		body[c.PasswordName] = "${env." + envPrefix + "_PASSWORD}"
+		body[c.PasswordName] = "${env." + passwordVar + "}"
 	}
 	return &config.Auth{
 		Call:        c.Method.FullName,

@@ -394,6 +394,10 @@ func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.C
 			}
 		}
 	}
+	chainWide := map[string]bool{}
+	for _, p := range rec.Volatile {
+		chainWide[p] = true
+	}
 	for _, st := range rec.Steps {
 		own(st.ID, st.Volatile)
 	}
@@ -401,12 +405,6 @@ func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.C
 		for _, st := range c.Steps {
 			own(st.ID, st.Volatile)
 		}
-	}
-	chainWide := map[string]bool{}
-	for _, p := range rec.Volatile {
-		chainWide[p] = true
-	}
-	if c != nil {
 		for _, p := range c.Volatile {
 			chainWide[p] = true
 		}

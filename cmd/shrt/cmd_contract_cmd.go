@@ -192,7 +192,7 @@ func contractLint(args []string) error {
 				"scaffold it with 'shrt contract init %s'", *only, e.contractsDir(), *only)
 		}
 	}
-	issues := []contract.Issue{}
+	issues, errCount := []contract.Issue{}, len(broken)
 	for _, b := range broken {
 		issues = append(issues, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
 	}
@@ -202,6 +202,9 @@ func contractLint(args []string) error {
 		}
 		if *only != "" && i.Domain != *only && !(i.Domain == "" && strings.Contains(i.Message, *only)) {
 			continue
+		}
+		if i.Severity == contract.SeverityError {
+			errCount++
 		}
 		issues = append(issues, i)
 	}
@@ -221,7 +224,7 @@ func contractLint(args []string) error {
 				fmt.Printf("ok   %d contract(s) across %d overlay(s)\n", lib.Count(), len(lib.Overlays))
 			}
 		} else {
-			fmt.Printf("\n%s\n", tally(issues))
+			fmt.Printf("\n%d error(s), %d warning(s)\n", errCount, len(issues)-errCount)
 		}
 		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); len(broken) == 0 && !reach.Empty() {
 			fmt.Printf("note %d referenced rpc(s) live in domains not present in this library (%s) — alias and response-path checks could not run for them\n",
@@ -242,28 +245,10 @@ func contractLint(args []string) error {
 			}
 		}
 	}
-	errCount := 0
-	for _, i := range issues {
-		if i.Severity == contract.SeverityError {
-			errCount++
-		}
-	}
 	if errCount > 0 {
 		return fmt.Errorf("%d contract error(s)", errCount)
 	}
 	return nil
-}
-
-func tally(issues []contract.Issue) string {
-	errs, warns := 0, 0
-	for _, i := range issues {
-		if i.Severity == contract.SeverityError {
-			errs++
-			continue
-		}
-		warns++
-	}
-	return fmt.Sprintf("%d error(s), %d warning(s)", errs, warns)
 }
 
 func shortRPC(rpc string) string {

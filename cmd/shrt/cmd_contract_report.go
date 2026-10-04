@@ -183,23 +183,10 @@ func contractStatus(args []string) error {
 		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two applied items, so logic that merges, "+
 			"deduplicates or counts once per resource goes untested: shrt contract status -gaps lists them as 'no repeat'\n", repeat)
 	}
-	unchained := 0
+	unchained, unstated, roleGaps, tokenGaps, parityGaps := 0, 0, 0, 0, 0
 	for _, r := range rows {
 		unchained += len(r.NoChain)
-	}
-	if unchained > 0 {
-		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
-	}
-	unstated := 0
-	for _, r := range rows {
 		unstated += len(r.StateGaps)
-	}
-	if unstated > 0 {
-		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
-			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
-	}
-	roleGaps, tokenGaps, parityGaps := 0, 0, 0
-	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
 			switch g.Kind {
 			case "role":
@@ -210,6 +197,13 @@ func contractStatus(args []string) error {
 				tokenGaps++
 			}
 		}
+	}
+	if unchained > 0 {
+		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
+	}
+	if unstated > 0 {
+		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
+			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
 	}
 	if parityGaps > 0 {
 		fmt.Printf("\n%d rpc/profile pair(s) whose contract lets every role call the rpc are never called as that profile, so a role check added by mistake passes every gate: shrt contract status -gaps lists them as 'no profile probe'\n", parityGaps)

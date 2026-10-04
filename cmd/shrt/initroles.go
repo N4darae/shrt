@@ -107,17 +107,10 @@ func addRoleProfiles(cfg *config.Config, best catalog.LoginCandidate, environ []
 		if _, exists := cfg.Auth.Profiles[name]; exists {
 			continue
 		}
-		body := map[string]any{}
-		if best.UserField != "" {
-			body[best.UserField] = "${env." + cs.user + "}"
-		}
-		if best.PasswordName != "" {
-			body[best.PasswordName] = "${env." + cs.password + "}"
-		}
 		if cfg.Auth.Profiles == nil {
 			cfg.Auth.Profiles = map[string]*config.Auth{}
 		}
-		cfg.Auth.Profiles[name] = &config.Auth{Call: best.Method.FullName, Body: body, TokenPath: best.TokenPath, ExpiresPath: best.ExpiresPath}
+		cfg.Auth.Profiles[name] = authFromCandidate(best, cs.user, cs.password)
 		added = append(added, fmt.Sprintf("%s (%s and %s are set, and README names %s)", name, cs.user, cs.password, name))
 	}
 	return added

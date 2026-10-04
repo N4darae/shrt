@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -129,10 +130,7 @@ func (t *tokenLifetime) cachedFirstUse() bool {
 }
 
 func (t *tokenLifetime) profile(x earlyRefusal) string {
-	if x.step.AuthProfile == "" {
-		return transport.DefaultProfile
-	}
-	return x.step.AuthProfile
+	return cmp.Or(x.step.AuthProfile, transport.DefaultProfile)
 }
 
 func (t *tokenLifetime) where(x earlyRefusal) string {
