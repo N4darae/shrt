@@ -5,9 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"gopkg.in/yaml.v3"
 )
 
 type gateRef struct {
@@ -27,9 +30,9 @@ type gateRef struct {
 }
 
 func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateGroup, wait time.Duration) {
-	spot := map[string]bool{}
+	spot, byName := map[string]bool{}, map[string]*gateChain{}
 	for _, g := range chains {
-		spot[g.name] = g.spot
+		spot[g.name], byName[g.name] = g.spot, g
 	}
 	fresh := func(*chain.Chain, string) []string { return nil }
 	if lib, err := e.library(); err == nil {
@@ -39,7 +42,7 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 		fmt.Fprintf(os.Stderr, "gate: -repro: writing and verifying a repro for each of %d suspect rpc(s), each slice sent %d times\n", len(groups), sliceRepeat)
 		fmt.Println("repro, for each row of failures by suspect rpc:")
 	}
-	done := map[string]string{}
+	done, files := map[string]string{}, map[string]string{}
 	for _, gr := range groups {
 		fmt.Println("  " + gr.head)
 		for _, line := range settleRow(ctx, e, gr, spot, wait) {
@@ -48,7 +51,11 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 		at := gateRef{chain: gr.in, it: gr.example}
 		key := at.chain + " " + at.it.Step
 		if done[key] == "" {
-			done[key] = reproRow(ctx, e, at, fresh)
+			done[key], files[key] = reproRow(ctx, e, at, fresh)
+		}
+		fails, passes := gr.rowCalls(byName)
+		if line, sent := firmTrigger(ctx, e, files[key], at, fails, passes); sent > 0 {
+			fmt.Println("    " + cmp.Or(line, fmt.Sprintf("trigger above does not hold: %s around its boundary did not fail and pass as it says", plural(sent, "more call"))))
 		}
 		fmt.Println("    " + done[key])
 	}
@@ -274,31 +281,50 @@ func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[str
 	return body
 }
 
-func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain, string) []string) string {
+func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain, string) []string) (string, string) {
 	step := ref.it.Step
 	file := filepath.Join(scratchDir(e), strings.TrimSuffix(filepath.Base(ref.chain), ".yaml")+"-slice-"+step+".yaml")
-	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-write=" + file, "-json"}
+	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-minimize", "-write=" + file, "-json"}
 	var vars []string
 	if c, err := e.resolveChain(ref.chain); err == nil {
 		vars = fresh(c, step)
 		for _, v := range vars {
 			args = append(args, "-var", v+"="+chain.NewRunTag())
 		}
-	}
-	v, written, why := sliceRepro(ctx, args)
-	if next := strings.Fields(nextOf(v)); len(next) > 1 && next[0] == "shrt" {
-		if w, wr, _ := sliceRepro(ctx, append(next[1:], "-json")); w != nil {
-			v, written = w, wr
+		at, keep := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step }), []string{}
+		for _, r := range append([]reason{{Step: ref.it.suspect()}}, ref.it.Reason.Or...) {
+			if j := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Step }); j >= 0 && j < at && !slices.Contains(keep, r.Step) {
+				keep = append(keep, r.Step)
+			}
+		}
+		if len(keep) > 0 {
+			args = append(args, "-keep", strings.Join(keep, ","))
 		}
 	}
-	switch {
-	case v == nil:
-		return "repro: none: " + why
-	case v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent:
-		file = cmp.Or(written, file)
-		flag, note := readBack(ctx, e, ref, file, vars)
-		return fmt.Sprintf("repro: shrt run %s%s  (%s%s%s)", shownPath(file), flag, outcomeWord(v.Outcome), v.countLabel(), note)
+	s, why := sliceRepro(ctx, args)
+	if s != nil && s.Verify.Outcome != sliceReproduced {
+		if w, _ := sliceRepro(ctx, append(args, "-minimize=false")); w != nil {
+			s = w
+		}
 	}
+	if next := strings.Fields(nextOf(s)); len(next) > 1 && next[0] == "shrt" {
+		if w, _ := sliceRepro(ctx, append(next[1:], "-minimize", "-json")); w != nil {
+			s = w
+		}
+	}
+	if s == nil {
+		return "repro: none: " + why, ""
+	}
+	if v := s.Verify; v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent {
+		file = cmp.Or(s.Written, file)
+		flag, note := readBack(ctx, e, ref, file, vars)
+		kept := len(s.Kept)
+		if flag != "" {
+			kept++
+		}
+		return fmt.Sprintf("repro: shrt run %s%s  (%d of %d steps, %s%s%s)", shownPath(file), flag, kept, s.Total, outcomeWord(v.Outcome), v.countLabel(), note), file
+	}
+	v := s.Verify
 	if why = outcomeWord(v.Outcome); v.err() != nil {
 		why = v.err().Error()
 	}
@@ -307,7 +333,7 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	} else if len(v.Differences) > 0 {
 		why += ": " + v.Differences[0]
 	}
-	return fmt.Sprintf("repro: none: %s (slice of %s)", why, ref.chain)
+	return fmt.Sprintf("repro: none: %s (slice of %s)", why, ref.chain), ""
 }
 
 func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
@@ -352,23 +378,26 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	return "", ""
 }
 
-func nextOf(v *sliceVerdict) string {
-	if v == nil || v.Outcome == sliceReproduced {
-		return ""
-	}
-	return strings.ReplaceAll(v.Next, "<fresh>", chain.NewRunTag())
+type sliceOut struct {
+	Written string        `json:"written"`
+	Kept    []chain.Keep  `json:"kept"`
+	Total   int           `json:"total"`
+	Verify  *sliceVerdict `json:"verify"`
 }
 
-func sliceRepro(ctx context.Context, args []string) (*sliceVerdict, string, string) {
-	out := gateExec(ctx, args)
-	var res struct {
-		Written string        `json:"written"`
-		Verify  *sliceVerdict `json:"verify"`
+func nextOf(s *sliceOut) string {
+	if s == nil || s.Verify.Outcome == sliceReproduced {
+		return ""
 	}
-	if json.Unmarshal([]byte(out.stdout), &res) != nil || res.Verify == nil {
-		return nil, "", lastLine(out)
+	return strings.ReplaceAll(s.Verify.Next, "<fresh>", chain.NewRunTag())
+}
+
+func sliceRepro(ctx context.Context, args []string) (*sliceOut, string) {
+	out, res := gateExec(ctx, args), &sliceOut{}
+	if json.Unmarshal([]byte(out.stdout), res) != nil || res.Verify == nil {
+		return nil, lastLine(out)
 	}
-	return res.Verify, res.Written, ""
+	return res, ""
 }
 
 func lastLine(out gateOutcome) string {
@@ -599,7 +628,6 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 		}
 		return []string{fmt.Sprintf("passes: %d call(s) from that state, %s  (shrt run %s)", len(calls), capList(calls, 3), shown)}
 	}
-	trigger, _ := triggerOf(fails, passes)
 	var out []string
 	for _, rpc := range order {
 		its, fields, steps := byRPC[rpc], []string{}, map[string]bool{}
@@ -624,15 +652,119 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 			}
 		}
 		out = append(out, line)
-		if trigger != "" && rpc == shortRPC(g.RPC) {
-			out = append(out, trigger)
+		repro, file := r.repro(ctx, e, lib, g.RPC, calls, ex)
+		if rpc == shortRPC(g.RPC) {
+			if trigger, _ := firmTrigger(ctx, e, file, gateRef{chain: r.c.Name, it: ex}, fails, passes); trigger != "" {
+				out = append(out, trigger)
+			}
 		}
-		out = append(out, r.repro(ctx, e, lib, g.RPC, calls, ex))
+		out = append(out, repro)
 	}
 	return out
 }
 
-func (r *gapRun) repro(ctx context.Context, e *env, lib *contract.Library, rpc string, own []string, ex gateItem) string {
+func firmTrigger(ctx context.Context, e *env, file string, at gateRef, fails, passes []rowCall) (string, int) {
+	line, apart := triggerOf(fails, passes)
+	i := slices.IndexFunc(fails, func(f rowCall) bool { return f.at == at.chain+" "+at.it.Step })
+	c, err := chain.LoadFile(file)
+	if len(apart) != 1 || i < 0 || err != nil || !verdictCode(at.it.Path) || callCount(fails) != plural(1, "call") && callCount(passes) != plural(1, "call") {
+		return line, 0
+	}
+	kind, list, _ := strings.Cut(apart[0], " ")
+	t := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == at.it.Step })
+	if kind != "len" && kind != "repeat" || t < 0 {
+		return line, 0
+	}
+	target, src, key, items := c.Steps[t], (*chain.Step)(nil), "", []any{}
+	carriers := []*chain.Step{target}
+	for _, ref := range target.SendReferences() {
+		if id, ok := chain.ParseRef(ref).StepID(); ok {
+			if s, found := c.Step(id); found {
+				carriers = append(carriers, s)
+			}
+		}
+	}
+	for _, s := range carriers {
+		if k, ok := namecase.LookupKey(s.Body, list); ok && src == nil {
+			src, key = s, k
+			items, _ = s.Body[k].([]any)
+		}
+	}
+	n := len(items)
+	if n == 0 || strconv.Itoa(n) != fails[i].dims["len "+list] {
+		return line, 0
+	}
+	vary, fewer := [][]any{append(slices.Clone(items), items[n-1])}, items[:n-1]
+	fv, pv := numbers(dimValues(fails, "len "+list)), numbers(dimValues(passes, "len "+list))
+	if n > 1 && (kind == "repeat" && repeatedKey(fewer) == "" || kind == "len" && fv[0] > slices.Max(pv) && float64(n-1) < fv[0]) {
+		vary = append(vary, fewer)
+	}
+	sc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name, Vars: c.Vars, Volatile: c.Volatile, Redact: c.Redact, Steps: slices.Clone(c.Steps[:t+1])}
+	for _, l := range vary {
+		suffix := fmt.Sprintf("_%d_items", len(l))
+		swap := strings.NewReplacer("${"+src.ID+".", "${"+src.ID+suffix+".", "${steps."+src.ID+".", "${steps."+src.ID+suffix+".",
+			"${steps."+target.ID+".", "${steps."+target.ID+suffix+".")
+		if src != target {
+			cp := variedStep(src, suffix, key, l, swap)
+			cp.Expect = slices.DeleteFunc(cp.Expect, func(x chain.Expectation) bool { return !verdictField(x.Path) })
+			sc.Steps, l = append(sc.Steps, cp), nil
+		}
+		sc.Steps = append(sc.Steps, variedStep(target, suffix, key, l, swap))
+	}
+	vars := map[string]any{}
+	for _, name := range chain.FreshVars(sc.Steps, isLoginStep(e), nil) {
+		vars[name] = chain.NewRunTag()
+	}
+	rec, err := executeChain(ctx, e, sc, runner.Options{Vars: vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: true}, true)
+	var base *runner.StepRecord
+	if err == nil {
+		base, _ = rec.Step(target.ID)
+	}
+	if base == nil || refusalOf(base) == "" {
+		return line, 0
+	}
+	fails, passes, sent := slices.Clone(fails), slices.Clone(passes), 0
+	for _, l := range vary {
+		suffix := fmt.Sprintf("_%d_items", len(l))
+		st, _ := rec.Step(target.ID + suffix)
+		if cp, _ := rec.Step(src.ID + suffix); st == nil || len(st.Response) == 0 && st.Transport == nil || src != target && (cp == nil || refusalOf(cp) != "") {
+			continue
+		}
+		d := maps.Clone(fails[i].dims)
+		d["len "+list] = strconv.Itoa(len(l))
+		if _, ok := d["repeat "+list]; ok {
+			d["repeat "+list] = repeatedKey(l)
+		}
+		call := rowCall{at: sc.Name + " " + st.ID, call: fails[i].call, dims: d}
+		switch refusalOf(st) {
+		case refusalOf(base):
+			fails = append(fails, call)
+		case "":
+			passes = append(passes, call)
+		default:
+			return "", sent + 1
+		}
+		sent++
+	}
+	if firm, now := triggerOf(fails, passes); sent == 0 || slices.Equal(now, apart) {
+		return cmp.Or(firm, line), sent
+	}
+	return "", sent
+}
+
+func variedStep(st *chain.Step, suffix, key string, list []any, swap *strings.Replacer) *chain.Step {
+	cp := *st
+	cp.ID, cp.Export, cp.Body = st.ID+suffix, nil, maps.Clone(st.Body)
+	if list != nil {
+		cp.Body[key] = list
+	}
+	raw, _ := yaml.Marshal(&cp)
+	out := &chain.Step{}
+	_ = yaml.Unmarshal([]byte(swap.Replace(string(raw))), out)
+	return out
+}
+
+func (r *gapRun) repro(ctx context.Context, e *env, lib *contract.Library, rpc string, own []string, ex gateItem) (string, string) {
 	refs := func(st *chain.Step) []string {
 		var out []string
 		for _, ref := range st.SendReferences() {
@@ -660,8 +792,8 @@ func (r *gapRun) repro(ctx context.Context, e *env, lib *contract.Library, rpc s
 	fresh, focus := freshVarsOf(e, lib), filepath.Join(scratchDir(e), "focus", filepath.Base(r.file))
 	if res, err := chain.Without(r.c, drop, r.c.Name); err == nil && writeSliceFile(focus, res.Chain) == nil {
 		defer os.RemoveAll(filepath.Dir(focus))
-		if line := reproRow(ctx, e, gateRef{chain: focus, it: ex}, fresh); !strings.HasPrefix(line, "repro: none") {
-			return line
+		if line, file := reproRow(ctx, e, gateRef{chain: focus, it: ex}, fresh); file != "" {
+			return line, file
 		}
 	}
 	return reproRow(ctx, e, gateRef{chain: r.file, it: ex}, fresh)

@@ -14,11 +14,12 @@ later replays are diffed against it, so a regression names the rpc that changed.
 Run `shrt gate -repro`. It leaves out the chains that wait by design (marked `W` in `shrt chain
 ls`, then `SKIPPED`; `shrt gate <chain>` runs one), so it takes seconds. Each row of `failures by
 suspect rpc:` gets the read that settles an unclear write or read, or two writes on a counter, and
-a verified one-line repro (`repro: shrt run <path>  (reproduced 3/3)`, with the read-back that
-contradicts a write's answer kept in it); its `trigger:` line names the requests that fail against
-those that pass (profile, a list's length or repeated key, a field's value or byte length, or two of
-these together), or says every call fails, and how got relates to what was sent: take it as the
-pattern instead of working it out from the runs. A row of a
+a verified one-line repro (`repro: shrt run <path>  (5 of 119 steps, reproduced 3/3)`, as small as a
+re-run shows it can be, with the read-back that contradicts a write's answer kept in it); its
+`trigger:` line names the requests that fail against those that pass (profile, a list's length or
+repeated key, a field's value or byte length, or two of these together), or says every call fails,
+and how got relates to what was sent: take it as the pattern instead of working it out from the
+runs. A row of a
 number a write moved says how far against the approved run (`fell 4 from 10 to 6 where the approved
 run fell 2 from 10 to 8: 2x`). One `masks:` line says whether a mask hid more than run tags, ids and
 timestamps; each `KEPT RED` line names every pin of its slice and the day it was pinned, and a

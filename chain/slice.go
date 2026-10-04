@@ -130,6 +130,8 @@ type SliceResult struct {
 	Unmet         []Unmet         `json:"unmet,omitempty"`
 	DroppedWrites []Dropped       `json:"dropped_writes,omitempty"`
 	RefusedWrites []Dropped       `json:"dropped_refused_writes,omitempty"`
+	Minimized     []Dropped       `json:"minimized,omitempty"`
+	Untried       []string        `json:"minimize_untried,omitempty"`
 	UnderIncluded bool            `json:"under_included"`
 	FilledVars    []FilledVar     `json:"filled_vars,omitempty"`
 	MissingVars   []string        `json:"missing_vars,omitempty"`
@@ -406,6 +408,66 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	return res, nil
 }
 
+func DroppedIDs(ds []Dropped) []string {
+	out := make([]string, 0, len(ds))
+	for _, d := range ds {
+		out = append(out, d.ID)
+	}
+	return out
+}
+
+func (r *SliceResult) Droppable() []string {
+	x, used, kinds := newStepIndex(r.Chain), map[int]bool{}, map[string]string{}
+	for i, s := range r.Chain.Steps {
+		for _, ref := range stepRefs(s) {
+			if j, kind := x.producerOf(ref, i); kind == refStep {
+				used[j] = true
+			}
+		}
+	}
+	for _, k := range r.Kept {
+		kinds[k.ID] = k.Kind
+	}
+	var writes, reads []string
+	for i, s := range r.Chain.Steps {
+		switch {
+		case s.ID == r.Target:
+			return append(writes, reads...)
+		case used[i] || kinds[s.ID] == KeepAsked || kinds[s.ID] == KeepCheckpoint:
+		case isWriteCall(s.Call):
+			writes = append(writes, s.ID)
+		default:
+			reads = append(reads, s.ID)
+		}
+	}
+	return append(writes, reads...)
+}
+
+func (r *SliceResult) Without(id, refused string) *SliceResult {
+	out, c := *r, *r.Chain
+	at := slices.IndexFunc(r.Kept, func(k Keep) bool { return k.ID == id })
+	d := Dropped{Index: r.Kept[at].Index, ID: id, Call: r.Kept[at].Call, Reason: refused}
+	out.Chain, out.Kept = &c, slices.Delete(slices.Clone(r.Kept), at, at+1)
+	c.Steps = slices.DeleteFunc(slices.Clone(c.Steps), func(s *Step) bool { return s.ID == id })
+	c.KeptRed = slices.DeleteFunc(slices.Clone(c.KeptRed), func(p Pin) bool { return p.Step == id })
+	out.CarriedPins = slices.DeleteFunc(slices.Clone(r.CarriedPins), func(p Pin) bool { return p.Step == id })
+	for _, p := range r.CarriedPins {
+		if p.Step == id {
+			out.DroppedPins = append(slices.Clone(r.DroppedPins), p)
+		}
+	}
+	out.Relaxed = slices.DeleteFunc(slices.Clone(r.Relaxed), func(x Relaxed) bool { return x.Step == id })
+	out.KeptFailing = slices.DeleteFunc(slices.Clone(r.KeptFailing), func(x Relaxed) bool { return x.Step == id })
+	if refused == "" {
+		out.Minimized = append(slices.Clone(r.Minimized), d)
+	} else {
+		out.RefusedWrites = append(slices.Clone(r.RefusedWrites), d)
+		slices.SortFunc(out.RefusedWrites, func(a, b Dropped) int { return a.Index - b.Index })
+	}
+	c.Description = sliceDescription(&out)
+	return &out
+}
+
 func (r *SliceResult) settle(verdict *string, text string) {
 	r.Verified, r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", "", ""
 	*verdict = text
@@ -596,18 +658,16 @@ func sliceDescription(res *SliceResult) string {
 		fmt.Fprintf(&b, "Kept writes create with %s: run it with -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
 	if len(res.DroppedWrites) > 0 {
-		names := make([]string, 0, len(res.DroppedWrites))
-		for _, d := range res.DroppedWrites {
-			names = append(names, d.ID)
-		}
-		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(names), listSome(names, 8))
+		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(res.DroppedWrites), listSome(DroppedIDs(res.DroppedWrites), 8))
 	}
 	if len(res.RefusedWrites) > 0 {
-		names := make([]string, 0, len(res.RefusedWrites))
-		for _, d := range res.RefusedWrites {
-			names = append(names, d.ID)
-		}
-		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
+		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(res.RefusedWrites), res.Run, listSome(DroppedIDs(res.RefusedWrites), 8))
+	}
+	if len(res.Minimized) > 0 {
+		fmt.Fprintf(&b, "Dropped by -minimize, as %s failed the same way in a run without each: %s.\n", res.Target, listSome(DroppedIDs(res.Minimized), 8))
+	}
+	if len(res.Untried) > 0 {
+		fmt.Fprintf(&b, "Kept untried, past the -minimize cap of runs: %s.\n", listSome(res.Untried, 8))
 	}
 	return b.String()
 }

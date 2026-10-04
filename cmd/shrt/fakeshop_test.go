@@ -33,6 +33,7 @@ type fakeShop struct {
 	lastLineBug        bool
 	confirmTotalBug    bool
 	batchFirstLineBug  bool
+	refuseOrder        func(lines int) bool
 
 	next      int
 	getCalls  int
@@ -182,6 +183,9 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			return 200, map[string]any{"status": ok(), "order": s.orders[prev]}
 		}
 		lines, _ := body["lines"].([]any)
+		if s.refuseOrder != nil && s.refuseOrder(len(lines)) {
+			return 200, map[string]any{"status": rejected("TooManyLines")}
+		}
 		total := int64(0)
 		for i, l := range lines {
 			line, _ := l.(map[string]any)

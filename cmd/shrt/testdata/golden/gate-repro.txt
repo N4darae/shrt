@@ -9,7 +9,7 @@ coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other ro
 repro, for each row of failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand
     settled on the write add_stock (StockService/AddStock): ProductService/ListProducts read product.qty_on_hand=0, as GetProduct did, where the write answered 5  (shrt run .shrt/scratch/shelf-tell-apart-get_product.yaml)
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)
 masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
 shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
@@ -25,7 +25,7 @@ coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other ro
 repro, for each row of failures by suspect rpc:
   StockService/AddStock or the read ProductService/GetProduct product.qty_on_hand
     settled on the read get_product (ProductService/GetProduct): ProductService/ListProducts read product.qty_on_hand=5, as the write add_stock answered, where GetProduct read 4  (shrt run .shrt/scratch/shelf-tell-apart-get_product.yaml)
-    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)
+    repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)
 masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
 shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains

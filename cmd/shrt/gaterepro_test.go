@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -63,7 +64,7 @@ func TestGoldenGateRepro(t *testing.T) {
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
 		fmt.Fprintf(&golden, "# %s\n$ shrt gate -repro  [exit %d]\n%s\n", c.name, code, out)
 		want := map[bool]string{true: "settled on the write add_stock (StockService/AddStock)", false: "settled on the read get_product (ProductService/GetProduct)"}[c.lost]
-		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)") {
+		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (3 of 3 steps, reproduced 3/3)") {
 			t.Errorf("%s: the gate settles the unclear row with ListProducts and verifies a one-line repro, got %d:\n%s", c.name, code, out)
 		}
 		if !strings.Contains(out, "masks: none of the ") {
@@ -121,7 +122,7 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 	}
 	shop.confirmTotalBug = true
 	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
-	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going  (reproduced 3/3; the read-back fetch (FetchOrder) reads order.total_minor=500 where the write answered 0)"
+	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going  (5 of 5 steps, reproduced 3/3; the read-back fetch (FetchOrder) reads order.total_minor=500 where the write answered 0)"
 	if !strings.Contains(out, "answered order.total_minor=0, but FetchOrder read 500") || !strings.Contains(out, want) {
 		t.Fatalf("the repro of a write the read-back contradicts keeps that read:\n%s", out)
 	}
@@ -239,6 +240,106 @@ func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
 			if strings.Contains(block, not) {
 				t.Errorf("%s: no settle line %q:\n%s", c.name, not, out)
 			}
+		}
+	}
+}
+
+const stockroomChain = `apiVersion: shrt/v1
+name: stockroom
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: room-${vars.tag}
+        price_minor: "250"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: create_order
+      call: OrderService/CreateOrder
+      body:
+        idempotency_key: room-${vars.tag}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "5"
+    - id: confirm_short
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order.order.id_order}
+      expect:
+        - path: status.code
+          equals: REJECTED
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "10"
+    - id: get_product
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create_product.product.id_product}
+      expect:
+        - path: product.qty_on_hand
+          equals: "10"
+`
+
+func TestSliceMinimizeDropsWhatTheStepFailsWithoutAndKeepsWhatItReads(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct = true
+	chdirToFakeShop(t, shop)
+	writeFile(t, ".shrt/chains/stockroom.yaml", stockroomChain)
+	for _, args := range [][]string{{"run", "stockroom", "-var", "tag=tfirst001"}, {"confirm", "stockroom", "-note", "room"}, {"confirm", "stockroom", "-approve", "-by", "alice@example.test"}} {
+		if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	shop.stockReadBug = true
+	slcRunAny("stockroom", "-var", "tag=tsecond01")
+	saved := minimizeRuns
+	t.Cleanup(func() { minimizeRuns = saved })
+	for _, c := range []struct {
+		runs      int
+		tag, more string
+	}{{1, "tcapped01", "Kept untried, past the -minimize cap of runs: add_stock.\n"}, {8, "tfull0001", ""}} {
+		minimizeRuns = c.runs
+		out, code := slcSlice(t, false, "stockroom", "-step", "get_product", "-minimize", "-var", "tag="+c.tag, "-write", "room-min")
+		sl, ids := slcSteps(t, ".shrt/scratch/room-min.yaml")
+		if code != 0 || ids != "create_product,add_stock,get_product" || !strings.Contains(out, "kept 3 of 5 steps, dropped 2 (create_order by -minimize)") ||
+			!regexp.MustCompile(`1 dropped write step\(s\) refused in run \S+: confirm_short\.\n`).MatchString(sl.Description) ||
+			!strings.Contains(sl.Description, "Dropped by -minimize, as get_product failed the same way in a run without each: create_order.\n") ||
+			strings.Contains(sl.Description, "Kept untried") != (c.more != "") || !strings.Contains(sl.Description, c.more) {
+			t.Fatalf("cap %d: the read product stays, the write refused in both runs goes unrun, the order goes after a run without it, and the stock stays "+
+				"since the read differs without it, or is left untried past the cap, got %d:\n%s\n%s", c.runs, code, out, sl.Description)
+		}
+	}
+}
+
+func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
+	order := func(n int) string {
+		return fmt.Sprintf("    - id: order_%d\n      call: OrderService/CreateOrder\n      body:\n        idempotency_key: sizes-%d-${vars.tag}\n        lines:\n%s"+
+			"      expect:\n        - path: status.code\n          equals: SUCCESS\n", n, n, strings.Repeat("            - id_product: ${create_product.product.id_product}\n              qty: \"1\"\n", n))
+	}
+	for _, c := range []struct {
+		refuse func(int) bool
+		want   string
+	}{
+		{func(n int) bool { return n >= 3 }, "    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n    repro: "},
+		{func(n int) bool { return n == 3 }, "    trigger above does not hold: 2 more calls around its boundary did not fail and pass as it says\n    repro: "},
+	} {
+		shop := newFakeShop()
+		chdirToFakeShop(t, shop)
+		inProcessGate(t)
+		writeFile(t, ".shrt/chains/sizes.yaml", "apiVersion: shrt/v1\nname: sizes\nsteps:\n    - id: create_product\n      call: ProductService/CreateProduct\n"+
+			"      body:\n        sku: sizes-${vars.tag}\n        price_minor: \"250\"\n"+order(1)+order(2)+order(3))
+		for _, args := range [][]string{{"run", "sizes", "-var", "tag=tfirst001"}, {"confirm", "sizes", "-note", "sizes"}, {"confirm", "sizes", "-approve", "-by", "alice@example.test"}} {
+			if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+				t.Fatalf("%v: exit %d\n%s", args, code, out)
+			}
+		}
+		shop.refuseOrder = c.refuse
+		out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+		if !strings.Contains(out, "    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls: 1, 2)\n") || !strings.Contains(out, c.want) {
+			t.Fatalf("under -repro a 3-line order refused beside a 1- and 2-line one is sent with 4 and 2 lines, and the repro block says what they showed:\n%s", out)
 		}
 	}
 }

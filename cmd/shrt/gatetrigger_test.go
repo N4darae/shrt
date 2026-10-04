@@ -43,7 +43,7 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"the auth profile", []map[string]string{clerk, clerk}, []map[string]string{admin, admin, admin},
 			"trigger: fails as clerk (2 calls); passes as default (3 calls)"},
 		{"a list's length", []map[string]string{lines(2, ""), lines(3, "")}, []map[string]string{lines(1, ""), lines(1, "")},
-			"trigger: fails with lines of 2+ items (2 calls); passes with lines of 1 item (2 calls)"},
+			"trigger: fails with lines of 2+ items (2 calls: 2, 3); passes with lines of 1 item (2 calls)"},
 		{"a list that repeats an item key", []map[string]string{lines(2, "id_product"), lines(3, "id_product")}, []map[string]string{lines(3, ""), lines(12, "")},
 			"trigger: fails when lines repeat id_product (2 calls; lines of 2 and 3 items); passes with distinct id_product (2 calls; lines of 3 and 12 items)"},
 		{"a repeat whose lengths also differ says the lengths, not a length trigger", []map[string]string{lines(2, "id_product")}, []map[string]string{lines(3, ""), lines(12, "")},
@@ -413,7 +413,7 @@ func TestGoldenGateTrigger(t *testing.T) {
 		trigger := "\n    trigger: " + c.trigger + "\n"
 		slice := strings.ReplaceAll(c.example, " ", "-slice-")
 		if code != 1 || strings.Contains(out, trigger) != (c.trigger != "") || strings.Contains(out, "trigger:") != (c.trigger != "") ||
-			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (reproduced 3/3)") {
+			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (3 of 4 steps, reproduced 3/3)") {
 			t.Errorf("%s: got %d:\n%s", c.name, code, out)
 		}
 	}
