@@ -186,9 +186,8 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 			foreignSpots = append(foreignSpots, fmt.Sprintf("%s (%s)", spot.Chain, spot.Target))
 		}
 	}
-	found := false
+	before := len(r.Findings)
 	if n := unsealed.total(); n > 0 {
-		found = true
 		cmds := []string{}
 		for _, c := range unsealed.names() {
 			cmds = append(cmds, "shrt run "+c)
@@ -198,13 +197,11 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 			"re-run each chain for a sealed record, and propose that run instead:\n"+strings.Join(cmds, "\n"))
 	}
 	if n := edited.total(); n > 0 {
-		found = true
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d run record(s) were changed after shrt wrote them (their content no longer matches their seal), so every command refuses them: %s", n, edited.list()),
 			"restore them from where they were copied, or delete them and re-run the chains")
 	}
 	if len(noPrincipal) > 0 {
-		found = true
 		sort.Strings(noPrincipal)
 		cmds := []string{}
 		for _, c := range noPrincipal {
@@ -215,7 +212,6 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 			"run each chain until it passes, propose it in place of the safe spot, and have a person approve it:\n"+strings.Join(cmds, "\n"))
 	}
 	if len(foreignSpots) > 0 {
-		found = true
 		sort.Strings(foreignSpots)
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d safe spot(s) were confirmed against another base_url than %s: %s", len(foreignSpots), orUnset(now), strings.Join(foreignSpots, ", ")),
@@ -223,20 +219,18 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 				"propose it with 'shrt confirm <chain> -supersede -note \"...\"', and have a person approve it")
 	}
 	if n := foreign.total(); n > 0 {
-		found = true
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d run record(s) were recorded against another base_url (%s) than %s: %s", n, strings.Join(slices.Sorted(maps.Keys(foreignTargets)), ", "), orUnset(now), foreign.list()),
 			"chain slice does not pin from them and chain which does not cite them; re-run the chains here, and delete the old\n"+
 				"records once their evidence has served its purpose")
 	}
 	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok && split.foreign.total() > 0 {
-		found = true
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d cached token(s) minted against another base_url (%s) sit in %s; no login against %s uses them",
 				split.foreign.total(), strings.Join(split.foreign.names(), ", "), config.DirName+"/"+config.TokensFile, orUnset(now)),
 			fmt.Sprintf("rm %s drops them (every login here then logs in afresh once)", config.DirName+"/"+config.TokensFile))
 	}
-	if !found {
+	if len(r.Findings) == before {
 		r.add(CheckUpgrade, LevelOK, "no record from an older build or another target: every run record is sealed, every safe spot records its principal, and all were recorded against "+orUnset(now), "")
 	}
 }

@@ -166,14 +166,8 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 				if envelopeRef {
 					continue
 				}
-				if declaresRefusalExpectation(e) {
-					out[stepKey(c.Name, s.ID)] = true
-					break
-				}
-				if chain.TautologyReason(e) != "" || AssertsAbsenceExpectation(e) || isVacuousExpectation(e) {
-					continue
-				}
-				if !IsMetadataAssertion(e.Path, expectationRule(e)) {
+				if declaresRefusalExpectation(e) || chain.TautologyReason(e) == "" && !AssertsAbsenceExpectation(e) &&
+					!isVacuousExpectation(e) && !IsMetadataAssertion(e.Path, expectationRule(e)) {
 					out[stepKey(c.Name, s.ID)] = true
 					break
 				}
