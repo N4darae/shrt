@@ -174,15 +174,7 @@ func HasResponsePath(fields []*Field, segs []string) bool {
 	return ok
 }
 
-func MissingIndex(fields []*Field, segs []string) (string, bool) {
-	return missingIndex(fields, segs, false)
-}
-
 func ResponseMissingIndex(fields []*Field, segs []string) (string, bool) {
-	return missingIndex(fields, segs, true)
-}
-
-func missingIndex(fields []*Field, segs []string, folded bool) (string, bool) {
 	walked := make([]string, 0, len(segs))
 	for i := 0; i < len(segs); i++ {
 		head := segs[i]
@@ -190,7 +182,7 @@ func missingIndex(fields []*Field, segs []string, folded bool) (string, bool) {
 		if isIndex(head) {
 			continue
 		}
-		next := fieldNamed(fields, head, folded)
+		next := fieldNamed(fields, head, true)
 		if next == nil {
 			return "", false
 		}

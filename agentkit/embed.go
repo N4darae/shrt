@@ -68,12 +68,3 @@ func Install(root string, assets []Asset, force bool) ([]string, error) {
 	}
 	return written, nil
 }
-
-func Walk(fn func(path string, d fs.DirEntry) error) error {
-	return fs.WalkDir(files, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		return fn(path, d)
-	})
-}
