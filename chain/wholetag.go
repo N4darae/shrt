@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/N4darae/shrt/catalog"
 )
@@ -22,9 +21,7 @@ func (c *Chain) FreshRunTag() bool {
 
 func NewRunTag() string {
 	b := make([]byte, 4)
-	if _, err := rand.Read(b); err != nil {
-		return fmt.Sprintf("t%x", time.Now().UnixNano())
-	}
+	_, _ = rand.Read(b)
 	return fmt.Sprintf("t%x", b)
 }
 
