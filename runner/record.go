@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -97,12 +98,7 @@ func runIDTime(id string) (time.Time, bool) {
 func (r *Record) MalformedSeal() bool { return r.sealClaim != "" }
 
 func (s *StepRecord) AssertionFailed() bool {
-	for _, e := range s.Expect {
-		if !e.Passed {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, failedResult)
 }
 
 type StepRecord struct {

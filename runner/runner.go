@@ -697,15 +697,9 @@ func readsSoundField(ref string, sr *StepRecord) bool {
 		return false
 	}
 	failed := failedPaths(sr.Expect)
-	if len(failed) == 0 {
-		return false
-	}
-	for _, f := range failed {
-		if f == "" || strings.Contains(f, "[]") || f == path || strings.HasPrefix(path, f+".") || strings.HasPrefix(f, path+".") {
-			return false
-		}
-	}
-	return true
+	return len(failed) > 0 && !slices.ContainsFunc(failed, func(f string) bool {
+		return f == "" || strings.Contains(f, "[]") || f == path || strings.HasPrefix(path, f+".") || strings.HasPrefix(f, path+".")
+	})
 }
 
 func exportedPath(ref string, exporter exportSources) string {
@@ -888,12 +882,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 }
 
 func assertsTransport(results []chain.ExpectResult) bool {
-	for _, e := range results {
-		if chain.IsTransportPath(e.Path) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(results, func(e chain.ExpectResult) bool { return chain.IsTransportPath(e.Path) })
 }
 
 var (
@@ -908,21 +897,11 @@ func looksLikeVerdict(text string) bool {
 
 func looksLikeRefusal(text string) bool {
 	upper := strings.ToUpper(text)
-	for _, w := range refusalWords {
-		if strings.Contains(upper, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(refusalWords, func(w string) bool { return strings.Contains(upper, w) })
 }
 
 func assertedValue(results []chain.ExpectResult, path string) bool {
-	for _, e := range results {
-		if e.Passed && e.Path == path && e.Rule == "equals" {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(results, func(e chain.ExpectResult) bool { return e.Passed && e.Path == path && e.Rule == "equals" })
 }
 
 func inBandRefusal(response json.RawMessage) (string, bool) {
@@ -1952,13 +1931,7 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 	if v, ok := chain.Get(decoded, chain.EnvelopePath()); ok && v != nil {
 		said = fmt.Sprintf("the top-level envelope said %v", v)
 		top := fmt.Sprint(v)
-		same := len(surprises) > 0
-		for _, r := range surprises {
-			if r.Code != top {
-				same = false
-			}
-		}
-		if same {
+		if len(surprises) > 0 && !slices.ContainsFunc(surprises, func(r chain.ItemRefusal) bool { return r.Code != top }) {
 			return fmt.Sprintf("these items carry %s, the very value the top-level envelope carries, and "+
 				"conventions.envelope_ok is %q, so every one counts as refused. If %s is this backend's success "+
 				"value, the items were not refused at all: set conventions.envelope_ok: %s in .shrt/config.yaml",
@@ -1966,13 +1939,10 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 		}
 	}
 	missing := ""
-	for _, r := range surprises {
-		if r.Code == chain.NoItemVerdict {
-			missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
-				"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
-				"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
-			break
-		}
+	if slices.ContainsFunc(surprises, func(r chain.ItemRefusal) bool { return r.Code == chain.NoItemVerdict }) {
+		missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
+			"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
+			"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
 	}
 	return "every item in a batch response carries its own verdict, and these were refused while " + said + missing +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
@@ -2051,15 +2021,11 @@ func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map
 }
 
 func refusalAsserted(expect []chain.Expectation, results []chain.ExpectResult) bool {
-	if !chain.HasTransportExpectation(expect) {
-		return false
-	}
-	for _, r := range results {
-		if !r.Passed {
-			return false
-		}
-	}
-	return true
+	return chain.HasTransportExpectation(expect) && !slices.ContainsFunc(results, failedResult)
+}
+
+func failedResult(e chain.ExpectResult) bool {
+	return !e.Passed
 }
 
 func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {

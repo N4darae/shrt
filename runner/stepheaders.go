@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/textproto"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -43,10 +44,8 @@ func secretHeader(name string) bool {
 	if n := len(words); n > 1 && notSecretHeaderSuffixes[words[n-1]] && !(words[n-2] == "session" && words[n-1] == "id") {
 		return false
 	}
-	for _, hint := range secretHeaderHints {
-		if strings.Contains(lower, hint) {
-			return true
-		}
+	if slices.ContainsFunc(secretHeaderHints, func(hint string) bool { return strings.Contains(lower, hint) }) {
+		return true
 	}
 	for i, word := range words {
 		if weakSecretHeaderWords[word] {
