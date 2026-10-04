@@ -64,14 +64,12 @@ func contractShow(args []string) error {
 		generated, notes := contract.ForCuratedWithNotes(m, lib, e.cat)
 		fmt.Print(generated.Text())
 		curated, hasCurated := lib.Get(m.FullName)
-		if hasCurated {
-			for _, n := range notes {
-				fmt.Fprintf(os.Stderr, "note: %s\n", n)
-			}
-		}
 		if !hasCurated {
 			fmt.Printf("\nNO CURATED CONTRACT\n  add one with: shrt contract init %s\n", contract.DomainOf(m))
 			continue
+		}
+		for _, n := range notes {
+			fmt.Fprintf(os.Stderr, "note: %s\n", n)
 		}
 		fmt.Print("\n" + curated.Text(lib, m.FullName))
 	}

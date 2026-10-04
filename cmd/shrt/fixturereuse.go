@@ -547,18 +547,9 @@ func sendsAll(st *runner.StepRecord, values []string) bool {
 	if json.Unmarshal(st.Request, &req) != nil {
 		return false
 	}
-	for _, v := range values {
-		found := false
-		visitStrings(req, func(s string) {
-			if s == v {
-				found = true
-			}
-		})
-		if !found {
-			return false
-		}
-	}
-	return true
+	sent := map[string]bool{}
+	visitStrings(req, func(s string) { sent[s] = true })
+	return !slices.ContainsFunc(values, func(v string) bool { return !sent[v] })
 }
 
 func stepRefusalText(st *runner.StepRecord) string {

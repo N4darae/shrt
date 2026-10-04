@@ -52,20 +52,17 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 	}
 	t := &tokenLifetime{first: all[0]}
 	t.restart = sessionRestartEvidence(rec, t.first.index)
-	for i := 1; i < len(all); i++ {
-		if all[i].step.AuthProfile == t.first.step.AuthProfile {
-			again := all[i]
-			t.again = &again
-			break
-		}
+	if i := slices.IndexFunc(all[1:], func(x earlyRefusal) bool { return x.step.AuthProfile == t.first.step.AuthProfile }); i >= 0 {
+		t.again = &all[i+1]
 	}
 	if t.restart != "" || t.again != nil || e == nil {
 		return t
 	}
-	mine := firstInRun(all)
-	if mine == nil {
+	i := slices.IndexFunc(all, func(x earlyRefusal) bool { return !x.r.FirstUse })
+	if i < 0 {
 		return t
 	}
+	mine := &all[i]
 	prev := previousRecord(e, rec)
 	if prev == nil || sessionRestartEvidence(prev, 0) != "" {
 		return t
@@ -82,15 +79,6 @@ func examineTokenLifetime(e *env, rec *runner.Record) *tokenLifetime {
 
 func refusedEarly(st *runner.StepRecord) bool {
 	return slices.ContainsFunc(st.TokenRefused, func(r transport.TokenRefusal) bool { return r.Early() && !(r.FirstUse && !r.Cached) })
-}
-
-func firstInRun(all []earlyRefusal) *earlyRefusal {
-	for i := range all {
-		if !all[i].r.FirstUse {
-			return &all[i]
-		}
-	}
-	return nil
 }
 
 func previousRecord(e *env, rec *runner.Record) *runner.Record {

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -329,10 +328,7 @@ func planOptions(e *env) contract.PlanOptions {
 			opts.Profiles = append(opts.Profiles, name)
 		}
 	}
-	for name := range loginRPCs(e) {
-		opts.Logins = append(opts.Logins, name)
-	}
-	sort.Strings(opts.Logins)
+	opts.Logins = sortedKeys(loginRPCs(e))
 	profiles := []*config.Auth{e.cfg.Auth}
 	for _, name := range opts.Profiles {
 		if e.cfg.Auth != nil {

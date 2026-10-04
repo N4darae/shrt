@@ -61,13 +61,6 @@ func serverAttempt(a *runner.Attempt) bool {
 	return code == "unavailable" || serverErrorCodes[code] || a.HTTPStatus >= 500
 }
 
-func stepOf(rec *runner.Record, id string) (*runner.StepRecord, bool) {
-	if rec == nil {
-		return nil, false
-	}
-	return rec.Step(id)
-}
-
 func errorText(st *runner.StepRecord) string {
 	if st == nil || st.Transport == nil {
 		return ""
@@ -112,8 +105,10 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	for _, st := range rec.Steps {
 		if resentAnswered(st) {
 			f, last := flakyStep{step: st, resent: true}, lastRun()
-			if was, ok := stepOf(last, st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
-				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+			if last != nil {
+				if was, ok := last.Step(st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
+					f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+				}
 			}
 			out.steps = append(out.steps, f)
 			continue
