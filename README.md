@@ -129,11 +129,19 @@ line per suspect rpc (or per `unclear` set of rpcs), headed by the field each fa
 shows it. Its example is from a chain with a safe spot when one fails so, else not from a kept-red slice; then a call
 whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then
 the smallest slice. Under the row, `trigger: fails as clerk (3 calls); passes as default (12 calls)` sets that rpc's
-failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile, a
-list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat id_product`),
-or a field set or empty. A call passes only where the gate checked the row's field on it (its own expectation, or a
-later read of the same record; for a refusal, any call of it that succeeded). No line when nothing splits them, when
-a call alike in all of these passed, or when the failing calls should have been refused. `-v` adds, under each failing chain, the
+failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile
+(`fails when ConfirmOrder itself is sent as clerk` when calls show the profile of the steps it uses does not decide
+it), a list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat
+id_product`), a field set or empty, a number in a field or in a list's first or last item (`with lines[last].qty above
+1`), or the byte length of the field the failing value echoes (`with name of 21+ bytes`; the bounds the calls show, a
+boundary only where they pin it); a value needs two calls on each side. When none splits them alone, the one pair that
+does together: `fails with lines of 2+ items and lines[last].qty above 1 (30 calls); passes otherwise: lines of 1 item
+(12 calls), lines[last].qty 1 (6 calls)`. Where the failing value echoes what was sent, the line ends with how got
+relates to it when one rule fits every such call: `got keeps the first 20 bytes of the name sent (3 calls)` (a suffix,
+trimmed, another case), alone under the row when nothing splits the calls. A call passes only where the gate checked
+the row's field on it (its own expectation, or a later read of the same record; for a refusal, any call of it that
+succeeded). No line when nothing splits them, when a single split and a pair (or two pairs) both do, or when the
+failing calls should have been refused. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
 chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
 when they all have its value, else `(and N more below)` with `the same at ...` and one line per other value, each with

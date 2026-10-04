@@ -3,6 +3,8 @@ package main
 import (
 	"cmp"
 	"fmt"
+	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -52,33 +54,81 @@ func (g *gateChain) runOf(kind string) *runner.Record {
 }
 
 type rowCall struct {
-	at   string
-	dims map[string]string
+	at, call        string
+	dims            map[string]string
+	before          map[string]bool
+	leaf, sent, got string
+}
+
+func flatRequest(v any, at string, out map[string]any) map[string]any {
+	switch t := v.(type) {
+	case map[string]any:
+		for k, x := range t {
+			flatRequest(x, strings.TrimPrefix(at+"."+k, "."), out)
+		}
+	case []any:
+		out[at] = t
+		if len(t) > 0 {
+			flatRequest(t[0], at+"[first]", out)
+			flatRequest(t[len(t)-1], at+"[last]", out)
+		}
+	default:
+		out[at] = t
+	}
+	return out
+}
+
+func fieldOf(path string) string {
+	k, _, _ := strings.Cut(path[strings.LastIndex(path, ".")+1:], "[")
+	return k
 }
 
 func requestDims(st *runner.StepRecord) map[string]string {
 	dims := map[string]string{"as": profileOf(st)}
-	var walk func(v any, at string)
-	walk = func(v any, at string) {
-		m, _ := v.(map[string]any)
-		for k, x := range m {
-			p := strings.TrimPrefix(at+"."+k, ".")
-			switch t := x.(type) {
-			case []any:
-				dims["len "+p] = strconv.Itoa(len(t))
-				dims["repeat "+p] = repeatedKey(t)
-			case map[string]any:
-				walk(t, p)
-			case nil:
-			default:
-				if fmt.Sprint(t) != "" && !namecase.IDNamed(k) {
-					dims["set "+p] = "set"
-				}
-			}
+	for p, v := range flatRequest(decoded(st.Request), "", map[string]any{}) {
+		s := fmt.Sprint(v)
+		if list, ok := v.([]any); ok {
+			dims["len "+p], dims["repeat "+p] = strconv.Itoa(len(list)), repeatedKey(list)
+			continue
+		}
+		if v == nil || s == "" || namecase.IDNamed(fieldOf(p)) {
+			continue
+		}
+		dims["set "+p] = "set"
+		if n, ok := number(v); ok && !math.IsInf(n, 0) && !math.IsNaN(n) {
+			dims["num "+p] = s
+		} else if _, ok := v.(string); ok {
+			dims["bytes "+p] = strconv.Itoa(len(s))
 		}
 	}
-	walk(decoded(st.Request), "")
 	return dims
+}
+
+func earlierProfiles(rec *runner.Record, at int, seen map[int]bool) map[string]bool {
+	out := map[string]bool{}
+	for id := range stepRefs(rec, at) {
+		if j := slices.IndexFunc(rec.Steps[:at], func(st *runner.StepRecord) bool { return st != nil && st.ID == id }); j >= 0 && !seen[j] {
+			seen[j], out[profileOf(rec.Steps[j])] = true, true
+			maps.Copy(out, earlierProfiles(rec, j, seen))
+		}
+	}
+	return out
+}
+
+func echoOf(st *runner.StepRecord, rec *runner.Record, it gateItem) (string, string, string) {
+	read, found := rec.Step(it.Step)
+	if !found || read == nil || verdictField(it.Path) {
+		return "", "", ""
+	}
+	got, _ := chain.Get(decoded(read.Response), it.Path)
+	g, _ := got.(string)
+	for p, v := range flatRequest(decoded(st.Request), "", map[string]any{}) {
+		s, _ := v.(string)
+		if w, gw := gatePair(s, g); g != "" && s != g && namecase.Equal(fieldOf(p), leafOf(it.Path)) && w == it.Want && gw == it.Got {
+			return fieldOf(p), s, g
+		}
+	}
+	return "", "", ""
 }
 
 func repeatedKey(items []any) string {
@@ -136,16 +186,19 @@ func (gr *gateGroup) callOf(ref gateRef, byName map[string]*gateChain) *runner.S
 
 func (gr *gateGroup) rowCalls(byName map[string]*gateChain) (fails, passes []rowCall) {
 	rpc, _, _ := strings.Cut(gr.rpc, " ")
-	failing, refused, paths, own, later := map[string]bool{}, map[string]bool{}, []string{}, false, false
+	failing, refused, paths, own, later := map[string]int{}, map[string]bool{}, []string{}, false, false
 	for _, ref := range gr.refs {
 		st := gr.callOf(ref, byName)
 		if st == nil {
 			continue
 		}
-		key := ref.chain + " " + st.ID
-		if !failing[key] {
-			failing[key] = true
-			fails = append(fails, rowCall{at: key, dims: requestDims(st)})
+		key, rec := ref.chain+" "+st.ID, byName[ref.chain].runOf(ref.it.from)
+		if _, ok := failing[key]; !ok {
+			failing[key] = len(fails)
+			fails = append(fails, rowCall{at: key, call: methodName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, slices.Index(rec.Steps, st), map[int]bool{})})
+		}
+		if f := &fails[failing[key]]; f.leaf == "" {
+			f.leaf, f.sent, f.got = echoOf(st, rec, ref.it)
 		}
 		if it := ref.it; it.Reason.Kind != reasonKnockOn && it.Step == st.ID && verdictCode(it.Path) {
 			if it.Rule == "not_equal" || !slices.Contains([]string{chain.EnvelopeOK(), chain.TransportOK, "<none>", ""}, it.Want) {
@@ -188,7 +241,8 @@ func (gr *gateGroup) rowCalls(byName map[string]*gateChain) (fails, passes []row
 				return writes[at]
 			}
 			for i, st := range rec.Steps {
-				if st == nil || shortRPC(st.Call) != rpc || failing[g.name+" "+st.ID] || st.Status != runner.StatusPassed || refusalOf(st) != "" ||
+				_, failed := failing[g.name+" "+st.ID]
+				if st == nil || shortRPC(st.Call) != rpc || failed || st.Status != runner.StatusPassed || refusalOf(st) != "" ||
 					profileOf(st) == runner.NoAuthProfile || profileOf(st) == chain.InvalidTokenAuth {
 					continue
 				}
@@ -203,12 +257,19 @@ func (gr *gateGroup) rowCalls(byName map[string]*gateChain) (fails, passes []row
 					}
 				}
 				if checked {
-					passes = append(passes, rowCall{at: g.name + " " + st.ID, dims: requestDims(st)})
+					passes = append(passes, rowCall{at: g.name + " " + st.ID, call: methodName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, i, map[int]bool{})})
 				}
 			}
 		}
 	}
 	slices.SortFunc(passes, func(x, y rowCall) int { return strings.Compare(x.at, y.at) })
+	for _, c := range append(slices.Clone(fails), passes...) {
+		for k := range c.dims {
+			if p, ok := strings.CutPrefix(k, "bytes "); ok && !slices.ContainsFunc(fails, func(f rowCall) bool { return f.leaf == fieldOf(p) }) {
+				delete(c.dims, k)
+			}
+		}
+	}
 	return fails, passes
 }
 
@@ -231,52 +292,171 @@ func checks(ex chain.ExpectResult, paths []string) bool {
 	})
 }
 
-func triggerOf(fails, passes []rowCall) (string, []string) {
-	if len(fails) == 0 || len(passes) == 0 {
-		return "", nil
+type cut struct {
+	key   string
+	below bool
+	bound float64
+	vals  []string
+}
+
+func (c cut) holds(call rowCall) bool {
+	if c.vals != nil {
+		return slices.Contains(c.vals, dimValue(call.dims, c.key))
 	}
-	keys := map[string]bool{}
-	for _, c := range append(slices.Clone(fails), passes...) {
+	n, ok := number(dimValue(call.dims, c.key))
+	return ok && (c.below && n <= c.bound || !c.below && n >= c.bound)
+}
+
+func triggerOf(fails, passes []rowCall) (string, []string) {
+	echo := echoRelation(fails)
+	if len(fails) == 0 || len(passes) == 0 {
+		return echo, nil
+	}
+	all, keys := append(slices.Clone(fails), passes...), []string{}
+	for _, c := range all {
 		for k := range c.dims {
-			keys[k] = true
+			if !slices.Contains(keys, k) {
+				keys = append(keys, k)
+			}
 		}
 	}
-	for _, f := range fails {
-		for _, p := range passes {
-			if differsOnlyIn(f.dims, p.dims, nil) {
-				return "", nil
-			}
+	rank := func(k string) int {
+		return slices.IndexFunc([]string{"as", "repeat ", "set ", "len ", "num ", "bytes "}, func(p string) bool { return strings.HasPrefix(k, p) })
+	}
+	slices.SortFunc(keys, func(x, y string) int { return cmp.Or(cmp.Compare(rank(x), rank(y)), strings.Compare(x, y)) })
+	var cuts []cut
+	for _, k := range keys {
+		kind, list, _ := strings.Cut(k, " ")
+		fv, pv := dimValues(fails, k), dimValues(passes, k)
+		switch {
+		case kind == "repeat" && (slices.Contains(fv, "") || len(pv) != 1 || pv[0] != "" || slices.Max(numbers(dimValues(passes, "len "+list))) < 2):
+		case kind == "as" || kind == "set" || kind == "repeat":
+			cuts = append(cuts, cut{key: k, vals: fv})
+		case kind == "len" || len(fails) > 1 && len(passes) > 1 && !slices.ContainsFunc(all, func(c rowCall) bool { return c.dims[k] == "" }):
+			ns := numbers(fv)
+			cuts = append(cuts, cut{key: k, bound: ns[0]}, cut{key: k, below: true, bound: ns[len(ns)-1]})
 		}
 	}
 	var apart []string
-	for _, k := range sortedKeys(keys) {
-		fv, pv := dimValues(fails, k), dimValues(passes, k)
-		list, repeat := strings.CutPrefix(k, "repeat ")
+	var open []cut
+	var pairs [][2]cut
+	seen := map[string]bool{}
+	for _, c := range cuts {
+		sig := fmt.Sprint(c.below)
+		for _, x := range all {
+			sig += "\x00" + dimValue(x.dims, c.key)
+		}
 		switch {
-		case repeat && (slices.Contains(fv, "") || len(pv) != 1 || pv[0] != "" || slices.Max(numbers(dimValues(passes, "len "+list))) < 2):
-		case slices.ContainsFunc(fv, func(v string) bool { return slices.Contains(pv, v) }):
-		case strings.HasPrefix(k, "len ") && !(numbers(fv)[0] > slices.Max(numbers(pv)) || slices.Max(numbers(fv)) < numbers(pv)[0]):
-		default:
-			apart = append(apart, k)
+		case !slices.ContainsFunc(passes, c.holds):
+			apart = append(apart, c.key)
+		case !seen[sig]:
+			seen[sig], open = true, append(open, c)
 		}
 	}
-	apart = slices.DeleteFunc(apart, func(k string) bool {
+	for i, a := range open {
+		for _, b := range open[i+1:] {
+			if a.key != b.key && !slices.ContainsFunc(passes, func(p rowCall) bool { return a.holds(p) && b.holds(p) }) {
+				pairs = append(pairs, [2]cut{a, b})
+			}
+		}
+	}
+	apart = slices.DeleteFunc(slices.Compact(apart), func(k string) bool {
 		list, isLen := strings.CutPrefix(k, "len ")
 		return isLen && slices.Contains(apart, "repeat "+list)
 	})
-	if len(apart) == 0 {
-		return "", nil
-	}
-	rank := func(k string) int {
-		for i, p := range []string{"as", "repeat ", "set ", "len "} {
-			if strings.HasPrefix(k, p) {
-				return i
-			}
+	line := ""
+	switch {
+	case len(apart) > 0 && len(pairs) == 0:
+		failNote, passNote := "", ""
+		if apart[0] == "as" {
+			failNote, passNote = ownProfile(fails, passes)
 		}
-		return 4
+		failSide := triggerSide(fails, passes, apart, failNote)
+		if failNote+passNote != "" {
+			failSide = strings.Replace(failSide, "as ", "when "+fails[0].call+" itself is sent as ", 1)
+		}
+		line = "trigger: fails " + failSide + "; passes " + triggerSide(passes, fails, apart, passNote)
+	case len(apart) == 0 && len(pairs) == 1:
+		a, b := pairs[0][0], pairs[0][1]
+		notA := slices.DeleteFunc(slices.Clone(passes), a.holds)
+		notB := slices.DeleteFunc(slices.Clone(passes), func(p rowCall) bool { return !a.holds(p) || b.holds(p) })
+		bare := func(calls, other []rowCall, k string) string {
+			p, _ := dimPhrase(calls, other, k)
+			return strings.TrimPrefix(p, "with ")
+		}
+		fa, _ := dimPhrase(fails, notA, a.key)
+		line = fmt.Sprintf("trigger: fails %s and %s (%s); passes otherwise: %s (%s), %s (%s)", fa, bare(fails, notB, b.key), callCount(fails),
+			bare(notA, fails, a.key), callCount(notA), bare(notB, fails, b.key), callCount(notB))
+		apart = []string{a.key, b.key}
+	default:
+		return echo, nil
 	}
-	slices.SortStableFunc(apart, func(x, y string) int { return cmp.Compare(rank(x), rank(y)) })
-	return "trigger: fails " + triggerSide(fails, passes, apart) + "; passes " + triggerSide(passes, fails, apart), apart
+	if echo != "" {
+		line += "; " + echo
+	}
+	return line, apart
+}
+
+func ownProfile(fails, passes []rowCall) (string, string) {
+	bad, used, failNote, passNote := dimValues(fails, "as"), map[string]bool{}, "", ""
+	after := func(c rowCall) bool { return slices.ContainsFunc(bad, func(p string) bool { return c.before[p] }) }
+	if n := slices.DeleteFunc(slices.Clone(fails), func(c rowCall) bool { return len(c.before) == 0 || after(c) }); len(n) > 0 {
+		for _, c := range n {
+			maps.Copy(used, c.before)
+		}
+		failNote = fmt.Sprintf("%s using only steps sent as %s", callCount(n), andList(sortedKeys(used)))
+	}
+	if n := slices.DeleteFunc(slices.Clone(passes), func(c rowCall) bool { return !after(c) }); len(n) > 0 {
+		passNote = fmt.Sprintf("%s using steps sent as %s, so those steps' profile does not matter", callCount(n), andList(bad))
+	}
+	return failNote, passNote
+}
+
+func echoRelation(fails []rowCall) string {
+	echoes := slices.DeleteFunc(slices.Clone(fails), func(f rowCall) bool { return f.leaf == "" })
+	if len(echoes) == 0 || slices.ContainsFunc(echoes, func(f rowCall) bool { return f.leaf != echoes[0].leaf }) {
+		return ""
+	}
+	every := func(rule func(s, g string) bool) bool {
+		return !slices.ContainsFunc(echoes, func(f rowCall) bool { return !rule(f.sent, f.got) })
+	}
+	same := func(n func(f rowCall) int) int {
+		if slices.ContainsFunc(echoes, func(f rowCall) bool { return n(f) != n(echoes[0]) }) {
+			return -1
+		}
+		return n(echoes[0])
+	}
+	sent, count := "the "+echoes[0].leaf+" sent", " ("+callCount(echoes)+")"
+	for _, r := range []struct {
+		how  string
+		fits func(s, g string) bool
+	}{
+		{" with its outer spaces trimmed", func(s, g string) bool { return g == strings.TrimSpace(s) }},
+		{" in upper case", func(s, g string) bool { return g == strings.ToUpper(s) }},
+		{" in lower case", func(s, g string) bool { return g == strings.ToLower(s) }},
+		{" in another case", strings.EqualFold},
+	} {
+		if every(r.fits) {
+			return "got is " + sent + r.how + count
+		}
+	}
+	kept, dropped := same(func(f rowCall) int { return len(f.got) }), same(func(f rowCall) int { return len(f.sent) - len(f.got) })
+	for _, end := range []struct {
+		keep, drop string
+		fits       func(s, g string) bool
+	}{{"first", "last", strings.HasPrefix}, {"last", "first", strings.HasSuffix}} {
+		if kept < 0 && dropped < 0 || !every(end.fits) {
+			continue
+		}
+		switch {
+		case dropped < 0:
+			return fmt.Sprintf("got keeps the %s %s of %s%s", end.keep, plural(kept, "byte"), sent, count)
+		case kept < 0:
+			return fmt.Sprintf("got drops the %s %s of %s%s", end.drop, plural(dropped, "byte"), sent, count)
+		}
+		return fmt.Sprintf("got keeps the %s %d of the %d bytes of %s%s", end.keep, kept, kept+dropped, sent, count)
+	}
+	return ""
 }
 
 func dimValues(calls []rowCall, k string) []string {
@@ -290,64 +470,83 @@ func dimValues(calls []rowCall, k string) []string {
 	return out
 }
 
-func numbers(vals []string) []int {
-	out := make([]int, 0, len(vals))
+func numbers(vals []string) []float64 {
+	out := make([]float64, 0, len(vals))
 	for _, v := range vals {
-		n, _ := strconv.Atoi(v)
+		n, _ := number(v)
 		out = append(out, n)
 	}
 	slices.Sort(out)
 	return out
 }
 
-func triggerSide(calls, other []rowCall, keys []string) string {
-	var parts, lengths []string
-	for _, k := range keys {
-		vals := dimValues(calls, k)
-		kind, name, _ := strings.Cut(k, " ")
-		switch kind {
-		case "as":
-			parts = append(parts, "as "+andList(vals))
-		case "set":
-			if vals[0] == "set" {
-				parts = append(parts, "with "+name+" set")
-			} else {
-				parts = append(parts, "with "+name+" empty or absent")
-			}
-		case "repeat":
-			if vals[0] == "" {
-				parts = append(parts, "with distinct "+strings.Join(dimValues(other, k), " or "))
-			} else {
-				parts = append(parts, "when "+name+" repeat "+strings.Join(vals, " or "))
-			}
-			var ns []string
-			for _, n := range numbers(dimValues(calls, "len "+name)) {
-				ns = append(ns, strconv.Itoa(n))
-			}
-			unit := " items"
-			if len(ns) == 1 && ns[0] == "1" {
-				unit = " item"
-			}
-			lengths = append(lengths, name+" of "+andList(ns)+unit)
-		case "len":
-			ns, os := numbers(vals), numbers(dimValues(other, k))
-			switch {
-			case ns[0] > os[len(os)-1]:
-				parts = append(parts, fmt.Sprintf("with %s of %d+ items", name, ns[0]))
-			case len(ns) == 1 && ns[0] == 0:
-				parts = append(parts, "with no "+name)
-			case len(ns) == 1:
-				parts = append(parts, fmt.Sprintf("with %s of %s", name, plural(ns[0], "item")))
-			default:
-				parts = append(parts, fmt.Sprintf("with %s of up to %d items", name, ns[len(ns)-1]))
-			}
-		}
-	}
+func shown(n float64) string {
+	return strconv.FormatFloat(n, 'f', -1, 64)
+}
+
+func callCount(calls []rowCall) string {
 	n := map[string]bool{}
 	for _, c := range calls {
 		n[c.at] = true
 	}
-	return strings.Join(parts, " ") + " (" + strings.Join(append([]string{plural(len(n), "call")}, lengths...), "; ") + ")"
+	return plural(len(n), "call")
+}
+
+func triggerSide(calls, other []rowCall, keys []string, notes ...string) string {
+	parts, extra := []string{}, []string{callCount(calls)}
+	for _, k := range keys {
+		p, x := dimPhrase(calls, other, k)
+		parts, extra = append(parts, p), append(extra, x)
+	}
+	return strings.Join(parts, " ") + " (" + strings.Join(slices.DeleteFunc(append(extra, notes...), func(x string) bool { return x == "" }), "; ") + ")"
+}
+
+func dimPhrase(calls, other []rowCall, k string) (string, string) {
+	vals := dimValues(calls, k)
+	kind, name, _ := strings.Cut(k, " ")
+	switch kind {
+	case "as":
+		return "as " + andList(vals), ""
+	case "set":
+		if vals[0] == "set" {
+			return "with " + name + " set", ""
+		}
+		return "with " + name + " empty or absent", ""
+	case "repeat":
+		var ns []string
+		for _, n := range numbers(dimValues(calls, "len "+name)) {
+			ns = append(ns, shown(n))
+		}
+		lengths := name + " of " + andList(ns) + " items"
+		if len(ns) == 1 && ns[0] == "1" {
+			lengths = name + " of 1 item"
+		}
+		if vals[0] == "" {
+			return "with distinct " + strings.Join(dimValues(other, k), " or "), lengths
+		}
+		return "when " + name + " repeat " + strings.Join(vals, " or "), lengths
+	}
+	ns, top := numbers(vals), slices.Max(numbers(dimValues(other, k)))
+	lo, hi := ns[0], ns[len(ns)-1]
+	of, unit := " of ", map[string]string{"len": " items", "bytes": " bytes"}[kind]
+	if kind == "num" {
+		of = " "
+	}
+	switch {
+	case kind == "len" && hi == 0:
+		return "with no " + name, ""
+	case kind == "num" && lo == top+1:
+		return "with " + name + " above " + shown(top), ""
+	case kind == "bytes" && lo == top+1:
+		return "with " + name + " longer than " + shown(top) + " bytes", ""
+	case lo > top:
+		return "with " + name + of + shown(lo) + "+" + unit, ""
+	case lo == hi && lo == 1:
+		return "with " + name + of + "1" + strings.TrimSuffix(unit, "s"), ""
+	case lo == hi:
+		return "with " + name + of + shown(lo) + unit, ""
+	}
+	return "with " + name + of + "up to " + shown(hi) + unit, ""
 }
 
 func plural(n int, word string) string {
