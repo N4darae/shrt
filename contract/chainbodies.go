@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -14,7 +15,7 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 	if c == nil || lib == nil || cat == nil {
 		return nil
 	}
-	issues := []chain.Issue{}
+	var issues []chain.Issue
 	for _, s := range c.Steps {
 		if s == nil || !stepExpectsSuccess(s) {
 			continue
@@ -90,9 +91,6 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 			})
 		}
 	}
-	if len(issues) == 0 {
-		return nil
-	}
 	return issues
 }
 
@@ -117,15 +115,7 @@ func unfilledBodyValues(s *chain.Step, m *catalog.Method, rc *RPCContract) []str
 }
 
 func contractRequiresField(rc *RPCContract, name string) bool {
-	if rc == nil {
-		return false
-	}
-	for _, r := range rc.Required {
-		if !IsRequiredLiteral(r) && namecase.Equal(r, name) {
-			return true
-		}
-	}
-	return false
+	return rc != nil && slices.ContainsFunc(rc.Required, func(r string) bool { return !IsRequiredLiteral(r) && namecase.Equal(r, name) })
 }
 
 func contractExplainsField(rc *RPCContract, name string) bool {
@@ -133,16 +123,7 @@ func contractExplainsField(rc *RPCContract, name string) bool {
 		return false
 	}
 	f := rc.Fields[name]
-	if f == nil {
-		return false
-	}
-	if f.From != "" || f.SameAs != "" || f.Value != "" {
-		return true
-	}
-	if strings.TrimSpace(f.Note) == "" {
-		return false
-	}
-	return !rc.IsUnfilled("fields." + name + ".note")
+	return f != nil && (f.From != "" || f.SameAs != "" || f.Value != "" || strings.TrimSpace(f.Note) != "" && !rc.IsUnfilled("fields."+name+".note"))
 }
 
 func DeclaredFacts(rc *RPCContract) []string {
