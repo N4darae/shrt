@@ -1399,10 +1399,10 @@ func settleGate(chains []*gateChain) []string {
 			}
 			g.first += "; " + sameFault + first + " (" + named + ")"
 		case it.Reason.Kind != "":
-			g.first += "; " + it.Reason.inRow(&it)
+			g.first += "; " + it.Reason.in(said{row: true, head: &it})
 		}
 		if more {
-			g.first += "; also " + other.Reason.inRow(nil)
+			g.first += "; also " + other.Reason.in(said{row: true})
 		}
 		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
 			seen[it.root()] = g.name
@@ -1584,7 +1584,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			head += " " + gr.path
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
-		if r := it.Reason.inGroup(gr.rpc, it.Step); r != "" {
+		if r := it.Reason.in(said{step: it.Step, rpc: gr.rpc}); r != "" {
 			line += "; " + r
 		} else if it.Reason.Kind == "" {
 			path, eg := it.shown()

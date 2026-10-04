@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -75,38 +76,79 @@ func asText(profile string) string {
 	return " as " + profile
 }
 
-func (r reason) String() string {
-	as := asText(r.Profile)
-	who := func(step, rpc string) string {
-		return fmt.Sprintf("%s %s (%s)", rw(rpc), step, shortRPC(rpc))
+func (r reason) String() string { return r.in(said{}) }
+
+type said struct {
+	row       bool
+	head      *gateItem
+	step, rpc string
+}
+
+func (r reason) in(s said) string {
+	group := s.rpc != ""
+	name := func(step, call, profile string) string {
+		if !group {
+			return fmt.Sprintf("%s %s (%s)%s", rw(call), step, shortRPC(call), asText(profile))
+		}
+		out := ""
+		if step != s.step {
+			out = rw(call) + " " + step
+		}
+		if shortRPC(call) != s.rpc {
+			out += " (" + shortRPC(call) + ")"
+		}
+		return strings.TrimSpace(out + asText(profile))
 	}
+	switch {
+	case r.Kind == "", group && r.Kind == reasonUnclear && strings.Contains(s.rpc, " or "):
+		return ""
+	case r.Kind == reasonUnclear && len(r.Or) > 1:
+		names := []string{}
+		for _, o := range r.Or[:2] {
+			names = append(names, strings.TrimPrefix(name(o.Step, o.RPC, o.Profile), "write "))
+		}
+		if n := len(r.Or) - 2; n > 0 {
+			names[1] += fmt.Sprintf(" +%d more", n)
+		}
+		return "unclear: write " + strings.Join(names, " or ")
+	case r.Kind == reasonUnclear && (group || s.row && len(r.Or) == 0):
+		read := " (" + methodName(r.ReadRPC) + asText(r.Profile) + ")"
+		if s.head != nil && r.Read == s.head.Step {
+			read = asText(r.Profile)
+		}
+		return "unclear: " + cmp.Or(name(r.Step, r.RPC, ""), "the write") + " or the read" + read
+	case r.Kind == reasonUnclear:
+		return fmt.Sprintf("unclear: %s or the read: answered %s=%s, but %s%s read %s", name(r.Step, r.RPC, ""),
+			gateIndex.ReplaceAllString(r.Path, "[]$1"), valueText(r.Want), methodName(r.ReadRPC), asText(r.Profile), valueText(r.Got))
+	case r.Kind == reasonKnockOn && r.Step == "":
+		return "knock-on of " + name(r.Read, r.ReadRPC, "")
+	case r.Kind == reasonKnockOn:
+		return "knock-on of " + name(r.Step, r.RPC, "")
+	}
+	who, detail, rest := name(r.Step, r.RPC, r.Profile), r.detail(), ""
+	if r.Kind != reasonWrite {
+		rest = ": " + detail
+	}
+	switch h := s.head; {
+	case group && (who == "" || detail == ""):
+		return who + detail
+	case group:
+		return who + ": " + detail
+	case h != nil && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && methodName(r.ReadRPC) == methodName(h.Call):
+		return "suspect " + who + ": stores other than it answered"
+	case h != nil && r.Step == h.Step:
+		return "suspect the " + rw(r.RPC) + asText(r.Profile) + rest
+	}
+	return "suspect " + who + rest
+}
+
+func (r reason) detail() string {
 	shown := gateIndex.ReplaceAllString(r.Path, "[]$1")
 	switch r.Kind {
-	case "":
-		return ""
-	case reasonWrite:
-		return "suspect " + who(r.Step, r.RPC) + as
 	case reasonStored:
-		return fmt.Sprintf("suspect %s%s: answered %s=%s, but %s read %s", who(r.Step, r.RPC), as, shown, valueText(r.Want), r.ReadRPC, valueText(r.Got))
+		return fmt.Sprintf("answered %s=%s, but %s read %s", shown, valueText(r.Want), r.ReadRPC, valueText(r.Got))
 	case reasonStoredOrder:
-		return fmt.Sprintf("suspect %s%s: answered %s in another order than %s read", who(r.Step, r.RPC), as, shown, r.ReadRPC)
-	case reasonUnclear:
-		if len(r.Or) > 1 {
-			names := []string{}
-			for _, o := range r.Or[:2] {
-				names = append(names, strings.TrimPrefix(who(o.Step, o.RPC), "write ")+asText(o.Profile))
-			}
-			if n := len(r.Or) - 2; n > 0 {
-				names[1] += fmt.Sprintf(" +%d more", n)
-			}
-			return "unclear: write " + strings.Join(names, " or ")
-		}
-		return fmt.Sprintf("unclear: %s or the read: answered %s=%s, but %s%s read %s", who(r.Step, r.RPC), shown, valueText(r.Want), methodName(r.ReadRPC), as, valueText(r.Got))
-	case reasonKnockOn:
-		if r.Step == "" {
-			return "knock-on of " + who(r.Read, r.ReadRPC)
-		}
-		return "knock-on of " + who(r.Step, r.RPC)
+		return fmt.Sprintf("answered %s in another order than %s read", shown, r.ReadRPC)
 	}
 	detail := map[string]string{
 		reasonRefused: "refused (" + r.Got + ")",
@@ -125,7 +167,7 @@ func (r reason) String() string {
 	if r.Kind == reasonRefused && r.Other != "" {
 		detail += ", passes as " + r.Other
 	}
-	return "suspect " + who(r.Step, r.RPC) + as + ": " + detail
+	return detail
 }
 
 func rw(call string) string {
@@ -146,14 +188,6 @@ func requestLine(r reason, step string, sent func(string) string) string {
 		return at + body
 	}
 	return ""
-}
-
-func suspectLine(r reason, step string, sent func(string) string) string {
-	req := requestLine(r, step, sent)
-	if s := r.String(); s != "" && req != "" {
-		return s + "; " + req
-	}
-	return req
 }
 
 func tellApart(e *env, r reason, path string) string {
