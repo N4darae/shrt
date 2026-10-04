@@ -12,19 +12,6 @@ import (
 
 func LintAll(lib *Library, cat *catalog.Catalog, authProfiles []string) []Issue {
 	issues := LintLibrary(lib, cat)
-	issues = append(issues, LintEmptyEntries(lib)...)
-	issues = append(issues, LintTodos(lib)...)
-	if authProfiles != nil {
-		issues = append(issues, LintAuthProfiles(lib, authProfiles)...)
-	}
-	return issues
-}
-
-func LintEmptyEntries(lib *Library) []Issue {
-	issues := []Issue{}
-	if lib == nil {
-		return issues
-	}
 	for _, o := range lib.Overlays {
 		for _, entry := range o.EmptyEntries {
 			rpc, field, _ := strings.Cut(entry, " ")
@@ -34,6 +21,10 @@ func LintEmptyEntries(lib *Library) []Issue {
 					"nothing and used to crash every command that read it. Fill it, or delete the line",
 			})
 		}
+	}
+	issues = append(issues, LintTodos(lib)...)
+	if authProfiles != nil {
+		issues = append(issues, lintAuthProfiles(lib, authProfiles)...)
 	}
 	return issues
 }
@@ -56,11 +47,8 @@ func LintTodos(lib *Library) []Issue {
 	return issues
 }
 
-func LintAuthProfiles(lib *Library, authProfiles []string) []Issue {
+func lintAuthProfiles(lib *Library, authProfiles []string) []Issue {
 	issues := []Issue{}
-	if lib == nil {
-		return issues
-	}
 	known := map[string]bool{}
 	for _, name := range authProfiles {
 		known[name] = true
