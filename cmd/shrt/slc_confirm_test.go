@@ -347,7 +347,7 @@ func TestSupersedeDoesNotListFixtureEchoesAsDifferences(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	captureStdout(t, func() {
 		if err := runRun(ctx, []string{"cli-unique", "-quiet", "-var", "tag=second"}); err != nil {
 			t.Fatalf("shrt run: %v", err)

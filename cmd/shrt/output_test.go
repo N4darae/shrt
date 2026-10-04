@@ -366,7 +366,7 @@ func TestVerifyVerdictsOnTheUniqueChain(t *testing.T) {
 		chdirToFreshCLIWorkspace(t, srv.URL)
 		writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 		ctx := context.Background()
-		approveUniqueChain(t, ctx)
+		fixApprove(t, "cli-unique")
 		return ctx, srv
 	}
 	t.Run("a non-backend verdict leads and skips the drift dump", func(t *testing.T) {
@@ -443,7 +443,7 @@ func TestARefusalOverAnotherFieldIsNotTheSameWay(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", twoUUIDFieldsChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	for _, want := range []verifyOutcome{
 		{code: 3, has: []string{"meta.source="}},
 		{code: 3, lack: []string{"FINDING"}},

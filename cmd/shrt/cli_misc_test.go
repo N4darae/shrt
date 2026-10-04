@@ -334,7 +334,7 @@ func TestVerifyAGatewayUnavailableIsCouldNotVerify(t *testing.T) {
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	writeFile(t, ".shrt/chains/cli-unique.yaml", uniqueNameChain)
 	ctx := context.Background()
-	approveUniqueChain(t, ctx)
+	fixApprove(t, "cli-unique")
 	down.Store(true)
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-unique", "-quiet", "-var", "tag=gw1"}) })
