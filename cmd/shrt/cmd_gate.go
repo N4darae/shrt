@@ -1213,6 +1213,9 @@ func gateAttempt(ctx context.Context, what, name string, readsTag bool, wait tim
 	var out gateOutcome
 	for try := 1; try <= 2; try++ {
 		args := []string{what, name, "-quiet"}
+		if what == "run" {
+			args = append(args, "-keep-going")
+		}
 		if readsTag {
 			args = append(args, "-var", chain.RunTagVar+"="+chain.NewRunTag())
 		}

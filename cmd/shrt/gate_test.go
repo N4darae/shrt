@@ -295,3 +295,12 @@ func TestRunHandsItsNotesAndErrorToTheGateInTheSidecar(t *testing.T) {
 		t.Fatalf("the CHAIN DEFECT line and the error reach the gate in the sidecar: %s", raw)
 	}
 }
+
+func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
+	twoDefectWorkspace(t, "name", "gadget")
+	inProcessGate(t)
+	out, code := runGateOut(t, "-v", "cli-two-defects")
+	if code != 1 || !strings.Contains(out, "    [fetch] name want=gadget got=widget (and 1 more at fetch_again)\n") {
+		t.Fatalf("a chain with no safe spot runs with -keep-going, so a failing step after the first reaches the gate, got %d:\n%s", code, out)
+	}
+}

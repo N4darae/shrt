@@ -95,8 +95,9 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
 ### CI gate
 
-`shrt gate` sends every chain in `.shrt/chains` once (by verify when it has a safe spot, by run
-otherwise, with a fresh `-var tag` as short as run's own), retries an exit 3 once, and holds `shrt chain hollow` to
+`shrt gate` sends every chain in `.shrt/chains` once (by verify when it has a safe spot, by
+`run -keep-going` otherwise, so every failing step reaches the gate's suspects, with a fresh
+`-var tag` as short as run's own), retries an exit 3 once, and holds `shrt chain hollow` to
 `.shrt/hollow-baseline`. One line per chain:
 
 | line | means |
