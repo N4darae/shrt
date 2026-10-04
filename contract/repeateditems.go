@@ -60,19 +60,9 @@ func secondItems(body map[string]any, fields []*catalog.Field) []string {
 }
 
 func distinctItem(item map[string]any, fields []*catalog.Field) {
-	for _, f := range fields {
-		key, ok := namecase.LookupKey(item, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || idLike(f.Name) {
-			continue
-		}
-		if len(f.Fields) > 0 {
-			if nested, ok := item[key].(map[string]any); ok {
-				distinctItem(nested, f.Fields)
-			}
-			continue
-		}
-		item[key] = nextValue(item[key], f.Kind)
-	}
+	eachLeaf(item, fields, func(f *catalog.Field) bool { return idLike(f.Name) }, func(m map[string]any, key string, f *catalog.Field) {
+		m[key] = nextValue(m[key], f.Kind)
+	})
 }
 
 func idLike(name string) bool {

@@ -285,30 +285,38 @@ func markAfterVar(text string, loc []int, marker string) string {
 	return text[:loc[1]+1] + marker + rest[1:]
 }
 
-func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
+func eachLeaf(body map[string]any, fields []*catalog.Field, skip func(*catalog.Field) bool, leaf func(map[string]any, string, *catalog.Field)) {
 	for _, f := range fields {
 		key, ok := namecase.LookupKey(body, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
+		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || skip(f) {
 			continue
 		}
 		if len(f.Fields) > 0 {
 			if nested, ok := body[key].(map[string]any); ok {
-				distinctProducerAt(nested, f.Fields, suffix, rank)
+				eachLeaf(nested, f.Fields, skip, leaf)
 			}
 			continue
 		}
-		if t, ok := body[key].(string); ok {
-			if loc := planVarRef.FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
-				body[key] = markAfterVar(t, loc, suffix)
-				continue
-			}
-		}
-		if n, ok := numericValue(body[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
-			body[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
-			continue
-		}
-		body[key] = nextValue(body[key], f.Kind)
+		leaf(body, key, f)
 	}
+}
+
+func hasJSONForm(f *catalog.Field) bool { return f.JSONForm != "" }
+
+func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
+	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
+		if t, ok := m[key].(string); ok {
+			if loc := planVarRef.FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
+				m[key] = markAfterVar(t, loc, suffix)
+				return
+			}
+		}
+		if n, ok := numericValue(m[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
+			m[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
+			return
+		}
+		m[key] = nextValue(m[key], f.Kind)
+	})
 }
 
 func (p *Plan) noteSecondProducer(id, path string, shared []string, clones map[string]string, consumers map[string][]string) {
@@ -334,23 +342,11 @@ func (p *Plan) distinctPreparation(c *chain.Step, id, first string) {
 }
 
 func raiseNumbers(body map[string]any, fields []*catalog.Field) {
-	for _, f := range fields {
-		key, ok := namecase.LookupKey(body, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
-			continue
+	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
+		if !slices.Contains([]string{"string", "bytes", "bool", "message", "enum", "group"}, f.Kind) {
+			m[key] = nextValue(m[key], f.Kind)
 		}
-		if len(f.Fields) > 0 {
-			if nested, ok := body[key].(map[string]any); ok {
-				raiseNumbers(nested, f.Fields)
-			}
-			continue
-		}
-		switch f.Kind {
-		case "string", "bytes", "bool", "message", "enum", "group":
-			continue
-		}
-		body[key] = nextValue(body[key], f.Kind)
-	}
+	})
 }
 
 func (p *Plan) prepareSecondProducers(step *chain.Step) {
