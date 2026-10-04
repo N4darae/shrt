@@ -391,13 +391,8 @@ func firstFailure(rec *runner.Record) string {
 }
 
 func underMask(m *pathmask.Masker, path string) bool {
-	segs := strings.Split(path, ".")
-	for i := len(segs); i > 0; i-- {
-		if m.Masks(strings.Join(segs[:i], ".")) {
-			return true
-		}
-	}
-	return false
+	_, ok := m.HidingPattern(path, true)
+	return ok
 }
 
 var (

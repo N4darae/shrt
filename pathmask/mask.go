@@ -304,6 +304,25 @@ func (m *Masker) Masks(path string) bool {
 	return m.masked(path)
 }
 
+func (m *Masker) HidingPattern(path string, leaf bool) (string, bool) {
+	if m == nil || len(m.patterns) == 0 {
+		return "", false
+	}
+	segs := foldSegments(strings.Split(path, "."))
+	limit := len(segs)
+	if !leaf {
+		limit--
+	}
+	for i := limit; i > 0; i-- {
+		for j, p := range m.split {
+			if matchFolded(p, segs[:i]) {
+				return m.patterns[j], true
+			}
+		}
+	}
+	return "", false
+}
+
 func (m *Masker) MasksValue(path string, v any) bool {
 	return m.Masks(path) && m.coversValue(path, v)
 }

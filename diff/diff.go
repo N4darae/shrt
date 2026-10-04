@@ -999,17 +999,8 @@ func maskedValue(m *pathmask.Masker, c Change) bool {
 }
 
 func maskedAt(m *pathmask.Masker, c Change) bool {
-	segs := strings.Split(c.Path, ".")
-	limit := len(segs)
-	if c.Kind == KindMissing || c.Kind == KindUnexpected {
-		limit--
-	}
-	for i := limit; i > 0; i-- {
-		if m.Masks(strings.Join(segs[:i], ".")) {
-			return true
-		}
-	}
-	return false
+	_, ok := m.HidingPattern(c.Path, c.Kind != KindMissing && c.Kind != KindUnexpected)
+	return ok
 }
 
 func compareStep(want, got *runner.StepRecord) []Change {
