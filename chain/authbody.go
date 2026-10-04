@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -12,25 +13,12 @@ func AuthBodyScope() *Scope {
 
 func ResolveAuthBody(body map[string]any) (any, error) {
 	scope := AuthBodyScope()
-	seen := map[string]bool{}
-	unset := []string{}
-	for _, ref := range collectRefs(body) {
-		r := ParseRef(ref)
-		if r.Kind != RefEnv || seen[r.Rest] {
-			continue
-		}
-		seen[r.Rest] = true
-		if _, ok := scope.env(r.Rest); !ok {
-			unset = append(unset, r.Rest)
-		}
-	}
+	unset := slices.DeleteFunc(uniqueRefs(body, func(r Ref) (string, bool) { return r.Rest, r.Kind == RefEnv }), func(name string) bool {
+		_, set := scope.env(name)
+		return set
+	})
 	if len(unset) > 1 {
-		sort.Strings(unset)
-		refs := make([]string, 0, len(unset))
-		for _, name := range unset {
-			refs = append(refs, "${env."+name+"}")
-		}
-		return nil, fmt.Errorf("unresolved references %s: env %s are not set", strings.Join(refs, ", "), strings.Join(unset, ", "))
+		return nil, fmt.Errorf("unresolved references ${env.%s}: env %s are not set", strings.Join(unset, "}, ${env."), strings.Join(unset, ", "))
 	}
 	return scope.ResolveValue(body)
 }
@@ -53,40 +41,26 @@ func AuthBodyReferenceProblems(body map[string]any) []string {
 }
 
 func AuthBodyEnvRefs(body map[string]any) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, ref := range collectRefs(body) {
-		if r := ParseRef(ref); r.Kind == RefEnv && !seen[ref] {
-			seen[ref] = true
-			out = append(out, "${"+ref+"}")
-		}
-	}
-	sort.Strings(out)
-	return out
+	return uniqueRefs(body, func(r Ref) (string, bool) { return "${" + r.Expr + "}", r.Kind == RefEnv })
 }
 
 func AuthBodyEnvNames(body map[string]any) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	for _, ref := range collectRefs(body) {
-		if r := ParseRef(ref); r.Kind == RefEnv && r.Rest != "" && !seen[r.Rest] {
-			seen[r.Rest] = true
-			out = append(out, r.Rest)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return uniqueRefs(body, func(r Ref) (string, bool) { return r.Rest, r.Kind == RefEnv && r.Rest != "" })
 }
 
 func VarRefs(v any) []string {
-	seen := map[string]bool{}
+	return uniqueRefs(v, func(r Ref) (string, bool) {
+		return "${" + r.Expr + "}", r.Kind == RefVars && r.Err == nil && r.Rest != ""
+	})
+}
+
+func uniqueRefs(v any, pick func(Ref) (string, bool)) []string {
 	out := []string{}
 	for _, ref := range collectRefs(v) {
-		if r := ParseRef(ref); r.Kind == RefVars && r.Err == nil && r.Rest != "" && !seen[r.Expr] {
-			seen[r.Expr] = true
-			out = append(out, "${"+r.Expr+"}")
+		if text, ok := pick(ParseRef(ref)); ok {
+			out = append(out, text)
 		}
 	}
 	sort.Strings(out)
-	return out
+	return slices.Compact(out)
 }
