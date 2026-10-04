@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -346,7 +345,6 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 		}
 	}
 	rpcs := lib.RPCs()
-	sort.Strings(rpcs)
 	for _, rpc := range rpcs {
 		if !chain.IsReadOnlyCall(rpc) {
 			continue

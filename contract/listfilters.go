@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -522,7 +521,6 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 	out := []transition{}
 	seen := map[string]bool{initial: true}
 	rpcs := lib.RPCs()
-	sort.Strings(rpcs)
 	for _, rpc := range rpcs {
 		if chain.IsReadOnlyCall(rpc) || rpc == pm.FullName {
 			continue

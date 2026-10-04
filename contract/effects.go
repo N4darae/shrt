@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -146,7 +145,6 @@ func (p *Plan) buildEffectRules(lib *Library) *effectRules {
 	r := &effectRules{increase: map[string]*stockRule{}, batch: map[string]*batchRule{}, reserve: map[string]*reserveRule{},
 		total: map[string]*totalRule{}, byEntity: map[string]*stockRule{}, orders: map[string]bool{}, lines: map[string]lineSpec{}, specs: map[string][]effectSpec{}}
 	rpcs := lib.RPCs()
-	sort.Strings(rpcs)
 	for _, rpc := range rpcs {
 		if c, ok := lib.Get(rpc); ok && !chain.IsReadOnlyCall(rpc) {
 			r.specs[rpc], _ = resolveEffects(rpc, c, lib, p.cat)
@@ -250,12 +248,8 @@ func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 }
 
 func (p *Plan) increaseRule(lib *Library, rpc string) *stockRule {
-	c, ok := lib.Get(rpc)
-	if !ok || chain.IsReadOnlyCall(rpc) {
-		return nil
-	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil || m.Streaming() {
+	c, m, ok := p.contractOf(lib, rpc)
+	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
 	match := increaseClause.FindStringSubmatch(c.Summary)
@@ -293,12 +287,8 @@ func (p *Plan) increaseRule(lib *Library, rpc string) *stockRule {
 }
 
 func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule {
-	c, ok := lib.Get(rpc)
-	if !ok || chain.IsReadOnlyCall(rpc) {
-		return nil
-	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil || m.Streaming() {
+	c, m, ok := p.contractOf(lib, rpc)
+	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
 	for _, name := range sortedKeys(c.Fields) {
@@ -407,12 +397,8 @@ func (p *Plan) reserveRuleFor(lib *Library, rpc string, r *effectRules) *reserve
 }
 
 func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule {
-	c, ok := lib.Get(rpc)
+	c, m, ok := p.contractOf(lib, rpc)
 	if !ok || chain.IsReadOnlyCall(rpc) {
-		return nil
-	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil {
 		return nil
 	}
 	texts := []string{c.Summary}
