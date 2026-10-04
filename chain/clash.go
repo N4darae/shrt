@@ -55,7 +55,8 @@ func (e *NameMismatchError) Relative(to func(string) string) *NameMismatchError 
 
 func Claimants(dir, name string) []string {
 	out := []string{}
-	for _, p := range chainFiles(dir) {
+	files, _ := chainFiles(dir)
+	for _, p := range files {
 		if c, err := LoadFile(p); err == nil && c.Name == name {
 			out = append(out, p)
 		}
@@ -64,10 +65,10 @@ func Claimants(dir, name string) []string {
 	return out
 }
 
-func chainFiles(dir string) []string {
+func chainFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	out := []string{}
 	for _, e := range entries {
@@ -77,7 +78,7 @@ func chainFiles(dir string) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 func sameFile(a, b string) bool {

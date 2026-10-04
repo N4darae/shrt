@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -40,25 +39,14 @@ func loadBytes(raw []byte, path string) (*Chain, error) {
 }
 
 func LoadDirPartial(dir string) ([]*Chain, []error, error) {
-	entries, err := os.ReadDir(dir)
+	files, err := chainFiles(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	names := []string{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if ext == ".yaml" || ext == ".yml" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	out := make([]*Chain, 0, len(names))
+	out := make([]*Chain, 0, len(files))
 	broken := []error{}
-	for _, n := range names {
-		c, err := LoadFile(filepath.Join(dir, n))
+	for _, f := range files {
+		c, err := LoadFile(f)
 		if err != nil {
 			broken = append(broken, err)
 			continue
