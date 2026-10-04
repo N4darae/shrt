@@ -29,7 +29,7 @@ func SealState(rec *runner.Record) error {
 		}
 		return ErrRunUnsealed
 	}
-	seal, err := runSeal(rec)
+	seal, err := decodedSeal(rec)
 	if err != nil {
 		return err
 	}
@@ -84,8 +84,13 @@ func runSeal(rec *runner.Record) (string, error) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		return "", err
 	}
-	back.Seal = ""
-	canonical, err := json.Marshal(&back)
+	return decodedSeal(&back)
+}
+
+func decodedSeal(rec *runner.Record) (string, error) {
+	unsealed := *rec
+	unsealed.Seal = ""
+	canonical, err := json.Marshal(&unsealed)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +113,7 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 			"removed), so it cannot be checked for edits and cannot be proposed. Run the chain again and propose the new run: "+
 			"shrt run %s, then shrt confirm %s -note \"...\"", ErrRunUnsealed, rec.RunID, rec.Chain, rec.Chain)
 	}
-	seal, err := runSeal(disk)
+	seal, err := decodedSeal(disk)
 	if err != nil {
 		return err
 	}
