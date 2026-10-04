@@ -2,10 +2,12 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/pathmask"
 	"gopkg.in/yaml.v3"
 )
 
@@ -71,10 +73,7 @@ func ForPreferring(m *catalog.Method, prefer []string) *Contract {
 func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 	out := []ExportHint{}
 	for _, f := range fields {
-		path := f.Name
-		if prefix != "" {
-			path = prefix + "." + f.Name
-		}
+		path := pathmask.Join(prefix, f.Name)
 		if len(f.Fields) > 0 {
 			next := path
 			if f.Repeated {
@@ -116,9 +115,7 @@ func inject(mapping *yaml.Node, body *yaml.Node) {
 	if i := mappingIndex(mapping, "call"); i >= 0 {
 		at = i + 2
 	}
-	key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "body"}
-	tail := append([]*yaml.Node{}, mapping.Content[at:]...)
-	mapping.Content = append(mapping.Content[:at], append([]*yaml.Node{key, body}, tail...)...)
+	mapping.Content = slices.Insert(mapping.Content, at, scalar("body"), body)
 }
 
 func bodyNode(fields []*catalog.Field, example map[string]any) *yaml.Node {

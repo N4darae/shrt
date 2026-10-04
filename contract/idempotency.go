@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -102,22 +103,12 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 }
 
 func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.Method, key, carrier, idField string) {
-	var carrierMsg string
-	var stateField *catalog.Field
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Name != carrier {
-			continue
-		}
-		carrierMsg = fd.Message
-		for _, sf := range fd.Fields {
-			if stateField == nil && len(sf.EnumValues) > 1 && !sf.Repeated {
-				stateField = sf
-			}
-		}
-	}
-	if stateField == nil {
+	fd := fieldByName(catalog.DescribeMessage(m.Output()).Fields, carrier)
+	at := slices.IndexFunc(fd.Fields, func(sf *catalog.Field) bool { return len(sf.EnumValues) > 1 && !sf.Repeated })
+	if at < 0 {
 		return
 	}
+	carrierMsg, stateField := fd.Message, fd.Fields[at]
 	idPath := carrier + "." + idField
 	read, ok := p.readerMatching(lib, st, idPath, true)
 	if !ok {

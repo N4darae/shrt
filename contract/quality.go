@@ -179,6 +179,13 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) QualityReport {
 	shapes := MethodShapes(cat)
 	report := QualityReport{RPCs: []QualityRPC{}, Phase: phase}
+	add := func(row QualityRPC) {
+		row.Score = ScoreOfPhase(row, phase)
+		report.TotalScore += row.Score
+		if row.Score > 0 {
+			report.RPCs = append(report.RPCs, row)
+		}
+	}
 	for _, o := range lib.Overlays {
 		if domain != "" && o.Domain != domain {
 			continue
@@ -188,13 +195,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 			if c == nil || shapes[rpc].Streaming {
 				continue
 			}
-			row := measureRPC(o.Domain, rpc, c, shapes[rpc], lib.RequiredBy(rpc))
-			row.Score = ScoreOfPhase(row, phase)
-			report.TotalScore += row.Score
-			if row.Score == 0 {
-				continue
-			}
-			report.RPCs = append(report.RPCs, row)
+			add(measureRPC(o.Domain, rpc, c, shapes[rpc], lib.RequiredBy(rpc)))
 		}
 	}
 	if cat != nil {
@@ -207,11 +208,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 			}
 			row := measureRPC(DomainOf(m), m.FullName, &RPCContract{}, shapes[m.FullName], lib.RequiredBy(m.FullName))
 			row.NoContract = true
-			row.Score = ScoreOfPhase(row, phase)
-			report.TotalScore += row.Score
-			if row.Score > 0 {
-				report.RPCs = append(report.RPCs, row)
-			}
+			add(row)
 		}
 	}
 	slices.SortStableFunc(report.RPCs, func(a, b QualityRPC) int {
@@ -252,12 +249,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		}
 	}
 
-	undocumented := []string{}
-	for _, name := range shape.RequestFields {
-		if !documented[name] {
-			undocumented = append(undocumented, name)
-		}
-	}
+	undocumented := slices.DeleteFunc(append([]string{}, shape.RequestFields...), func(name string) bool { return documented[name] })
 
 	declaredResponse := map[string]bool{}
 	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
@@ -267,12 +259,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 			}
 		}
 	}
-	undeclaredResponse := []string{}
-	for _, name := range shape.ResponseFields {
-		if !declaredResponse[name] {
-			undeclaredResponse = append(undeclaredResponse, name)
-		}
-	}
+	undeclaredResponse := slices.DeleteFunc(append([]string{}, shape.ResponseFields...), func(name string) bool { return declaredResponse[name] })
 
 	unexplained := []string{}
 	for _, f := range c.Failures {
@@ -362,36 +349,25 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 		}
 	}
 	for _, key := range sortedKeys(keys) {
-		if sourced, checked := idKeyState(fields, key); sourced {
+		sourced, checked, noted := false, false, false
+		for name, f := range fields {
+			if relatedKey(name, key) {
+				sourced = sourced || hasValueSource(f)
+				checked = checked || hasValueSource(f) && f.CheckedBy != "" && !IsTodo(f.CheckedBy)
+				noted = noted || strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note)
+			}
+		}
+		if sourced {
 			if !checked {
 				unchecked = append(unchecked, key)
 			}
 			continue
 		}
-		if writePath && (slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) || !explained(fields, key)) {
+		if writePath && (slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) || !noted) {
 			unwired = append(unwired, key)
 		}
 	}
 	return unwired, unchecked
-}
-
-func idKeyState(fields map[string]*FieldContract, key string) (sourced, checked bool) {
-	for name, f := range fields {
-		if relatedKey(name, key) && hasValueSource(f) {
-			sourced = true
-			checked = checked || f.CheckedBy != "" && !IsTodo(f.CheckedBy)
-		}
-	}
-	return sourced, checked
-}
-
-func explained(fields map[string]*FieldContract, key string) bool {
-	for name, f := range fields {
-		if relatedKey(name, key) && strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note) {
-			return true
-		}
-	}
-	return false
 }
 
 func effectiveFields(c *RPCContract) map[string]*FieldContract {

@@ -240,8 +240,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	if i := mappingIndex(node, "required"); i >= 0 {
 		at = i + 2
 	}
-	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
-	node.Content = append(node.Content[:at:at], rest...)
+	node.Content = slices.Insert(node.Content, at, scalar("fields"), added)
 }
 
 func scaffoldFields(m *catalog.Method, all []*catalog.Method, hint func(*catalog.Field) string) *yaml.Node {

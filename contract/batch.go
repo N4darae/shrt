@@ -14,10 +14,6 @@ import (
 var perItemFailure = lazyRegexp(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
-	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
-	if !ok || listPath == "" || verdict == "" {
-		return
-	}
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
 			continue
@@ -26,32 +22,25 @@ func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 		if !ok {
 			continue
 		}
-		results := p.perItemResults(lib, st.Call, c, m)
-		if results == nil {
-			continue
+		if results, listPath, verdict := p.perItemResults(lib, st.Call, c, m); results != nil {
+			p.addPartialBatch(lib, st, c, m, results, listPath, verdict)
 		}
-		p.addPartialBatch(lib, st, c, m, results, listPath, verdict)
 	}
 }
 
-func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catalog.Method) *catalog.Field {
+func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catalog.Method) (*catalog.Field, string, string) {
 	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
 	if !ok || listPath == "" || verdict == "" || chain.IsReadOnlyCall(rpc) {
-		return nil
+		return nil, "", ""
 	}
-	var results *catalog.Field
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-		if f.Name == listPath && f.Repeated && f.Kind == "message" {
-			results = f
-		}
-	}
-	if results == nil {
-		return nil
+	results := fieldByName(catalog.DescribeMessage(m.Output()).Fields, listPath)
+	if results == nil || !results.Repeated || results.Kind != "message" {
+		return nil, "", ""
 	}
 	if c.Effects.perItem() || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
-		return results
+		return results, listPath, verdict
 	}
-	return nil
+	return nil, "", ""
 }
 
 type batchLine struct {

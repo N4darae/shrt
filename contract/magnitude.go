@@ -333,9 +333,8 @@ func (p *Plan) largeBatchQuantities(lib *Library, st *chain.Step, b *batchRule) 
 }
 
 func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) string {
-	results := p.perItemResults(lib, st.Call, c, m)
-	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
-	if results == nil || !ok {
+	results, listPath, verdict := p.perItemResults(lib, st.Call, c, m)
+	if results == nil {
 		return ""
 	}
 	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
