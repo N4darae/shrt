@@ -121,9 +121,6 @@ func leastUsed(choices []string, used map[string]int) string {
 
 func distinguishFixtures(step *chain.Step, id, first string) {
 	suffix := strings.TrimPrefix(id, first+"_")
-	if suffix == id {
-		suffix = id
-	}
 	var walk func(v any) any
 	walk = func(v any) any {
 		switch t := v.(type) {

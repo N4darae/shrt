@@ -29,7 +29,7 @@ func (p *Plan) captureRegion(targetSteps map[string]bool) {
 }
 
 func (p *Plan) isolating(lib *Library, tag string, probe func()) {
-	if p.region == nil {
+	if p.region == nil || tag == "" {
 		probe()
 		return
 	}

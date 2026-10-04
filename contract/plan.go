@@ -123,10 +123,6 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
 	}
 	p.Chain = c
-	isTarget := map[string]bool{}
-	for _, node := range nodes {
-		isTarget[node] = true
-	}
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
 		method, err := cat.Lookup(rpc)
@@ -143,7 +139,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		p.fillLoginBody(step, method)
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
-		if !isTarget[node] {
+		if !seen[node] {
 			p.prepareSecondProducers(step)
 		}
 	}
@@ -167,13 +163,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		if pass.label == "token/role" {
 			only = denied
 		}
-		p.grouped(pass.label, func() {
-			if pass.tag == "" {
-				pass.probe(p, lib, only)
-				return
-			}
-			p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) })
-		})
+		p.grouped(pass.label, func() { p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) }) })
 	}
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
 	p.echoNumbers()

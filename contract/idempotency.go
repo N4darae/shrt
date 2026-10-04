@@ -68,7 +68,6 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	idPath := carrier + "." + idField
 
 	replay := probeStep(st, p.freeStepID(st.ID+"_replay"))
-	replay.Body[key] = sent
 	renameStepRefs(replay, st.ID, replay.ID)
 	replay.Body[key] = sent
 	replay.Description = fmt.Sprintf("the same request with the same %s returns the %s %s created, not a second one.", key, carrier, st.ID)
@@ -76,7 +75,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 
 	other := copyStep(replay, p.freeStepID(st.ID+"_replay_other_body"))
 	bumped := bumpNumbers(other.Body, catalog.DescribeMessage(m.Input()).Fields)
-	other.Description = fmt.Sprintf("the same %s with another body (%s changed) still returns the first %s, unchanged.", key, stepList(bumped), carrier)
+	other.Description = fmt.Sprintf("the same %s with another body (%s changed) still returns the first %s, unchanged.", key, strings.Join(bumped, ", "), carrier)
 	other.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, Equals: first})
 	for _, n := range numbers {
 		other.Expect = append(other.Expect, chain.Expectation{Path: carrier + "." + n, Equals: "${" + st.ID + "." + carrier + "." + n + "}"})
@@ -85,7 +84,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	for _, f := range lib.AllFailures(st.Call) {
 		if keyConflict.MatchString(f.Reason) || keyConflictWhen.MatchString(f.When) {
 			other.Expect = refusalFor(m, f)
-			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, stepList(bumped), f.Label())
+			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, strings.Join(bumped, ", "), f.Label())
 			conflict = f.Label()
 			break
 		}
@@ -204,15 +203,4 @@ func bumpNumbers(body map[string]any, fields []*catalog.Field) []string {
 	}
 	walk(body, fields, "")
 	return changed
-}
-
-func stepList(names []string) string {
-	if len(names) == 0 {
-		return "nothing"
-	}
-	out := names[0]
-	for _, n := range names[1:] {
-		out += ", " + n
-	}
-	return out
 }

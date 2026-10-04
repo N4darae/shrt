@@ -97,9 +97,6 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 }
 
 func unfilledBodyValues(s *chain.Step, m *catalog.Method, rc *RPCContract) []string {
-	if len(s.Body) == 0 {
-		return nil
-	}
 	out := []string{}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		key, ok := namecase.LookupKey(s.Body, f.Name)
@@ -115,9 +112,6 @@ func unfilledBodyValues(s *chain.Step, m *catalog.Method, rc *RPCContract) []str
 			continue
 		}
 		out = append(out, f.Name)
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }
