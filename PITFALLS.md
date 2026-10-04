@@ -370,8 +370,9 @@ the change is understood.
 
 ## 60. A slice landed in the directory every gate runs
 
-**Cause.** `-write <name>` and `-write <name>.yaml` write beside the source chain. **Fix.** Give a
-path with a slash for exploratory slices (`-write .shrt/scratch/<name>.yaml`) and run it by path.
+**Cause.** `-write` was given a path under `paths.chains`; without a path it writes
+`.shrt/scratch/`, which no sweep reads. **Fix.** Move it to `.shrt/scratch/` and run it by path, or
+keep the defect red with `shrt chain pin`, which writes its slices beside the chain on purpose.
 
 ## 61. `-verify` refuses up front asking for `-var name=<fresh>`
 

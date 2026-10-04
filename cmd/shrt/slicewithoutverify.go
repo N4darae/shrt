@@ -12,6 +12,7 @@ import (
 
 type withoutVerify struct {
 	vars varFlags
+	ref  string
 	sent bool
 }
 
@@ -20,8 +21,11 @@ type withoutVerdict struct {
 	SourceRun string   `json:"source_run"`
 	Run       string   `json:"run,omitempty"`
 	Cleared   []string `json:"no_longer_fail"`
+	Changed   []string `json:"fail_differently,omitempty"`
+	Changes   []string `json:"differences,omitempty"`
 	StillFail []string `json:"still_fail"`
 	NewFail   []string `json:"fail_only_without,omitempty"`
+	Next      string   `json:"next,omitempty"`
 	newer     string
 	readsOut  bool
 	state     []string
@@ -48,6 +52,7 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 			v.Run = run.RunID
 		}
 	}
+	same := sameUpToFixtures(rec.Vars, run.Vars)
 	for _, st := range res.Chain.Steps {
 		src, reached := rec.Step(st.ID)
 		now, ran := run.Step(st.ID)
@@ -56,11 +61,24 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 			if ran && failing(now) {
 				v.NewFail = append(v.NewFail, st.ID)
 			}
-		case ran && now.Status == runner.StatusPassed:
+		case !ran:
+			v.StillFail = append(v.StillFail, st.ID)
+		case now.Status == runner.StatusPassed:
 			v.Cleared = append(v.Cleared, st.ID)
 		default:
-			v.StillFail = append(v.StillFail, st.ID)
+			changes := compareVerdictsAt(st, verdictOf(src), verdictOf(now), same, "without it")
+			if len(changes) == 0 {
+				v.StillFail = append(v.StillFail, st.ID)
+				continue
+			}
+			v.Changed = append(v.Changed, st.ID)
+			for _, c := range changes {
+				v.Changes = append(v.Changes, st.ID+" "+c)
+			}
 		}
+	}
+	if len(v.Changed) > 0 && a.ref != "" {
+		v.Next = fmt.Sprintf("shrt chain slice %s -step %s -verify -run %s", a.ref, v.Changed[0], rec.RunID)
 	}
 	v.readsOut = len(v.StillFail) > 0 && !slices.ContainsFunc(v.StillFail, func(id string) bool { return !readsLeftOut(rec, res, id) })
 	v.state, v.noun = leftState(rec, res, v.Cleared)
@@ -181,32 +199,51 @@ func failing(sr *runner.StepRecord) bool {
 func (v *withoutVerdict) text() string {
 	var b strings.Builder
 	without := capList(v.Without, 3)
-	counted := len(v.Cleared) + len(v.StillFail)
+	counted := len(v.Cleared) + len(v.Changed) + len(v.StillFail)
+	verb := "is"
+	if len(v.Without) > 1 {
+		verb = "are"
+	}
 	switch {
 	case counted == 0:
 		fmt.Fprintf(&b, "verify without %s: no step left in failed in source run %s%s\n", without, v.SourceRun, v.newer)
+	case len(v.Cleared) == 0 && len(v.Changed) > 0:
+		some := fmt.Sprintf("the %d", counted)
+		if len(v.Changed) < counted {
+			some = fmt.Sprintf("%d of the %d", len(v.Changed), counted)
+		}
+		fmt.Fprintf(&b, "verify FAILS DIFFERENTLY without %s: %s step(s) that failed in source run %s still fail, but not as they did (%s), so %s %s involved: leaving it out changes their answer\n",
+			without, some, v.SourceRun, capList(v.Changed, 5), without, verb)
 	case len(v.Cleared) == 0 && v.readsOut:
 		fmt.Fprintf(&b, "verify INCONCLUSIVE without %s: the %d step(s) that failed in source run %s still fail, but they read what the left-out steps write: %s\n",
 			without, counted, v.SourceRun, capList(v.StillFail, 5))
 	case len(v.Cleared) == 0:
-		verb := "is"
-		if len(v.Without) > 1 {
-			verb = "are"
-		}
-		fmt.Fprintf(&b, "verify STILL FAILS without %s: the %d step(s) that failed in source run %s still fail (%s), so %s %s not their cause\n",
+		fmt.Fprintf(&b, "verify STILL FAILS without %s: the %d step(s) that failed in source run %s still fail exactly as they did (%s), so %s %s not their cause\n",
 			without, counted, v.SourceRun, capList(v.StillFail, 5), without, verb)
 	default:
 		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s%s\n",
 			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5), v.stateNote())
-		if why := "so another cause"; len(v.StillFail) > 0 {
-			if v.readsOut {
-				why = "they read what the left-out steps write"
-			}
-			fmt.Fprintf(&b, "  still fail, %s: %s\n", why, capList(v.StillFail, 5))
+		if len(v.Changed) > 0 {
+			fmt.Fprintf(&b, "  fail differently without it, so it changes them too: %s\n", capList(v.Changed, 5))
 		}
+	}
+	for _, c := range v.Changes {
+		fmt.Fprintf(&b, "  %s\n", c)
+	}
+	if why := "so another cause"; len(v.StillFail) > 0 && counted > len(v.StillFail) {
+		if v.readsOut {
+			why = "they read what the left-out steps write"
+		}
+		fmt.Fprintf(&b, "  still fail as they did, %s: %s\n", why, capList(v.StillFail, 5))
 	}
 	if len(v.NewFail) > 0 {
 		fmt.Fprintf(&b, "  fail only without it: %s, they need what the left-out steps did\n", capList(v.NewFail, 5))
+	}
+	if len(v.Changed) > 0 {
+		fmt.Fprintf(&b, "  a step that expects what %s does cannot pass without it: this neither clears it nor proves it the cause\n", without)
+	}
+	if v.Next != "" {
+		fmt.Fprintf(&b, "  next: %s\n", v.Next)
 	}
 	return b.String()
 }
@@ -238,6 +275,8 @@ func (v *withoutVerdict) err() error {
 	}
 	without := capList(v.Without, 3)
 	switch {
+	case len(v.Changed) > 0:
+		return exitWith(3, "FAILS DIFFERENTLY without %s: %d failing step(s) fail otherwise than in source run %s", without, len(v.Changed), v.SourceRun)
 	case v.readsOut && len(v.Cleared) == 0:
 		return exitWith(3, "INCONCLUSIVE without %s", without)
 	case v.readsOut:

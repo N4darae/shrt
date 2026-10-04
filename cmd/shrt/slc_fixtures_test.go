@@ -700,6 +700,32 @@ steps:
           equals: SUCCESS
 `
 
+const priceReadChain = `apiVersion: shrt/v1
+name: price-read
+vars:
+    tag: pr
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: sku-${vars.tag}
+        price_minor: "1250"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+        - path: product.price_minor
+          equals: 1250
+    - id: get_product
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create_product.product.id_product}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+        - path: product.price_minor
+          equals: 1250
+`
+
 type sliceBackend struct {
 	fetch func(id string) (int, map[string]any)
 	next  int
@@ -951,13 +977,18 @@ func stockBackend(fetchBias int) *httptest.Server {
 		ok := map[string]any{"code": "OK"}
 		switch r.URL.Path {
 		case "/shrt.test.v1.ThingService/Create":
-			id := ""
+			id, lost := "", false
 			if meta, _ := body["meta"].(map[string]any); meta != nil {
 				id, _ = meta["trace_id"].(string)
+				lost = meta["source"] == "lost"
 			}
 			if id == "" {
 				next++
 				id = "thing-" + itoa(next)
+			}
+			if lost {
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": ok, "id": id, "total": totals[id] + n})
+				return
 			}
 			totals[id] += n
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": ok, "id": id, "total": totals[id]})

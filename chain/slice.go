@@ -137,6 +137,7 @@ type SliceResult struct {
 	CarriedPins   []Pin           `json:"carried_kept_red,omitempty"`
 	DroppedPins   []Pin           `json:"dropped_kept_red,omitempty"`
 	Relaxed       []Relaxed       `json:"relaxed,omitempty"`
+	KeptFailing   []Relaxed       `json:"kept_failing,omitempty"`
 	Verified      string          `json:"verified,omitempty"`
 	NotReproduced string          `json:"not_reproduced,omitempty"`
 	Inconclusive  string          `json:"inconclusive,omitempty"`
@@ -246,6 +247,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		added := false
 		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
 			for _, w := range writes(at, keeps, opts) {
+				if opts.Refused != nil {
+					if why, refused := opts.Refused(c.Steps[w.index].ID); refused {
+						w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
+					}
+				}
 				add(w.index, KeepSideEffect, w.reason)
 				added = true
 			}
@@ -312,10 +318,27 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		Redact:     append([]string{}, c.Redact...),
 	}
 	kept := map[string]bool{}
+	targetFailed := map[string]bool{}
+	if opts.Relax != nil {
+		for _, r := range opts.Relax(target) {
+			if !r.Passed && strings.Join(SplitPath(r.Path), ".") != EnvelopePath() {
+				targetFailed[PathLeaf(r.Path)] = true
+			}
+		}
+	}
 	for _, i := range order {
 		st := copyStep(c.Steps[i])
 		if st.ID != target && opts.Relax != nil {
-			res.Relaxed = append(res.Relaxed, relaxStep(st, opts.Relax(st.ID))...)
+			results := slices.Clone(opts.Relax(st.ID))
+			if isWriteCall(st.Call) && (opts.IsLogin == nil || !opts.IsLogin(st)) {
+				for j, r := range results {
+					if !r.Passed && targetFailed[PathLeaf(r.Path)] {
+						res.KeptFailing = append(res.KeptFailing, Relaxed{Step: st.ID, Path: r.Path, Rule: r.Rule, Want: r.Want, Got: r.Got})
+						results[j].Passed = true
+					}
+				}
+			}
+			res.Relaxed = append(res.Relaxed, relaxStep(st, results)...)
 		}
 		out.Steps = append(out.Steps, st)
 		kept[c.Steps[i].ID] = true
@@ -558,6 +581,9 @@ func sliceDescription(res *SliceResult) string {
 	if len(res.Relaxed) > 0 {
 		fmt.Fprintf(&b, "Relaxed, failed in run %s after an answer: %s.\n", res.Run, RelaxedList(res.Relaxed))
 	}
+	if len(res.KeptFailing) > 0 {
+		fmt.Fprintf(&b, "Kept as failed in run %s, on a field %s also fails: %s; shrt run stops there, -keep-going runs on to %s.\n", res.Run, res.Target, RelaxedList(res.KeptFailing), res.Target)
+	}
 	for _, f := range res.FilledVars {
 		switch {
 		case f.From == VarFromRun && f.Declared:
@@ -582,18 +608,6 @@ func sliceDescription(res *SliceResult) string {
 			names = append(names, d.ID)
 		}
 		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(names), res.Run, listSome(names, 8))
-	}
-	if len(res.Unmet) > 0 {
-		names := []string{}
-		seen := map[string]bool{}
-		for _, u := range res.Unmet {
-			if seen[u.RPC] {
-				continue
-			}
-			seen[u.RPC] = true
-			names = append(names, u.RPC)
-		}
-		fmt.Fprintf(&b, "Unmet contract prerequisite(s), no earlier step calls them: %s.\n", listSome(names, 8))
 	}
 	return b.String()
 }
@@ -976,6 +990,14 @@ func varNameOf(ref string) string {
 	return name
 }
 
+func PathLeaf(path string) string {
+	segs := SplitPath(path)
+	if len(segs) == 0 {
+		return path
+	}
+	return segs[len(segs)-1]
+}
+
 func stepRefs(s *Step) []string {
 	refs := s.References()
 	sort.Strings(refs)
@@ -1030,49 +1052,49 @@ type Verdict struct {
 }
 
 func CompareVerdicts(source, replay Verdict) []string {
-	return CompareVerdictsMasking(source, replay, nil)
+	return CompareVerdictsMasking(source, replay, nil, "slice")
 }
 
-func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool) []string {
+func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool, other string) []string {
 	alike := func(path string, a, b any) bool { return same != nil && same(path, a, b) }
 	diffs := []string{}
 	if source.ErrorCode != replay.ErrorCode {
-		diffs = append(diffs, fmt.Sprintf("%s: source %q, slice %q", EnvelopePath(), source.ErrorCode, replay.ErrorCode))
+		diffs = append(diffs, fmt.Sprintf("%s: source %q, %s %q", EnvelopePath(), source.ErrorCode, other, replay.ErrorCode))
 	}
 	if source.Transport != replay.Transport {
-		diffs = append(diffs, fmt.Sprintf("transport: source %s, slice %s", orNoRefusal(source.Transport), orNoRefusal(replay.Transport)))
+		diffs = append(diffs, fmt.Sprintf("transport: source %s, %s %s", orNoRefusal(source.Transport), other, orNoRefusal(replay.Transport)))
 	}
 	for _, field := range refusalFields(source.Refusal, replay.Refusal) {
 		a, b := source.Refusal[field], replay.Refusal[field]
 		if a != b && !alike(field, a, b) {
-			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, slice %s", field, orNoRefusal(strconv.Quote(a)), orNoRefusal(strconv.Quote(b))))
+			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, %s %s", field, orNoRefusal(strconv.Quote(a)), other, orNoRefusal(strconv.Quote(b))))
 		}
 	}
 	if source.Status != replay.Status {
-		diffs = append(diffs, fmt.Sprintf("step status: source %q, slice %q", source.Status, replay.Status))
+		diffs = append(diffs, fmt.Sprintf("step status: source %q, %s %q", source.Status, other, replay.Status))
 	}
 	if len(source.Expect) != len(replay.Expect) {
-		diffs = append(diffs, fmt.Sprintf("expectation count: source %d, slice %d", len(source.Expect), len(replay.Expect)))
+		diffs = append(diffs, fmt.Sprintf("expectation count: source %d, %s %d", len(source.Expect), other, len(replay.Expect)))
 		return diffs
 	}
 	for i, want := range source.Expect {
 		got := replay.Expect[i]
 		if want.Path != got.Path || want.Rule != got.Rule {
-			diffs = append(diffs, fmt.Sprintf("expectation %d: source %s %s, slice %s %s", i+1, want.Path, want.Rule, got.Path, got.Rule))
+			diffs = append(diffs, fmt.Sprintf("expectation %d: source %s %s, %s %s %s", i+1, want.Path, want.Rule, other, got.Path, got.Rule))
 			continue
 		}
 		if want.Passed != got.Passed {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, %s passed=%t", i+1, want.Path, want.Rule, want.Passed, other, got.Passed))
 			continue
 		}
 		if !want.Passed && verdictText(want.Want) != verdictText(got.Want) && !alike(want.Path, want.Want, got.Want) {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, with other values: source want %s got %s, slice want %s got %s",
-				i+1, want.Path, want.Rule, verdictText(want.Want), verdictText(want.Got), verdictText(got.Want), verdictText(got.Got)))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, with other values: source want %s got %s, %s want %s got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Want), verdictText(want.Got), other, verdictText(got.Want), verdictText(got.Got)))
 			continue
 		}
 		if !want.Passed && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
-				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, %s got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Got), other, verdictText(got.Got)))
 		}
 	}
 	return diffs

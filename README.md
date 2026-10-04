@@ -83,7 +83,7 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 | `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only` | 1 a lint error |
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command | 1 nothing matched |
-| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify` proves it against the latest run or `-run <id>` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE |
+| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify` proves it against the latest run or `-run <id>` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records | 1 hollow reads, or `-gate` off baseline; 2 no run records |
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned | 1 failed, or refused before sending; 3 |

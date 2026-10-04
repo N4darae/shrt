@@ -446,6 +446,16 @@ func TestSlice(t *testing.T) {
 					t.Errorf("price from the run, a fresh tag from the chain: %v", res.Chain.Vars)
 				}
 			}},
+		{name: "a refused write on what the target reads is kept and says why", c: steps("roles",
+			st("create_product", "ProductService/CreateProduct", nil),
+			st("clerk_stock", "StockService/AddStock", map[string]any{"id_product": "${create_product.product.id_product}"}),
+			st("get_product", "ProductService/GetProduct", map[string]any{"id_product": "${create_product.product.id_product}"})),
+			target: "get_product", opts: chain.SliceOptions{RunID: "r1", Refused: refusedIn(map[string]string{"clerk_stock": "refused: status.code = REJECTED"})},
+			kept: "create_product,clerk_stock,get_product", check: func(t *testing.T, res *chain.SliceResult) {
+				if k := keptByID(res)["clerk_stock"]; !strings.HasSuffix(k.Reason, "(refused: status.code = REJECTED in run r1, kept: a refused write can still change it)") {
+					t.Errorf("clerk_stock reason is %q", k.Reason)
+				}
+			}},
 		{name: "a dropped write the source run refused", c: refusedDrop, target: "cancel_order", opts: chain.SliceOptions{RunID: "r1",
 			Refused: refusedIn(map[string]string{"create_order_no_lines": "refused: transport invalid_argument", "confirm_twice": "refused: error.code = 1303"})},
 			check: func(t *testing.T, res *chain.SliceResult) {
@@ -575,7 +585,7 @@ func TestCompareVerdicts(t *testing.T) {
 			chain.Verdict{Expect: []chain.ExpectResult{{Path: "error.code", Rule: "equals", Passed: true}, {Path: "qty", Rule: "equals"}}}, 1, []string{"expectation 2 (qty equals)"}},
 		{total(3697, 1995), total(4548, 6250), 1, []string{"3697", "6250"}},
 	} {
-		diffs := chain.CompareVerdictsMasking(tc.a, tc.b, nil)
+		diffs := chain.CompareVerdictsMasking(tc.a, tc.b, nil, "slice")
 		if len(diffs) != tc.n {
 			t.Errorf("want %d difference(s), got %v", tc.n, diffs)
 		}
@@ -604,10 +614,10 @@ func TestSliceVerdictReResolvesAClockRelativeBound(t *testing.T) {
 	if d := chain.CompareVerdicts(verdict(1790325508, nil), verdict(1790325514, nil)); len(d) != 0 {
 		t.Errorf("a bound resolved at each run's own time is the same bound: %v", d)
 	}
-	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790329115"), alike); len(d) != 0 {
+	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790329115"), alike, "slice"); len(d) != 0 {
 		t.Errorf("a stamp an hour ahead of each run's clock fails the same way: %v", d)
 	}
-	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790325000"), alike); len(d) == 0 {
+	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790325000"), alike, "slice"); len(d) == 0 {
 		t.Error("an hour ahead in one run and minutes behind in the other is a different failure")
 	}
 }
@@ -654,5 +664,30 @@ func TestAppendDescriptionLineKeepsTheRestOfTheFile(t *testing.T) {
 		if !ok || string(got) != tc.want {
 			t.Errorf("ok=%v\n%s\nwant\n%s", ok, got, tc.want)
 		}
+	}
+}
+
+func TestASliceKeepsAWriteFailingOnTheTargetsFieldAndRelaxesTheRest(t *testing.T) {
+	c := steps("customers",
+		st("create", "CustomerService/CreateCustomer", map[string]any{"name": "abc"},
+			chain.Expectation{Path: "customer.name", Equals: "abc"}, chain.Expectation{Path: "customer.email", Equals: "a@b"}),
+		st("get", "CustomerService/GetCustomer", map[string]any{"id_customer": "${create.customer.id_customer}"},
+			chain.Expectation{Path: "status.code", Equals: "SUCCESS"}, chain.Expectation{Path: "customer.name", Equals: "abc"}))
+	failed := map[string][]chain.ExpectResult{
+		"create": {{Path: "customer.name", Rule: "equals", Want: "abc", Got: "ab"}, {Path: "customer.email", Rule: "equals", Want: "a@b", Got: ""}},
+		"get":    {{Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "REJECTED"}, {Path: "customer.name", Rule: "equals", Want: "abc", Got: "ab"}},
+	}
+	res, err := chain.Slice(c, "get", chain.SliceOptions{RunID: "r1", Relax: func(id string) []chain.ExpectResult { return failed[id] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.KeptFailing) != 1 || res.KeptFailing[0].Path != "customer.name" || len(res.Relaxed) != 1 || res.Relaxed[0].Path != "customer.email" {
+		t.Fatalf("kept failing %+v, relaxed %+v", res.KeptFailing, res.Relaxed)
+	}
+	if create, _ := res.Chain.Step("create"); len(create.Expect) != 1 || create.Expect[0].Path != "customer.name" {
+		t.Fatalf("create keeps its name expectation only: %+v", create.Expect)
+	}
+	if !strings.Contains(res.Chain.Description, "Kept as failed in run r1, on a field get also fails: create customer.name equals (want abc, got ab)") {
+		t.Fatalf("%s", res.Chain.Description)
 	}
 }

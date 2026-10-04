@@ -53,7 +53,7 @@ steps:
 		t.Run(tc.name, func(t *testing.T) {
 			source, replay := verdict("1790352729 ± 5", tc.sourceGot), verdict("1790352757 ± 5", tc.sliceGot)
 			same := sameUpToFixtures(nil, nil)
-			if diffs := compareSliceVerdicts(res, source, replay, same); len(diffs) != 0 {
+			if diffs := compareVerdictsAt(c.Steps[0], source, replay, same, "slice"); len(diffs) != 0 {
 				t.Fatalf("the verdicts match: %v", diffs)
 			}
 			v := &sliceVerdict{Step: "login", Outcome: sliceReproduced, Source: source, Replay: replay, SourceRun: "a", SliceRun: "b",
@@ -134,7 +134,7 @@ func TestSliceVerdictMasksIDsAndFixturesInsideObjectOperands(t *testing.T) {
 		{"another key", "products", map[string]any{"id_product": "prd-38bc1a2b3c4d"}, map[string]any{"id_order": "prd-64b2e5f6a7b8"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			diffs := chain.CompareVerdictsMasking(verdict(tc.path, tc.source), verdict(tc.path, tc.echo), same)
+			diffs := chain.CompareVerdictsMasking(verdict(tc.path, tc.source), verdict(tc.path, tc.echo), same, "slice")
 			if (len(diffs) == 0) != tc.alike {
 				t.Fatalf("alike=%v, differences: %v", tc.alike, diffs)
 			}
@@ -509,6 +509,22 @@ func TestRefusedFailureNeedsARefusedStepThatDidNotPass(t *testing.T) {
 func TestAPartlyClearedWithoutIsInconclusiveWhenTheRestReadTheLeftOutWrites(t *testing.T) {
 	v := &withoutVerdict{Without: []string{"stray_add"}, Cleared: []string{"fetch_total"}, StillFail: []string{"fetch_name"}, readsOut: true}
 	if err := v.err(); exitCodeOf(err) != 3 || !strings.Contains(err.Error(), "INCONCLUSIVE without stray_add: 1 failing step(s) still fail") {
+		t.Fatalf("exit %d: %v", exitCodeOf(err), err)
+	}
+}
+
+func TestAWithoutStepFailingDifferentlyIsNeverClearedByTheOthers(t *testing.T) {
+	v := &withoutVerdict{Without: []string{"confirm"}, SourceRun: "src", Cleared: []string{"fetch_total"}, Changed: []string{"read_back"},
+		Changes: []string{"read_back expectation 1 (qty equals): failed in both, differently: source got -3, without it got 3"}, StillFail: []string{"fetch_name"}}
+	out := v.text()
+	for _, want := range []string{"1 of 3 step(s) that failed in source run src pass without it: fetch_total\n",
+		"  fail differently without it, so it changes them too: read_back\n", "source got -3, without it got 3\n",
+		"  still fail as they did, so another cause: fetch_name\n", "cannot pass without it: this neither clears it nor proves it the cause"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if err := v.err(); exitCodeOf(err) != 3 || !strings.Contains(err.Error(), "FAILS DIFFERENTLY without confirm") {
 		t.Fatalf("exit %d: %v", exitCodeOf(err), err)
 	}
 }
