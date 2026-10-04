@@ -175,7 +175,7 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 				continue
 			}
 			rec := &runner.Record{}
-			if json.Unmarshal(raw, rec) != nil {
+			if rec.UnmarshalJSON(raw) != nil {
 				continue
 			}
 			name := rec.Chain

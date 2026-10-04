@@ -385,7 +385,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			return nil, err
 		}
 		rec := &runner.Record{}
-		if err := json.Unmarshal(raw, rec); err != nil {
+		if err := rec.UnmarshalJSON(raw); err != nil {
 			continue
 		}
 		switch err := store.SealState(rec); {
