@@ -342,14 +342,11 @@ func (p *Plan) trimmed(lib *Library, rpc, field string) bool {
 	if fc := c.Fields[field]; fc != nil {
 		note = fc.Note
 	}
-	for _, re := range []*regexp.Regexp{trimClaimed, normalisedWord} {
-		denied := trimDenied
-		if re != trimClaimed {
-			denied = nil
-		}
-		if yes, no := claims(note, re, denied); yes && !no {
-			return true
-		}
+	if yes, no := claims(note, trimClaimed, trimDenied); yes && !no {
+		return true
+	}
+	if yes, no := claims(note, normalisedWord, nil); yes && !no {
+		return true
 	}
 	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
 		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
