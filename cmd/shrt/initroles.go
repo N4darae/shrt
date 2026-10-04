@@ -11,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -181,11 +182,11 @@ func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error
 	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, err
 	}
-	auth := mappingValue(doc.Content[0], "auth")
+	auth := yamlkey.MappingValue(doc.Content[0], "auth")
 	if auth == nil || auth.Kind != yaml.MappingNode {
 		return nil, nil
 	}
-	profiles := mappingValue(auth, "profiles")
+	profiles := yamlkey.MappingValue(auth, "profiles")
 	if profiles == nil {
 		profiles = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		auth.Content = append(auth.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "profiles"}, profiles)
@@ -222,13 +223,4 @@ func writeYAML(path string, doc *yaml.Node) error {
 		return err
 	}
 	return os.WriteFile(path, buf.Bytes(), 0o644)
-}
-
-func mappingValue(m *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
-	}
-	return nil
 }

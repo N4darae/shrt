@@ -13,6 +13,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/transport"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,7 +33,7 @@ func declareConventions(ctx context.Context, cfg *config.Config, cfgPath string)
 	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", err
 	}
-	if mappingValue(doc.Content[0], "conventions") != nil {
+	if yamlkey.MappingValue(doc.Content[0], "conventions") != nil {
 		return "", nil
 	}
 	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
