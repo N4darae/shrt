@@ -722,11 +722,16 @@ func producerOf(ref string, exporter map[string]string) string {
 	return head
 }
 
-func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
+func (r *Runner) skippedRecord(i int, step *chain.Step) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
 		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
+	return sr
+}
+
+func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
+	sr := r.skippedRecord(i, step)
 	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
 	if producer.Request != nil {
 		sr.Error += fmt.Sprintf(" A reference to its request (${steps.%s.request...}) is still safe: that "+
@@ -736,10 +741,8 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 }
 
 func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
-	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
-	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Call, sr.Procedure = method.FullName, method.Procedure()
-	}
+	sr := r.skippedRecord(i, step)
+	sr.unreachable = dead.unreachable
 	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
 	return sr
 }
@@ -1144,15 +1147,19 @@ func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
 				}
 			}
 		}
-		sample := method.ResponseSample()
-		scope.RecordSynthetic(step.ID, resolved, sample)
-		for name, path := range step.Export {
-			if v, ok := chain.Get(sample, path); ok {
-				scope.Exports[name] = v
-			}
-		}
+		recordSynthetic(scope, step, method, resolved)
 	}
 	return problems
+}
+
+func recordSynthetic(scope *chain.Scope, step *chain.Step, method *catalog.Method, resolved any) {
+	sample := method.ResponseSample()
+	scope.RecordSynthetic(step.ID, resolved, sample)
+	for name, path := range step.Export {
+		if v, ok := chain.Get(sample, path); ok {
+			scope.Exports[name] = v
+		}
+	}
 }
 
 func (r *Runner) validWithoutSynthetic(scope *chain.Scope, method *catalog.Method, body map[string]any, vars map[string]any) bool {
@@ -1288,13 +1295,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	if opts.DryRun {
 		sr.Status = StatusSkipped
-		sample := method.ResponseSample()
-		scope.RecordSynthetic(step.ID, resolved, sample)
-		for name, path := range step.Export {
-			if v, ok := chain.Get(sample, path); ok {
-				scope.Exports[name] = v
-			}
-		}
+		recordSynthetic(scope, step, method, resolved)
 		for _, e := range step.Expect {
 			if _, err := e.ResolveWith(scope); err != nil {
 				sr.Status = StatusFailed
@@ -1305,12 +1306,9 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
-	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders}
+	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders, Meta: authMeta(step)}
 	if method.ServerStreaming {
 		call.Stream = 1
-	}
-	if step.SkipAuth || step.Auth != "" {
-		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
 	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
@@ -1473,12 +1471,10 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	sr.Note = seedingNote(r.Auth.observe(step.Auth, method.Procedure(), body, canonicalInput, decoded))
 
 	for i, e := range step.Expect {
-		response, presence := any(decoded), sent
+		response, presence, kind := any(decoded), sent, ""
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
-		}
-		kind := ""
-		if !chain.IsTransportPath(e.Path) {
+		} else {
 			kind = fieldKind(outputFields, e.Path)
 		}
 		result := evaluateTyped(scope, e, response, presence, kind, redactor)
