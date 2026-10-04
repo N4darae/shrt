@@ -133,8 +133,9 @@ shows it. Its example is from a chain with a safe spot when one fails so, else n
 whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then
 the smallest slice. Under the row, `trigger: fails as clerk (3 calls); passes as default (12 calls)` sets that rpc's
 failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile
-(`fails when ConfirmOrder itself is sent as clerk` when calls show the profile that created what it acts on does not
-decide it, saying so: `2 of the 3 failing calls act on records created as default`), a list's length (`fails with
+(`fails when ConfirmOrder itself is sent as clerk` when some calls act on records another profile created, saying
+only what those calls show: `2 of them act on records created as default, so the creator need not be clerk`, or on the
+passing side `1 of them acts on records created as clerk, so that alone does not fail it`), a list's length (`fails with
 lines of 2+ items`, the lengths listed when a side shows several: `(2 calls: 2, 3)`), a list repeating an item key
 (`fails when lines repeat id_product`), a field set or empty, a number in a field or in a list's first or last item
 (`with lines[last].qty above

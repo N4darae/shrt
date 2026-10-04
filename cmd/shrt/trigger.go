@@ -407,31 +407,25 @@ func ownProfile(fails, passes []rowCall) (string, string) {
 		for _, c := range n {
 			maps.Copy(used, c.before)
 		}
-		failNote = share(n, fails, "failing") + andList(sortedKeys(used))
+		failNote = share(n, fails) + andList(sortedKeys(used)) + ", so the creator need not be " + strings.Join(bad, " or ")
 	}
 	if n := slices.DeleteFunc(slices.Clone(passes), func(c rowCall) bool { return !after(c) }); len(n) > 0 {
-		passNote = share(n, passes, "passing") + andList(bad)
-	}
-	if lead := "the profile that created what it acts on does not decide it: "; failNote != "" {
-		failNote = lead + failNote
-	} else if passNote != "" {
-		passNote = lead + passNote
+		passNote = share(n, passes) + andList(bad) + ", so that alone does not fail it"
 	}
 	return failNote, passNote
 }
 
-func share(some, all []rowCall, side string) string {
+func share(some, all []rowCall) string {
 	k, n := numCalls(some), numCalls(all)
-	lead := fmt.Sprintf("%d of the %d %s calls act", k, n, side)
 	switch {
 	case n == 1:
-		lead = "the " + side + " call acts"
+		return "it acts on records created as "
 	case k == n:
-		lead = fmt.Sprintf("each of the %d %s calls acts", n, side)
+		return "each acts on records created as "
 	case k == 1:
-		lead += "s"
+		return "1 of them acts on records created as "
 	}
-	return lead + " on records created as "
+	return fmt.Sprintf("%d of them act on records created as ", k)
 }
 
 func everyCall(fails []rowCall) string {

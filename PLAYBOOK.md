@@ -417,10 +417,11 @@ from the rpc's other faults.
 **What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
 failing calls of that rpc set against its calls that passed in the same gate, split by what the
 requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
-`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile that created what
-the call acts on does not decide it: `the profile that created what it acts on does not decide it: 2
-of the 3 failing calls act on records created as default` (or of the passing calls, `act on records
-created as clerk`).
+`fails when ConfirmOrder itself is sent as clerk` when some calls act on records another profile
+created, and says only what those calls show: `2 of them act on records created as default, so the
+creator need not be clerk`, or on the passing side `1 of them acts on records created as clerk, so
+that alone does not fail it`. It never speaks for a mix no call covered, such as a clerk acting on
+records a clerk created.
 A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
 calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
 3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
