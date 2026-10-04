@@ -25,12 +25,8 @@ func undeclaredIn(md protoreflect.MessageDescriptor, v any) (any, bool) {
 		return nil, false
 	}
 	out := map[string]any{}
-	fields := md.Fields()
 	for k, inner := range obj {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			out[k] = inner
 			continue

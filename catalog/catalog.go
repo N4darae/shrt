@@ -113,7 +113,7 @@ func (c *Catalog) Lookup(ref string) (*Method, error) {
 	}
 	matches := []*Method{}
 	for _, k := range c.order {
-		if matchesRef(c.methods[k], ref) {
+		if m := c.methods[k]; strings.EqualFold(m.Name, ref) || strings.EqualFold(shortService(m.Service)+"/"+m.Name, ref) {
 			matches = append(matches, c.methods[k])
 		}
 	}
@@ -175,14 +175,6 @@ func rpcName(ref string) string {
 
 func (c *Catalog) SuggestRPC(ref string) string {
 	return c.closestRPC(strings.TrimPrefix(strings.TrimSpace(ref), "/"))
-}
-
-func matchesRef(m *Method, ref string) bool {
-	if strings.EqualFold(m.Name, ref) {
-		return true
-	}
-	short := shortService(m.Service) + "/" + m.Name
-	return strings.EqualFold(short, ref)
 }
 
 func shortService(full string) string {

@@ -55,10 +55,7 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	sort.Strings(keys)
 	fields := md.Fields()
 	for _, k := range keys {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			names := make([]string, 0, fields.Len())
 			for i := 0; i < fields.Len(); i++ {
@@ -196,12 +193,8 @@ func collectUnknownEnums(md protoreflect.MessageDescriptor, v any, at []string, 
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return
 	}
-	fields := md.Fields()
 	for k, inner := range obj {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			continue
 		}
@@ -306,12 +299,8 @@ func collectUnknown(md protoreflect.MessageDescriptor, v any, at string, seen ma
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return
 	}
-	fields := md.Fields()
 	for k, inner := range obj {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			if !seen[at+k] {
 				seen[at+k] = true
