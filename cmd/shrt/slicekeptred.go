@@ -219,7 +219,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		if writePath != "" {
 			path = writePath
 		}
-		source := sameSliceFile(path, c.SourcePath)
+		source := sameFile(path, c.SourcePath)
 		if source {
 			res.Chain.Name = c.Name
 		}

@@ -463,7 +463,7 @@ func printObservedUnasserted(dir string, q chain.WhichQuery, seen []chain.WhichU
 			status = strings.ToUpper(status)
 		}
 		fmt.Printf("%s  step %d %s  %s\n    run %s got %s at %s, step %s\n",
-			s.Chain, s.Index, s.Step, shortCall(s.Call), s.Run, s.Code, s.Path, status)
+			s.Chain, s.Index, s.Step, shortRPC(s.Call), s.Run, s.Code, s.Path, status)
 		if list := cover[i].siblings; len(list) > 0 {
 			fmt.Printf("    pins the same detail: %s, so a different refusal there fails shrt run\n", strings.Join(list, "; "))
 		}

@@ -200,7 +200,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		if writePath != "" {
 			path = writePath
 		}
-		source := writePath != "" && sameSliceFile(path, c.SourcePath)
+		source := writePath != "" && sameFile(path, c.SourcePath)
 		if source {
 			res.Chain.Name = c.Name
 		}
@@ -280,7 +280,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		printSliceHeader(res)
 	}
 	printSlice(res, written, verdict, *verbose)
-	if written != "" && !sameSliceFile(written, c.SourcePath) && len(res.Chain.KeptRed) == 0 {
+	if written != "" && !sameFile(written, c.SourcePath) && len(res.Chain.KeptRed) == 0 {
 		fmt.Print(sweepNote(e, written))
 	}
 	if !write.set && !*verify {
@@ -398,12 +398,12 @@ func printSliceDetail(res *chain.SliceResult) {
 		if n := len(k.ID); n > idW {
 			idW = n
 		}
-		if n := len(shortCall(k.Call)); n > callW {
+		if n := len(shortRPC(k.Call)); n > callW {
 			callW = n
 		}
 	}
 	for _, k := range res.Kept {
-		fmt.Printf("  %4d  %-*s  %-*s  %s\n", k.Index, idW, k.ID, callW, shortCall(k.Call), k.Reason)
+		fmt.Printf("  %4d  %-*s  %-*s  %s\n", k.Index, idW, k.ID, callW, shortRPC(k.Call), k.Reason)
 	}
 	if len(res.FilledVars) > 0 {
 		fmt.Println("\nvars written into the slice:")
@@ -418,11 +418,11 @@ func printSliceDetail(res *chain.SliceResult) {
 	if len(res.DroppedWrites) > 0 {
 		fmt.Println("\ndropped write steps:")
 		for _, d := range res.DroppedWrites {
-			fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortCall(d.Call))
+			fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortRPC(d.Call))
 		}
 	}
 	for _, d := range res.RefusedWrites {
-		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted\n", d.Index, d.ID, shortCall(d.Call), d.Reason, res.Run)
+		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted\n", d.Index, d.ID, shortRPC(d.Call), d.Reason, res.Run)
 	}
 }
 
@@ -509,13 +509,6 @@ func slicePathAndName(value string) (string, string, error) {
 		return "", "", fmt.Errorf("-write %s: the file name must name the chain, as in -write .shrt/scratch/<name>.yaml", value)
 	}
 	return abs, name, nil
-}
-
-func shortCall(call string) string {
-	if i := strings.LastIndex(call, "."); i >= 0 {
-		return call[i+1:]
-	}
-	return call
 }
 
 func rpcOf(e *env) func(*chain.Step) string {
@@ -1639,7 +1632,7 @@ func sliceDir(e *env, c *chain.Chain) string {
 	return dir
 }
 
-func sameSliceFile(a, b string) bool {
+func sameFile(a, b string) bool {
 	if a == "" || b == "" {
 		return false
 	}

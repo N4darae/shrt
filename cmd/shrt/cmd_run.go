@@ -807,7 +807,7 @@ func closestReads(unused, reads []string) []string {
 	out := []string{}
 	for _, name := range unused {
 		for _, c := range namecase.Closest(name, reads, 1) {
-			if !containsName(out, c) {
+			if !slices.Contains(out, c) {
 				out = append(out, c)
 			}
 		}
@@ -820,13 +820,4 @@ func pluralWord(n int, one, many string) string {
 		return one
 	}
 	return many
-}
-
-func containsName(list []string, name string) bool {
-	for _, s := range list {
-		if s == name {
-			return true
-		}
-	}
-	return false
 }

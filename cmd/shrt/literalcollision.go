@@ -77,7 +77,7 @@ func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literal
 	var byValue, byName []string
 	varBuilt, onlyGenerated := false, true
 	sent := map[string]string{}
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		v, ok := requestTemplate(c, first.ID, path)
 		if !ok {
 			return
@@ -240,7 +240,7 @@ func collisionWithinRun(e *env, c *chain.Chain, rec *runner.Record, first *runne
 	sent := map[string]string{}
 	var quoted, named, all []string
 	folded := foldName(why)
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		got, ok := chain.Get(req, path)
 		text, isText := got.(string)
 		if !ok || !isText || text == "" {

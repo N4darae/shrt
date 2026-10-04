@@ -954,7 +954,7 @@ func (a attribution) reaches(i, at int) bool {
 	if c == nil {
 		return true
 	}
-	if m, err := a.e.cat.Lookup(w.Call); err == nil && containsName(c.Needs, m.FullName) {
+	if m, err := a.e.cat.Lookup(w.Call); err == nil && slices.Contains(c.Needs, m.FullName) {
 		return true
 	}
 	var wb, req any

@@ -1103,7 +1103,7 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	}
 	names := make([]string, 0, len(byName))
 	for n := range byName {
-		if len(only) == 0 || containsName(only, n) {
+		if len(only) == 0 || slices.Contains(only, n) {
 			names = append(names, n)
 		}
 	}
@@ -1151,7 +1151,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		g.errors[f.Call] = f
 	}
 	for _, n := range out.side.Notes {
-		if !containsName(g.notes, n) {
+		if !slices.Contains(g.notes, n) {
 			g.notes = append(g.notes, n)
 		}
 	}
@@ -1218,7 +1218,7 @@ func (g *gateChain) intermittentFirst() string {
 	if !ok {
 		return ""
 	}
-	if f, ok := g.flaky[it.Call]; ok && containsName(f.Steps, it.Step) {
+	if f, ok := g.flaky[it.Call]; ok && slices.Contains(f.Steps, it.Step) {
 		return g.flakyKindOf(it.Call)
 	}
 	return ""
@@ -1277,7 +1277,7 @@ func (g *gateChain) printChanges(e *env) {
 			paths = append(paths, path)
 			example[path] = eg
 		}
-		if !containsName(steps[path], it.Step) {
+		if !slices.Contains(steps[path], it.Step) {
 			steps[path] = append(steps[path], it.Step)
 		}
 	}
@@ -1377,7 +1377,7 @@ func settleGate(chains []*gateChain) []string {
 			if it.Pinned != "" {
 				r += 32
 			}
-			if fl, ok := g.flaky[it.Call]; !ok || !containsName(fl.Steps, it.Step) {
+			if fl, ok := g.flaky[it.Call]; !ok || !slices.Contains(fl.Steps, it.Step) {
 				r += 16
 			}
 			if it.from == "verify" && !verified {

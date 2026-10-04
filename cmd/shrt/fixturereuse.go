@@ -150,7 +150,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	}
 	fields := []fixtureField{}
 	generated := generatedRequestPath(c)
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		unique := generated(first.ID, path)
 		if !named(first.ID, path) && !unique {
 			return
@@ -223,7 +223,8 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			}
 		}
 		if len(same) > 0 {
-			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdBy(prev, first.ID)}
+			st, _ := prev.Step(first.ID)
+			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdStep(st)}
 		}
 	}
 	sentValues := []string{}
@@ -357,7 +358,7 @@ func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool 
 		fixture[f.path] = true
 	}
 	others := []fixtureField{}
-	visitLeaves(req, "", func(path string) {
+	eachLeaf(req, "", func(path string, _ any) {
 		if fixture[path] {
 			return
 		}
@@ -599,16 +600,6 @@ func createdStep(st *runner.StepRecord) bool {
 	return st != nil && st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
 }
 
-func createdBy(rec *runner.Record, step string) bool {
-	for _, st := range rec.Steps {
-		if st == nil || st.ID != step {
-			continue
-		}
-		return st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
-	}
-	return false
-}
-
 func stepRefusalText(st *runner.StepRecord) string {
 	if st.Transport != nil {
 		return strings.TrimSpace(st.Transport.Code + ": " + st.Transport.Message)
@@ -629,21 +620,6 @@ func stepRefusalText(st *runner.StepRecord) string {
 		}
 	})
 	return strings.Join(parts, ": ")
-}
-
-func visitLeaves(v any, path string, visit func(string)) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, x := range t {
-			visitLeaves(x, pathmask.Join(path, k), visit)
-		}
-	case []any:
-		for i, x := range t {
-			visitLeaves(x, pathmask.Join(path, pathmask.IndexKey(i)), visit)
-		}
-	default:
-		visit(path)
-	}
 }
 
 func visitStrings(v any, visit func(string)) {
