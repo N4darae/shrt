@@ -96,7 +96,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 	lists := []string{}
 	includes := []chain.Expectation{}
 	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
+		if IsVerdictFieldName(fd.Name) {
 			continue
 		}
 		if fd.Repeated && fd.MapKey == "" && fd.Kind == "message" && len(fd.Fields) > 0 {
@@ -122,11 +122,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 			skipped = append(skipped, fd.Name)
 			continue
 		}
-		if fd.Kind == "message" && fd.JSONForm == "" && len(fd.Fields) > 0 {
-			responseLeaves(fd.Fields, fd.Name, &leaves)
-			continue
-		}
-		leaves = append(leaves, fd.Name)
+		responseLeaves([]*catalog.Field{fd}, "", &leaves)
 	}
 	compared, exempt := []string{}, []string{}
 	for _, path := range leaves {

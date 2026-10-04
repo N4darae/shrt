@@ -44,7 +44,7 @@ func ProducersOf(field string, methods []*catalog.Method, exclude string) []Prod
 }
 
 func preferOwnID(candidates []Producer, leaf string) []Producer {
-	subject := idSubject(leaf)
+	subject := strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
 	if subject == "" || len(candidates) < 2 {
 		return candidates
 	}
@@ -59,10 +59,6 @@ func preferOwnID(candidates []Producer, leaf string) []Producer {
 		return candidates
 	}
 	return own
-}
-
-func idSubject(leaf string) string {
-	return strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
 }
 
 func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
@@ -137,7 +133,9 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 	if prior != nil {
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
-			carryRequiredTodo(node, prior)
+			if i := mappingIndex(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
+				node.Content[i+1] = requiredTodo()
+			}
 			if todo := effectsTodo(m, all); todo != "" && len(prior.Effects) == 0 && prior.IsUnfilled("effects") {
 				put(node, "effects", scalar(todo))
 			}
@@ -244,12 +242,6 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	}
 	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
 	node.Content = append(node.Content[:at:at], rest...)
-}
-
-func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
-	if i := mappingIndex(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
-		node.Content[i+1] = requiredTodo()
-	}
 }
 
 func scaffoldFields(m *catalog.Method, all []*catalog.Method, hint func(*catalog.Field) string) *yaml.Node {

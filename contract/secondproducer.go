@@ -184,12 +184,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		if s == orig || s == clone || s == reader || chain.IsReadOnlyCall(s.Call) || !readsStep(s, src) || readsStep(reader, s.ID) {
 			continue
 		}
-		cid := p.freeStepID(s.ID)
-		c := copyStep(s, cid)
-		renameStepRefs(c, src, id)
-		p.distinctPreparation(c, cid, s.ID)
-		p.insertAfter(s.ID, c)
-		extra = append(extra, producerClone{id: cid, call: s.Call, original: s.ID})
+		extra = append(extra, producerClone{id: p.preparedCopy(s, src, id), call: s.Call, original: s.ID})
 	}
 	return id, extra
 }
@@ -334,19 +329,23 @@ func (p *Plan) noteSecondProducer(id, path string, shared []string, clones map[s
 		id, path, strings.Join(parts, "; "))
 }
 
-func (p *Plan) distinctPreparation(c *chain.Step, id, first string) {
-	distinguishFixtures(c, id, first)
-	if m, err := p.cat.Lookup(c.Call); err == nil {
-		raiseNumbers(c.Body, catalog.DescribeMessage(m.Input()).Fields)
-	}
+func (p *Plan) preparedCopy(s *chain.Step, from, to string) string {
+	c := copyStep(s, p.freeStepID(s.ID))
+	renameStepRefs(c, from, to)
+	p.distinctPreparation(c, s.ID)
+	p.insertAfter(s.ID, c)
+	return c.ID
 }
 
-func raiseNumbers(body map[string]any, fields []*catalog.Field) {
-	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
-		if !slices.Contains([]string{"string", "bytes", "bool", "message", "enum", "group"}, f.Kind) {
-			m[key] = nextValue(m[key], f.Kind)
-		}
-	})
+func (p *Plan) distinctPreparation(c *chain.Step, first string) {
+	distinguishFixtures(c, c.ID, first)
+	if m, err := p.cat.Lookup(c.Call); err == nil {
+		eachLeaf(c.Body, catalog.DescribeMessage(m.Input()).Fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
+			if !slices.Contains([]string{"string", "bytes", "bool", "message", "enum", "group"}, f.Kind) {
+				m[key] = nextValue(m[key], f.Kind)
+			}
+		})
+	}
 }
 
 func (p *Plan) prepareSecondProducers(step *chain.Step) {
@@ -357,11 +356,7 @@ func (p *Plan) prepareSecondProducers(step *chain.Step) {
 		if step.ID == sec.reader || !readsStep(step, sec.src) || readsStep(step, sec.clone) || readsStep(step, sec.reader) {
 			continue
 		}
-		cid := p.freeStepID(step.ID)
-		c := copyStep(step, cid)
-		renameStepRefs(c, sec.src, sec.clone)
-		p.distinctPreparation(c, cid, step.ID)
-		p.insertAfter(step.ID, c)
+		cid := p.preparedCopy(step, sec.src, sec.clone)
 		p.recordPreparation(sec.clone, step.ID)
 		p.note("step %s: a copy of %s reading %s instead of %s, its numbers raised by one: %s prepares what the first item of %s "+
 			"reads, and the second item reads %s, which needs the same preparation. Keep it, or the second item meets an unprepared resource",

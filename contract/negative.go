@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -9,16 +10,8 @@ import (
 
 const negativeValue = "-1"
 
-func signedKind(kind string) bool {
-	switch kind {
-	case "int32", "int64", "sint32", "sint64", "sfixed32", "sfixed64", "float", "double":
-		return true
-	}
-	return false
-}
-
 func (p *Plan) negativeProbe(lib *Library, st *chain.Step, m *catalog.Method, f *catalog.Field, key string, min int64, failure *Failure) string {
-	if !signedKind(f.Kind) || min-1 < 0 {
+	if !slices.Contains([]string{"int32", "int64", "sint32", "sint64", "sfixed32", "sfixed64", "float", "double"}, f.Kind) || min-1 < 0 {
 		return ""
 	}
 	neg := p.probeCopy(lib, st, f.Name+"_negative")

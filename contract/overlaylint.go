@@ -312,15 +312,11 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 		if f.Unreachable != "" {
 			add(SeverityError, label, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)
 		}
-		if !commitish(f.PendingDeploy) {
+		if len(f.PendingDeploy) < 7 || len(f.PendingDeploy) > 40 || strings.Trim(f.PendingDeploy, "0123456789abcdefABCDEF") != "" {
 			add(SeverityError, label, "%s pending_deploy must be a commit, not prose (%q) — the field earns its keep only because a gate can run git merge-base --is-ancestor against the deployed release", label, f.PendingDeploy)
 		}
 	}
 	return issues
-}
-
-func commitish(s string) bool {
-	return len(s) >= 7 && len(s) <= 40 && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
 
 func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {

@@ -270,7 +270,7 @@ func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 		c := copyStep(src, cid)
 		renameStepRefs(c, sec.src, id)
 		renameStepRefs(c, prep, cid)
-		p.distinctPreparation(c, cid, prep)
+		p.distinctPreparation(c, prep)
 		made = append(made, c)
 	}
 	return id, made

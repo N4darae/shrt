@@ -46,15 +46,6 @@ func isUnauthenticated(f Failure) bool {
 	return f.ConnectCode == "unauthenticated" || unauthWord().MatchString(f.Reason) || strings.EqualFold(f.Reason, "Unauthenticated")
 }
 
-func unauthFailure(lib *Library, rpc string) (Failure, bool) {
-	for _, f := range lib.AllFailures(rpc) {
-		if isUnauthenticated(f) {
-			return f, true
-		}
-	}
-	return Failure{}, false
-}
-
 func holdsRole(profile string, roles []string) bool {
 	return slices.ContainsFunc(roles, func(r string) bool { return namecase.Fold(profile) == namecase.Fold(r) })
 }
@@ -106,9 +97,10 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 			tokenDone[rpc] = true
 			expect := []chain.Expectation{{Path: "transport.code", Equals: "unauthenticated"}}
 			how := "Connect unauthenticated, which no failure in its contract declares (declare one with connect_code: unauthenticated in the domain-level failures:, or once with scope: all in any overlay to share it with every domain)"
-			if f, found := unauthFailure(lib, st.Call); found {
-				expect = refusalFor(m, f, true)
-				how = f.Label()
+			failures := lib.AllFailures(st.Call)
+			if i := slices.IndexFunc(failures, isUnauthenticated); i >= 0 {
+				expect = refusalFor(m, failures[i], true)
+				how = failures[i].Label()
 			}
 			without := p.probeCopy(lib, st, "without_token")
 			without.SkipAuth, without.Auth = true, ""

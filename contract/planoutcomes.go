@@ -213,17 +213,13 @@ func (p *Plan) assertTimestamps(lib *Library) {
 		extra := p.timestampExpectations(st, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))
 		p.Notes = p.Notes[:notes]
 		for _, e := range extra {
-			if !hasExpectOn(st, e.Path) && !assertsAbsentPrefix(st, e.Path) {
+			if !hasExpectOn(st, e.Path) && !slices.ContainsFunc(st.Expect, func(x chain.Expectation) bool {
+				return x.Exists != nil && !*x.Exists && (x.Path == e.Path || strings.HasPrefix(e.Path, x.Path+"."))
+			}) {
 				st.Expect = append(st.Expect, e)
 			}
 		}
 	}
-}
-
-func assertsAbsentPrefix(st *chain.Step, path string) bool {
-	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
-		return e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+"."))
-	})
 }
 
 func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {

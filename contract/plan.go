@@ -767,7 +767,11 @@ func (p *Plan) YAML() ([]byte, error) {
 		}
 		steps.Content = append(steps.Content, node)
 	}
-	setMappingKey(doc, "steps", steps)
+	if i := mappingIndex(doc, "steps"); i >= 0 {
+		doc.Content[i+1] = steps
+	} else {
+		put(doc, "steps", steps)
+	}
 	return yaml.Marshal(doc)
 }
 
@@ -789,15 +793,6 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 	}
 	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, body))
 	return node, nil
-}
-
-func setMappingKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	if i := mappingIndex(mapping, key); i >= 0 {
-		mapping.Content[i+1] = value
-		return
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 
 func exportName(stepID, path string) string {

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,16 +28,6 @@ func listLimit(c *RPCContract, listPath string) (int, bool) {
 	return 0, false
 }
 
-func sizesPage(fields []*catalog.Field) bool {
-	for _, f := range fields {
-		words := strings.ToLower(strings.Join(namecase.Words(f.Name), " "))
-		if IsPagingFieldName(f.Name) || strings.Contains(words, "limit") || strings.Contains(words, "page") || strings.HasPrefix(words, "max") {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Plan) probeListCaps(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess {
@@ -60,7 +51,10 @@ func (p *Plan) probeListCaps(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		c, _ := lib.Get(canonicalCall(p.cat, st.Call))
 		limit, stated := listLimit(c, list.Name)
-		if !stated && sizesPage(catalog.DescribeMessage(m.Input()).Fields) {
+		if !stated && slices.ContainsFunc(catalog.DescribeMessage(m.Input()).Fields, func(f *catalog.Field) bool {
+			words := strings.ToLower(strings.Join(namecase.Words(f.Name), " "))
+			return IsPagingFieldName(f.Name) || strings.Contains(words, "limit") || strings.Contains(words, "page") || strings.HasPrefix(words, "max")
+		}) {
 			continue
 		}
 		want := lotsOfItems

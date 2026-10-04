@@ -129,17 +129,13 @@ func fieldWord(name string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)\b` + strings.Join(parts, `[_ ]`) + `\b`)
 }
 
-func singularWord(name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(strings.TrimSuffix(name, "s")) + `s?\b`)
-}
-
 func mentionedField(clause string, fields []*catalog.Field, declared string) string {
 	top := ""
 	for _, fd := range fields {
 		if fd.MapKey != "" {
 			continue
 		}
-		hit := fieldWord(fd.Name).MatchString(clause) || (fd.Repeated && singularWord(fd.Name).MatchString(clause))
+		hit := fieldWord(fd.Name).MatchString(clause) || (fd.Repeated && regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(strings.TrimSuffix(fd.Name, "s"))+`s?\b`).MatchString(clause))
 		if fd.Repeated && fd.Kind == "message" && (hit || namecase.Fold(declared) == namecase.Fold(fd.Name)) {
 			for _, sub := range fd.Fields {
 				if !sub.Repeated && sub.Kind != "message" && fieldWord(sub.Name).MatchString(clause) {

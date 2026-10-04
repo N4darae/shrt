@@ -69,12 +69,6 @@ func secretKey(body map[string]any) string {
 	return keyWhere(body, func(low string) bool { return strings.Contains(low, "pass") || strings.Contains(low, "secret") })
 }
 
-func userKey(body map[string]any) string {
-	return keyWhere(body, func(low string) bool {
-		return strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name"
-	})
-}
-
 func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string {
 	out := []string{}
 	add := func(suffix, key, value, what string) {
@@ -89,7 +83,9 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 		cur, _ := st.Body[key].(string)
 		add("bad_password", key, cur+"-not-it", "the right account with a password that is not its own")
 	}
-	if key := userKey(st.Body); key != "" {
+	if key := keyWhere(st.Body, func(low string) bool {
+		return strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name"
+	}); key != "" {
 		if uf, ok := p.unknownUserFailure(m.FullName, f); ok {
 			f = uf
 			add("unknown_user", key, "no-such-user-shrt", "an account name no one has")

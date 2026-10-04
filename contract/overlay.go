@@ -145,19 +145,15 @@ type Ref struct {
 }
 
 func ParseRef(raw string) (Ref, error) {
-	head, path, ok := cutRef(strings.TrimSpace(raw))
+	head, path, ok := strings.Cut(strings.TrimSpace(raw), RefSeparator)
+	if !ok {
+		head, path, ok = strings.Cut(strings.TrimSpace(raw), LegacyRefSeparator)
+	}
 	rpc, alias := SplitNode(head)
 	if path = strings.TrimSpace(path); !ok || rpc == "" || path == "" {
 		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
 	}
 	return Ref{RPC: rpc, Alias: alias, Path: path}, nil
-}
-
-func cutRef(raw string) (head, path string, ok bool) {
-	if head, path, ok = strings.Cut(raw, RefSeparator); ok {
-		return head, path, true
-	}
-	return strings.Cut(raw, LegacyRefSeparator)
 }
 
 func UsesLegacySeparator(raw string) bool {
