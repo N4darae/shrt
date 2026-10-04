@@ -342,12 +342,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			k := stepKey(rec.Chain, step.ID)
 			f, ok := seen[k]
 			if !ok {
-				f = &Finding{
-					Chain:     rec.Chain,
-					Step:      step.ID,
-					RPC:       procedure[strings.LastIndex(procedure, "/")+1:],
-					Procedure: procedure,
-				}
+				f = &Finding{Chain: rec.Chain, Step: step.ID, RPC: procedure[strings.LastIndex(procedure, "/")+1:], Procedure: procedure}
 				seen[k] = f
 				order = append(order, k)
 			}
@@ -364,19 +359,17 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 	rep.DistinctSteps = len(order)
 	for _, k := range order {
 		f := seen[k]
+		reason, allowed := allow.Reason(f.Chain, f.Step)
 		switch {
 		case dataAsserted[k]:
 			f.Status = StatusChainFixed
 			rep.ChainFixed++
+		case allowed:
+			f.Status, f.Reason = StatusAllowlisted, reason
+			rep.Allowed++
 		default:
-			if reason, allowed := allow.Reason(f.Chain, f.Step); allowed {
-				f.Status = StatusAllowlisted
-				f.Reason = reason
-				rep.Allowed++
-			} else {
-				f.Status = StatusReported
-				rep.Unallowed++
-			}
+			f.Status = StatusReported
+			rep.Unallowed++
 		}
 		rep.Findings = append(rep.Findings, *f)
 	}
