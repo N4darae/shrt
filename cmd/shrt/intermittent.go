@@ -15,12 +15,13 @@ var serverErrorCodes = map[string]bool{
 }
 
 type flakyStep struct {
-	step     *runner.StepRecord
-	sameRun  []string
-	moved    string
-	answered string
-	repeated string
-	resent   bool
+	step      *runner.StepRecord
+	sameRun   []string
+	moved     string
+	answered  string
+	repeated  string
+	alongside []string
+	resent    bool
 }
 
 func (f flakyStep) sufficient() bool { return len(f.sameRun) > 0 || f.moved != "" || f.resent }
@@ -160,6 +161,11 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 		case f.sufficient():
 			out.steps = append(out.steps, f)
 		case f.answered != "":
+			for _, o := range rec.Steps {
+				if o != nil && o != st && o.Call == st.Call && failing(o) && serverError(o) == "" {
+					f.alongside = append(f.alongside, o.ID)
+				}
+			}
 			out.weak = append(out.weak, f)
 		}
 	}
@@ -447,6 +453,12 @@ func (i *intermittentFailure) notes() []string {
 	}
 	out := []string{}
 	for _, f := range i.weak {
+		if len(f.alongside) > 0 {
+			out = append(out, fmt.Sprintf("step %d %s failed with a server error (%s) and %s, and %s also failed in this run "+
+				"at %s, without a server error: a backend change at that rpc, not an intermittent failure",
+				f.step.Index, f.step.ID, errorText(f.step), f.answered, shortRPC(f.step.Call), capList(f.alongside, 3)))
+			continue
+		}
 		out = append(out, fmt.Sprintf("step %d %s failed with a server error (%s) and %s: this looks intermittent, "+
 			"though a backend change between the runs looks the same. Re-run: if it then passes here, or fails at another step "+
 			"with the same error, it is reported as an intermittent failure; the same failure at the same step is a regression",

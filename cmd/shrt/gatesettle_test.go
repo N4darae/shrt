@@ -109,6 +109,55 @@ func gateCases() []gateCase {
 				{name: "cancels-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
 			}
 		}},
+		{name: "an unclear row is labelled with the path its read changed, not its first write's own field", chains: func() []*gateChain {
+			total := gateItem{Step: "order_short", Call: shopOrder, Path: "order.total_minor", Want: "160", Got: "130", Failed: true, Reason: reason{Kind: reasonWrite, Step: "order_short", RPC: shopOrder}}
+			status := gateItem{Step: "confirm", Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}}
+			short := reason{Kind: reasonUnclear, Step: "order_short", RPC: shopOrder, Or: []reason{{Step: "order_short", RPC: shopOrder}, {Step: "confirm", RPC: shopConfirm}}}
+			return []*gateChain{
+				{name: "guard", failed: true, items: []gateItem{total, status, stock("get_b", short, "")}},
+				{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}, "2")}},
+			}
+		}},
+		{name: "one suspect rpc is one row naming each field it changed, wherever a read shows it", chains: func() []*gateChain {
+			const createCustomer, list = "shop.customers.v1.CustomerService/CreateCustomer", "shop.catalog.v1.ProductService/ListProducts"
+			confirmBy := func(step string) reason {
+				return reason{Kind: reasonWrite, Step: step, RPC: shopConfirm, Profile: "clerk"}
+			}
+			own := func(step, path, want, got string) gateItem {
+				return gateItem{Step: step, Call: createCustomer, Path: path, Want: want, Got: got, Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: createCustomer}}
+			}
+			return []*gateChain{
+				{name: "clerk", failed: true, items: []gateItem{{Step: "admin_read_back", Call: shopGet, Path: "product.qty_on_hand", Want: "0", Got: "-3", Failed: true, Reason: confirmBy("clerk_confirm")}}},
+				{name: "explore", failed: true, items: []gateItem{
+					{Step: "a_after_two", Call: shopGet, Path: "product.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: confirmBy("confirm_two")},
+					{Step: "list_prefix", Call: list, Path: "products.1.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: confirmBy("confirm_two")},
+				}},
+				{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abcdefghijklmnopqrstuvwxyz", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}},
+			}
+		}},
+		{name: "two reads of one write's field in other shapes name that write once", chains: func() []*gateChain {
+			byConfirm := reason{Kind: reasonWrite, Step: "confirm_two", RPC: shopConfirm, Profile: "clerk"}
+			return []*gateChain{{name: "explore", failed: true, items: []gateItem{
+				{Step: "a_after_two", Call: shopGet, Path: "product.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: byConfirm},
+				{Step: "list_prefix", Call: shopList, Path: "products.1.qty_on_hand", Want: "7", Got: "4", Failed: true, Reason: byConfirm},
+			}}}
+		}},
+		{name: "an also suspect write names the field it changed", chains: func() []*gateChain {
+			total := gateItem{Step: "order_short", Call: shopOrder, Path: "order.total_minor", Want: "160", Got: "130", Failed: true, Reason: reason{Kind: reasonWrite, Step: "order_short", RPC: shopOrder}}
+			return []*gateChain{{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{
+				stock("get_b", reason{Kind: reasonWrite, Step: "stock_batch", RPC: shopBatch}, "2"), total,
+			}}}
+		}},
+		{name: "a role is named only when no other role fails the same way", chains: func() []*gateChain {
+			confirmAs := func(step, profile string) gateItem {
+				return gateItem{Step: step, Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: shopConfirm, Profile: profile}}
+			}
+			return []*gateChain{
+				{name: "clerk-vs-admin", failed: true, items: []gateItem{confirmAs("clerk_confirm", "clerk")}},
+				{name: "lifecycle", failed: true, items: []gateItem{confirmAs("confirm", "")}},
+				{name: "clerk-stock", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "clerk_confirm_big", RPC: shopConfirm, Profile: "clerk"}, "")}},
+			}
+		}},
 		{name: "an unclear between two writes no row settles is grouped under both", chains: func() []*gateChain {
 			return []*gateChain{{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}}}
 		}},
@@ -133,6 +182,13 @@ func gateCases() []gateCase {
 				{Step: "later", Call: "x.v1.S/Batch", Path: "results.1.qty_on_hand", Want: "18", Got: "12"},
 				{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Reason: unclear},
 			}}}
+		}},
+		{name: "a row's example names its rpc for sure before one unclear between it and another", chains: func() []*gateChain {
+			unclear := reason{Kind: reasonUnclear, Step: "batch", RPC: shopBatch, Read: "get", ReadRPC: shopGet, Path: "results.1.qty_on_hand", Want: "12", Got: "6"}
+			return []*gateChain{
+				{name: "batches", failed: true, items: []gateItem{stock("get", unclear, "")}},
+				{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "stock_batch", RPC: shopBatch}, "2")}},
+			}
 		}},
 		{name: "knock-on changes on the same record fold into the root write", chains: laterWrites},
 		{name: "a chain with a root the earlier chain lacks names that root, not the same fault", chains: func() []*gateChain {
@@ -247,7 +303,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 			}
 		}
 	}
-	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder)") {
+	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor") {
 		t.Errorf("%s: got %q", b, chains[1].first)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")
@@ -259,7 +315,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		t.Errorf("a moved pin is not as pinned and names no other chain: %q %q", chains[1].class, chains[1].first)
 	}
 	for name, want := range map[string]string{
-		"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc": "  OrderService/CancelOrder: 2 step(s) in 2 chain(s)",
+		"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc": "  OrderService/CancelOrder product.qty_on_hand: 2 step(s) in 2 chain(s)",
 		"-v shows the suspect's request and the same fault in a later chain":                                           "; same fault as one (Move)\n",
 	} {
 		if out := renderGateCase(t, cases[name]); !strings.Contains(out, want) {
@@ -267,11 +323,11 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		}
 	}
 	out := renderGateCase(t, cases["knock-on changes on the same record fold into the root write"])
-	if strings.Count(out, "\n  ") != 1 || !strings.Contains(out, "StockService/AddStock: 3 step(s)") {
+	if strings.Count(out, "\n  ") != 1 || !strings.Contains(out, "StockService/AddStock status.code, qty_on_hand: 3 step(s)") {
 		t.Errorf("knock-on changes on the same record fold into the root write:\n%s", out)
 	}
 	out = renderGateCase(t, cases["one line per suspect rpc, knock-ons folded under the write"])
-	if strings.Count(out, "  S/List:") != 1 || strings.Contains(out, "S/Get:") {
+	if strings.Count(out, "  S/List list:") != 1 || strings.Contains(out, "S/Get:") {
 		t.Errorf("one line per suspect rpc, knock-on steps under the write:\n%s", out)
 	}
 }

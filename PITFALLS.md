@@ -148,8 +148,10 @@ with the profile's credentials, or let shrt log in by itself.
 **Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared, so each run gets a
 fresh one; a declared `tag:` needs a fresh `-var tag=...` per run. `fixture reused` / `fixture
 collision` (exit 3): re-run with a fresh var. `CHAIN DEFECT: the chain collides with itself`
-(exit 1): rebuild the literal field it names from a var. An idempotency key must be `${uuid}`
-(lint: `literal-idempotency-key`).
+(exit 1): rebuild the literal field it names from a var. A conflict with a value an earlier step
+of the same run sent and got a server error for is neither: the backend stored a create it
+failed, and a fresh var collides the same way. An idempotency key must be `${uuid}` (lint:
+`literal-idempotency-key`).
 
 ## 24. A prefix list counts another run's fixtures
 
@@ -300,6 +302,9 @@ Declare it where it belongs.
 answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
 call, reported on every chain it explains. A step whose suspect is that call (a read missing the
 refused write) counts with it. **Fix.** A real backend defect (exit 1), just not deterministic.
+A lone server error the previous run answered gets a `note:` that it looks intermittent, unless
+another call of the same rpc failed in the run without one: then the note says it is a backend
+change at that rpc, and a re-run will not clear it.
 
 ## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
 

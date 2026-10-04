@@ -388,13 +388,15 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 **How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`). A gate line
 shortens a suspect that is its own step to `suspect the read` / `suspect the write` and the
 unclear read form to `or the read`; a summary line leaves out what its heading says; `verify` and
-`run` print every form in full.
+`run` print every form in full. The gate names a suspect's role (`as clerk`) only when no other
+role fails at the same rpc and field in that gate; such a role-only fault gets a summary line apart
+from the rpc's other faults.
 
 | verdict word | what it means | what to do |
 |---|---|---|
 | `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
 | `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items, a code it did not answer before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
-| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it) after the last read or write answer of it that still matched, and none answered differently | read the record between them |
+| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it, but not a changed write whose `effects:` says `none` for the field) since the last read of it that still matched, and none answered differently. A write answering the field as before in a message of its own (a per-line result, a stock level) is one of them, since it may store other than it answered, and the writes before it are not; one answering the record's own message as before counts as a read. A candidate whose own `increase:`/`decrease:` quantity on the record is known and is not the change drops out when another's is | read the record between them |
 | `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`); with no such rpc, `<write> answered <field> as sent; only <Rpc> differs` leans to the read; or check what the write persisted |
 | `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
 | `same fault as <chain> (<rpc>)` | the suspect and field an earlier gate line named (or one of this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own suspect and `also` the first other one, if any | fix it once, under the earlier line |

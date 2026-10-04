@@ -49,11 +49,11 @@ func TestAGateRowNamesItsReadOnce(t *testing.T) {
 func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
 	summary := captureStdout(t, func() { printGateGroups(rowChains(), false) })
 	for _, want := range []string{
-		"  OrderService/FetchOrder: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
-		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
-		"; e.g. stock get_product; write confirm_order\n",
-		"  S/Confirm: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
+		"  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
+		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer customer.name: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
+		"  OrderService/ConfirmOrder product.qty_on_hand, status.code: 2 step(s) in 1 chain(s); e.g. stock get_product; write confirm_order\n",
 		"  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. confirms confirm_order; as clerk\n",
+		"  S/Confirm thing.state: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
 	} {
 		if !strings.Contains(summary, want) {
 			t.Errorf("want %q in the summary:\n%s", want, summary)

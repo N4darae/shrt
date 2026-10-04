@@ -1,9 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math"
 	"regexp"
 	"slices"
 	"sort"
@@ -320,7 +322,7 @@ func (a attribution) of(step, path string) reason {
 	}
 	if src, ref := heldBackBy(st); src != "" && src != step && (a.changed == nil || !slices.Contains(a.changed(step), path)) {
 		up, i := a.of(src, ref), -1
-		if up.blames() {
+		if up.blames() && len(up.Or) == 0 {
 			i = a.index(up.blamed(src))
 			if j := a.index(src); i < 0 && j >= 0 && isWrite(a.rec.Steps[j]) {
 				i = j
@@ -440,19 +442,109 @@ func (a attribution) asBefore(at int, path string, w int) reason {
 	from, _ := a.lastMatch(st, path)
 	var ws []reason
 	for _, i := range a.entityWrites(at, path, a.bad, from) {
-		if a.answers(a.rec.Steps[i], st, path) {
+		answered, itself := a.answers(a.rec.Steps[i], st, path)
+		if itself {
 			break
 		}
 		if a.moves(i, path) {
 			ws = append([]reason{{Step: a.rec.Steps[i].ID, RPC: a.rec.Steps[i].Call, Profile: profileAs(a.e, a.rec.Steps[i])}}, ws...)
 		}
+		if answered {
+			break
+		}
 	}
 	if len(ws) < 2 {
 		return a.write(w)
 	}
+	if ws = a.fitting(ws, st, path); len(ws) == 1 {
+		return a.write(a.index(ws[0].Step))
+	}
 	r := a.write(a.index(ws[0].Step))
 	r.Kind, r.Or = reasonUnclear, ws
 	return r
+}
+
+func (a attribution) fitting(ws []reason, st *runner.StepRecord, path string) []reason {
+	var rb any
+	if a.was == nil || !a.decode(st, &rb) {
+		return ws
+	}
+	now, _ := chain.Get(rb, path)
+	old, _ := a.was(st.ID, path)
+	n, okNow := number(now)
+	o, okWas := number(old)
+	segs := chain.SplitPath(path)
+	if !okNow || !okWas || n == o || len(segs) < 2 {
+		return ws
+	}
+	holder, _ := chain.Get(rb, strings.Join(segs[:len(segs)-1], "."))
+	var fit []reason
+	matched := false
+	for _, c := range ws {
+		by, known := a.amount(a.index(c.Step), idsOf(holder), leafOf(path))
+		matched = matched || known && by == math.Abs(n-o)
+		if !known || by == math.Abs(n-o) {
+			fit = append(fit, c)
+		}
+	}
+	if !matched {
+		return ws
+	}
+	return fit
+}
+
+func (a attribution) amount(i int, ids []string, leaf string) (float64, bool) {
+	w := a.rec.Steps[i]
+	eff := a.e.effectsOf(w.Call)[leaf]
+	if eff == nil || cmp.Or(eff.Increase, eff.Decrease) == "" {
+		return 0, false
+	}
+	list, field, isList := strings.Cut(cmp.Or(eff.Increase, eff.Decrease), ".")
+	holder, _ := decoded(w.Request).(map[string]any)
+	if eff.Of != "" {
+		key := holder[eff.Of]
+		holder = nil
+		for j := i - 1; j >= 0 && holder == nil && key != nil; j-- {
+			if st := a.rec.Steps[j]; st != nil {
+				holder = holding(a.response(st), eff.Of, compactValue(key), list)
+			}
+		}
+	}
+	items := []any{holder}
+	if isList {
+		items, _ = holder[list].([]any)
+	} else {
+		field = list
+	}
+	sum, found := 0.0, false
+	for _, it := range items {
+		m, _ := it.(map[string]any)
+		if q, ok := number(m[field]); ok && slices.ContainsFunc(idsOf(m), func(id string) bool { return slices.Contains(ids, id) }) {
+			sum, found = sum+q, true
+		}
+	}
+	return sum, found
+}
+
+func holding(v any, key, value, list string) map[string]any {
+	switch t := v.(type) {
+	case map[string]any:
+		if _, ok := t[list]; ok && t[key] != nil && compactValue(t[key]) == value {
+			return t
+		}
+		for _, k := range sortedKeys(t) {
+			if m := holding(t[k], key, value, list); m != nil {
+				return m
+			}
+		}
+	case []any:
+		for _, x := range t {
+			if m := holding(x, key, value, list); m != nil {
+				return m
+			}
+		}
+	}
+	return nil
 }
 
 func (a attribution) moves(i int, path string) bool {
@@ -485,16 +577,30 @@ func (a attribution) seenIn(i int, state string) bool {
 	return found
 }
 
-func (a attribution) answers(w, st *runner.StepRecord, path string) bool {
+func (a attribution) answers(w, st *runner.StepRecord, path string) (answered, itself bool) {
 	var rb, wb any
 	if a.unchanged == nil || path == "" || envelopeOnly(path) || !a.decode(st, &rb) || !a.decode(w, &wb) {
-		return false
+		return false, false
 	}
-	found := false
+	want := a.carrier(st.Call, path)
 	eachLeaf(wb, "", func(p string, _ any) {
-		found = found || leafOf(p) == leafOf(path) && sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p)
+		if leafOf(p) == leafOf(path) && sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) {
+			answered, itself = true, itself || want == "" || a.carrier(w.Call, p) == want
+		}
 	})
-	return found
+	return answered, itself
+}
+
+func (a attribution) carrier(call, path string) string {
+	if a.e == nil || a.e.cat == nil {
+		return ""
+	}
+	m, err := a.e.cat.Lookup(call)
+	if err != nil {
+		return ""
+	}
+	c, _ := carrierOf(m, path)
+	return c
 }
 
 func (a attribution) movedFor(path string) map[string]bool {

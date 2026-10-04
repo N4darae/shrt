@@ -142,8 +142,8 @@ func TestTheGateDoesNotRetryAFailureAndGroupsItsCauses(t *testing.T) {
 		"FAIL       cli-thing-flow  create (ThingService/Create) items.0.price want=250 got=249",
 		"  REGRESSION: something",
 		"FAIL       cli-unique      fetch_2 (ThingService/Fetch) count want≠0 got=0; suspect write create (ThingService/Create)\n",
-		"  ThingService/Create: 4 step(s) in 2 chain(s); e.g. cli-unique fetch_2; write create\n",
-		"  ThingService/Fetch: 1 step(s) in 1 chain(s); e.g. cli-unique fetch name want=a got=b\n",
+		"  ThingService/Create items[].price, count: 4 step(s) in 2 chain(s); e.g. cli-unique fetch_2; write create\n",
+		"  ThingService/Fetch name: 1 step(s) in 1 chain(s); e.g. cli-unique fetch name want=a got=b\n",
 		"FAIL: 2 of 2 chain(s) failed",
 	} {
 		if !strings.Contains(out, want) {
@@ -219,7 +219,7 @@ func TestTheGateReadsWhatARealRunAndVerifyReport(t *testing.T) {
 	out, code = runGateOut(t)
 	if code != 1 || !strings.Contains(out, "FAIL       cli-thing-flow  regression: fetch (ThingService/Fetch) name want=widget got=gadget") ||
 		!strings.Contains(out, "got=gadget; suspect write create (ThingService/Create)\n") ||
-		!strings.Contains(out, "  ThingService/Create: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch; write create\n") {
+		!strings.Contains(out, "  ThingService/Create name: 1 step(s) in 1 chain(s); e.g. cli-thing-flow fetch; write create\n") {
 		t.Fatalf("a changed name fails the gate and is grouped, got %d:\n%s", code, out)
 	}
 }
@@ -270,7 +270,7 @@ func TestTheGateNamesASlowRpcAsItsOwnSuspect(t *testing.T) {
 		"verify cli-thing-flow": {{code: 1, side: gateSidecar{Items: items}}},
 	})
 	out, code := runGateOut(t)
-	if code != 1 || !strings.Contains(out, "ThingService/List: 2 step(s) in 1 chain(s); e.g. cli-thing-flow list; slower than in the safe spot's run") {
+	if code != 1 || !strings.Contains(out, "ThingService/List latency: 2 step(s) in 1 chain(s); e.g. cli-thing-flow list; slower than in the safe spot's run") {
 		t.Fatalf("a latency regression is grouped under the slow rpc itself, got %d:\n%s", code, out)
 	}
 	if !strings.Contains(out, "list (ThingService/List) latency safe spot 3ms, now 701ms (+698ms)") || strings.Contains(out, "want=3ms") {

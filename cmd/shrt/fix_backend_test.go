@@ -21,6 +21,7 @@ type fixThing struct {
 	refuseEven  bool
 	refuseMsg   string
 	drop        bool
+	failStored  bool
 	dropFetch   bool
 	idem        bool
 	fetchStored bool
@@ -88,6 +89,12 @@ func (f *fixThing) create(w http.ResponseWriter, body map[string]any) map[string
 		f.seen[value] = true
 		if f.drop {
 			hangUp(w)
+			return nil
+		}
+		if f.failStored {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": "internal", "message": "stored, then failed to answer"})
 			return nil
 		}
 	}
