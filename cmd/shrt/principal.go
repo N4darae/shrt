@@ -32,7 +32,7 @@ func (a attribution) bears(i int, path string) bool {
 
 func (a attribution) bearing(at int, path string) int {
 	from, _ := a.lastMatch(a.rec.Steps[at], path)
-	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
+	for _, i := range entityWrites(a.rec, at, path, a.bad, from) {
 		if a.bears(i, path) {
 			return i
 		}

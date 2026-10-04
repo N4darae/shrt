@@ -792,11 +792,7 @@ func TestAttributionHelpers(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	for _, firstRefused := range []bool{false, true} {
 		rec := replaysRecord(firstRefused)
-		pos := map[string]int{}
-		for i, st := range rec.Steps {
-			pos[st.ID] = i
-		}
-		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, pos, -1); !slices.Equal(got, []int{2, 1, 0}) {
+		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, -1); !slices.Equal(got, []int{2, 1, 0}) {
 			t.Errorf("entityWrites (first refused %v): got steps %v, want the writes before the read without the repeats", firstRefused, got)
 		}
 	}

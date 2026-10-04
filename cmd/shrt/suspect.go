@@ -62,15 +62,9 @@ func isWrite(st *runner.StepRecord) bool {
 }
 
 func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, from int) (int, bool) {
-	at, pos := -1, map[string]int{}
+	at := -1
 	for i, st := range rec.Steps {
-		if st == nil {
-			continue
-		}
-		if _, seen := pos[st.ID]; !seen {
-			pos[st.ID] = i
-		}
-		if st.ID == step {
+		if st != nil && st.ID == step {
 			at = i
 		}
 	}
@@ -78,7 +72,7 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, fr
 		return -1, false
 	}
 	nearest, nearestBad := -1, -1
-	for _, i := range entityWrites(rec, at, path, bad, pos, from) {
+	for _, i := range entityWrites(rec, at, path, bad, from) {
 		if nearest < 0 {
 			nearest = i
 		}
@@ -100,8 +94,8 @@ func suspectWrite(rec *runner.Record, step, path string, bad map[string]bool, fr
 	return -1, false
 }
 
-func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, pos map[string]int, from int) []int {
-	reach := refReach(rec, pos)
+func entityWrites(rec *runner.Record, at int, path string, bad map[string]bool, from int) []int {
+	reach := refReach(rec)
 	entities := stepRefs(rec, at)
 	for _, id := range itemIDs(rec.Steps[at], path) {
 		if src := producer(rec, at, id); src != "" {
@@ -215,7 +209,8 @@ func sameIDs(a, b json.RawMessage) bool {
 	return found
 }
 
-func refReach(rec *runner.Record, pos map[string]int) func(int) map[string]bool {
+func refReach(rec *runner.Record) func(int) map[string]bool {
+	pos := positions(rec)
 	closure := map[int]map[string]bool{}
 	var reach func(i int) map[string]bool
 	reach = func(i int) map[string]bool {
@@ -405,7 +400,7 @@ func (a attribution) asBefore(at int, path string, w int) reason {
 	st := a.rec.Steps[at]
 	from, _ := a.lastMatch(st, path)
 	var ws []reason
-	for _, i := range entityWrites(a.rec, at, path, a.bad, positions(a.rec), from) {
+	for _, i := range entityWrites(a.rec, at, path, a.bad, from) {
 		if a.answers(a.rec.Steps[i], st, path) {
 			break
 		}
@@ -541,7 +536,7 @@ func (a attribution) writeChangedBefore(step string) bool {
 
 func (a attribution) writeRefusedBefore(step string) bool {
 	at := a.index(step)
-	reach := refReach(a.rec, positions(a.rec))
+	reach := refReach(a.rec)
 	for i, st := range a.rec.Steps {
 		if st == nil || st.ID == step {
 			return false
@@ -801,8 +796,7 @@ func (a attribution) afterFailedWrite(step, path string) int {
 			leaf = seg
 		}
 	}
-	pos := positions(a.rec)
-	touched := refReach(a.rec, pos)(at)
+	touched := refReach(a.rec)(at)
 	for i, w := range a.rec.Steps[:at] {
 		if !isWrite(w) || !a.bad[w.ID] || w.Transport == nil || (w.Status != runner.StatusFailed && w.Status != runner.StatusError) {
 			continue
@@ -848,8 +842,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 	}
 	var body any
 	_ = json.Unmarshal(st.Response, &body)
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	reach := refReach(a.rec)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
 		if w == nil || isWrite(st) && isWrite(w) && !related(reach, at, i, w.ID) {
@@ -894,8 +887,7 @@ func (a attribution) upstream(step string) int {
 	if at < 0 || a.changed == nil {
 		return -1
 	}
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	reach := refReach(a.rec)
 	uses := func(call, path string) bool {
 		eff := a.e.effectsOf(call)[leafOf(path)]
 		return eff != nil && eff.Is != contract.EffectNone
@@ -932,8 +924,7 @@ func (a attribution) changedWriteBefore(step string) int {
 	if at < 0 || a.changed == nil {
 		return -1
 	}
-	pos := positions(a.rec)
-	reach := refReach(a.rec, pos)
+	reach := refReach(a.rec)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
 		if !isWrite(w) || !a.bad[w.ID] || a.flipped(w) != "" || !related(reach, at, i, w.ID) || !a.reaches(i, at) {
