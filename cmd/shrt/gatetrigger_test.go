@@ -57,7 +57,10 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"a passing call alike in every dimension", []map[string]string{lines(2, ""), lines(3, "")}, []map[string]string{lines(1, ""), lines(3, "")}, ""},
 		{"values on both sides", []map[string]string{clerk, {"as": "default", "set note": "set"}}, []map[string]string{admin}, ""},
 		{"lengths that interleave", []map[string]string{lines(1, ""), lines(3, "")}, []map[string]string{lines(2, "")}, ""},
-		{"no passing call", []map[string]string{clerk}, nil, ""},
+		{"no passing call", []map[string]string{clerk}, nil, "trigger: fails on every call (1 of 1; as clerk)"},
+		{"every call fails, over the profiles and list lengths they span", []map[string]string{lines(1, ""), lines(6, ""), {"as": "clerk", "len lines": "3", "len lines[first].tags": "2"}}, nil,
+			"trigger: fails on every call (3 of 3; as clerk and default, lines of 1 to 6 items)"},
+		{"no failing call", nil, []map[string]string{admin}, ""},
 		{"a number above every passing one, the boundary pinned", []map[string]string{{"num lines[last].qty": "2"}, {"num lines[last].qty": "3"}},
 			[]map[string]string{{"num lines[last].qty": "1"}, {"num lines[last].qty": "1"}},
 			"trigger: fails with lines[last].qty above 1 (2 calls); passes with lines[last].qty 1 (2 calls)"},
@@ -97,7 +100,13 @@ func TestATriggerOnTheProfileSaysWhoseCallItIs(t *testing.T) {
 	}{
 		{"a clerk's confirm of an admin's order fails and an admin's confirm of a clerk's order passes",
 			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "clerk", "default")}, []rowCall{call("c", "default", "default"), call("d", "default", "clerk")},
-			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; 1 call using only steps sent as default); passes as default (2 calls; 1 call using steps sent as clerk, so those steps' profile does not matter)"},
+			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; the profile that created what it acts on does not decide it: 1 of the 2 failing calls acts on records created as default); passes as default (2 calls; 1 of the 2 passing calls acts on records created as clerk)"},
+		{"only the passing side shows it, so the passing side says it in full",
+			[]rowCall{call("a", "clerk", "clerk"), call("b", "clerk", "clerk")}, []rowCall{call("c", "default", "clerk"), call("d", "default", "clerk"), call("e", "default", "default")},
+			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls); passes as default (3 calls; the profile that created what it acts on does not decide it: 2 of the 3 passing calls act on records created as clerk)"},
+		{"every failing call acts on another profile's records",
+			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "default")}, []rowCall{call("c", "default", "default")},
+			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; the profile that created what it acts on does not decide it: each of the 2 failing calls acts on records created as default); passes as default (1 call)"},
 		{"every failing call uses the clerk's steps and no passing one does, so the records cannot tell", []rowCall{call("a", "clerk", "clerk")}, []rowCall{call("c", "default", "default")},
 			"trigger: fails as clerk (1 call); passes as default (1 call)"},
 		{"a failing call that uses no step tells nothing", []rowCall{call("a", "clerk")}, []rowCall{call("c", "default", "default")},
@@ -138,6 +147,9 @@ func TestTheTriggerSaysHowGotKeepsWhatWasSent(t *testing.T) {
 		if got := echoRelation(c.fails); got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
+	}
+	if got, _ := triggerOf(echo(long, long[:20]), nil); got != "trigger: fails on every call (1 of 1); got keeps the first 20 of the 38 bytes of the name sent (1 call)" {
+		t.Errorf("with no passing call the line says every call fails, then how got relates to what was sent: %q", got)
 	}
 }
 
@@ -246,7 +258,7 @@ func TestATriggerCountsOnlyTheCallsTheGateCheckedOnTheRowsField(t *testing.T) {
 					shopStep("create_c", shopOrder, order).as("clerk"),
 					shopStep("fetch_a", shopFetch, order, "create_c").with(requested(`{"id_order":"o1"}`))),
 			},
-			"    trigger: fails when FetchOrder itself is sent as clerk (1 call; 1 call using only steps sent as default); passes as default (1 call; 1 call using steps sent as clerk, so those steps' profile does not matter)\n"},
+			"    trigger: fails when FetchOrder itself is sent as clerk (1 call; the profile that created what it acts on does not decide it: the failing call acts on records created as default); passes as default (1 call; the passing call acts on records created as clerk)\n"},
 		{"a name cut short: its length splits the calls, not the email's, and got keeps the first 20 bytes",
 			[]*gateChain{gateRun("customers", []gateItem{named("long", long), named("longer", longer)},
 				customer("long", long), customer("longer", longer), customer("short", "Ann"), customer("mid", "Customer t3-abcdef"))},

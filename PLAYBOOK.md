@@ -408,7 +408,7 @@ from the rpc's other faults.
 |---|---|---|
 | `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
 | `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items (`answers <n> <list> where it answered <m>` when the count changed), a code it did not answer before (`answers <code> where it answered <code>`; with no earlier answer, `where the chain expects <code>` or `anything but <code>`), `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
-| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it, but not a changed write whose `effects:` says `none` for the field) since the last read of it that still matched, and none answered differently. A write answering the field as before in a message of its own (a per-line result, a stock level) is one of them, since it may store other than it answered, and the writes before it are not; one answering the record's own message as before counts as a read. A candidate whose own `increase:`/`decrease:` quantity on the record is known and is not the change drops out when another's is | read the record between them |
+| `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it, but not a changed write whose `effects:` says `none` for the field) since the last read of it that still matched, and none answered differently. A write answering the field as before in a message of its own (a per-line result, a stock level) is one of them, since it may store other than it answered, and the writes before it are not; one answering the record's own message as before counts as a read. A candidate whose own `increase:`/`decrease:` quantity on the record is known and is not the change drops out when another's is | read the record between them; for two writes on a counter `gate -repro` does: `settled on the write <a> (<rpc>) in <chain>: <rpc> read <field>=<v> right after it where the write answered <w>, and <b> fell ..., as the approved run fell ...` |
 | `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`); with no such rpc, `<write> answered <field> as sent; only <Rpc> differs` leans to the read; or check what the write persisted |
 | `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
 | `same fault as <chain> (<rpc>)` | the suspect and field that chain's gate line names (or one of this line's `unclear` writes), and that line names every other suspect of this chain too; the chain is the first with a safe spot whose line leads with that fault, even one below, else the first above. Otherwise the line names its own suspect and `also` the first other one that chain's line leaves out, if any | fix it once, under that line |
@@ -417,10 +417,11 @@ from the rpc's other faults.
 **What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
 failing calls of that rpc set against its calls that passed in the same gate, split by what the
 requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
-`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile of the steps the
-call uses does not decide it, with `2 calls using only steps sent as default` among the failing ones
-or `1 call using steps sent as clerk, so those steps' profile does not matter` among the passing
-ones. A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
+`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile that created what
+the call acts on does not decide it: `the profile that created what it acts on does not decide it: 2
+of the 3 failing calls act on records created as default` (or of the passing calls, `act on records
+created as clerk`).
+A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
 calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
 3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
 empty: `fails with sku_prefix empty or absent`. A number in a field or in a list's first or last
@@ -436,18 +437,24 @@ last bytes, a count dropped, trimmed, another case; alone under the row when not
 calls. A passing call counts only where the gate checked the row's field on it, by its own
 expectation or, when a later read shows the fault, a later read of the same record; for a refusal,
 any call of it that succeeded, leaving out auth probes. Two splits that both hold are both said; a
-single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. No
-line means none of these splits them, so probe from the example. The example is the call that
+single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. With
+no passing call, `fails on every call (21 of 21; as clerk and default, lines of 1 to 6 items)` names
+what the failing calls span.
+No line means none of these splits them, so probe from the example. The example is the call that
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
 when another chain fails so, and `-repro` slices that step.
 
 **How far it moved.** When the example reads a number a suspect write moved, the row adds the move
 next to the approved run's: `qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10
 to 8: 2x`, measured from the last value of that field of that record before the suspect (a read, or
-another write's answer) in the run and in the safe spot's run. Nothing is said when no such value
-exists or another write in between may move the field (no `effects:` of `none`, not refused both
-times): a wrong number is worse than none. `on every failing step` means each failing step of the row
-has the same ratio. `verify` and `gate -v` print it after each such change.
+the answer of another write the suspect search weighed; never a refused call or a refused line of a
+batch; the last applied line when one call answers several for the record) in the run and in the
+safe spot's run. Nothing is said when no such value exists, when more than one suspect write moved
+it (an `unclear` pair), or another write in between may move the field (no `effects:` of `none`, not
+refused both times): a wrong number is worse than none. `on every failing step` means each failing
+step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix follows
+cancel_two, which may move it too` names the first step without one and why. `verify` and `gate -v`
+print it after each such change.
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each

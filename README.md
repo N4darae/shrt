@@ -133,9 +133,10 @@ shows it. Its example is from a chain with a safe spot when one fails so, else n
 whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then
 the smallest slice. Under the row, `trigger: fails as clerk (3 calls); passes as default (12 calls)` sets that rpc's
 failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile
-(`fails when ConfirmOrder itself is sent as clerk` when calls show the profile of the steps it uses does not decide
-it), a list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat
-id_product`), a field set or empty, a number in a field or in a list's first or last item (`with lines[last].qty above
+(`fails when ConfirmOrder itself is sent as clerk` when calls show the profile that created what it acts on does not
+decide it, saying so: `2 of the 3 failing calls act on records created as default`), a list's length (`fails with
+lines of 2+ items`), a list repeating an item key (`fails when lines repeat id_product`), a field set or empty,
+a number in a field or in a list's first or last item (`with lines[last].qty above
 1`), or the byte length of the field the failing value echoes (`with name of 21+ bytes`; the bounds the calls show, a
 boundary only where they pin it); a value needs two calls on each side. When none splits them alone, the one pair that
 does together: `fails with lines of 2+ items and lines[last].qty above 1 (30 calls); passes otherwise: lines of 1 item
@@ -143,14 +144,18 @@ does together: `fails with lines of 2+ items and lines[last].qty above 1 (30 cal
 relates to it when one rule fits every such call: `got keeps the first 20 bytes of the name sent (3 calls)` (a suffix,
 trimmed, another case), alone under the row when nothing splits the calls. A call passes only where the gate checked
 the row's field on it (its own expectation, or a later read of the same record; for a refusal, any call of it that
-succeeded). No line when nothing splits them, when a single split and a pair (or two pairs) both do, or when the
-failing calls should have been refused. A row whose example reads a
+succeeded). When no call passes, `trigger: fails on every call (21 of 21; as clerk and default, lines of 1 to 6
+items)`, the profiles and list lengths the failing calls span. No line when nothing splits them, when a single split
+and a pair (or two pairs) both do, or when the failing calls should have been refused. A row whose example reads a
 number a suspect write moved says by how much against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where
 the approved run fell 3 from 3 to 0: 2x on every failing step`, from the last earlier value of that field of that
-record before the write (a read, or another write's answer), in both runs; said only when each write in between is a
-suspect, declares `none` for the field, or was refused in both; the ratio only when it is a whole number or a
-fraction over 2, 3 or 4; `on every failing step` only when each has that ratio, else `on N of M failing steps` when
-the rest have none. `verify` adds the same after each such change. Below the rows, `offline: shrt verify <chain> -run latest ...`:
+record before the write (a read, or the answer of another write the suspect search weighed; never a refused call or
+a refused line of a batch, and the last applied line when one call answers several for the record), in both runs;
+said only when one suspect write moved it and each other write in between declares `none` for the field or was
+refused in both; the ratio only when it is a whole number or a fraction over 2, 3 or 4; `on every failing step` (of
+that field) only when each has that ratio, else `on N of M failing steps; list_prefix follows cancel_two, which may
+move it too (+1 more)`, the first step without a measure and why. `verify` adds the same after each such change.
+Below the rows, `offline: shrt verify <chain> -run latest ...`:
 that diff of the run the gate just made prints every changed value without re-sending. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
 chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
@@ -170,7 +175,13 @@ such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <
 
 `-repro` follows the summary with one block per row: for each `unclear` write and read pair in the
 row whose field another read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
-that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
+that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); for each pair of writes unclear on a
+counter (`unclear: write <a> or <b>`, `<b>` declaring `increase:` or `decrease:`), what a read of the record right
+after `<a>` shows, from the gate's run when a read sits between them, else from that copy with the read sent again
+right after `<a>`: `settled on the write <a> (<rpc>) in <chain>: <rpc> read <field>=<v> right after it where the write
+answered <w>, and <b> fell 1 from 0 to -1, as the approved run fell 1 from 1 to 0` (or the chain's expected values
+when it has no safe spot), `settled on the write <b>` when `<a>` stored what it answered and `<b>` moved it otherwise,
+else `not settled:` with both; then `repro: shrt run
 <path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
 the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
 the slice says so, or `repro: none:` and why. When the row's write answered other than a later read returns

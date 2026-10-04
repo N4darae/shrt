@@ -152,3 +152,93 @@ func TestTheGateListsAMaskedValueThatDifferedBeyondTagsIdsAndTimestamps(t *testi
 		t.Fatalf("a timestamp and a run tag are what a mask is for, a total is not, and an unscoped list is counted apart:\n%s", out)
 	}
 }
+
+const restockChain = `apiVersion: shrt/v1
+name: %s
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: %s-${vars.tag}
+        price_minor: "250"
+    - id: stock_batch
+      call: StockService/AddStockBatch
+      body:
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "2"
+            - id_product: ${create_product.product.id_product}
+              qty: "3"
+      expect:
+        - path: results.1.qty_on_hand
+          equals: "5"
+%s    - id: create_order
+      call: OrderService/CreateOrder
+      body:
+        idempotency_key: ${uuid}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "2"
+    - id: confirm
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order.order.id_order}
+    - id: get_product
+      call: ProductService/GetProduct
+      body:
+        id_product: ${%s.id_product}
+      expect:
+        - path: product.qty_on_hand
+          equals: "3"
+`
+
+func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct = true
+	chdirToFakeShop(t, shop)
+	inProcessGate(t)
+	writeFile(t, ".shrt/contracts/shop.yaml", stockEffects)
+	mid := "    - id: get_mid\n      call: ProductService/GetProduct\n      body:\n        id_product: ${create_product.product.id_product}\n"
+	for name, c := range map[string][2]string{"restock": {"", "create_product.product"}, "restock-mid": {mid, "create_product.product"}, "restock-late": {"", "create_order.order.lines.0"}} {
+		writeFile(t, ".shrt/chains/"+name+".yaml", fmt.Sprintf(restockChain, name, name, c[0], c[1]))
+		for _, args := range [][]string{{"run", name, "-var", "tag=tfirst001"}, {"confirm", name, "-note", name}, {"confirm", name, "-approve", "-by", "alice@example.test"}} {
+			if out, code := shrtOut(t, args[0], args[1:]...); code != 0 && c[0] == "" {
+				t.Fatalf("%v: exit %d\n%s", args, code, out)
+			}
+			if c[0] != "" {
+				break
+			}
+		}
+	}
+	for _, c := range []struct {
+		name          string
+		batch, extra  bool
+		want, without []string
+	}{
+		{"the batch stores only its first line: a read right after it tells, and the confirm took 2 as approved", true, false, []string{
+			"settled on the write stock_batch (StockService/AddStockBatch) in restock: ProductService/GetProduct read product.qty_on_hand=2 right after it where the write answered 5, and confirm fell 2 from 2 to 0, as the approved run fell 2 from 5 to 3  (shrt run .shrt/scratch/restock-tell-apart-get_product.yaml)",
+			"settled on the write stock_batch (StockService/AddStockBatch) in restock-mid: get_mid (ProductService/GetProduct) read product.qty_on_hand=2 right after it where the write answered 5, and confirm fell 2 from 2 to 0, as the chain's expected values fell 2 from 5 to 3\n",
+		}, []string{"in restock-late"}},
+		{"the confirm takes one more: the batch stored what it answered", false, true, []string{
+			"settled on the write confirm (OrderService/ConfirmOrder) in restock: ProductService/GetProduct read product.qty_on_hand=5 right after stock_batch, as it answered, and confirm fell 3 from 5 to 2 where the approved run fell 2 from 5 to 3  (shrt run",
+			"settled on the write confirm (OrderService/ConfirmOrder) in restock-mid: get_mid (ProductService/GetProduct) read product.qty_on_hand=5 right after stock_batch, as it answered, and confirm fell 3 from 5 to 2 where the chain's expected values fell 2 from 5 to 3\n",
+		}, []string{"in restock-late"}},
+		{"both: the reads cannot tell, so it stays unclear", true, true, []string{
+			"not settled: stock_batch or confirm in restock: ProductService/GetProduct read product.qty_on_hand=2 right after stock_batch where it answered 5, and confirm fell 3 from 2 to -1 where the approved run fell 2 from 5 to 3  (shrt run",
+		}, []string{"in restock-late"}},
+	} {
+		shop.batchFirstLineBug, shop.confirmExtraUnit = c.batch, c.extra
+		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+		_, block, _ := strings.Cut(out, "repro, for each row of failures by suspect rpc:\n")
+		for _, want := range c.want {
+			if code != 1 || !strings.Contains(block, want) {
+				t.Errorf("%s: want %q, got %d:\n%s", c.name, want, code, out)
+			}
+		}
+		for _, not := range c.without {
+			if strings.Contains(block, not) {
+				t.Errorf("%s: no settle line %q:\n%s", c.name, not, out)
+			}
+		}
+	}
+}

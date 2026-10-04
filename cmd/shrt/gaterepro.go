@@ -65,20 +65,41 @@ func settleRow(ctx context.Context, e *env, gr *gateGroup, spot map[string]bool,
 	refs := append([]gateRef{{chain: gr.in, it: gr.example}}, gr.refs...)
 	for _, onSpot := range []bool{true, false} {
 		for _, ref := range refs {
-			r := ref.it.Reason
-			pair := r.RPC + " " + r.ReadRPC + " " + leafOf(ref.it.Path)
-			if spot[ref.chain] != onSpot || r.Read != ref.it.Step || asked[pair] {
+			r, key := ref.it.Reason, ""
+			_, via, _ := tellApartReads(e, r, ref.it.Path)
+			switch {
+			case spot[ref.chain] != onSpot:
+			case r.Kind == reasonUnclear && len(r.Or) == 2:
+				key = ref.chain + " " + r.Or[0].Step + " " + r.Or[1].Step
+			case r.Read == ref.it.Step && len(via) > 0:
+				key = r.RPC + " " + r.ReadRPC + " " + leafOf(ref.it.Path)
+			}
+			if key == "" || asked[key] {
 				continue
 			}
-			if _, via, _ := tellApartReads(e, r, ref.it.Path); len(via) > 0 {
-				asked[pair] = true
-				if line := settle(ctx, e, ref, via[0], wait); line != "" {
-					out = append(out, line)
-				}
+			asked[key] = true
+			line := ""
+			if len(via) > 0 {
+				line = settle(ctx, e, ref, via[0], wait)
+			} else {
+				line = settleWrites(ctx, e, ref, wait)
+			}
+			if line != "" {
+				out = append(out, line)
 			}
 		}
 	}
 	return out
+}
+
+func tellApartRun(ctx context.Context, e *env, c *chain.Chain, read, about string, steps []*chain.Step, wait time.Duration) (gateOutcome, string, error) {
+	tc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name + "-tell-apart-" + read, Vars: c.Vars, Volatile: c.Volatile, Unordered: c.Unordered, Redact: c.Redact,
+		Description: "Written by shrt gate -repro: " + c.Name + " up to " + read + about, Steps: steps}
+	file := filepath.Join(scratchDir(e), tc.Name+".yaml")
+	if err := writeSliceFile(file, tc); err != nil {
+		return gateOutcome{}, "", err
+	}
+	return gateAttempt(ctx, "run", file, len(tc.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait), "shrt run " + shownPath(file), nil
 }
 
 func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Duration) string {
@@ -107,15 +128,11 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 	expect(at, path, "${"+r.Step+"."+r.Path+"}", true)
 	read := steps[at]
 	field, viaName := gateIndex.ReplaceAllString(path, "[]$1"), shortRPC(via.method.FullName)
-	tc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name + "-tell-apart-" + r.Read, Vars: c.Vars, Volatile: c.Volatile, Unordered: c.Unordered, Redact: c.Redact,
-		Description: fmt.Sprintf("Written by shrt gate -repro: %s up to %s, then %s reads %s of the same item, to tell the write %s from the read %s.", c.Name, r.Read, viaName, field, r.Step, r.Read),
-		Steps:       append(steps, &chain.Step{ID: r.Read + "_tell_apart", Call: via.method.FullName, Auth: read.Auth, SkipAuth: read.SkipAuth, Body: tellApartBody(via.method, rm, read, path)})}
-	file := filepath.Join(scratchDir(e), tc.Name+".yaml")
-	if err := writeSliceFile(file, tc); err != nil {
+	out, shown, err := tellApartRun(ctx, e, c, r.Read, fmt.Sprintf(", then %s reads %s of the same item, to tell the write %s from the read %s.", viaName, field, r.Step, r.Read),
+		append(steps, &chain.Step{ID: r.Read + "_tell_apart", Call: via.method.FullName, Auth: read.Auth, SkipAuth: read.SkipAuth, Body: tellApartBody(via.method, rm, read, path)}), wait)
+	if err != nil {
 		return "not settled: " + err.Error()
 	}
-	out := gateAttempt(ctx, "run", file, len(tc.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait)
-	shown := "shrt run " + shownPath(file)
 	for _, x := range out.side.Items {
 		if x.Step != r.Read || x.Path != path {
 			continue
@@ -134,6 +151,91 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 		return fmt.Sprintf("not settled: %s  (%s)", lastLine(out), shown)
 	}
 	return fmt.Sprintf("not settled: %s read %s as %s answered it in the tell-apart run  (%s)", r.Read, field, r.Step, shown)
+}
+
+func settleWrites(ctx context.Context, e *env, ref gateRef, wait time.Duration) string {
+	path, early, late, step := ref.it.Path, ref.it.Reason.Or[0], ref.it.Reason.Or[1], ref.it.Step
+	leaf, field := leafOf(path), gateIndex.ReplaceAllString(path, "[]$1")
+	rec, err := e.store.LatestRun(ref.chain)
+	if eff := e.effectsOf(late.RPC)[leaf]; eff == nil || cmp.Or(eff.Increase, eff.Decrease) == "" || err != nil {
+		return ""
+	}
+	at := func(id string) *runner.StepRecord {
+		st, _ := rec.Step(id)
+		return st
+	}
+	_, ids, why := valueAt(at(step), path)
+	pos, read, shown := positions(rec), "", ""
+	from, found := pos[early.Step]
+	for i := from + 1; found && why == "" && i < pos[late.Step] && read == ""; i++ {
+		if _, found, _ := entityValue(rec.Steps[i], leaf, ids); found && !isWrite(rec.Steps[i]) {
+			read = rec.Steps[i].ID
+		}
+	}
+	if read == "" {
+		c, err := e.resolveChain(ref.chain)
+		if err != nil {
+			return ""
+		}
+		w := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == early.Step })
+		r := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step })
+		if w < 0 || r < w || slices.ContainsFunc(c.Steps[r].SendReferences(), func(x string) bool {
+			id, ok := chain.ParseRef(x).StepID()
+			return ok && slices.ContainsFunc(c.Steps[w+1:r+1], func(s *chain.Step) bool { return s.ID == id })
+		}) {
+			return ""
+		}
+		again := *c.Steps[r]
+		again.ID, again.Expect, again.Export = step+"_after_"+early.Step, nil, nil
+		out, file, err := tellApartRun(ctx, e, c, step, fmt.Sprintf(", with %s sent again right after %s, to tell the write %s from the write %s.", step, early.Step, early.Step, late.Step),
+			slices.Concat(c.Steps[:w+1], []*chain.Step{&again}, c.Steps[w+1:r+1]), wait)
+		if err != nil {
+			return "not settled: " + err.Error()
+		}
+		if shown, read = "  ("+file+")", again.ID; out.code != 0 && out.code != 1 {
+			return "not settled: " + lastLine(out) + shown
+		}
+		if rec, err = e.store.LatestRun(c.Name + "-tell-apart-" + step); err != nil {
+			return "not settled: " + err.Error() + shown
+		}
+	}
+	now, ids, why := valueAt(at(step), path)
+	w, okW, _ := entityValue(at(early.Step), leaf, ids)
+	v, okV, _ := entityValue(at(read), leaf, ids)
+	want, okWant := number(ref.it.Want)
+	sw, against := w, "the chain's expected values"
+	if spot, err := e.store.LoadSafeSpot(ref.chain); err == nil {
+		approved := &runner.Record{Steps: spot.Steps}
+		sAt, _ := approved.Step(step)
+		sEarly, _ := approved.Step(early.Step)
+		sNow, sIDs, sWhy := valueAt(sAt, path)
+		sw, okWant, _ = entityValue(sEarly, leaf, sIDs)
+		want, against, okWant = sNow, "the approved run", okWant && sWhy == ""
+	}
+	if why != "" || !okW || !okV || !okWant {
+		return fmt.Sprintf("not settled: the runs show no %s of that record to compare%s", field, shown)
+	}
+	by := shortRPC(at(read).Call)
+	if shown == "" {
+		by = read + " (" + by + ")"
+	}
+	stored, as := v != w, now-v == want-sw
+	verdict, text, sep := fmt.Sprintf("not settled: %s or %s in %s", early.Step, late.Step, ref.chain), fmt.Sprintf("%s read %s=%s right after %s", by, field, compactValue(v), early.Step), " where "
+	switch {
+	case stored && as:
+		verdict, text = fmt.Sprintf("settled on the write %s (%s) in %s", early.Step, shortRPC(early.RPC), ref.chain), fmt.Sprintf("%s read %s=%s right after it where the write answered %s", by, field, compactValue(v), compactValue(w))
+	case stored:
+		text += " where it answered " + compactValue(w)
+	case !as && w == sw:
+		verdict = fmt.Sprintf("settled on the write %s (%s) in %s", late.Step, shortRPC(late.RPC), ref.chain)
+		fallthrough
+	default:
+		text += ", as it answered"
+	}
+	if as {
+		sep = ", as "
+	}
+	return fmt.Sprintf("%s: %s, and %s %s%s%s %s%s", verdict, text, late.Step, moved(v, now), sep, against, moved(sw, want), shown)
 }
 
 func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[string]any {

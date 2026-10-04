@@ -285,7 +285,7 @@ func (v *verification) gateItems() []gateItem {
 		v.items = verifyItems(v.e, v.rec, v.report)
 		a := runAttribution(v.e, v.rec)
 		for i, it := range v.items {
-			v.items[i].Effect, v.items[i].Times = effectOf(a, v.spot.Steps, it)
+			v.items[i].Effect, v.items[i].Times, v.items[i].Unmeasured = effectOf(a, v.spot.Steps, it)
 		}
 	}
 	return v.items
