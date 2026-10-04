@@ -115,12 +115,8 @@ func (r *Report) foldedCount(step string) int {
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
 
 func (r *Report) NoteApprovedRedact(approved []string, rec *runner.Record) {
-	had := map[string]bool{}
-	for _, p := range approved {
-		had[p] = true
-	}
 	for _, p := range rec.Redacted {
-		if !had[p] {
+		if !slices.Contains(approved, p) {
 			r.addUnapprovedRedact(p)
 		}
 	}
@@ -158,12 +154,9 @@ func neverRedacted(v any) bool {
 }
 
 func (r *Report) addUnapprovedRedact(pattern string) {
-	for _, p := range r.UnapprovedRedact {
-		if p == pattern {
-			return
-		}
+	if !slices.Contains(r.UnapprovedRedact, pattern) {
+		r.UnapprovedRedact = append(r.UnapprovedRedact, pattern)
 	}
-	r.UnapprovedRedact = append(r.UnapprovedRedact, pattern)
 }
 
 func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
@@ -630,16 +623,10 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	pairs := pairExpectations(was.Expect, declared)
 	paths := []string{}
 	seen := map[string]bool{}
-	for _, r := range declared {
+	for _, r := range slices.Concat(declared, was.Expect) {
 		if !seen[namecase.Fold(r.Path)] {
 			seen[namecase.Fold(r.Path)] = true
 			paths = append(paths, r.Path)
-		}
-	}
-	for _, w := range was.Expect {
-		if !seen[namecase.Fold(w.Path)] {
-			seen[namecase.Fold(w.Path)] = true
-			paths = append(paths, w.Path)
 		}
 	}
 	matched := map[int]bool{}
@@ -1275,21 +1262,27 @@ func (r *Report) QuietText() string {
 		len(r.UnapprovedRedact) > 0 || len(r.RequestChanges) > 0 || len(r.RenamedSteps) > 0 {
 		return r.Text()
 	}
-	var b strings.Builder
-	if r.Chain != "" {
-		fmt.Fprintf(&b, "%s: ", r.Chain)
+	return r.noDrift()
+}
+
+func (r *Report) noDrift() string {
+	if r.Chain == "" {
+		return "no drift vs safe spot " + r.SafeSpotID
 	}
-	fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
-	return b.String()
+	return r.Chain + ": no drift vs safe spot " + r.SafeSpotID
 }
 
 func (r *Report) FullyMaskedLine() string {
-	if len(r.FullyMasked) == 0 {
+	return fullyMaskedLine(r.FullyMasked, "verify", "no drift")
+}
+
+func fullyMaskedLine(steps []string, who, clean string) string {
+	if len(steps) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
-		"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)",
-		strings.Join(r.FullyMasked, ", "))
+	return fmt.Sprintf("WARNING: every response field of step(s) %s is under a volatile pattern, so %s compared nothing "+
+		"of those responses and %q says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)",
+		strings.Join(steps, ", "), who, clean)
 }
 
 func (r *Report) Text() string {
@@ -1362,10 +1355,7 @@ func (r *Report) Text() string {
 		return b.String()
 	}
 	if r.Clean() {
-		if r.Chain != "" {
-			fmt.Fprintf(&b, "%s: ", r.Chain)
-		}
-		fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
+		b.WriteString(r.noDrift())
 		return strings.TrimRight(b.String()+"\n"+r.NotCountedLine(), "\n")
 	}
 	unexplained := len(r.Unexplained())

@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -273,13 +274,13 @@ func (r *Report) membership(rec *runner.Record, step, list string, repeats bool)
 	for _, p := range r.renames {
 		rename[p[0]] = p[1]
 	}
+	renamed := func(it any) string {
+		v := fmt.Sprint(it.(map[string]any)[key])
+		return cmp.Or(rename[v], v)
+	}
 	expected := map[string]int{}
 	for _, it := range wl {
-		v := fmt.Sprint(it.(map[string]any)[key])
-		if g, ok := rename[v]; ok {
-			v = g
-		}
-		expected[v]++
+		expected[renamed(it)]++
 	}
 	present := map[string]int{}
 	var added []map[string]any
@@ -295,10 +296,7 @@ func (r *Report) membership(rec *runner.Record, step, list string, repeats bool)
 	}
 	var dropped []string
 	for _, it := range wl {
-		v := fmt.Sprint(it.(map[string]any)[key])
-		if g, ok := rename[v]; ok {
-			v = g
-		}
+		v := renamed(it)
 		if present[v]--; present[v] < 0 {
 			dropped = append(dropped, v)
 		}

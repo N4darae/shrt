@@ -519,10 +519,8 @@ func (r *RunReport) Text() string {
 	if line := RenamedLine(r.RenamedSteps, "run A", "run B"); line != "" {
 		fmt.Fprintf(&b, "%s\n", line)
 	}
-	if len(r.FullyMasked) > 0 {
-		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
-			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
-			strings.Join(r.FullyMasked, ", "))
+	if line := fullyMaskedLine(r.FullyMasked, "this diff", "no differences"); line != "" {
+		fmt.Fprintf(&b, "%s\n", line)
 	}
 	if r.TargetA != "" || r.TargetB != "" {
 		fmt.Fprintf(&b, "targets differ: A %s, B %s\n", r.TargetA, r.TargetB)

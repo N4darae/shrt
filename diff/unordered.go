@@ -3,6 +3,7 @@ package diff
 import (
 	"container/heap"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -360,7 +361,7 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 	}
 	r.reorderExpect = map[string][]string{}
 	for _, c := range r.reorderCandidates {
-		if changesUnder(r.Changes, c) > 0 && changesUnder(h.Changes, c) == 0 {
+		if slices.ContainsFunc(r.Changes, c.covers) && !slices.ContainsFunc(h.Changes, c.covers) {
 			r.Reordered = append(r.Reordered, c.step+" "+c.path)
 			r.reordered = append(r.reordered, c)
 			if st, ok := rec.Step(c.step); ok {
@@ -375,18 +376,13 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 }
 
 func (r *Report) underReordered(c Change) bool {
-	for _, at := range r.reordered {
-		if changesUnder([]Change{c}, at) > 0 {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(r.reordered, func(at stepPath) bool { return at.covers(c) })
 }
 
 func (r *Report) hiddenUnder(at stepPath) int {
 	n := 0
 	for _, c := range r.Changes {
-		if c.Kind != KindNotReached && changesUnder([]Change{c}, at) > 0 {
+		if c.Kind != KindNotReached && at.covers(c) {
 			n++
 		}
 	}
@@ -417,17 +413,9 @@ func (r *Report) ReorderedExpectations() []string {
 	return out
 }
 
-func changesUnder(changes []Change, at stepPath) int {
-	n := 0
-	for _, c := range changes {
-		if c.Step != at.step {
-			continue
-		}
-		if p := listPath(c.Path); p == at.path || strings.HasPrefix(p, at.path+".") {
-			n++
-		}
-	}
-	return n
+func (at stepPath) covers(c Change) bool {
+	p := listPath(c.Path)
+	return c.Step == at.step && (p == at.path || strings.HasPrefix(p, at.path+"."))
 }
 
 func (r *Report) OnlyReordered() bool {
