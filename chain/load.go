@@ -70,6 +70,9 @@ func Resolve(dir, ref string) (*Chain, error) {
 	for _, n := range Names(dir) {
 		for _, ext := range []string{".yaml", ".yml"} {
 			p := filepath.Join(dir, n+ext)
+			if declaredName(p) != ref {
+				continue
+			}
 			if c, err := LoadFile(p); err == nil && c.Name == ref {
 				return c, nil
 			}

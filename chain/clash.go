@@ -1,12 +1,15 @@
 package chain
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type NameClashError struct {
@@ -58,11 +61,28 @@ func Claimants(dir, name string) []string {
 	out := []string{}
 	files, _ := chainFiles(dir)
 	for _, p := range files {
+		if declaredName(p) != name {
+			continue
+		}
 		if c, err := LoadFile(p); err == nil && c.Name == name {
 			out = append(out, p)
 		}
 	}
 	return out
+}
+
+func declaredName(path string) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var head struct {
+		Name string `yaml:"name"`
+	}
+	if yaml.Unmarshal(raw, &head) != nil {
+		return ""
+	}
+	return cmp.Or(head.Name, FileStem(path))
 }
 
 func chainFiles(dir string) ([]string, error) {
