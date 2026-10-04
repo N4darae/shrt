@@ -251,7 +251,7 @@ var gapNext = []struct{ kind, next string }{
 	{"no empty filter", "shrt contract plan <rpc>"},
 	{"no login probe", "shrt contract plan <rpc>"},
 	{"no chain", "shrt contract plan <rpc>"},
-	{"no state", "shrt contract plan <rpc> -write -force"},
+	{"no state", "shrt contract plan <rpc> -write <file>.yaml"},
 	{"no role probe", "shrt contract plan <rpc>"},
 	{"no profile probe", "shrt contract plan <rpc>"},
 	{"no token", "shrt contract plan <rpc>"},
@@ -310,7 +310,7 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 	}
 	for _, r := range rows {
 		for _, g := range r.StateGaps {
-			gap("no state", "no state     %s\n", g.Line())
+			gap("no state", "no state     %s: %s\n", g.Line(), gapPlan(g.RPC))
 		}
 	}
 	for _, r := range rows {
@@ -401,8 +401,9 @@ const statusGapLegend = "\nno contract  the rpc has no entry in .shrt/contracts/
 	"             count there, that no chain does; chains are read step by step for the state each record\n" +
 	"             is in. A needs: whose write only takes the record to the state a restore: names leaves\n" +
 	"             the state before it valid too, and plan calls the write from both. A backend that\n" +
-	"             refuses or miscounts from the state no chain reaches passes every gate. Re-plan with\n" +
-	"             shrt contract plan <rpc> -write -force, then pin what it finds red.\n" +
+	"             refuses or miscounts from the state no chain reaches passes every gate. shrt gate -repro\n" +
+	"             plans and runs it when a gated chain calls the write; shrt contract plan <rpc> -write\n" +
+	"             <file>.yaml writes the plan to .shrt/scratch/, never over a chain, to run by path.\n" +
 	"no role probe the contract's requires_role names a role the profile's name is not, and no chain calls the\n" +
 	"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
 	"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +

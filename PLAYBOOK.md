@@ -12,6 +12,7 @@ Procedures. Keys are in `GRAMMAR.md`; symptoms in `PITFALLS.md`. Examples use th
 shrt contract show InvoiceService/PayInvoice          # read before you generate
 shrt contract plan InvoiceService/PayInvoice          # preview
 shrt contract plan InvoiceService/PayInvoice -write   # write .shrt/chains/<name>.yaml
+shrt contract plan InvoiceService/PayInvoice -write try.yaml   # .shrt/scratch/try.yaml, no gate runs it
 ```
 
 `plan` walks `needs`, `before`, `from` and `same_as`, sorts them and wires every `${...}`. Preview
@@ -28,7 +29,8 @@ next: shrt contract plan PayInvoice -write
 
 - **Check the `order:` line**: `plan` cannot tell whether the flow makes business sense.
 - **`fill:` is test data you owe**: add the `value:` to the contract and re-plan with
-  `-write -force`; chain lint ERRORs on each unfilled field.
+  `-write -force`; chain lint ERRORs on each unfilled field. `-force` refuses a chain with a safe
+  spot or a kept-red slice and names it: plan beside it with `-write <name>.yaml`.
 - **`gap:` is what the plan could not assert**: say it in the contract and re-plan, or write
   that step by hand.
 - **`-notes`** adds one line per probe group; `-notes -v` every note in full and every step id,

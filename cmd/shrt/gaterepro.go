@@ -17,6 +17,7 @@ import (
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -173,7 +174,7 @@ func tellApartBody(m, read *catalog.Method, st *chain.Step, path string) map[str
 
 func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain, string) []string) string {
 	step := ref.it.Step
-	file := filepath.Join(scratchDir(e), ref.chain+"-slice-"+step+".yaml")
+	file := filepath.Join(scratchDir(e), strings.TrimSuffix(filepath.Base(ref.chain), ".yaml")+"-slice-"+step+".yaml")
 	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-write=" + file, "-json"}
 	if c, err := e.resolveChain(ref.chain); err == nil {
 		for _, v := range fresh(c, step) {
@@ -299,10 +300,14 @@ func tagOnly(c diff.Change, tag string) bool {
 	return len(want) > len(pre)+len(post) && strings.HasPrefix(want, pre) && strings.HasSuffix(want, post)
 }
 
-func gateGaps(e *env, gated []*gateChain) (string, int) {
+var gapProbes = 4
+
+type gapTally struct{ probed, failed, left int }
+
+func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duration) (string, gapTally) {
 	lib, err := e.library()
 	if err != nil || e.cat == nil || len(lib.Overlays) == 0 {
-		return "", 0
+		return "", gapTally{}
 	}
 	chains, _, _ := chain.LoadDirPartial(e.chainsDir())
 	sent := []*chain.Chain{}
@@ -313,18 +318,203 @@ func gateGaps(e *env, gated []*gateChain) (string, int) {
 	}
 	covered := calledRPCs(e, sent)
 	_, plans := reachableRPCs(lib, e.cat)
-	lines := []string{}
-	for _, g := range contract.StateGaps(chains, plans, lib, e.cat) {
-		if covered[g.RPC] {
-			lines = append(lines, "  "+g.Line())
+	gaps := slices.DeleteFunc(contract.StateGaps(chains, plans, lib, e.cat), func(g contract.StateGap) bool { return !covered[g.RPC] })
+	if len(gaps) == 0 {
+		return "gaps: none: each write this gate calls is called from every state its plan calls it from, with each item count", gapTally{}
+	}
+	began, runs, lines, tally := time.Now(), map[string]*gapRun{}, []string{}, gapTally{left: max(len(gaps)-8, 0)}
+	for i, g := range gaps[:min(len(gaps), 8)] {
+		lines = append(lines, "  "+g.Line())
+		if i >= gapProbes {
+			lines[len(lines)-1] += ": not probed: " + gapPlan(g.RPC)
+			tally.left++
+			continue
+		}
+		if runs[g.RPC] == nil {
+			fmt.Fprintf(os.Stderr, "gate: -repro: planning %s into .shrt/scratch/ and running it once, for the state(s) no chain calls it from\n", methodName(g.RPC))
+			runs[g.RPC] = runGap(ctx, e, lib, g.RPC, wait)
+		}
+		probe := runs[g.RPC].probe(ctx, e, lib, g)
+		for _, line := range probe {
+			lines = append(lines, "    "+line)
+		}
+		if strings.HasPrefix(probe[0], "not probed") {
+			tally.left++
+			continue
+		}
+		tally.probed++
+		if !strings.HasPrefix(probe[0], "passes") {
+			tally.failed++
 		}
 	}
-	n := len(lines)
-	if n == 0 {
-		return "gaps: none: each write this gate calls is called from every state its plan calls it from, with each item count", 0
+	if len(gaps) > 8 {
+		lines = append(lines, fmt.Sprintf("  and %d more: shrt contract status -gaps", len(gaps)-8))
 	}
-	if n > 8 {
-		lines = append(lines[:8], fmt.Sprintf("  and %d more: shrt contract status -gaps", n-8))
+	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; -repro planned and ran %d of them "+
+		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is no regression, only a miss against what the contract and its plan expect:\n%s",
+		len(gaps), min(len(gaps), gapProbes), time.Since(began).Round(time.Second), strings.Join(lines, "\n")), tally
+}
+
+func gapFile(rpc string) string {
+	return strings.ToLower(strings.ReplaceAll(shortRPC(rpc), "/", "-")) + "-gaps.yaml"
+}
+
+func gapPlan(rpc string) string {
+	return fmt.Sprintf("shrt contract plan %s -write %s (into .shrt/scratch/)", methodName(rpc), gapFile(rpc))
+}
+
+type gapRun struct {
+	file, why string
+	c         *chain.Chain
+	side      gateSidecar
+	rec       *runner.Record
+}
+
+func runGap(ctx context.Context, e *env, lib *contract.Library, rpc string, wait time.Duration) *gapRun {
+	r := &gapRun{file: filepath.Join(scratchDir(e), gapFile(rpc))}
+	name, began := strings.TrimSuffix(gapFile(rpc), ".yaml"), time.Now()
+	plan, err := contract.BuildPlanWith([]string{rpc}, lib, e.cat, name, planOptions(e))
+	var raw []byte
+	if err == nil && plan.UnfilledCount() > 0 {
+		err = fmt.Errorf("its plan leaves %d required field(s) without test data: shrt contract plan %s -notes", plan.UnfilledCount(), methodName(rpc))
 	}
-	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; probe only these:\n%s", n, strings.Join(lines, "\n")), n
+	if err == nil {
+		raw, err = plan.YAML()
+	}
+	if err == nil {
+		err = writePlanFile(r.file, raw)
+	}
+	if err != nil {
+		r.why = err.Error() + ": " + gapPlan(rpc)
+		return r
+	}
+	r.c = plan.Chain
+	out := gateAttempt(ctx, "run", r.file, len(r.c.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0, wait)
+	r.side, r.why = out.side, lastLine(out)+"  (shrt run "+shownPath(r.file)+")"
+	if ids, err := e.store.ListRuns(name); err == nil && len(ids) > 0 && out.code != 3 {
+		if rec, err := e.store.LoadRun(name, ids[len(ids)-1]); err == nil && !rec.StartedAt.Before(began.Truncate(time.Second)) {
+			r.rec = rec
+		}
+	}
+	return r
+}
+
+func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g contract.StateGap) []string {
+	if r.rec == nil {
+		return []string{"not probed: " + r.why}
+	}
+	shown, behind := shownPath(r.file), ""
+	sits, calls := contract.Situations(r.c, lib, e.cat), []string{}
+	for _, st := range r.c.Steps {
+		if m, err := e.cat.Lookup(st.Call); err == nil && m.FullName == g.RPC && sits[st.ID].State == g.State {
+			calls = append(calls, st.ID)
+		}
+	}
+	failing, byRPC, order := map[string]bool{}, map[string][]gateItem{}, []string{}
+	for _, it := range r.side.Items {
+		at := cmp.Or(it.suspect(), it.Step)
+		switch {
+		case it.Passes:
+		case slices.Contains(calls, at):
+			failing[at] = true
+			if byRPC[it.rpc()] == nil {
+				order = append(order, it.rpc())
+			}
+			byRPC[it.rpc()] = append(byRPC[it.rpc()], it)
+		case slices.Contains(calls, it.Step) && behind == "":
+			behind = fmt.Sprintf("not probed: %s %s; %s  (shrt run %s)", it.Step, it.headline(), it.Reason.in(said{row: true}), shown)
+		}
+	}
+	var fails, passes []rowCall
+	for _, id := range calls {
+		st, found := r.rec.Step(id)
+		if !found || st == nil {
+			continue
+		}
+		dims := requestDims(st)
+		if sit := sits[id]; sit.List != "" && dims["len "+sit.List] == "" {
+			dims["len "+sit.List] = fmt.Sprint(sit.Items)
+		}
+		switch {
+		case failing[id]:
+			fails = append(fails, rowCall{at: r.c.Name + " " + id, dims: dims})
+		case st.Status == runner.StatusPassed:
+			passes = append(passes, rowCall{at: r.c.Name + " " + id, dims: dims})
+		}
+	}
+	if len(order) == 0 {
+		if behind != "" {
+			return []string{behind}
+		}
+		if len(calls) == 0 || len(passes) < len(calls) {
+			return []string{fmt.Sprintf("not probed: %d of its plan's %d call(s) from that state passed, and none failed  (shrt run %s)", len(passes), len(calls), shown)}
+		}
+		return []string{fmt.Sprintf("passes: %d call(s) from that state, %s  (shrt run %s)", len(calls), capList(calls, 3), shown)}
+	}
+	trigger, _ := triggerOf(fails, passes)
+	var out []string
+	for _, rpc := range order {
+		its, fields, steps := byRPC[rpc], []string{}, map[string]bool{}
+		ex := its[0]
+		for _, it := range its {
+			if f, _ := it.field(); f != "" && !slices.Contains(fields, f) {
+				fields = append(fields, f)
+			}
+			steps[it.Step] = true
+			if it.suspect() == "" && ex.suspect() != "" {
+				ex = it
+			}
+		}
+		line := fmt.Sprintf("%s: %d step(s) in 1 chain(s); e.g. %s %s", strings.TrimSpace(rpc+" "+capList(fields, 3)), len(steps), r.c.Name, ex.Step)
+		if why := ex.Reason.in(said{step: ex.Step, rpc: rpc}); why != "" {
+			line += "; " + why
+		} else {
+			path, eg := ex.shown()
+			line += " " + path + " " + eg
+			if st, found := r.rec.Step(ex.Step); found && st != nil && refusalOf(st) != "" && refusalOf(st) != ex.Got {
+				line += " (" + refusalOf(st) + ")"
+			}
+		}
+		out = append(out, line)
+		if trigger != "" && rpc == shortRPC(g.RPC) {
+			out = append(out, trigger)
+		}
+		out = append(out, r.repro(ctx, e, lib, g.RPC, calls, ex))
+	}
+	return out
+}
+
+func (r *gapRun) repro(ctx context.Context, e *env, lib *contract.Library, rpc string, own []string, ex gateItem) string {
+	refs := func(st *chain.Step) []string {
+		var out []string
+		for _, ref := range st.SendReferences() {
+			if id, ok := chain.ParseRef(ref).StepID(); ok && slices.ContainsFunc(r.c.Steps, func(s *chain.Step) bool { return s.ID == id }) {
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	need, drop := map[string]bool{}, []string{}
+	for queue := slices.Clone(own); len(queue) > 0; queue = queue[1:] {
+		if st, found := r.c.Step(queue[0]); found && !need[st.ID] {
+			need[st.ID], queue = true, append(queue, refs(st)...)
+		}
+	}
+	for _, st := range r.c.Steps {
+		if m, err := e.cat.Lookup(st.Call); err == nil && m.FullName == rpc && !need[st.ID] {
+			by := slices.DeleteFunc(refs(st), func(id string) bool { return need[id] })
+			if len(by) == 0 {
+				by = []string{st.ID}
+			}
+			drop = append(drop, by...)
+		}
+	}
+	fresh, focus := freshVarsOf(e, lib), filepath.Join(scratchDir(e), "focus", filepath.Base(r.file))
+	if res, err := chain.Without(r.c, drop, r.c.Name); err == nil && writeSliceFile(focus, res.Chain) == nil {
+		defer os.RemoveAll(filepath.Dir(focus))
+		if line := reproRow(ctx, e, gateRef{chain: focus, it: ex}, fresh); !strings.HasPrefix(line, "repro: none") {
+			return line
+		}
+	}
+	return reproRow(ctx, e, gateRef{chain: r.file, it: ex}, fresh)
 }
