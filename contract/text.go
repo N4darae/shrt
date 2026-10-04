@@ -113,17 +113,10 @@ func writeMap(b *strings.Builder, label string, m map[string]string) {
 
 func fieldDetail(f *FieldContract) string {
 	parts := []string{}
-	if f.Value != "" {
-		parts = append(parts, "value "+f.Value)
-	}
-	if f.From != "" {
-		parts = append(parts, "from "+f.From)
-	}
-	if f.OneOf != "" {
-		parts = append(parts, "oneof "+f.OneOf)
-	}
-	if f.CheckedBy != "" {
-		parts = append(parts, "checked_by "+f.CheckedBy)
+	for _, kv := range [][2]string{{"value ", f.Value}, {"from ", f.From}, {"oneof ", f.OneOf}, {"checked_by ", f.CheckedBy}} {
+		if kv[1] != "" {
+			parts = append(parts, kv[0]+kv[1])
+		}
 	}
 	if f.Note != "" {
 		parts = append(parts, strings.TrimSpace(f.Note))

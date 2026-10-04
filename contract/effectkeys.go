@@ -81,21 +81,7 @@ func (e *Effect) decode(n *yaml.Node) error {
 		if val.Kind != yaml.ScalarNode || strings.TrimSpace(val.Value) == "" {
 			return fmt.Errorf("%s takes one name, e.g. %s: qty", key, key)
 		}
-		v := strings.TrimSpace(val.Value)
-		switch key {
-		case "increase":
-			e.Increase = v
-		case "decrease":
-			e.Decrease = v
-		case "of":
-			e.Of = v
-		case "restore":
-			e.Restore = v
-		case "sum":
-			e.Sum = v
-		case "times":
-			e.Times = v
-		}
+		*[]*string{&e.Increase, &e.Decrease, &e.Of, &e.Restore, &e.Sum, &e.Times}[slices.Index(effectKeys, key)] = strings.TrimSpace(val.Value)
 	}
 	stated := 0
 	for _, v := range []string{e.Increase, e.Decrease, e.Restore, e.Sum} {

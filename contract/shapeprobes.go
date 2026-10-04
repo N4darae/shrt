@@ -230,17 +230,8 @@ func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
 }
 
 func shapeWords(kind string) string {
-	switch kind {
-	case "empty":
-		return "empty"
-	case "blank":
-		return "only whitespace"
-	case "zero":
-		return "zero"
-	case "negative":
-		return "negative"
-	case "no_at":
-		return "without an @"
+	if words, ok := map[string]string{"blank": "only whitespace", "no_at": "without an @"}[kind]; ok {
+		return words
 	}
 	return kind
 }
