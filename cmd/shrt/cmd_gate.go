@@ -473,8 +473,9 @@ func listUnder(lists []string, path string) string {
 
 func verifyAttribution(e *env, rec *runner.Record, report *diff.Report) attribution {
 	a := changesAttribution(e, rec, report.Changes)
+	moved := report.Mover()
 	a.reordered = func(step, path string) bool {
-		return report.Class(diff.Change{Step: step, Path: path}) == "order changed" || report.Moved(step, path)
+		return report.Class(diff.Change{Step: step, Path: path}) == "order changed" || moved(step, path)
 	}
 	return a
 }

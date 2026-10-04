@@ -412,28 +412,45 @@ func filterMisses(request json.RawMessage, added []map[string]any) string {
 }
 
 func (r *Report) Moved(step, path string) bool {
-	segs := strings.Split(path, ".")
+	return r.Mover()(step, path)
+}
+
+func (r *Report) Mover() func(step, path string) bool {
+	type list struct {
+		wkeys []string
+		wnth  []int
+		at    map[string]int
+	}
 	names := renamer(r.renames)
-	for k := 1; k < len(segs); k++ {
-		i, err := strconv.Atoi(segs[k])
-		if err != nil {
-			continue
-		}
-		wl, gl := r.comparedAt(step, strings.Join(segs[:k], "."))
-		key := itemKey(wl, gl)
-		if key == "" || i < 0 || i >= len(wl) {
-			continue
-		}
-		wkeys, wnth := occurrences(wl, key, names)
-		gkeys, gnth := occurrences(gl, key, nil)
-		for j := range gl {
-			if gkeys[j] == wkeys[i] && gnth[j] == wnth[i] {
-				if j != i {
-					return true
+	lists := map[string]*list{}
+	return func(step, path string) bool {
+		segs := strings.Split(path, ".")
+		for k := 1; k < len(segs); k++ {
+			i, err := strconv.Atoi(segs[k])
+			if err != nil {
+				continue
+			}
+			at := step + "\x00" + strings.Join(segs[:k], ".")
+			l, ok := lists[at]
+			if !ok {
+				wl, gl := r.comparedAt(step, strings.Join(segs[:k], "."))
+				if key := itemKey(wl, gl); key != "" {
+					l = &list{at: map[string]int{}}
+					l.wkeys, l.wnth = occurrences(wl, key, names)
+					gkeys, gnth := occurrences(gl, key, nil)
+					for j := len(gl) - 1; j >= 0; j-- {
+						l.at[gkeys[j]+"\x00"+strconv.Itoa(gnth[j])] = j
+					}
 				}
-				break
+				lists[at] = l
+			}
+			if l == nil || i < 0 || i >= len(l.wkeys) {
+				continue
+			}
+			if j, ok := l.at[l.wkeys[i]+"\x00"+strconv.Itoa(l.wnth[i])]; ok && j != i {
+				return true
 			}
 		}
+		return false
 	}
-	return false
 }
