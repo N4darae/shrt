@@ -73,18 +73,6 @@ const (
 	shopOK      = `"status":{"code":"SUCCESS"}`
 )
 
-func blameOf(t *testing.T, rec *runner.Record, step, path string) (string, string, string) {
-	t.Helper()
-	r := runAttribution(&env{cat: catalogtest.Shop()}, rec).of(step, path)
-	own, cascade := "", ""
-	if r.Kind == reasonKnockOn {
-		cascade = r.Kind
-	} else if !r.blames() {
-		own = r.Kind
-	}
-	return r.blamed(step), own, cascade
-}
-
 const stockEffects = `apiVersion: shrt/contract/v1
 domain: shop
 rpcs:

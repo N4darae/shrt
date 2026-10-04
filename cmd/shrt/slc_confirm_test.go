@@ -146,7 +146,7 @@ func TestConfirmAllProposesPassingRunsAndApprovesThemAfterAYes(t *testing.T) {
 	if err != nil || !strings.Contains(out, "skip     safe spot unchanged: cli-thing-again, cli-thing-flow") || !strings.Contains(out, "nothing proposed") {
 		t.Fatalf("a chain whose latest run is its safe spot is not proposed again: %v\n%s", err, out)
 	}
-	out = captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })
+	captureStdout(t, func() { err = runConfirm(ctx, []string{"-all", "cli-thing-flow", "-note", "x"}) })
 	if err == nil {
 		t.Fatal("-all names no chain")
 	}

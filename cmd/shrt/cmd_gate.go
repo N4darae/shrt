@@ -686,8 +686,6 @@ func latencyItems(flags []diff.LatencyFlag) []gateItem {
 	return out
 }
 
-var gateRef = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z0-9_-]+)\.`)
-
 func earlySidecar(e *env, rec *runner.Record) gateSidecar {
 	side := gateSidecar{Reads: sessionReads(e, rec), Errors: serverErrors(rec)}
 	life := examineTokenLifetime(e, rec)

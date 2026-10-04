@@ -67,17 +67,17 @@ func TestRunOutputPieces(t *testing.T) {
 			t.Errorf("status %s dry=%v: progress mark %q, want %q", c.status, c.dry, got, c.want)
 		}
 	}
-	warned := summary(&runner.Record{Chain: "green-with-warnings", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+	warned := runSummary(nil, &runner.Record{Chain: "green-with-warnings", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
 		{Index: 1, ID: "login", Status: runner.StatusPassed},
 		{Index: 2, ID: "probe", Status: runner.StatusPassed, Warning: "refused in-band (status.code = REJECTED, not SUCCESS)\n       and a second line"},
-	}}, false)
+	}}, false, false, "", false)
 	if !strings.Contains(warned, "probe") || !strings.Contains(warned, "a second line") || strings.Contains(warned, "login") {
 		t.Errorf("a green run's step warnings reach the summary, and only those steps:\n%s", warned)
 	}
-	shared := summary(&runner.Record{Chain: "access", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
+	shared := runSummary(nil, &runner.Record{Chain: "access", Status: runner.StatusPassed, Steps: []*runner.StepRecord{
 		{ID: "admin_create", Status: runner.StatusPassed, Warning: runner.CachedTokenResent},
 		{ID: "clerk_create", Status: runner.StatusPassed, Warning: runner.CachedTokenResent},
-	}}, false)
+	}}, false, false, "", false)
 	if strings.Count(shared, runner.CachedTokenResent) != 1 || !strings.Contains(shared, "warning [admin_create, clerk_create]: ") {
 		t.Errorf("a warning shared by steps is one line naming them all:\n%s", shared)
 	}

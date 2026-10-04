@@ -534,10 +534,6 @@ func statusMark(s string, dry bool) string {
 	}
 }
 
-func summary(rec *runner.Record, dry bool) string {
-	return runSummary(nil, rec, dry, false, "", false)
-}
-
 func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
 	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
 		return ""

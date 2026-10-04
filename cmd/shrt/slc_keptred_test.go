@@ -915,7 +915,7 @@ func TestRunExitsZeroOnlyWhenAKeptRedChainFailsAsPinned(t *testing.T) {
 		if tc.ok != (err == nil) || (err != nil && (errors.As(err, &coded) || !strings.Contains(err.Error(), tc.says))) {
 			t.Fatalf("%s/%s: must exit 0 only as pinned, else 1 saying %q, got %v", tc.status, tc.kept, tc.says, err)
 		}
-		if head, _, _ := strings.Cut(summary(rec, false), "\n"); !strings.Contains(head, tc.head) || strings.Contains(head, "PASSED in") {
+		if head, _, _ := strings.Cut(runSummary(nil, rec, false, false, "", false), "\n"); !strings.Contains(head, tc.head) || strings.Contains(head, "PASSED in") {
 			t.Fatalf("%s/%s: headline %q", tc.status, tc.kept, head)
 		}
 	}
