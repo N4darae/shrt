@@ -226,7 +226,8 @@ func TestVerifyTellsAWriteFromTheReadThroughAnotherRead(t *testing.T) {
 	}
 	rec := steps("9")
 	report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: steps("10").Steps}, rec)
-	line, _ := verifyVerdict(&env{cat: catalogtest.Shop()}, "shop", rec, report, nil, false, errors.New("shop: regression"), "")
+	shop := &env{cat: catalogtest.Shop()}
+	line, _ := verifyVerdict(shop, "shop", rec, report, verifyItems(shop, rec, report), nil, false, errors.New("shop: regression"), "")
 	if !strings.Contains(line, "; unclear: write add_stock (StockService/AddStock) or the read") ||
 		!strings.Contains(line, "\n  tell them apart: read product.qty_on_hand through ProductService/ListProducts (products[].qty_on_hand)\n") {
 		t.Errorf("got:\n%s", line)

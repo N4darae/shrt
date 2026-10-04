@@ -60,6 +60,7 @@ type verification struct {
 	literal                                                        *literalCollision
 	idem, lateIdem                                                 *idempotentReplay
 	notes                                                          []string
+	items                                                          []gateItem
 }
 
 func runVerify(ctx context.Context, args []string) (err error) {
@@ -86,7 +87,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	}
 	body := &strings.Builder{}
 	defer func() {
-		verdict, rest := verifyVerdict(v.e, v.name, v.rec, v.report, v.flaky, v.nonBackend != nil, err, body.String())
+		verdict, rest := verifyVerdict(v.e, v.name, v.rec, v.report, v.gateItems(), v.flaky, v.nonBackend != nil, err, body.String())
 		fmt.Print(verdict + rest)
 		if first, _ := firstChange(v.report, v.rec); err != nil && v.nonBackend == nil && first != nil {
 			err = shownError{err}
@@ -247,7 +248,7 @@ func (v *verification) sidecar() gateSidecar {
 		return gateSidecar{}
 	}
 	side := earlySidecar(v.e, v.rec)
-	side.Items = verifyItems(v.e, v.rec, v.report)
+	side.Items = v.gateItems()
 	if latencyPolicy(v.e).Fail {
 		side.Items = append(side.Items, latencyItems(v.latency)...)
 	}
@@ -257,6 +258,13 @@ func (v *verification) sidecar() gateSidecar {
 		side.Flaky, side.FlakyOnly = v.flaky.rates(), v.flakyOnly
 	}
 	return side
+}
+
+func (v *verification) gateItems() []gateItem {
+	if v.items == nil {
+		v.items = verifyItems(v.e, v.rec, v.report)
+	}
+	return v.items
 }
 
 func (v *verification) note(body *strings.Builder, line string) {
@@ -1138,7 +1146,7 @@ func intendedChangeNext(name string) string {
 	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
 }
 
-func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
+func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, items []gateItem, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
 	if noVerdict {
 		return "", body
 	}
@@ -1177,11 +1185,10 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if hint := tellApart(e, r, first.Path); hint != "" {
 		line += "\n  " + hint
 	}
-	return line + "\n" + otherRoots(e, rec, report, first), body
+	return line + "\n" + otherRoots(items, first), body
 }
 
-func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Change) string {
-	items := verifyItems(e, rec, report)
+func otherRoots(items []gateItem, first *diff.Change) string {
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {

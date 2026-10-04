@@ -1019,7 +1019,7 @@ func TestAlsoLinesFoldAStepsPathsWithOneSuspect(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	changes := append(cancelConfirmedMoved(), changed("cancel_order_again", "status.message", "order is already cancelled", "")...)
 	report := &diff.Report{Changes: changes}
-	out := otherRoots(effectsEnv(t), cancelConfirmed(), report, &changes[0])
+	out := otherRoots(verifyItems(effectsEnv(t), cancelConfirmed(), report), &changes[0])
 	want := []string{
 		"  also: cancel_order (OrderService/CancelOrder) order.status want=ORDER_STATUS_CANCELLED got=ORDER_STATUS_CONFIRMED; suspect write cancel_order (OrderService/CancelOrder)",
 		"  also: cancel_order_again (OrderService/CancelOrder) status.code want=REJECTED got=SUCCESS; suspect write cancel_order (OrderService/CancelOrder)",
@@ -1042,7 +1042,7 @@ func TestAFoldedAlsoLineStillCountsItsField(t *testing.T) {
 			changes = append(changes, diff.Change{Step: st, Path: p, Kind: diff.KindUnexpected, Got: "x"})
 		}
 	}
-	if out := otherRoots(&env{cat: catalogtest.Shop()}, rec, &diff.Report{Changes: changes}, &changes[0]); out != "" {
+	if out := otherRoots(verifyItems(&env{cat: catalogtest.Shop()}, rec, &diff.Report{Changes: changes}), &changes[0]); out != "" {
 		t.Errorf("the fields the first step's lines already named are not listed again for another step:\n%s", out)
 	}
 }

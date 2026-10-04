@@ -43,8 +43,9 @@ func BenchmarkVerifyBigList(b *testing.B) {
 			report := diff.Compare(&store.SafeSpot{Chain: "shop", RunID: "spot", Steps: c.spot.Steps}, c.rec)
 			b.ReportAllocs()
 			for b.Loop() {
-				line, _ := verifyVerdict(e, "shop", c.rec, report, nil, false, errors.New("shop: regression"), "")
-				if !strings.Contains(line, "DRIFT") || len(verifyItems(e, c.rec, report)) == 0 {
+				items := verifyItems(e, c.rec, report)
+				line, _ := verifyVerdict(e, "shop", c.rec, report, items, nil, false, errors.New("shop: regression"), "")
+				if !strings.Contains(line, "DRIFT") || len(items) == 0 {
 					b.Fatalf("no drift in %s", line)
 				}
 			}
