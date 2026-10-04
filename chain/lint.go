@@ -1142,28 +1142,11 @@ func VarRefProblems(vars map[string]any) []string {
 
 func ruleNames(e Expectation) []string {
 	names := []string{}
-	if e.Exists != nil {
-		names = append(names, "exists")
-	}
-	if e.NotEmpty {
-		names = append(names, "not_empty")
-	}
-	if e.Contains != "" {
-		names = append(names, "contains")
-	}
-	if e.NotEqual != nil {
-		names = append(names, "not_equal")
-	}
-	if e.Equals != nil {
-		names = append(names, "equals")
-	}
-	if e.Includes != nil {
-		names = append(names, "includes")
-	}
 	for _, c := range []struct {
 		name string
 		set  bool
-	}{{"gt", e.Gt != nil}, {"gte", e.Gte != nil}, {"lt", e.Lt != nil}, {"lte", e.Lte != nil}, {"between", e.Between != nil}, {"within", e.Within != nil}} {
+	}{{"exists", e.Exists != nil}, {"not_empty", e.NotEmpty}, {"contains", e.Contains != ""}, {"not_equal", e.NotEqual != nil}, {"equals", e.Equals != nil},
+		{"includes", e.Includes != nil}, {"gt", e.Gt != nil}, {"gte", e.Gte != nil}, {"lt", e.Lt != nil}, {"lte", e.Lte != nil}, {"between", e.Between != nil}, {"within", e.Within != nil}} {
 		if c.set {
 			names = append(names, c.name)
 		}
