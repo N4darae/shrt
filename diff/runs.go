@@ -104,7 +104,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		rep.FailingA, rep.FailingB = failingLines(sa), failingLines(sb)
 		rep.FailingAlike = len(rep.FailingA) == len(rep.FailingB)
 		for i := range rep.FailingA {
-			if rep.FailingAlike && maskVarValues(a.Vars, rep.FailingA[i]) != maskVarValues(b.Vars, rep.FailingB[i]) {
+			if rep.FailingAlike && MaskVarValues(a.Vars, rep.FailingA[i]) != MaskVarValues(b.Vars, rep.FailingB[i]) {
 				rep.FailingAlike = false
 			}
 		}
@@ -171,7 +171,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	if rn := renamer(renames); rn != nil && !rep.FailingAlike && rep.FirstFailureA != "" && rep.FirstFailureA == rep.FirstFailureB && len(rep.FailingA) == len(rep.FailingB) {
 		rep.FailingAlike = true
 		for i := range rep.FailingA {
-			if maskVarValues(a.Vars, rn.Replace(rep.FailingA[i])) != maskVarValues(b.Vars, rep.FailingB[i]) {
+			if MaskVarValues(a.Vars, rn.Replace(rep.FailingA[i])) != MaskVarValues(b.Vars, rep.FailingB[i]) {
 				rep.FailingAlike = false
 			}
 		}
@@ -328,28 +328,13 @@ func everyFieldMasked(m *pathmask.Masker, body any) bool {
 		return false
 	}
 	masked, open := 0, 0
-	var count func(v any)
-	count = func(v any) {
-		switch t := v.(type) {
-		case map[string]any:
-			for _, item := range t {
-				count(item)
-			}
-		case []any:
-			for _, item := range t {
-				count(item)
-			}
-		case string:
-			if t == pathmask.MaskVolatile {
-				masked++
-				return
-			}
-			open++
-		default:
+	visitScalars(m.Apply(body), "", func(_ string, v any) {
+		if v == pathmask.MaskVolatile {
+			masked++
+		} else {
 			open++
 		}
-	}
-	count(m.Apply(body))
+	})
 	return masked > 0 && open == 0
 }
 
@@ -749,7 +734,7 @@ func failingLines(s *runner.StepRecord) []string {
 	return out
 }
 
-func maskVarValues(vars map[string]any, text string) string {
+func MaskVarValues(vars map[string]any, text string) string {
 	names := make([]string, 0, len(vars))
 	for name, v := range vars {
 		if value := fmt.Sprint(v); len(value) >= minFixtureEcho && value != pathmask.MaskRedacted {
@@ -779,7 +764,7 @@ func (r *RunReport) describe(c Change) string {
 func runValue(v any, vars map[string]any) string {
 	switch t := v.(type) {
 	case string:
-		return chain.EdgeQuoted(maskVarValues(vars, t))
+		return chain.EdgeQuoted(MaskVarValues(vars, t))
 	case float64:
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	}

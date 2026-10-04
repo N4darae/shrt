@@ -203,7 +203,12 @@ func (r *Report) oneValue(steps []string, path string) string {
 				return ""
 			}
 		}
-		at := sentAt(cs.sent, "", first)
+		at := ""
+		visitScalars(cs.sent, "", func(path string, v any) {
+			if at == "" && path != "" && fmt.Sprint(v) == fmt.Sprint(first) {
+				at = path
+			}
+		})
 		if at == "" || from != "" && at != from {
 			from = "-"
 		} else if from == "" {
@@ -214,26 +219,4 @@ func (r *Report) oneValue(steps []string, path string) string {
 		return "; every item of " + list + " holds one value in each step"
 	}
 	return "; every item of " + list + " holds one value in each step, the request's " + from
-}
-
-func sentAt(v any, path string, want any) string {
-	switch t := v.(type) {
-	case map[string]any:
-		for _, k := range sortedKeys(t, nil) {
-			if p := sentAt(t[k], pathmask.Join(path, k), want); p != "" {
-				return p
-			}
-		}
-	case []any:
-		for i, it := range t {
-			if p := sentAt(it, pathmask.Join(path, pathmask.IndexKey(i)), want); p != "" {
-				return p
-			}
-		}
-	default:
-		if path != "" && fmt.Sprint(v) == fmt.Sprint(want) {
-			return path
-		}
-	}
-	return ""
 }

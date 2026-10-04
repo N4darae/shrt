@@ -190,7 +190,7 @@ func sourceOf(before []*runner.StepRecord, value any, requestPath string) string
 			continue
 		}
 		visitScalars(resp, "", func(path string, v any) {
-			if fmt.Sprint(v) != want {
+			if v == nil || fmt.Sprint(v) != want {
 				return
 			}
 			score := 0
@@ -215,7 +215,6 @@ func visitScalars(v any, path string, fn func(string, any)) {
 		for i, x := range t {
 			visitScalars(x, pathmask.Join(path, pathmask.IndexKey(i)), fn)
 		}
-	case nil:
 	default:
 		fn(path, v)
 	}

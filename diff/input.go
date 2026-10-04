@@ -228,7 +228,13 @@ func readValueChanged(spot *store.SafeSpot, rec *runner.Record, rn *strings.Repl
 		if !inA {
 			return false
 		}
-		return !sameRenamed(x, y, rn)
+		return !SameTree(x, y, "", func(_ string, a, b any) bool {
+			if w, ok := a.(string); ok {
+				g, ok := b.(string)
+				return ok && (w == g || rn != nil && rn.Replace(w) == g)
+			}
+			return jsonKind(a) == jsonKind(b) && sameScalar(a, b)
+		})
 	}
 }
 
@@ -241,38 +247,32 @@ func spotStep(spot *store.SafeSpot, id string) *runner.StepRecord {
 	return nil
 }
 
-func sameRenamed(want, got any, rn *strings.Replacer) bool {
-	switch w := want.(type) {
+func SameTree(a, b any, path string, leaf func(path string, a, b any) bool) bool {
+	switch x := a.(type) {
 	case map[string]any:
-		g, ok := got.(map[string]any)
-		if !ok || len(w) != len(g) {
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
 			return false
 		}
-		for k, v := range w {
-			if x, ok := g[k]; !ok || !sameRenamed(v, x, rn) {
+		for k, v := range x {
+			if w, ok := y[k]; !ok || !SameTree(v, w, pathmask.Join(path, k), leaf) {
 				return false
 			}
 		}
 		return true
 	case []any:
-		g, ok := got.([]any)
-		if !ok || len(w) != len(g) {
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
 			return false
 		}
-		for i := range w {
-			if !sameRenamed(w[i], g[i], rn) {
+		for i := range x {
+			if !SameTree(x[i], y[i], path, leaf) {
 				return false
 			}
 		}
 		return true
-	case string:
-		g, ok := got.(string)
-		if !ok {
-			return false
-		}
-		return w == g || rn != nil && rn.Replace(w) == g
 	}
-	return jsonKind(want) == jsonKind(got) && sameScalar(want, got)
+	return leaf(path, a, b)
 }
 
 func renameWants(changes []Change, rn *strings.Replacer) {
