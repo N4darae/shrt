@@ -185,9 +185,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	if err := c.Normalize(); err != nil {
 		return nil, err
 	}
-	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
-		p.declareInterpolatedVars(missing)
-	}
+	p.declareInterpolatedVars()
 	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
 		p.note("the chain reads ${vars.%s}, which the contract's value: entries use and the chain does not declare: "+
 			"pass -var %s=... on every run (a fresh value when it makes names unique), or declare it under vars:",
@@ -918,7 +916,8 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 
 var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
 
-func (p *Plan) declareInterpolatedVars(missing []string) {
+func (p *Plan) declareInterpolatedVars() {
+	missing, _ := chain.ExternalInputs(p.Chain)
 	interpolated, whole := map[string]bool{}, map[string]bool{}
 	for _, st := range p.Chain.Steps {
 		if st == nil {

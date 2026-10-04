@@ -193,9 +193,7 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 	p.discriminateListOrder(lib, nil)
 	p.assertContracts(lib)
 	p.noteRequirements()
-	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
-		p.declareInterpolatedVars(missing)
-	}
+	p.declareInterpolatedVars()
 	raw, err := p.YAML()
 	if err != nil {
 		return nil, nil, fmt.Errorf("render chain %s: %w", name, err)
