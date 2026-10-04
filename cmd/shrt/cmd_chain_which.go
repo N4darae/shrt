@@ -289,19 +289,15 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 			if m.Kind == chain.WhichKindAuthProbe {
 				line += "  auth probe"
 			}
+			fmt.Println(line)
+			if m.ByReason != "" {
+				fmt.Printf("    %s\n", byReasonNote(m, q))
+			}
 			if m.Observed == nil {
-				fmt.Println(line)
-				if m.ByReason != "" {
-					fmt.Printf("    %s\n", byReasonNote(m, q))
-				}
 				if m.Newest != nil {
 					fmt.Printf("    no local run reached it; newest run %s: %s\n", m.Newest.Run, whyNewestUnreached(m.Newest))
 				}
 				continue
-			}
-			fmt.Println(line)
-			if m.ByReason != "" {
-				fmt.Printf("    %s\n", byReasonNote(m, q))
 			}
 			fmt.Printf("    %s\n", whichSeenCell(m.Observed))
 			for _, f := range m.Observed.Failures {

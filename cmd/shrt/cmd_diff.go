@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -238,7 +239,7 @@ func findRunAnywhere(e *env, id string) (*runner.Record, error) {
 func chainArgs(e *env, args []string) error {
 	chains := []string{}
 	for _, a := range args {
-		if isChainName(e, a) {
+		if slices.Contains(chain.Names(e.chainsDir()), a) {
 			chains = append(chains, a)
 		}
 	}
@@ -253,15 +254,6 @@ func chainArgs(e *env, args []string) error {
 	return fmt.Errorf("%s is a chain name: with two arguments both are run ids. Name the chain first and then its two runs: "+
 		"'shrt diff %s <run-a> <run-b>' (ids, latest or latest~N), or 'shrt diff %s' for its two latest runs\n\n%s",
 		chains[0], chains[0], chains[0], diffUsage)
-}
-
-func isChainName(e *env, name string) bool {
-	for _, n := range chain.Names(e.chainsDir()) {
-		if n == name {
-			return true
-		}
-	}
-	return false
 }
 
 func showStep(e *env, rest []string, id string) error {

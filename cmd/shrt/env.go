@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -104,10 +105,8 @@ func (e *env) knownChain(name string) error {
 		return nil
 	}
 	known := chain.Names(e.chainsDir())
-	for _, n := range known {
-		if n == name {
-			return nil
-		}
+	if slices.Contains(known, name) {
+		return nil
 	}
 	if _, err := chain.Resolve(e.chainsDir(), name); err == nil {
 		return nil
