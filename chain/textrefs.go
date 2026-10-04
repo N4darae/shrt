@@ -12,20 +12,8 @@ func headerStructures(s *Step, responses map[string]*catalog.Method, exports map
 	for _, name := range sortedKeys(s.Headers) {
 		value := s.Headers[name]
 		for _, ref := range collectRefs(value) {
-			src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
-			if !ok || dynamicWellKnown[src.Message] {
-				continue
-			}
-			kind := ""
-			switch {
-			case collection:
-				kind = collectionKind(src)
-			case isMessage(src) && !scalarWellKnown[src.Message]:
-				kind = src.Message
-				if kind == "" {
-					kind = "message"
-				}
-			default:
+			kind, where, ok := structureOf(ref, responses, exports)
+			if !ok {
 				continue
 			}
 			out = append(out, fmt.Sprintf("${%s} fills header %s (%q), from %s, declared %s — a header carries text only, "+

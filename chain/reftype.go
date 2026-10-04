@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -71,10 +72,7 @@ func cannotBeNumber(f *catalog.Field) (kind string, never, maybe bool) {
 		if numericWellKnown[f.Message] {
 			return "", false, false
 		}
-		if f.Message != "" {
-			return f.Message, true, false
-		}
-		return "message", true, false
+		return cmp.Or(f.Message, "message"), true, false
 	}
 	return "", false, false
 }
@@ -117,15 +115,11 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 		}
 		if !numericKinds[target.Kind] {
 			if !isMessage(target) && isMessage(src) && !dynamicWellKnown[src.Message] && !scalarWellKnown[src.Message] {
-				kind := src.Message
-				if kind == "" {
-					kind = "message"
-				}
 				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a whole "+
 					"message is sent as a JSON object, which a %s field never accepts, so the request would be rejected "+
 					"after every earlier step had already hit the backend, and shrt run refuses the chain before "+
 					"sending anything. Reference or export one scalar field of it instead", refs[0], path,
-					target.Kind, where, kind, target.Kind))
+					target.Kind, where, cmp.Or(src.Message, "message"), target.Kind))
 			}
 			return
 		}
@@ -149,20 +143,8 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 func interpolatedStructures(path, value string, refs []string, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
 	out := []string{}
 	for _, ref := range refs {
-		src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
-		if !ok || dynamicWellKnown[src.Message] {
-			continue
-		}
-		kind := ""
-		switch {
-		case collection:
-			kind = collectionKind(src)
-		case isMessage(src) && !scalarWellKnown[src.Message]:
-			kind = src.Message
-			if kind == "" {
-				kind = "message"
-			}
-		default:
+		kind, where, ok := structureOf(ref, responses, exports)
+		if !ok {
 			continue
 		}
 		out = append(out, fmt.Sprintf("${%s} is interpolated inside other text in %s (%q), from %s, declared %s — "+
@@ -171,6 +153,19 @@ func interpolatedStructures(path, value string, refs []string, responses map[str
 			"scalar field of it instead", ref, path, value, where, kind))
 	}
 	return out
+}
+
+func structureOf(ref string, responses map[string]*catalog.Method, exports map[string]exportOrigin) (kind, where string, ok bool) {
+	src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
+	switch {
+	case !ok || dynamicWellKnown[src.Message]:
+		return "", "", false
+	case collection:
+		return collectionKind(src), where, true
+	case isMessage(src) && !scalarWellKnown[src.Message]:
+		return cmp.Or(src.Message, "message"), where, true
+	}
+	return "", "", false
 }
 
 func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool, bool) {
