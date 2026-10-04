@@ -429,9 +429,7 @@ func (a attribution) moves(i int, path string) bool {
 }
 
 func (a attribution) seenIn(i int, state string) bool {
-	var req map[string]any
-	_ = json.Unmarshal(a.rec.Steps[i].Request, &req)
-	ids, found := idsOf(req), false
+	ids, found := idsOf(decoded(a.rec.Steps[i].Request)), false
 	for _, st := range a.rec.Steps[:i] {
 		var body any
 		if st == nil || json.Unmarshal(st.Response, &body) != nil {
@@ -840,8 +838,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 	if !ok {
 		return -1, ""
 	}
-	var body any
-	_ = json.Unmarshal(st.Response, &body)
+	body := decoded(st.Response)
 	reach := refReach(a.rec)
 	for i := 0; i < at; i++ {
 		w := a.rec.Steps[i]
@@ -852,8 +849,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 		if err != nil {
 			continue
 		}
-		var wb any
-		_ = json.Unmarshal(w.Response, &wb)
+		wb := decoded(w.Response)
 		for _, p := range a.changed(w.ID) {
 			c, ok := carrierOf(wm, p)
 			if !ok || !sameEntity(body, path, wb, p) {
@@ -948,9 +944,7 @@ func (a attribution) reaches(i, at int) bool {
 	if m, err := a.e.cat.Lookup(w.Call); err == nil && slices.Contains(c.Needs, m.FullName) {
 		return true
 	}
-	var wb, req any
-	_ = json.Unmarshal(w.Response, &wb)
-	_ = json.Unmarshal(st.Request, &req)
+	wb, req := decoded(w.Response), decoded(st.Request)
 	sent := map[string]bool{}
 	eachLeaf(req, "", func(p string, v any) {
 		sent[compactValue(v)] = sent[compactValue(v)] || p != "" && !diff.IDNamedPath(leafOf(p))

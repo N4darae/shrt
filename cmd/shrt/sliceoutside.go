@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -20,10 +19,7 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 	if run == nil || target == nil {
 		return nil
 	}
-	var body any
-	if len(target.Response) > 0 {
-		_ = json.Unmarshal(target.Response, &body)
-	}
+	body := decoded(target.Response)
 	candidates := []outsideValue{}
 	seen := map[string]bool{}
 	addCandidate := func(path string, v any) {

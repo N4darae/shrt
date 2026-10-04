@@ -257,15 +257,13 @@ func sameKey(step, field, was, now, template string) *idempotentReplay {
 }
 
 func sameIDAnswered(now, was *runner.StepRecord) (string, string) {
-	var a, b, req, prior any
+	var a, b any
 	if json.Unmarshal(was.Response, &a) != nil || json.Unmarshal(now.Response, &b) != nil {
 		return "", ""
 	}
-	_ = json.Unmarshal(now.Request, &req)
-	_ = json.Unmarshal(was.Request, &prior)
 	sent := map[string]bool{}
-	visitStrings(req, func(v string) { sent[v] = true })
-	visitStrings(prior, func(v string) { sent[v] = true })
+	visitStrings(decoded(now.Request), func(v string) { sent[v] = true })
+	visitStrings(decoded(was.Request), func(v string) { sent[v] = true })
 	paths := []string{}
 	eachLeaf(b, "", func(path string, _ any) {
 		if diff.IDNamedPath(path) {

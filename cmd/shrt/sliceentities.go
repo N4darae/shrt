@@ -154,14 +154,13 @@ type stepEntityFacts struct {
 }
 
 func decodedRecordStep(sr *runner.StepRecord) (any, any) {
-	var request, response any
-	if len(sr.Request) > 0 {
-		_ = json.Unmarshal(sr.Request, &request)
-	}
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
-	return request, response
+	return decoded(sr.Request), decoded(sr.Response)
+}
+
+func decoded(raw []byte) any {
+	var v any
+	_ = json.Unmarshal(raw, &v)
+	return v
 }
 
 func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {

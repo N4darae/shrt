@@ -157,10 +157,7 @@ func runObservations(e *env) func(string) []chain.Observation {
 }
 
 func observedResponse(s *runner.StepRecord) any {
-	var response any
-	if len(s.Response) > 0 {
-		_ = json.Unmarshal(s.Response, &response)
-	}
+	response := decoded(s.Response)
 	if s.HTTPStatus == 0 && s.Transport == nil {
 		return response
 	}

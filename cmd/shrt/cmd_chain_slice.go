@@ -1020,21 +1020,14 @@ func streamedEnvelope(response any) string {
 }
 
 func verdictPath(sr *runner.StepRecord) string {
-	var response any
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
-	if streamedEnvelope(response) != "" {
+	if streamedEnvelope(decoded(sr.Response)) != "" {
 		return catalog.StreamMessages + "[]." + chain.EnvelopePath()
 	}
 	return chain.EnvelopePath()
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
-	var response any
-	if len(sr.Response) > 0 {
-		_ = json.Unmarshal(sr.Response, &response)
-	}
+	response := decoded(sr.Response)
 	path := streamedEnvelope(response) + chain.EnvelopePath()
 	code := ""
 	if v, ok := chain.Get(response, path); ok {

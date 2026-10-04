@@ -281,12 +281,9 @@ func chainFileDiffers(old, now *chain.Chain) string {
 	a, b := *old, *now
 	a.Name, b.Name = "", ""
 	a.SourcePath, b.SourcePath = "", ""
-	var x, y any
 	ra, _ := json.Marshal(a)
 	rb, _ := json.Marshal(b)
-	_ = json.Unmarshal(ra, &x)
-	_ = json.Unmarshal(rb, &y)
-	return firstJSONDifference(x, y, "")
+	return firstJSONDifference(decoded(ra), decoded(rb), "")
 }
 
 func firstJSONDifference(a, b any, path string) string {
