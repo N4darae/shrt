@@ -73,7 +73,7 @@ func chainNew(args []string) error {
 		if refusal := m.StreamRefusal(); refusal != "" {
 			return fmt.Errorf("refusing to scaffold a step for %s: %s", m.FullName, refusal)
 		}
-		id := uniqueID(c, contract.For(m).StepID())
+		id := c.FreeStepID(contract.For(m).StepID(), nil)
 		c.Steps = append(c.Steps, &chain.Step{ID: id, Call: m.FullName})
 		refs = append(refs, m.FullName)
 		ids = append(ids, id)
@@ -113,16 +113,6 @@ func setKey(mapping *yaml.Node, key string, value *yaml.Node) {
 	}
 	mapping.Content = append(mapping.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
-}
-
-func uniqueID(c *chain.Chain, base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := c.Step(id); !exists {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
 }
 
 func chainList(args []string) error {

@@ -75,6 +75,16 @@ func (c *Chain) Step(id string) (*Step, bool) {
 	return nil, false
 }
 
+func (c *Chain) FreeStepID(base string, taken func(string) bool) string {
+	id := base
+	for i := 2; ; i++ {
+		if _, exists := c.Step(id); !exists && (taken == nil || !taken(id)) {
+			return id
+		}
+		id = fmt.Sprintf("%s_%d", base, i)
+	}
+}
+
 func (c *Chain) Normalize() error {
 	if c.APIVersion == "" {
 		c.APIVersion = APIVersion

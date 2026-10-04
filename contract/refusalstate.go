@@ -424,14 +424,9 @@ func isIndexSuffix(s string) bool {
 }
 
 func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := p.Chain.Step(id); !exists && !p.reserved[id] && !reserved[id] {
-			reserved[id] = true
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
+	id := p.Chain.FreeStepID(base, func(id string) bool { return p.reserved[id] || reserved[id] })
+	reserved[id] = true
+	return id
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {
