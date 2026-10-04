@@ -24,23 +24,9 @@ func listFieldsOf(m *catalog.Method) []string {
 }
 
 func bodyScoped(v any) bool {
-	switch t := v.(type) {
-	case string:
-		return strings.Contains(t, "${")
-	case map[string]any:
-		for _, item := range t {
-			if bodyScoped(item) {
-				return true
-			}
-		}
-	case []any:
-		for _, item := range t {
-			if bodyScoped(item) {
-				return true
-			}
-		}
-	}
-	return false
+	scoped := false
+	walkText(v, "", func(_, s string) { scoped = scoped || strings.Contains(s, "${") })
+	return scoped
 }
 
 func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {

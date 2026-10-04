@@ -9,27 +9,9 @@ import (
 )
 
 func listUnscoped(st *chain.Step) bool {
-	var scoped func(v any) bool
-	scoped = func(v any) bool {
-		switch t := v.(type) {
-		case string:
-			return strings.Contains(t, "${")
-		case map[string]any:
-			for _, item := range t {
-				if scoped(item) {
-					return true
-				}
-			}
-		case []any:
-			for _, item := range t {
-				if scoped(item) {
-					return true
-				}
-			}
-		}
-		return false
-	}
-	return !scoped(map[string]any(st.Body))
+	var text strings.Builder
+	bodyText(map[string]any(st.Body), &text)
+	return !strings.Contains(text.String(), "${")
 }
 
 func prefixTargetKey(prefixKey string, producer *chain.Step) string {

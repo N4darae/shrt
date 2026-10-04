@@ -211,22 +211,13 @@ func mirrorsARequest(c *Chain, s *Step, at map[int]string, idx []int) bool {
 
 func bodyRefSteps(v any) []string {
 	out := []string{}
-	switch t := v.(type) {
-	case string:
-		for _, m := range refPattern.FindAllString(t, -1) {
+	walkText(v, "", func(_, s string) {
+		for _, m := range refPattern.FindAllString(s, -1) {
 			if id := refStepOf(m); id != "" && id != "vars" && id != "env" {
 				out = append(out, id)
 			}
 		}
-	case map[string]any:
-		for _, k := range sortedKeys(t) {
-			out = append(out, bodyRefSteps(t[k])...)
-		}
-	case []any:
-		for _, item := range t {
-			out = append(out, bodyRefSteps(item)...)
-		}
-	}
+	})
 	return out
 }
 
