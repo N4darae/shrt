@@ -1,8 +1,6 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -54,16 +52,8 @@ func TestAPlannedSameAsPrefixIsTerminatedAndPassesStrictLint(t *testing.T) {
 		if prefix := bodyAt(t, planStep(t, p, "list_products"), "sku_prefix"); prefix != "sku-${vars.tag}-" {
 			t.Fatalf("%s: the prefix must end with the terminator every fixture carries after the var, got %q\n%s", sku, prefix, text)
 		}
-		path := filepath.Join(t.TempDir(), "sameas.yaml")
-		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		c, err := chain.LoadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
 		cat, lib := shopDemo(t)
-		for _, i := range contract.LintChain(c, cat, contract.ChainLintOptions{Strict: true, Library: lib, Chain: chain.LintOptions{Hints: true}}) {
+		for _, i := range strictLint(t, "sameas.yaml", text, cat, lib, chain.LintOptions{Hints: true}) {
 			if i.Kind == chain.KindUnterminatedPrefix || i.IsError() {
 				t.Fatalf("%s: the planned chain fails its own strict lint: [%s] %s\n%s", sku, i.Step, i.Message, text)
 			}

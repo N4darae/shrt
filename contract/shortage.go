@@ -95,7 +95,7 @@ func (p *Plan) suppliedFor(lib *Library, refs []string) (int64, bool) {
 			continue
 		}
 		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		if !ok || !increaseWord.MatchString(c.Summary) && !c.Effects.increases() {
+		if !ok || !increaseWord().MatchString(c.Summary) && !c.Effects.increases() {
 			continue
 		}
 		walk(map[string]any(st.Body))
@@ -139,16 +139,12 @@ func (p *Plan) addExactStockProbe(lib *Library, st *chain.Step, m *catalog.Metho
 	if len(paths) == 0 {
 		return
 	}
-	base := st
-	if source != nil {
-		base = source
-	}
 	id := p.freeStepID(st.ID + "_exact_stock")
-	exact := copyStep(base, id)
+	base, exactID := st, id
 	if source != nil {
-		exact = copyStep(source, p.freeStepID(source.ID+"_for_"+id))
+		base, exactID = source, p.freeStepID(source.ID+"_for_"+id)
 	}
-	exact.Export = nil
+	exact := probeStep(base, exactID)
 	seen := map[string]bool{}
 	set := []string{}
 	for _, path := range paths {
@@ -170,8 +166,7 @@ func (p *Plan) addExactStockProbe(lib *Library, st *chain.Step, m *catalog.Metho
 		renameStepRefs(exact, source.ID, exact.ID)
 		exact.Description = fmt.Sprintf("as %s, but asking for exactly the stock this chain added (%s), for %s.", source.ID, strings.Join(set, ", "), id)
 		p.assertEcho(exact)
-		act := copyStep(st, id)
-		act.Export = nil
+		act := probeStep(st, id)
 		renameStepRefs(act, source.ID, exact.ID)
 		renameStepRefs(act, st.ID, act.ID)
 		act.Description = fmt.Sprintf("%s when every line asks for exactly the stock on hand: it succeeds and leaves none, since %s is refused only for more than there is.", st.ID, f.Label())

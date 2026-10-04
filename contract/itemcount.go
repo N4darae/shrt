@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,7 @@ func (p *Plan) recordPreparation(clone, original string) {
 	if p.preps == nil {
 		p.preps = map[string][]string{}
 	}
-	if !containsString(p.preps[clone], original) {
+	if !slices.Contains(p.preps[clone], original) {
 		p.preps[clone] = append(p.preps[clone], original)
 	}
 }
@@ -88,7 +89,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		id, ok := thirds[sec.src]
 		if !ok {
 			var made []*chain.Step
-			id, made = p.thirdProducer(sec)
+			id, made = p.itemProducer(sec, 3)
 			thirds[sec.src] = id
 			added = append(added, made...)
 		}
@@ -105,8 +106,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 	ids := []string{}
 	for _, c := range counts {
 		suffix := fmt.Sprintf("%d_%s", c.n, il.field.Name)
-		v := copyStep(fx, p.freeStepID(fx.ID+"_"+suffix))
-		v.Export = nil
+		v := probeStep(fx, p.freeStepID(fx.ID+"_"+suffix))
 		v.Body[il.key] = c.items
 		p.freshen(lib, v)
 		renameStepRefs(v, fx.ID, v.ID)
@@ -117,12 +117,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 			ids = append(ids, v.ID)
 			continue
 		}
-		t := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-		t.Export = nil
-		p.freshen(lib, t)
-		renameStepRefs(t, fx.ID, v.ID)
-		t.Description = fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID)
-		p.assertEcho(t)
+		t := p.fixtureCopy(lib, st, p.freeStepID(st.ID+"_"+suffix), map[string]string{fx.ID: v.ID}, fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID))
 		added = append(added, t)
 		ids = append(ids, t.ID)
 	}
@@ -161,8 +156,7 @@ func (p *Plan) manyItems(lib *Library, st *chain.Step, il itemList, third any, t
 		items = append(items, next)
 		prev = next
 	}
-	v := copyStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, lotsOfItems, il.field.Name)))
-	v.Export = nil
+	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, lotsOfItems, il.field.Name)))
 	v.Body[il.key] = items
 	p.freshen(lib, v)
 	renameStepRefs(v, st.ID, v.ID)
@@ -214,25 +208,14 @@ func itemCount(n int) string {
 }
 
 func readsValue(v any, id string) bool {
-	for _, ref := range allStepRefs(v) {
-		if ref[0] == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(allStepRefs(v), func(ref [2]string) bool { return ref[0] == id })
 }
 
 func (p *Plan) reserveStepID(base string) string {
-	id := p.freeStepID(base)
 	if p.reserved == nil {
 		p.reserved = map[string]bool{}
 	}
-	p.reserved[id] = true
-	return id
-}
-
-func (p *Plan) thirdProducer(sec producerSecond) (string, []*chain.Step) {
-	return p.itemProducer(sec, 3)
+	return p.freeProbeID(base, p.reserved)
 }
 
 func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
@@ -256,11 +239,7 @@ func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 		}
 		cid := p.reserveStepID(prep)
 		c := copyStep(src, cid)
-		to := map[string]string{sec.src: id}
-		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, to) })
-		}
+		renameStepRefs(c, sec.src, id)
 		renameStepRefs(c, prep, cid)
 		p.distinctPreparation(c, cid, prep)
 		made = append(made, c)

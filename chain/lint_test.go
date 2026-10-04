@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,17 +31,8 @@ func (x hit) matches(i chain.Issue) bool {
 	if (x.sev != "" && i.Severity != x.sev) || (x.kind != "" && i.Kind != x.kind) || (x.step != "" && i.Step != x.step) {
 		return false
 	}
-	for _, s := range x.has {
-		if !strings.Contains(i.Message, s) {
-			return false
-		}
-	}
-	for _, s := range x.lacks {
-		if strings.Contains(i.Message, s) {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(x.has, func(s string) bool { return !strings.Contains(i.Message, s) }) &&
+		!slices.ContainsFunc(x.lacks, func(s string) bool { return strings.Contains(i.Message, s) })
 }
 
 type lintCase struct {
@@ -92,12 +84,7 @@ func runLintCases(t *testing.T, cases []lintCase) {
 		if tc.strict {
 			issues = chain.Promote(issues, chain.IsAssertionQualityIssue)
 		}
-		picked := []chain.Issue{}
-		for _, i := range issues {
-			if tc.pick.matches(i) {
-				picked = append(picked, i)
-			}
-		}
+		picked := slices.DeleteFunc(issues, func(i chain.Issue) bool { return !tc.pick.matches(i) })
 		if len(tc.want) == 0 && tc.n == 0 && len(picked) != 0 {
 			t.Errorf("%s: want none, got %+v", tc.name, picked)
 		}
@@ -105,11 +92,7 @@ func runLintCases(t *testing.T, cases []lintCase) {
 			t.Errorf("%s: want %d issue(s), got %+v", tc.name, tc.n, picked)
 		}
 		for _, w := range tc.want {
-			found := false
-			for _, i := range picked {
-				found = found || w.matches(i)
-			}
-			if !found {
+			if !slices.ContainsFunc(picked, w.matches) {
 				t.Errorf("%s: want %+v among %+v", tc.name, w, picked)
 			}
 		}
@@ -788,10 +771,7 @@ func TestReferencesRefusedBeforeAnythingIsSent(t *testing.T) {
 			prob = ref
 		}
 		problems := strings.Join(tc.c.ResponseRefProblems(tc.cat), " ")
-		lintErr := false
-		for _, i := range chain.Lint(tc.c, tc.cat) {
-			lintErr = lintErr || (i.IsError() && strings.Contains(i.Message, ref))
-		}
+		lintErr := slices.ContainsFunc(chain.Lint(tc.c, tc.cat), func(i chain.Issue) bool { return i.IsError() && strings.Contains(i.Message, ref) })
 		switch {
 		case tc.refused && !strings.Contains(problems, prob):
 			t.Errorf("%s: must be refused before anything is sent, got %q", ref, problems)
@@ -829,13 +809,7 @@ func TestLintAcceptsEveryReferenceTheGrammarDocuments(t *testing.T) {
 		return c
 	}
 	errsOf := func(c *chain.Chain) []chain.Issue {
-		errs := []chain.Issue{}
-		for _, i := range chain.Lint(c, catalogtest.New()) {
-			if i.IsError() && i.Kind != chain.KindDeadRef {
-				errs = append(errs, i)
-			}
-		}
-		return errs
+		return slices.DeleteFunc(chain.Lint(c, catalogtest.New()), func(i chain.Issue) bool { return !i.IsError() || i.Kind == chain.KindDeadRef })
 	}
 	if len(chain.ReferenceExamples) == 0 {
 		t.Fatal("the GRAMMAR reference table is empty")

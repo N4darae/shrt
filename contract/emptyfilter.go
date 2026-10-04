@@ -2,8 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,19 +9,19 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var emptyListsAll = regexp.MustCompile(`(?i)\b(?:empty|blank|absent|unset|omitted|missing|no)\b[^.;]*?\b(?:lists?|returns?|matches?|means?|shows?|gives?)\b[^.;]*?\b(?:all|every|everything|any|no filter|unfiltered)\b`)
+var emptyListsAll = lazyRegexp(`(?i)\b(?:empty|blank|absent|unset|omitted|missing|no)\b[^.;]*?\b(?:lists?|returns?|matches?|means?|shows?|gives?)\b[^.;]*?\b(?:all|every|everything|any|no filter|unfiltered)\b`)
 
 func EmptyMeansAll(c *RPCContract, field string) bool {
 	if c == nil || field == "" {
 		return false
 	}
-	if fc := c.Fields[field]; fc != nil && emptyListsAll.MatchString(fc.Note) {
+	if fc := c.Fields[field]; fc != nil && emptyListsAll().MatchString(fc.Note) {
 		return true
 	}
 	words := namecase.Words(field)
 	for _, text := range []string{c.Summary, c.Note} {
-		for _, clause := range clauseBreaks.Split(text, -1) {
-			m := emptyListsAll.FindString(clause)
+		for _, clause := range clauseBreaks().Split(text, -1) {
+			m := emptyListsAll().FindString(clause)
 			if m == "" {
 				continue
 			}
@@ -59,8 +57,7 @@ func (p *Plan) probeEmptyFilter(lib *Library, t *listTarget, key string) {
 	if err != nil {
 		return
 	}
-	probe := copyStep(t.step, p.freeStepID(t.step.ID+"_empty_"+key))
-	probe.Export = nil
+	probe := probeStep(t.step, p.freeStepID(t.step.ID+"_empty_"+key))
 	probe.Body[key] = ""
 	probe.Expect = SuccessExpectation(m)
 	ids := []string{}
@@ -123,23 +120,11 @@ func EmptyFilterGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog) 
 		}
 	}
 	out := []EmptyFilterGap{}
-	for k, t := range seen {
-		if t.empty {
-			continue
+	for _, k := range sortedKeys(seen) {
+		if !seen[k].empty {
+			rpc, field, _ := strings.Cut(k, "\x00")
+			out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: sortedKeys(seen[k].chains)})
 		}
-		rpc, field, _ := strings.Cut(k, "\x00")
-		names := []string{}
-		for n := range t.chains {
-			names = append(names, n)
-		}
-		sort.Strings(names)
-		out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: names})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Field < out[j].Field
-	})
 	return out
 }

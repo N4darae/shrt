@@ -8,7 +8,8 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-const pendingDeployOverlay = `
+const (
+	pendingDeployHead = `
 domain: test
 rpcs:
   shrt.test.v1.ThingService/Create:
@@ -18,36 +19,11 @@ rpcs:
     failures:
       - code: 1210
         reason: IdempotencyReplayMismatch
-        when: a replayed key names a different request
-        pending_deploy: a47bb688
 `
-
-const pendingDeployBothOverlay = `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: create a thing
-    required: [name]
-    status: draft
-    failures:
-      - code: 1210
-        reason: IdempotencyReplayMismatch
-        unreachable: no api sequence reaches it
-        pending_deploy: a47bb688
-`
-
-const pendingDeployProseOverlay = `
-domain: test
-rpcs:
-  shrt.test.v1.ThingService/Create:
-    summary: create a thing
-    required: [name]
-    status: draft
-    failures:
-      - code: 1210
-        reason: IdempotencyReplayMismatch
-        pending_deploy: fixed upstream but not released yet
-`
+	pendingDeployOverlay      = pendingDeployHead + "        when: a replayed key names a different request\n        pending_deploy: a47bb688\n"
+	pendingDeployBothOverlay  = pendingDeployHead + "        unreachable: no api sequence reaches it\n        pending_deploy: a47bb688\n"
+	pendingDeployProseOverlay = pendingDeployHead + "        pending_deploy: fixed upstream but not released yet\n"
+)
 
 func issuesFor(t *testing.T, body string) []contract.Issue {
 	t.Helper()

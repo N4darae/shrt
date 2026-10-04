@@ -56,10 +56,13 @@ func otherValue(v any, kind, marker string) (any, bool) {
 	if !ok || strings.TrimSpace(text) == "" || wholeReference(text) || refersToStep(text) {
 		return v, false
 	}
-	if at := strings.LastIndex(text, "@"); at > 0 && !strings.Contains(text[at:], "}") {
-		return text[:at] + "-" + marker + text[at:], true
-	}
-	return text + "-" + marker, true
+	return lengthen(text, marker), true
+}
+
+func literalKey(body map[string]any, name string) (string, bool) {
+	key, ok := namecase.LookupKey(body, name)
+	_, literal := numericValue(body[key])
+	return key, ok && literal
 }
 
 func numericValue(v any) (int64, bool) {
@@ -78,9 +81,9 @@ func numericValue(v any) (int64, bool) {
 }
 
 func refersToStep(text string) bool {
-	for _, loc := range anyValueRef.FindAllString(text, -1) {
+	for _, loc := range anyValueRef().FindAllString(text, -1) {
 		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(loc, "${"), "}"))
-		if !freshValueRef.MatchString(loc) && !strings.HasPrefix(inner, "vars.") && !strings.HasPrefix(inner, "env.") {
+		if !freshValueRef().MatchString(loc) && !strings.HasPrefix(inner, "vars.") && !strings.HasPrefix(inner, "env.") {
 			return true
 		}
 	}

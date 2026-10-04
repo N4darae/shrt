@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,8 +10,8 @@ import (
 )
 
 var (
-	keyConflict     = regexp.MustCompile(`(?i)idempoten|key ?reuse|key ?conflict|key ?mismatch`)
-	keyConflictWhen = regexp.MustCompile(`(?i)\bkey\b[^.;]*\b(?:different|another|other|changed)\s+(?:body|request|payload|content)`)
+	keyConflict     = lazyRegexp(`(?i)idempoten|key ?reuse|key ?conflict|key ?mismatch`)
+	keyConflictWhen = lazyRegexp(`(?i)\bkey\b[^.;]*\b(?:different|another|other|changed)\s+(?:body|request|payload|content)`)
 )
 
 func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
@@ -67,9 +66,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	first := "${" + st.ID + "." + carrier + "." + idField + "}"
 	idPath := carrier + "." + idField
 
-	replay := copyStep(st, p.freeStepID(st.ID+"_replay"))
-	replay.Export = nil
-	replay.Body[key] = sent
+	replay := probeStep(st, p.freeStepID(st.ID+"_replay"))
 	renameStepRefs(replay, st.ID, replay.ID)
 	replay.Body[key] = sent
 	replay.Description = fmt.Sprintf("the same request with the same %s returns the %s %s created, not a second one.", key, carrier, st.ID)
@@ -77,16 +74,16 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 
 	other := copyStep(replay, p.freeStepID(st.ID+"_replay_other_body"))
 	bumped := bumpNumbers(other.Body, catalog.DescribeMessage(m.Input()).Fields)
-	other.Description = fmt.Sprintf("the same %s with another body (%s changed) still returns the first %s, unchanged.", key, stepList(bumped), carrier)
+	other.Description = fmt.Sprintf("the same %s with another body (%s changed) still returns the first %s, unchanged.", key, strings.Join(bumped, ", "), carrier)
 	other.Expect = append(SuccessExpectation(m), chain.Expectation{Path: idPath, Equals: first})
 	for _, n := range numbers {
 		other.Expect = append(other.Expect, chain.Expectation{Path: carrier + "." + n, Equals: "${" + st.ID + "." + carrier + "." + n + "}"})
 	}
 	conflict := ""
 	for _, f := range lib.AllFailures(st.Call) {
-		if keyConflict.MatchString(f.Reason) || keyConflictWhen.MatchString(f.When) {
+		if keyConflict().MatchString(f.Reason) || keyConflictWhen().MatchString(f.When) {
 			other.Expect = refusalFor(m, f)
-			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, stepList(bumped), f.Label())
+			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, strings.Join(bumped, ", "), f.Label())
 			conflict = f.Label()
 			break
 		}
@@ -124,7 +121,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		return
 	}
 	idPath := carrier + "." + idField
-	read, ok := p.readerFor(lib, st, idPath)
+	read, ok := p.readerMatching(lib, st, idPath, true)
 	if !ok {
 		return
 	}
@@ -146,36 +143,16 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 	added, ids := []*chain.Step{}, []string{}
 	for _, tr := range transitions {
 		label := defaultID(tr.method.Name)
-		fixture := copyStep(st, p.freeStepID(st.ID+"_for_replay_after_"+label))
-		fixture.Export = nil
-		p.freshen(lib, fixture)
-		renameStepRefs(fixture, st.ID, fixture.ID)
-		fixture.Description = fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label)
-		p.assertEcho(fixture)
+		fid := p.freeStepID(st.ID + "_for_replay_after_" + label)
+		fixture := p.fixtureCopy(lib, st, fid, map[string]string{st.ID: fid}, fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label))
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
 
-		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, tr.field, fixtureID)
-		move := &chain.Step{
-			ID:          p.freeStepID(label + "_for_replay"),
-			Description: fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]),
-			Call:        tr.method.FullName,
-			Auth:        tr.contract.Auth,
-			Body:        body,
-			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: carrier + "." + stateField.Name, Equals: tr.value}),
-		}
+		move := tr.step(p.freeStepID(label+"_for_replay"),
+			fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]), fixtureID, carrier+"."+stateField.Name)
 
-		rbody := catalog.ScaffoldWith(read.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(rbody, read.field, fixtureID)
 		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
-		fetch := &chain.Step{
-			ID:          readID,
-			Description: fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID),
-			Call:        read.reader.FullName,
-			Auth:        read.contract.Auth,
-			Body:        rbody,
-			Expect:      append(SuccessExpectation(read.reader), chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value}),
-		}
+		fetch := read.readStep(readID, fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID), fixtureID)
+		fetch.Expect = append(fetch.Expect, chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value})
 
 		replay := copyStep(fixture, p.freeStepID(st.ID+"_replay_after_"+label))
 		replay.Body[key] = "${steps." + fixture.ID + ".request." + key + "}"
@@ -225,15 +202,4 @@ func bumpNumbers(body map[string]any, fields []*catalog.Field) []string {
 	}
 	walk(body, fields, "")
 	return changed
-}
-
-func stepList(names []string) string {
-	if len(names) == 0 {
-		return "nothing"
-	}
-	out := names[0]
-	for _, n := range names[1:] {
-		out += ", " + n
-	}
-	return out
 }

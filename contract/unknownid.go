@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -13,8 +12,8 @@ import (
 const unknownIDSuffix = "-unknown"
 
 var (
-	notFoundReason = regexp.MustCompile(`NotFound|NoSuch|DoesNotExist|NotExist|^(?:Unknown|Missing|No)[A-Z]|(?:Unknown|Missing)$`)
-	notFoundWhen   = regexp.MustCompile(`(?i)\bno \w+ (?:has|with|matches|named|by)\b|\bdoes not exist\b|\bnot found\b|\bunknown\b|\bnames (?:no|an? (?:unknown|nonexistent|missing))\b|\bno such\b`)
+	notFoundReason = lazyRegexp(`NotFound|NoSuch|DoesNotExist|NotExist|^(?:Unknown|Missing|No)[A-Z]|(?:Unknown|Missing)$`)
+	notFoundWhen   = lazyRegexp(`(?i)\bno \w+ (?:has|with|matches|named|by)\b|\bdoes not exist\b|\bnot found\b|\bunknown\b|\bnames (?:no|an? (?:unknown|nonexistent|missing))\b|\bno such\b`)
 )
 
 func notFoundFailures(lib *Library, rpc string) []Failure {
@@ -23,7 +22,7 @@ func notFoundFailures(lib *Library, rpc string) []Failure {
 		if !probeable(f) || f.ConnectCode == "invalid_argument" {
 			continue
 		}
-		if notFoundReason.MatchString(f.Reason) || notFoundWhen.MatchString(f.When) {
+		if notFoundReason().MatchString(f.Reason) || notFoundWhen().MatchString(f.When) {
 			out = append(out, f)
 		}
 	}
@@ -49,7 +48,7 @@ func unknownIDFailure(failures []Failure, field string, ref Ref, only bool) (Fai
 			continue
 		}
 		for _, noun := range nouns {
-			if noun != "" && (strings.Contains(namecase.Fold(f.Reason), noun) || regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(noun)+`\b`).MatchString(f.When)) {
+			if noun != "" && (strings.Contains(namecase.Fold(f.Reason), noun) || mentionsField(f.When, noun)) {
 				return f, true
 			}
 		}
@@ -65,12 +64,8 @@ func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || p.isLogin(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		failures := notFoundFailures(lib, st.Call)
@@ -79,7 +74,7 @@ func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		batch := p.perItemResults(lib, st.Call, c, m) != nil
 		lookups := []string{}
-		for _, name := range sortedFieldNames(c.Fields) {
+		for _, name := range sortedKeys(c.Fields) {
 			if batch && len(chain.SplitPath(name)) > 1 {
 				continue
 			}
@@ -125,37 +120,19 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 	}
 	probe := p.probeCopy(lib, st, "unknown_"+leafName(field))
 	renameStepRefs(probe, st.ID, probe.ID)
-	return p.unknownAt(lib, st, m, probe, path, f)
-}
-
-func (p *Plan) unknownAt(lib *Library, st *chain.Step, m *catalog.Method, probe *chain.Step, path string, f Failure) string {
-	cur, ok := bodyValue(st.Body, path)
-	if !ok {
-		return ""
-	}
+	cur, _ := bodyValue(st.Body, path)
 	text, isText := cur.(string)
 	if !isText {
 		return ""
 	}
-	unknown := "no-such-" + strings.ReplaceAll(leafName(path), "_", "-")
+	unknown, wording := "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"), "an id nothing created"
 	if wholeReference(text) {
-		unknown = text + unknownIDSuffix
+		unknown, wording = text+unknownIDSuffix, fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
 	}
 	setBodyPath(probe.Body, path, unknown)
 	probe.Expect = refusalOf(m, f)
 	probe.Description = fmt.Sprintf("%s names no existing record (%s), so the answer is the not-found failure %s (%s).",
-		path, unknownValueWording(text), f.Label(), strings.TrimSpace(f.When))
-	steps := []*chain.Step{probe}
-	if !chain.IsReadOnlyCall(st.Call) && len(referencedSteps(probe.Body)) > 0 {
-		steps = p.guardUnchanged(lib, steps, probe.ID)
-	}
-	p.Chain.Steps = append(p.Chain.Steps, steps...)
+		path, wording, f.Label(), strings.TrimSpace(f.When))
+	p.addShape(lib, st, probe)
 	return fmt.Sprintf("%s (%s, expecting %s)", probe.ID, path, f.Label())
-}
-
-func unknownValueWording(current string) string {
-	if wholeReference(current) {
-		return fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
-	}
-	return "an id nothing created"
 }

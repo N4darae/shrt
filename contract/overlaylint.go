@@ -1,9 +1,10 @@
 package contract
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -38,11 +39,8 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 	issues = append(issues, lintCycles(lib, cat)...)
 	issues = append(issues, lintAliasAgreement(lib, cat)...)
 	issues = append(issues, EffectProblems(lib, cat)...)
-	sort.SliceStable(issues, func(i, j int) bool {
-		if issues[i].RPC != issues[j].RPC {
-			return issues[i].RPC < issues[j].RPC
-		}
-		return issues[i].Field < issues[j].Field
+	slices.SortStableFunc(issues, func(a, b Issue) int {
+		return cmp.Or(strings.Compare(a.RPC, b.RPC), strings.Compare(a.Field, b.Field))
 	})
 	return issues
 }
@@ -59,7 +57,7 @@ func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 					"write scope: all for one every rpc of every domain shares", f.Scope)})
 		}
 	}
-	for _, rpc := range sortedRPCNames(o.RPCs) {
+	for _, rpc := range sortedKeys(o.RPCs) {
 		issues = append(issues, lintRPC(o.Domain, rpc, o.RPCs[rpc], lib, cat)...)
 	}
 	return issues
@@ -128,7 +126,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		baseGaps[gap.message] = true
 		add(SeverityWarn, "fields."+gap.list, "%s", gap.message)
 	}
-	for _, alias := range sortedAliasNames(c.Aliases) {
+	for _, alias := range sortedKeys(c.Aliases) {
 		label := "aliases." + alias
 		issues = append(issues, lintFieldMap(domain, rpc, label, c.Aliases[alias].Fields, in, lib, cat)...)
 		for _, gap := range indexGaps(in, c.FieldsFor(alias)) {
@@ -158,15 +156,10 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		}
 	}
 
-	if len(c.RequiresRole) > 1 {
-		for _, role := range c.RequiresRole {
-			if strings.TrimSpace(role) == RoleNone {
-				add(SeverityError, "requires_role",
-					"requires_role lists %s alongside a real role — %s means this rpc reaches no role gate, so it stands alone or not at all",
-					RoleNone, RoleNone)
-				break
-			}
-		}
+	if len(c.RequiresRole) > 1 && slices.ContainsFunc(c.RequiresRole, func(role string) bool { return strings.TrimSpace(role) == RoleNone }) {
+		add(SeverityError, "requires_role",
+			"requires_role lists %s alongside a real role — %s means this rpc reaches no role gate, so it stands alone or not at all",
+			RoleNone, RoleNone)
 	}
 
 	for _, need := range c.Needs {
@@ -208,7 +201,7 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 			Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...),
 		})
 	}
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		f := fields[name]
 		qualified := label + "." + name
 		if !catalog.HasPath(in, chain.SplitPath(name)) {
@@ -257,24 +250,17 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 
 func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 	issues := []Issue{}
-	for _, alias := range append([]string{""}, sortedAliasNames(c.Aliases)...) {
+	for _, alias := range append([]string{""}, sortedKeys(c.Aliases)...) {
 		groups := map[string][]string{}
 		fields := c.FieldsFor(alias)
-		for _, name := range sortedFieldNames(fields) {
-			f := fields[name]
-			if f.OneOf == "" {
-				continue
-			}
-			if f.From != "" || f.Value != "" {
+		for _, name := range sortedKeys(fields) {
+			if f := fields[name]; f.OneOf != "" && (f.From != "" || f.Value != "") {
 				groups[f.OneOf] = append(groups[f.OneOf], name)
 			}
 		}
-		for _, group := range sortedKeys2(groups) {
+		for _, group := range sortedKeys(groups) {
 			if len(groups[group]) > 1 {
-				label := rpc
-				if alias != "" {
-					label = rpc + "@" + alias
-				}
+				label := Ref{RPC: rpc, Alias: alias}.Node()
 				issues = append(issues, Issue{
 					Domain: domain, RPC: rpc, Field: "oneof." + group, Severity: SeverityError,
 					Message: fmt.Sprintf("%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
@@ -352,19 +338,7 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 }
 
 func commitish(s string) bool {
-	if len(s) < 7 || len(s) > 40 {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-		case r >= 'a' && r <= 'f':
-		case r >= 'A' && r <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
+	return len(s) >= 7 && len(s) <= 40 && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
 
 func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
@@ -374,13 +348,8 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 	var visit func(node string, trail []string) bool
 	visit = func(node string, trail []string) bool {
 		rpc, alias := SplitNode(node)
-		if m, err := cat.Lookup(rpc); err == nil {
-			rpc = m.FullName
-		}
-		canonical := rpc
-		if alias != "" {
-			canonical = rpc + "@" + alias
-		}
+		rpc = canonicalCall(cat, rpc)
+		canonical := Ref{RPC: rpc, Alias: alias}.Node()
 		switch state[canonical] {
 		case 1:
 			issues = append(issues, Issue{
@@ -410,39 +379,12 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 	for _, rpc := range lib.RPCs() {
 		visit(rpc, nil)
 		if c, ok := lib.Get(rpc); ok {
-			for _, alias := range sortedAliasNames(c.Aliases) {
+			for _, alias := range sortedKeys(c.Aliases) {
 				visit(rpc+"@"+alias, nil)
 			}
 		}
 	}
 	return issues
-}
-
-func sortedRPCNames(m map[string]*RPCContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedKeys2(m map[string][]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 type consumerSite struct {
@@ -454,26 +396,22 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 	bySource := map[string][]consumerSite{}
 	domainOf := map[string]string{}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedRPCNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			domainOf[rpc] = o.Domain
 			c := o.RPCs[rpc]
-			for _, name := range sortedFieldNames(c.Fields) {
+			for _, name := range sortedKeys(c.Fields) {
 				ref, err := ParseRef(c.Fields[name].From)
 				if err != nil {
 					continue
 				}
-				producer := ref.RPC
-				if m, err := cat.Lookup(producer); err == nil {
-					producer = m.FullName
-				}
-				key := producer + "\x00" + ref.Path + "\x00" + name
+				key := canonicalCall(cat, ref.RPC) + "\x00" + ref.Path + "\x00" + name
 				bySource[key] = append(bySource[key], consumerSite{rpc: rpc, alias: ref.Alias})
 			}
 		}
 	}
 
 	issues := []Issue{}
-	for _, key := range sortedKeysOf(bySource) {
+	for _, key := range sortedKeys(bySource) {
 		sites := bySource[key]
 		field := strings.SplitN(key, "\x00", 3)[2]
 		for i, a := range sites {
@@ -492,7 +430,7 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 					Severity: SeverityWarn,
 					Message: fmt.Sprintf(
 						"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
-						field, describeInstance(consumer.alias), shortRPCName(producer.rpc), describeInstance(producer.alias)),
+						field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias)),
 				})
 			}
 		}
@@ -515,26 +453,11 @@ func directlyDepends(consumer, producer string, lib *Library, cat *catalog.Catal
 	if !ok {
 		return false
 	}
-	canonical := func(rpc string) string {
-		if m, err := cat.Lookup(rpc); err == nil {
-			return m.FullName
-		}
-		return rpc
-	}
-	want := canonical(producer)
-	for _, node := range c.Dependencies() {
+	want := canonicalCall(cat, producer)
+	return slices.ContainsFunc(append(c.Dependencies(), lib.RequiredBy(consumer)...), func(node string) bool {
 		rpc, _ := SplitNode(node)
-		if canonical(rpc) == want {
-			return true
-		}
-	}
-	for _, node := range lib.RequiredBy(consumer) {
-		rpc, _ := SplitNode(node)
-		if canonical(rpc) == want {
-			return true
-		}
-	}
-	return false
+		return canonicalCall(cat, rpc) == want
+	})
 }
 
 func describeInstance(alias string) string {
@@ -542,22 +465,6 @@ func describeInstance(alias string) string {
 		return "the un-aliased instance"
 	}
 	return "@" + alias
-}
-
-func shortRPCName(rpc string) string {
-	if i := strings.LastIndex(rpc, "."); i >= 0 {
-		return rpc[i+1:]
-	}
-	return rpc
-}
-
-func sortedKeysOf[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func lintSameAs(domain, rpc, field, raw string, lib *Library, cat *catalog.Catalog) []Issue {
@@ -603,13 +510,7 @@ func indexProblem(in []*catalog.Field, name string) string {
 			continue
 		}
 		prevIndex = false
-		var next *catalog.Field
-		for _, f := range fields {
-			if f.Name == seg {
-				next = f
-				break
-			}
-		}
+		next := fieldByName(fields, seg)
 		if next == nil || next.Truncated || next.MapKey != "" {
 			return ""
 		}
@@ -637,13 +538,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			if isIndexSegment(seg) {
 				continue
 			}
-			var f *catalog.Field
-			for _, c := range cur {
-				if c.Name == seg {
-					f = c
-					break
-				}
-			}
+			f := fieldByName(cur, seg)
 			if f == nil || f.MapKey != "" || f.Truncated {
 				break
 			}
@@ -664,7 +559,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 		}
 	}
 	out := []indexGap{}
-	for _, list := range sortedKeysOf(named) {
+	for _, list := range sortedKeys(named) {
 		if broadcast[list] {
 			continue
 		}
@@ -685,15 +580,17 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			"%s.%d is declared but %s %s not, so a plan builds %d entries of %s and sends %s as the scaffold "+
 				"left it, zeros and empty strings included. Declare every entry up to the highest index, or "+
 				"write the shared part without an index (%s.<field> applies to every entry)",
-			list, top, strings.Join(missing, ", "), pluralIs(len(missing)), top+1, list,
+			list, top, strings.Join(missing, ", "), pluralVerb(len(missing), "is", "are"), top+1, list,
 			strings.Join(missing, ", "), list)})
 	}
 	return out
 }
 
-func pluralIs(n int) string {
-	if n == 1 {
-		return "is"
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
 	}
-	return "are"
+	slices.Sort(out)
+	return out
 }

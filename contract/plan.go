@@ -2,8 +2,9 @@ package contract
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
-	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -89,7 +90,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 		seen[node] = true
 		nodes = append(nodes, node)
-		labels = append(labels, shortNode(node))
+		labels = append(labels, shortRPC(node))
 	}
 	order, edges, listed, err := resolveOrder(nodes, lib, cat)
 	if err != nil {
@@ -117,15 +118,15 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		Name:        name,
 		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
-	if !anyContract(order, lib) {
+	if !slices.ContainsFunc(order, func(node string) bool {
+		rpc, _ := SplitNode(node)
+		_, ok := lib.Get(rpc)
+		return ok
+	}) {
 		c.Description = fmt.Sprintf("reach %s; no contract covers %s yet, so this is a bare scaffold with no "+
 			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
 	}
 	p.Chain = c
-	isTarget := map[string]bool{}
-	for _, node := range nodes {
-		isTarget[node] = true
-	}
 	for _, node := range order {
 		rpc, alias := SplitNode(node)
 		method, err := cat.Lookup(rpc)
@@ -142,7 +143,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		p.fillLoginBody(step, method)
 		p.splitSharedProducers(step, p.grown)
 		c.Steps = append(c.Steps, step)
-		if !isTarget[node] {
+		if !seen[node] {
 			p.prepareSecondProducers(step)
 		}
 	}
@@ -159,20 +160,9 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 	p.captureRegion(targetSteps)
-	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] && !p.streams(st) }
-	denied := func(st *chain.Step) bool { return targetSteps[st.ID] }
 	for _, pass := range probePasses {
-		only := targeted
-		if pass.label == "token/role" {
-			only = denied
-		}
-		p.grouped(pass.label, func() {
-			if pass.tag == "" {
-				pass.probe(p, lib, only)
-				return
-			}
-			p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) })
-		})
+		only := func(st *chain.Step) bool { return targetSteps[st.ID] && (pass.label == "token/role" || !p.streams(st)) }
+		p.grouped(pass.label, func() { p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) }) })
 	}
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
 	p.echoNumbers()
@@ -194,9 +184,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 	if err := c.Normalize(); err != nil {
 		return nil, err
 	}
-	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
-		p.declareInterpolatedVars(missing)
-	}
+	p.declareInterpolatedVars()
 	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
 		p.note("the chain reads ${vars.%s}, which the contract's value: entries use and the chain does not declare: "+
 			"pass -var %s=... on every run (a fresh value when it makes names unique), or declare it under vars:",
@@ -257,7 +245,7 @@ func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *cat
 		return "", nil, fmt.Errorf("%s has no contract, so it has no alias %q to plan", m.FullName, alias)
 	}
 	if _, declared := c.Aliases[alias]; !declared {
-		names := sortedAliasNames(c.Aliases)
+		names := sortedKeys(c.Aliases)
 		have := "it declares none"
 		if len(names) > 0 {
 			have = "declared: " + strings.Join(names, ", ")
@@ -265,13 +253,6 @@ func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *cat
 		return "", nil, fmt.Errorf("%s has no alias %q (%s)", m.FullName, alias, have)
 	}
 	return m.FullName + "@" + alias, m, nil
-}
-
-func shortNode(node string) string {
-	if i := strings.LastIndex(node, "/"); i >= 0 {
-		return node[i+1:]
-	}
-	return node
 }
 
 func (p *Plan) noteAliasSiblings(edges map[string][]string) {
@@ -286,7 +267,7 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 	}
 	for _, rpc := range rpcs {
 		nodes := byRPC[rpc]
-		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
+		if len(nodes) < 2 || !slices.Contains(nodes, rpc) || slices.Contains(edges[rpc], "the plan target") {
 			continue
 		}
 		if !p.plainLooksDuplicate(rpc, nodes, edges[rpc]) {
@@ -303,41 +284,30 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 				first = node
 			}
 			ids = append(ids, p.stepOf[node])
-			aliased = append(aliased, fmt.Sprintf("%s (via %s)", shortNode(node), strings.Join(edges[node], "; ")))
+			aliased = append(aliased, fmt.Sprintf("%s (via %s)", shortRPC(node), strings.Join(edges[node], "; ")))
 		}
 		p.note("steps %s all call %s: the plain %s came in via %s, while %s came in through other edges. "+
 			"The plain step is built from the unaliased fields only, so it is likely a duplicate of an "+
 			"aliased one — if it is, point that edge at the alias (needs: [%s], or from:/same_as: naming it) or drop it. before: "+
 			"always names the plain rpc, so an ordering meant for an alias belongs in the later rpc's "+
 			"needs: instead",
-			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
-			strings.Join(aliased, ", "), shortNode(first))
+			strings.Join(ids, ", "), shortRPC(rpc), shortRPC(rpc), strings.Join(edges[rpc], "; "),
+			strings.Join(aliased, ", "), shortRPC(first))
 	}
 }
 
 func (p *Plan) plainLooksDuplicate(rpc string, nodes, via []string) bool {
-	onlyBefore := len(via) > 0
-	for _, edge := range via {
-		if !strings.Contains(edge, " before: ") {
-			onlyBefore = false
-		}
-	}
-	if onlyBefore {
+	if len(via) > 0 && !slices.ContainsFunc(via, func(edge string) bool { return !strings.Contains(edge, " before: ") }) {
 		return true
 	}
 	plain := p.stepByID(p.stepOf[rpc])
-	if plain == nil {
-		return false
-	}
-	for _, node := range nodes {
+	return plain != nil && slices.ContainsFunc(nodes, func(node string) bool {
 		if node == rpc {
-			continue
+			return false
 		}
-		if s := p.stepByID(p.stepOf[node]); s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body) {
-			return true
-		}
-	}
-	return false
+		s := p.stepByID(p.stepOf[node])
+		return s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body)
+	})
 }
 
 func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {
@@ -348,36 +318,16 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 		}
 		rpc, _ := SplitNode(node)
 		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
-			"as %s@after", shortNode(rpc), shortNode(rpc))
+			"as %s@after", shortRPC(rpc), shortRPC(rpc))
 		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
-			names := sortedAliasNames(c.Aliases)
+			names := sortedKeys(c.Aliases)
 			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
-				shortNode(rpc), names[0], strings.Join(names, ", "))
+				shortRPC(rpc), names[0], strings.Join(names, ", "))
 		}
 		p.note("%s is named %d times as a target, and a plan calls each target once, so the repeat(s) were "+
 			"merged into step %s. To call it again at another point in the chain, %s",
-			shortNode(node), n+1, p.stepOf[node], how)
+			shortRPC(node), n+1, p.stepOf[node], how)
 	}
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
-}
-
-func ArmedOneofMembersOf(lib *Library, rpc string) []string {
-	if lib == nil {
-		return nil
-	}
-	c, ok := lib.Get(rpc)
-	if !ok {
-		return nil
-	}
-	return ArmedOneofMembers(c, "")
 }
 
 func ArmedOneofMembers(c *RPCContract, alias string) []string {
@@ -386,7 +336,7 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 	}
 	fields := c.FieldsFor(alias)
 	out := []string{}
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		f := fields[name]
 		if f.OneOf != "" && (f.Value != "" || f.From != "" || f.SameAs != "") {
 			out = append(out, name)
@@ -402,29 +352,13 @@ func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*y
 	}
 	nodes := make([]*yaml.Node, 0, len(refs))
 	for _, step := range p.Chain.Steps {
-		m, err := cat.Lookup(step.Call)
+		node, err := p.stepNode(step, nil)
 		if err != nil {
 			return nil, nil, err
 		}
-		body := step.Body
-		bare := *step
-		bare.Body = nil
-		node := &yaml.Node{}
-		if err := node.Encode(&bare); err != nil {
-			return nil, nil, err
-		}
-		inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, body))
 		nodes = append(nodes, node)
 	}
 	return nodes, p.Notes, nil
-}
-
-func ScaffoldStep(m *catalog.Method, id string, lib *Library, cat *catalog.Catalog) *yaml.Node {
-	nodes, _, err := ScaffoldSteps([]string{m.FullName}, []string{id}, lib, cat)
-	if err != nil || len(nodes) == 0 {
-		return nil
-	}
-	return nodes[0]
 }
 
 func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *chain.Step {
@@ -462,9 +396,10 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 
 	fields := c.FieldsFor(alias)
 	schema := catalog.DescribeMessage(m.Input())
-	names := byIndexDepth(sortedFieldNames(fields))
+	names := sortedKeys(fields)
+	sort.SliceStable(names, func(i, j int) bool { return indexDepth(names[i]) < indexDepth(names[j]) })
 	for _, name := range names {
-		growLists(step.Body, name)
+		growAt(step.Body, chain.SplitPath(name))
 	}
 	for _, name := range names {
 		f := fields[name]
@@ -609,7 +544,7 @@ func (p *Plan) gapIn(note, gap string) {
 
 func (p *Plan) note(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
-	if containsString(p.Notes, text) {
+	if slices.Contains(p.Notes, text) {
 		return
 	}
 	p.Notes = append(p.Notes, text)
@@ -654,14 +589,15 @@ func setAt(cur any, segs []string, value any) bool {
 		m[seg] = value
 		return true
 	}
-	return setAt(childContainer(m, seg), segs[1:], value)
+	switch m[seg].(type) {
+	case map[string]any, []any:
+	default:
+		m[seg] = map[string]any{}
+	}
+	return setAt(m[seg], segs[1:], value)
 }
 
 const maxPlannedEntries = 100
-
-func growLists(body map[string]any, path string) {
-	growAt(body, chain.SplitPath(path))
-}
 
 func growAt(cur any, segs []string) any {
 	if len(segs) == 0 {
@@ -722,33 +658,7 @@ func indexDepth(path string) int {
 }
 
 func isIndexSegment(seg string) bool {
-	if seg == "" {
-		return false
-	}
-	for _, r := range seg {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func byIndexDepth(names []string) []string {
-	out := append([]string{}, names...)
-	sort.SliceStable(out, func(i, j int) bool { return indexDepth(out[i]) < indexDepth(out[j]) })
-	return out
-}
-
-func childContainer(m map[string]any, seg string) any {
-	switch next := m[seg].(type) {
-	case map[string]any:
-		return next
-	case []any:
-		return next
-	}
-	next := map[string]any{}
-	m[seg] = next
-	return next
+	return seg != "" && strings.Trim(seg, "0123456789") == ""
 }
 
 func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
@@ -758,19 +668,14 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 	edges := map[string][]string{}
 	canon := func(node string) (string, string, string) {
 		rpc, alias := SplitNode(node)
-		if m, err := cat.Lookup(rpc); err == nil {
-			rpc = m.FullName
-		}
-		if alias != "" {
-			return rpc + "@" + alias, rpc, alias
-		}
-		return rpc, rpc, alias
+		rpc = canonicalCall(cat, rpc)
+		return Ref{RPC: rpc, Alias: alias}.Node(), rpc, alias
 	}
 
 	var visit func(node, via string, trail []string) error
 	visit = func(node, via string, trail []string) error {
 		canonical, rpc, alias := canon(node)
-		if via != "" && !containsString(edges[canonical], via) {
+		if via != "" && !slices.Contains(edges[canonical], via) {
 			edges[canonical] = append(edges[canonical], via)
 		}
 		switch state[canonical] {
@@ -783,14 +688,14 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 		if c, ok := lib.Get(rpc); ok {
 			for _, dep := range c.DependenciesFor(alias) {
 				depCanonical, _, _ := canon(dep)
-				label := shortNode(canonical) + " " + dependencyKind(c, alias, depCanonical, canon)
+				label := shortRPC(canonical) + " " + dependencyKind(c, alias, depCanonical, canon)
 				if err := visit(dep, label, append(trail, canonical)); err != nil {
 					return err
 				}
 			}
 		}
 		for _, requires := range lib.RequiredBy(rpc) {
-			label := shortNode(requires) + " before: " + shortNode(rpc)
+			label := shortRPC(requires) + " before: " + shortRPC(rpc)
 			if err := visit(requires, label, append(trail, canonical)); err != nil {
 				return err
 			}
@@ -800,7 +705,7 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 			if msg := listedMessage(m); msg != "" && !nodesReturn(order, msg, cat) {
 				lp := listProducer{list: canonical, msg: msg}
 				if creator := creatorOf(msg, lib, cat); creator != "" && state[creator] == 0 {
-					label := shortNode(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
+					label := shortRPC(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
 					if err := visit(creator, label, append(trail, canonical)); err != nil {
 						return err
 					}
@@ -823,14 +728,11 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 
 func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (string, string, string)) string {
 	kinds := []string{}
-	for _, n := range c.Needs {
-		if got, _, _ := canon(n); got == dep {
-			kinds = append(kinds, "needs:")
-			break
-		}
+	if slices.ContainsFunc(c.Needs, func(n string) bool { got, _, _ := canon(n); return got == dep }) {
+		kinds = append(kinds, "needs:")
 	}
 	fields := c.FieldsFor(alias)
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		if ref, err := ParseRef(fields[name].From); err == nil {
 			if got, _, _ := canon(ref.Node()); got == dep {
 				kinds = append(kinds, name+" from:")
@@ -875,7 +777,10 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 	body := step.Body
 	shallow := *step
 	shallow.Body = nil
-	shallow.Export = readExports(step.Export, read)
+	if read != nil {
+		shallow.Export = maps.Clone(step.Export)
+		maps.DeleteFunc(shallow.Export, func(name, _ string) bool { return !read[name] })
+	}
 	node := &yaml.Node{}
 	if err := node.Encode(&shallow); err != nil {
 		return nil, err
@@ -935,7 +840,7 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	if producer == nil {
 		return
 	}
-	varName := producerID + "_" + strings.ReplaceAll(ref.Path, ".", "_")
+	varName := exportName(producerID, ref.Path)
 	token := "${vars." + varName + "}"
 
 	seed, _ := bodyValue(producer.Body, ref.Path)
@@ -964,36 +869,25 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	setBodyPath(step.Body, field, token)
 }
 
-var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+var planVarRef = lazyRegexp(`\$\{vars\.([A-Za-z0-9_]+)\}`)
 
-func (p *Plan) declareInterpolatedVars(missing []string) {
+func (p *Plan) declareInterpolatedVars() {
+	missing, _ := chain.ExternalInputs(p.Chain)
 	interpolated, whole := map[string]bool{}, map[string]bool{}
-	var walk func(any)
-	walk = func(v any) {
-		switch t := v.(type) {
-		case string:
-			for _, m := range planVarRef.FindAllStringSubmatchIndex(t, -1) {
-				name := t[m[2]:m[3]]
-				if m[0] == 0 && m[1] == len(t) {
+	for _, st := range p.Chain.Steps {
+		if st == nil {
+			continue
+		}
+		mapStrings(st.Body, func(t string) string {
+			for _, m := range planVarRef().FindAllStringSubmatchIndex(t, -1) {
+				if name := t[m[2]:m[3]]; m[0] == 0 && m[1] == len(t) {
 					whole[name] = true
 				} else {
 					interpolated[name] = true
 				}
 			}
-		case map[string]any:
-			for _, item := range t {
-				walk(item)
-			}
-		case []any:
-			for _, item := range t {
-				walk(item)
-			}
-		}
-	}
-	for _, st := range p.Chain.Steps {
-		if st != nil {
-			walk(st.Body)
-		}
+			return t
+		})
 	}
 	value := p.Chain.Name
 	if value == "" {
@@ -1019,12 +913,8 @@ func (p *Plan) declareInterpolatedVars(missing []string) {
 }
 
 func (p *Plan) stepByID(id string) *chain.Step {
-	for i := range p.Chain.Steps {
-		if p.Chain.Steps[i].ID == id {
-			return p.Chain.Steps[i]
-		}
-	}
-	return nil
+	s, _ := p.Chain.Step(id)
+	return s
 }
 
 func hasTemplate(v any) bool {
@@ -1054,7 +944,7 @@ func (p *Plan) noteRequirements() {
 			p.gap("step %s: required is an unfilled TODO, so this plan cannot say what the server rejects without — treat the body as unverified", id)
 		}
 		for _, name := range pc.contract.Required {
-			if IsRequiredNone(name) {
+			if strings.TrimSpace(name) == RequiredNone {
 				continue
 			}
 			if strings.TrimSpace(name) == RequiredUnknown {
@@ -1072,14 +962,14 @@ func (p *Plan) noteRequirements() {
 				"test data you mean, set it — in the contract (value:) or in the chain; if 0 IS what you mean, say so "+
 				"with value: \"0\", because a note: describes the field and does not silence this. This line is the only "+
 				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
-				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
+				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralVerb(len(zeros), "is", "are"))
 		}
 		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
 			if p.noun == "" {
 				p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
 			} else {
 				verdictOnly = append(verdictOnly, id)
-				if rpc := shortRPC(pc.step.Call); !containsString(rpcs, rpc) {
+				if rpc := shortRPC(pc.step.Call); !slices.Contains(rpcs, rpc) {
 					rpcs = append(rpcs, rpc)
 				}
 			}
@@ -1099,18 +989,8 @@ func typedValue(raw string, schema *catalog.Schema, path string) any {
 	if schema == nil || chain.HasReference(raw) {
 		return raw
 	}
-	kind := ""
-	if f, ok := catalog.FieldAt(schema.Fields, chain.SplitPath(path)); ok && f != nil {
-		kind = f.Kind
-	}
-	switch kind {
-	case "bool":
-		switch raw {
-		case "true":
-			return true
-		case "false":
-			return false
-		}
+	if f, ok := catalog.FieldAt(schema.Fields, chain.SplitPath(path)); ok && f != nil && f.Kind == "bool" && (raw == "true" || raw == "false") {
+		return raw == "true"
 	}
 	return raw
 }
@@ -1136,26 +1016,20 @@ func scaffoldZeros(body map[string]any, schema []*catalog.Field, c *RPCContract,
 				continue
 			}
 			at := join(path, f.Name)
-			if list, isList := child.([]any); isList {
-				for i, item := range list {
-					itemPath := at
-					if len(list) > 1 {
-						itemPath = fmt.Sprintf("%s.%d", at, i)
-					}
-					if len(f.Fields) > 0 {
-						walk(item, f.Fields, itemPath)
-					} else if isNumericZero(item) && !contractSpeaksFor(c, fields, itemPath) {
-						out = append(out, itemPath)
-					}
+			list, isList := child.([]any)
+			if !isList {
+				list = []any{child}
+			}
+			for i, item := range list {
+				itemPath := at
+				if len(list) > 1 {
+					itemPath = fmt.Sprintf("%s.%d", at, i)
 				}
-				continue
-			}
-			if len(f.Fields) > 0 {
-				walk(child, f.Fields, at)
-				continue
-			}
-			if isNumericZero(child) && !contractSpeaksFor(c, fields, at) {
-				out = append(out, at)
+				if len(f.Fields) > 0 {
+					walk(item, f.Fields, itemPath)
+				} else if isNumericZero(item) && !contractSpeaksFor(c, fields, itemPath) {
+					out = append(out, itemPath)
+				}
 			}
 		}
 	}
@@ -1194,23 +1068,7 @@ func contractSpeaksFor(c *RPCContract, fields map[string]*FieldContract, path st
 }
 
 func stripIndexes(path string) string {
-	kept := []string{}
-	for _, seg := range chain.SplitPath(path) {
-		if !isIndexSegment(seg) {
-			kept = append(kept, seg)
-		}
-	}
-	return strings.Join(kept, ".")
-}
-
-func anyContract(order []string, lib *Library) bool {
-	for _, node := range order {
-		rpc, _ := SplitNode(node)
-		if _, ok := lib.Get(rpc); ok {
-			return true
-		}
-	}
-	return false
+	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), isIndexSegment), ".")
 }
 
 func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
@@ -1219,12 +1077,7 @@ func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
 		return
 	}
 	filled := []string{}
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(body) {
 		k, ok := namecase.LookupKey(step.Body, key)
 		if !ok {
 			k = key

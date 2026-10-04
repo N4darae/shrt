@@ -23,11 +23,3 @@ func (c *Chain) RedactedPinProblems(redact []string) []string {
 	}
 	return out
 }
-
-func lintRedactedPins(c *Chain, redact []string) []Issue {
-	issues := []Issue{}
-	for _, p := range c.RedactedPinProblems(append(append([]string{}, c.Redact...), redact...)) {
-		issues = append(issues, Issue{Severity: SeverityError, Message: p})
-	}
-	return issues
-}

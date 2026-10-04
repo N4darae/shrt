@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,8 +17,8 @@ const (
 )
 
 var (
-	atMostN    = regexp.MustCompile(`(?i)(?:at most|up to|maximum(?: of| is)?|max\.?|no (?:more|longer) than|longer than|more than|exceeds?|over)\s+(\d+)\s*(?:characters|chars|char|letters|runes|code points|bytes)\b`)
-	lengthWord = regexp.MustCompile(`(?i)\b(?:too long|longer than|length|characters|chars|exceeds?)\b`)
+	atMostN    = lazyRegexp(`(?i)(?:at most|up to|maximum(?: of| is)?|max\.?|no (?:more|longer) than|longer than|more than|exceeds?|over)\s+(\d+)\s*(?:characters|chars|char|letters|runes|code points|bytes)\b`)
+	lengthWord = lazyRegexp(`(?i)\b(?:too long|longer than|length|characters|chars|exceeds?)\b`)
 	freeText   = map[string]bool{"name": true, "title": true, "description": true, "note": true, "notes": true, "comment": true,
 		"label": true, "display": true, "text": true, "message": true, "summary": true, "remark": true, "memo": true, "subject": true, "body": true}
 )
@@ -34,31 +33,22 @@ type textField struct {
 }
 
 func statedMaximum(lib *Library, rpc string, c *RPCContract, name string) (int, *Failure, bool) {
-	for _, f := range lib.AllFailures(rpc) {
-		if f.Field != name && !mentionsField(f.When, name) {
-			continue
+	n, fail, ok := statedBound(lib, rpc, c, name, func(text string) (int64, bool) {
+		m := atMostN().FindStringSubmatch(text)
+		if m == nil {
+			return 0, false
 		}
-		if m := atMostN.FindStringSubmatch(f.When); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil {
-				failure := f
-				return n, &failure, true
+		n, err := strconv.Atoi(m[1])
+		return int64(n), err == nil
+	})
+	if ok && fail == nil {
+		for _, f := range lib.AllFailures(rpc) {
+			if f.Field == name && lengthWord().MatchString(f.When+" "+f.Reason) {
+				return int(n), &f, true
 			}
 		}
 	}
-	if fc := c.Fields[name]; fc != nil {
-		if m := atMostN.FindStringSubmatch(fc.Note); m != nil {
-			if n, err := strconv.Atoi(m[1]); err == nil {
-				for _, f := range lib.AllFailures(rpc) {
-					if f.Field == name && lengthWord.MatchString(f.When+" "+f.Reason) {
-						failure := f
-						return n, &failure, true
-					}
-				}
-				return n, nil, true
-			}
-		}
-	}
-	return 0, nil, false
+	return int(n), fail, ok
 }
 
 func isFreeText(name string) bool {
@@ -101,41 +91,21 @@ func (p *Plan) probeTextLength(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) || p.isLogin(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
 			continue
 		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
+		car := singleCarrier(m)
+		if car == nil {
 			continue
 		}
-		carrier, echoed := "", map[string]bool{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-				continue
-			}
-			for _, sf := range fd.Fields {
-				if sf.Kind == "string" && !sf.Repeated {
-					echoed[sf.Name] = true
-				}
-			}
-			if carrier == "" {
-				carrier = fd.Name
-			} else {
-				carrier = "-"
+		carrier, echoed := car.Name, map[string]bool{}
+		for _, sf := range car.Fields {
+			if sf.Kind == "string" && !sf.Repeated {
+				echoed[sf.Name] = true
 			}
 		}
-		if carrier == "" || carrier == "-" {
-			continue
-		}
-		unique := map[string]bool{}
-		for _, f := range lib.AllFailures(st.Call) {
-			if noun, isUnique := uniquenessNoun(f); isUnique {
-				if field := p.uniqueField(st, c, f, noun); field != "" {
-					unique[stripIndexes(field)] = true
-				}
-			}
-		}
+		unique := p.uniqueFields(lib, st)
 		fields := []textField{}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Kind != "string" || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || idLike(f.Name) || isIdempotencyField(f) || !echoed[f.Name] {
@@ -177,23 +147,12 @@ func (p *Plan) textReadBack(lib *Library, st, probe *chain.Step, m *catalog.Meth
 	if !ok {
 		return nil
 	}
-	stored := map[string]bool{}
-	for _, sf := range carrierFields(e.reader, e.carrier) {
-		stored[sf.Name] = true
-	}
-	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, e.field, "${"+probe.ID+"."+idPath+"}")
-	read := &chain.Step{
-		ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + probe.ID),
-		Description: fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID),
-		Call:        e.reader.FullName,
-		Auth:        e.contract.Auth,
-		Body:        body,
-		Expect:      SuccessExpectation(e.reader),
-	}
+	stored := carrierFields(e.reader, e.carrier)
+	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+probe.ID),
+		fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID), "${"+probe.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	for _, name := range names {
-		if stored[name] {
+		if fieldByName(stored, name) != nil {
 			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + name, Equals: "${steps." + probe.ID + ".request." + name + "}"})
 		}
 	}
@@ -222,11 +181,9 @@ func (p *Plan) textProbe(lib *Library, st *chain.Step, m *catalog.Method, carrie
 
 func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, carrier string, fields []textField, unique map[string]bool) {
 	long, multi := map[string]string{}, map[string]string{}
-	capped := []string{}
 	for _, tf := range fields {
 		v := st.Body[tf.key].(string)
 		if tf.max > 0 {
-			capped = append(capped, tf.name)
 			continue
 		}
 		long[tf.key] = lengthen(v, padding(longTextPad))
@@ -234,20 +191,17 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 			multi[tf.key] = v + " " + strings.TrimSuffix(strings.Repeat(multiBytePart, 3), "-")
 		}
 	}
-	added, said := []*chain.Step{}, []string{}
+	said := []string{}
 	if len(long) > 0 {
 		steps := p.textProbe(lib, st, m, carrier, "long_text", fmt.Sprintf("grown by %d characters", longTextPad+1), long)
-		added = append(added, steps...)
+		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		said = append(said, steps[0].ID+" (each lengthened by "+strconv.Itoa(longTextPad+1)+" characters)")
 	}
 	if len(multi) > 0 {
-		p.Chain.Steps = append(p.Chain.Steps, added...)
-		added = nil
 		steps := p.textProbe(lib, st, m, carrier, "unicode_text", "carrying multi-byte characters", multi)
-		added = append(added, steps...)
+		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		said = append(said, steps[0].ID+" (free text with multi-byte characters)")
 	}
-	p.Chain.Steps = append(p.Chain.Steps, added...)
 	for _, tf := range fields {
 		if tf.max <= 0 {
 			continue
@@ -277,7 +231,7 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 	msg := fmt.Sprintf("step %s: text the response echoes is probed with values the fixtures never reach: %s; each asserts "+
 		"the text echoed and, where a read takes the id, stored exactly as sent, so a backend that truncates, trims or "+
 		"re-encodes it fails", st.ID, strings.Join(said, "; "))
-	if len(capped) < len(fields) {
+	if len(long) > 0 {
 		msg += ". If the backend limits a field's length, state it in its note or a failure's when: (\"at most 40 characters\") " +
 			"and plan again: the probe then sends exactly that many and one more, expecting the refusal"
 	}

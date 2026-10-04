@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -14,9 +15,9 @@ import (
 const largeValue = 12345
 
 var (
-	positiveOnly = regexp.MustCompile(`(?i)zero or negative|not positive|non-positive|must be positive|is positive|greater than zero|greater than 0\b|less than 1\b|below 1\b|at least 1\b|> ?0\b|<= ?0\b`)
-	atLeastN     = regexp.MustCompile(`(?i)(?:at least|minimum(?: is| of)?|no less than)\s+(\d+)`)
-	belowN       = regexp.MustCompile(`(?i)(?:less than|below|under|fewer than)\s+(\d+)`)
+	positiveOnly = lazyRegexp(`(?i)zero or negative|not positive|non-positive|must be positive|is positive|greater than zero|greater than 0\b|less than 1\b|below 1\b|at least 1\b|> ?0\b|<= ?0\b`)
+	atLeastN     = lazyRegexp(`(?i)(?:at least|minimum(?: is| of)?|no less than)\s+(\d+)`)
+	belowN       = lazyRegexp(`(?i)(?:less than|below|under|fewer than)\s+(\d+)`)
 )
 
 func spreadValue(base int64, rank int, quantity bool) int64 {
@@ -111,10 +112,10 @@ func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field, perm []in
 }
 
 func parseMinimum(text string) (int64, bool) {
-	if positiveOnly.MatchString(text) {
+	if positiveOnly().MatchString(text) {
 		return 1, true
 	}
-	for _, re := range []*regexp.Regexp{atLeastN, belowN} {
+	for _, re := range []*regexp.Regexp{atLeastN(), belowN()} {
 		if m := re.FindStringSubmatch(text); m != nil {
 			if n, err := strconv.ParseInt(m[1], 10, 64); err == nil {
 				return n, true
@@ -129,18 +130,17 @@ func mentionsField(text, name string) bool {
 	return err == nil && re.MatchString(text)
 }
 
-func statedMinimum(lib *Library, rpc string, c *RPCContract, name string) (int64, *Failure, bool) {
+func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
 	for _, f := range lib.AllFailures(rpc) {
 		if f.Field != name && !mentionsField(f.When, name) {
 			continue
 		}
-		if n, ok := parseMinimum(f.When); ok {
-			failure := f
-			return n, &failure, true
+		if n, ok := parse(f.When); ok {
+			return n, &f, true
 		}
 	}
 	if fc := c.Fields[name]; fc != nil {
-		if n, ok := parseMinimum(fc.Note); ok {
+		if n, ok := parse(fc.Note); ok {
 			return n, nil, true
 		}
 	}
@@ -155,12 +155,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		said := []string{}
@@ -179,22 +175,18 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
 				continue
 			}
-			key, ok := namecase.LookupKey(st.Body, f.Name)
+			key, ok := literalKey(st.Body, f.Name)
 			if !ok {
 				continue
 			}
-			if _, literal := numericValue(st.Body[key]); !literal {
-				continue
-			}
 			quantity := isQuantityName(f.Name)
-			min, failure, stated := statedMinimum(lib, st.Call, c, f.Name)
+			min, failure, stated := statedBound(lib, st.Call, c, f.Name, parseMinimum)
 			if quantity && !(rules.increase[rpc] != nil && rules.increase[rpc].qtyField == f.Name) {
 				quantities = append(quantities, f.Name)
 			}
 			if !stated {
 				unbounded = append(unbounded, f.Name)
-			}
-			if stated {
+			} else {
 				probe := p.probeCopy(lib, st, f.Name+"_min")
 				probe.Body[key] = strconv.FormatInt(min, 10)
 				renameStepRefs(probe, st.ID, probe.ID)
@@ -232,7 +224,6 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				said = append(said, fmt.Sprintf("%s (%s = %s, an addition the fixtures' small quantities never make, so a cap or "+
 					"overflow on it shows in %s, asserted as the level before plus %s)", strings.Join(ids, ", "), f.Name,
 					joinInts(largeQuantities), inc.moved, f.Name))
-				quantity = false
 			} else if !quantity {
 				large := p.probeCopy(lib, st, f.Name+"_large")
 				large.Body[key] = strconv.Itoa(largeValue)
@@ -246,7 +237,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			msg := fmt.Sprintf("step %s: boundary and magnitude probes %s.", st.ID, strings.Join(said, "; "))
 			if len(quantities) > 0 {
 				msg += fmt.Sprintf(" %s %s not probed large, since a large quantity runs into stock rules rather than arithmetic.",
-					strings.Join(quantities, ", "), pluralIs(len(quantities)))
+					strings.Join(quantities, ", "), pluralVerb(len(quantities), "is", "are"))
 			}
 			if len(unbounded) > 0 {
 				msg += fmt.Sprintf(" %s %s no stated minimum; declare one in a failure's when: (\"qty is zero or negative\") or "+
@@ -258,12 +249,9 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func isRefusalStep(st *chain.Step) bool {
-	for _, e := range st.Expect {
-		if e.Path == "transport.code" || (chain.IsEnvelopePath(e.Path) && e.NotEqual != nil) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Path == "transport.code" || (chain.IsEnvelopePath(e.Path) && e.NotEqual != nil)
+	})
 }
 
 func (p *Plan) echoNumbers() {
@@ -275,28 +263,20 @@ func (p *Plan) echoNumbers() {
 		if err != nil {
 			continue
 		}
-		carriers := []*catalog.Field{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != chain.EnvelopeField() && !IsVerdictFieldName(fd.Name) {
-				carriers = append(carriers, fd)
-			}
-		}
-		if len(carriers) != 1 {
+		car := singleCarrier(m)
+		if car == nil {
 			continue
 		}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) {
 				continue
 			}
-			key, ok := namecase.LookupKey(st.Body, f.Name)
+			key, ok := literalKey(st.Body, f.Name)
 			if !ok {
 				continue
 			}
-			if _, literal := numericValue(st.Body[key]); !literal {
-				continue
-			}
-			for _, out := range carriers[0].Fields {
-				path := carriers[0].Name + "." + out.Name
+			for _, out := range car.Fields {
+				path := car.Name + "." + out.Name
 				if out.Name != f.Name || !chain.IsNumericKind(out.Kind) || out.Repeated || hasExpectOn(st, path) {
 					continue
 				}
@@ -307,12 +287,7 @@ func (p *Plan) echoNumbers() {
 }
 
 func hasExpectOn(st *chain.Step, path string) bool {
-	for _, e := range st.Expect {
-		if e.Path == path {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == path })
 }
 
 func joinInts(ns []int64) string {
@@ -363,17 +338,13 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, rf.Name)
+		key, first, ok := firstLine(st.Body, rf.Name)
 		if !ok {
 			continue
 		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok1 := items[0].(map[string]any)
-		last, ok2 := items[len(items)-1].(map[string]any)
-		if !ok1 || !ok2 {
+		items := st.Body[key].([]any)
+		last, ok := items[len(items)-1].(map[string]any)
+		if !ok {
 			continue
 		}
 		single, field, inc := p.singleItemLarge(lib, rules, st.Call, rf)
@@ -424,12 +395,7 @@ func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step,
 		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, rf.Name)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		first, ok := firstItem(items)
+		key, first, ok := firstLine(st.Body, rf.Name)
 		if !ok {
 			continue
 		}
@@ -437,11 +403,8 @@ func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step,
 			if sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) || len(sub.EnumValues) > 0 {
 				continue
 			}
-			k, ok := namecase.LookupKey(first, sub.Name)
+			k, ok := literalKey(first, sub.Name)
 			if !ok {
-				continue
-			}
-			if _, literal := numericValue(first[k]); !literal {
 				continue
 			}
 			if isQuantityName(sub.Name) && rules.movesStock(rpc) {
@@ -473,6 +436,16 @@ func firstItem(items []any) (map[string]any, bool) {
 	}
 	m, ok := items[0].(map[string]any)
 	return m, ok
+}
+
+func firstLine(body map[string]any, list string) (string, map[string]any, bool) {
+	key, ok := namecase.LookupKey(body, list)
+	if !ok {
+		return "", nil, false
+	}
+	items, _ := body[key].([]any)
+	first, ok := firstItem(items)
+	return key, first, ok
 }
 
 func (p *Plan) singleItemLarge(lib *Library, rules *effectRules, batch string, rf *catalog.Field) (string, string, *stockRule) {
@@ -522,9 +495,9 @@ const (
 	wideLimit = int64(1) << 31
 )
 
-var lengthUnit = regexp.MustCompile(`(?i)^\s*(?:characters|chars|char|letters|runes|code points|bytes|items|lines|entries)\b`)
+var lengthUnit = lazyRegexp(`(?i)^\s*(?:characters|chars|char|letters|runes|code points|bytes|items|lines|entries)\b`)
 
-var aboveN = regexp.MustCompile(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
+var aboveN = lazyRegexp(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
 
 func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string) (int64, bool) {
 	texts := []string{}
@@ -540,9 +513,9 @@ func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string)
 	}
 	best, found := int64(0), false
 	for _, t := range texts {
-		for _, at := range aboveN.FindAllStringSubmatchIndex(t, -1) {
+		for _, at := range aboveN().FindAllStringSubmatchIndex(t, -1) {
 			n, err := strconv.ParseInt(t[at[2]:at[3]], 10, 64)
-			if err != nil || n <= 0 || lengthUnit.MatchString(t[at[1]:]) {
+			if err != nil || n <= 0 || lengthUnit().MatchString(t[at[1]:]) {
 				continue
 			}
 			if !found || n < best {
@@ -551,10 +524,6 @@ func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string)
 		}
 	}
 	return best, found
-}
-
-func is64BitKind(kind string) bool {
-	return strings.Contains(kind, "64")
 }
 
 func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
@@ -579,18 +548,10 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 				kind = sf.Kind
 			}
 		}
-		if !is64BitKind(kind) {
+		if !strings.Contains(kind, "64") {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, t.list)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		key, first, ok := firstLine(st.Body, t.list)
 		if !ok {
 			continue
 		}
@@ -599,11 +560,8 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		if entity == nil || canonicalCall(p.cat, entity.Call) != t.entity {
 			continue
 		}
-		priceKey, ok := namecase.LookupKey(entity.Body, t.price)
+		priceKey, ok := literalKey(entity.Body, t.price)
 		if !ok {
-			continue
-		}
-		if _, literal := numericValue(entity.Body[priceKey]); !literal {
 			continue
 		}
 		price := widePrice
@@ -624,14 +582,12 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 			continue
 		}
 		id := p.freeStepID(st.ID + "_wide_total")
-		prod := copyStep(entity, p.freeStepID(entity.ID+"_for_"+id))
-		prod.Export = nil
+		prod := probeStep(entity, p.freeStepID(entity.ID+"_for_"+id))
 		p.freshen(lib, prod)
 		prod.Body[priceKey] = strconv.FormatInt(price, 10)
 		renameStepRefs(prod, entity.ID, prod.ID)
 		prod.Description = fmt.Sprintf("as %s, but priced at %d, for %s.", entity.ID, price, id)
-		probe := copyStep(st, id)
-		probe.Export = nil
+		probe := probeStep(st, id)
 		p.freshen(lib, probe)
 		line := cloneBody(first).(map[string]any)
 		line[t.itemID] = strings.Replace(ref, "${"+entity.ID+".", "${"+prod.ID+".", 1)

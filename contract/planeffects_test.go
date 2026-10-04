@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestPlanAssertsTheNumbersTheContractsState(t *testing.T) {
@@ -50,19 +48,14 @@ func TestPlanAssertsTheNumbersTheContractsState(t *testing.T) {
 }
 
 func TestPlanNamesWhatToDeclareWhenAContractStatesNoEffect(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	p := editedPlan(t, func(name, body string) string {
 		if name != "orders.yaml" {
 			return body
 		}
 		body = strings.Replace(body, "Reserve stock for every line and move", "Move", 1)
 		body = strings.Replace(body, "priced at current product prices; does not touch stock.", "for a customer.", 1)
 		return strings.Replace(body, ", total_minor is the priced sum", "", 1)
-	})
-	p, err := contract.BuildPlanFor([]string{"ConfirmOrder"}, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, "ConfirmOrder")
 	notes := strings.Join(p.Notes, "\n")
 	for _, e := range planStep(t, p, "create_order").Expect {
 		if e.Path == "order.total_minor" {
@@ -86,17 +79,12 @@ func TestPlanNamesWhatToDeclareWhenAContractStatesNoEffect(t *testing.T) {
 }
 
 func TestPlanAssertsATotalWhoseContractNamesThePriceFieldOnly(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	p := editedPlan(t, func(name, body string) string {
 		if name != "orders.yaml" {
 			return body
 		}
 		body = strings.Replace(body, "priced at current product prices; does not touch stock.", "does not touch stock.", 1)
 		return strings.Replace(body, "total_minor is the priced sum", "total_minor is the sum of qty times price_minor", 1)
-	})
-	p, err := contract.BuildPlanFor([]string{"CreateOrder"}, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, "CreateOrder")
 	wantExpect(t, planStep(t, p, "create_order"), "order.total_minor", 2*250+3*1250)
 }

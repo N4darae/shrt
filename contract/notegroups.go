@@ -8,7 +8,6 @@ type groupedNote struct {
 }
 
 func groupStepNotes(notes []string, steps map[string]bool) []string {
-	var entries []*groupedNote
 	var order []any
 	byRest := map[string]*groupedNote{}
 	for _, n := range notes {
@@ -23,12 +22,11 @@ func groupStepNotes(notes []string, steps map[string]bool) []string {
 		}
 		g := &groupedNote{ids: []string{id}, rest: rest}
 		byRest[rest] = g
-		entries = append(entries, g)
 		order = append(order, g)
 	}
 	tails := map[string]int{}
-	for _, g := range entries {
-		if _, tail, ok := strings.Cut(g.rest, ". "); ok {
+	for rest := range byRest {
+		if _, tail, ok := strings.Cut(rest, ". "); ok {
 			tails[tail]++
 		}
 	}

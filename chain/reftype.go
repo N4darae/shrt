@@ -1,10 +1,10 @@
 package chain
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -20,11 +20,6 @@ func noteExports(s *Step, into map[string]exportOrigin) {
 	for name, path := range s.Export {
 		into[name] = exportOrigin{step: s.ID, path: path}
 	}
-}
-
-var numericKinds = map[string]bool{
-	"int32": true, "int64": true, "uint32": true, "uint64": true, "sint32": true, "sint64": true,
-	"fixed32": true, "fixed64": true, "sfixed32": true, "sfixed64": true, "float": true, "double": true,
 }
 
 var dynamicWellKnown = map[string]bool{
@@ -72,10 +67,7 @@ func cannotBeNumber(f *catalog.Field) (kind string, never, maybe bool) {
 		if numericWellKnown[f.Message] {
 			return "", false, false
 		}
-		if f.Message != "" {
-			return f.Message, true, false
-		}
-		return "message", true, false
+		return cmp.Or(f.Message, "message"), true, false
 	}
 	return "", false, false
 }
@@ -116,17 +108,13 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 				"before sending anything", refs[0], path, targetKind, where, sourceKind))
 			return
 		}
-		if !numericKinds[target.Kind] {
+		if !IsNumericKind(target.Kind) {
 			if !isMessage(target) && isMessage(src) && !dynamicWellKnown[src.Message] && !scalarWellKnown[src.Message] {
-				kind := src.Message
-				if kind == "" {
-					kind = "message"
-				}
 				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a whole "+
 					"message is sent as a JSON object, which a %s field never accepts, so the request would be rejected "+
 					"after every earlier step had already hit the backend, and shrt run refuses the chain before "+
 					"sending anything. Reference or export one scalar field of it instead", refs[0], path,
-					target.Kind, where, kind, target.Kind))
+					target.Kind, where, cmp.Or(src.Message, "message"), target.Kind))
 			}
 			return
 		}
@@ -150,20 +138,8 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 func interpolatedStructures(path, value string, refs []string, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
 	out := []string{}
 	for _, ref := range refs {
-		src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
-		if !ok || dynamicWellKnown[src.Message] {
-			continue
-		}
-		kind := ""
-		switch {
-		case collection:
-			kind = collectionKind(src)
-		case isMessage(src) && !scalarWellKnown[src.Message]:
-			kind = src.Message
-			if kind == "" {
-				kind = "message"
-			}
-		default:
+		kind, where, ok := structureOf(ref, responses, exports)
+		if !ok {
 			continue
 		}
 		out = append(out, fmt.Sprintf("${%s} is interpolated inside other text in %s (%q), from %s, declared %s — "+
@@ -172,6 +148,19 @@ func interpolatedStructures(path, value string, refs []string, responses map[str
 			"scalar field of it instead", ref, path, value, where, kind))
 	}
 	return out
+}
+
+func structureOf(ref string, responses map[string]*catalog.Method, exports map[string]exportOrigin) (kind, where string, ok bool) {
+	src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
+	switch {
+	case !ok || dynamicWellKnown[src.Message]:
+		return "", "", false
+	case collection:
+		return collectionKind(src), where, true
+	case isMessage(src) && !scalarWellKnown[src.Message]:
+		return cmp.Or(src.Message, "message"), where, true
+	}
+	return "", "", false
 }
 
 func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[string]exportOrigin) (*catalog.Field, string, bool, bool) {
@@ -233,20 +222,12 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 	if !ok {
 		return
 	}
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(body) {
 		f, found := catalog.ResponseFieldAt(fields, []string{key})
 		if !found || f == nil || f.Truncated {
 			continue
 		}
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
+		path := joinPath(prefix, key)
 		if text, isText := body[key].(string); isText && (f.Repeated || f.MapKey != "") {
 			fn(path, f, text, true)
 			continue
@@ -297,6 +278,21 @@ func (c *Chain) Wires() []Wire {
 		noteExports(s, exports)
 	}
 	return out
+}
+
+func walkLeaves(v any, path, key string, fn func(path, key, s string)) {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			walkLeaves(t[k], joinPath(path, k), k, fn)
+		}
+	case []any:
+		for i, x := range t {
+			walkLeaves(x, fmt.Sprintf("%s.%d", path, i), key, fn)
+		}
+	case string:
+		fn(path, key, t)
+	}
 }
 
 func walkText(v any, path string, fn func(string, string)) {

@@ -2,7 +2,6 @@ package chain
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -10,23 +9,11 @@ import (
 
 func headerStructures(s *Step, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
 	out := []string{}
-	for _, name := range sortedHeaderNames(s.Headers) {
+	for _, name := range sortedKeys(s.Headers) {
 		value := s.Headers[name]
 		for _, ref := range collectRefs(value) {
-			src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
-			if !ok || dynamicWellKnown[src.Message] {
-				continue
-			}
-			kind := ""
-			switch {
-			case collection:
-				kind = collectionKind(src)
-			case isMessage(src) && !scalarWellKnown[src.Message]:
-				kind = src.Message
-				if kind == "" {
-					kind = "message"
-				}
-			default:
+			kind, where, ok := structureOf(ref, responses, exports)
+			if !ok {
 				continue
 			}
 			out = append(out, fmt.Sprintf("${%s} fills header %s (%q), from %s, declared %s — a header carries text only, "+
@@ -72,32 +59,8 @@ func varStructures(s *Step, vars map[string]any) []string {
 				"before sending anything. Interpolate one scalar field of it instead (${vars.%s.<field>})", ref, how, text, kind, kind, r.Rest))
 		}
 	}
-	var walk func(v any, path string)
-	walk = func(v any, path string) {
-		switch t := v.(type) {
-		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				p := k
-				if path != "" {
-					p = path + "." + k
-				}
-				walk(t[k], p)
-			}
-		case []any:
-			for i, x := range t {
-				walk(x, fmt.Sprintf("%s.%d", path, i))
-			}
-		case string:
-			check(path, t, false)
-		}
-	}
-	walk(s.Body, "")
-	for _, name := range sortedHeaderNames(s.Headers) {
+	walkLeaves(s.Body, "", "", func(path, _, t string) { check(path, t, false) })
+	for _, name := range sortedKeys(s.Headers) {
 		check("header "+name, s.Headers[name], true)
 	}
 	return out

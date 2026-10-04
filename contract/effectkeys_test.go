@@ -2,12 +2,12 @@ package contract_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -35,18 +35,13 @@ func mute(body string) string {
 
 func mutedPlan(t *testing.T, effects map[string]string, targets ...string) (*contract.Plan, string) {
 	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	p := editedPlan(t, func(name, body string) string {
 		body = mute(body)
 		for rpc, e := range effects {
 			body = regexp.MustCompile(`(?m)^(    \S+\.`+regexp.QuoteMeta(rpc)+`:\n)`).ReplaceAllString(body, "${1}        effects: "+e+"\n")
 		}
 		return body
-	})
-	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, targets...)
 	return p, strings.Join(p.Notes, "\n")
 }
 
@@ -148,12 +143,9 @@ func TestATotalStatedAsEffectsIsAssertedAndProbedPast32Bits(t *testing.T) {
 	p, _ := mutedPlan(t, shopEffects, "CreateOrder")
 	wantExpect(t, planStep(t, p, "create_order"), "order.total_minor", 2*250+3*1250)
 	wide := planStep(t, p, "create_order_wide_total")
-	for _, e := range wide.Expect {
-		if e.Path == "order.total_minor" && e.Equals != nil {
-			return
-		}
+	if !slices.ContainsFunc(wide.Expect, func(e chain.Expectation) bool { return e.Path == "order.total_minor" && e.Equals != nil }) {
+		t.Fatalf("the wide total probe asserts the sum: %+v", wide.Expect)
 	}
-	t.Fatalf("the wide total probe asserts the sum: %+v", wide.Expect)
 }
 
 func TestTheGapForAnUnstatedEffectPrintsTheEffectsToAdd(t *testing.T) {
@@ -179,16 +171,9 @@ func TestAnInvalidEffectIsRefusedAtLoad(t *testing.T) {
 		{"{qty_on_hand: {increase: qty, restore: DONE}}", "exactly one of increase, decrease, restore or sum"},
 		{"{qty_on_hand: {decrease: lines.qty, of: id_prodct}}", `of: "id_prodct" is not a request field wired with from: to another write (did you mean "id_product"?)`},
 	} {
-		dir := t.TempDir()
-		src := filepath.Join("testdata", "shopdemo", "contracts")
-		entries, _ := os.ReadDir(src)
-		for _, e := range entries {
-			raw, _ := os.ReadFile(filepath.Join(src, e.Name()))
-			body := strings.Replace(string(raw), "    shop.catalog.v1.StockService/AddStock:\n", "    shop.catalog.v1.StockService/AddStock:\n        effects: "+c.effect+"\n", 1)
-			if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		dir := editedContracts(t, func(_, body string) string {
+			return strings.Replace(body, "    shop.catalog.v1.StockService/AddStock:\n", "    shop.catalog.v1.StockService/AddStock:\n        effects: "+c.effect+"\n", 1)
+		})
 		_, broken, err := contract.LoadLibraryIn(dir, cat)
 		if err != nil || len(broken) != 1 || !strings.Contains(broken[0].Error(), c.want) {
 			t.Fatalf("%s: want one broken overlay saying %q, got %v %v", c.effect, c.want, err, broken)
@@ -202,10 +187,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 		"catalog": {"StockService/AddStock": "what this write does to qty_on_hand: none | {increase: qty} | {decrease: qty} |", "StockService/AddStockBatch": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "ProductService/CreateProduct": ""},
 		"orders":  {"OrderService/CreateOrder": "what this write does to <number>: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
 	} {
-		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		raw := renderScaffold(t, domain, contract.Domains(cat.Methods())[domain], nil, cat)
 		o, err := contract.LoadOverlayBytes(domain+".yaml", raw)
 		if err != nil {
 			t.Fatalf("a scaffold with an effects TODO loads: %v\n%s", err, raw)
@@ -224,7 +206,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if a, b := contract.Measure(lib, cat, domain).TotalScore, contract.Measure(contract.NewLibrary([]*contract.Overlay{without}), cat, domain).TotalScore; a != b {
+		if a, b := contract.MeasurePhase(lib, cat, domain, contract.PhaseAll).TotalScore, contract.MeasurePhase(contract.NewLibrary([]*contract.Overlay{without}), cat, domain, contract.PhaseAll).TotalScore; a != b {
 			t.Fatalf("an unfilled effects TODO costs nothing in quality: %d with it, %d without", a, b)
 		}
 	}

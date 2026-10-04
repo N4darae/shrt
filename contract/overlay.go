@@ -8,7 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -28,11 +28,10 @@ const (
 	LegacyRefSeparator = "#"
 )
 
-const NoneLiteral = "NONE"
-
-const RoleNone = NoneLiteral
-
-const RequiredNone = NoneLiteral
+const (
+	RoleNone     = "NONE"
+	RequiredNone = "NONE"
+)
 
 const RequiredUnknown = "UNKNOWN"
 
@@ -81,14 +80,6 @@ func (c *RPCContract) IsUnfilled(key string) bool { return c.Unfilled[key] }
 
 func (c *RPCContract) DeclaresNoRole() bool {
 	return len(c.RequiresRole) == 1 && strings.TrimSpace(c.RequiresRole[0]) == RoleNone
-}
-
-func (c *RPCContract) DeclaresNothingRequired() bool {
-	return len(c.Required) == 1 && strings.TrimSpace(c.Required[0]) == RequiredNone
-}
-
-func IsRequiredNone(name string) bool {
-	return strings.TrimSpace(name) == RequiredNone
 }
 
 func IsRequiredLiteral(name string) bool {
@@ -154,20 +145,12 @@ type Ref struct {
 }
 
 func ParseRef(raw string) (Ref, error) {
-	trimmed := strings.TrimSpace(raw)
-	head, path, ok := cutRef(trimmed)
-	if !ok || strings.TrimSpace(head) == "" || strings.TrimSpace(path) == "" {
+	head, path, ok := cutRef(strings.TrimSpace(raw))
+	rpc, alias := SplitNode(head)
+	if path = strings.TrimSpace(path); !ok || rpc == "" || path == "" {
 		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
 	}
-	rpc, alias, _ := strings.Cut(strings.TrimSpace(head), "@")
-	if strings.TrimSpace(rpc) == "" {
-		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
-	}
-	return Ref{
-		RPC:   strings.TrimSpace(rpc),
-		Alias: strings.TrimSpace(alias),
-		Path:  strings.TrimSpace(path),
-	}, nil
+	return Ref{RPC: rpc, Alias: alias, Path: path}, nil
 }
 
 func cutRef(raw string) (head, path string, ok bool) {
@@ -194,41 +177,16 @@ func SplitNode(node string) (rpc, alias string) {
 }
 
 func (c *RPCContract) Dependencies() []string {
-	seen := map[string]bool{}
-	out := []string{}
-	add := func(node string) {
-		node = strings.TrimSpace(node)
-		if node == "" || seen[node] {
-			return
-		}
-		seen[node] = true
-		out = append(out, node)
+	sets := []map[string]*FieldContract{c.Fields}
+	for _, alias := range sortedKeys(c.Aliases) {
+		sets = append(sets, c.Aliases[alias].Fields)
 	}
-	for _, n := range c.Needs {
-		add(n)
-	}
-	for _, name := range sortedFieldNames(c.Fields) {
-		if ref, err := ParseRef(c.Fields[name].From); err == nil {
-			add(ref.Node())
-		}
-		if ref, err := ParseRef(c.Fields[name].SameAs); err == nil {
-			add(ref.Node())
-		}
-	}
-	for _, alias := range sortedAliasNames(c.Aliases) {
-		for _, name := range sortedFieldNames(c.Aliases[alias].Fields) {
-			if ref, err := ParseRef(c.Aliases[alias].Fields[name].From); err == nil {
-				add(ref.Node())
-			}
-			if ref, err := ParseRef(c.Aliases[alias].Fields[name].SameAs); err == nil {
-				add(ref.Node())
-			}
-		}
-	}
-	return out
+	return c.dependsOn(sets...)
 }
 
-func (c *RPCContract) DependenciesFor(alias string) []string {
+func (c *RPCContract) DependenciesFor(alias string) []string { return c.dependsOn(c.FieldsFor(alias)) }
+
+func (c *RPCContract) dependsOn(sets ...map[string]*FieldContract) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	add := func(node string) {
@@ -242,54 +200,31 @@ func (c *RPCContract) DependenciesFor(alias string) []string {
 	for _, n := range c.Needs {
 		add(n)
 	}
-	fields := c.FieldsFor(alias)
-	for _, name := range sortedFieldNames(fields) {
-		if ref, err := ParseRef(fields[name].From); err == nil {
-			add(ref.Node())
-		}
-		if ref, err := ParseRef(fields[name].SameAs); err == nil {
-			add(ref.Node())
+	for _, fields := range sets {
+		for _, name := range sortedKeys(fields) {
+			for _, raw := range []string{fields[name].From, fields[name].SameAs} {
+				if ref, err := ParseRef(raw); err == nil {
+					add(ref.Node())
+				}
+			}
 		}
 	}
 	return out
 }
 
 func (c *RPCContract) FieldsFor(alias string) map[string]*FieldContract {
+	sets := []map[string]*FieldContract{c.Fields}
+	if override, ok := c.Aliases[alias]; alias != "" && ok {
+		sets = append(sets, override.Fields)
+	}
 	merged := map[string]*FieldContract{}
-	for name, f := range c.Fields {
-		copied := *f
-		merged[name] = &copied
-	}
-	if alias == "" {
-		return merged
-	}
-	override, ok := c.Aliases[alias]
-	if !ok {
-		return merged
-	}
-	for name, f := range override.Fields {
-		copied := *f
-		merged[name] = &copied
+	for _, fields := range sets {
+		for name, f := range fields {
+			copied := *f
+			merged[name] = &copied
+		}
 	}
 	return merged
-}
-
-func sortedFieldNames(m map[string]*FieldContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedAliasNames(m map[string]*AliasContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func LoadOverlay(path string) (*Overlay, error) {
@@ -326,17 +261,10 @@ func dropTodoRequired(o *Overlay) {
 		if c == nil || len(c.Required) == 0 {
 			continue
 		}
-		kept := make([]string, 0, len(c.Required))
-		for _, name := range c.Required {
-			if IsTodo(name) {
-				continue
-			}
-			kept = append(kept, name)
-		}
-		if len(kept) == len(c.Required) {
+		n := len(c.Required)
+		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) == n {
 			continue
 		}
-		c.Required = kept
 		if c.Unfilled == nil {
 			c.Unfilled = map[string]bool{}
 		}
@@ -372,7 +300,7 @@ func normalizeEmptyEntries(o *Overlay) []string {
 			}
 		}
 	}
-	sort.Strings(empty)
+	slices.Sort(empty)
 	return empty
 }
 
@@ -398,10 +326,6 @@ type Library struct {
 	before    map[string][]string
 }
 
-func LoadLibrary(dir string) (*Library, []error, error) {
-	return LoadLibraryIn(dir, nil)
-}
-
 func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) {
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -417,7 +341,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 
 	overlays := []*Overlay{}
 	broken := []error{}
@@ -429,12 +353,10 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		clash := false
-		for _, rpc := range sortedContractNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			key := rpc
 			if cat != nil {
-				if m, err := cat.Lookup(rpc); err == nil {
-					key = m.FullName
-				}
+				key = canonicalCall(cat, rpc)
 			}
 			if first, seen := definedIn[key]; seen {
 				named := rpc
@@ -487,11 +409,8 @@ func IgnoredOverlayFiles(dir string) ([]string, error) {
 			}
 			return err
 		}
-		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) {
-			return nil
-		}
 		ext := strings.ToLower(filepath.Ext(d.Name()))
-		if ext != ".yaml" && ext != ".yml" {
+		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) || ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
 		rel, relErr := filepath.Rel(dir, path)
@@ -501,7 +420,7 @@ func IgnoredOverlayFiles(dir string) ([]string, error) {
 		out = append(out, rel)
 		return nil
 	})
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, err
 }
 
@@ -543,7 +462,7 @@ func NewLibrary(overlays []*Overlay) *Library {
 		}
 	}
 	for k := range lib.before {
-		sort.Strings(lib.before[k])
+		slices.Sort(lib.before[k])
 	}
 	return lib
 }
@@ -602,12 +521,7 @@ func (l *Library) Count() int {
 }
 
 func (l *Library) RPCs() []string {
-	out := make([]string, 0, len(l.byRPC))
-	for rpc := range l.byRPC {
-		out = append(out, rpc)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(l.byRPC)
 }
 
 func (o *Overlay) Marshal() ([]byte, error) { return yaml.Marshal(o) }
@@ -625,21 +539,9 @@ func decodeStrict(raw []byte, into any) error {
 			"parse (%v); only the first is read, so the rest would be silently ignored. Split it into separate "+
 			"files, or remove the '---'", err)
 	}
-	if err == nil && carriesContent(&extra) {
+	if err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
-}
-
-func carriesContent(n *yaml.Node) bool {
-	if n == nil {
-		return false
-	}
-	for _, c := range n.Content {
-		if c.Tag != "!!null" {
-			return true
-		}
-	}
-	return false
 }

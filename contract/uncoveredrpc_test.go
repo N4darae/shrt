@@ -22,15 +22,15 @@ func TestQualityChargesAnRPCNoOverlayCovers(t *testing.T) {
 	for _, name := range unary {
 		covered[name] = &contract.RPCContract{}
 	}
-	full := contract.Measure(contract.NewLibrary([]*contract.Overlay{{
+	full := contract.MeasurePhase(contract.NewLibrary([]*contract.Overlay{{
 		APIVersion: "shrt/contract/v1", Domain: "all", RPCs: covered,
-	}}), cat, "")
+	}}), cat, "", contract.PhaseAll)
 
 	dropped := unary[0]
 	delete(covered, dropped)
-	partial := contract.Measure(contract.NewLibrary([]*contract.Overlay{{
+	partial := contract.MeasurePhase(contract.NewLibrary([]*contract.Overlay{{
 		APIVersion: "shrt/contract/v1", Domain: "all", RPCs: covered,
-	}}), cat, "")
+	}}), cat, "", contract.PhaseAll)
 
 	var row *contract.QualityRPC
 	for i := range partial.RPCs {
@@ -46,7 +46,7 @@ func TestQualityChargesAnRPCNoOverlayCovers(t *testing.T) {
 			"deleting the file is measuring the wrong thing", dropped, full.TotalScore, partial.TotalScore)
 	}
 
-	none := contract.Measure(contract.NewLibrary(nil), cat, "")
+	none := contract.MeasurePhase(contract.NewLibrary(nil), cat, "", contract.PhaseAll)
 	if none.TotalScore <= full.TotalScore {
 		t.Fatalf("an empty contracts directory scored %d, no worse than bare entries for every rpc at %d",
 			none.TotalScore, full.TotalScore)

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -64,16 +65,8 @@ func (p *Plan) readBackVariants(lib *Library) {
 		if len(states) == 0 && (e.producer != st || mains[st.ID] || p.readsCreated(st, e.idPath)) {
 			continue
 		}
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, ref)
-		r := &chain.Step{
-			ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + st.ID),
-			Description: fmt.Sprintf("the %s as %s left it, read back as its main step's is.", e.carrier, st.ID),
-			Call:        e.reader.FullName,
-			Auth:        e.contract.Auth,
-			Body:        body,
-			Expect:      SuccessExpectation(e.reader),
-		}
+		r := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+st.ID),
+			fmt.Sprintf("the %s as %s left it, read back as its main step's is.", e.carrier, st.ID), ref)
 		p.assertEcho(r)
 		r.Expect = append(r.Expect, states...)
 		p.insertAfter(st.ID, r)
@@ -92,16 +85,9 @@ func (p *Plan) succeedsAsWrite(st *chain.Step) bool {
 }
 
 func (p *Plan) actedOnLater(st *chain.Step) bool {
-	at := stepIndex(p.Chain.Steps, st.ID)
-	for _, s := range p.Chain.Steps[at+1:] {
-		if chain.IsReadOnlyCall(s.Call) {
-			continue
-		}
-		if containsString(referencedSteps(s.Body), st.ID) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Chain.Steps[stepIndex(p.Chain.Steps, st.ID)+1:], func(s *chain.Step) bool {
+		return !chain.IsReadOnlyCall(s.Call) && readsValue(s.Body, st.ID)
+	})
 }
 
 func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, car *catalog.Field) (entityRead, bool) {
@@ -112,7 +98,7 @@ func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, ca
 			}
 		}
 	}
-	if idPath := p.createdIDPath(st, m); idPath != "" {
+	if idPath := p.createdIDPath(m); idPath != "" {
 		return p.readerMatching(lib, st, idPath, false)
 	}
 	return entityRead{}, false

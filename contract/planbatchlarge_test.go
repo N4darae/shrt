@@ -1,40 +1,14 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestPlanGivesABatchLineTheLargeValueItsSingleItemRpcGets(t *testing.T) {
-	cat, _ := shopDemo(t)
-	dir := t.TempDir()
-	src := filepath.Join("testdata", "shopdemo", "contracts")
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := strings.Replace(string(raw), "                note: one AddStock per line, applied independently in order\n", "                note: at least one line\n", 1)
-		if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(text), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	lib, broken, err := contract.LoadLibraryIn(dir, cat)
-	if err != nil || len(broken) > 0 {
-		t.Fatalf("load: %v %v", err, broken)
-	}
-	p, err := contract.BuildPlanFor([]string{"AddStockBatch"}, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	p := editedPlan(t, func(_, body string) string {
+		return strings.Replace(body, "                note: one AddStock per line, applied independently in order\n", "                note: at least one line\n", 1)
+	}, "AddStockBatch")
 	raw, _ := p.YAML()
 	text := string(raw)
 	large := planStep(t, p, "add_stock_batch_qty_large")

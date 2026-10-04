@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -75,10 +76,7 @@ func TestStructuredUniqueComparisonWinsOverTheNotes(t *testing.T) {
 
 func TestContractLintRefusesAnUnknownUniqueCase(t *testing.T) {
 	issues := contract.LintLibrary(libraryFrom(t, uniqueOverlay("{case: lower}")), catalogtest.ShopWithErrorDetails())
-	for _, i := range issues {
-		if i.IsError() && strings.Contains(i.Message, "unique.case") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool { return i.IsError() && strings.Contains(i.Message, "unique.case") }) {
+		t.Fatalf("unique.case must be ignore or exact: %v", issues)
 	}
-	t.Fatalf("unique.case must be ignore or exact: %v", issues)
 }

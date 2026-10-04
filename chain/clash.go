@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -55,19 +56,19 @@ func (e *NameMismatchError) Relative(to func(string) string) *NameMismatchError 
 
 func Claimants(dir, name string) []string {
 	out := []string{}
-	for _, p := range chainFiles(dir) {
+	files, _ := chainFiles(dir)
+	for _, p := range files {
 		if c, err := LoadFile(p); err == nil && c.Name == name {
 			out = append(out, p)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
-func chainFiles(dir string) []string {
+func chainFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	out := []string{}
 	for _, e := range entries {
@@ -77,7 +78,7 @@ func chainFiles(dir string) []string {
 		}
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 func sameFile(a, b string) bool {
@@ -99,13 +100,7 @@ func ResolveUnique(dir, ref string) (*Chain, error) {
 		}
 	}
 	claim := Claimants(dir, c.Name)
-	inDir := false
-	for _, p := range claim {
-		if sameFile(p, c.SourcePath) {
-			inDir = true
-		}
-	}
-	if inDir && len(claim) > 1 {
+	if len(claim) > 1 && slices.ContainsFunc(claim, func(p string) bool { return sameFile(p, c.SourcePath) }) {
 		return nil, &NameClashError{Ref: ref, Name: c.Name, Files: claim}
 	}
 	return c, nil

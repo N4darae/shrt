@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -13,12 +14,7 @@ const clockOffsetTolerance = 2
 var firstNumberPattern = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?`)
 
 func ClockRelativeExpectation(e Expectation) bool {
-	for _, op := range e.Operands() {
-		if text, ok := op.(string); ok && strings.Contains(text, "${now") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(e.Operands(), func(op any) bool { text, ok := op.(string); return ok && strings.Contains(text, "${now") })
 }
 
 func ClockRelative(step *Step, v Verdict) Verdict {
@@ -27,10 +23,7 @@ func ClockRelative(step *Step, v Verdict) Verdict {
 	}
 	out := v
 	out.Expect = append([]ExpectResult(nil), v.Expect...)
-	for i := range out.Expect {
-		if i >= len(step.Expect) {
-			break
-		}
+	for i := range min(len(out.Expect), len(step.Expect)) {
 		e := step.Expect[i]
 		r := out.Expect[i]
 		if e.Path != r.Path || !ClockRelativeExpectation(e) {
@@ -65,10 +58,7 @@ func boundAnchor(want any) (float64, bool) {
 	if n, ok := numberOf(want); ok {
 		return n, true
 	}
-	text, ok := want.(string)
-	if !ok {
-		return 0, false
-	}
+	text, _ := want.(string)
 	m := firstNumberPattern.FindString(text)
 	if m == "" {
 		return 0, false

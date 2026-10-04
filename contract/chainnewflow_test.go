@@ -6,7 +6,6 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
-	"gopkg.in/yaml.v3"
 )
 
 var orderLifecycle = []string{"CreateProduct", "CreateProduct", "AddStock", "AddStockBatch", "CreateCustomer", "CreateOrder",
@@ -32,15 +31,8 @@ func chainNewShopDemo(t *testing.T, rpcs ...string) (*chain.Chain, string, []str
 		refs = append(refs, m.FullName)
 		ids = append(ids, id)
 	}
-	raw, notes, err := contract.ScaffoldChain("flow", "", refs, ids, lib, cat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatalf("%v\n%s", err, raw)
-	}
-	return &c, string(raw), notes
+	c, raw, notes := scaffolded(t, "flow", refs, ids, lib, cat)
+	return c, string(raw), notes
 }
 
 func TestChainNewNamesARepeatedRPCAfterWhatItObserves(t *testing.T) {

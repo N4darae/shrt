@@ -2,8 +2,7 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -13,23 +12,23 @@ import (
 )
 
 var (
-	duplicateReason = regexp.MustCompile(`^(?:Duplicate|NonUnique|NotUnique)([A-Z][A-Za-z0-9]*)$`)
-	takenReason     = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*?)(?:AlreadyExists|AlreadyTaken|AlreadyInUse|AlreadyUsed|Exists|Taken|Duplicate|Duplicated|InUse|NotUnique)$`)
-	uniqueWhen      = regexp.MustCompile(`(?i)\bunique\b|\bduplicate\b`)
-	caseIgnored     = regexp.MustCompile(`(?i)ignor\w*\s+(?:the\s+)?(?:letter\s+)?case|case[- ]?insensitiv|regardless\s+of\s+(?:letter\s+)?case|(?:in|of)\s+any\s+(?:letter\s+)?case`)
-	freshValueRef   = regexp.MustCompile(`\$\{\s*(?:uuid|now|nowunix|today)(?:[+-][^}]*)?\s*\}`)
-	anyValueRef     = regexp.MustCompile(`\$\{[^}]*\}`)
-	varValueRef     = regexp.MustCompile(`\$\{\s*vars\.[A-Za-z0-9_]+\s*\}`)
+	duplicateReason = lazyRegexp(`^(?:Duplicate|NonUnique|NotUnique)([A-Z][A-Za-z0-9]*)$`)
+	takenReason     = lazyRegexp(`^([A-Z][A-Za-z0-9]*?)(?:AlreadyExists|AlreadyTaken|AlreadyInUse|AlreadyUsed|Exists|Taken|Duplicate|Duplicated|InUse|NotUnique)$`)
+	uniqueWhen      = lazyRegexp(`(?i)\bunique\b|\bduplicate\b`)
+	caseIgnored     = lazyRegexp(`(?i)ignor\w*\s+(?:the\s+)?(?:letter\s+)?case|case[- ]?insensitiv|regardless\s+of\s+(?:letter\s+)?case|(?:in|of)\s+any\s+(?:letter\s+)?case`)
+	freshValueRef   = lazyRegexp(`\$\{\s*(?:uuid|now|nowunix|today)(?:[+-][^}]*)?\s*\}`)
+	anyValueRef     = lazyRegexp(`\$\{[^}]*\}`)
+	varValueRef     = lazyRegexp(`\$\{\s*vars\.[A-Za-z0-9_]+\s*\}`)
 )
 
 func uniquenessNoun(f Failure) (string, bool) {
-	if m := duplicateReason.FindStringSubmatch(f.Reason); m != nil {
+	if m := duplicateReason().FindStringSubmatch(f.Reason); m != nil {
 		return m[1], true
 	}
-	if m := takenReason.FindStringSubmatch(f.Reason); m != nil {
+	if m := takenReason().FindStringSubmatch(f.Reason); m != nil {
 		return m[1], true
 	}
-	if uniqueWhen.MatchString(f.When) {
+	if uniqueWhen().MatchString(f.When) {
 		return "", true
 	}
 	return "", false
@@ -41,11 +40,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 			return f.Field
 		}
 	}
-	keys := make([]string, 0, len(step.Body))
-	for k := range step.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(step.Body)
 	if noun != "" {
 		want := namecase.Fold(noun)
 		for _, k := range keys {
@@ -60,7 +55,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 		}
 	}
 	marked := []string{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		note := strings.ToLower(c.Fields[name].Note)
 		if strings.Contains(note, "unique") || strings.Contains(note, "unused") {
 			if _, ok := bodyValue(step.Body, name); ok {
@@ -89,7 +84,7 @@ func swapLiteralCase(v string) string {
 			}
 		}
 	}
-	for _, loc := range anyValueRef.FindAllStringIndex(v, -1) {
+	for _, loc := range anyValueRef().FindAllStringIndex(v, -1) {
 		flip(v[last:loc[0]])
 		out.WriteString(v[loc[0]:loc[1]])
 		last = loc[1]
@@ -99,13 +94,13 @@ func swapLiteralCase(v string) string {
 }
 
 func stableAcrossSteps(v string) string {
-	if !freshValueRef.MatchString(v) {
+	if !freshValueRef().MatchString(v) {
 		return v
 	}
-	if !varValueRef.MatchString(v) {
-		return freshValueRef.ReplaceAllString(v, "${vars.tag}")
+	if !varValueRef().MatchString(v) {
+		return freshValueRef().ReplaceAllString(v, "${vars.tag}")
 	}
-	out := freshValueRef.ReplaceAllString(v, "")
+	out := freshValueRef().ReplaceAllString(v, "")
 	for _, sep := range []string{"-", "_", "."} {
 		for strings.Contains(out, sep+sep) {
 			out = strings.ReplaceAll(out, sep+sep, sep)
@@ -127,12 +122,8 @@ func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		done := map[string]bool{}
@@ -167,7 +158,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	attempt := func(suffix, description string, value any) *chain.Step {
 		body, _ := cloneBody(st.Body).(map[string]any)
 		setBodyPath(body, field, value)
-		dup := &chain.Step{
+		return &chain.Step{
 			ID:          uniqueStepID(p.Chain, st.ID+"_same_"+leaf+suffix),
 			Description: description,
 			Call:        st.Call,
@@ -175,7 +166,6 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 			Body:        body,
 			Expect:      append([]chain.Expectation{}, expect...),
 		}
-		return dup
 	}
 	added := []*chain.Step{attempt("", fmt.Sprintf("the same %s again is refused with %s.", leaf, f.Label()), ref)}
 	other := attempt("_other_fields", "", ref)
@@ -226,23 +216,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		p.gap("step %s: the duplicate attempts assert only that the call was refused; the response declares no "+
 			"code field (conventions.code_fields) to pin %s on, so pin it yourself where the refusal carries it", st.ID, f.Label())
 	}
-	at := 0
-	for i, s := range p.Chain.Steps {
-		if s == st {
-			at = i + 1
-		}
-	}
-	steps := append([]*chain.Step{}, p.Chain.Steps[:at]...)
-	steps = append(steps, added...)
-	p.Chain.Steps = append(steps, p.Chain.Steps[at:]...)
-}
-
-func isNumericKind(kind string) bool {
-	switch kind {
-	case "int32", "int64", "uint32", "uint64", "sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64":
-		return true
-	}
-	return false
+	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), slices.Index(p.Chain.Steps, st)+1, added...)
 }
 
 func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, bool) {
@@ -265,25 +239,15 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
 		pinned = true
 	}
-	carriers := []string{}
-	for _, fd := range fields {
-		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
-			carriers = append(carriers, fd.Name)
-		}
-	}
-	if len(carriers) == 1 {
-		absent := false
-		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
+	if car := singleCarrier(m); car != nil {
+		out = append(out, chain.Expectation{Path: car.Name, Exists: boolPtr(false)})
 	}
 	return out, pinned
 }
 
 func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
-	codes := map[string]bool{}
-	for _, name := range chain.CodeFields() {
-		codes[name] = true
-	}
+	codes := chain.CodeFields()
 	pinned := false
 	seen := map[string]bool{}
 	var walk func(prefix string, fs []*catalog.Field, depth int)
@@ -300,13 +264,13 @@ func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chai
 				}
 				continue
 			}
-			if fd.Repeated || !codes[fd.Name] || seen[fd.Name] {
+			if fd.Repeated || !slices.Contains(codes, fd.Name) || seen[fd.Name] {
 				continue
 			}
 			switch {
 			case fd.Kind == "string" && f.Reason != "":
 				out = append(out, chain.Expectation{Path: path, Equals: f.Reason})
-			case isNumericKind(fd.Kind) && f.Code != 0:
+			case chain.IsNumericKind(fd.Kind) && fd.Kind != "float" && fd.Kind != "double" && f.Code != 0:
 				out = append(out, chain.Expectation{Path: path, Equals: f.Code})
 			default:
 				continue

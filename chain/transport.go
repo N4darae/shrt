@@ -2,7 +2,7 @@ package chain
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -20,11 +20,10 @@ var TransportFields = map[string]string{
 }
 
 func TransportFieldNames() []string {
-	out := make([]string, 0, len(TransportFields))
-	for name := range TransportFields {
-		out = append(out, TransportPrefix+"."+name)
+	out := sortedKeys(TransportFields)
+	for i, name := range out {
+		out[i] = TransportPrefix + "." + name
 	}
-	sort.Strings(out)
 	return out
 }
 
@@ -54,12 +53,7 @@ func TransportOutcome(status int, code, message string) map[string]any {
 }
 
 func HasTransportExpectation(expect []Expectation) bool {
-	for _, e := range expect {
-		if IsTransportPath(e.Path) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(expect, func(e Expectation) bool { return IsTransportPath(e.Path) })
 }
 
 const InvalidTokenAuth = "invalid"

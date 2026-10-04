@@ -43,13 +43,12 @@ func Lint(c *Chain, cat *catalog.Catalog) []Issue {
 }
 
 func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
-	issues := []Issue{}
-	issues = append(issues, lintVars(c)...)
+	issues := issuesFrom("", SeverityError, "", VarRefProblems(c.Vars))
 	issues = append(issues, lintVolatileIDs(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
 	issues = append(issues, lintAuthEnv(c, opts)...)
-	issues = append(issues, lintRedactedPins(c, opts.Redact)...)
+	issues = append(issues, issuesFrom("", SeverityError, "", c.RedactedPinProblems(append(append([]string{}, c.Redact...), opts.Redact...)))...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -70,15 +69,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintAbsentReads(c, s, known)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
-		for _, why := range never {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
-		}
-		for _, why := range maybe {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
-		}
-		for _, why := range varStructures(s, c.Vars) {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
-		}
+		issues = append(issues, issuesFrom(s.ID, SeverityError, KindDeadRef, never)...)
+		issues = append(issues, issuesFrom(s.ID, SeverityWarn, "", maybe)...)
+		issues = append(issues, issuesFrom(s.ID, SeverityError, KindDeadRef, varStructures(s, c.Vars))...)
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintUnorderedStep(s, m)...)
 		methods = append(methods, m)
@@ -128,19 +121,14 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool, responses map[
 		}
 		for _, ref := range collectRefs(e.Operands()) {
 			r := ParseRef(ref)
-			if why, own := ownStepProblem(s.ID, r, knownExports); own {
-				if why != "" {
-					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-						"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
-				}
-				continue
+			why, own := ownStepProblem(s.ID, r, knownExports)
+			if !own {
+				why = referenceProblem(r, known, knownExports, idx)
 			}
-			if why := referenceProblem(r, known, knownExports, idx); why != "" {
+			if why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
-				continue
-			}
-			if r.Kind == RefStep {
+			} else if !own && r.Kind == RefStep {
 				if issue, bad := refPathIssue(s.ID, r, responses); bad {
 					issue.Message = fmt.Sprintf("expect on %q: %s", e.Path, issue.Message)
 					issues = append(issues, issue)
@@ -183,12 +171,7 @@ func newRefIndex(c *Chain) *refIndex {
 		if _, seen := idx.stepAt[s.ID]; !seen {
 			idx.stepAt[s.ID] = i + 1
 		}
-		names := make([]string, 0, len(s.Export))
-		for name := range s.Export {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range sortedKeys(s.Export) {
 			if _, seen := idx.exportedBy[name]; !seen {
 				idx.exportedBy[name] = i + 1
 				idx.exporter[name] = s.ID
@@ -369,7 +352,7 @@ func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex)
 
 func lintRefSyntax(s *Step) []Issue {
 	values := []any{s.Body}
-	for _, name := range sortedHeaderNames(s.Headers) {
+	for _, name := range sortedKeys(s.Headers) {
 		values = append(values, s.Headers[name])
 	}
 	for _, e := range s.Expect {
@@ -461,13 +444,8 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 }
 
 func lintAuthProfile(s *Step, profiles []string) []Issue {
-	if profiles == nil || s.Auth == "" || s.Auth == InvalidTokenAuth {
+	if profiles == nil || s.Auth == "" || s.Auth == InvalidTokenAuth || slices.Contains(profiles, s.Auth) {
 		return nil
-	}
-	for _, name := range profiles {
-		if name == s.Auth {
-			return nil
-		}
 	}
 	if len(profiles) == 0 {
 		return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
@@ -514,12 +492,12 @@ func probeValue(v any, fields []*catalog.Field) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
-			f := findField(fields, k)
-			if f == nil {
+			at := slices.IndexFunc(fields, func(f *catalog.Field) bool { return f.Name == k })
+			if at < 0 {
 				out[k] = item
 				continue
 			}
-			out[k] = probeField(item, f)
+			out[k] = probeField(item, fields[at])
 		}
 		return out
 	case []any:
@@ -557,15 +535,6 @@ func probeElement(v any, f *catalog.Field) any {
 	return v
 }
 
-func findField(fields []*catalog.Field, name string) *catalog.Field {
-	for _, f := range fields {
-		if f.Name == name {
-			return f
-		}
-	}
-	return nil
-}
-
 func placeholder(f *catalog.Field) any {
 	if len(f.EnumValues) > 0 {
 		return f.EnumValues[0]
@@ -595,8 +564,7 @@ func placeholder(f *catalog.Field) any {
 
 func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method, idx *refIndex) []Issue {
 	issues := []Issue{}
-	refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-	for _, ref := range refs {
+	for _, ref := range s.SendReferences() {
 		r := ParseRef(ref)
 		if why := referenceProblem(r, known, knownExports, idx); why != "" {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf("${%s} %s", ref, why)})
@@ -715,14 +683,6 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 		m.Output().FullName(), r.Head, nearPath(fields, SplitPath(rest))), true
 }
 
-func headerValues(in map[string]string) []any {
-	out := make([]any, 0, len(in))
-	for _, v := range in {
-		out = append(out, v)
-	}
-	return out
-}
-
 const unfailableWhy = "An assertion that cannot fail is the one fault no gate downstream can see: a green step proves nothing"
 
 func lintAssertsSomething(s *Step) []Issue {
@@ -742,12 +702,9 @@ func lintInertAllowFail(s *Step) []Issue {
 	if !s.AllowFail || len(s.Expect) == 0 {
 		return nil
 	}
-	say := fmt.Sprintf("%s.code equals: permission_denied for a Connect error", TransportPrefix)
-	inBand := ""
-	if p := EnvelopePath(); p != "" {
-		say += fmt.Sprintf(", or %s equals: <the refusal code> for an in-band refusal", p)
-		inBand = fmt.Sprintf(", and an in-band refusal on %s is never covered by allow_fail", p)
-	}
+	p := EnvelopePath()
+	say := fmt.Sprintf("%s.code equals: permission_denied for a Connect error, or %s equals: <the refusal code> for an in-band refusal", TransportPrefix, p)
+	inBand := fmt.Sprintf(", and an in-band refusal on %s is never covered by allow_fail", p)
 	return []Issue{{
 		Step:     s.ID,
 		Severity: SeverityWarn,
@@ -801,7 +758,7 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 					"expect on %q %s, so it passes whatever the server answers. Assert the value this step should have produced",
 					e.Path, why), Why: unfailableWhy})
 			}
-			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" && EnvelopeOK() != "" {
+			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
 					"expect on %q says not_equal \"\", which holds on the ok value %s and on every refusal alike: "+
 						"no answer that carries a verdict can fail it, so it declares neither success nor a refusal, "+
@@ -878,7 +835,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 }
 
 func objectNotEqualRemedy(path string) string {
-	if env := EnvelopePath(); env != "" && EnvelopeOK() != "" && strings.HasPrefix(strings.ToLower(env), strings.ToLower(path)+".") {
+	if env := EnvelopePath(); strings.HasPrefix(strings.ToLower(env), strings.ToLower(path)+".") {
 		return fmt.Sprintf("It contains the verdict: write %s equals: %s for a call that must succeed, or the refusal "+
 			"code for one that must be refused", env, EnvelopeOK())
 	}
@@ -887,7 +844,7 @@ func objectNotEqualRemedy(path string) string {
 
 func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Issue, bool) {
 	f, ok := catalog.ResponseFieldAt(fields, SplitPath(e.Path))
-	if !ok || f == nil || !numericKinds[f.Kind] {
+	if !ok || f == nil || !IsNumericKind(f.Kind) {
 		return Issue{}, false
 	}
 	for _, rule := range []struct {
@@ -923,12 +880,7 @@ func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Iss
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := m.Response()
-	names := make([]string, 0, len(s.Export))
-	for name := range s.Export {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(s.Export) {
 		path := s.Export[name]
 		if exact, inexact := inexactPath(schema.Fields, path); inexact {
 			issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("export %q reads %q", name, path), exact, m))
@@ -972,12 +924,7 @@ func lintExportNames(c *Chain) []Issue {
 		if s == nil {
 			continue
 		}
-		names := make([]string, 0, len(s.Export))
-		for name := range s.Export {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range sortedKeys(s.Export) {
 			if at, clash := stepAt[name]; clash {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"export %q has the same name as step %q (step %d), so ${%s} is ambiguous: the bare reference "+
@@ -1004,25 +951,15 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 			out = append(out, seg)
 			continue
 		}
-		var f *catalog.Field
-		spelled := ""
-		for _, candidate := range fields {
-			if candidate.Name == seg || candidate.JSONName == seg {
-				f, spelled = candidate, seg
-				break
+		spelled, at := seg, slices.IndexFunc(fields, func(f *catalog.Field) bool { return f.Name == seg || f.JSONName == seg })
+		if at < 0 {
+			at = slices.IndexFunc(fields, func(f *catalog.Field) bool { return namecase.Equal(f.Name, seg) })
+			if at < 0 {
+				return "", false
 			}
+			spelled = fields[at].Name
 		}
-		if f == nil {
-			for _, candidate := range fields {
-				if namecase.Equal(candidate.Name, seg) {
-					f, spelled = candidate, candidate.Name
-					break
-				}
-			}
-		}
-		if f == nil {
-			return "", false
-		}
+		f := fields[at]
 		out = append(out, spelled)
 		if f.Truncated || f.MapKey != "" {
 			out = append(out, segs[i+1:]...)
@@ -1064,23 +1001,10 @@ func ExternalInputs(c *Chain) (vars []string, env []string) {
 func chainRefs(c *Chain) []Ref {
 	out := []Ref{}
 	for _, s := range c.Steps {
-		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-		for _, e := range s.Expect {
-			refs = append(refs, collectRefs(e.Operands())...)
-		}
-		for _, ref := range refs {
+		for _, ref := range s.References() {
 			out = append(out, ParseRef(ref))
 		}
 	}
-	return out
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
 	return out
 }
 
@@ -1110,13 +1034,7 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 		}
 		return issues
 	}
-	unset := []string{}
-	for _, name := range needEnv {
-		if _, ok := env(name); !ok {
-			unset = append(unset, name)
-		}
-	}
-	if len(unset) > 0 {
+	if unset := slices.DeleteFunc(needEnv, func(name string) bool { _, ok := env(name); return ok }); len(unset) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
 			"reads environment variables that are not exported in this shell: %s — shrt run refuses the "+
 				"chain before sending anything until they are set",
@@ -1152,13 +1070,7 @@ func UnsetAuthEnv(c *Chain, opts LintOptions) []AuthEnvGap {
 	}
 	gaps := []AuthEnvGap{}
 	for _, profile := range order {
-		unset := []string{}
-		for _, name := range opts.AuthEnv(profile) {
-			if _, ok := opts.Env(name); !ok {
-				unset = append(unset, name)
-			}
-		}
-		if len(unset) > 0 {
+		if unset := slices.DeleteFunc(slices.Clone(opts.AuthEnv(profile)), func(name string) bool { _, ok := opts.Env(name); return ok }); len(unset) > 0 {
 			gaps = append(gaps, AuthEnvGap{Profile: profile, Step: firstStep[profile], Unset: unset})
 		}
 	}
@@ -1177,17 +1089,17 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 	return issues
 }
 
-func lintVars(c *Chain) []Issue {
+func issuesFrom(step, severity, kind string, messages []string) []Issue {
 	issues := []Issue{}
-	for _, why := range VarRefProblems(c.Vars) {
-		issues = append(issues, Issue{Severity: SeverityError, Message: why})
+	for _, m := range messages {
+		issues = append(issues, Issue{Step: step, Severity: severity, Kind: kind, Message: m})
 	}
 	return issues
 }
 
 func VarRefProblems(vars map[string]any) []string {
 	out := []string{}
-	for _, name := range sortedVarNames(vars) {
+	for _, name := range sortedKeys(vars) {
 		for _, ref := range collectRefs(vars[name]) {
 			out = append(out, fmt.Sprintf(
 				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
@@ -1197,39 +1109,13 @@ func VarRefProblems(vars map[string]any) []string {
 	return out
 }
 
-func sortedVarNames(vars map[string]any) []string {
-	names := make([]string, 0, len(vars))
-	for name := range vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
 func ruleNames(e Expectation) []string {
 	names := []string{}
-	if e.Exists != nil {
-		names = append(names, "exists")
-	}
-	if e.NotEmpty {
-		names = append(names, "not_empty")
-	}
-	if e.Contains != "" {
-		names = append(names, "contains")
-	}
-	if e.NotEqual != nil {
-		names = append(names, "not_equal")
-	}
-	if e.Equals != nil {
-		names = append(names, "equals")
-	}
-	if e.Includes != nil {
-		names = append(names, "includes")
-	}
 	for _, c := range []struct {
 		name string
 		set  bool
-	}{{"gt", e.Gt != nil}, {"gte", e.Gte != nil}, {"lt", e.Lt != nil}, {"lte", e.Lte != nil}, {"between", e.Between != nil}, {"within", e.Within != nil}} {
+	}{{"exists", e.Exists != nil}, {"not_empty", e.NotEmpty}, {"contains", e.Contains != ""}, {"not_equal", e.NotEqual != nil}, {"equals", e.Equals != nil},
+		{"includes", e.Includes != nil}, {"gt", e.Gt != nil}, {"gte", e.Gte != nil}, {"lt", e.Lt != nil}, {"lte", e.Lte != nil}, {"between", e.Between != nil}, {"within", e.Within != nil}} {
 		if c.set {
 			names = append(names, c.name)
 		}
@@ -1293,12 +1179,7 @@ func LintCorpus(chains []*Chain) []Issue {
 		}
 		byName[c.Name] = append(byName[c.Name], c.SourcePath)
 	}
-	names := make([]string, 0, len(byName))
-	for name := range byName {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(byName) {
 		paths := byName[name]
 		if len(paths) < 2 {
 			continue
@@ -1371,39 +1252,12 @@ func lintLiteralIdempotency(s *Step) []Issue {
 			Why: "Every run after the first sends the same idempotency key, so the backend answers it with the first run's " +
 				"result (the same record, the same id) instead of performing the call, and verify compares that replay, not the call"})
 	}
-	var visit func(v any, path, key string)
-	visit = func(v any, path, key string) {
-		switch t := v.(type) {
-		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				child := k
-				if path != "" {
-					child = path + "." + k
-				}
-				visit(t[k], child, k)
-			}
-		case []any:
-			for i, x := range t {
-				visit(x, fmt.Sprintf("%s.%d", path, i), key)
-			}
-		case string:
-			if IdempotencyKeyName(key) && t != "" && !hasRef(t) {
-				warn(path, t)
-			}
+	walkLeaves(s.Body, "", "", func(path, key, t string) {
+		if IdempotencyKeyName(key) && t != "" && !hasRef(t) {
+			warn(path, t)
 		}
-	}
-	visit(s.Body, "", "")
-	names := make([]string, 0, len(s.Headers))
-	for k := range s.Headers {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	})
+	for _, k := range sortedKeys(s.Headers) {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)
 		}
@@ -1453,24 +1307,13 @@ func lintUnevaluableOnRefusal(s *Step) []Issue {
 }
 
 func lintUnterminatedPrefix(s *Step) []Issue {
-	positional := false
-	for _, e := range s.Expect {
-		for _, seg := range SplitPath(e.Path) {
-			if _, err := strconv.Atoi(seg); err == nil {
-				positional = true
-			}
-		}
-	}
-	if !positional {
+	if !slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return slices.ContainsFunc(SplitPath(e.Path), func(seg string) bool { _, err := strconv.Atoi(seg); return err == nil })
+	}) {
 		return nil
 	}
 	issues := []Issue{}
-	keys := make([]string, 0, len(s.Body))
-	for k := range s.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(s.Body) {
 		text, ok := s.Body[k].(string)
 		if !ok || !strings.Contains(namecase.Fold(k), "prefix") {
 			continue
@@ -1514,4 +1357,13 @@ func renamedFieldHint(path string, fields []*catalog.Field) string {
 		return ""
 	}
 	return fmt.Sprintf("; if it was renamed in the proto, assert the new name: %s declares %s", where, strings.Join(names, ", "))
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

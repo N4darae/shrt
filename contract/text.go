@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -32,31 +31,25 @@ func (c *RPCContract) Text(lib *Library, rpc string) string {
 	writeList(&b, "required", c.Required)
 	writeList(&b, "needs (declared)", c.Needs)
 	writeList(&b, "before (this must precede)", c.Before)
-	if deps := c.Dependencies(); len(deps) > 0 {
-		writeList(&b, "depends on (resolved)", deps)
-	}
-	if pulled := lib.RequiredBy(rpc); len(pulled) > 0 {
-		writeList(&b, "pulled in ahead of this", pulled)
-	}
+	writeList(&b, "depends on (resolved)", c.Dependencies())
+	writeList(&b, "pulled in ahead of this", lib.RequiredBy(rpc))
 	if len(c.Fields) > 0 {
 		b.WriteString("  fields\n")
-		for _, n := range sortedNames(c.Fields) {
+		for _, n := range sortedKeys(c.Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Fields[n]))
 		}
 	}
-	for _, alias := range sortedAliases(c.Aliases) {
+	for _, alias := range sortedKeys(c.Aliases) {
 		fmt.Fprintf(&b, "  alias @%-12s %s\n", alias, c.Aliases[alias].Note)
-		for _, n := range sortedNames(c.Aliases[alias].Fields) {
+		for _, n := range sortedKeys(c.Aliases[alias].Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Aliases[alias].Fields[n]))
 		}
 	}
-	if len(c.Effects) > 0 {
-		effects := map[string]string{}
-		for k, e := range c.Effects {
-			effects[k] = e.String()
-		}
-		writeMap(&b, "effects", effects)
+	effects := map[string]string{}
+	for k, e := range c.Effects {
+		effects[k] = e.String()
 	}
+	writeMap(&b, "effects", effects)
 	writeMap(&b, "exports", c.Exports)
 	writeMap(&b, "terminal (no consumer)", c.Terminal)
 	writeMap(&b, "soft_signals", c.SoftSignals)
@@ -107,51 +100,17 @@ func writeMap(b *strings.Builder, label string, m map[string]string) {
 		return
 	}
 	fmt.Fprintf(b, "  %s\n", label)
-	for _, k := range sortedStringKeys(m) {
+	for _, k := range sortedKeys(m) {
 		fmt.Fprintf(b, "    %-24s %s\n", k, m[k])
 	}
 }
 
-func sortedNames(m map[string]*FieldContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedAliases(m map[string]*AliasContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedStringKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func fieldDetail(f *FieldContract) string {
 	parts := []string{}
-	if f.Value != "" {
-		parts = append(parts, "value "+f.Value)
-	}
-	if f.From != "" {
-		parts = append(parts, "from "+f.From)
-	}
-	if f.OneOf != "" {
-		parts = append(parts, "oneof "+f.OneOf)
-	}
-	if f.CheckedBy != "" {
-		parts = append(parts, "checked_by "+f.CheckedBy)
+	for _, kv := range [][2]string{{"value ", f.Value}, {"from ", f.From}, {"oneof ", f.OneOf}, {"checked_by ", f.CheckedBy}} {
+		if kv[1] != "" {
+			parts = append(parts, kv[0]+kv[1])
+		}
 	}
 	if f.Note != "" {
 		parts = append(parts, strings.TrimSpace(f.Note))

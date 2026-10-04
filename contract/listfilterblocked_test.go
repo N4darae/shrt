@@ -7,15 +7,17 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
+func confirmNeedsBatch(rpcs map[string]*contract.RPCContract) {
+	if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
+		c.Needs = nil
+	}
+	if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
+		c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
+	}
+}
+
 func TestAListFilterStateWhoseProducerNeedsAnUncalledRpcIsNotCalledUnreachable(t *testing.T) {
-	p, _ := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
-			c.Needs = nil
-		}
-		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
-			c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
-		}
-	}, "ListOrders")
+	p, _ := shopDemoMutated(t, contract.PlanOptions{}, confirmNeedsBatch, "ListOrders")
 	notes := strings.Join(p.Notes, "\n")
 	if !strings.Contains(notes, "ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStockBatch") {
 		t.Fatalf("fixture: ConfirmOrder needs AddStockBatch, which a plan of ListOrders alone neither calls nor adds:\n%s", notes)
@@ -29,7 +31,7 @@ func TestAListFilterStateWhoseProducerNeedsAnUncalledRpcIsNotCalledUnreachable(t
 }
 
 func TestAListFilterStateWhoseProducerNeedsAWriteThePlanCanAddIsProbed(t *testing.T) {
-	p, notes := confirmNeedsStockPlan(t, "ListOrders")
+	p, notes := confirmNeedsStockPlan(t, contract.PlanOptions{}, "ListOrders")
 	if strings.Contains(notes, "but it needs AddStock") {
 		t.Fatalf("AddStock is added as a fixture, so CONFIRMED is not dropped:\n%s", notes)
 	}

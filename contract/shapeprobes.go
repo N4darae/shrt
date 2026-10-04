@@ -11,12 +11,12 @@ import (
 )
 
 var (
-	clauseSplit    = regexp.MustCompile(`(?i)\s*(?:,|;|\bor\b)\s*`)
-	shapeEmpty     = regexp.MustCompile(`(?i)\b(?:empty|missing|blank|absent|unset|omitted|not set|not given|required|none)\b`)
-	shapeSpace     = regexp.MustCompile(`(?i)\bwhitespace\b|\bspaces\b`)
-	shapeZero      = regexp.MustCompile(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
-	shapeNegative  = regexp.MustCompile(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
-	shapeAt        = regexp.MustCompile(`(?i)@|\bat[- ]?(?:sign|symbol|character|char|mark)\b`)
+	clauseSplit    = lazyRegexp(`(?i)\s*(?:,|;|\bor\b)\s*`)
+	shapeEmpty     = lazyRegexp(`(?i)\b(?:empty|missing|blank|absent|unset|omitted|not set|not given|required|none)\b`)
+	shapeSpace     = lazyRegexp(`(?i)\bwhitespace\b|\bspaces\b`)
+	shapeZero      = lazyRegexp(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
+	shapeNegative  = lazyRegexp(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
+	shapeAt        = lazyRegexp(`(?i)@|\bat[- ]?(?:sign|symbol|character|char|mark)\b`)
 	invalidArgCode = "invalid_argument"
 )
 
@@ -32,12 +32,8 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || p.isLogin(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		fields := catalog.DescribeMessage(m.Input()).Fields
@@ -57,7 +53,7 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 					"planned for it: write one, or reword it (%s)", st.ID, f.Label(), shapeWording)
 				continue
 			}
-			p.addShapeProbes(lib, st, m, c, f, cases)
+			p.addShapeProbes(lib, st, m, f, cases)
 			if len(unread) > 0 {
 				p.gap("step %s: %s: %q names no field and value the plan can build, so no probe sends that case: "+
 					"write one, or reword it (%s)", st.ID, f.Label(), strings.Join(unread, `", "`), shapeWording)
@@ -75,7 +71,7 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		if len(required) > 0 {
 			p.gap("step %s: %s %s required, but no invalid_argument failure has field: naming %s, so no probe sends a "+
-				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralIs(len(required)),
+				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralVerb(len(required), "is", "are"),
 				pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
 		}
 		if !declared && !c.IsUnfilled("required") && len(c.Required) == 0 {
@@ -93,7 +89,7 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shap
 	unread := []string{}
 	seen := map[string]bool{}
 	carry := f.Field
-	for _, clause := range clauseSplit.Split(f.When, -1) {
+	for _, clause := range clauseSplit().Split(f.When, -1) {
 		clause = strings.TrimSpace(clause)
 		if clause == "" {
 			continue
@@ -182,36 +178,35 @@ func shapeTarget(body map[string]any, fields []*catalog.Field, field string) (st
 func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 	switch {
 	case fd.Repeated:
-		if shapeEmpty.MatchString(clause) {
+		if shapeEmpty().MatchString(clause) {
 			return "empty", []any{}, true
 		}
 	case fd.Kind == "string":
 		text, _ := cur.(string)
 		switch {
-		case shapeAt.MatchString(clause) && strings.Contains(text, "@"):
+		case shapeAt().MatchString(clause) && strings.Contains(text, "@"):
 			return "no_at", strings.ReplaceAll(text, "@", "."), true
-		case shapeSpace.MatchString(clause):
+		case shapeSpace().MatchString(clause):
 			return "blank", "   ", true
-		case shapeEmpty.MatchString(clause):
+		case shapeEmpty().MatchString(clause):
 			return "empty", "", true
 		}
 	case chain.IsNumericKind(fd.Kind):
 		switch {
-		case shapeNegative.MatchString(clause):
+		case shapeNegative().MatchString(clause):
 			return "negative", "-1", true
-		case shapeZero.MatchString(clause):
+		case shapeZero().MatchString(clause):
 			return "zero", "0", true
 		}
 	}
 	return "", nil, false
 }
 
-func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, cases []shapeCase) {
+func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f Failure, cases []shapeCase) {
 	expect := refusalFor(m, f)
 	ids := []string{}
 	for _, sc := range cases {
-		probe := copyStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
-		probe.Export = nil
+		probe := probeStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
 		if !chain.IsReadOnlyCall(st.Call) {
 			p.freshen(lib, probe)
 		}
@@ -235,17 +230,8 @@ func (p *Plan) addShape(lib *Library, st *chain.Step, probe *chain.Step) {
 }
 
 func shapeWords(kind string) string {
-	switch kind {
-	case "empty":
-		return "empty"
-	case "blank":
-		return "only whitespace"
-	case "zero":
-		return "zero"
-	case "negative":
-		return "negative"
-	case "no_at":
-		return "without an @"
+	if words, ok := map[string]string{"blank": "only whitespace", "no_at": "without an @"}[kind]; ok {
+		return words
 	}
 	return kind
 }

@@ -6,13 +6,9 @@ import (
 )
 
 func lintAbsentReads(c *Chain, s *Step, known map[string]bool) []Issue {
-	refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-	for _, e := range s.Expect {
-		refs = append(refs, e.References()...)
-	}
 	issues := []Issue{}
 	seen := map[string]bool{}
-	for _, ref := range refs {
+	for _, ref := range s.References() {
 		r := ParseRef(ref)
 		if r.Kind != RefStep || !known[r.Head] || r.Head == s.ID || seen[ref] {
 			continue

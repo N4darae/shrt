@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-var durationPhrase = regexp.MustCompile(`(?i)\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|sixty)[\s-]*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b`)
+var durationPhrase = lazyRegexp(`(?i)\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|sixty)[\s-]*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b`)
 
 var numberWords = map[string]int64{
 	"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -18,7 +17,7 @@ var numberWords = map[string]int64{
 }
 
 func durationSeconds(text string) (int64, string, bool) {
-	m := durationPhrase.FindStringSubmatch(text)
+	m := durationPhrase().FindStringSubmatch(text)
 	if m == nil {
 		return 0, "", false
 	}
@@ -61,10 +60,7 @@ func isStampName(name string) bool {
 }
 
 func contractNote(c *RPCContract, path string) string {
-	last := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		last = path[i+1:]
-	}
+	last := path[strings.LastIndex(path, ".")+1:]
 	parts := []string{}
 	for _, m := range []map[string]string{c.Terminal, c.Exports, c.SoftSignals} {
 		for _, key := range []string{path, last} {
@@ -90,10 +86,7 @@ func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPC
 	id := step.ID
 	out := []chain.Expectation{}
 	for _, path := range chain.TimestampFields(m) {
-		last := path
-		if i := strings.LastIndex(path, "."); i >= 0 {
-			last = path[i+1:]
-		}
+		last := path[strings.LastIndex(path, ".")+1:]
 		note := contractNote(c, path)
 		if strings.Contains(strings.ToLower(note), "milli") {
 			p.note("step %s: %s is in milliseconds by its contract, and ${nowunix} is seconds, so no range was scaffolded for it; "+

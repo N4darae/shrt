@@ -1,9 +1,11 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -13,7 +15,7 @@ const unauthBlock = `failures:
       when: the Authorization header is missing, or its token is unknown or expired
 `
 
-func sharedUnauthLibrary(t *testing.T) *contract.Library {
+func sharedUnauthLibrary(t *testing.T) (*catalog.Catalog, *contract.Library) {
 	t.Helper()
 	return shopDemoEdited(t, func(name, body string) string {
 		switch name {
@@ -27,14 +29,9 @@ func sharedUnauthLibrary(t *testing.T) *contract.Library {
 }
 
 func TestADomainFailureWithScopeAllReachesEveryDomain(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := sharedUnauthLibrary(t)
+	cat, lib := sharedUnauthLibrary(t)
 	for _, rpc := range []string{"shop.catalog.v1.StockService/AddStock", "shop.orders.v1.OrderService/ListOrders"} {
-		found := false
-		for _, f := range lib.AllFailures(rpc) {
-			found = found || f.ConnectCode == "unauthenticated"
-		}
-		if !found {
+		if !slices.ContainsFunc(lib.AllFailures(rpc), func(f contract.Failure) bool { return f.ConnectCode == "unauthenticated" }) {
 			t.Fatalf("%s inherits the auth domain's scope: all failure, got %+v", rpc, lib.AllFailures(rpc))
 		}
 	}

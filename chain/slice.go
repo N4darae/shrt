@@ -2,6 +2,8 @@ package chain
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,25 +31,13 @@ func DefaultReadOnlyPrefixes() []string {
 	}
 }
 
-func IsReadOnlyCall(call string) bool {
-	name := call
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		name = call[i+1:]
-	}
-	for _, p := range ReadOnlyPrefixes() {
-		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
-			return true
-		}
-	}
-	return false
-}
+func IsReadOnlyCall(call string) bool { return callHasPrefix(call, ReadOnlyPrefixes()) }
 
-func wordBoundaryAt(name string, at int) bool {
-	if at >= len(name) {
-		return true
-	}
-	c := name[at]
-	return c < 'a' || c > 'z'
+func callHasPrefix(call string, prefixes []string) bool {
+	name := call[strings.LastIndex(call, "/")+1:]
+	return slices.ContainsFunc(prefixes, func(p string) bool {
+		return strings.HasPrefix(name, p) && (len(name) == len(p) || name[len(p)] < 'a' || name[len(p)] > 'z')
+	})
 }
 
 type Prereq struct {
@@ -59,17 +49,7 @@ type Prereq struct {
 	Via   []string `json:"via,omitempty"`
 }
 
-func (p Prereq) calledBy(rpc string) bool {
-	if rpc == p.RPC {
-		return true
-	}
-	for _, v := range p.Via {
-		if v == rpc {
-			return true
-		}
-	}
-	return false
-}
+func (p Prereq) calledBy(rpc string) bool { return rpc == p.RPC || slices.Contains(p.Via, rpc) }
 
 func (p Prereq) Node() string {
 	if p.Alias == "" {
@@ -201,17 +181,12 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		if !ok {
 			return nil, fmt.Errorf("chain %q has no step %q to keep (-keep %s keeps every earlier write step)\nvalid step ids:\n  %s", c.Name, id, SliceKeepWrites, strings.Join(idx.ids(), "\n  "))
 		}
-		if j > at && !containsID(opts.Pinned, id) {
+		if j > at && !slices.Contains(opts.Pinned, id) {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)
 		}
 		add(j, KeepAsked, KeepAsked)
 	}
-	checkpoints := make([]string, 0, len(opts.Checkpoints))
-	for id := range opts.Checkpoints {
-		checkpoints = append(checkpoints, id)
-	}
-	sort.Strings(checkpoints)
-	for _, id := range checkpoints {
+	for _, id := range sortedKeys(opts.Checkpoints) {
 		if j, ok := idx.byID[id]; ok {
 			add(j, KeepCheckpoint, opts.Checkpoints[id])
 		}
@@ -269,17 +244,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			}
 		}
 		added := false
-		for _, w := range idx.sideEffectWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
-		}
-		for _, w := range idx.stateWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
-		}
-		for _, w := range idx.sameValueWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
+		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
+			for _, w := range writes(at, keeps, opts) {
+				add(w.index, KeepSideEffect, w.reason)
+				added = true
+			}
 		}
 		if !added {
 			break
@@ -317,13 +286,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	for i, s := range c.Steps[:at] {
-		if _, seen := keeps[i]; seen {
-			continue
-		}
-		if !isWriteCall(s.Call) {
-			continue
-		}
-		if opts.IsLogin != nil && opts.IsLogin(s) {
+		if _, seen := keeps[i]; seen || !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
 		d := Dropped{Index: i + 1, ID: s.ID, Call: s.Call}
@@ -343,11 +306,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		name = DefaultSliceName(c.Name, target)
 	}
 	out := &Chain{
-		APIVersion:  APIVersion,
-		Name:        name,
-		Description: "",
-		Volatile:    append([]string{}, c.Volatile...),
-		Redact:      append([]string{}, c.Redact...),
+		APIVersion: APIVersion,
+		Name:       name,
+		Volatile:   append([]string{}, c.Volatile...),
+		Redact:     append([]string{}, c.Redact...),
 	}
 	kept := map[string]bool{}
 	for _, i := range order {
@@ -372,15 +334,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		fresh[name] = true
 	}
 	vars := map[string]any{}
-	declared := []string{}
-	for name, v := range c.Vars {
-		if usedVars[name] {
-			vars[name] = v
-			declared = append(declared, name)
+	for _, name := range sortedKeys(c.Vars) {
+		if !usedVars[name] {
+			continue
 		}
-	}
-	sort.Strings(declared)
-	for _, name := range declared {
+		vars[name] = c.Vars[name]
 		if fresh[name] {
 			if v, ok := opts.Vars[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
 				vars[name] = v
@@ -398,16 +356,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		vars[name] = v
 		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
-	undeclared := []string{}
-	for name := range usedVars {
-		if _, declared := c.Vars[name]; !declared {
-			if _, set := vars[name]; !set {
-				undeclared = append(undeclared, name)
-			}
+	for _, name := range sortedKeys(usedVars) {
+		if _, declared := c.Vars[name]; declared {
+			continue
 		}
-	}
-	sort.Strings(undeclared)
-	for _, name := range undeclared {
 		if v, ok := opts.Vars[name]; ok {
 			vars[name] = v
 			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag})
@@ -420,13 +372,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	if _, declared := c.Vars[RunTagVar]; !declared && fresh[RunTagVar] {
 		if _, given := opts.Vars[RunTagVar]; !given {
-			kept := []string{}
-			for _, name := range res.FreshVars {
-				if name != RunTagVar {
-					kept = append(kept, name)
-				}
-			}
-			res.FreshVars = kept
+			res.FreshVars = slices.DeleteFunc(res.FreshVars, func(name string) bool { return name == RunTagVar })
 		}
 	}
 	if len(vars) > 0 {
@@ -437,46 +383,32 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	return res, nil
 }
 
-func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
-	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", ""
+func (r *SliceResult) settle(verdict *string, text string) {
+	r.Verified, r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", "", ""
+	*verdict = text
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
+}
+
+func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
+	r.settle(&r.Verified, fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun))
 }
 
 func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time, difference string) {
-	r.NotReproduced = fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	if difference != "" {
-		r.NotReproduced += " (" + difference + ")"
-	}
-	r.Verified, r.Inconclusive, r.Intermittent = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.NotReproduced, withNote(fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun), difference))
 }
 
 func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time, why string) {
-	r.Inconclusive = fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	if why != "" {
-		r.Inconclusive += " (" + why + ")"
-	}
-	r.Verified, r.NotReproduced, r.Intermittent = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.Inconclusive, withNote(fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun), why))
 }
 
 func (r *SliceResult) MarkIntermittent(sourceRun, sliceRuns string, reproduced, runs int, at time.Time) {
-	r.Intermittent = fmt.Sprintf("on %s slice runs %s%s gave step %s the verdict it had in source run %s in %d of %d runs",
-		at.UTC().Format("2006-01-02"), sliceRuns, r.onBuild(), r.Target, sourceRun, reproduced, runs)
-	r.Verified, r.NotReproduced, r.Inconclusive = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.Intermittent, fmt.Sprintf("on %s slice runs %s%s gave step %s the verdict it had in source run %s in %d of %d runs",
+		at.UTC().Format("2006-01-02"), sliceRuns, r.onBuild(), r.Target, sourceRun, reproduced, runs))
 }
 
 func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun string, at time.Time, why string) string {
@@ -487,12 +419,15 @@ func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun stri
 	case strings.HasPrefix(outcome, "INTERMITTENT"):
 		gave = "in only some runs the verdict of"
 	}
-	out := fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
-		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun)
-	if why != "" {
-		out += " (" + why + ")"
+	return withNote(fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
+		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun), why)
+}
+
+func withNote(text, note string) string {
+	if note == "" {
+		return text
 	}
-	return out
+	return text + " (" + note + ")"
 }
 
 func (r *SliceResult) OwnRunVerdict(chainName, sourceRun, sliceRun string, at time.Time) string {
@@ -541,18 +476,10 @@ func RecordRerun(description, verdict string) string {
 }
 
 func replaceVerdict(description, line string, prefixes ...string) string {
-	if strings.Contains(description, hypothesisParagraph) {
-		description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
-	}
+	description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
 	kept := []string{}
 	for _, l := range strings.SplitAfter(description, "\n") {
-		verdict := strings.HasPrefix(l, hypothesisPrefix)
-		for _, p := range prefixes {
-			if strings.HasPrefix(l, p) {
-				verdict = true
-			}
-		}
-		if !verdict {
+		if !strings.HasPrefix(l, hypothesisPrefix) && !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(l, p) }) {
 			kept = append(kept, l)
 			continue
 		}
@@ -759,11 +686,8 @@ func (x *stepIndex) callsSharingProducers(p Prereq, before int, referenced map[i
 		if !p.calledBy(x.rpcOf(i, opts)) || producesNothing(x.c.Steps[i], opts) {
 			continue
 		}
-		for _, ref := range stepRefs(x.c.Steps[i]) {
-			if j, kind := x.producerOf(ref, i); kind == refStep && referenced[j] {
-				out = append(out, i)
-				break
-			}
+		if slices.ContainsFunc(stepRefs(x.c.Steps[i]), func(ref string) bool { j, kind := x.producerOf(ref, i); return kind == refStep && referenced[j] }) {
+			out = append(out, i)
 		}
 	}
 	return out
@@ -878,7 +802,7 @@ func (x *stepIndex) entitiesSent(i int) []int {
 	return out
 }
 
-func (x *stepIndex) readEntities(i int, seen map[int]bool) map[int]bool {
+func (x *stepIndex) entitiesReached(i int, throughWrites bool, seen map[int]bool) map[int]bool {
 	out := map[int]bool{}
 	if seen[i] {
 		return out
@@ -886,25 +810,10 @@ func (x *stepIndex) readEntities(i int, seen map[int]bool) map[int]bool {
 	seen[i] = true
 	for _, j := range x.entitiesSent(i) {
 		out[j] = true
-		if IsReadOnlyCall(x.c.Steps[j].Call) {
-			for k := range x.readEntities(j, seen) {
+		if throughWrites || IsReadOnlyCall(x.c.Steps[j].Call) {
+			for k := range x.entitiesReached(j, throughWrites, seen) {
 				out[k] = true
 			}
-		}
-	}
-	return out
-}
-
-func (x *stepIndex) actsOn(i int, seen map[int]bool) map[int]bool {
-	out := map[int]bool{}
-	if seen[i] {
-		return out
-	}
-	seen[i] = true
-	for _, j := range x.entitiesSent(i) {
-		out[j] = true
-		for k := range x.actsOn(j, seen) {
-			out[k] = true
 		}
 	}
 	return out
@@ -931,7 +840,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
-		reach := x.actsOn(w, map[int]bool{})
+		reach := x.entitiesReached(w, true, map[int]bool{})
 		for _, r := range readers {
 			if w >= r {
 				continue
@@ -940,7 +849,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 				continue
 			}
 			shared := ""
-			for e := range x.readEntities(r, map[int]bool{}) {
+			for e := range x.entitiesReached(r, false, map[int]bool{}) {
 				if _, fresh := keeps[e]; !fresh {
 					continue
 				}
@@ -965,15 +874,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 }
 
 func (x *stepIndex) rpcNeeds(rpc, need string, opts SliceOptions) bool {
-	if opts.Prereqs == nil {
-		return false
-	}
-	for _, p := range opts.Prereqs(rpc) {
-		if p.RPC == need && !valueEdge(p.Edge) {
-			return true
-		}
-	}
-	return false
+	return opts.Prereqs != nil && slices.ContainsFunc(opts.Prereqs(rpc), func(p Prereq) bool { return p.RPC == need && !valueEdge(p.Edge) })
 }
 
 func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
@@ -988,12 +889,7 @@ func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
 	case map[string]any, []any:
 		return false
 	}
-	for _, ref := range collectRefs(v) {
-		if _, kind := x.producerOf(ref, at); kind == refStep {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(collectRefs(v), func(ref string) bool { _, kind := x.producerOf(ref, at); return kind == refStep })
 }
 
 func producesNothing(s *Step, opts SliceOptions) bool {
@@ -1014,18 +910,9 @@ func notSent(s *Step, opts SliceOptions) bool {
 }
 
 func ExpectsRefusal(s *Step) bool {
-	for _, e := range s.Expect {
-		if ExpectsTransportRefusal(e) {
-			return true
-		}
-		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
-			return true
-		}
-		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK() {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return ExpectsTransportRefusal(e) || strings.Join(SplitPath(e.Path), ".") == EnvelopePath() && (e.Equals != nil && stringify(e.Equals) != EnvelopeOK() || e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK())
+	})
 }
 
 func valueEdge(edge string) bool {
@@ -1090,24 +977,9 @@ func varNameOf(ref string) string {
 }
 
 func stepRefs(s *Step) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	collect := func(refs []string) {
-		for _, r := range refs {
-			if seen[r] {
-				continue
-			}
-			seen[r] = true
-			out = append(out, r)
-		}
-	}
-	collect(collectRefs(s.Body))
-	collect(collectRefs(headerValues(s.Headers)))
-	for _, e := range s.Expect {
-		collect(collectRefs(e.Operands()))
-	}
-	sort.Strings(out)
-	return out
+	refs := s.References()
+	sort.Strings(refs)
+	return slices.Compact(refs)
 }
 
 func isWriteCall(call string) bool {
@@ -1117,29 +989,14 @@ func isWriteCall(call string) bool {
 func copyStep(s *Step) *Step {
 	out := *s
 	out.Body, _ = copyValue(s.Body).(map[string]any)
-	if len(s.Headers) > 0 {
-		headers := make(map[string]string, len(s.Headers))
-		for k, v := range s.Headers {
-			headers[k] = v
-		}
-		out.Headers = headers
-	}
+	out.Headers = maps.Clone(s.Headers)
+	out.Export = maps.Clone(s.Export)
+	out.Volatile = slices.Clone(s.Volatile)
 	if len(s.Expect) > 0 {
-		expect := make([]Expectation, 0, len(s.Expect))
+		out.Expect = make([]Expectation, 0, len(s.Expect))
 		for _, e := range s.Expect {
-			expect = append(expect, e.MapOperands(copyValue))
+			out.Expect = append(out.Expect, e.MapOperands(copyValue))
 		}
-		out.Expect = expect
-	}
-	if len(s.Export) > 0 {
-		export := make(map[string]string, len(s.Export))
-		for k, v := range s.Export {
-			export[k] = v
-		}
-		out.Export = export
-	}
-	if len(s.Volatile) > 0 {
-		out.Volatile = append([]string{}, s.Volatile...)
 	}
 	return &out
 }
@@ -1247,30 +1104,13 @@ func verdictText(v any) string {
 
 var listingPrefixes = []string{"List", "Search", "Query", "Find"}
 
-func isListingCall(call string) bool {
-	name := call
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		name = call[i+1:]
-	}
-	for _, p := range listingPrefixes {
-		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
-			return true
-		}
-	}
-	return false
-}
+func isListingCall(call string) bool { return callHasPrefix(call, listingPrefixes) }
 
-func filterVars(v any, path string, out map[string]string) {
-	switch t := v.(type) {
-	case string:
-		refs := []string{}
-		for _, m := range refPattern.FindAllStringSubmatch(t, -1) {
-			refs = append(refs, strings.TrimSpace(m[1]))
-		}
-		for _, ref := range refs {
-			if r := ParseRef(ref); r.Kind != RefVars {
-				return
-			}
+func filterVars(v any, out map[string]string) {
+	walkLeaves(v, "", "", func(path, _, t string) {
+		refs := collectRefs(t)
+		if slices.ContainsFunc(refs, func(ref string) bool { return ParseRef(ref).Kind != RefVars }) {
+			return
 		}
 		for _, ref := range refs {
 			name, _, _ := strings.Cut(ParseRef(ref).Rest, ".")
@@ -1278,24 +1118,7 @@ func filterVars(v any, path string, out map[string]string) {
 				out[name] = path
 			}
 		}
-	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			next := k
-			if path != "" {
-				next = path + "." + k
-			}
-			filterVars(t[k], next, out)
-		}
-	case []any:
-		for i, item := range t {
-			filterVars(item, fmt.Sprintf("%s.%d", path, i), out)
-		}
-	}
+	})
 }
 
 func listFilterShared(writer, reader *Step) (string, string) {
@@ -1303,18 +1126,13 @@ func listFilterShared(writer, reader *Step) (string, string) {
 		return "", ""
 	}
 	filters := map[string]string{}
-	filterVars(reader.Body, "", filters)
+	filterVars(reader.Body, filters)
 	if len(filters) == 0 {
 		return "", ""
 	}
 	sent := map[string]string{}
-	filterVars(writer.Body, "", sent)
-	names := make([]string, 0, len(sent))
-	for name := range sent {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	filterVars(writer.Body, sent)
+	for _, name := range sortedKeys(sent) {
 		if field, ok := filters[name]; ok {
 			return field, name
 		}

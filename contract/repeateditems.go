@@ -1,7 +1,7 @@
 package contract
 
 import (
-	"sort"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -60,19 +60,9 @@ func secondItems(body map[string]any, fields []*catalog.Field) []string {
 }
 
 func distinctItem(item map[string]any, fields []*catalog.Field) {
-	for _, f := range fields {
-		key, ok := namecase.LookupKey(item, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || idLike(f.Name) {
-			continue
-		}
-		if len(f.Fields) > 0 {
-			if nested, ok := item[key].(map[string]any); ok {
-				distinctItem(nested, f.Fields)
-			}
-			continue
-		}
-		item[key] = nextValue(item[key], f.Kind)
-	}
+	eachLeaf(item, fields, func(f *catalog.Field) bool { return idLike(f.Name) }, func(m map[string]any, key string, f *catalog.Field) {
+		m[key] = nextValue(m[key], f.Kind)
+	})
 }
 
 func idLike(name string) bool {
@@ -127,7 +117,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		chains   map[string]bool
 	}
 	seen := map[string]*tally{}
-	keys := []string{}
 	for _, c := range chains {
 		if c == nil {
 			continue
@@ -147,7 +136,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 				if t == nil {
 					t = &tally{chains: map[string]bool{}}
 					seen[k] = t
-					keys = append(keys, k)
 				}
 				t.unknown = t.unknown || unknown
 				t.most = max(t.most, len(list))
@@ -176,18 +164,14 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 	}
 	out := []SingleItemRepeat{}
-	for _, k := range keys {
+	for _, k := range sortedKeys(seen) {
 		t := seen[k]
 		noRepeat := t.most >= 2 && t.distinct && t.sourced && !t.repeat
 		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "") && !noRepeat) {
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
-		names := []string{}
-		for name := range t.chains {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		names := sortedKeys(t.chains)
 		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
 		switch {
 		case noRepeat:
@@ -197,12 +181,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 		out = append(out, r)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Field < out[j].Field
-	})
 	return out
 }
 
@@ -234,24 +212,11 @@ func sharedResource(c *chain.Chain, at *chain.Step, list []any) (string, bool) {
 	for _, item := range list {
 		got := map[string]string{}
 		resourceLeaves(c, at, item, "", "", got)
-		if len(got) == 0 {
+		if len(got) == 0 || want != nil && !maps.Equal(got, want) {
 			return "", false
 		}
 		if want == nil {
-			want = got
-			for _, k := range sortedKeys(got) {
-				first = got[k]
-				break
-			}
-			continue
-		}
-		if len(got) != len(want) {
-			return "", false
-		}
-		for k, v := range want {
-			if got[k] != v {
-				return "", false
-			}
+			want, first = got, got[sortedKeys(got)[0]]
 		}
 	}
 	return first, true

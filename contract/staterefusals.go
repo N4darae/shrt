@@ -21,9 +21,9 @@ type stateEntity struct {
 	via      string
 }
 
-func (p *Plan) entityStates(lib *Library, st *chain.Step, c *RPCContract) []stateEntity {
+func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 	out := []stateEntity{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" || strings.Contains(name, ".") {
 			continue
@@ -70,8 +70,7 @@ func (p *Plan) entityStates(lib *Library, st *chain.Step, c *RPCContract) []stat
 
 func failureState(f Failure, values []string, short map[string]string) string {
 	for _, v := range values {
-		re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(short[v]) + `\b`)
-		if re.MatchString(f.When) {
+		if mentionsField(f.When, short[v]) {
 			return v
 		}
 	}
@@ -86,7 +85,7 @@ func failureState(f Failure, values []string, short map[string]string) string {
 }
 
 func probeable(f Failure) bool {
-	return f.Unreachable == "" && (f.Code != 0 || f.Reason != "" || f.ConnectCode != "") && !isUnauthenticated(f) && !perItemFailure.MatchString(f.When)
+	return f.Unreachable == "" && (f.Code != 0 || f.Reason != "" || f.ConnectCode != "") && !isUnauthenticated(f) && !perItemFailure().MatchString(f.When)
 }
 
 func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool) {
@@ -94,15 +93,11 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 		if !isTarget(st) || p.isLogin(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
 			continue
 		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
-			continue
-		}
-		for _, e := range p.entityStates(lib, st, c) {
+		for _, e := range p.entityStates(st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
 			initial := ""
@@ -142,27 +137,14 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 
 func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, f Failure, move transition, short map[string]string) {
 	label := strings.ToLower(short[move.value])
-	fixture := copyStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+st.ID+"_"+label))
-	fixture.Export = nil
-	p.freshen(lib, fixture)
-	renameStepRefs(fixture, e.producer.ID, fixture.ID)
-	fixture.Description = fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value])
-	p.assertEcho(fixture)
+	fid := p.freeStepID(e.producer.ID + "_for_" + st.ID + "_" + label)
+	fixture := p.fixtureCopy(lib, e.producer, fid, map[string]string{e.producer.ID: fid}, fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value]))
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
-	body := catalog.ScaffoldWith(move.method.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, move.field, fixtureID)
-	moved := &chain.Step{
-		ID:          p.freeStepID(defaultID(move.method.Name) + "_to_" + label + "_for_" + st.ID),
-		Description: fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID),
-		Call:        move.method.FullName,
-		Auth:        move.contract.Auth,
-		Body:        body,
-		Expect:      append(SuccessExpectation(move.method), chain.Expectation{Path: e.carrier + "." + e.state.Name, Equals: move.value}),
-	}
+	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
+		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
-	refused := copyStep(st, p.freeStepID(st.ID+"_when_"+label))
-	refused.Export = nil
+	refused := probeStep(st, p.freeStepID(st.ID+"_when_"+label))
 	if !chain.IsReadOnlyCall(st.Call) {
 		p.freshen(lib, refused)
 	}

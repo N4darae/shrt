@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -63,7 +64,7 @@ func (e *Effects) UnmarshalYAML(n *yaml.Node) error {
 func (e *Effect) decode(n *yaml.Node) error {
 	switch n.Kind {
 	case yaml.ScalarNode:
-		if containsString(effectWords, n.Value) {
+		if slices.Contains(effectWords, n.Value) {
 			e.Is = n.Value
 			return nil
 		}
@@ -74,34 +75,15 @@ func (e *Effect) decode(n *yaml.Node) error {
 	}
 	for i := 0; i+1 < len(n.Content); i += 2 {
 		key, val := n.Content[i].Value, n.Content[i+1]
-		if !containsString(effectKeys, key) {
+		if !slices.Contains(effectKeys, key) {
 			return fmt.Errorf("unknown key %q%s", key, suggest(key, effectKeys))
 		}
 		if val.Kind != yaml.ScalarNode || strings.TrimSpace(val.Value) == "" {
 			return fmt.Errorf("%s takes one name, e.g. %s: qty", key, key)
 		}
-		v := strings.TrimSpace(val.Value)
-		switch key {
-		case "increase":
-			e.Increase = v
-		case "decrease":
-			e.Decrease = v
-		case "of":
-			e.Of = v
-		case "restore":
-			e.Restore = v
-		case "sum":
-			e.Sum = v
-		case "times":
-			e.Times = v
-		}
+		*[]*string{&e.Increase, &e.Decrease, &e.Of, &e.Restore, &e.Sum, &e.Times}[slices.Index(effectKeys, key)] = strings.TrimSpace(val.Value)
 	}
-	stated := 0
-	for _, v := range []string{e.Increase, e.Decrease, e.Restore, e.Sum} {
-		if v != "" {
-			stated++
-		}
-	}
+	stated := len(slices.DeleteFunc([]string{e.Increase, e.Decrease, e.Restore, e.Sum}, func(v string) bool { return v == "" }))
 	switch {
 	case stated != 1:
 		return fmt.Errorf("an effect states exactly one of increase, decrease, restore or sum")
@@ -298,11 +280,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
 	specs, problems := []effectSpec{}, []string{}
-	keys := make([]string, 0, len(c.Effects))
-	for k := range c.Effects {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(c.Effects)
 	carries := func(field string) func(*catalog.Method) bool {
 		return func(em *catalog.Method) bool { return numericAt(em, field) != "" }
 	}
@@ -317,7 +295,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 		}
 		switch {
 		case e.Is == EffectPerItem:
-			if !containsString(repeatedItems(in), k) {
+			if !slices.Contains(repeatedItems(in), k) {
 				fail("per_item names a repeated field of the request%s", suggest(k, repeatedItems(in)))
 				continue
 			}
@@ -335,7 +313,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			}
 			s.form = EffectNone
 			if e.Restore != "" {
-				if states := statesNear(m, c, cat); len(states) > 0 && !statedState(e.Restore, states) {
+				if states := statesNear(m, c, cat); len(states) > 0 && !slices.ContainsFunc(states, func(s string) bool { return strings.EqualFold(s, e.Restore) }) {
 					fail("restore: %q is not a state this rpc or the records it names answer with%s", e.Restore, suggest(e.Restore, states))
 					continue
 				}
@@ -412,15 +390,11 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 				fail("%q is not a number of the request%s", path, suggest(path, numericNames(in)))
 				continue
 			}
-			for _, name := range sortedFieldNames(c.Fields) {
-				if strings.Contains(name, ".") {
-					continue
-				}
-				if ref, ok := writeRef(c, name, cat); ok {
-					if em, err := cat.Lookup(ref.RPC); err == nil && carries(k)(em) {
-						s.idField, s.entity, s.idPath = name, ref.RPC, ref.Path
-						break
-					}
+			for _, name := range wiredWrites(c, cat) {
+				ref, _ := writeRef(c, name, cat)
+				if em, err := cat.Lookup(ref.RPC); err == nil && carries(k)(em) {
+					s.idField, s.entity, s.idPath = name, ref.RPC, ref.Path
+					break
 				}
 			}
 			if s.idField == "" {
@@ -436,7 +410,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 
 func wiredWrites(c *RPCContract, cat *catalog.Catalog) []string {
 	out := []string{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		if _, ok := writeRef(c, name, cat); ok && !strings.Contains(name, ".") {
 			out = append(out, name)
 		}
@@ -484,7 +458,7 @@ func catalogNumbers(cat *catalog.Catalog) []string {
 }
 
 func numericInCatalog(cat *catalog.Catalog, name string) bool {
-	return containsString(catalogNumbers(cat), name)
+	return slices.Contains(catalogNumbers(cat), name)
 }
 
 func enumValues(fields []*catalog.Field) []string {
@@ -512,22 +486,13 @@ func statesNear(m *catalog.Method, c *RPCContract, cat *catalog.Catalog) []strin
 	return out
 }
 
-func statedState(state string, states []string) bool {
-	for _, s := range states {
-		if strings.EqualFold(s, state) {
-			return true
-		}
-	}
-	return false
-}
-
 func EffectProblems(lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
 	if lib == nil || cat == nil {
 		return issues
 	}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedRPCNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			m, err := cat.Lookup(rpc)
 			if err != nil {
 				continue
@@ -581,18 +546,15 @@ func effectsTodo(m *catalog.Method, all []*catalog.Method) string {
 		if pm.FullName != producers[0].RPC {
 			continue
 		}
-		asked := map[string]bool{}
-		for _, name := range numericNames(catalog.DescribeMessage(pm.Input()).Fields) {
-			asked[name] = true
-		}
+		asked := numericNames(catalog.DescribeMessage(pm.Input()).Fields)
 		kept := []string{}
 		for _, name := range answeredNumbers(pm) {
-			if !asked[name] && !idLike(name) && !IsVerdictFieldName(name) && !containsString(kept, name) {
+			if !slices.Contains(asked, name) && !idLike(name) && !IsVerdictFieldName(name) && !slices.Contains(kept, name) {
 				kept = append(kept, name)
 			}
 		}
 		carried := numericNames(append(catalog.DescribeMessage(m.Input()).Fields, catalog.DescribeMessage(m.Output()).Fields...))
-		if len(kept) == 1 && containsString(carried, kept[0]) {
+		if len(kept) == 1 && slices.Contains(carried, kept[0]) {
 			moved = kept[0]
 		}
 	}

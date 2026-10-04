@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"strconv"
@@ -33,20 +34,12 @@ type StepView struct {
 
 func NewScope(vars map[string]any) *Scope {
 	return &Scope{
-		Vars:    cloneMap(vars),
+		Vars:    maps.Collect(maps.All(vars)),
 		Exports: map[string]any{},
 		Steps:   map[string]*StepView{},
 		Now:     time.Now,
 		Env:     os.LookupEnv,
 	}
-}
-
-func cloneMap(in map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func (s *Scope) Record(id string, request, response any) {
@@ -281,11 +274,7 @@ type MissingPathError struct {
 }
 
 func (e *MissingPathError) Error() string {
-	msg := fmt.Sprintf("unresolved reference ${%s}: step %q answered without %s", e.Expr, e.Step, e.Path)
-	if e.Near != "" {
-		msg += " (" + e.Near + ")"
-	}
-	return msg
+	return withNote(fmt.Sprintf("unresolved reference ${%s}: step %q answered without %s", e.Expr, e.Step, e.Path), e.Near)
 }
 
 func nearestPresent(root any, path string) string {

@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -21,8 +22,7 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 			seen[key] = true
 			out = append(out, p)
 		}
-		addFor := func(node, edge, forAlias string) { addField(node, edge, forAlias, "") }
-		add := func(node, edge string) { addFor(node, edge, "") }
+		add := func(node, edge string) { addField(node, edge, "", "") }
 		if c, ok := lib.Get(rpc); ok {
 			for _, n := range c.Needs {
 				before := len(out)
@@ -31,11 +31,11 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 					out[len(out)-1].Via = sameEffectRPCs(lib, out[len(out)-1].RPC)
 				}
 			}
-			for _, field := range sortedFieldNames(c.Fields) {
+			for _, field := range sortedKeys(c.Fields) {
 				addFieldPrereq(c.Fields[field], func(node, edge string) { addField(node, edge, "", field) })
 			}
 			for name, a := range c.Aliases {
-				for _, field := range sortedFieldNames(a.Fields) {
+				for _, field := range sortedKeys(a.Fields) {
 					addFieldPrereq(a.Fields[field], func(node, edge string) { addField(node, edge, name, field) })
 				}
 			}
@@ -54,10 +54,7 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 }
 
 func sameEffectRPCs(lib *Library, rpc string) []string {
-	short := rpc
-	if i := strings.LastIndex(rpc, "/"); i >= 0 {
-		short = rpc[i+1:]
-	}
+	short := shortRPC(rpc)
 	increased := map[string]bool{}
 	if need, ok := lib.Get(rpc); ok {
 		for field, e := range need.Effects {
@@ -73,7 +70,7 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 			continue
 		}
 		for field, e := range c.Effects {
-			if e != nil && e.Increase != "" && increased[field] && !containsString(out, other) {
+			if e != nil && e.Increase != "" && increased[field] && !slices.Contains(out, other) {
 				out = append(out, other)
 			}
 		}
@@ -81,7 +78,7 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 			if f == nil || strings.Contains(name, ".") {
 				continue
 			}
-			if m := perItemClause.FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !containsString(out, other) {
+			if m := perItemClause().FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !slices.Contains(out, other) {
 				out = append(out, other)
 			}
 		}

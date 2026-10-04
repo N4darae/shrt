@@ -3,6 +3,7 @@ package chain
 import (
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -12,15 +13,11 @@ import (
 const RunTagVar = "tag"
 
 func (c *Chain) FreshRunTag() bool {
-	if _, declared := c.Vars[RunTagVar]; declared {
-		return false
-	}
-	for _, r := range chainRefs(c) {
-		if name, _, _ := strings.Cut(r.Rest, "."); r.Kind == RefVars && name == RunTagVar {
-			return true
-		}
-	}
-	return false
+	_, declared := c.Vars[RunTagVar]
+	return !declared && slices.ContainsFunc(chainRefs(c), func(r Ref) bool {
+		name, _, _ := strings.Cut(r.Rest, ".")
+		return r.Kind == RefVars && name == RunTagVar
+	})
 }
 
 func NewRunTag() string {
@@ -48,10 +45,7 @@ func lintWholeTag(c *Chain, s *Step, m *catalog.Method) []Issue {
 		if r.Kind != RefVars || r.Rest != RunTagVar {
 			return
 		}
-		leaf := path
-		if i := strings.LastIndex(path, "."); i >= 0 {
-			leaf = path[i+1:]
-		}
+		leaf := path[strings.LastIndex(path, ".")+1:]
 		if lower := strings.ToLower(leaf); lower == "id" || strings.HasSuffix(lower, "_id") || strings.HasPrefix(lower, "id_") {
 			return
 		}

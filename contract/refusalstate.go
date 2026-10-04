@@ -2,8 +2,7 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -14,9 +13,9 @@ import (
 const overdrawValue = "100000"
 
 var (
-	shortReason  = regexp.MustCompile(`^(?:Insufficient|NotEnough|OutOf|Exceeds|Exceeded|Over)[A-Z]`)
-	shortWhen    = regexp.MustCompile(`(?i)\binsufficient\b|\bnot enough\b|\bmore than\b|\bexceeds?\b|\bout of stock\b|\bbeyond\b`)
-	stepRefToken = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.(?:response\.)?([A-Za-z0-9_.]+)\s*\}`)
+	shortReason  = lazyRegexp(`^(?:Insufficient|NotEnough|OutOf|Exceeds|Exceeded|Over)[A-Z]`)
+	shortWhen    = lazyRegexp(`(?i)\binsufficient\b|\bnot enough\b|\bmore than\b|\bexceeds?\b|\bout of stock\b|\bbeyond\b`)
+	stepRefToken = lazyRegexp(`\$\{\s*(?:steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.(?:response\.)?([A-Za-z0-9_.]+)\s*\}`)
 )
 
 func isQuantityName(name string) bool {
@@ -53,7 +52,7 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 					if !ok {
 						continue
 					}
-					if got := walk(item, f.Fields, fmt.Sprintf("%s.%d", at, i)); len(got) > 0 && !containsString(paths, got[0]) {
+					if got := walk(item, f.Fields, fmt.Sprintf("%s.%d", at, i)); len(got) > 0 && !slices.Contains(paths, got[0]) {
 						paths = append(paths, got[0])
 					}
 				}
@@ -107,14 +106,12 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		if i > 0 {
 			suffix = name + "_last_item"
 		}
-		refused := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-		refused.Export = nil
+		refused := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		refused.Expect = append([]chain.Expectation{}, expect...)
 		body := refused.Body
 		var short *chain.Step
 		if source != nil {
-			short = copyStep(source, p.freeStepID(source.ID+"_for_"+suffix))
-			short.Export = nil
+			short = probeStep(source, p.freeStepID(source.ID+"_for_"+suffix))
 			body = short.Body
 		}
 		qty, derived := p.shortageQuantity(lib, body, path)
@@ -172,22 +169,30 @@ func (p *Plan) shortagePaths(st *chain.Step, m *catalog.Method) (*chain.Step, []
 }
 
 func (p *Plan) shortageFailure(lib *Library, st *chain.Step) (*catalog.Method, Failure, bool) {
-	if chain.IsReadOnlyCall(st.Call) {
-		return nil, Failure{}, false
-	}
-	if _, ok := lib.Get(st.Call); !ok {
-		return nil, Failure{}, false
-	}
-	m, err := p.cat.Lookup(st.Call)
-	if err != nil {
+	_, m, ok := p.contractOf(lib, st.Call)
+	if !ok || chain.IsReadOnlyCall(st.Call) {
 		return nil, Failure{}, false
 	}
 	for _, f := range lib.AllFailures(st.Call) {
-		if shortReason.MatchString(f.Reason) || shortWhen.MatchString(f.When) {
+		if shortReason().MatchString(f.Reason) || shortWhen().MatchString(f.When) {
 			return m, f, true
 		}
 	}
 	return nil, Failure{}, false
+}
+
+func (p *Plan) uniqueFields(lib *Library, st *chain.Step) map[string]bool {
+	unique := map[string]bool{}
+	if c, ok := lib.Get(st.Call); ok {
+		for _, f := range lib.AllFailures(st.Call) {
+			if noun, isUnique := uniquenessNoun(f); isUnique {
+				if field := p.uniqueField(st, c, f, noun); field != "" {
+					unique[stripIndexes(field)] = true
+				}
+			}
+		}
+	}
+	return unique
 }
 
 func (p *Plan) freshen(lib *Library, st *chain.Step) {
@@ -196,20 +201,8 @@ func (p *Plan) freshen(lib *Library, st *chain.Step) {
 		return
 	}
 	fields := catalog.DescribeMessage(m.Input()).Fields
-	unique := map[string]bool{}
-	if c, ok := lib.Get(st.Call); ok {
-		for _, f := range lib.AllFailures(st.Call) {
-			noun, isUnique := uniquenessNoun(f)
-			if !isUnique {
-				continue
-			}
-			if field := p.uniqueField(st, c, f, noun); field != "" {
-				unique[stripIndexes(field)] = true
-			}
-		}
-	}
 	marker := strings.TrimPrefix(st.ID, defaultID(m.Name)+"_")
-	for path := range unique {
+	for path := range p.uniqueFields(lib, st) {
 		v, _ := bodyValue(st.Body, path)
 		kind := ""
 		if fd, ok := catalog.FieldAt(fields, chain.SplitPath(path)); ok && fd != nil {
@@ -229,16 +222,8 @@ func (p *Plan) freshen(lib *Library, st *chain.Step) {
 }
 
 func isIdempotencyField(f *catalog.Field) bool {
-	if f.Kind != "string" || f.Repeated {
-		return false
-	}
 	folded := namecase.Fold(f.Name)
-	for _, w := range []string{"idempotency", "idempotent", "dedup", "requestid", "clientrequest", "clienttoken"} {
-		if strings.Contains(folded, w) {
-			return true
-		}
-	}
-	return false
+	return f.Kind == "string" && !f.Repeated && slices.ContainsFunc([]string{"idempotency", "idempotent", "dedup", "requestid", "clientrequest", "clienttoken"}, func(w string) bool { return strings.Contains(folded, w) })
 }
 
 func referencedSteps(v any) []string {
@@ -253,31 +238,7 @@ func referencedSteps(v any) []string {
 	return out
 }
 
-func renameStepRefs(st *chain.Step, from, to string) {
-	var swap func(any) any
-	swap = func(v any) any {
-		switch t := v.(type) {
-		case string:
-			t = strings.ReplaceAll(t, "${"+from+".", "${"+to+".")
-			return strings.ReplaceAll(t, "${steps."+from+".", "${steps."+to+".")
-		case map[string]any:
-			for k, item := range t {
-				t[k] = swap(item)
-			}
-			return t
-		case []any:
-			for i, item := range t {
-				t[i] = swap(item)
-			}
-			return t
-		}
-		return v
-	}
-	st.Body, _ = swap(st.Body).(map[string]any)
-	for i := range st.Expect {
-		st.Expect[i] = st.Expect[i].MapOperands(swap)
-	}
-}
+func renameStepRefs(st *chain.Step, from, to string) { retarget(st, map[string]string{from: to}) }
 
 type entityRead struct {
 	producer *chain.Step
@@ -287,6 +248,15 @@ type entityRead struct {
 	field    string
 	carrier  string
 	scalars  []string
+}
+
+func (e entityRead) asIn(id string) []chain.Expectation {
+	var out []chain.Expectation
+	for _, name := range e.scalars {
+		path := e.carrier + "." + name
+		out = append(out, chain.Expectation{Path: path, Equals: "${" + id + "." + path + "}"})
+	}
+	return out
 }
 
 func (p *Plan) entitiesOf(lib *Library, st *chain.Step) []entityRead {
@@ -300,7 +270,7 @@ func (p *Plan) entitiesOf(lib *Library, st *chain.Step) []entityRead {
 				continue
 			}
 			seen[m[0]] = true
-			if e, ok := p.readerFor(lib, prod, m[1]); ok {
+			if e, ok := p.readerMatching(lib, prod, m[1], true); ok {
 				out = append(out, e)
 			}
 			if depth < 1 {
@@ -318,19 +288,14 @@ func allStepRefs(v any) [][2]string {
 	walk = func(v any) {
 		switch t := v.(type) {
 		case string:
-			for _, m := range stepRefToken.FindAllStringSubmatch(t, -1) {
+			for _, m := range stepRefToken().FindAllStringSubmatch(t, -1) {
 				if m[1] == "vars" || m[1] == "env" || m[1] == "exports" || strings.HasPrefix(m[2], "request.") {
 					continue
 				}
 				out = append(out, [2]string{m[1], m[2]})
 			}
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				walk(t[k])
 			}
 		case []any:
@@ -343,8 +308,32 @@ func allStepRefs(v any) [][2]string {
 	return out
 }
 
-func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityRead, bool) {
-	return p.readerMatching(lib, prod, idPath, true)
+func (e entityRead) readStep(id, description, ref string) *chain.Step {
+	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
+	setBodyPath(body, e.field, ref)
+	return &chain.Step{ID: id, Description: description, Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+}
+
+func (e entityRead) echoingRead(id, description string) *chain.Step {
+	ref := "${" + e.producer.ID + "." + e.idPath + "}"
+	read := e.readStep(id, description, ref)
+	leaf := leafName(e.idPath)
+	for _, sf := range carrierFields(e.reader, e.carrier) {
+		if sf.Name == leaf {
+			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
+		}
+	}
+	return read
+}
+
+func (p *Plan) readBase(e entityRead) string {
+	base := defaultID(e.reader.Name)
+	if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
+		if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
+			base += suffix
+		}
+	}
+	return base
 }
 
 func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, needScalars bool) (entityRead, bool) {
@@ -360,7 +349,6 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 		}
 	}
 	rpcs := lib.RPCs()
-	sort.Strings(rpcs)
 	for _, rpc := range rpcs {
 		if !chain.IsReadOnlyCall(rpc) {
 			continue
@@ -370,7 +358,7 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 		if err != nil || rm.Streaming() {
 			continue
 		}
-		for _, name := range sortedFieldNames(c.Fields) {
+		for _, name := range sortedKeys(c.Fields) {
 			ref, err := ParseRef(c.Fields[name].From)
 			if err != nil || canonicalCall(p.cat, ref.RPC) != pm.FullName || ref.Path != idPath {
 				continue
@@ -423,37 +411,13 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 	before, after := []*chain.Step{}, []*chain.Step{}
 	reserved := map[string]bool{}
 	for _, e := range entities {
-		base := defaultID(e.reader.Name)
-		pm, _ := p.cat.Lookup(e.producer.Call)
-		if pm != nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
+		base := p.readBase(e)
 		beforeID := p.freeProbeID(base+"_before_"+label, reserved)
 		afterID := p.freeProbeID(base+"_after_"+label, reserved)
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+e.producer.ID+"."+e.idPath+"}")
-		read := &chain.Step{
-			ID:          beforeID,
-			Description: fmt.Sprintf("the %s as it stands before %s.", e.carrier, label),
-			Call:        e.reader.FullName,
-			Auth:        e.contract.Auth,
-			Body:        body,
-			Expect:      SuccessExpectation(e.reader),
-		}
-		leaf := leafName(e.idPath)
-		for _, sf := range carrierFields(e.reader, e.carrier) {
-			if sf.Name == leaf {
-				read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: "${" + e.producer.ID + "." + e.idPath + "}"})
-			}
-		}
+		read := e.echoingRead(beforeID, fmt.Sprintf("the %s as it stands before %s.", e.carrier, label))
 		check := copyStep(read, afterID)
 		check.Description = fmt.Sprintf("the %s after %s is unchanged: %s read as in %s.", e.carrier, label, strings.Join(e.scalars, ", "), beforeID)
-		for _, name := range e.scalars {
-			path := e.carrier + "." + name
-			check.Expect = append(check.Expect, chain.Expectation{Path: path, Equals: "${" + beforeID + "." + path + "}"})
-		}
+		check.Expect = append(check.Expect, e.asIn(beforeID)...)
 		before = append(before, read)
 		after = append(after, check)
 	}
@@ -477,14 +441,9 @@ func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
 }
 
 func withoutAbsentCarrier(expect []chain.Expectation, _ bool) []chain.Expectation {
-	out := []chain.Expectation{}
-	for _, e := range expect {
-		if e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".") {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
+	return slices.DeleteFunc(slices.Clone(expect), func(e chain.Expectation) bool {
+		return e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".")
+	})
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {

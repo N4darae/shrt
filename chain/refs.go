@@ -2,7 +2,6 @@ package chain
 
 import (
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -28,14 +27,7 @@ func (c *Chain) UnusedVarNames(supplied map[string]any) []string {
 		return nil
 	}
 	declared := c.DeclaredVarNames()
-	out := []string{}
-	for name := range supplied {
-		if !slices.Contains(declared, name) {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return slices.DeleteFunc(sortedKeys(supplied), func(name string) bool { return slices.Contains(declared, name) })
 }
 
 func (c *Chain) DeclaredVarNames() []string {
@@ -44,13 +36,11 @@ func (c *Chain) DeclaredVarNames() []string {
 		seen[name] = true
 	}
 	note := func(v any) {
-		walkText(v, "", func(_, s string) {
-			for _, ref := range collectRefs(s) {
-				if name, ok := strings.CutPrefix(ref, "vars."); ok {
-					seen[name] = true
-				}
+		for _, ref := range collectRefs(v) {
+			if name, ok := strings.CutPrefix(ref, "vars."); ok {
+				seen[name] = true
 			}
-		})
+		}
 	}
 	note(c.Vars)
 	for _, s := range c.Steps {
@@ -66,12 +56,7 @@ func (c *Chain) DeclaredVarNames() []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for name := range seen {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func IsGeneratorRef(s string) bool {
@@ -79,19 +64,13 @@ func IsGeneratorRef(s string) bool {
 	if len(refs) != 1 || strings.TrimSpace(s) != "${"+refs[0]+"}" {
 		return false
 	}
-	switch ParseRef(refs[0]).Kind {
-	case RefUUID, RefClock:
-		return true
-	}
-	return false
+	kind := ParseRef(refs[0]).Kind
+	return kind == RefUUID || kind == RefClock
 }
 
 func IsStableRef(s string) bool {
 	refs := collectRefs(s)
-	if len(refs) != 1 || strings.TrimSpace(s) != "${"+refs[0]+"}" {
-		return false
-	}
-	return !IsGeneratorRef(s)
+	return len(refs) == 1 && strings.TrimSpace(s) == "${"+refs[0]+"}" && !IsGeneratorRef(s)
 }
 
 func HasReference(s string) bool { return refPattern.MatchString(s) }
@@ -150,23 +129,14 @@ func (s *Step) References() []string {
 	if s == nil {
 		return nil
 	}
-	values := []any{s.Body}
-	for _, v := range s.Headers {
-		values = append(values, v)
-	}
+	refs := s.SendReferences()
 	for _, e := range s.Expect {
-		values = append(values, e.Operands()...)
+		refs = append(refs, e.References()...)
 	}
-	return collectRefs(values)
+	return refs
 }
 
 func (c *Chain) MissingVars(supplied map[string]any) []string {
 	undeclared, _ := ExternalInputs(c)
-	out := []string{}
-	for _, name := range undeclared {
-		if _, ok := supplied[name]; !ok {
-			out = append(out, name)
-		}
-	}
-	return out
+	return slices.DeleteFunc(undeclared, func(name string) bool { _, ok := supplied[name]; return ok })
 }

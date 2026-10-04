@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,29 +9,21 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-func confirmNeedsStockPlanWith(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string) {
+func confirmNeedsStockPlan(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string) {
 	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	cat, lib := shopDemoEdited(t, func(name, body string) string {
 		if name != "orders.yaml" {
 			return body
 		}
 		body = strings.Replace(body, "        needs: [shop.catalog.v1.StockService/AddStock]\n", "", 1)
 		return strings.Replace(body, "    shop.orders.v1.OrderService/ConfirmOrder:\n", "    shop.orders.v1.OrderService/ConfirmOrder:\n        needs: [shop.catalog.v1.StockService/AddStock]\n", 1)
 	})
-	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := p.YAML()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p, string(raw) + "\n" + strings.Join(p.Notes, "\n")
+	p, text, notes := planFrom(t, cat, lib, opts, targets...)
+	return p, text + "\n" + notes
 }
 
 func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t *testing.T) {
-	p, text := confirmNeedsStockPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "CreateOrder", "AddStock")
+	p, text := confirmNeedsStockPlan(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "CreateOrder", "AddStock")
 	main := planStep(t, p, "add_stock_for_create_product_2")
 	if stepIndex(p.Chain, main.ID) > stepIndex(p.Chain, "create_order") {
 		t.Fatalf("the prerequisite lands before the write it prepares:\n%s", text)
@@ -49,7 +42,7 @@ func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t
 
 func TestAStateMoveWhoseRPCNeedsAnotherWriteIsPlannedWithThatWriteAsAFixture(t *testing.T) {
 	for _, target := range []string{"CancelOrder", "CreateOrder", "ListOrders"} {
-		p, text := confirmNeedsStockPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, target)
+		p, text := confirmNeedsStockPlan(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, target)
 		confirms, stocks := []string{}, []string{}
 		for _, st := range p.Chain.Steps {
 			switch {
@@ -82,11 +75,7 @@ func TestTheReadBackOfAnOrderAssertsEachLineAsSentAndTheTotal(t *testing.T) {
 		wantExpect(t, read, "order.lines."+i+".qty", "${steps.create_order.request.lines."+i+".qty}")
 	}
 	wantExists(t, read, "order.lines.2", false)
-	found := false
-	for _, e := range read.Expect {
-		found = found || e.Path == "order.total_minor"
-	}
-	if !found {
+	if !slices.ContainsFunc(read.Expect, func(e chain.Expectation) bool { return e.Path == "order.total_minor" }) {
 		t.Fatalf("the read-back asserts the total:\n%s", text)
 	}
 }
@@ -134,15 +123,7 @@ func TestAnIncreaseAndABatchArePlannedWithLargeQuantitiesAndTheExactLevel(t *tes
 
 func TestAnEmailFailureWordedWithoutTheAtCharacterStillGetsAMalformedProbe(t *testing.T) {
 	for _, when := range []string{"email does not contain an at sign", "the email lacks @", "an email without an @", "email has no @ symbol", "the email is missing its at-sign"} {
-		p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-			if c := rpcs["shop.customers.v1.CustomerService/CreateCustomer"]; c != nil {
-				for i := range c.Failures {
-					if c.Failures[i].Reason == "EmailInvalid" {
-						c.Failures[i].When = when
-					}
-				}
-			}
-		}, "CreateCustomer")
+		p, text := shopDemoMutated(t, contract.PlanOptions{}, failureWhen("shop.customers.v1.CustomerService/CreateCustomer", "EmailInvalid", when), "CreateCustomer")
 		probe := planStep(t, p, "create_customer_email_no_at")
 		if strings.Contains(bodyAt(t, probe, "email"), "@") {
 			t.Fatalf("%q: the probe sends an email with no @:\n%s", when, text)
@@ -151,15 +132,8 @@ func TestAnEmailFailureWordedWithoutTheAtCharacterStillGetsAMalformedProbe(t *te
 }
 
 func TestAnInvalidArgumentClauseThePlanCannotReadIsNamedInANote(t *testing.T) {
-	p, _ := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.customers.v1.CustomerService/CreateCustomer"]; c != nil {
-			for i := range c.Failures {
-				if c.Failures[i].Reason == "EmailInvalid" {
-					c.Failures[i].When = "email is empty, or email is not a well-formed address"
-				}
-			}
-		}
-	}, "CreateCustomer")
+	p, _ := shopDemoMutated(t, contract.PlanOptions{}, failureWhen("shop.customers.v1.CustomerService/CreateCustomer",
+		"EmailInvalid", "email is empty, or email is not a well-formed address"), "CreateCustomer")
 	planStep(t, p, "create_customer_email_empty")
 	notes := strings.Join(p.Notes, "\n")
 	if !strings.Contains(notes, "email is not a well-formed address") || !strings.Contains(notes, "EmailInvalid") || !strings.Contains(notes, "at sign") {
@@ -276,13 +250,9 @@ func TestAnUnfilteredListAfterTheStateMovesAssertsEveryFixtureInItsState(t *test
 }
 
 func TestALoginTargetIsPlannedWithItsDeclaredFailureAndEachProfilesRole(t *testing.T) {
-	opts := contract.PlanOptions{
-		Auth:          true,
-		Profiles:      []string{"clerk"},
-		Logins:        []string{"shop.auth.v1.AuthService/Login"},
-		LoginBodies:   map[string]map[string]any{"shop.auth.v1.AuthService/Login": {"username": "${env.API_USER}", "password": "${env.API_PASSWORD}"}},
-		ProfileBodies: map[string]map[string]any{"clerk": {"username": "${env.CLERK_USER}", "password": "${env.CLERK_PASSWORD}"}},
-	}
+	opts := loginOptions()
+	opts.Profiles = []string{"clerk"}
+	opts.ProfileBodies = map[string]map[string]any{"clerk": {"username": "${env.CLERK_USER}", "password": "${env.CLERK_PASSWORD}"}}
 	p, text, _ := shopDemoPlanWith(t, opts, "Login")
 	bad := planStep(t, p, "login_bad_password")
 	if got := bodyAt(t, bad, "password"); got == "${env.API_PASSWORD}" || !strings.HasPrefix(got, "${env.API_PASSWORD}") {

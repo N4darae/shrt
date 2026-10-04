@@ -3,7 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	increaseClause = regexp.MustCompile(`(?i)\b(?:increases?|increments?|raises?|adds?)\s+([^.;]+?)\s+by\s+(?:the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
-	reserveClause  = regexp.MustCompile(`(?i)\b(?:reserves?|takes?|deducts?|decrements?|consumes?|removes?|decreases?|allocates?|subtracts?)\s+([^.;]+?)\s+(?:for|from|on|of|across)\s+(?:every|each|all)\s+(?:of\s+(?:its|the)\s+|the\s+|its\s+)?([A-Za-z_]+)`)
-	perItemClause  = regexp.MustCompile(`(?i)\bone\s+([A-Za-z][A-Za-z0-9]*)\s+per\s+(?:line|item|entry|row)\b`)
-	untouchedWords = regexp.MustCompile(`(?i)\b(?:does not|doesn't|do not|never)\s+(?:touch|change|move|affect|alter|modify|reserve)\w*\s+([^.;,]+)`)
-	startsAtZero   = regexp.MustCompile(`(?i)\b(?:zero|no)\s+([a-z]+)`)
-	sumWord        = regexp.MustCompile(`(?i)\bsum\b|\btotal of\b`)
-	priceWord      = regexp.MustCompile(`(?i)(?:\b|_)pric(?:e|ed|es|ing)(?:\b|_)`)
-	plainWord      = regexp.MustCompile(`[A-Za-z]+`)
+	increaseClause = lazyRegexp(`(?i)\b(?:increases?|increments?|raises?|adds?)\s+([^.;]+?)\s+by\s+(?:the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+	reserveClause  = lazyRegexp(`(?i)\b(?:reserves?|takes?|deducts?|decrements?|consumes?|removes?|decreases?|allocates?|subtracts?)\s+([^.;]+?)\s+(?:for|from|on|of|across)\s+(?:every|each|all)\s+(?:of\s+(?:its|the)\s+|the\s+|its\s+)?([A-Za-z_]+)`)
+	perItemClause  = lazyRegexp(`(?i)\bone\s+([A-Za-z][A-Za-z0-9]*)\s+per\s+(?:line|item|entry|row)\b`)
+	untouchedWords = lazyRegexp(`(?i)\b(?:does not|doesn't|do not|never)\s+(?:touch|change|move|affect|alter|modify|reserve)\w*\s+([^.;,]+)`)
+	startsAtZero   = lazyRegexp(`(?i)\b(?:zero|no)\s+([a-z]+)`)
+	sumWord        = lazyRegexp(`(?i)\bsum\b|\btotal of\b`)
+	priceWord      = lazyRegexp(`(?i)(?:\b|_)pric(?:e|ed|es|ing)(?:\b|_)`)
+	plainWord      = lazyRegexp(`[A-Za-z]+`)
 )
 
 type stockRule struct {
@@ -105,7 +105,7 @@ func (p *Plan) statedStock(lib *Library, rpc string, sp *effectSpec) *stockRule 
 		s.at = numericAt(m, sp.field)
 	}
 	if c, ok := lib.Get(rpc); ok {
-		if match := increaseClause.FindStringSubmatch(c.Summary); match != nil {
+		if match := increaseClause().FindStringSubmatch(c.Summary); match != nil {
 			s.words = append(s.words, contentWords(match[1], append(namecase.Words(chain.SplitPath(s.idPath)[0]), s.words...))...)
 		}
 	}
@@ -115,14 +115,10 @@ func (p *Plan) statedStock(lib *Library, rpc string, sp *effectSpec) *stockRule 
 var effectStopWords = map[string]bool{"the": true, "its": true, "their": true, "and": true, "for": true, "with": true, "from": true, "into": true, "onto": true}
 
 func contentWords(text string, drop []string) []string {
-	skip := map[string]bool{}
-	for _, d := range drop {
-		skip[strings.ToLower(d)] = true
-	}
 	out := []string{}
-	for _, w := range plainWord.FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
+	for _, w := range plainWord().FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
 		w = strings.ToLower(w)
-		if len(w) < 3 || effectStopWords[w] || skip[w] || containsString(out, w) {
+		if len(w) < 3 || effectStopWords[w] || slices.ContainsFunc(drop, func(d string) bool { return strings.ToLower(d) == w }) || slices.Contains(out, w) {
 			continue
 		}
 		out = append(out, w)
@@ -131,12 +127,7 @@ func contentWords(text string, drop []string) []string {
 }
 
 func sharesWord(a, b []string) bool {
-	for _, w := range a {
-		if containsString(b, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a, func(w string) bool { return slices.Contains(b, w) })
 }
 
 func (p *Plan) effectRules(lib *Library) *effectRules {
@@ -150,7 +141,6 @@ func (p *Plan) buildEffectRules(lib *Library) *effectRules {
 	r := &effectRules{increase: map[string]*stockRule{}, batch: map[string]*batchRule{}, reserve: map[string]*reserveRule{},
 		total: map[string]*totalRule{}, byEntity: map[string]*stockRule{}, orders: map[string]bool{}, lines: map[string]lineSpec{}, specs: map[string][]effectSpec{}}
 	rpcs := lib.RPCs()
-	sort.Strings(rpcs)
 	for _, rpc := range rpcs {
 		if c, ok := lib.Get(rpc); ok && !chain.IsReadOnlyCall(rpc) {
 			r.specs[rpc], _ = resolveEffects(rpc, c, lib, p.cat)
@@ -183,7 +173,7 @@ func (p *Plan) buildEffectRules(lib *Library) *effectRules {
 		}
 	}
 	for _, rpc := range rpcs {
-		t := p.totalRuleFor(lib, rpc, r)
+		t := p.totalRuleFor(lib, rpc)
 		if sp := r.spec(rpc, "total"); sp != nil {
 			t = p.statedTotal(rpc, sp, r)
 		}
@@ -240,7 +230,7 @@ func (p *Plan) statedTotal(rpc string, sp *effectSpec, r *effectRules) *totalRul
 
 func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 	out := map[string]Ref{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" {
 			continue
@@ -254,15 +244,11 @@ func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 }
 
 func (p *Plan) increaseRule(lib *Library, rpc string) *stockRule {
-	c, ok := lib.Get(rpc)
-	if !ok || chain.IsReadOnlyCall(rpc) {
+	c, m, ok := p.contractOf(lib, rpc)
+	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil || m.Streaming() {
-		return nil
-	}
-	match := increaseClause.FindStringSubmatch(c.Summary)
+	match := increaseClause().FindStringSubmatch(c.Summary)
 	if match == nil {
 		return nil
 	}
@@ -297,20 +283,16 @@ func (p *Plan) increaseRule(lib *Library, rpc string) *stockRule {
 }
 
 func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule {
-	c, ok := lib.Get(rpc)
-	if !ok || chain.IsReadOnlyCall(rpc) {
+	c, m, ok := p.contractOf(lib, rpc)
+	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil || m.Streaming() {
-		return nil
-	}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || strings.Contains(name, ".") {
 			continue
 		}
-		match := perItemClause.FindStringSubmatch(f.Note)
+		match := perItemClause().FindStringSubmatch(f.Note)
 		if match == nil {
 			continue
 		}
@@ -325,25 +307,13 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 		}
 		b := &batchRule{rpc: rpc, stock: stock}
 		for _, in := range catalog.DescribeMessage(m.Input()).Fields {
-			if in.Name != name || !in.Repeated || in.Kind != "message" {
-				continue
-			}
-			has := map[string]bool{}
-			for _, sub := range in.Fields {
-				has[sub.Name] = true
-			}
-			if has[stock.idField] && has[stock.qtyField] {
+			if in.Name == name && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
 				b.list = in.Name
 			}
 		}
 		for _, out := range catalog.DescribeMessage(m.Output()).Fields {
-			if !out.Repeated || out.Kind != "message" {
-				continue
-			}
-			for _, sub := range out.Fields {
-				if sub.Name == stock.moved {
-					b.results = out.Name
-				}
+			if out.Repeated && out.Kind == "message" && fieldByName(out.Fields, stock.moved) != nil {
+				b.results = out.Name
 			}
 		}
 		if b.list != "" && b.results != "" {
@@ -388,7 +358,7 @@ func (p *Plan) reserveRuleFor(lib *Library, rpc string, r *effectRules) *reserve
 	if !ok || chain.IsReadOnlyCall(rpc) {
 		return nil
 	}
-	match := reserveClause.FindStringSubmatch(c.Summary)
+	match := reserveClause().FindStringSubmatch(c.Summary)
 	if match == nil {
 		return nil
 	}
@@ -410,24 +380,16 @@ func (p *Plan) reserveRuleFor(lib *Library, rpc string, r *effectRules) *reserve
 	return nil
 }
 
-func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule {
-	c, ok := lib.Get(rpc)
+func (p *Plan) totalRuleFor(lib *Library, rpc string) *totalRule {
+	c, m, ok := p.contractOf(lib, rpc)
 	if !ok || chain.IsReadOnlyCall(rpc) {
 		return nil
 	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil {
-		return nil
-	}
 	texts := []string{c.Summary}
-	for _, k := range sortedRuleKeys(c.Exports) {
+	for _, k := range sortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
-	priced := false
-	for _, t := range texts {
-		priced = priced || priceWord.MatchString(t)
-	}
-	if !priced {
+	if !slices.ContainsFunc(texts, priceWord().MatchString) {
 		return nil
 	}
 	list, itemID, itemQty, entity := p.lineItems(rpc, c, "")
@@ -455,14 +417,9 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule
 			if sf.Repeated || !chain.IsNumericKind(sf.Kind) {
 				continue
 			}
-			re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(sf.Name) + `\b`)
-			for _, t := range texts {
-				for _, clause := range clauseBreaks.Split(t, -1) {
-					if re.MatchString(clause) && sumWord.MatchString(clause) {
-						return &totalRule{rpc: rpc, sentence: strings.TrimSpace(clause), carrier: out.Name, field: sf.Name, list: list,
-							itemID: itemID, itemQty: itemQty, entity: entity, price: price}
-					}
-				}
+			if clause := namingClause(texts, sf.Name, sumWord()); clause != "" {
+				return &totalRule{rpc: rpc, sentence: strings.TrimSpace(clause), carrier: out.Name, field: sf.Name, list: list,
+					itemID: itemID, itemQty: itemQty, entity: entity, price: price}
 			}
 		}
 	}
@@ -562,14 +519,8 @@ func assertNumber(st *chain.Step, path string, v int64) bool {
 }
 
 func stepRefIn(v any) string {
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	src, ok := refSource(s)
-	if !ok {
-		return ""
-	}
+	s, _ := v.(string)
+	src, _ := refSource(s)
 	return src
 }
 
@@ -605,16 +556,16 @@ func (p *Plan) noteUnmetEffects(lib *Library) {
 		if !ok || !p.isTargetStep(st.ID) {
 			continue
 		}
-		for _, field := range sortedRuleKeys(c.Effects) {
+		for _, field := range sortedKeys(c.Effects) {
 			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
-				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(lib, st, c, field, e))
+				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(st, c, field, e))
 			}
 		}
 	}
 }
 
-func (p *Plan) effectWiring(lib *Library, st *chain.Step, c *RPCContract, field string, e *Effect) string {
-	for _, en := range p.entityStates(lib, st, c) {
+func (p *Plan) effectWiring(st *chain.Step, c *RPCContract, field string, e *Effect) string {
+	for _, en := range p.entityStates(st, c) {
 		if e.Restore != "" {
 			return fmt.Sprintf("no probe moves a fresh %s to %s before %s acts on it: take %s from: the rpc that creates the %s, with needs: [the rpc that moves it to %s]",
 				en.carrier, e.Restore, st.ID, en.field, en.carrier, e.Restore)
@@ -633,7 +584,7 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 			if s == nil {
 				continue
 			}
-			en, ok := p.readerFor(lib, prod, s.idPath)
+			en, ok := p.readerMatching(lib, prod, s.idPath, true)
 			if !ok {
 				continue
 			}
@@ -644,22 +595,8 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 					base += suffix
 				}
 			}
-			body := catalog.ScaffoldWith(en.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, en.field, "${"+prod.ID+"."+en.idPath+"}")
-			read := &chain.Step{
-				ID:          p.freeProbeID(base+"_after_"+st.ID, reserved),
-				Description: fmt.Sprintf("the %s after %s: %s is what the contract says %s leaves it at.", en.carrier, st.ID, s.moved, shortRPC(st.Call)),
-				Call:        en.reader.FullName,
-				Auth:        en.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(en.reader),
-			}
-			leaf := leafName(en.idPath)
-			for _, sf := range carrierFields(en.reader, en.carrier) {
-				if sf.Name == leaf {
-					read.Expect = append(read.Expect, chain.Expectation{Path: en.carrier + "." + leaf, Equals: "${" + prod.ID + "." + en.idPath + "}"})
-				}
-			}
+			read := en.echoingRead(p.freeProbeID(base+"_after_"+st.ID, reserved),
+				fmt.Sprintf("the %s after %s: %s is what the contract says %s leaves it at.", en.carrier, st.ID, s.moved, shortRPC(st.Call)))
 			p.insertAfter(at, read)
 			at = read.ID
 		}
@@ -672,7 +609,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 	asserted := map[string][]string{}
 	silent := map[string]string{}
 	mark := func(kind, id string) {
-		if !containsString(asserted[kind], id) {
+		if !slices.Contains(asserted[kind], id) {
 			asserted[kind] = append(asserted[kind], id)
 		}
 	}
@@ -759,15 +696,16 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 				o.reserved, o.took = out == outcomeSuccess, v.sign
 				o.held = p.heldState(lib, st)
 				md.watch(st, o)
-				md.unsettle(o)
 			} else if o == nil {
-				p.forgetReferenced(md, st)
+				for _, e := range p.stockTouched(md, st) {
+					md.known[e] = false
+				}
 			}
 		}
 		if handled {
 			continue
 		}
-		if p.restoreOrForget(lib, st, rpc, out, md, r) {
+		if p.restoreOrForget(lib, st, rpc, out, md) {
 			continue
 		}
 		if touched := p.stockTouched(md, st); len(touched) > 0 {
@@ -808,7 +746,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
 		adders := []string{}
-		for _, a := range sortedRuleKeys(r.increase) {
+		for _, a := range sortedKeys(r.increase) {
 			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
 				adders = append(adders, a)
 			}
@@ -831,9 +769,10 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 func (md *effectModel) watch(st *chain.Step, o *modelOrder) {
 	md.pending, md.waiting = st, nil
 	for _, l := range o.lines {
-		if md.dirty[l.entity] && !containsString(md.waiting, l.entity) {
+		if md.dirty[l.entity] && !slices.Contains(md.waiting, l.entity) {
 			md.waiting = append(md.waiting, l.entity)
 		}
+		md.known[l.entity] = false
 	}
 }
 
@@ -902,12 +841,6 @@ func (p *Plan) moveStock(md *effectModel, e string, by int64, ok bool) {
 	md.dirty[e] = md.known[e]
 }
 
-func (md *effectModel) unsettle(o *modelOrder) {
-	for _, l := range o.lines {
-		md.known[l.entity] = false
-	}
-}
-
 func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 	c, ok := lib.Get(rpc)
 	if !ok {
@@ -916,8 +849,8 @@ func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 	if c.Effects.is(s.moved, EffectZero) {
 		return true
 	}
-	for _, m := range startsAtZero.FindAllStringSubmatch(c.Summary, -1) {
-		if containsString(s.words, strings.ToLower(m[1])) {
+	for _, m := range startsAtZero().FindAllStringSubmatch(c.Summary, -1) {
+		if slices.Contains(s.words, strings.ToLower(m[1])) {
 			return true
 		}
 	}
@@ -929,7 +862,7 @@ func (p *Plan) heldState(lib *Library, st *chain.Step) string {
 	if !ok {
 		return ""
 	}
-	for _, e := range p.entityStates(lib, st, c) {
+	for _, e := range p.entityStates(st, c) {
 		values := e.state.EnumValues[1:]
 		short := enumShort(e.state.EnumValues)
 		if v := stateIn([]string{c.Exports[e.carrier], c.Summary}, values, short); v != "" {
@@ -940,12 +873,8 @@ func (p *Plan) heldState(lib *Library, st *chain.Step) string {
 }
 
 func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules, mark func(string, string)) bool {
-	c, ok := lib.Get(rpc)
+	c, m, ok := p.contractOf(lib, rpc)
 	if !ok {
-		return false
-	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil {
 		return false
 	}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
@@ -1011,21 +940,15 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 	return false
 }
 
-func (p *Plan) forgetReferenced(md *effectModel, st *chain.Step) {
-	for _, e := range p.stockTouched(md, st) {
-		md.known[e] = false
-	}
-}
-
 func (p *Plan) stockTouched(md *effectModel, st *chain.Step) []string {
 	out := []string{}
 	for _, id := range referencedSteps(st.Body) {
-		if md.stockOf[id] != nil && !containsString(out, id) {
+		if md.stockOf[id] != nil && !slices.Contains(out, id) {
 			out = append(out, id)
 		}
 		if o := md.order(id); o != nil {
 			for _, l := range o.lines {
-				if md.stockOf[l.entity] != nil && !containsString(out, l.entity) {
+				if md.stockOf[l.entity] != nil && !slices.Contains(out, l.entity) {
 					out = append(out, l.entity)
 				}
 			}
@@ -1040,7 +963,7 @@ func (p *Plan) saysUntouched(c *RPCContract, touched []string, md *effectModel) 
 			return true
 		}
 	}
-	for _, m := range untouchedWords.FindAllStringSubmatch(c.Summary, -1) {
+	for _, m := range untouchedWords().FindAllStringSubmatch(c.Summary, -1) {
 		for _, e := range touched {
 			if sharesWord(contentWords(m[1], nil), md.stockOf[e].words) {
 				return true
@@ -1050,7 +973,7 @@ func (p *Plan) saysUntouched(c *RPCContract, touched []string, md *effectModel) 
 	return false
 }
 
-func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules) bool {
+func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int, md *effectModel) bool {
 	c, ok := lib.Get(rpc)
 	if !ok {
 		return false
@@ -1065,15 +988,15 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 		return false
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedRuleKeys(c.Exports) {
+	for _, k := range sortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	stated := c.Effects.restoresAny()
 	if !o.reserved {
-		return stated || restoreWord.MatchString(strings.Join(texts, " "))
+		return stated || restoreWord().MatchString(strings.Join(texts, " "))
 	}
 	texts = append(texts, lib.DescriptionOf(lib.Domain(rpc)))
-	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || !restoresFrom(texts, o.held)) {
+	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || namingClause(texts, o.held, restoreWord()) == "") {
 		return false
 	}
 	restored := map[string]int64{}
@@ -1090,17 +1013,12 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 	}
 	o.reserved = out != outcomeSuccess
 	md.watch(st, o)
-	md.unsettle(o)
 	return true
 }
 
 func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, r *effectRules, mark func(string, string)) {
-	c, ok := lib.Get(canonicalCall(p.cat, st.Call))
+	c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
 	if !ok {
-		return
-	}
-	m, err := p.cat.Lookup(st.Call)
-	if err != nil {
 		return
 	}
 	for name, ref := range topFrom(c, p.cat) {
@@ -1112,7 +1030,7 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 			continue
 		}
 		id := stepRefIn(st.Body[key])
-		md.waiting = removeString(md.waiting, id)
+		md.waiting = slices.DeleteFunc(slices.Clone(md.waiting), func(s string) bool { return s == id })
 		if s := md.stockOf[id]; s != nil && ref.RPC == s.entityRPC && md.dirty[id] {
 			if carrier := carrierHolding(m, s.moved); carrier != "" && (md.replaceEcho(st, carrier+"."+s.moved, md.level[id]) || md.set(st, carrier+"."+s.moved, md.level[id])) {
 				mark("read", st.ID)
@@ -1132,12 +1050,7 @@ func (p *Plan) isTargetStep(id string) bool {
 	if p.noun != "" {
 		return true
 	}
-	for _, node := range p.Targets {
-		if p.stepOf[node] == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Targets, func(node string) bool { return p.stepOf[node] == id })
 }
 
 func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent map[string]string) {
@@ -1145,42 +1058,41 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 		st := p.stepByID(id)
 		if s := r.byEntity[canonicalCall(p.cat, st.Call)]; s != nil {
 			p.note("step %s: its contract says it starts with none (%q), so it asserts %s 0, and so does the read of it right after", id,
-				p.statedQuote(st, EffectZero, startsAtZero), s.moved)
+				p.statedQuote(st, EffectZero, startsAtZero()), s.moved)
 		}
 	}
 	for _, id := range asserted["untouched"] {
 		st := p.stepByID(id)
 		p.note("step %s: its contract says it leaves what the plan tracks alone (%q), so the reads right after it assert every level "+
-			"it names unchanged: a backend that moves it at this step fails there", id, p.statedQuote(st, EffectNone, untouchedWords))
+			"it names unchanged: a backend that moves it at this step fails there", id, p.statedQuote(st, EffectNone, untouchedWords()))
 	}
 	said := []string{}
 	called := map[string]bool{}
 	for _, st := range p.Chain.Steps {
 		called[canonicalCall(p.cat, st.Call)] = true
 	}
-	r = r.onlyCalled(called)
-	for _, rpc := range sortedRuleKeys(r.increase) {
+	for _, rpc := range keysIn(r.increase, called) {
 		s := r.increase[rpc]
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s %s (%q)", s.moved, shortRPC(rpc), plusMinus(s.sign), s.qtyField, s.sentence))
 	}
-	for _, rpc := range sortedRuleKeys(r.batch) {
+	for _, rpc := range keysIn(r.batch, called) {
 		b := r.batch[rpc]
 		said = append(said, fmt.Sprintf("each %s.N.%s after %s is its line applied as %s", b.results, b.stock.moved, shortRPC(rpc), shortRPC(b.stock.rpc)))
 	}
-	for _, rpc := range sortedRuleKeys(r.reserve) {
+	for _, rpc := range keysIn(r.reserve, called) {
 		v := r.reserve[rpc]
 		noun := strings.TrimPrefix(v.itemID, "id_")
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s the %s of every %s naming that %s, a %s on two lines counted twice (%q)",
 			v.stock.moved, shortRPC(rpc), plusMinus(v.sign), v.itemQty, strings.TrimSuffix(v.list, "s"), noun, noun, v.sentence))
 	}
-	for _, rpc := range sortedRuleKeys(r.total) {
+	for _, rpc := range keysIn(r.total, called) {
 		t := r.total[rpc]
 		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
 	}
 	ids := []string{}
 	for _, kind := range []string{"increase", "batch", "total", "read"} {
 		for _, id := range asserted[kind] {
-			if !containsString(ids, id) {
+			if !slices.Contains(ids, id) {
 				ids = append(ids, id)
 			}
 		}
@@ -1195,7 +1107,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
 			strings.Join(shown, ", "), more, strings.Join(said, "; "))
 	}
-	for _, rpc := range sortedRuleKeys(silent) {
+	for _, rpc := range sortedKeys(silent) {
 		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
 	}
 }
@@ -1208,21 +1120,24 @@ func plusMinus(sign int64) string {
 }
 
 func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) string {
-	if p.lib != nil && st != nil {
-		if c, ok := p.lib.Get(canonicalCall(p.cat, st.Call)); ok {
-			for _, k := range sortedRuleKeys(c.Effects) {
-				if c.Effects.is(k, word) {
-					return quoteEffect(k, c.Effects[k])
-				}
-			}
+	if p.lib == nil || st == nil {
+		return ""
+	}
+	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
+	if !ok {
+		return ""
+	}
+	for _, k := range sortedKeys(c.Effects) {
+		if c.Effects.is(k, word) {
+			return quoteEffect(k, c.Effects[k])
 		}
 	}
-	return prose.FindString(p.summaryOf(st))
+	return prose.FindString(c.Summary)
 }
 
 var (
-	growVerb   = regexp.MustCompile(`(?i)\b(?:adds?|added|adding|increases?|increased|increasing|restocks?|replenish\w*|receives?|tops? up|credits?)\b`)
-	shrinkVerb = regexp.MustCompile(`(?i)\b(?:reserves?|takes?|deducts?|consumes?|removes?|decreases?|ships?|allocates?|subtracts?|sells?|debits?)\b`)
+	growVerb   = lazyRegexp(`(?i)\b(?:adds?|added|adding|increases?|increased|increasing|restocks?|replenish\w*|receives?|tops? up|credits?)\b`)
+	shrinkVerb = lazyRegexp(`(?i)\b(?:reserves?|takes?|deducts?|consumes?|removes?|decreases?|ships?|allocates?|subtracts?|sells?|debits?)\b`)
 )
 
 func (p *Plan) effectSnippet(rpc, field string) string {
@@ -1232,13 +1147,13 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		return none
 	}
 	texts := []string{c.Summary, c.Note}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		if f := c.Fields[name]; f != nil {
 			texts = append(texts, f.Note)
 		}
 	}
 	text := strings.Join(texts, " ")
-	grows, shrinks := growVerb.MatchString(text), shrinkVerb.MatchString(text)
+	grows, shrinks := growVerb().MatchString(text), shrinkVerb().MatchString(text)
 	verb := "increase"
 	if shrinks && !grows {
 		verb = "decrease"
@@ -1254,7 +1169,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		}
 	}
 	from := topFrom(c, p.cat)
-	for _, name := range sortedRuleKeys(from) {
+	for _, name := range sortedKeys(from) {
 		oc, ok := p.lib.Get(from[name].RPC)
 		if moved != "" || !ok || strings.Contains(name, ".") {
 			continue
@@ -1276,26 +1191,6 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 	}
 }
 
-func (p *Plan) summaryOf(st *chain.Step) string {
-	if p.lib == nil || st == nil {
-		return ""
-	}
-	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
-	if !ok {
-		return ""
-	}
-	return c.Summary
-}
-
-func sortedRuleKeys[T any](m map[string]T) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
 func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) bool) {
 	r := p.effectRules(lib)
 	p.probeSameLineTwice(lib, r, isTarget)
@@ -1313,10 +1208,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 			continue
 		}
 		items, _ := order.Body[v.list].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		first, ok := firstItem(items)
 		if !ok {
 			continue
 		}
@@ -1327,8 +1219,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		}
 		noun := strings.TrimPrefix(v.itemID, "id_")
 		id := p.freeStepID(st.ID + "_same_" + noun + "_twice")
-		fixture := copyStep(order, p.freeStepID(order.ID+"_for_"+id))
-		fixture.Export = nil
+		fixture := probeStep(order, p.freeStepID(order.ID+"_for_"+id))
 		p.freshen(lib, fixture)
 		renameStepRefs(fixture, order.ID, fixture.ID)
 		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)
@@ -1341,25 +1232,16 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		fixture.Expect = withoutItemCounts(fixture.Expect, v.list)
 		fixture.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d), so %s must take %d of it.", order.ID, entity.ID, v.list, a, b, id, a+b)
 		p.assertEcho(fixture)
-		act := copyStep(st, id)
-		act.Export = nil
+		act := probeStep(st, id)
 		p.freshen(lib, act)
 		act.Body[key] = "${" + fixture.ID + "." + v.orderIDPath + "}"
 		renameStepRefs(act, st.ID, act.ID)
 		act.Expect = retargetExpect(act.Expect, order.ID, fixture.ID)
 		act.Description = fmt.Sprintf("%s on an order naming one %s on two %s: the stock read after it is down by both quantities.", st.ID, noun, v.list)
 		steps := []*chain.Step{fixture, act}
-		if e, ok := p.readerFor(lib, entity, v.stock.idPath); ok {
-			body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, e.field, "${"+entity.ID+"."+e.idPath+"}")
-			steps = append(steps, &chain.Step{
-				ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + id),
-				Description: fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b),
-				Call:        e.reader.FullName,
-				Auth:        e.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(e.reader),
-			})
+		if e, ok := p.readerMatching(lib, entity, v.stock.idPath, true); ok {
+			steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+				fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 		}
 		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		p.note("step %s: %s names %s on both of its %s (%d and %d), so %s must take %d of it: a backend that reserves per product "+
@@ -1384,15 +1266,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		} else {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, list)
-		if !ok {
-			continue
-		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok := items[0].(map[string]any)
+		key, first, ok := firstLine(st.Body, list)
 		if !ok {
 			continue
 		}
@@ -1408,8 +1282,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		}
 		noun := strings.TrimPrefix(itemID, "id_")
 		id := p.freeStepID(st.ID + "_same_" + noun + "_twice")
-		probe := copyStep(st, id)
-		probe.Export = nil
+		probe := probeStep(st, id)
 		p.freshen(lib, probe)
 		renameStepRefs(probe, st.ID, probe.ID)
 		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)
@@ -1425,17 +1298,9 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 				"merges or drops a line for a %s it already saw fails", st.ID, id, entity.ID, list, a, b, noun)
 		} else {
 			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
-			if e, ok := p.readerFor(lib, entity, stock.idPath); ok {
-				body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-				setBodyPath(body, e.field, "${"+entity.ID+"."+e.idPath+"}")
-				steps = append(steps, &chain.Step{
-					ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + id),
-					Description: fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b),
-					Call:        e.reader.FullName,
-					Auth:        e.contract.Auth,
-					Body:        body,
-					Expect:      SuccessExpectation(e.reader),
-				})
+			if e, ok := p.readerMatching(lib, entity, stock.idPath, true); ok {
+				steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+					fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 			}
 			p.note("step %s: %s names %s on both of its %s (%d and %d), so the second line's %s and the read after it "+
 				"count both: a backend that applies one line per %s fails", st.ID, id, entity.ID, list, a, b, stock.moved, noun)
@@ -1456,37 +1321,6 @@ func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectat
 	return out
 }
 
-func (r *effectRules) onlyCalled(called map[string]bool) *effectRules {
-	out := &effectRules{increase: map[string]*stockRule{}, batch: map[string]*batchRule{}, reserve: map[string]*reserveRule{}, total: map[string]*totalRule{}}
-	for k, v := range r.increase {
-		if called[k] {
-			out.increase[k] = v
-		}
-	}
-	for k, v := range r.batch {
-		if called[k] {
-			out.batch[k] = v
-		}
-	}
-	for k, v := range r.reserve {
-		if called[k] {
-			out.reserve[k] = v
-		}
-	}
-	for k, v := range r.total {
-		if called[k] {
-			out.total[k] = v
-		}
-	}
-	return out
-}
-
-func removeString(list []string, drop string) []string {
-	out := list[:0:0]
-	for _, s := range list {
-		if s != drop {
-			out = append(out, s)
-		}
-	}
-	return out
+func keysIn[V any](m map[string]V, keep map[string]bool) []string {
+	return slices.DeleteFunc(sortedKeys(m), func(k string) bool { return !keep[k] })
 }

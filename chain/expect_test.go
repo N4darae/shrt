@@ -147,7 +147,6 @@ func TestConventions(t *testing.T) {
 		chain.ApplyConventions(nil, chain.DefaultEnvelopePath, chain.DefaultEnvelopeOK)
 		chain.ApplyCodeFields(nil)
 		chain.SetItemEnvelope("")
-		chain.SetReadOnlyPrefixes(nil)
 	})
 	chain.ApplyConventions(nil, "", "")
 	chain.ApplyCodeFields(nil)
@@ -178,12 +177,12 @@ func TestConventions(t *testing.T) {
 			t.Errorf("IsReadOnlyCall(%q) = %v, want %v", call, got, want)
 		}
 	}
-	chain.SetReadOnlyPrefixes([]string{"Fetch", "List"})
+	chain.ApplyConventions([]string{"Fetch", "List"}, "status.code", "SUCCESS")
 	chain.ReadOnlyPrefixes()[0] = "Mutated"
 	if again := chain.ReadOnlyPrefixes()[0]; again != "Fetch" {
 		t.Errorf("ReadOnlyPrefixes hands back a copy, got %q", again)
 	}
-	chain.SetReadOnlyPrefixes(nil)
+	chain.ApplyConventions(nil, "status.code", "SUCCESS")
 	if !chain.IsReadOnlyCall("acme.v1.Service/FetchThing") {
 		t.Error("an empty list restores the defaults")
 	}

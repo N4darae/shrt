@@ -2,7 +2,6 @@ package chain
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -25,23 +24,9 @@ func listFieldsOf(m *catalog.Method) []string {
 }
 
 func bodyScoped(v any) bool {
-	switch t := v.(type) {
-	case string:
-		return strings.Contains(t, "${")
-	case map[string]any:
-		for _, item := range t {
-			if bodyScoped(item) {
-				return true
-			}
-		}
-	case []any:
-		for _, item := range t {
-			if bodyScoped(item) {
-				return true
-			}
-		}
-	}
-	return false
+	scoped := false
+	walkText(v, "", func(_, s string) { scoped = scoped || strings.Contains(s, "${") })
+	return scoped
 }
 
 func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {
@@ -67,13 +52,8 @@ func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {
 			}
 		}
 	}
-	names := make([]string, 0, len(counted))
-	for name := range counted {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	issues := []Issue{}
-	for _, list := range names {
+	for _, list := range sortedKeys(counted) {
 		n := counted[list]
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnscopedCount, Message: fmt.Sprintf(
 			"asserts %s holds at most %d item(s) (%s.%d exists: false), but nothing in the request scopes the list to what "+

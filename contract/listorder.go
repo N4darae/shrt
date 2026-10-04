@@ -2,7 +2,7 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,10 +15,10 @@ import (
 const orderedItems = 3
 
 var (
-	sortedByText = regexp.MustCompile(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
-	newestFirst  = regexp.MustCompile(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
-	oldestFirst  = regexp.MustCompile(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
-	creationWord = regexp.MustCompile(`(?i)^(creation|created|created_at|insertion|inserted|oldest|time)$`)
+	sortedByText = lazyRegexp(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+	newestFirst  = lazyRegexp(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
+	oldestFirst  = lazyRegexp(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
+	creationWord = lazyRegexp(`(?i)^(creation|created|created_at|insertion|inserted|oldest|time)$`)
 )
 
 type listTarget struct {
@@ -120,11 +120,7 @@ func (p *Plan) listTargetFor(st *chain.Step, grow bool) *listTarget {
 			}
 			continue
 		}
-		producer := false
-		for _, prod := range t.producers {
-			producer = producer || prod.ID == src
-		}
-		if !producer {
+		if !slices.ContainsFunc(t.producers, func(prod *chain.Step) bool { return prod.ID == src }) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(key), "prefix") {
@@ -227,8 +223,9 @@ func orderableFields(first *chain.Step, fields []*catalog.Field, anchor string) 
 func orderRanks(n int) [][]int {
 	used := map[string]bool{}
 	class := func(order []int) {
-		fwd, back := fmt.Sprint(order), fmt.Sprint(reversed(order))
-		used[fwd], used[back] = true, true
+		back := slices.Clone(order)
+		slices.Reverse(back)
+		used[fmt.Sprint(order)], used[fmt.Sprint(back)] = true, true
 	}
 	identity := make([]int, n)
 	for i := range identity {
@@ -251,14 +248,6 @@ func orderRanks(n int) [][]int {
 		}
 	}
 	walk(nil, identity)
-	return out
-}
-
-func reversed(order []int) []int {
-	out := make([]int, len(order))
-	for i, v := range order {
-		out[len(order)-1-i] = v
-	}
 	return out
 }
 
@@ -295,7 +284,7 @@ func orderedValue(v any, name, kind string, rank int) (any, bool) {
 	if !ok || text == "" || wholeReference(text) {
 		return v, false
 	}
-	if loc := planVarRef.FindStringIndex(text); loc != nil {
+	if loc := planVarRef().FindStringIndex(text); loc != nil {
 		if strings.Contains(text[:loc[0]], "${") {
 			return v, false
 		}
@@ -313,13 +302,13 @@ func stateOrder(c *RPCContract, listPath string) (string, bool, bool) {
 	}
 	texts := []string{c.Summary, c.Note, c.Exports[listPath], c.Terminal[listPath]}
 	for _, text := range texts {
-		if m := sortedByText.FindStringSubmatch(text); m != nil {
-			return m[1], newestFirst.MatchString(text), true
+		if m := sortedByText().FindStringSubmatch(text); m != nil {
+			return m[1], newestFirst().MatchString(text), true
 		}
-		if newestFirst.MatchString(text) {
+		if newestFirst().MatchString(text) {
 			return "creation", true, true
 		}
-		if oldestFirst.MatchString(text) {
+		if oldestFirst().MatchString(text) {
 			return "creation", false, true
 		}
 	}
@@ -327,20 +316,13 @@ func stateOrder(c *RPCContract, listPath string) (string, bool, bool) {
 }
 
 func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
-	ids := make([]string, 0, len(t.producers))
-	for _, prod := range t.producers {
-		ids = append(ids, prod.ID)
-	}
+	ids := stepIDs(t.producers)
 	members := append(append([]*chain.Step{}, t.producers...), t.extra...)
 	if t.unscoped {
 		p.noteUnscopedList(t, len(members))
 		return
 	}
-	keys := make([]string, 0, len(ranks))
-	for k := range ranks {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(ranks)
 	orders := []string{}
 	for _, k := range keys {
 		orders = append(orders, fmt.Sprintf("%s: %s", k, orderOf(ids, ranks[k])))
@@ -349,7 +331,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	listRPC := shortRPC(t.step.Call)
 	c, _ := lib.Get(canonicalCall(p.cat, t.step.Call))
 	key, desc, stated := stateOrder(c, t.listPath)
-	if len(keys) == 0 && !(stated && creationWord.MatchString(key)) {
+	if len(keys) == 0 && !(stated && creationWord().MatchString(key)) {
 		p.note("step %s: %s lists what %s create, but their fixtures have no scalar field shrt could vary, so every candidate "+
 			"sort key but creation order agrees; give them values that sort differently before asserting an order",
 			t.step.ID, listRPC, strings.Join(ids, ", "))
@@ -376,7 +358,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	}
 	var order []int
 	switch {
-	case creationWord.MatchString(key):
+	case creationWord().MatchString(key):
 		order = []int{0, 1, 2}
 	default:
 		for name, r := range ranks {
@@ -390,16 +372,17 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 			t.step.ID, t.listPath, key, strings.Join(keys, ", "))
 		return
 	}
+	t.assertPositions(t.producers, order, desc)
+}
+
+func (t *listTarget) assertPositions(members []*chain.Step, order []int, desc bool) {
 	if desc {
-		for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
-			order[i], order[j] = order[j], order[i]
-		}
+		slices.Reverse(order)
 	}
 	for i, k := range order {
-		prod := t.producers[k]
 		t.step.Expect = append(t.step.Expect, chain.Expectation{
 			Path:   fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID),
-			Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}",
+			Equals: "${" + members[k].ID + "." + t.carrier + "." + t.itemID + "}",
 		})
 	}
 	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(order)), Exists: boolPtr(false)})
@@ -408,10 +391,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 func boolPtr(b bool) *bool { return &b }
 
 func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string, desc bool) {
-	ids := make([]string, 0, len(members))
-	for _, prod := range members {
-		ids = append(ids, prod.ID)
-	}
+	ids := stepIDs(members)
 	order, why := memberOrder(members, key)
 	if order == nil {
 		p.note("step %s: %d steps create what %s lists (%s), and the %d beyond the %d shrt varied for the order %s, "+
@@ -422,19 +402,7 @@ func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string,
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
 		return
 	}
-	if desc {
-		for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
-			order[i], order[j] = order[j], order[i]
-		}
-	}
-	for i, k := range order {
-		prod := members[k]
-		t.step.Expect = append(t.step.Expect, chain.Expectation{
-			Path:   fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID),
-			Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}",
-		})
-	}
-	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(order)), Exists: boolPtr(false)})
+	t.assertPositions(members, order, desc)
 }
 
 func memberOrder(members []*chain.Step, key string) ([]int, string) {
@@ -442,7 +410,7 @@ func memberOrder(members []*chain.Step, key string) ([]int, string) {
 	for i := range order {
 		order[i] = i
 	}
-	if creationWord.MatchString(key) {
+	if creationWord().MatchString(key) {
 		return order, ""
 	}
 	values := make([]any, len(members))
@@ -506,13 +474,10 @@ func memberOrder(members []*chain.Step, key string) ([]int, string) {
 func (p *Plan) assertMembers(t *listTarget) {
 	for _, prod := range append(append([]*chain.Step{}, t.producers...), t.extra...) {
 		want := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-		held := false
-		for _, e := range t.step.Expect {
-			if m, ok := e.Includes.(map[string]any); ok && e.Path == t.listPath && m[t.itemID] == want {
-				held = true
-			}
-		}
-		if !held {
+		if !slices.ContainsFunc(t.step.Expect, func(e chain.Expectation) bool {
+			m, ok := e.Includes.(map[string]any)
+			return ok && e.Path == t.listPath && m[t.itemID] == want
+		}) {
 			t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath, Includes: map[string]any{t.itemID: want}})
 		}
 	}
@@ -532,6 +497,12 @@ func orderOf(ids []string, ranks []int) string {
 		ordered[r] = ids[k]
 	}
 	return strings.Join(ordered, " < ")
+}
+
+func (p *Plan) contractOf(lib *Library, call string) (*RPCContract, *catalog.Method, bool) {
+	c, ok := lib.Get(call)
+	m, err := p.cat.Lookup(call)
+	return c, m, ok && err == nil
 }
 
 func canonicalCall(cat *catalog.Catalog, call string) string {

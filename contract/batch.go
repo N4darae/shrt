@@ -2,7 +2,7 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -11,7 +11,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var perItemFailure = regexp.MustCompile(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
+var perItemFailure = lazyRegexp(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
@@ -22,12 +22,8 @@ func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		results := p.perItemResults(lib, st.Call, c, m)
@@ -52,14 +48,10 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil {
 		return nil
 	}
-	stated := c.Effects.perItem() || perItemFailure.MatchString(c.Summary)
-	for _, f := range lib.AllFailures(rpc) {
-		stated = stated || perItemFailure.MatchString(f.When)
+	if c.Effects.perItem() || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
+		return results
 	}
-	if !stated {
-		return nil
-	}
-	return results
+	return nil
 }
 
 type batchLine struct {
@@ -72,17 +64,13 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, rf.Name)
+		key, first, ok := firstLine(st.Body, rf.Name)
 		if !ok {
 			continue
 		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok1 := items[0].(map[string]any)
-		last, ok2 := items[len(items)-1].(map[string]any)
-		if !ok1 || !ok2 {
+		items := st.Body[key].([]any)
+		last, ok := items[len(items)-1].(map[string]any)
+		if !ok {
 			continue
 		}
 		for _, sub := range rf.Fields {
@@ -90,7 +78,7 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 			if !ok || sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) {
 				continue
 			}
-			min, failure, found := statedMinimum(lib, st.Call, c, sub.Name)
+			min, failure, found := statedBound(lib, st.Call, c, sub.Name, parseMinimum)
 			if !found || failure == nil {
 				continue
 			}
@@ -114,8 +102,7 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 
 func (p *Plan) batchProbe(lib *Library, st *chain.Step, m *catalog.Method, key string, results *catalog.Field, listPath, verdict, suffix, desc string,
 	lines []batchLine) (*chain.Step, []*chain.Step) {
-	probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-	probe.Export = nil
+	probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 	items := make([]any, len(lines))
 	okValue := chain.EnvelopeOK()
 	probe.Expect = SuccessExpectation(m)
@@ -168,32 +155,16 @@ func (p *Plan) refusedLineReads(lib *Library, probe *chain.Step, lines []batchLi
 			if prod == nil || chain.IsReadOnlyCall(prod.Call) {
 				continue
 			}
-			e, ok := p.readerFor(lib, prod, ref[1])
+			e, ok := p.readerMatching(lib, prod, ref[1], true)
 			if !ok {
 				continue
 			}
-			base := defaultID(e.reader.Name)
-			if pm, err := p.cat.Lookup(prod.Call); err == nil {
-				if suffix := strings.TrimPrefix(prod.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-					base += suffix
-				}
-			}
-			body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, e.field, "${"+prod.ID+"."+e.idPath+"}")
-			read := &chain.Step{
-				ID:          p.freeStepID(base + "_before_" + probe.ID),
-				Description: fmt.Sprintf("the %s as it stands before %s, whose line naming it is refused.", e.carrier, probe.ID),
-				Call:        e.reader.FullName,
-				Auth:        e.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(e.reader),
-			}
+			base := p.readBase(e)
+			read := e.readStep(p.freeStepID(base+"_before_"+probe.ID),
+				fmt.Sprintf("the %s as it stands before %s, whose line naming it is refused.", e.carrier, probe.ID), "${"+prod.ID+"."+e.idPath+"}")
 			check := copyStep(read, p.freeStepID(base+"_after_"+probe.ID))
 			check.Description = fmt.Sprintf("the %s after %s is unchanged: its line was refused, so %s read as in %s.", e.carrier, probe.ID, strings.Join(e.scalars, ", "), read.ID)
-			for _, name := range e.scalars {
-				path := e.carrier + "." + name
-				check.Expect = append(check.Expect, chain.Expectation{Path: path, Equals: "${" + read.ID + "." + path + "}"})
-			}
+			check.Expect = append(check.Expect, e.asIn(read.ID)...)
 			before = append(before, read)
 			after = append(after, check)
 		}
@@ -216,7 +187,7 @@ func (p *Plan) reportedMatchesStored(lib *Library, partial *chain.Step, key stri
 				continue
 			}
 			if _, seen := entity[ref[0]]; !seen {
-				e, ok := p.readerFor(lib, prod, ref[1])
+				e, ok := p.readerMatching(lib, prod, ref[1], true)
 				if !ok {
 					continue
 				}
@@ -235,21 +206,7 @@ func (p *Plan) reportedMatchesStored(lib *Library, partial *chain.Step, key stri
 	out := []*chain.Step{}
 	for _, id := range order {
 		e := entity[id]
-		base := defaultID(e.reader.Name)
-		if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+e.producer.ID+"."+e.idPath+"}")
-		read := &chain.Step{
-			ID:     p.freeStepID(base + "_after_" + partial.ID),
-			Call:   e.reader.FullName,
-			Auth:   e.contract.Auth,
-			Body:   body,
-			Expect: SuccessExpectation(e.reader),
-		}
+		read := e.readStep(p.freeStepID(p.readBase(e)+"_after_"+partial.ID), "", "${"+e.producer.ID+"."+e.idPath+"}")
 		names := []string{}
 		for _, name := range e.scalars {
 			if reported[name] {

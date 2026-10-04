@@ -2,14 +2,14 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 )
 
-var roleSpecific = regexp.MustCompile(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
+var roleSpecific = lazyRegexp(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
 
 func openToEveryRole(c *RPCContract) bool {
 	if c == nil {
@@ -24,7 +24,7 @@ func openToEveryRole(c *RPCContract) bool {
 func (p *Plan) parityProfiles(st *chain.Step) []string {
 	out := []string{}
 	for _, prof := range p.opts.Profiles {
-		if prof == st.Auth || prof == invalidProfile || prof == "default" || containsString(out, prof) {
+		if prof == st.Auth || prof == invalidProfile || prof == "default" || slices.Contains(out, prof) {
 			continue
 		}
 		out = append(out, prof)
@@ -33,7 +33,7 @@ func (p *Plan) parityProfiles(st *chain.Step) []string {
 }
 
 func profileSuffix(prof string) string {
-	return strings.ToLower(profileChars.ReplaceAllString(prof, "_"))
+	return strings.ToLower(profileChars().ReplaceAllString(prof, "_"))
 }
 
 func roleSpecificPath(c *RPCContract, path string) bool {
@@ -43,7 +43,7 @@ func roleSpecificPath(c *RPCContract, path string) bool {
 	leaf := leafName(path)
 	for _, m := range []map[string]string{c.Terminal, c.SoftSignals} {
 		for k, text := range m {
-			if (k == path || k == leaf) && roleSpecific.MatchString(text) {
+			if (k == path || k == leaf) && roleSpecific().MatchString(text) {
 				return true
 			}
 		}
@@ -73,12 +73,8 @@ func (p *Plan) probeRoleParity(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || p.isLogin(st.Call) || st.SkipAuth {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok || !openToEveryRole(c) || IsTodo(strings.Join(c.RequiresRole, " ")) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		profiles := p.parityProfiles(st)
@@ -145,8 +141,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 	at := st.ID
 	ids := []string{}
 	for _, prof := range profiles {
-		probe := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		probe.Export = nil
+		probe := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		probe.Auth = prof
 		probe.Description = fmt.Sprintf("the same read as %s, as profile %s: the same answer, field for field.", st.ID, prof)
 		probe.Expect = SuccessExpectation(m)
@@ -173,39 +168,34 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 		msg += "; every fixture the list must include, by id"
 	}
 	if len(exempt) > 0 {
-		msg += fmt.Sprintf("; %s %s documented as role-specific in terminal:/soft_signals:, so not compared", strings.Join(exempt, ", "), pluralIs(len(exempt)))
+		msg += fmt.Sprintf("; %s %s documented as role-specific in terminal:/soft_signals:, so not compared", strings.Join(exempt, ", "), pluralVerb(len(exempt), "is", "are"))
 	}
 	if len(skipped) > 0 {
-		msg += fmt.Sprintf("; the repeated %s %s not compared item by item: assert what each profile must see", strings.Join(skipped, ", "), pluralIs(len(skipped)))
+		msg += fmt.Sprintf("; the repeated %s %s not compared item by item: assert what each profile must see", strings.Join(skipped, ", "), pluralVerb(len(skipped), "is", "are"))
 	}
 	p.note("%s", msg)
 }
 
 func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, profiles []string) {
 	entities := p.entitiesOf(lib, st)
-	if idPath := p.createdIDPath(st, m); idPath != "" {
-		if e, ok := p.readerFor(lib, st, idPath); ok {
+	if idPath := p.createdIDPath(m); idPath != "" {
+		if e, ok := p.readerMatching(lib, st, idPath, true); ok {
 			entities = append(entities, e)
 		}
 	}
 	comparable := []entityRead{}
 	for _, e := range entities {
-		kept := []string{}
-		for _, name := range e.scalars {
-			if !isStampName(name) && !isExpiryName(name) {
-				kept = append(kept, name)
-			}
-		}
+		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || isExpiryName(name) })
 		if len(kept) > 0 {
 			e.scalars = kept
 			comparable = append(comparable, e)
 		}
 	}
 	if len(comparable) == 0 {
-		if idPath := p.createdIDPath(st, m); idPath != "" && p.createParity(lib, st, idPath, profiles) {
+		if idPath := p.createdIDPath(m); idPath != "" && p.createParity(lib, st, idPath, profiles) {
 			return
 		}
-		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(st, m)); len(readers) > 0 {
+		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(m)); len(readers) > 0 {
 			p.note("step %s: its contract lets every role call it, and %s %s the id of what it changes, but %s answers "+
 				"no number or state, only text and ids that each profile's own fixture sends differently, so nothing "+
 				"compares its effect as another profile: call it as each profile and assert what each read returns",
@@ -217,10 +207,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			"and read back what it changed", st.ID)
 		return
 	}
-	index := map[string]int{}
-	for i, s := range p.Chain.Steps {
-		index[s.ID] = i
-	}
+	upto := stepIndex(p.Chain.Steps, st.ID)
 	owned := map[string]bool{}
 	for _, e := range comparable {
 		if e.producer != st {
@@ -232,7 +219,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			owned[src] = true
 		}
 	}
-	for _, s := range p.Chain.Steps[:index[st.ID]] {
+	for _, s := range p.Chain.Steps[:upto] {
 		if owned[s.ID] || chain.IsReadOnlyCall(s.Call) || s.SkipAuth || isRefusalStep(s) {
 			continue
 		}
@@ -245,21 +232,11 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	}
 
 	baseRead := func(e entityRead, producer string) *chain.Step {
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+producer+"."+e.idPath+"}")
-		r := &chain.Step{Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+		r := e.readStep("", "", "${"+producer+"."+e.idPath+"}")
 		p.assertEcho(r)
 		return r
 	}
-	readID := func(e entityRead, tail string) string {
-		base := defaultID(e.reader.Name)
-		if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
-		return p.freeStepID(base + "_after_" + tail)
-	}
+	readID := func(e entityRead, tail string) string { return p.freeStepID(p.readBase(e) + "_after_" + tail) }
 	adminReads := map[string]string{}
 	at := st.ID
 	for _, e := range comparable {
@@ -275,34 +252,22 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	for _, prof := range profiles {
 		suffix := "_for_" + profileSuffix(prof)
 		rename := map[string]string{}
-		for _, s := range p.Chain.Steps[:index[st.ID]] {
+		for _, s := range p.Chain.Steps[:upto] {
 			if owned[s.ID] {
 				rename[s.ID] = p.freeStepID(s.ID + suffix)
 			}
 		}
 		added := []*chain.Step{}
-		for _, s := range p.Chain.Steps[:index[st.ID]] {
+		for _, s := range p.Chain.Steps[:upto] {
 			if !owned[s.ID] {
 				continue
 			}
-			c := copyStep(s, rename[s.ID])
-			c.Export = nil
-			c.Body, _ = rewriteRefs(c.Body, rename).(map[string]any)
-			for i := range c.Expect {
-				c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, rename) })
-			}
-			p.freshen(lib, c)
-			c.Description = fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof)
-			p.assertEcho(c)
+			c := p.fixtureCopy(lib, s, rename[s.ID], rename, fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof))
 			added = append(added, c)
 		}
-		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		w.Export = nil
+		w := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		w.Auth = prof
-		w.Body, _ = rewriteRefs(w.Body, rename).(map[string]any)
-		for i := range w.Expect {
-			w.Expect[i] = w.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, rename) })
-		}
+		retarget(w, rename)
 		p.freshen(lib, w)
 		renameStepRefs(w, st.ID, w.ID)
 		w.Description = fmt.Sprintf("%s as profile %s, on fixtures of its own prepared as %s's were: the same effect.", st.ID, prof, st.ID)
@@ -320,10 +285,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			r.ID = readID(e, w.ID)
 			admin := adminReads[e.producer.ID]
 			r.Description = fmt.Sprintf("the %s as %s left it: %s as in %s.", e.carrier, w.ID, strings.Join(e.scalars, ", "), admin)
-			for _, name := range e.scalars {
-				path := e.carrier + "." + name
-				r.Expect = append(r.Expect, chain.Expectation{Path: path, Equals: "${" + admin + "." + path + "}"})
-			}
+			r.Expect = append(r.Expect, e.asIn(admin)...)
 			added = append(added, r)
 		}
 		p.Chain.Steps = append(p.Chain.Steps, added...)
@@ -342,8 +304,7 @@ func (p *Plan) createParity(lib *Library, st *chain.Step, idPath string, profile
 	}
 	ids := []string{}
 	for _, prof := range profiles {
-		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		w.Export = nil
+		w := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		w.Auth = prof
 		p.freshen(lib, w)
 		renameStepRefs(w, st.ID, w.ID)
@@ -396,30 +357,17 @@ func (p *Plan) copyIntoParities(lib *Library, added *chain.Step, producer string
 }
 
 func stepIndex(steps []*chain.Step, id string) int {
-	for i, s := range steps {
-		if s.ID == id {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(steps, func(s *chain.Step) bool { return s.ID == id })
 }
 
-func (p *Plan) createdIDPath(st *chain.Step, m *catalog.Method) string {
+func (p *Plan) createdIDPath(m *catalog.Method) string {
 	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
 		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
 			continue
 		}
 		for _, sf := range fd.Fields {
-			if IsEntityIDField(sf.Name) && sf.Kind == "string" {
-				in := false
-				for _, f := range catalog.DescribeMessage(m.Input()).Fields {
-					if f.Name == sf.Name {
-						in = true
-					}
-				}
-				if !in {
-					return fd.Name + "." + sf.Name
-				}
+			if IsEntityIDField(sf.Name) && sf.Kind == "string" && fieldByName(catalog.DescribeMessage(m.Input()).Fields, sf.Name) == nil {
+				return fd.Name + "." + sf.Name
 			}
 		}
 	}

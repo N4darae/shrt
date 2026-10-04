@@ -3,16 +3,10 @@ package contract_test
 import (
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/catalog/catalogtest"
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestAPlannedChainExportsNothingNoStepReads(t *testing.T) {
-	plan, err := contract.BuildPlan("ThingService/Fetch", libraryFrom(t, thingOverlay), catalogtest.New(), "thing-fetch")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", libraryFrom(t, thingOverlay), "thing-fetch")
 	raw, err := plan.YAML()
 	if err != nil {
 		t.Fatal(err)

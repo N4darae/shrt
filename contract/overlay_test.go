@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,6 +19,15 @@ func libraryFrom(t *testing.T, body string) *contract.Library {
 	}
 	o.APIVersion = contract.OverlayAPIVersion
 	return contract.NewLibrary([]*contract.Overlay{o})
+}
+
+func thingPlan(t *testing.T, target string, lib *contract.Library, name string) *contract.Plan {
+	t.Helper()
+	plan, err := contract.BuildPlan(target, lib, catalogtest.New(), name)
+	if err != nil {
+		t.Fatalf("plan: %v", err)
+	}
+	return plan
 }
 
 const thingOverlay = `
@@ -166,20 +176,13 @@ rpcs:
     status: draft
 `)
 	issues := contract.LintLibrary(lib, catalogtest.New())
-	for _, i := range issues {
-		if strings.Contains(i.Message, "cycle") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool { return strings.Contains(i.Message, "cycle") }) {
+		t.Fatalf("a cycle must be reported, got %v", issues)
 	}
-	t.Fatalf("a cycle must be reported, got %v", issues)
 }
 
 func TestPlanOrdersDependenciesBeforeTheTarget(t *testing.T) {
-	cat := catalogtest.New()
-	plan, err := contract.BuildPlan("ThingService/Fetch", libraryFrom(t, thingOverlay), cat, "thing-fetch")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", libraryFrom(t, thingOverlay), "thing-fetch")
 	if len(plan.Order) != 2 {
 		t.Fatalf("want 2 steps, got %v", plan.Order)
 	}
@@ -189,10 +192,7 @@ func TestPlanOrdersDependenciesBeforeTheTarget(t *testing.T) {
 }
 
 func TestPlanWiresReferencesToTheProducingStep(t *testing.T) {
-	plan, err := contract.BuildPlan("ThingService/Fetch", libraryFrom(t, thingOverlay), catalogtest.New(), "thing-fetch")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", libraryFrom(t, thingOverlay), "thing-fetch")
 	fetch, ok := plan.Chain.Step("fetch")
 	if !ok {
 		t.Fatalf("no fetch step in %v", plan.Chain.Steps)
@@ -220,10 +220,7 @@ rpcs:
     needs: ["shrt.test.v1.ThingService/Create@right"]
     status: draft
 `)
-	plan, err := contract.BuildPlan("ThingService/Fetch", lib, catalogtest.New(), "two-creates")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", lib, "two-creates")
 	if len(plan.Chain.Steps) != 3 {
 		t.Fatalf("two aliases of one rpc must become two steps, got %d", len(plan.Chain.Steps))
 	}
@@ -241,10 +238,7 @@ rpcs:
 
 func TestPlannedChainLintsClean(t *testing.T) {
 	cat := catalogtest.New()
-	plan, err := contract.BuildPlan("ThingService/Fetch", libraryFrom(t, thingOverlay), cat, "thing-fetch")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Fetch", libraryFrom(t, thingOverlay), "thing-fetch")
 	raw, err := plan.YAML()
 	if err != nil {
 		t.Fatalf("yaml: %v", err)
@@ -262,10 +256,7 @@ func TestPlannedChainLintsClean(t *testing.T) {
 }
 
 func TestPlanYAMLKeepsProtoFieldOrder(t *testing.T) {
-	plan, err := contract.BuildPlan("ThingService/Create", libraryFrom(t, thingOverlay), catalogtest.New(), "thing-create")
-	if err != nil {
-		t.Fatalf("plan: %v", err)
-	}
+	plan := thingPlan(t, "ThingService/Create", libraryFrom(t, thingOverlay), "thing-create")
 	raw, err := plan.YAML()
 	if err != nil {
 		t.Fatalf("yaml: %v", err)
@@ -283,10 +274,7 @@ func TestPlanYAMLKeepsProtoFieldOrder(t *testing.T) {
 
 func TestScaffoldOverlayProducesALoadableSkeleton(t *testing.T) {
 	cat := catalogtest.New()
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay("test", cat.Methods(), nil, cat.Methods()))
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
+	raw := renderScaffold(t, "test", cat.Methods(), nil, cat)
 	o := &contract.Overlay{}
 	if err := yaml.Unmarshal(raw, o); err != nil {
 		t.Fatalf("scaffold is not valid overlay YAML: %v\n%s", err, raw)
@@ -307,10 +295,7 @@ func TestScaffoldOverlayProducesALoadableSkeleton(t *testing.T) {
 func TestScaffoldCarriesExistingCurationForward(t *testing.T) {
 	cat := catalogtest.New()
 	lib := libraryFrom(t, thingOverlay)
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay("test", cat.Methods(), lib, cat.Methods()))
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
+	raw := renderScaffold(t, "test", cat.Methods(), lib, cat)
 	o := &contract.Overlay{}
 	if err := yaml.Unmarshal(raw, o); err != nil {
 		t.Fatal(err)

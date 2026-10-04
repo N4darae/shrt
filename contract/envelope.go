@@ -3,6 +3,7 @@ package contract
 import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"slices"
 )
 
 func ApplyConventions(readOnlyPrefixes []string, envelopePath, envelopeOK string) {
@@ -10,12 +11,7 @@ func ApplyConventions(readOnlyPrefixes []string, envelopePath, envelopeOK string
 }
 
 func CarriesEnvelope(m *catalog.Method) bool {
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-		if f.Name == chain.EnvelopeField() {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(catalog.DescribeMessage(m.Output()).Fields, func(f *catalog.Field) bool { return f.Name == chain.EnvelopeField() })
 }
 
 func SuccessExpectation(m *catalog.Method) []chain.Expectation {

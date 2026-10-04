@@ -62,10 +62,7 @@ func TestProtoDocsNeverBecomeCommentsInGeneratedFiles(t *testing.T) {
 		t.Fatal("fixture: the field doc did not load, so this test proves nothing")
 	}
 
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay("doc", cat.Methods(), nil, cat.Methods()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := renderScaffold(t, "doc", cat.Methods(), nil, cat)
 	assertNoYAMLComments(t, raw)
 	if !strings.Contains(string(raw), "(proto: the shelf label printed on the tag)") {
 		t.Fatalf("the proto doc must survive as part of the TODO text, not be dropped:\n%s", raw)

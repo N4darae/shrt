@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -14,13 +15,9 @@ func IsTimestampName(name string) bool {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
-		strings.HasPrefix(lower, "expires"), strings.HasPrefix(lower, "expiry"):
+		strings.HasPrefix(lower, "expires"), strings.HasPrefix(lower, "expiry"),
+		name != "At" && strings.HasSuffix(name, "At"), name != "Time" && strings.HasSuffix(name, "Time"):
 		return true
-	}
-	for _, suffix := range []string{"At", "Time"} {
-		if len(name) > len(suffix) && strings.HasSuffix(name, suffix) {
-			return true
-		}
 	}
 	return false
 }
@@ -32,12 +29,7 @@ func IsExpiryName(name string) bool {
 
 func IsCreationStampName(name string) bool {
 	lower := strings.ToLower(name)
-	for _, w := range []string{"created", "issued", "inserted", "registered"} {
-		if strings.HasPrefix(lower, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc([]string{"created", "issued", "inserted", "registered"}, func(w string) bool { return strings.HasPrefix(lower, w) })
 }
 
 func isTimestampField(f *catalog.Field) bool {
@@ -75,46 +67,25 @@ func TimestampFields(m *catalog.Method) []string {
 
 func assertsPath(s *Step, path string) bool {
 	want := namecase.Fold(path)
-	for _, e := range s.Expect {
-		if namecase.Fold(strings.Join(SplitPath(e.Path), ".")) == want {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool { return namecase.Fold(strings.Join(SplitPath(e.Path), ".")) == want })
 }
 
 func assertsAbsent(s *Step, path string) bool {
 	want := namecase.Fold(path)
-	for _, e := range s.Expect {
-		if e.Exists == nil || *e.Exists {
-			continue
-		}
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
 		got := namecase.Fold(strings.Join(SplitPath(e.Path), "."))
-		if got == want || strings.HasPrefix(want, got+".") {
-			return true
-		}
-	}
-	return false
+		return e.Exists != nil && !*e.Exists && (got == want || strings.HasPrefix(want, got+"."))
+	})
 }
 
 func expectsRefusal(s *Step) bool {
-	for _, e := range s.Expect {
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
 		path := strings.Join(SplitPath(e.Path), ".")
-		switch {
-		case strings.HasPrefix(path, TransportPrefix+"."):
-			if e.Equals != nil && stringify(e.Equals) != TransportOK {
-				return true
-			}
-		case path == EnvelopePath() && EnvelopeOK() != "":
-			if e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
-				return true
-			}
-			if e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK() {
-				return true
-			}
+		if strings.HasPrefix(path, TransportPrefix+".") {
+			return e.Equals != nil && stringify(e.Equals) != TransportOK
 		}
-	}
-	return false
+		return path == EnvelopePath() && (e.Equals != nil && stringify(e.Equals) != EnvelopeOK() || e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK())
+	})
 }
 
 func StampSource(s *Step, path string, earlier map[string]*catalog.Method) string {
@@ -128,20 +99,15 @@ func StampSource(s *Step, path string, earlier map[string]*catalog.Method) strin
 		if m == nil || src == s.ID {
 			continue
 		}
-		for _, p := range TimestampFields(m) {
-			if namecase.Fold(p) == want {
-				return src
-			}
+		if slices.ContainsFunc(TimestampFields(m), func(p string) bool { return namecase.Fold(p) == want }) {
+			return src
 		}
 	}
 	return ""
 }
 
 func timestampHint(s *Step, path string, earlier map[string]*catalog.Method) string {
-	last := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		last = path[i+1:]
-	}
+	last := path[strings.LastIndex(path, ".")+1:]
 	switch {
 	case IsExpiryName(last):
 		return `within: {of: "${nowunix+3600}", by: 5} for an hour-long expiry, or gte: "${nowunix}"`

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -88,7 +89,7 @@ func (p *Plan) touchedEntities(st *chain.Step) []*chain.Step {
 }
 
 func entityField(cat *catalog.Catalog, c *RPCContract, producer *chain.Step) (string, string) {
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		ref, err := ParseRef(c.Fields[name].From)
 		if err != nil || strings.Contains(name, ".") || canonicalCall(cat, ref.RPC) != canonicalCall(cat, producer.Call) {
 			continue
@@ -99,17 +100,9 @@ func entityField(cat *catalog.Catalog, c *RPCContract, producer *chain.Step) (st
 }
 
 func (p *Plan) needMetBefore(upto int, rpc, producer string) bool {
-	for _, s := range p.Chain.Steps[:upto] {
-		if canonicalCall(p.cat, s.Call) != rpc || isRefusalStep(s) || s.SkipAuth {
-			continue
-		}
-		for _, id := range referencedSteps(s.Body) {
-			if id == producer {
-				return true
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Chain.Steps[:upto], func(s *chain.Step) bool {
+		return canonicalCall(p.cat, s.Call) == rpc && !isRefusalStep(s) && !s.SkipAuth && readsValue(s.Body, producer)
+	})
 }
 
 func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, producer, reader *chain.Step) *chain.Step {
@@ -120,17 +113,15 @@ func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, pro
 	}
 	if template == nil || isRefusalStep(template) {
 		template = nil
-		for _, s := range p.Chain.Steps {
-			if canonicalCall(p.cat, s.Call) == m.FullName && !isRefusalStep(s) && !s.SkipAuth {
-				template = s
-				break
-			}
+		if i := slices.IndexFunc(p.Chain.Steps, func(s *chain.Step) bool {
+			return canonicalCall(p.cat, s.Call) == m.FullName && !isRefusalStep(s) && !s.SkipAuth
+		}); i >= 0 {
+			template = p.Chain.Steps[i]
 		}
 	}
 	var st *chain.Step
 	if template != nil {
-		st = copyStep(template, id)
-		st.Export = nil
+		st = probeStep(template, id)
 		renameStepRefs(st, template.ID, id)
 	} else {
 		notes := len(p.Notes)

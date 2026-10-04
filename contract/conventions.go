@@ -34,10 +34,7 @@ func isIDWord(w string) bool {
 }
 
 func IsEntityIDField(name string) bool {
-	base := name
-	if i := strings.LastIndex(base, "."); i >= 0 {
-		base = base[i+1:]
-	}
+	base := name[strings.LastIndex(name, ".")+1:]
 	w := namecase.Words(base)
 	switch len(w) {
 	case 0:

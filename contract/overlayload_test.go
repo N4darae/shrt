@@ -41,7 +41,7 @@ func TestAnRPCDefinedInTwoOverlaysIsAnErrorNamingBothFiles(t *testing.T) {
 	dir := t.TempDir()
 	writeOverlay(t, dir, "orders.yaml", realCreateOrder)
 	writeOverlay(t, dir, "zz.yaml", impostorCreateOrder)
-	_, broken, err := contract.LoadLibrary(dir)
+	_, broken, err := contract.LoadLibraryIn(dir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

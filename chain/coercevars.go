@@ -11,12 +11,10 @@ func (c *Chain) CoerceVars(supplied map[string]any) map[string]any {
 	}
 	out := make(map[string]any, len(supplied))
 	for name, value := range supplied {
-		declared, ok := c.Vars[name]
-		if !ok {
-			out[name] = value
-			continue
+		if declared, ok := c.Vars[name]; ok {
+			value = coerceTo(declared, value)
 		}
-		out[name] = coerceTo(declared, value)
+		out[name] = value
 	}
 	return out
 }
@@ -24,9 +22,6 @@ func (c *Chain) CoerceVars(supplied map[string]any) map[string]any {
 func coerceTo(declared, value any) any {
 	switch declared.(type) {
 	case string:
-		if s, already := value.(string); already {
-			return s
-		}
 		if s, ok := asString(value); ok {
 			return s
 		}

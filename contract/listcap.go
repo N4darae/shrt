@@ -2,8 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -12,7 +10,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var statedLimit = regexp.MustCompile(`(?i)\b(?:at most|up to|no more than|maximum of|limited to|first|page (?:size )?of)\s+(\d+)\b|\b(\d+)\s+(?:per page|at a time)\b`)
+var statedLimit = lazyRegexp(`(?i)\b(?:at most|up to|no more than|maximum of|limited to|first|page (?:size )?of)\s+(\d+)\b|\b(\d+)\s+(?:per page|at a time)\b`)
 
 const largestPlannedLimit = 50
 
@@ -21,7 +19,7 @@ func listLimit(c *RPCContract, listPath string) (int, bool) {
 		return 0, false
 	}
 	for _, text := range []string{c.Summary, c.Note, c.Exports[listPath]} {
-		if m := statedLimit.FindStringSubmatch(text); m != nil {
+		if m := statedLimit().FindStringSubmatch(text); m != nil {
 			n, err := strconv.Atoi(m[1] + m[2])
 			return n, err == nil && n > 0
 		}
@@ -117,8 +115,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 	made := []string{}
 	for n := len(members) + 1; n <= want; n++ {
 		id := p.freeStepID(first.ID)
-		clone := copyStep(first, id)
-		clone.Export = nil
+		clone := probeStep(first, id)
 		suffix := strings.TrimPrefix(id, first.ID+"_")
 		distinctProducerAt(clone.Body, fields, suffix, n-1)
 		for key, prefix := range prefixes {
@@ -132,8 +129,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 		made = append(made, id)
 		refs = append(refs, "${"+id+carrierRef)
 	}
-	v := copyStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
-	v.Export = nil
+	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
 	exact := hasExistsFalse(st, listPath)
 	kept := v.Expect[:0]
 	for _, e := range v.Expect {
@@ -168,12 +164,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 
 func (p *Plan) listPrefixes(st, first *chain.Step) map[string]string {
 	out := map[string]string{}
-	keys := make([]string, 0, len(st.Body))
-	for k := range st.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(st.Body) {
 		text, ok := st.Body[key].(string)
 		if !ok || text == "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue

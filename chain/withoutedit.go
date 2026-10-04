@@ -61,13 +61,8 @@ func (r *WithoutResult) EditSource(raw []byte, path string) ([]byte, bool) {
 }
 
 func fieldOf(n *yaml.Node, key string) string {
-	if n.Kind != yaml.MappingNode {
-		return ""
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == key {
-			return n.Content[i+1].Value
-		}
+	if v := mappingValue(n, key); v != nil {
+		return v.Value
 	}
 	return ""
 }

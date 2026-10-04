@@ -2,7 +2,8 @@ package contract
 
 import (
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -114,12 +115,7 @@ func sharedProducers(first, second map[string]any, producer func(string) bool) [
 		switch t := b.(type) {
 		case map[string]any:
 			am, _ := a.(map[string]any)
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				walk(am[k], t[k])
 			}
 		case []any:
@@ -145,37 +141,33 @@ func sharedProducers(first, second map[string]any, producer func(string) bool) [
 	return out
 }
 
-func rewriteRefs(v any, to map[string]string) any {
+func mapStrings(v any, f func(string) string) any {
 	switch t := v.(type) {
+	case string:
+		return f(t)
 	case map[string]any:
 		for k, x := range t {
-			t[k] = rewriteRefs(x, to)
+			t[k] = mapStrings(x, f)
 		}
-		return t
 	case []any:
 		for i, x := range t {
-			t[i] = rewriteRefs(x, to)
+			t[i] = mapStrings(x, f)
 		}
-		return t
-	case string:
+	}
+	return v
+}
+
+func rewriteRefs(v any, to map[string]string) any {
+	return mapStrings(v, func(t string) string {
 		for from, id := range to {
 			t = strings.ReplaceAll(t, "${"+from+".", "${"+id+".")
 			t = strings.ReplaceAll(t, "${steps."+from+".", "${steps."+id+".")
 		}
 		return t
-	}
-	return v
+	})
 }
 
-func (p *Plan) freeStepID(base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := p.Chain.Step(id); !exists && !p.reserved[id] {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
-}
+func (p *Plan) freeStepID(base string) string { return p.freeProbeID(base, map[string]bool{}) }
 
 func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producerClone) {
 	orig := p.stepByID(src)
@@ -183,7 +175,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 	clone := copyStep(orig, id)
 	suffix := strings.TrimPrefix(id, src+"_")
 	if m, err := p.cat.Lookup(orig.Call); err == nil {
-		distinctProducer(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix)
+		distinctProducerAt(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix, 1)
 	}
 	p.insertAfter(src, clone)
 	p.noteUnterminatedOrdinal(orig, clone)
@@ -194,10 +186,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		}
 		cid := p.freeStepID(s.ID)
 		c := copyStep(s, cid)
-		c.Body, _ = rewriteRefs(c.Body, map[string]string{src: id}).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, map[string]string{src: id}) })
-		}
+		renameStepRefs(c, src, id)
 		p.distinctPreparation(c, cid, s.ID)
 		p.insertAfter(s.ID, c)
 		extra = append(extra, producerClone{id: cid, call: s.Call, original: s.ID})
@@ -222,7 +211,7 @@ func (p *Plan) noteUnterminatedOrdinal(orig, clone *chain.Step) {
 		field := p.uniqueField(orig, c, f, noun)
 		v, _ := bodyValue(orig.Body, field)
 		text, _ := v.(string)
-		loc := planVarRef.FindStringIndex(text)
+		loc := planVarRef().FindStringIndex(text)
 		if loc == nil || loc[0] == 0 || loc[1] != len(text) {
 			continue
 		}
@@ -230,7 +219,7 @@ func (p *Plan) noteUnterminatedOrdinal(orig, clone *chain.Step) {
 		p.note("step %s: %s %q ends in the var, so %s's %q is what %s sends for a tag ending in the ordinal (tag x-2 "+
 			"sends %q, as tag x's %s does): end the contract's value: with a terminator (%q) and the plan puts the "+
 			"ordinal after it, where no other tag's value can end", orig.ID, field, text, clone.ID, second, orig.ID,
-			strings.ReplaceAll(text, planVarRef.FindString(text), "x-2"), clone.ID, text+"-")
+			strings.ReplaceAll(text, planVarRef().FindString(text), "x-2"), clone.ID, text+"-")
 		return
 	}
 }
@@ -251,6 +240,12 @@ func readsStep(s *chain.Step, id string) bool {
 	return false
 }
 
+func probeStep(s *chain.Step, id string) *chain.Step {
+	c := copyStep(s, id)
+	c.Export = nil
+	return c
+}
+
 func copyStep(s *chain.Step, id string) *chain.Step {
 	c := *s
 	c.ID = id
@@ -259,12 +254,7 @@ func copyStep(s *chain.Step, id string) *chain.Step {
 	for i := range c.Expect {
 		c.Expect[i] = c.Expect[i].MapOperands(cloneBody)
 	}
-	if s.Headers != nil {
-		c.Headers = map[string]string{}
-		for k, v := range s.Headers {
-			c.Headers[k] = v
-		}
-	}
+	c.Headers = maps.Clone(s.Headers)
 	if s.Export != nil {
 		c.Export = map[string]string{}
 		for k, v := range s.Export {
@@ -277,16 +267,11 @@ func copyStep(s *chain.Step, id string) *chain.Step {
 }
 
 func (p *Plan) insertAfter(id string, s *chain.Step) {
-	steps := p.Chain.Steps
-	for i, x := range steps {
-		if x.ID == id {
-			out := append([]*chain.Step{}, steps[:i+1]...)
-			out = append(out, s)
-			p.Chain.Steps = append(out, steps[i+1:]...)
-			return
-		}
+	i := stepIndex(p.Chain.Steps, id)
+	if i < 0 {
+		i = len(p.Chain.Steps) - 1
 	}
-	p.Chain.Steps = append(steps, s)
+	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), i+1, s)
 }
 
 func markAfterVar(text string, loc []int, marker string) string {
@@ -300,34 +285,38 @@ func markAfterVar(text string, loc []int, marker string) string {
 	return text[:loc[1]+1] + marker + rest[1:]
 }
 
-func distinctProducer(body map[string]any, fields []*catalog.Field, suffix string) {
-	distinctProducerAt(body, fields, suffix, 1)
-}
-
-func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
+func eachLeaf(body map[string]any, fields []*catalog.Field, skip func(*catalog.Field) bool, leaf func(map[string]any, string, *catalog.Field)) {
 	for _, f := range fields {
 		key, ok := namecase.LookupKey(body, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
+		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || skip(f) {
 			continue
 		}
 		if len(f.Fields) > 0 {
 			if nested, ok := body[key].(map[string]any); ok {
-				distinctProducerAt(nested, f.Fields, suffix, rank)
+				eachLeaf(nested, f.Fields, skip, leaf)
 			}
 			continue
 		}
-		if t, ok := body[key].(string); ok {
-			if loc := planVarRef.FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
-				body[key] = markAfterVar(t, loc, suffix)
-				continue
-			}
-		}
-		if n, ok := numericValue(body[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
-			body[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
-			continue
-		}
-		body[key] = nextValue(body[key], f.Kind)
+		leaf(body, key, f)
 	}
+}
+
+func hasJSONForm(f *catalog.Field) bool { return f.JSONForm != "" }
+
+func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
+	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
+		if t, ok := m[key].(string); ok {
+			if loc := planVarRef().FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
+				m[key] = markAfterVar(t, loc, suffix)
+				return
+			}
+		}
+		if n, ok := numericValue(m[key]); ok && n != 0 && chain.IsNumericKind(f.Kind) && !isQuantityName(f.Name) {
+			m[key] = strconv.FormatInt(spreadValue(n, rank, false), 10)
+			return
+		}
+		m[key] = nextValue(m[key], f.Kind)
+	})
 }
 
 func (p *Plan) noteSecondProducer(id, path string, shared []string, clones map[string]string, consumers map[string][]string) {
@@ -353,23 +342,11 @@ func (p *Plan) distinctPreparation(c *chain.Step, id, first string) {
 }
 
 func raiseNumbers(body map[string]any, fields []*catalog.Field) {
-	for _, f := range fields {
-		key, ok := namecase.LookupKey(body, f.Name)
-		if !ok || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.JSONForm != "" {
-			continue
+	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
+		if !slices.Contains([]string{"string", "bytes", "bool", "message", "enum", "group"}, f.Kind) {
+			m[key] = nextValue(m[key], f.Kind)
 		}
-		if len(f.Fields) > 0 {
-			if nested, ok := body[key].(map[string]any); ok {
-				raiseNumbers(nested, f.Fields)
-			}
-			continue
-		}
-		switch f.Kind {
-		case "string", "bytes", "bool", "message", "enum", "group":
-			continue
-		}
-		body[key] = nextValue(body[key], f.Kind)
-	}
+	})
 }
 
 func (p *Plan) prepareSecondProducers(step *chain.Step) {
@@ -382,11 +359,7 @@ func (p *Plan) prepareSecondProducers(step *chain.Step) {
 		}
 		cid := p.freeStepID(step.ID)
 		c := copyStep(step, cid)
-		to := map[string]string{sec.src: sec.clone}
-		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, to) })
-		}
+		renameStepRefs(c, sec.src, sec.clone)
 		p.distinctPreparation(c, cid, step.ID)
 		p.insertAfter(step.ID, c)
 		p.recordPreparation(sec.clone, step.ID)

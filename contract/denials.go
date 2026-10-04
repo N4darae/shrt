@@ -2,7 +2,7 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,10 +11,10 @@ import (
 )
 
 var (
-	denialReason = regexp.MustCompile(`(?i)permission|forbidden|denied|notallowed|unauthori[sz]ed|role|privilege|notadmin`)
-	denialWhen   = regexp.MustCompile(`(?i)(?:caller|user|principal|token|account)[^.;]*\b(?:role|permission|privilege|admin)|does not (?:hold|have)[^.;]*\b(?:role|permission)|\bnot allowed\b|\bforbidden\b`)
-	unauthWord   = regexp.MustCompile(`(?i)unauthenticated|missing token|no token|invalid token|expired token|not logged in`)
-	profileChars = regexp.MustCompile(`[^A-Za-z0-9_]+`)
+	denialReason = lazyRegexp(`(?i)permission|forbidden|denied|notallowed|unauthori[sz]ed|role|privilege|notadmin`)
+	denialWhen   = lazyRegexp(`(?i)(?:caller|user|principal|token|account)[^.;]*\b(?:role|permission|privilege|admin)|does not (?:hold|have)[^.;]*\b(?:role|permission)|\bnot allowed\b|\bforbidden\b`)
+	unauthWord   = lazyRegexp(`(?i)unauthenticated|missing token|no token|invalid token|expired token|not logged in`)
+	profileChars = lazyRegexp(`[^A-Za-z0-9_]+`)
 )
 
 const invalidProfile = "invalid"
@@ -30,12 +30,12 @@ func refusalFor(m *catalog.Method, f Failure) []chain.Expectation {
 func denialFailure(lib *Library, rpc string) (Failure, bool) {
 	failures := lib.AllFailures(rpc)
 	for _, f := range failures {
-		if !isUnauthenticated(f) && (denialReason.MatchString(f.Reason) || f.ConnectCode == "permission_denied") {
+		if !isUnauthenticated(f) && (denialReason().MatchString(f.Reason) || f.ConnectCode == "permission_denied") {
 			return f, true
 		}
 	}
 	for _, f := range failures {
-		if !isUnauthenticated(f) && denialWhen.MatchString(f.When) {
+		if !isUnauthenticated(f) && denialWhen().MatchString(f.When) {
 			return f, true
 		}
 	}
@@ -43,7 +43,7 @@ func denialFailure(lib *Library, rpc string) (Failure, bool) {
 }
 
 func isUnauthenticated(f Failure) bool {
-	return f.ConnectCode == "unauthenticated" || unauthWord.MatchString(f.Reason) || strings.EqualFold(f.Reason, "Unauthenticated")
+	return f.ConnectCode == "unauthenticated" || unauthWord().MatchString(f.Reason) || strings.EqualFold(f.Reason, "Unauthenticated")
 }
 
 func unauthFailure(lib *Library, rpc string) (Failure, bool) {
@@ -56,22 +56,12 @@ func unauthFailure(lib *Library, rpc string) (Failure, bool) {
 }
 
 func holdsRole(profile string, roles []string) bool {
-	for _, r := range roles {
-		if namecase.Fold(profile) == namecase.Fold(r) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(roles, func(r string) bool { return namecase.Fold(profile) == namecase.Fold(r) })
 }
 
 func (p *Plan) isLogin(call string) bool {
 	full := canonicalCall(p.cat, call)
-	for _, l := range p.opts.Logins {
-		if canonicalCall(p.cat, l) == full {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.opts.Logins, func(l string) bool { return canonicalCall(p.cat, l) == full })
 }
 
 func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
@@ -95,7 +85,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 				if prof == st.Auth || prof == invalidProfile || prof == "default" || holdsRole(prof, c.RequiresRole) {
 					continue
 				}
-				probe := p.probeCopy(lib, st, "as_"+strings.ToLower(profileChars.ReplaceAllString(prof, "_")))
+				probe := p.probeCopy(lib, st, "as_"+strings.ToLower(profileChars().ReplaceAllString(prof, "_")))
 				probe.Auth = prof
 				roles := strings.Join(c.RequiresRole, " or ")
 				if found {
@@ -147,8 +137,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func (p *Plan) probeCopy(lib *Library, st *chain.Step, suffix string) *chain.Step {
-	probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-	probe.Export = nil
+	probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 	if !chain.IsReadOnlyCall(st.Call) && !p.streams(st) {
 		p.freshen(lib, probe)
 	}

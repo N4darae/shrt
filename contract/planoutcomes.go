@@ -1,7 +1,7 @@
 package contract
 
 import (
-	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -10,7 +10,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var increaseWord = regexp.MustCompile(`(?i)\b(increase[sd]?|add[sd]?|raise[sd]?|top[s]? up)\b`)
+var increaseWord = lazyRegexp(`(?i)\b(increase[sd]?|add[sd]?|raise[sd]?|top[s]? up)\b`)
 
 func (p *Plan) assertOutcomes(lib *Library) {
 	ids := []string{}
@@ -58,15 +58,6 @@ func (p *Plan) verdictOnlyLeft(lib *Library) bool {
 	return false
 }
 
-func declaresFact(c *RPCContract, name string) bool {
-	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
-		if _, ok := section[name]; ok {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
 	out := []chain.Expectation{}
 	read := chain.IsReadOnlyCall(m.FullName)
@@ -105,11 +96,10 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 			out = append(out, stateExpectations(car, c)...)
 		}
 		if len(out) == 0 && !read {
-			for _, sub := range car.Fields {
-				if IsEntityIDField(sub.Name) && sub.Kind == "string" && !sub.Repeated {
-					out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, NotEmpty: true})
-					break
-				}
+			if i := slices.IndexFunc(car.Fields, func(sub *catalog.Field) bool {
+				return IsEntityIDField(sub.Name) && sub.Kind == "string" && !sub.Repeated
+			}); i >= 0 {
+				out = append(out, chain.Expectation{Path: car.Name + "." + car.Fields[i].Name, NotEmpty: true})
 			}
 		}
 		return out
@@ -120,22 +110,19 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 	if list := p.batchOutcomes(st, m, c); len(list) > 0 {
 		return list
 	}
-	if !increaseWord.MatchString(c.Summary) && !c.Effects.increases() {
+	if !increaseWord().MatchString(c.Summary) && !c.Effects.increases() {
 		return out
 	}
 	for _, f := range inputs {
 		if f.Repeated || !chain.IsNumericKind(f.Kind) || !isQuantityName(f.Name) {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, f.Name)
+		key, ok := literalKey(st.Body, f.Name)
 		if !ok {
 			continue
 		}
-		if _, literal := numericValue(st.Body[key]); !literal {
-			continue
-		}
 		for _, o := range scalars {
-			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && declaresFact(c, o.Name) {
+			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && slices.Contains(DeclaredFacts(c), o.Name) {
 				out = append(out, chain.Expectation{Path: o.Name, Gte: "${steps." + st.ID + ".request." + key + "}"})
 			}
 		}
@@ -234,36 +221,20 @@ func (p *Plan) assertTimestamps(lib *Library) {
 }
 
 func assertsAbsentPrefix(st *chain.Step, path string) bool {
-	for _, e := range st.Expect {
-		if e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+".")) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+"."))
+	})
 }
 
 func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
-	var results, lines *catalog.Field
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Repeated && fd.Kind == "message" && fd.MapKey == "" {
-			if results != nil {
-				return nil
-			}
-			results = fd
-		}
-	}
-	for _, fd := range catalog.DescribeMessage(m.Input()).Fields {
-		if fd.Repeated && fd.Kind == "message" && fd.MapKey == "" {
-			if lines != nil {
-				return nil
-			}
-			lines = fd
-		}
-	}
-	if results == nil || lines == nil {
+	notList := func(fd *catalog.Field) bool { return !fd.Repeated || fd.Kind != "message" || fd.MapKey != "" }
+	lists := slices.DeleteFunc(catalog.DescribeMessage(m.Output()).Fields, notList)
+	lines := slices.DeleteFunc(catalog.DescribeMessage(m.Input()).Fields, notList)
+	if len(lists) != 1 || len(lines) != 1 {
 		return nil
 	}
-	key, ok := namecase.LookupKey(st.Body, lines.Name)
+	results := lists[0]
+	key, ok := namecase.LookupKey(st.Body, lines[0].Name)
 	if !ok {
 		return nil
 	}
@@ -275,15 +246,15 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 	if listPath, field, ok := strings.Cut(chain.ItemEnvelope(), "[]."); ok && listPath == results.Name {
 		verdict = field
 	}
-	increase := increaseWord.MatchString(c.Summary) || c.Effects.increases()
+	increase := increaseWord().MatchString(c.Summary) || c.Effects.increases()
 	out := []chain.Expectation{}
 	for i, raw := range items {
 		item, _ := raw.(map[string]any)
-		prefix := results.Name + "." + itoa(i) + "."
+		prefix := results.Name + "." + strconv.Itoa(i) + "."
 		if verdict != "" {
 			out = append(out, chain.Expectation{Path: prefix + verdict, Equals: chain.EnvelopeOK()})
 		}
-		for _, f := range lines.Fields {
+		for _, f := range lines[0].Fields {
 			k, ok := namecase.LookupKey(item, f.Name)
 			if !ok || f.Repeated || f.Kind == "message" {
 				continue
@@ -301,15 +272,11 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 			for _, o := range results.Fields {
 				if chain.IsNumericKind(o.Kind) && !o.Repeated && strings.HasPrefix(o.Name, f.Name+"_") {
 					out = append(out, chain.Expectation{Path: prefix + o.Name,
-						Gte: "${steps." + st.ID + ".request." + key + "." + itoa(i) + "." + k + "}"})
+						Gte: "${steps." + st.ID + ".request." + key + "." + strconv.Itoa(i) + "." + k + "}"})
 				}
 			}
 		}
 	}
-	out = append(out, chain.Expectation{Path: results.Name + "." + itoa(len(items)), Exists: boolPtr(false)})
+	out = append(out, chain.Expectation{Path: results.Name + "." + strconv.Itoa(len(items)), Exists: boolPtr(false)})
 	return out
-}
-
-func itoa(i int) string {
-	return strconv.Itoa(i)
 }

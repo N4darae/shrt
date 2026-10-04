@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -49,6 +50,7 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 		Unordered:   append([]string{}, c.Unordered...),
 		Redact:      append([]string{}, c.Redact...),
 	}
+	kept := map[string]bool{}
 	for i, s := range c.Steps {
 		if named[s.ID] {
 			gone[i] = true
@@ -57,7 +59,7 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 		}
 		reads := []string{}
 		for _, ref := range stepRefs(s) {
-			if j, kind := idx.producerOf(ref, i); kind == refStep && gone[j] && !containsID(reads, c.Steps[j].ID) {
+			if j, kind := idx.producerOf(ref, i); kind == refStep && gone[j] && !slices.Contains(reads, c.Steps[j].ID) {
 				reads = append(reads, c.Steps[j].ID)
 			}
 		}
@@ -67,9 +69,6 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 			continue
 		}
 		out.Steps = append(out.Steps, s)
-	}
-	kept := map[string]bool{}
-	for _, s := range out.Steps {
 		kept[s.ID] = true
 	}
 	for _, k := range c.KeptRed {
@@ -84,13 +83,4 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 	}
 	res.Chain = out
 	return res, nil
-}
-
-func containsID(list []string, id string) bool {
-	for _, x := range list {
-		if x == id {
-			return true
-		}
-	}
-	return false
 }

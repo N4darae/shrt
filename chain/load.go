@@ -7,7 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -40,25 +40,14 @@ func loadBytes(raw []byte, path string) (*Chain, error) {
 }
 
 func LoadDirPartial(dir string) ([]*Chain, []error, error) {
-	entries, err := os.ReadDir(dir)
+	files, err := chainFiles(dir)
 	if err != nil {
 		return nil, nil, err
 	}
-	names := []string{}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		ext := strings.ToLower(filepath.Ext(e.Name()))
-		if ext == ".yaml" || ext == ".yml" {
-			names = append(names, e.Name())
-		}
-	}
-	sort.Strings(names)
-	out := make([]*Chain, 0, len(names))
+	out := make([]*Chain, 0, len(files))
 	broken := []error{}
-	for _, n := range names {
-		c, err := LoadFile(filepath.Join(dir, n))
+	for _, f := range files {
+		c, err := LoadFile(f)
 		if err != nil {
 			broken = append(broken, err)
 			continue
@@ -181,23 +170,11 @@ func decodeStrict(raw []byte, into any) error {
 		return yamlkey.Explain(err, into, raw)
 	}
 	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {
+	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
-}
-
-func carriesContent(n *yaml.Node) bool {
-	if n == nil {
-		return false
-	}
-	for _, c := range n.Content {
-		if c.Tag != "!!null" {
-			return true
-		}
-	}
-	return false
 }
 
 func markVacuousRules(raw []byte, c *Chain) {

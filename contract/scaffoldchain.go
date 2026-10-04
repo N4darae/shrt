@@ -1,8 +1,10 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -40,7 +42,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 			if read {
 				return choices[readRun[m.FullName]%len(choices)]
 			}
-			return leastUsed(choices, used)
+			return slices.MinFunc(choices, func(a, b string) int { return cmp.Compare(used[a], used[b]) })
 		}
 		for rpc, ids := range producers {
 			p.stepOf[rpc] = choose(ids)
@@ -108,42 +110,15 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 	walk(step.Body, -1)
 }
 
-func leastUsed(choices []string, used map[string]int) string {
-	pick := choices[0]
-	for _, c := range choices[1:] {
-		if used[c] < used[pick] {
-			pick = c
-		}
-	}
-	return pick
-}
-
 func distinguishFixtures(step *chain.Step, id, first string) {
 	suffix := strings.TrimPrefix(id, first+"_")
-	if suffix == id {
-		suffix = id
-	}
-	var walk func(v any) any
-	walk = func(v any) any {
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				t[k] = walk(x)
-			}
-		case []any:
-			for i, x := range t {
-				t[i] = walk(x)
-			}
-		case string:
-			loc := planVarRef.FindStringIndex(t)
-			if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
-				return t
-			}
-			return markAfterVar(t, loc, suffix)
+	step.Body, _ = mapStrings(step.Body, func(t string) string {
+		loc := planVarRef().FindStringIndex(t)
+		if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
+			return t
 		}
-		return v
-	}
-	step.Body, _ = walk(step.Body).(map[string]any)
+		return markAfterVar(t, loc, suffix)
+	}).(map[string]any)
 }
 
 func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[string]string) {
@@ -163,45 +138,27 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			readers[src][shortRPC(st.Call)] = true
 		}
 	}
-	rpcs := make([]string, 0, len(producers))
-	for rpc := range producers {
-		rpcs = append(rpcs, rpc)
-	}
-	sort.Strings(rpcs)
-	for _, rpc := range rpcs {
+	for _, rpc := range sortedKeys(producers) {
 		ids := producers[rpc]
 		if len(ids) < 2 {
 			continue
 		}
 		all := map[string]bool{}
 		for _, id := range ids {
-			for r := range readers[id] {
-				all[r] = true
-			}
+			maps.Copy(all, readers[id])
 		}
 		for _, id := range ids {
-			missing := []string{}
-			for r := range all {
-				if !readers[id][r] {
-					missing = append(missing, r)
-				}
-			}
+			missing := slices.DeleteFunc(sortedKeys(all), func(r string) bool { return readers[id][r] })
 			if len(missing) == 0 {
 				continue
 			}
-			sort.Strings(missing)
 			p.note("step %s: another %s step is read by %s and this one is not: if it needs the same preparation, "+
 				"add one more %s step that reads it", id, shortRPC(rpc), strings.Join(missing, ", "), strings.Join(missing, " / "))
 		}
 	}
 }
 
-func shortRPC(full string) string {
-	if i := strings.LastIndex(full, "/"); i >= 0 {
-		return full[i+1:]
-	}
-	return full
-}
+func shortRPC(full string) string { return full[strings.LastIndex(full, "/")+1:] }
 
 func ScaffoldChain(name, description string, refs, ids []string, lib *Library, cat *catalog.Catalog) ([]byte, []string, error) {
 	p, err := scaffoldPlan(name, "the chain", refs, ids, lib, cat)
@@ -219,9 +176,7 @@ func ScaffoldChain(name, description string, refs, ids []string, lib *Library, c
 	p.discriminateListOrder(lib, nil)
 	p.assertContracts(lib)
 	p.noteRequirements()
-	if missing, _ := chain.ExternalInputs(p.Chain); len(missing) > 0 {
-		p.declareInterpolatedVars(missing)
-	}
+	p.declareInterpolatedVars()
 	raw, err := p.YAML()
 	if err != nil {
 		return nil, nil, fmt.Errorf("render chain %s: %w", name, err)
@@ -256,7 +211,7 @@ func (p *Plan) assertContracts(lib *Library) {
 	ids := []string{}
 	for _, st := range p.Chain.Steps {
 		for _, kind := range []string{"zero", "increase", "batch", "total", "read"} {
-			if containsString(asserted[kind], st.ID) && !containsString(ids, st.ID) {
+			if slices.Contains(asserted[kind], st.ID) && !slices.Contains(ids, st.ID) {
 				ids = append(ids, st.ID)
 			}
 		}
@@ -275,10 +230,8 @@ func dropPlaceholderEnums(st *chain.Step, lib *Library, cat *catalog.Catalog) {
 	rc, _ := lib.Get(m.FullName)
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		key, ok := namecase.LookupKey(st.Body, f.Name)
-		if !ok || len(f.EnumValues) == 0 || st.Body[key] != f.EnumValues[0] || !IsPlaceholderEnumValue(f.EnumValues[0]) || contractRequiresField(rc, f.Name) {
-			continue
-		}
-		if rc != nil && rc.Fields[f.Name] != nil && rc.Fields[f.Name].Value != "" {
+		if !ok || len(f.EnumValues) == 0 || st.Body[key] != f.EnumValues[0] || !IsPlaceholderEnumValue(f.EnumValues[0]) || contractRequiresField(rc, f.Name) ||
+			rc != nil && rc.Fields[f.Name] != nil && rc.Fields[f.Name].Value != "" {
 			continue
 		}
 		delete(st.Body, key)
@@ -297,20 +250,15 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 	held, by := map[string]string{}, map[string]string{}
 	before := map[string]map[string]string{}
 	for _, st := range p.Chain.Steps {
-		snap := make(map[string]string, len(held))
-		for k, v := range held {
-			snap[k] = v
-		}
-		before[st.ID] = snap
+		before[st.ID] = maps.Clone(held)
 		if st.AllowFail || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		m, err := p.cat.Lookup(st.Call)
-		if !ok || err != nil {
+		c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
+		if !ok {
 			continue
 		}
-		for _, e := range p.entityStates(lib, st, c) {
+		for _, e := range p.entityStates(st, c) {
 			values, short := e.state.EnumValues[1:], enumShort(e.state.EnumValues)
 			cur := held[e.producer.ID]
 			if !isRefusalStep(st) && cur != "" && cur != p.createdState(lib, e.producer, e.carrier, e.state) {
@@ -342,9 +290,8 @@ func (p *Plan) assertHeldStates(lib *Library, before map[string]map[string]strin
 		if st.AllowFail || !chain.IsReadOnlyCall(st.Call) || p.streams(st) || effectOutcome(st) != outcomeSuccess {
 			continue
 		}
-		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		m, err := p.cat.Lookup(st.Call)
-		if !ok || err != nil {
+		c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
+		if !ok {
 			continue
 		}
 		state := func(prod *chain.Step, carrier string, field *catalog.Field) string {
@@ -354,7 +301,7 @@ func (p *Plan) assertHeldStates(lib *Library, before map[string]map[string]strin
 			return p.createdState(lib, prod, carrier, field)
 		}
 		if car := singleCarrier(m); car != nil {
-			for _, e := range p.entityStates(lib, st, c) {
+			for _, e := range p.entityStates(st, c) {
 				path := car.Name + "." + e.state.Name
 				if v := state(e.producer, e.carrier, e.state); car.Message == e.itemMsg && v != "" && !hasExpectOn(st, path) {
 					st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: v})
@@ -397,12 +344,12 @@ func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, s
 	}
 	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
 		key, sent := namecase.LookupKey(st.Body, rf.Name)
-		if sent && field != nil && sameValues(rf.EnumValues, field.EnumValues) && st.Body[key] != rf.EnumValues[0] {
+		if sent && field != nil && slices.Equal(rf.EnumValues, field.EnumValues) && st.Body[key] != rf.EnumValues[0] {
 			return
 		}
 	}
 	key, desc, stated := stateOrder(c, t.listPath)
-	positional := stated && !desc && creationWord.MatchString(key)
+	positional := stated && !desc && creationWord().MatchString(key)
 	for i, prod := range t.producers {
 		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
 		v := ""

@@ -1,8 +1,8 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	stepRefHead = regexp.MustCompile(`\$\{(\s*)(steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.`)
-	stepToken   = regexp.MustCompile(`\b[a-z][a-z0-9_]*\b`)
+	stepRefHead = lazyRegexp(`\$\{(\s*)(steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.`)
+	stepToken   = lazyRegexp(`\b[a-z][a-z0-9_]*\b`)
 )
 
 func (p *Plan) nameBySituation() {
@@ -31,12 +31,7 @@ func (p *Plan) nameBySituation() {
 		methods[st] = m
 	}
 	to := map[string]string{}
-	final := func(id string) string {
-		if n, ok := to[id]; ok {
-			return n
-		}
-		return id
-	}
+	final := func(id string) string { return cmp.Or(to[id], id) }
 	acted := map[string]bool{}
 	reaches := map[string][]string{}
 	touched := map[string]string{}
@@ -95,7 +90,7 @@ func (p *Plan) nameBySituation() {
 		}
 	}
 	for i, n := range p.Notes {
-		p.Notes[i] = stepToken.ReplaceAllStringFunc(n, final)
+		p.Notes[i] = stepToken().ReplaceAllStringFunc(n, final)
 	}
 }
 
@@ -147,25 +142,13 @@ func (p *Plan) indexSuffix(subject, named string) string {
 }
 
 func renameStepsIn(v any, to map[string]string) any {
-	switch t := v.(type) {
-	case string:
-		return stepRefHead.ReplaceAllStringFunc(t, func(ref string) string {
-			sub := stepRefHead.FindStringSubmatch(ref)
+	return mapStrings(v, func(t string) string {
+		return stepRefHead().ReplaceAllStringFunc(t, func(ref string) string {
+			sub := stepRefHead().FindStringSubmatch(ref)
 			if id, ok := to[sub[3]]; ok {
 				return "${" + sub[1] + sub[2] + id + "."
 			}
 			return ref
 		})
-	case map[string]any:
-		for k, x := range t {
-			t[k] = renameStepsIn(x, to)
-		}
-		return t
-	case []any:
-		for i, x := range t {
-			t[i] = renameStepsIn(x, to)
-		}
-		return t
-	}
-	return v
+	})
 }

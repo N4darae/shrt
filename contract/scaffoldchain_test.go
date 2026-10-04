@@ -4,11 +4,25 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"gopkg.in/yaml.v3"
 )
+
+func scaffolded(t *testing.T, name string, refs, ids []string, lib *contract.Library, cat *catalog.Catalog) (*chain.Chain, []byte, []string) {
+	t.Helper()
+	raw, notes, err := contract.ScaffoldChain(name, "", refs, ids, lib, cat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c chain.Chain
+	if err := yaml.Unmarshal(raw, &c); err != nil {
+		t.Fatalf("%v\n%s", err, raw)
+	}
+	return &c, raw, notes
+}
 
 const repeatedProducerOverlay = `apiVersion: shrt/contract/v1
 domain: shop
@@ -62,15 +76,8 @@ func TestChainNewScaffoldsARepeatedProducerThatCanRun(t *testing.T) {
 		"shop.catalog.v1.StockService/AddStock", "shop.customers.v1.CustomerService/CreateCustomer",
 		"shop.orders.v1.OrderService/CreateOrder"}
 	ids := []string{"create_product", "create_product_2", "add_stock", "create_customer", "create_order"}
-	raw, notes, err := contract.ScaffoldChain("css", "", refs, ids, lib, cat)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
-	if missing, _ := chain.ExternalInputs(&c); len(missing) > 0 {
+	c, raw, notes := scaffolded(t, "css", refs, ids, lib, cat)
+	if missing, _ := chain.ExternalInputs(c); len(missing) > 0 {
 		t.Fatalf("a chain reading ${vars.tag} runs without -var, got %v missing:\n%s", missing, raw)
 	}
 	first, _ := c.Step("create_product")

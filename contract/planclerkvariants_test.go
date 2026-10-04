@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -23,13 +24,9 @@ func TestAListEveryRoleMayCallIsReadAsTheOtherProfileItemByItem(t *testing.T) {
 		list := map[string]string{"ListProducts": "products", "ListOrders": "orders"}[target]
 		idField := map[string]string{"ListProducts": "id_product", "ListOrders": "id_order"}[target]
 		wantExpect(t, probe, list+".0."+idField, "${"+main.ID+"."+list+".0."+idField+"}")
-		found := false
-		for _, e := range probe.Expect {
-			if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, list+".") {
-				found = true
-			}
-		}
-		if !found {
+		if !slices.ContainsFunc(probe.Expect, func(e chain.Expectation) bool {
+			return e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, list+".")
+		}) {
 			t.Fatalf("%s: the clerk's list holds no item past the default profile's:\n%s", target, text)
 		}
 	}

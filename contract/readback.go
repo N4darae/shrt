@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -11,7 +12,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var normalisedClaim = regexp.MustCompile(`(?i)\b(?:lower|upper)[- ]?cased?\b|\bin (?:lower|upper)[- ]?case\b|\bnormali[sz]\w*|\bcase[- ]?fold\w*|\bcanonicali[sz]\w*|\bfolded\b`)
+var normalisedClaim = lazyRegexp(`(?i)\b(?:lower|upper)[- ]?cased?\b|\bin (?:lower|upper)[- ]?case\b|\bnormali[sz]\w*|\bcase[- ]?fold\w*|\bcanonicali[sz]\w*|\bfolded\b`)
 
 func singleCarrier(m *catalog.Method) *catalog.Field {
 	var out *catalog.Field
@@ -27,7 +28,7 @@ func singleCarrier(m *catalog.Method) *catalog.Field {
 	return out
 }
 
-func (p *Plan) normalised(lib *Library, rpc, field string) bool {
+func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, caseToo bool) bool {
 	c, ok := lib.Get(canonicalCall(p.cat, rpc))
 	if !ok {
 		return false
@@ -36,21 +37,18 @@ func (p *Plan) normalised(lib *Library, rpc, field string) bool {
 	if fc := c.Fields[field]; fc != nil {
 		note = fc.Note
 	}
-	if yes, no := claims(note, normalisedClaim, nil); yes && !no {
+	if yes, no := claims(note, word, nil); yes && !no {
 		return true
 	}
-	if yes, no := claims(note, trimClaimed, trimDenied); yes && !no {
+	if yes, no := claims(note, trimClaimed(), trimDenied()); yes && !no {
 		return true
 	}
 	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique {
-			continue
-		}
-		if f.Field != field && !mentionsField(f.When, field) {
+		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
 			continue
 		}
 		text := strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")
-		if ignoresCase(f, text) || trimsSpace(f, text) {
+		if (caseToo && ignoresCase(f, text)) || trimsSpace(f, text) {
 			return true
 		}
 	}
@@ -74,17 +72,14 @@ func meaningfulValue(v any) bool {
 }
 
 func (p *Plan) replaysAnother(st *chain.Step, idPath string) bool {
-	for _, e := range st.Expect {
-		if e.Path != idPath {
-			continue
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		text, ok := e.Equals.(string)
+		if !ok || e.Path != idPath {
+			return false
 		}
-		if text, ok := e.Equals.(string); ok {
-			if src, isRef := refSource(text); isRef && src != st.ID {
-				return true
-			}
-		}
-	}
-	return false
+		src, isRef := refSource(text)
+		return isRef && src != st.ID
+	})
 }
 
 func (p *Plan) readProducer(r *chain.Step, carrier *catalog.Field) (*chain.Step, string) {
@@ -109,7 +104,7 @@ func (p *Plan) readProducer(r *chain.Step, carrier *catalog.Field) (*chain.Step,
 		if err != nil {
 			continue
 		}
-		idPath := p.createdIDPath(prod, pm)
+		idPath := p.createdIDPath(pm)
 		if idPath == "" || text != "${"+prod.ID+"."+idPath+"}" || p.replaysAnother(prod, idPath) {
 			continue
 		}
@@ -185,7 +180,7 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 				continue
 			}
 			want := "${steps." + src.ID + ".request." + key + "}"
-			if p.normalised(lib, src.Call, sf.Name) {
+			if p.normalised(lib, src.Call, sf.Name, normalisedClaim(), true) {
 				sm, err := p.cat.Lookup(src.Call)
 				if err != nil {
 					continue
@@ -269,22 +264,13 @@ func (p *Plan) readBackStep(lib *Library, prod *chain.Step, idPath string) *chai
 	if !ok {
 		return nil
 	}
-	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, e.field, "${"+prod.ID+"."+idPath+"}")
-	read := &chain.Step{
-		ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + prod.ID),
-		Description: fmt.Sprintf("the %s %s stored, read back: every field it sent, as sent.", e.carrier, prod.ID),
-		Call:        e.reader.FullName,
-		Auth:        e.contract.Auth,
-		Body:        body,
-		Expect:      SuccessExpectation(e.reader),
-	}
+	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+prod.ID),
+		fmt.Sprintf("the %s %s stored, read back: every field it sent, as sent.", e.carrier, prod.ID), "${"+prod.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	return read
 }
 
-func (p *Plan) caseFields(lib *Library, st *chain.Step, m *catalog.Method) []string {
-	out := []string{}
+func plainText(st *chain.Step, m *catalog.Method, each func(name, key, v string)) {
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		if f.Kind != "string" || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || IsEntityIDField(f.Name) || idLike(f.Name) || isIdempotencyField(f) {
 			continue
@@ -294,21 +280,37 @@ func (p *Plan) caseFields(lib *Library, st *chain.Step, m *catalog.Method) []str
 			continue
 		}
 		v, isText := st.Body[key].(string)
-		if !isText || strings.TrimSpace(v) == "" || wholeReference(v) || refersToStep(v) || swapLiteralCase(v) == v {
+		if !isText || strings.TrimSpace(v) == "" || wholeReference(v) || refersToStep(v) {
 			continue
 		}
-		out = append(out, key)
+		each(f.Name, key, v)
 	}
-	sort.Strings(out)
-	return out
 }
 
 func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
+	pick := func(m *catalog.Method) []string {
+		out := []string{}
+		plainText(st, m, func(_, key, v string) {
+			if swapLiteralCase(v) != v {
+				out = append(out, key)
+			}
+		})
+		sort.Strings(out)
+		return out
+	}
+	echoed := func(key string) bool { return !p.normalised(lib, st.Call, key, normalisedClaim(), true) }
+	return p.retypedTextProbe(lib, st, "mixed_case", pick, swapLiteralCase, echoed, func(fields []string) string {
+		return fmt.Sprintf("as %s, but %s with the letters' case swapped: accepted, and echoed and stored with "+
+			"that case, unless the contract says the backend normalises it.", st.ID, strings.Join(fields, ", "))
+	})
+}
+
+func (p *Plan) retypedTextProbe(lib *Library, st *chain.Step, tag string, pick func(*catalog.Method) []string, twist func(string) string, echoed func(string) bool, describe func([]string) string) []*chain.Step {
 	m, err := p.cat.Lookup(st.Call)
 	if err != nil {
 		return nil
 	}
-	idPath := p.createdIDPath(st, m)
+	idPath := p.createdIDPath(m)
 	carrier := singleCarrier(m)
 	if idPath == "" || carrier == nil {
 		return nil
@@ -316,22 +318,21 @@ func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
 	if _, ok := p.readerMatching(lib, st, idPath, false); !ok {
 		return nil
 	}
-	fields := p.caseFields(lib, st, m)
+	fields := pick(m)
 	if len(fields) == 0 {
 		return nil
 	}
-	probe := p.probeCopy(lib, st, "mixed_case")
+	probe := p.probeCopy(lib, st, tag)
 	renameStepRefs(probe, st.ID, probe.ID)
 	probe.Expect = SuccessExpectation(m)
 	for _, key := range fields {
 		v, _ := probe.Body[key].(string)
-		probe.Body[key] = swapLiteralCase(v)
-		if fieldByName(carrier.Fields, key) != nil && !p.normalised(lib, st.Call, key) {
+		probe.Body[key] = twist(v)
+		if fieldByName(carrier.Fields, key) != nil && echoed(key) {
 			probe.Expect = append(probe.Expect, chain.Expectation{Path: carrier.Name + "." + key, Equals: "${steps." + probe.ID + ".request." + key + "}"})
 		}
 	}
-	probe.Description = fmt.Sprintf("as %s, but %s with the letters' case swapped: accepted, and echoed and stored with "+
-		"that case, unless the contract says the backend normalises it.", st.ID, strings.Join(fields, ", "))
+	probe.Description = describe(fields)
 	out := []*chain.Step{probe}
 	if read := p.readBackStep(lib, probe, idPath); read != nil {
 		out = append(out, read)
@@ -339,36 +340,7 @@ func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
 	return out
 }
 
-var normalisedWord = regexp.MustCompile(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
-
-func (p *Plan) trimmed(lib *Library, rpc, field string) bool {
-	c, ok := lib.Get(canonicalCall(p.cat, rpc))
-	if !ok {
-		return false
-	}
-	note := ""
-	if fc := c.Fields[field]; fc != nil {
-		note = fc.Note
-	}
-	for _, re := range []*regexp.Regexp{trimClaimed, normalisedWord} {
-		denied := trimDenied
-		if re != trimClaimed {
-			denied = nil
-		}
-		if yes, no := claims(note, re, denied); yes && !no {
-			return true
-		}
-	}
-	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
-			continue
-		}
-		if trimsSpace(f, strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")) {
-			return true
-		}
-	}
-	return false
-}
+var normalisedWord = lazyRegexp(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
 
 func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 	c, ok := lib.Get(canonicalCall(p.cat, rpc))
@@ -376,7 +348,7 @@ func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 		return false
 	}
 	if fc := c.Fields[field]; fc != nil {
-		if _, no := claims(fc.Note, trimClaimed, trimDenied); no {
+		if _, no := claims(fc.Note, trimClaimed(), trimDenied()); no {
 			return true
 		}
 	}
@@ -391,71 +363,33 @@ func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 	return false
 }
 
-func (p *Plan) paddedFields(lib *Library, st *chain.Step, m *catalog.Method) (padded, skipped []string) {
-	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
-		if f.Kind != "string" || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || IsEntityIDField(f.Name) || idLike(f.Name) || isIdempotencyField(f) {
-			continue
-		}
-		key, ok := namecase.LookupKey(st.Body, f.Name)
-		if !ok {
-			continue
-		}
-		v, isText := st.Body[key].(string)
-		if !isText || strings.TrimSpace(v) == "" || wholeReference(v) || refersToStep(v) {
-			continue
-		}
-		if !isFreeText(f.Name) && !p.keptUntrimmed(lib, st.Call, key) {
-			continue
-		}
-		if p.trimmed(lib, st.Call, key) {
-			skipped = append(skipped, key)
-			continue
-		}
-		padded = append(padded, key)
-	}
-	sort.Strings(padded)
-	sort.Strings(skipped)
-	return padded, skipped
-}
-
 func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
-	m, err := p.cat.Lookup(st.Call)
-	if err != nil {
-		return nil
-	}
-	idPath := p.createdIDPath(st, m)
-	carrier := singleCarrier(m)
-	if idPath == "" || carrier == nil {
-		return nil
-	}
-	if _, ok := p.readerMatching(lib, st, idPath, false); !ok {
-		return nil
-	}
-	fields, skipped := p.paddedFields(lib, st, m)
-	if len(skipped) > 0 {
-		p.note("step %s: %s %s not padded with spaces, since the contract says the backend trims or normalises %s", st.ID,
-			strings.Join(skipped, ", "), pluralIs(len(skipped)), pluralVerb(len(skipped), "it", "them"))
-	}
-	if len(fields) == 0 {
-		return nil
-	}
-	probe := p.probeCopy(lib, st, "padded_text")
-	renameStepRefs(probe, st.ID, probe.ID)
-	probe.Expect = SuccessExpectation(m)
-	for _, key := range fields {
-		v, _ := probe.Body[key].(string)
-		probe.Body[key] = "  " + v + "  "
-		if fieldByName(carrier.Fields, key) != nil {
-			probe.Expect = append(probe.Expect, chain.Expectation{Path: carrier.Name + "." + key, Equals: "${steps." + probe.ID + ".request." + key + "}"})
+	pick := func(m *catalog.Method) []string {
+		var padded, skipped []string
+		plainText(st, m, func(name, key, _ string) {
+			if !isFreeText(name) && !p.keptUntrimmed(lib, st.Call, key) {
+				return
+			}
+			if p.normalised(lib, st.Call, key, normalisedWord(), false) {
+				skipped = append(skipped, key)
+			} else {
+				padded = append(padded, key)
+			}
+		})
+		sort.Strings(padded)
+		sort.Strings(skipped)
+		if len(skipped) > 0 {
+			p.note("step %s: %s %s not padded with spaces, since the contract says the backend trims or normalises %s", st.ID,
+				strings.Join(skipped, ", "), pluralVerb(len(skipped), "is", "are"), pluralVerb(len(skipped), "it", "them"))
 		}
+		return padded
 	}
-	probe.Description = fmt.Sprintf("as %s, but %s with two spaces before and after: accepted, and echoed and stored "+
-		"with the spaces, since the contract does not say the backend trims %s.", st.ID, strings.Join(fields, ", "), pluralVerb(len(fields), "it", "them"))
-	out := []*chain.Step{probe}
-	if read := p.readBackStep(lib, probe, idPath); read != nil {
-		out = append(out, read)
-	}
-	return out
+	pad := func(v string) string { return "  " + v + "  " }
+	echoed := func(string) bool { return true }
+	return p.retypedTextProbe(lib, st, "padded_text", pick, pad, echoed, func(fields []string) string {
+		return fmt.Sprintf("as %s, but %s with two spaces before and after: accepted, and echoed and stored "+
+			"with the spaces, since the contract does not say the backend trims %s.", st.ID, strings.Join(fields, ", "), pluralVerb(len(fields), "it", "them"))
+	})
 }
 
 func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
@@ -493,7 +427,7 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 		if err != nil {
 			continue
 		}
-		if idPath := p.createdIDPath(st, m); idPath != "" && isTarget(st) && !p.readsCreated(st, idPath) {
+		if idPath := p.createdIDPath(m); idPath != "" && isTarget(st) && !p.readsCreated(st, idPath) {
 			if read := p.readBackStep(lib, st, idPath); read != nil {
 				p.insertAfter(st.ID, read)
 				added = append(added, read.ID)

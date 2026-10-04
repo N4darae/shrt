@@ -8,48 +8,7 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-const confirmNeedsStockOverlay = `apiVersion: shrt/contract/v1
-domain: shop
-rpcs:
-    shop.catalog.v1.ProductService/CreateProduct:
-        summary: adds a product
-        required: [sku]
-        fields:
-            sku:
-                value: sku-${vars.tag}
-            price_minor:
-                value: "250"
-        exports:
-            product: the product
-        status: draft
-    shop.catalog.v1.StockService/AddStock:
-        summary: adds stock
-        required: [id_product]
-        fields:
-            id_product:
-                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
-            qty:
-                value: "10"
-        status: draft
-    shop.customers.v1.CustomerService/CreateCustomer:
-        summary: adds a customer
-        required: [NONE]
-        fields:
-            email:
-                value: cust-${vars.tag}@example.test
-        status: draft
-    shop.orders.v1.OrderService/CreateOrder:
-        summary: records an order
-        required: [lines]
-        fields:
-            id_customer:
-                from: shop.customers.v1.CustomerService/CreateCustomer->customer.id_customer
-            lines.id_product:
-                from: shop.catalog.v1.ProductService/CreateProduct->product.id_product
-            lines.qty:
-                value: "2"
-        status: draft
-    shop.orders.v1.OrderService/ConfirmOrder:
+var confirmNeedsStockOverlay = strings.Replace(pricedProducerOverlay, "        needs: [shop.catalog.v1.StockService/AddStock]\n", "", 1) + `    shop.orders.v1.OrderService/ConfirmOrder:
         summary: reserves stock for every line
         required: [NONE]
         needs: [shop.catalog.v1.StockService/AddStock]
@@ -67,11 +26,7 @@ func TestPlanStocksTheSecondProductWhenStockIsNeededAfterTheOrder(t *testing.T) 
 	c := plan.Chain
 	stock2, ok := c.Step("add_stock_2")
 	if !ok {
-		ids := []string{}
-		for _, s := range c.Steps {
-			ids = append(ids, s.ID)
-		}
-		t.Fatalf("create_product is stocked for the confirm, so create_product_2 must be too: %v", ids)
+		t.Fatalf("create_product is stocked for the confirm, so create_product_2 must be too: %v", stepIDs(plan))
 	}
 	if stock2.Body["id_product"] != "${create_product_2.product.id_product}" {
 		t.Fatalf("add_stock_2 must stock the second product, got %v", stock2.Body["id_product"])

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/contract"
 	"gopkg.in/yaml.v3"
@@ -26,6 +27,11 @@ func shopScaffold(t *testing.T, domain string, existing *contract.Library) []byt
 	if len(methods) == 0 {
 		t.Fatalf("no rpcs in domain %s", domain)
 	}
+	return renderScaffold(t, domain, methods, existing, cat)
+}
+
+func renderScaffold(t *testing.T, domain string, methods []*catalog.Method, existing *contract.Library, cat *catalog.Catalog) []byte {
+	t.Helper()
 	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, methods, existing, cat.Methods()))
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +120,7 @@ func TestRequiredTodoValueIsSeenByLintPlanAndQuality(t *testing.T) {
 		t.Fatalf("plan lost the unfilled-required note: %v", plan.Notes)
 	}
 
-	for _, row := range contract.Measure(lib, cat, "").RPCs {
+	for _, row := range contract.MeasurePhase(lib, cat, "", contract.PhaseAll).RPCs {
 		if row.RPC == shopCreateProduct && !row.EmptyRequired {
 			t.Fatalf("quality must still score an unfilled required as empty: %+v", row)
 		}
@@ -542,7 +548,7 @@ rpcs:
                 checked_by: app_lookup
         status: draft
 `)
-	for _, row := range contract.Measure(lib, cat, "").RPCs {
+	for _, row := range contract.MeasurePhase(lib, cat, "", contract.PhaseAll).RPCs {
 		if row.RPC == shopCreateOrder && len(row.UnwiredIDs) > 0 {
 			t.Fatalf("lines.0.id_product sources the required lines.id_product, got unwired %v", row.UnwiredIDs)
 		}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,10 +41,60 @@ func shopDemo(t *testing.T) (*catalog.Catalog, *contract.Library) {
 	return cat, lib
 }
 
+func shopDemoEdited(t *testing.T, edit func(name, body string) string) (*catalog.Catalog, *contract.Library) {
+	t.Helper()
+	cat, _ := shopDemo(t)
+	lib, broken, err := contract.LoadLibraryIn(editedContracts(t, edit), cat)
+	if err != nil || len(broken) > 0 {
+		t.Fatalf("load edited contracts: %v %v", err, broken)
+	}
+	return cat, lib
+}
+
+func editedContracts(t *testing.T, edit func(name, body string) string) string {
+	t.Helper()
+	src := filepath.Join("testdata", "shopdemo", "contracts")
+	dir := t.TempDir()
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(edit(e.Name(), string(raw))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func editedPlan(t *testing.T, edit func(name, body string) string, targets ...string) *contract.Plan {
+	t.Helper()
+	cat, lib := shopDemoEdited(t, edit)
+	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func shopDemoPlan(t *testing.T, targets ...string) (*contract.Plan, string, string) {
 	t.Helper()
+	return shopDemoPlanWith(t, contract.PlanOptions{}, targets...)
+}
+
+func shopDemoPlanWith(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string, string) {
+	t.Helper()
 	cat, lib := shopDemo(t)
-	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
+	return planFrom(t, cat, lib, opts, targets...)
+}
+
+func planFrom(t *testing.T, cat *catalog.Catalog, lib *contract.Library, opts contract.PlanOptions, targets ...string) (*contract.Plan, string, string) {
+	t.Helper()
+	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,22 +124,18 @@ func planStep(t *testing.T, p *contract.Plan, id string) *chain.Step {
 
 func wantExpect(t *testing.T, st *chain.Step, path string, want any) {
 	t.Helper()
-	for _, e := range st.Expect {
-		if e.Path == path && e.Equals != nil && fmt.Sprint(e.Equals) == fmt.Sprint(want) {
-			return
-		}
+	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Path == path && e.Equals != nil && fmt.Sprint(e.Equals) == fmt.Sprint(want)
+	}) {
+		t.Fatalf("step %s: want %s equals %v, got %+v", st.ID, path, want, st.Expect)
 	}
-	t.Fatalf("step %s: want %s equals %v, got %+v", st.ID, path, want, st.Expect)
 }
 
 func wantExists(t *testing.T, st *chain.Step, path string, want bool) {
 	t.Helper()
-	for _, e := range st.Expect {
-		if e.Path == path && e.Exists != nil && *e.Exists == want {
-			return
-		}
+	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == path && e.Exists != nil && *e.Exists == want }) {
+		t.Fatalf("step %s: want %s exists %v, got %+v", st.ID, path, want, st.Expect)
 	}
-	t.Fatalf("step %s: want %s exists %v, got %+v", st.ID, path, want, st.Expect)
 }
 
 func bodyAt(t *testing.T, st *chain.Step, path string) string {

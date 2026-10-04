@@ -129,28 +129,14 @@ func TestPlanGivesTheSecondItemItsOwnProducer(t *testing.T) {
 func TestChainNewGivesTheSecondItemItsOwnProducer(t *testing.T) {
 	refs := []string{shopCreateProduct, shopAddStock, "shop.customers.v1.CustomerService/CreateCustomer", shopCreateOrder}
 	ids := []string{"create_product", "add_stock", "create_customer", "create_order"}
-	raw, notes, err := contract.ScaffoldChain("cn", "", refs, ids, shopLibrary(t, pricedProducerOverlay), catalogtest.Shop())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
-	checkSecondProducer(t, &c, notes)
+	c, _, notes := scaffolded(t, "cn", refs, ids, shopLibrary(t, pricedProducerOverlay), catalogtest.Shop())
+	checkSecondProducer(t, c, notes)
 }
 
 func TestChainNewKeepsTwoListedProducersAsTheyAre(t *testing.T) {
 	refs := []string{shopCreateProduct, shopCreateProduct, "shop.customers.v1.CustomerService/CreateCustomer", shopCreateOrder}
 	ids := []string{"create_product", "create_product_2", "create_customer", "create_order"}
-	raw, _, err := contract.ScaffoldChain("cn", "", refs, ids, shopLibrary(t, pricedProducerOverlay), catalogtest.Shop())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var c chain.Chain
-	if err := yaml.Unmarshal(raw, &c); err != nil {
-		t.Fatal(err)
-	}
+	c, raw, _ := scaffolded(t, "cn", refs, ids, shopLibrary(t, pricedProducerOverlay), catalogtest.Shop())
 	if len(c.Steps) != 4 {
 		t.Fatalf("two listed producers already give the items distinct resources, want no extra step:\n%s", raw)
 	}

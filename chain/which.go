@@ -2,6 +2,7 @@ package chain
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -85,19 +86,9 @@ func IsAuthProbe(s *Step) bool {
 		return false
 	}
 	withoutToken := s.SkipAuth || s.Auth == InvalidTokenAuth
-	for _, e := range s.Expect {
-		if !ExpectsTransportRefusal(e) {
-			continue
-		}
-		if withoutToken {
-			return true
-		}
-		switch strings.ToLower(stringify(e.Equals)) {
-		case "unauthenticated", "permission_denied", "401", "403":
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return ExpectsTransportRefusal(e) && (withoutToken || slices.Contains([]string{"unauthenticated", "permission_denied", "401", "403"}, strings.ToLower(stringify(e.Equals))))
+	})
 }
 
 type WhichChain struct {
@@ -116,23 +107,8 @@ type WhichChain struct {
 }
 
 func IsCodePath(path string) bool {
-	if path == TransportPrefix+".code" || path == TransportPrefix+".http_status" {
-		return true
-	}
 	segs := SplitPath(path)
-	if len(segs) == 0 {
-		return false
-	}
-	last := segs[len(segs)-1]
-	for _, name := range CodeFields() {
-		if last == name {
-			return true
-		}
-	}
-	if last != EnvelopeLeaf() {
-		return false
-	}
-	return len(segs) >= 2 && segs[len(segs)-2] == EnvelopeField()
+	return alwaysPresentTransportPath(path) || isCodeField(segs) || len(segs) >= 2 && segs[len(segs)-1] == EnvelopeLeaf() && segs[len(segs)-2] == EnvelopeField()
 }
 
 func CodePaths(chains []*Chain) []string {
@@ -146,12 +122,7 @@ func CodePaths(chains []*Chain) []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func assertedCodes(s *Step) []CodeAssertion {
@@ -234,18 +205,10 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 
 func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
-	if step, _ := c.Step(best.Step); best.Observed != nil && !IsAuthProbe(step) && writeStep(c, best.Step, opts.ReadsOnly) {
+	if step, ok := c.Step(best.Step); best.Observed != nil && !IsAuthProbe(step) && ok && !IsReadOnlyCall(step.Call) && (opts.ReadsOnly == nil || !opts.ReadsOnly(step)) {
 		cmd += " -keep " + SliceKeepWrites
 	}
 	return cmd + freshFlags(c, best.Step, opts.FreshVars)
-}
-
-func writeStep(c *Chain, id string, readsOnly func(*Step) bool) bool {
-	s, ok := c.Step(id)
-	if !ok || IsReadOnlyCall(s.Call) {
-		return false
-	}
-	return readsOnly == nil || !readsOnly(s)
 }
 
 func freshFlags(c *Chain, step string, fresh func(*Chain, string) []string) string {
@@ -287,12 +250,10 @@ func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
 		return true, ""
 	}
 	if !q.IsNumericCode() {
-		return assertsAnyCode(asserts, q.Aliases), ""
+		return slices.ContainsFunc(q.Aliases, func(code string) bool { return assertsCode(asserts, code) }), ""
 	}
-	for _, a := range asserts {
-		if isDigits(a.Value) {
-			return false, ""
-		}
+	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return isDigits(a.Value) }) {
+		return false, ""
 	}
 	for _, alias := range q.Aliases {
 		if !isDigits(alias) && assertsCode(asserts, alias) {
@@ -324,14 +285,7 @@ func siblingCodeDiffers(response any, path, code string) bool {
 	if len(segs) == 0 {
 		return false
 	}
-	parent := response
-	if len(segs) > 1 {
-		v, ok := Get(response, strings.Join(segs[:len(segs)-1], "."))
-		if !ok {
-			return false
-		}
-		parent = v
-	}
+	parent, _ := Get(response, strings.Join(segs[:len(segs)-1], "."))
 	obj, ok := parent.(map[string]any)
 	if !ok {
 		return false
@@ -483,10 +437,7 @@ func DescribeFailure(r ExpectResult) string {
 	if r.Got != nil {
 		out += " " + GotText(r.Rule, scalarText(r.Got))
 	}
-	if r.Detail != "" {
-		out += " (" + r.Detail + ")"
-	}
-	return out
+	return withNote(out, r.Detail)
 }
 
 func scalarText(v any) string {
@@ -509,33 +460,13 @@ func EdgeQuoted(s string) string {
 	return s
 }
 
-func assertsAnyCode(asserts []CodeAssertion, codes []string) bool {
-	for _, code := range codes {
-		if assertsCode(asserts, code) {
-			return true
-		}
-	}
-	return false
-}
-
 func assertsCode(asserts []CodeAssertion, want string) bool {
-	for _, a := range asserts {
-		if strings.EqualFold(a.Value, want) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return strings.EqualFold(a.Value, want) })
 }
 
 func stepCalls(s *Step, rpc string, rpcOf func(*Step) string) bool {
-	want := strings.TrimPrefix(strings.TrimSpace(rpc), "/")
-	if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(s.Call), "/"), want) {
-		return true
-	}
-	if rpcOf == nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(rpcOf(s)), "/"), want)
+	bare := func(call string) string { return strings.TrimPrefix(strings.TrimSpace(call), "/") }
+	return strings.EqualFold(bare(s.Call), bare(rpc)) || rpcOf != nil && strings.EqualFold(bare(rpcOf(s)), bare(rpc))
 }
 
 func evidenceRank(m WhichStep, failingFirst bool) int {
@@ -650,36 +581,21 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 func findCode(v any, code, prefix string) (string, bool) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(t)
 		for _, k := range keys {
-			path := k
-			if prefix != "" {
-				path = prefix + "." + k
-			}
+			path := joinPath(prefix, k)
 			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {
 				return path, true
 			}
 		}
 		for _, k := range keys {
-			path := k
-			if prefix != "" {
-				path = prefix + "." + k
-			}
-			if p, ok := findCode(t[k], code, path); ok {
+			if p, ok := findCode(t[k], code, joinPath(prefix, k)); ok {
 				return p, true
 			}
 		}
 	case []any:
 		for i, item := range t {
-			path := strconv.Itoa(i)
-			if prefix != "" {
-				path = prefix + "." + path
-			}
-			if p, ok := findCode(item, code, path); ok {
+			if p, ok := findCode(item, code, joinPath(prefix, strconv.Itoa(i))); ok {
 				return p, true
 			}
 		}
@@ -698,19 +614,9 @@ func CodeAliases(code string, responses []any) []string {
 		switch t := v.(type) {
 		case map[string]any:
 			names := CodeFields()
-			hit := false
-			for _, name := range names {
-				if x, ok := t[name]; ok && strings.EqualFold(stringify(x), code) {
-					hit = true
-				}
-			}
-			if hit {
+			if slices.ContainsFunc(names, func(name string) bool { x, ok := t[name]; return ok && strings.EqualFold(stringify(x), code) }) {
 				for _, name := range names {
-					x, ok := t[name]
-					if !ok || x == nil {
-						continue
-					}
-					if text := stringify(x); text != "" && !seen[strings.ToLower(text)] {
+					if text := stringify(t[name]); text != "" && !seen[strings.ToLower(text)] {
 						seen[strings.ToLower(text)] = true
 						out = append(out, text)
 					}

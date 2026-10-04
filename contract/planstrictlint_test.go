@@ -24,8 +24,7 @@ func TestAFreshlyPlannedChainPassesStrictLintWithNoUnassertedTimestamp(t *testin
 }
 
 func TestAPlannedAddStockAssertsAStockLevelItsContractDeclaresAsTerminal(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	cat, lib := shopDemoEdited(t, func(name, body string) string {
 		if name != "catalog.yaml" {
 			return body
 		}
@@ -36,6 +35,19 @@ func TestAPlannedAddStockAssertsAStockLevelItsContractDeclaresAsTerminal(t *test
 		t.Fatal("fixture: AddStock must declare qty_on_hand under terminal")
 	}
 	plansPassStrictLint(t, cat, lib, [][]string{{"AddStock"}, {"ListOrders", "AddStock", "ConfirmOrder"}})
+}
+
+func strictLint(t *testing.T, name, text string, cat *catalog.Catalog, lib *contract.Library, opts chain.LintOptions) []chain.Issue {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := chain.LoadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return contract.LintChain(c, cat, contract.ChainLintOptions{Strict: true, Library: lib, Chain: opts})
 }
 
 func plansPassStrictLint(t *testing.T, cat *catalog.Catalog, lib *contract.Library, plans [][]string) {
@@ -49,15 +61,7 @@ func plansPassStrictLint(t *testing.T, cat *catalog.Catalog, lib *contract.Libra
 		if err != nil {
 			t.Fatal(err)
 		}
-		path := filepath.Join(t.TempDir(), "strict.yaml")
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		c, err := chain.LoadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		issues := contract.LintChain(c, cat, contract.ChainLintOptions{Strict: true, Library: lib, Chain: chain.LintOptions{Hints: true}})
+		issues := strictLint(t, "strict.yaml", string(raw), cat, lib, chain.LintOptions{Hints: true})
 		bad := []string{}
 		for _, i := range issues {
 			if i.IsError() || i.Kind == chain.KindUnassertedTimestamp {

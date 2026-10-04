@@ -36,7 +36,8 @@ func ForCurated(m *catalog.Method, lib *Library, cat *catalog.Catalog) *Contract
 }
 
 func ForCuratedWithNotes(m *catalog.Method, lib *Library, cat *catalog.Catalog) (*Contract, []string) {
-	c := ForPreferring(m, ArmedOneofMembersOf(lib, m.FullName))
+	rc, _ := lib.Get(m.FullName)
+	c := ForPreferring(m, ArmedOneofMembers(rc, ""))
 	if lib == nil || cat == nil {
 		return c, nil
 	}
@@ -94,31 +95,13 @@ func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 	return out
 }
 
-func StepNodePreferring(m *catalog.Method, id string, prefer []string) *yaml.Node {
-	if id == "" {
-		id = defaultID(m.Name)
-	}
-	step := &chain.Step{
-		ID:     id,
-		Call:   m.FullName,
-		Expect: SuccessExpectation(m),
-	}
-	node := &yaml.Node{}
-	if err := node.Encode(step); err != nil {
-		return nil
-	}
-	schema := catalog.DescribeMessage(m.Input())
-	inject(node, bodyNode(schema.Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
-	return node
-}
-
 func stepYAML(m *catalog.Method, prefer []string) string {
-	node := StepNodePreferring(m, "", prefer)
-	if node == nil {
+	node := &yaml.Node{}
+	if err := node.Encode(&chain.Step{ID: defaultID(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
 		return ""
 	}
-	seq := &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}}
-	raw, err := yaml.Marshal(seq)
+	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
+	raw, err := yaml.Marshal(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}})
 	if err != nil {
 		return ""
 	}
@@ -181,14 +164,7 @@ func defaultID(name string) string {
 	return b.String()
 }
 
-func (c *Contract) StepID() string { return defaultID(lastSegment(c.RPC)) }
-
-func lastSegment(fqn string) string {
-	if i := strings.LastIndex(fqn, "/"); i >= 0 {
-		return fqn[i+1:]
-	}
-	return fqn
-}
+func (c *Contract) StepID() string { return defaultID(shortRPC(c.RPC)) }
 
 func (c *Contract) Text() string {
 	var b strings.Builder

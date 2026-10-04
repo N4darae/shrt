@@ -1,10 +1,6 @@
 package contract
 
-import (
-	"sort"
-
-	"github.com/N4darae/shrt/catalog"
-)
+import "github.com/N4darae/shrt/catalog"
 
 type OutOfReach struct {
 	RPCs    []string `json:"rpcs"`
@@ -21,49 +17,43 @@ func ReferencedOutsideLibrary(lib *Library, cat *catalog.Catalog, onlyDomain str
 		if onlyDomain != "" && o.Domain != onlyDomain {
 			continue
 		}
-		for _, rpc := range sortedRPCNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			for _, target := range referencedNodes(o.RPCs[rpc]) {
-				name, domain, ok := absentFromLibrary(target, lib, cat)
-				if !ok {
+				m, err := cat.Lookup(target)
+				if err != nil {
 					continue
 				}
-				out.Sites++
-				missing[name] = domain
+				if _, declared := lib.Get(m.FullName); !declared {
+					out.Sites++
+					missing[m.FullName] = DomainOf(m)
+				}
 			}
 		}
 	}
-	domains := map[string]bool{}
-	for name, domain := range missing {
-		out.RPCs = append(out.RPCs, name)
-		domains[domain] = true
+	if len(missing) > 0 {
+		domains := map[string]bool{}
+		for _, domain := range missing {
+			domains[domain] = true
+		}
+		out.RPCs, out.Domains = sortedKeys(missing), sortedKeys(domains)
 	}
-	sort.Strings(out.RPCs)
-	for d := range domains {
-		out.Domains = append(out.Domains, d)
-	}
-	sort.Strings(out.Domains)
 	return out
 }
 
 func referencedNodes(c *RPCContract) []string {
 	nodes := []string{}
 	collect := func(fields map[string]*FieldContract) {
-		for _, name := range sortedFieldNames(fields) {
+		for _, name := range sortedKeys(fields) {
 			f := fields[name]
 			for _, raw := range []string{f.From, f.SameAs} {
-				if raw == "" {
-					continue
+				if ref, err := ParseRef(raw); err == nil {
+					nodes = append(nodes, ref.RPC)
 				}
-				ref, err := ParseRef(raw)
-				if err != nil {
-					continue
-				}
-				nodes = append(nodes, ref.RPC)
 			}
 		}
 	}
 	collect(c.Fields)
-	for _, alias := range sortedAliasNames(c.Aliases) {
+	for _, alias := range sortedKeys(c.Aliases) {
 		collect(c.Aliases[alias].Fields)
 	}
 	for _, node := range append(append([]string{}, c.Needs...), c.Before...) {
@@ -71,15 +61,4 @@ func referencedNodes(c *RPCContract) []string {
 		nodes = append(nodes, rpc)
 	}
 	return nodes
-}
-
-func absentFromLibrary(target string, lib *Library, cat *catalog.Catalog) (name, domain string, ok bool) {
-	m, err := cat.Lookup(target)
-	if err != nil {
-		return "", "", false
-	}
-	if _, declared := lib.Get(m.FullName); declared {
-		return "", "", false
-	}
-	return m.FullName, DomainOf(m), true
 }

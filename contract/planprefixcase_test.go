@@ -1,8 +1,6 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,18 +22,9 @@ func planPrefixNote(t *testing.T, note string) (*contract.Plan, string) {
 	}, "ListProducts")
 }
 
-func findStep(p *contract.Plan, id string) *chain.Step {
-	for _, s := range p.Chain.Steps {
-		if s.ID == id {
-			return s
-		}
-	}
-	return nil
-}
-
 func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembership(t *testing.T) {
 	p, text := planPrefixNote(t, "a prefix filter; empty lists all")
-	if findStep(p, "create_product_prefix_case") != nil {
+	if _, ok := p.Chain.Step("create_product_prefix_case"); ok {
 		t.Fatalf("no case rule is stated, so no fixture may be asserted absent for its case\n%s", text)
 	}
 	probe := planStep(t, p, "list_products_prefix_case")
@@ -49,16 +38,8 @@ func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembershi
 			t.Fatalf("the probe asserts only the verdict and the prefix's upper bound, not which items it lists: %+v\n%s", e, text)
 		}
 	}
-	path := filepath.Join(t.TempDir(), "case.yaml")
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	c, err := chain.LoadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cat, lib := shopDemo(t)
-	for _, i := range contract.LintChain(c, cat, contract.ChainLintOptions{Strict: true, Library: lib}) {
+	for _, i := range strictLint(t, "case.yaml", text, cat, lib, chain.LintOptions{}) {
 		if i.Step == probe.ID && (i.IsError() || i.Kind == chain.KindEnvelopeOnly) {
 			t.Fatalf("the case probe fails strict lint: [%s] %s\n%s", i.Kind, i.Message, text)
 		}
@@ -68,7 +49,7 @@ func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembershi
 func TestAPrefixStatedCaseSensitiveKeepsTheAssertedCaseFixture(t *testing.T) {
 	p, text := planPrefixNote(t, "a prefix filter, case-sensitive; empty lists all")
 	planStep(t, p, "create_product_prefix_case")
-	if findStep(p, "list_products_prefix_case") != nil {
+	if _, ok := p.Chain.Step("list_products_prefix_case"); ok {
 		t.Fatalf("a stated case rule is asserted by the fixture, not left to the safe spot\n%s", text)
 	}
 }

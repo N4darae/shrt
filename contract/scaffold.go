@@ -1,8 +1,9 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -21,13 +22,10 @@ type Producer struct {
 func (p Producer) Ref() string { return p.RPC + RefSeparator + p.Path }
 
 func ProducersOf(field string, methods []*catalog.Method, exclude string) []Producer {
-	leaf := field
-	if i := strings.LastIndex(leaf, "."); i >= 0 {
-		leaf = leaf[i+1:]
-	}
+	leaf := field[strings.LastIndex(field, ".")+1:]
 	out := []Producer{}
 	for _, m := range methods {
-		if m.FullName == exclude || isReadOnly(m.Name) || m.Streaming() {
+		if m.FullName == exclude || chain.IsReadOnlyCall(m.Name) || m.Streaming() {
 			continue
 		}
 		if carriesLeaf(catalog.DescribeMessage(m.Input()).Fields, leaf) {
@@ -38,11 +36,8 @@ func ProducersOf(field string, methods []*catalog.Method, exclude string) []Prod
 		}
 	}
 	out = preferOwnID(out, leaf)
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Path < out[j].Path
+	slices.SortStableFunc(out, func(a, b Producer) int {
+		return cmp.Or(strings.Compare(a.RPC, b.RPC), strings.Compare(a.Path, b.Path))
 	})
 	return out
 }
@@ -66,25 +61,16 @@ func preferOwnID(candidates []Producer, leaf string) []Producer {
 }
 
 func idSubject(leaf string) string {
-	words := []string{}
-	for _, w := range namecase.Words(leaf) {
-		if !isIDWord(w) {
-			words = append(words, w)
-		}
-	}
-	return strings.Join(words, "_")
+	return strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
 }
 
 func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
 	out := []string{}
 	for _, f := range fields {
-		if prefix == "" && f.Name == chain.EnvelopeField() {
+		if prefix == "" && f.Name == chain.EnvelopeField() || f.Repeated || f.MapKey != "" {
 			continue
 		}
 		path := join(prefix, f.Name)
-		if f.Repeated || f.MapKey != "" {
-			continue
-		}
 		if f.Kind == "message" || f.Kind == "group" {
 			out = append(out, responsePathsTo(f.Fields, leaf, path)...)
 			continue
@@ -103,10 +89,6 @@ func carriesLeaf(fields []*catalog.Field, leaf string) bool {
 		}
 	}
 	return false
-}
-
-func isReadOnly(name string) bool {
-	return chain.IsReadOnlyCall(name)
 }
 
 func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library, all []*catalog.Method) *yaml.Node {
@@ -130,12 +112,7 @@ func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library
 
 	rpcs := &yaml.Node{Kind: yaml.MappingNode}
 	for _, m := range methods {
-		var prior *RPCContract
-		if existing != nil {
-			if c, ok := existing.Get(m.FullName); ok {
-				prior = c
-			}
-		}
+		prior, _ := existing.Get(m.FullName)
 		put(rpcs, m.FullName, scaffoldRPC(m, prior, all))
 	}
 	put(doc, "rpcs", rpcs)
@@ -167,25 +144,32 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 			return node
 		}
 	}
-	if isReadOnly(m.Name) {
-		return scaffoldReadOnly(m, all)
+	readOnly := chain.IsReadOnlyCall(m.Name)
+	summary, hint, refusal, todo := m.Doc, readOnlyHint, "", ""
+	if !readOnly {
+		hint, refusal, todo = fieldHint, m.StreamRefusal(), effectsTodo(m, all)
 	}
-	return scaffoldWrite(m, all)
-}
-
-func scaffoldReadOnly(m *catalog.Method, all []*catalog.Method) *yaml.Node {
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	summary := m.Doc
-	if summary == "" {
+	if summary == "" && readOnly {
 		summary = fmt.Sprintf("%s: what %s returns, and which request fields the handler actually requires",
 			TodoMarker, m.Name)
+	} else if summary == "" {
+		summary = TodoMarker + ": what this rpc does and when to call it"
 	}
+	node := &yaml.Node{Kind: yaml.MappingNode}
 	put(node, "summary", scalar(summary))
+	if refusal != "" {
+		put(node, "note", scalar(refusal))
+	}
 	put(node, "required", requiredTodo())
-	if fields := scaffoldFields(m, all, readOnlyHint); len(fields.Content) > 0 {
+	if fields := scaffoldFields(m, all, hint); len(fields.Content) > 0 {
 		put(node, "fields", fields)
 	}
-	put(node, "exports", exportsNode(m))
+	if todo != "" {
+		put(node, "effects", scalar(todo))
+	}
+	if exports := exportsNode(m); readOnly || len(exports.Content) > 0 {
+		put(node, "exports", exports)
+	}
 	put(node, "status", scalar(StatusDraft))
 	return node
 }
@@ -200,30 +184,6 @@ func readOnlyHint(f *catalog.Field) string {
 	default:
 		return TodoMarker + ": filter or required? and if it filters, where does the value come from"
 	}
-}
-
-func scaffoldWrite(m *catalog.Method, all []*catalog.Method) *yaml.Node {
-	node := &yaml.Node{Kind: yaml.MappingNode}
-	summary := m.Doc
-	if summary == "" {
-		summary = TodoMarker + ": what this rpc does and when to call it"
-	}
-	put(node, "summary", scalar(summary))
-	if refusal := m.StreamRefusal(); refusal != "" {
-		put(node, "note", scalar(refusal))
-	}
-	put(node, "required", requiredTodo())
-	if fields := scaffoldFields(m, all, fieldHint); len(fields.Content) > 0 {
-		put(node, "fields", fields)
-	}
-	if todo := effectsTodo(m, all); todo != "" {
-		put(node, "effects", scalar(todo))
-	}
-	if exports := exportsNode(m); len(exports.Content) > 0 {
-		put(node, "exports", exports)
-	}
-	put(node, "status", scalar(StatusDraft))
-	return node
 }
 
 const RequiredTodoText = TodoMarker + ": which fields the server rejects without, or " +
@@ -254,7 +214,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 		}
 	}
 	hint := fieldHint
-	if isReadOnly(m.Name) {
+	if chain.IsReadOnlyCall(m.Name) {
 		hint = readOnlyHint
 	}
 	added := &yaml.Node{Kind: yaml.MappingNode}
@@ -371,11 +331,8 @@ func (p *Plan) wireInferredIDs(step *chain.Step, m *catalog.Method, fields map[s
 	}
 	froms := inferredFroms(m, p.cat.Methods())
 	for _, path := range sortedKeys(froms) {
-		if f := fields[path]; f != nil && (f.Value != "" || f.From != "" || f.SameAs != "") {
-			continue
-		}
 		ref, err := ParseRef(froms[path])
-		if err != nil || !earlier[ref.Node()] {
+		if hasValueSource(fields[path]) || err != nil || !earlier[ref.Node()] {
 			continue
 		}
 		setBodyPath(step.Body, path, "${"+p.stepOf[ref.Node()]+"."+ref.Path+"}")
@@ -421,13 +378,8 @@ func exportsNode(m *catalog.Method) *yaml.Node {
 	out := catalog.DescribeMessage(m.Output())
 	exports := &yaml.Node{Kind: yaml.MappingNode}
 	for _, f := range out.Fields {
-		if f.Name == chain.EnvelopeField() {
+		if f.Name == chain.EnvelopeField() || (f.Kind == "message" || f.Kind == "group") && !f.Repeated {
 			continue
-		}
-		if f.Kind == "message" || f.Kind == "group" {
-			if !f.Repeated {
-				continue
-			}
 		}
 		put(exports, f.Name, scalar(withDoc(TodoMarker+": why a later step would need this, or move it to terminal: if nothing consumes it", f)))
 	}
@@ -502,30 +454,19 @@ func isVersionSegment(s string) bool {
 	if len(s) < 2 || s[0] != 'v' || s[1] < '0' || s[1] > '9' {
 		return false
 	}
-	rest := s[1:]
-	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-		rest = rest[1:]
-	}
+	rest := strings.TrimLeft(s[1:], "0123456789")
 	for _, suffix := range []string{"alpha", "beta", "test", "p"} {
 		if strings.HasPrefix(rest, suffix) {
 			rest = rest[len(suffix):]
 			break
 		}
 	}
-	for len(rest) > 0 && rest[0] >= '0' && rest[0] <= '9' {
-		rest = rest[1:]
-	}
-	return rest == ""
+	return strings.TrimLeft(rest, "0123456789") == ""
 }
 
 func DomainNames(methods []*catalog.Method) []string {
 	seen := Domains(methods)
-	out := make([]string, 0, len(seen))
-	for d := range seen {
-		out = append(out, d)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func scalar(v string) *yaml.Node {
@@ -553,10 +494,7 @@ func RenderOverlay(node *yaml.Node) ([]byte, error) {
 
 func ScanTodos(domain string, raw []byte) []Issue {
 	var doc yaml.Node
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
-		return nil
-	}
-	if len(doc.Content) == 0 {
+	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 {
 		return nil
 	}
 	issues := []Issue{}
@@ -631,12 +569,8 @@ func IsTodo(text string) bool {
 }
 
 func cleanTodo(raw string) string {
-	text := strings.TrimSpace(raw)
-	text = strings.TrimPrefix(text, "#")
-	text = strings.TrimSpace(text)
-	text = strings.TrimPrefix(text, TodoMarker)
-	text = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":"))
-	return FirstSentence(text)
+	text := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#")), TodoMarker)
+	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
 }
 
 func join(prefix, key string) string {

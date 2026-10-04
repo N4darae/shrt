@@ -178,9 +178,6 @@ func cancelRestockChain() *chain.Chain {
 }
 
 func batchLevelChain() *chain.Chain {
-	line := func(p, qty string) map[string]any {
-		return map[string]any{"id_product": "${" + p + ".product.id_product}", "qty": qty}
-	}
 	return steps("batch-level",
 		st("create_a", "shop.v1.ProductService/CreateProduct", map[string]any{"sku": "a"}),
 		st("create_b", "shop.v1.ProductService/CreateProduct", map[string]any{"sku": "b"}),

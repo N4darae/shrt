@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -8,7 +9,8 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-const listWithoutNeedsOverlay = `apiVersion: shrt/contract/v1
+const (
+	listWithoutNeedsOverlay = `apiVersion: shrt/contract/v1
 domain: catalog
 rpcs:
     shop.catalog.v1.ProductService/CreateProduct:
@@ -18,7 +20,9 @@ rpcs:
             sku:
                 value: sku-${vars.tag}
         status: draft
-    shop.catalog.v1.ProductService/ListProducts:
+` + listProductsEntry
+	listOnlyOverlay   = "apiVersion: shrt/contract/v1\ndomain: catalog\nrpcs:\n" + listProductsEntry
+	listProductsEntry = `    shop.catalog.v1.ProductService/ListProducts:
         summary: lists products whose sku starts with a prefix
         required: [NONE]
         fields:
@@ -26,18 +30,7 @@ rpcs:
                 value: sku-
         status: draft
 `
-
-const listOnlyOverlay = `apiVersion: shrt/contract/v1
-domain: catalog
-rpcs:
-    shop.catalog.v1.ProductService/ListProducts:
-        summary: lists products whose sku starts with a prefix
-        required: [NONE]
-        fields:
-            sku_prefix:
-                value: sku-
-        status: draft
-`
+)
 
 func TestPlanForAListAddsTheWriteThatCreatesWhatItLists(t *testing.T) {
 	p, err := contract.BuildPlan("shop.catalog.v1.ProductService/ListProducts", libraryFrom(t, listWithoutNeedsOverlay), catalogtest.Shop(), "list")
@@ -68,10 +61,9 @@ func TestPlanForAListWithNoKnownCreatorSaysTheListIsEmpty(t *testing.T) {
 
 func TestContractLintWarnsOfAListWithoutNeeds(t *testing.T) {
 	issues := contract.LintLibrary(libraryFrom(t, listWithoutNeedsOverlay), catalogtest.Shop())
-	for _, i := range issues {
-		if strings.HasSuffix(i.RPC, "/ListProducts") && i.Field == "needs" && strings.Contains(i.Message, "CreateProduct") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool {
+		return strings.HasSuffix(i.RPC, "/ListProducts") && i.Field == "needs" && strings.Contains(i.Message, "CreateProduct")
+	}) {
+		t.Fatalf("contract lint must warn that ListProducts lists Product and declares no needs: %v", issues)
 	}
-	t.Fatalf("contract lint must warn that ListProducts lists Product and declares no needs: %v", issues)
 }
