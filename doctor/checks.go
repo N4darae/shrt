@@ -303,13 +303,13 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 	counts := fmt.Sprintf("%d cached token(s), %d expired", len(entries), expired)
 	off := expired > 0
 	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
-		off = split.expired > 0 || split.foreignTotal() > 0 || split.other > 0
+		off = split.expired > 0 || split.foreign.total() > 0 || split.other > 0
 		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d expired", split.mine, split.expired)
 		if off {
 			counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
-				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
-			if split.foreignTotal() > 0 {
-				counts += " (" + split.foreignTargets() + ")"
+				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreign.total())
+			if split.foreign.total() > 0 {
+				counts += " (" + strings.Join(split.foreign.names(), ", ") + ")"
 			}
 			counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
 		}
