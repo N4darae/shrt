@@ -362,12 +362,12 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 			}
 			return out
 		},
-		resized: func(step, path string) string {
+		resized: func(step, path string) diff.Change {
 			st, ok := rec.Step(step)
 			if !ok || st == nil {
-				return ""
+				return diff.Change{}
 			}
-			return listUnder(runResized(moved(st)), path)
+			return diff.Change{Path: listUnder(runResized(moved(st)), path)}
 		},
 		was: func(step, path string) (any, bool) {
 			st, ok := rec.Step(step)
@@ -533,14 +533,13 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 		changed: func(step string) []string {
 			return changedAt[step]
 		},
-		resized: func(step, path string) string {
-			var lists []string
+		resized: func(step, path string) diff.Change {
 			for _, c := range changes {
-				if c.Step == step && (c.Kind == diff.KindLength || c.Kind == diff.KindMembership) {
-					lists = append(lists, c.Path)
+				if c.Step == step && (c.Kind == diff.KindLength || c.Kind == diff.KindMembership) && listUnder([]string{c.Path}, path) != "" {
+					return c
 				}
 			}
-			return listUnder(lists, path)
+			return diff.Change{}
 		},
 		was: func(step, path string) (any, bool) {
 			for _, c := range changes {
@@ -564,7 +563,7 @@ func (a attribution) item(it gateItem) gateItem {
 		case a.flipped(st) != "":
 		case path != "" && a.reordered != nil && a.reordered(it.Step, path):
 			it.Kind = "order"
-		case path != "" && a.resized != nil && a.resized(it.Step, path) != "":
+		case path != "" && a.resized != nil && a.resized(it.Step, path).Path != "":
 			it.Kind = "membership"
 		}
 	}
@@ -587,11 +586,16 @@ func profileAs(e *env, w *runner.StepRecord) string {
 }
 
 func (it gateItem) shown() (string, string) {
-	if it.Kind == "order" {
+	switch {
+	case it.Kind == "order":
 		return listOf(it.Path), "same items in another order"
+	case it.Path == chain.TransportPrefix+".code" || it.Path == "code" && !chain.IsEnvelopePath(it.Path):
+		return transportCode, it.wantGot()
 	}
 	return gateIndex.ReplaceAllString(it.Path, "[]$1"), it.wantGot()
 }
+
+const transportCode = "transport code"
 
 func listOf(path string) string {
 	segs := chain.SplitPath(path)
@@ -1478,18 +1482,12 @@ var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 func settleGate(chains []*gateChain) []string {
 	foldFlaky(chains)
 	dropSharedRoles(chains)
-	seen, keyOf, byName := map[string]string{}, groupKeys(chains), map[string]*gateChain{}
+	seen, anchor, keyOf, byName := map[string]string{}, map[string]string{}, groupKeys(chains), map[string]*gateChain{}
+	leads, firsts := map[*gateChain]gateItem{}, map[*gateChain]string{}
 	for _, g := range chains {
 		byName[g.name] = g
 	}
-	lacks := func(x string, g *gateChain, lead gateItem) (gateItem, bool) {
-		has := map[string]bool{keyOf(g.name, lead): true}
-		if byName[x] != nil && x != g.name {
-			has = map[string]bool{}
-			for _, it := range byName[x].items {
-				has[keyOf(x, it)] = true
-			}
-		}
+	lacks := func(g *gateChain, has map[string]bool) (gateItem, bool) {
 		for _, it := range g.items {
 			if !it.Passes && it.Reason.Kind != "" && !has[keyOf(g.name, it)] {
 				return it, true
@@ -1536,9 +1534,32 @@ func settleGate(chains []*gateChain) []string {
 			g.items = nil
 			continue
 		}
+		leads[g], firsts[g] = it, seen[it.root()]
+		if it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
+			seen[it.root()] = cmp.Or(seen[it.root()], g.name)
+			if g.spot {
+				anchor[it.root()] = cmp.Or(anchor[it.root()], g.name)
+			}
+		}
+	}
+	for _, g := range chains {
+		it, ok := leads[g]
+		if !ok {
+			continue
+		}
 		g.first, g.firstAt = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline()), it.Step+" "+it.Path
-		other, more := lacks(seen[it.root()], g, it)
-		switch first := seen[it.root()]; {
+		first, has := firsts[g], map[string]bool{keyOf(g.name, it): true}
+		if a := anchor[it.root()]; a != "" && (first != "" || it.Reason.Kind != "" && len(it.Reason.Or) == 0) {
+			first = a
+		}
+		if x := byName[first]; x != nil && x != g {
+			has[keyOf(x.name, leads[x])] = true
+			if named, also := lacks(x, map[string]bool{keyOf(x.name, leads[x]): true}); also {
+				has[keyOf(x.name, named)] = true
+			}
+		}
+		other, more := lacks(g, has)
+		switch {
 		case first != "" && first != g.name && !more:
 			named := methodName(it.rpc())
 			if r := it.Reason; r.Kind == reasonUnclear && len(r.Or) == 0 && r.ReadRPC != "" {
@@ -1551,12 +1572,12 @@ func settleGate(chains []*gateChain) []string {
 		if more {
 			also, path := other.Reason.in(said{row: true}), ""
 			if path, _ = other.shown(); other.Reason.Kind == reasonWrite || len(other.Reason.Or) > 0 {
+				if path == transportCode {
+					path += " " + other.Got
+				}
 				also += " at " + path
 			}
 			g.first += "; also " + also
-		}
-		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
-			seen[it.root()] = g.name
 		}
 		switch {
 		case it.Pinned != "":
@@ -1661,7 +1682,8 @@ func (it gateItem) field() (string, string) {
 	case it.Kind != "" || it.Reason.Kind == reasonSet || it.Reason.Kind == reasonOrder || it.Reason.Kind == reasonStoredOrder:
 		return listOf(it.Path), listOf(it.Path)
 	}
-	return gateIndex.ReplaceAllString(it.Path, "[]$1"), leafOf(it.Path)
+	shown, _ := it.shown()
+	return shown, leafOf(it.Path)
 }
 
 func unclearLabel(chains []*gateChain) func(gateItem) string {
@@ -1758,11 +1780,14 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			switch {
 			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
 			case it.Reason.Kind == reasonUnclear:
-				rank += 4
-			case it.Reason.Kind == reasonWrite:
 				rank += 8
-			default:
+			case it.Reason.Kind == reasonWrite:
 				rank += 16
+			default:
+				rank += 32
+			}
+			if g.spot {
+				rank += 4
 			}
 			if it.Failed {
 				rank += 2

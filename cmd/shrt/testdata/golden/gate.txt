@@ -49,10 +49,10 @@ failures by suspect rpc:
 # one suspect rpc is one row naming each field it changed, wherever a read shows it
 FAIL       clerk  admin_read_back (ProductService/GetProduct) product.qty_on_hand want=0 got=-3; suspect write clerk_confirm (OrderService/ConfirmOrder) as clerk
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; same fault as clerk (ConfirmOrder)
-FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer) at code
+FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer) at transport code internal
 failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. clerk admin_read_back; write clerk_confirm as clerk
-  CustomerService/CreateCustomer customer.name, code: 2 step(s) in 1 chain(s); e.g. customers create_long
+  CustomerService/CreateCustomer customer.name, transport code: 2 step(s) in 1 chain(s); e.g. customers create_long
 
 # two reads of one write's field in other shapes name that write once
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; suspect write confirm_two (OrderService/ConfirmOrder) as clerk
@@ -89,13 +89,13 @@ failures by suspect rpc:
 # a changed read is filed under the write since the last read that matched, the other profile, or the read
 FAIL       stock  get (ProductService/GetProduct) product.qty_on_hand want=5 got=4; suspect write confirm_order (OrderService/ConfirmOrder); also suspect write create_product (ProductService/CreateProduct) at product.created_at
 FAIL       clerk  clerk_get (ProductService/GetProduct) product.price_minor want=1250 got=0; suspect the read as clerk: answers product.price_minor unlike as default; also suspect write create_product (ProductService/CreateProduct) at product.created_at
-FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers another set of order.lines
+FAIL       orders  cancel_clerk (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write as clerk; also suspect read fetch (OrderService/FetchOrder): answers 1 order.lines where it answered 2
 failures by suspect rpc:
   ProductService/CreateProduct product.created_at: 2 step(s) in 2 chain(s); e.g. stock create_product
   OrderService/ConfirmOrder product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. stock get; write confirm_order
   ProductService/GetProduct product.price_minor: 1 step(s) in 1 chain(s); e.g. clerk clerk_get; as clerk: answers product.price_minor unlike as default
   OrderService/CancelOrder status.code: 1 step(s) in 1 chain(s); e.g. orders cancel_clerk; as clerk
-  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch; answers another set of order.lines
+  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch; answers 1 order.lines where it answered 2
 
 # one line per suspect rpc, knock-ons folded under the write
 PASS       one
@@ -144,6 +144,22 @@ FAIL       orders  replay_2 (OrderService/CreateOrder) order.status want=CONFIRM
 FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
 failures by suspect rpc:
   OrderService/CreateOrder order.status, order.total_minor: 4 step(s) in 3 chain(s); e.g. replay replay
+
+# a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first
+FAIL       explore  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders (CreateOrder)
+FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
+FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as orders (CreateOrder)
+failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. orders create
+
+# a chain with a fault the anchor's line does not name names it, though the anchor has it too
+FAIL       explore  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write confirm (OrderService/ConfirmOrder) at order.status
+FAIL       guard  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write stock_batch (StockService/AddStockBatch) at product.qty_on_hand
+FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as explore (CreateOrder)
+failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. explore create
+  OrderService/ConfirmOrder order.status: 2 step(s) in 2 chain(s); e.g. explore confirm
+  StockService/AddStockBatch product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. explore stock_b; write stock_batch
 
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+2 slice(s) fail the same: orders-slice-list, orders-slice-held)
@@ -196,6 +212,6 @@ FAIL       one  later status want=passed got=failed; knock-on of write make (S/M
     [put] (error) unavailable: busy (and 1 more at put_2)
     [put] code want=<none> got=unavailable (and 1 more at put_2)
 failures by suspect rpc:
-  (no rpc) thing.n, code: 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
+  (no rpc) thing.n, transport code: 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
   S/Make: 1 step(s) in 1 chain(s); e.g. one later; knock-on of write make
 
