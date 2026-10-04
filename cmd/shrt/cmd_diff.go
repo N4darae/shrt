@@ -41,7 +41,7 @@ func runDiff(ctx context.Context, args []string) error {
 func compareRuns(_ context.Context, args []string) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit the comparison as JSON")
-	step := fs.String("step", "", "print step `id` of one run of <chain> (default latest) as recorded: its request and response, compact JSON")
+	step := fs.String("step", "", "print step `id[,id]` of one run of <chain> (default latest) as recorded: its request and response, compact JSON")
 	listMasked := fs.Bool("masked", false, "list every difference kept out of the comparison, with both values and what hid it: the volatile pattern, an id- or timestamp-shaped value, a renamed id or a fixture echo (masked_changes under -json)")
 	setUsage(fs, diffUsage, "\nexit codes:\n  0  the two runs do not differ\n  1  they differ; also, as for every command, "+
 		"a flag that cannot be parsed or a setup that cannot load\n"+
@@ -256,9 +256,9 @@ func chainArgs(e *env, args []string) error {
 		chains[0], chains[0], chains[0], diffUsage)
 }
 
-func showStep(e *env, rest []string, id string) error {
+func showStep(e *env, rest []string, ids string) error {
 	if len(rest) < 1 || len(rest) > 2 {
-		return fmt.Errorf("usage: shrt diff <chain> [<run>] -step <id>")
+		return fmt.Errorf("usage: shrt diff <chain> [<run>] -step <id>[,<id>]")
 	}
 	sel := "latest"
 	if len(rest) == 2 {
@@ -268,34 +268,36 @@ func showStep(e *env, rest []string, id string) error {
 	if err != nil {
 		return err
 	}
-	st, ok := rec.Step(id)
-	if !ok || st == nil {
-		ids := []string{}
-		for _, s := range rec.Steps {
-			if s != nil {
-				ids = append(ids, s.ID)
+	for _, id := range strings.Split(ids, ",") {
+		st, ok := rec.Step(strings.TrimSpace(id))
+		if !ok || st == nil {
+			known := []string{}
+			for _, s := range rec.Steps {
+				if s != nil {
+					known = append(known, s.ID)
+				}
 			}
+			return fmt.Errorf("run %s of %s has no step %q; its steps: %s", rec.RunID, rec.Chain, id, capList(known, 12))
 		}
-		return fmt.Errorf("run %s of %s has no step %q; its steps: %s", rec.RunID, rec.Chain, id, capList(ids, 12))
-	}
-	as := ""
-	if st.AuthProfile != "" && st.AuthProfile != "default" {
-		as = " as " + st.AuthProfile
-	}
-	fmt.Printf("%s (%s)%s %s in run %s\n", st.ID, shortRPC(st.Call), as, st.Status, rec.RunID)
-	for _, part := range []struct {
-		name string
-		raw  []byte
-	}{{"request", st.Request}, {"response", st.Response}} {
-		var buf bytes.Buffer
-		if len(part.raw) == 0 || json.Compact(&buf, part.raw) != nil {
-			buf.Reset()
-			buf.WriteString("(none)")
+		as := ""
+		if st.AuthProfile != "" && st.AuthProfile != "default" {
+			as = " as " + st.AuthProfile
 		}
-		fmt.Printf("%s %s\n", part.name, buf.String())
-	}
-	if st.Error != "" {
-		fmt.Println("error " + st.Error)
+		fmt.Printf("%s (%s)%s %s in run %s\n", st.ID, shortRPC(st.Call), as, st.Status, rec.RunID)
+		for _, part := range []struct {
+			name string
+			raw  []byte
+		}{{"request", st.Request}, {"response", st.Response}} {
+			var buf bytes.Buffer
+			if len(part.raw) == 0 || json.Compact(&buf, part.raw) != nil {
+				buf.Reset()
+				buf.WriteString("(none)")
+			}
+			fmt.Printf("%s %s\n", part.name, buf.String())
+		}
+		if st.Error != "" {
+			fmt.Println("error " + st.Error)
+		}
 	}
 	return nil
 }

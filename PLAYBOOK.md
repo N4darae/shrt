@@ -490,7 +490,7 @@ red. Remove the red slice and plan again once the defect is fixed.
 ```bash
 shrt diff <name>                                 # latest run vs the latest earlier non-replay
 shrt diff <name> <run-a> <run-b>                 # any two; ids, latest, latest~N
-shrt diff <name> [<run>] -step <id>              # one step's request and response, as recorded
+shrt diff <name> [<run>] -step <id>[,<id>]       # each step's request and response, as recorded
 ```
 
 It masks as verify does. It compares two runs, it is not a verdict: if run A was wrong, "no

@@ -68,6 +68,11 @@ func TestCLIDiffOfRunsAndReplays(t *testing.T) {
 			t.Errorf("diff -step: want %q: %v\n%s", want, err, out)
 		}
 	}
+	last := rec.Steps[len(rec.Steps)-1]
+	out, err = fixCmd(t, "diff", "cli-thing-flow", "-step", st.ID+","+last.ID)
+	if err != nil || !strings.Contains(out, "response "+resp.String()+"\n") || strings.Count(out, " in run "+rec.RunID+"\n") != 2 {
+		t.Errorf("diff -step a,b prints each step: %v\n%s", err, out)
+	}
 	writeFile(t, ".shrt/chains/other-flow.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-thing-flow.yaml")), "name: cli-thing-flow", "name: other-flow", 1))
 	for _, tc := range []struct {
 		args        []string
