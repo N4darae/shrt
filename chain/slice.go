@@ -412,46 +412,40 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	return res, nil
 }
 
-func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
-	r.Verified = fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", ""
+func (r *SliceResult) settle(verdict *string, text string) {
+	r.Verified, r.NotReproduced, r.Inconclusive, r.Intermittent = "", "", "", ""
+	*verdict = text
 	if r.Chain != nil {
 		r.Chain.Description = sliceDescription(r)
 	}
+}
+
+func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
+	r.settle(&r.Verified, fmt.Sprintf("reproduced on %s: slice run %s%s gave step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun))
 }
 
 func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time, difference string) {
-	r.NotReproduced = fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
+	text := fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
 		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
 	if difference != "" {
-		r.NotReproduced += " (" + difference + ")"
+		text += " (" + difference + ")"
 	}
-	r.Verified, r.Inconclusive, r.Intermittent = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.NotReproduced, text)
 }
 
 func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time, why string) {
-	r.Inconclusive = fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
+	text := fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
 		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
 	if why != "" {
-		r.Inconclusive += " (" + why + ")"
+		text += " (" + why + ")"
 	}
-	r.Verified, r.NotReproduced, r.Intermittent = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.Inconclusive, text)
 }
 
 func (r *SliceResult) MarkIntermittent(sourceRun, sliceRuns string, reproduced, runs int, at time.Time) {
-	r.Intermittent = fmt.Sprintf("on %s slice runs %s%s gave step %s the verdict it had in source run %s in %d of %d runs",
-		at.UTC().Format("2006-01-02"), sliceRuns, r.onBuild(), r.Target, sourceRun, reproduced, runs)
-	r.Verified, r.NotReproduced, r.Inconclusive = "", "", ""
-	if r.Chain != nil {
-		r.Chain.Description = sliceDescription(r)
-	}
+	r.settle(&r.Intermittent, fmt.Sprintf("on %s slice runs %s%s gave step %s the verdict it had in source run %s in %d of %d runs",
+		at.UTC().Format("2006-01-02"), sliceRuns, r.onBuild(), r.Target, sourceRun, reproduced, runs))
 }
 
 func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun string, at time.Time, why string) string {
