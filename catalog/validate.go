@@ -43,15 +43,10 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return ""
 	}
-	fields := md.Fields()
 	for _, k := range slices.Sorted(maps.Keys(obj)) {
 		fd := fieldByJSONKey(md, k)
 		if fd == nil {
-			names := make([]string, 0, fields.Len())
-			for i := 0; i < fields.Len(); i++ {
-				names = append(names, string(fields.Get(i).Name()))
-			}
-			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.FullName(), namesHint(k, names, "fields"))
+			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.FullName(), namesHint(k, descNames[protoreflect.FieldDescriptor](md.Fields()), "fields"))
 		}
 		if hint := walkValue(fd, obj[k], at+k); hint != "" {
 			return hint
@@ -89,16 +84,11 @@ func walkSingle(fd protoreflect.FieldDescriptor, v any, at string) string {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		return walkNames(fd.Message(), v, at+".")
 	case protoreflect.EnumKind:
-		text, ok := v.(string)
-		if !ok || fd.Enum().Values().ByName(protoreflect.Name(text)) != nil {
+		text, unknown := unknownEnumName(fd, v)
+		if !unknown {
 			return ""
 		}
-		values := fd.Enum().Values()
-		names := make([]string, 0, values.Len())
-		for i := 0; i < values.Len(); i++ {
-			names = append(names, string(values.Get(i).Name()))
-		}
-		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().FullName(), at, namesHint(text, names, "values"))
+		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().FullName(), at, namesHint(text, descNames[protoreflect.EnumValueDescriptor](fd.Enum().Values()), "values"))
 	}
 	return ""
 }

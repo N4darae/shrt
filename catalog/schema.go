@@ -69,7 +69,7 @@ func describeField(fd protoreflect.FieldDescriptor, depth int, seen map[string]b
 	}
 	if od := realOneof(fd); od != nil {
 		f.Oneof = string(od.Name())
-		f.OneofMembers = oneofMemberNames(od)
+		f.OneofMembers = descNames[protoreflect.FieldDescriptor](od.Fields())
 	}
 	if fd.IsMap() {
 		f.Repeated = false
@@ -85,12 +85,8 @@ func describeField(fd protoreflect.FieldDescriptor, depth int, seen map[string]b
 	}
 	switch fd.Kind() {
 	case protoreflect.EnumKind:
-		ed := fd.Enum()
-		f.Message = string(ed.FullName())
-		vals := ed.Values()
-		for i := range vals.Len() {
-			f.EnumValues = append(f.EnumValues, string(vals.Get(i).Name()))
-		}
+		f.Message = string(fd.Enum().FullName())
+		f.EnumValues = descNames[protoreflect.EnumValueDescriptor](fd.Enum().Values())
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		nested := fd.Message()
 		name := string(nested.FullName())
@@ -206,11 +202,13 @@ func isIndex(s string) bool {
 	return s != ""
 }
 
-func oneofMemberNames(od protoreflect.OneofDescriptor) []string {
-	fds := od.Fields()
-	out := make([]string, 0, fds.Len())
-	for i := range fds.Len() {
-		out = append(out, string(fds.Get(i).Name()))
+func descNames[D protoreflect.Descriptor](list interface {
+	Len() int
+	Get(int) D
+}) []string {
+	out := make([]string, 0, list.Len())
+	for i := range list.Len() {
+		out = append(out, string(list.Get(i).Name()))
 	}
 	return out
 }
