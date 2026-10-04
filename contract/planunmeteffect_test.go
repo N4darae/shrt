@@ -3,12 +3,9 @@ package contract_test
 import (
 	"strings"
 	"testing"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func TestADeclaredEffectThePlanDoesNotAssertIsAGap(t *testing.T) {
-	cat, _ := shopDemo(t)
 	for _, tc := range []struct {
 		name, from, effect, step, gap string
 	}{
@@ -18,7 +15,7 @@ func TestADeclaredEffectThePlanDoesNotAssertIsAGap(t *testing.T) {
 			"step cancel_order: no step asserts effects: {qty_on_hand: {restore: PENDING}}, so a CancelOrder that breaks it passes; no probe moves a fresh order to PENDING before cancel_order acts on it: take id_order from: the rpc that creates the order"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			lib := shopDemoEdited(t, func(name, body string) string {
+			p := editedPlan(t, func(name, body string) string {
 				head := "    shop.orders.v1.OrderService/CancelOrder:\n"
 				i := strings.Index(body, head)
 				if i < 0 {
@@ -26,11 +23,7 @@ func TestADeclaredEffectThePlanDoesNotAssertIsAGap(t *testing.T) {
 				}
 				rest := strings.Replace(body[i+len(head):], "OrderService/CreateOrder->order.id_order", "OrderService/"+tc.from+"->order.id_order", 1)
 				return body[:i] + head + "        effects: {qty_on_hand: " + tc.effect + "}\n" + rest
-			})
-			p, err := contract.BuildPlanFor([]string{"CancelOrder"}, lib, cat, "shopdemo")
-			if err != nil {
-				t.Fatal(err)
-			}
+			}, "CancelOrder")
 			gaps := strings.Join(p.GapNotes(), "\n")
 			if tc.gap == "" && strings.Contains(gaps, "no step asserts") {
 				t.Fatalf("an asserted effect is no gap:\n%s", gaps)

@@ -9,8 +9,7 @@ import (
 )
 
 func TestAPlanThatWouldTakeStockBelowZeroSaysWhatIsMissing(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	cat, lib := shopDemoEdited(t, func(name, body string) string {
 		return strings.Replace(body, "        needs: [shop.catalog.v1.StockService/AddStock]\n", "", 1)
 	})
 	for _, target := range []string{"ConfirmOrder", "ListOrders"} {

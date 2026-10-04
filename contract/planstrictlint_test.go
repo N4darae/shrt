@@ -24,8 +24,7 @@ func TestAFreshlyPlannedChainPassesStrictLintWithNoUnassertedTimestamp(t *testin
 }
 
 func TestAPlannedAddStockAssertsAStockLevelItsContractDeclaresAsTerminal(t *testing.T) {
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	cat, lib := shopDemoEdited(t, func(name, body string) string {
 		if name != "catalog.yaml" {
 			return body
 		}

@@ -40,6 +40,46 @@ func shopDemo(t *testing.T) (*catalog.Catalog, *contract.Library) {
 	return cat, lib
 }
 
+func shopDemoEdited(t *testing.T, edit func(name, body string) string) (*catalog.Catalog, *contract.Library) {
+	t.Helper()
+	cat, _ := shopDemo(t)
+	lib, broken, err := contract.LoadLibraryIn(editedContracts(t, edit), cat)
+	if err != nil || len(broken) > 0 {
+		t.Fatalf("load edited contracts: %v %v", err, broken)
+	}
+	return cat, lib
+}
+
+func editedContracts(t *testing.T, edit func(name, body string) string) string {
+	t.Helper()
+	src := filepath.Join("testdata", "shopdemo", "contracts")
+	dir := t.TempDir()
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(edit(e.Name(), string(raw))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+func editedPlan(t *testing.T, edit func(name, body string) string, targets ...string) *contract.Plan {
+	t.Helper()
+	cat, lib := shopDemoEdited(t, edit)
+	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
 func shopDemoPlan(t *testing.T, targets ...string) (*contract.Plan, string, string) {
 	t.Helper()
 	cat, lib := shopDemo(t)

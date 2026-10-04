@@ -1,13 +1,9 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"github.com/N4darae/shrt/contract"
 )
 
 func literalLength(s string) int {
@@ -57,36 +53,15 @@ func TestPlanSendsLongAndMultiByteTextAndAssertsItEchoedAndStored(t *testing.T) 
 }
 
 func TestPlanProbesAStatedMaximumLengthAtAndOverIt(t *testing.T) {
-	cat, _ := shopDemo(t)
-	dir := t.TempDir()
-	src := filepath.Join("testdata", "shopdemo", "contracts")
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
-		if err != nil {
-			t.Fatal(err)
+	p := editedPlan(t, func(name, body string) string {
+		if name != "customers.yaml" {
+			return body
 		}
-		if e.Name() == "customers.yaml" {
-			raw = []byte(strings.Replace(string(raw), "note: free display name, not validated by the handler",
-				"note: free display name, at most 40 characters", 1))
-			raw = []byte(strings.Replace(string(raw), "      when: the email does not contain an @ character\n",
-				"      when: the email does not contain an @ character\n            - connect_code: invalid_argument\n              reason: NameTooLong\n              field: name\n              when: name is longer than 40 characters\n", 1))
-		}
-		if err := os.WriteFile(filepath.Join(dir, e.Name()), raw, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	lib, broken, err := contract.LoadLibraryIn(dir, cat)
-	if err != nil || len(broken) > 0 {
-		t.Fatalf("load: %v %v", err, broken)
-	}
-	p, err := contract.BuildPlanFor([]string{"CreateCustomer"}, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+		body = strings.Replace(body, "note: free display name, not validated by the handler",
+			"note: free display name, at most 40 characters", 1)
+		return strings.Replace(body, "      when: the email does not contain an @ character\n",
+			"      when: the email does not contain an @ character\n            - connect_code: invalid_argument\n              reason: NameTooLong\n              field: name\n              when: name is longer than 40 characters\n", 1)
+	}, "CreateCustomer")
 	raw, _ := p.YAML()
 	at := planStep(t, p, "create_customer_name_at_max")
 	if n := literalLength(bodyAt(t, at, "name")); n != 40 || strings.Contains(bodyAt(t, at, "name"), "${") {

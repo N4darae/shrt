@@ -2,8 +2,6 @@ package contract_test
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -35,18 +33,13 @@ func mute(body string) string {
 
 func mutedPlan(t *testing.T, effects map[string]string, targets ...string) (*contract.Plan, string) {
 	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	p := editedPlan(t, func(name, body string) string {
 		body = mute(body)
 		for rpc, e := range effects {
 			body = regexp.MustCompile(`(?m)^(    \S+\.`+regexp.QuoteMeta(rpc)+`:\n)`).ReplaceAllString(body, "${1}        effects: "+e+"\n")
 		}
 		return body
-	})
-	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, targets...)
 	return p, strings.Join(p.Notes, "\n")
 }
 
@@ -179,16 +172,9 @@ func TestAnInvalidEffectIsRefusedAtLoad(t *testing.T) {
 		{"{qty_on_hand: {increase: qty, restore: DONE}}", "exactly one of increase, decrease, restore or sum"},
 		{"{qty_on_hand: {decrease: lines.qty, of: id_prodct}}", `of: "id_prodct" is not a request field wired with from: to another write (did you mean "id_product"?)`},
 	} {
-		dir := t.TempDir()
-		src := filepath.Join("testdata", "shopdemo", "contracts")
-		entries, _ := os.ReadDir(src)
-		for _, e := range entries {
-			raw, _ := os.ReadFile(filepath.Join(src, e.Name()))
-			body := strings.Replace(string(raw), "    shop.catalog.v1.StockService/AddStock:\n", "    shop.catalog.v1.StockService/AddStock:\n        effects: "+c.effect+"\n", 1)
-			if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		dir := editedContracts(t, func(_, body string) string {
+			return strings.Replace(body, "    shop.catalog.v1.StockService/AddStock:\n", "    shop.catalog.v1.StockService/AddStock:\n        effects: "+c.effect+"\n", 1)
+		})
 		_, broken, err := contract.LoadLibraryIn(dir, cat)
 		if err != nil || len(broken) != 1 || !strings.Contains(broken[0].Error(), c.want) {
 			t.Fatalf("%s: want one broken overlay saying %q, got %v %v", c.effect, c.want, err, broken)

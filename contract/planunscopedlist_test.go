@@ -10,18 +10,13 @@ import (
 
 func unscopedListPlan(t *testing.T, sku string) (*contract.Plan, string) {
 	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	p := editedPlan(t, func(name, body string) string {
 		if name != "catalog.yaml" {
 			return body
 		}
 		body = strings.Replace(body, "                value: sku-${vars.tag}\n                note: prefix filter", "                note: prefix filter", 1)
 		return strings.Replace(body, "                value: sku-${vars.tag}\n                note: unique", "                value: "+sku+"\n                note: unique", 1)
-	})
-	p, err := contract.BuildPlanFor([]string{"ListProducts"}, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	}, "ListProducts")
 	raw, err := p.YAML()
 	if err != nil {
 		t.Fatal(err)

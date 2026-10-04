@@ -29,7 +29,7 @@ func TestAListFilterStateWhoseProducerNeedsAnUncalledRpcIsNotCalledUnreachable(t
 }
 
 func TestAListFilterStateWhoseProducerNeedsAWriteThePlanCanAddIsProbed(t *testing.T) {
-	p, notes := confirmNeedsStockPlan(t, "ListOrders")
+	p, notes := confirmNeedsStockPlan(t, contract.PlanOptions{}, "ListOrders")
 	if strings.Contains(notes, "but it needs AddStock") {
 		t.Fatalf("AddStock is added as a fixture, so CONFIRMED is not dropped:\n%s", notes)
 	}

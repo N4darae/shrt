@@ -8,10 +8,9 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-func confirmNeedsStockPlanWith(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string) {
+func confirmNeedsStockPlan(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string) {
 	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
+	cat, lib := shopDemoEdited(t, func(name, body string) string {
 		if name != "orders.yaml" {
 			return body
 		}
@@ -30,7 +29,7 @@ func confirmNeedsStockPlanWith(t *testing.T, opts contract.PlanOptions, targets 
 }
 
 func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t *testing.T) {
-	p, text := confirmNeedsStockPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "CreateOrder", "AddStock")
+	p, text := confirmNeedsStockPlan(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "CreateOrder", "AddStock")
 	main := planStep(t, p, "add_stock_for_create_product_2")
 	if stepIndex(p.Chain, main.ID) > stepIndex(p.Chain, "create_order") {
 		t.Fatalf("the prerequisite lands before the write it prepares:\n%s", text)
@@ -49,7 +48,7 @@ func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t
 
 func TestAStateMoveWhoseRPCNeedsAnotherWriteIsPlannedWithThatWriteAsAFixture(t *testing.T) {
 	for _, target := range []string{"CancelOrder", "CreateOrder", "ListOrders"} {
-		p, text := confirmNeedsStockPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, target)
+		p, text := confirmNeedsStockPlan(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, target)
 		confirms, stocks := []string{}, []string{}
 		for _, st := range p.Chain.Steps {
 			switch {

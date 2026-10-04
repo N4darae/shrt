@@ -1,8 +1,6 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,7 +38,7 @@ func TestPlanStocksEveryProductOfAnOrderBeforeAnyConfirmWhateverTheTargetOrder(t
 		{"ListOrders", "AddStock"},
 		{"ConfirmOrder"},
 	} {
-		p, text := confirmNeedsStockPlan(t, targets...)
+		p, text := confirmNeedsStockPlan(t, contract.PlanOptions{}, targets...)
 		for i, st := range p.Chain.Steps {
 			if !strings.HasSuffix(st.Call, "/ConfirmOrder") {
 				continue
@@ -63,50 +61,4 @@ func TestPlanStocksEveryProductOfAnOrderBeforeAnyConfirmWhateverTheTargetOrder(t
 			}
 		}
 	}
-}
-
-func shopDemoEdited(t *testing.T, edit func(name, body string) string) *contract.Library {
-	t.Helper()
-	cat, _ := shopDemo(t)
-	src := filepath.Join("testdata", "shopdemo", "contracts")
-	dir := t.TempDir()
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, e := range entries {
-		raw, err := os.ReadFile(filepath.Join(src, e.Name()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(dir, e.Name()), []byte(edit(e.Name(), string(raw))), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	lib, broken, err := contract.LoadLibraryIn(dir, cat)
-	if err != nil || len(broken) > 0 {
-		t.Fatalf("load edited contracts: %v %v", err, broken)
-	}
-	return lib
-}
-
-func confirmNeedsStockPlan(t *testing.T, targets ...string) (*contract.Plan, string) {
-	t.Helper()
-	cat, _ := shopDemo(t)
-	lib := shopDemoEdited(t, func(name, body string) string {
-		if name != "orders.yaml" {
-			return body
-		}
-		body = strings.Replace(body, "        needs: [shop.catalog.v1.StockService/AddStock]\n", "", 1)
-		return strings.Replace(body, "    shop.orders.v1.OrderService/ConfirmOrder:\n", "    shop.orders.v1.OrderService/ConfirmOrder:\n        needs: [shop.catalog.v1.StockService/AddStock]\n", 1)
-	})
-	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := p.YAML()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p, string(raw) + "\n" + strings.Join(p.Notes, "\n")
 }
