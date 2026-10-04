@@ -132,6 +132,16 @@ the stderr line names the step that keeps it there. Every line still comes in it
 such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <chain> <time> (waits
 <d> by design, ...)`, so a long gate is not mistaken for a hang.
 
+`-repro` follows the summary with one block per row: for an `unclear` suspect whose field another
+read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
+that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
+<path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
+the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
+the slice says so, or `repro: none:` and why. One `masks:` line closes it: `verify -run latest -json`
+of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
+id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which
+holds whatever else the backend holds) are only counted.
+
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early
 (`-no-session-check` skips it). `shrt gate <chain>...` gates a subset, without the ratchet. With no

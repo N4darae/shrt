@@ -928,6 +928,7 @@ func runGate(ctx context.Context, args []string) error {
 	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every change with its want and got, as verify prints it; knock-on counts in the summary")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
+	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps")
 	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps, each named SKIPPED and never counted as passing; not for CI")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
@@ -1038,7 +1039,7 @@ func runGate(ctx context.Context, args []string) error {
 	default:
 		fmt.Printf("note: a token of each of auth profiles %s was refused early once: a restart since they were cached, or sessions that end early; repeated on the re-login tokens of later runs it becomes a FINDING\n", strings.Join(once, ", "))
 	}
-	printGateGroups(chains, *verbose)
+	groups := printGateGroups(chains, *verbose)
 	for _, f := range findings {
 		fmt.Println(f)
 	}
@@ -1049,6 +1050,9 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	if line := gateTime(chains, time.Since(began)); line != "" {
 		fmt.Println(line)
+	}
+	if *repro {
+		gateRepro(ctx, e, chains, groups, *wait)
 	}
 	left := ""
 	if len(skipped) > 0 {
@@ -1735,16 +1739,38 @@ func unclearLabel(chains []*gateChain) func(gateItem) string {
 	}
 }
 
-func printGateGroups(chains []*gateChain, verbose bool) {
-	type group struct {
-		rpc                        string
-		fields                     []string
-		seen, steps, knock, chains map[string]bool
-		example                    gateItem
-		in                         string
-		rank                       int
+type gateGroup struct {
+	rpc, head                  string
+	fields                     []string
+	seen, steps, knock, chains map[string]bool
+	example                    gateItem
+	in                         string
+	rank                       int
+	refs                       []gateRef
+}
+
+func (it gateItem) groupRank() int {
+	rank := 0
+	switch {
+	case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
+	case it.Reason.Kind == reasonUnclear:
+		rank += 4
+	case it.Reason.Kind == reasonWrite:
+		rank += 8
+	default:
+		rank += 16
 	}
-	groups, order, label, roles := map[string]*group{}, []*group{}, unclearLabel(chains), map[string]map[string]bool{}
+	if it.Failed {
+		rank += 2
+	}
+	if it.Pinned == "" {
+		rank++
+	}
+	return rank
+}
+
+func printGateGroups(chains []*gateChain, verbose bool) []*gateGroup {
+	groups, order, label, roles := map[string]*gateGroup{}, []*gateGroup{}, unclearLabel(chains), map[string]map[string]bool{}
 	for _, g := range chains {
 		for _, it := range g.items {
 			if !it.Passes && it.Reason.Kind != "" {
@@ -1766,7 +1792,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			}
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: label(it), seen: map[string]bool{}, steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &gateGroup{rpc: label(it), seen: map[string]bool{}, steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
 			}
@@ -1782,29 +1808,14 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 				gr.steps[g.name+" "+it.Step] = true
 			}
 			gr.chains[g.name] = true
-			rank := 0
-			switch {
-			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
-			case it.Reason.Kind == reasonUnclear:
-				rank += 4
-			case it.Reason.Kind == reasonWrite:
-				rank += 8
-			default:
-				rank += 16
-			}
-			if it.Failed {
-				rank += 2
-			}
-			if it.Pinned == "" {
-				rank++
-			}
-			if rank > gr.rank {
+			gr.refs = append(gr.refs, gateRef{chain: g.name, it: it})
+			if rank := it.groupRank(); rank > gr.rank {
 				gr.example, gr.in, gr.rank = it, g.name, rank
 			}
 		}
 	}
 	if len(order) == 0 {
-		return
+		return nil
 	}
 	sort.SliceStable(order, func(i, j int) bool {
 		if len(order[i].chains) != len(order[j].chains) {
@@ -1818,11 +1829,11 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		if n == 0 {
 			n = len(gr.knock)
 		}
-		head := gr.rpc
+		gr.head = gr.rpc
 		if len(gr.fields) > 0 {
-			head += " " + capList(gr.fields, 3)
+			gr.head += " " + capList(gr.fields, 3)
 		}
-		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
+		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", gr.head, n, len(gr.chains), gr.in, it.Step)
 		if r := it.Reason.in(said{step: it.Step, rpc: gr.rpc}); r != "" {
 			line += "; " + r
 		} else if it.Reason.Kind == "" {
@@ -1834,6 +1845,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		}
 		fmt.Println(line)
 	}
+	return order
 }
 
 func leafOf(path string) string {
