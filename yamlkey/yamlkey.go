@@ -1,10 +1,13 @@
 package yamlkey
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,6 +18,20 @@ import (
 var unknownField = regexp.MustCompile(`^line (\d+): field (.+) not found in type (\S+)$`)
 
 var flowError = regexp.MustCompile(`^yaml: line (\d+): did not find expected ',' or '[}\]]'$`)
+
+func DecodeStrict(raw []byte, into any) error {
+	d := yaml.NewDecoder(bytes.NewReader(raw))
+	d.KnownFields(true)
+	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
+		return Explain(err, into, raw)
+	}
+	var extra yaml.Node
+	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
+		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
+			"everything after the '---' would be silently ignored. Split it into separate files")
+	}
+	return nil
+}
 
 func Explain(err error, into any, raw []byte) error {
 	var typeErr *yaml.TypeError

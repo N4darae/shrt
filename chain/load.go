@@ -1,13 +1,9 @@
 package chain
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -25,7 +21,7 @@ func LoadFile(path string) (*Chain, error) {
 
 func loadBytes(raw []byte, path string) (*Chain, error) {
 	c := &Chain{}
-	if err := decodeStrict(raw, c); err != nil {
+	if err := yamlkey.DecodeStrict(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	markVacuousRules(raw, c)
@@ -164,20 +160,6 @@ func DidYouMean(ref string, names []string) string {
 
 func (c *Chain) Marshal() ([]byte, error) {
 	return yaml.Marshal(c)
-}
-
-func decodeStrict(raw []byte, into any) error {
-	d := yaml.NewDecoder(bytes.NewReader(raw))
-	d.KnownFields(true)
-	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into, raw)
-	}
-	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
-		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
-			"everything after the '---' would be silently ignored. Split it into separate files")
-	}
-	return nil
 }
 
 func markVacuousRules(raw []byte, c *Chain) {

@@ -1,13 +1,9 @@
 package config
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -228,7 +224,7 @@ func Load(start string) (*Config, error) {
 		return nil, err
 	}
 	cfg := Default()
-	if err := decodeStrict(raw, cfg); err != nil {
+	if err := yamlkey.DecodeStrict(raw, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.Root = root
@@ -340,20 +336,6 @@ func (c *Config) normalizeAuth() error {
 		if len(p.Profiles) > 0 {
 			return fmt.Errorf("auth.profiles.%s: profiles do not nest", name)
 		}
-	}
-	return nil
-}
-
-func decodeStrict(raw []byte, into any) error {
-	d := yaml.NewDecoder(bytes.NewReader(raw))
-	d.KnownFields(true)
-	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into, raw)
-	}
-	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
-		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
-			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
 }
