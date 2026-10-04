@@ -260,7 +260,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.short())
 		}
 	}
-	if line := pinItLine(sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
+	if line := pinItLine(e, sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
 		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
@@ -568,8 +568,8 @@ func statusMark(s string, dry bool) string {
 	}
 }
 
-func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
-	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
+func pinItLine(e *env, ref string, c *chain.Chain, rec *runner.Record) string {
+	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 || !inChainsDir(e, c) {
 		return ""
 	}
 	if len(expectationFailures(rec)) == 0 {

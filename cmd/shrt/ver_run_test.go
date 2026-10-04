@@ -70,6 +70,8 @@ func TestRunOfAFailingChainEndsWithThePinCommand(t *testing.T) {
 	if lines := strings.Split(strings.TrimSpace(strings.Split(out, "\nERR: ")[0]), "\n"); code != 1 || lines[len(lines)-1] != pin {
 		t.Fatalf("a red run ends with the pin command:\n%s", out)
 	}
+	writeFile(t, ".shrt/scratch/probe-copy.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-two-defects.yaml")), "name: cli-two-defects", "name: probe-copy", 1))
+	verTRun(t, []verTCheck{{args: []string{"run", ".shrt/scratch/probe-copy.yaml", "-keep-going", "-var", "tag=T32"}, code: 1, not: []string{"pin it:"}}})
 	if _, err := twoDefectSlice(t, "-step", "fetch", "-kept-red=fetch,fetch_again", "-write", ".shrt/chains/cli-two-defects.yaml"); err != nil {
 		t.Fatalf("slice: %v", err)
 	}
