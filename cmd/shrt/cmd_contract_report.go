@@ -54,11 +54,7 @@ func contractStatus(args []string) error {
 		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
 			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}
@@ -74,29 +70,13 @@ func contractStatus(args []string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	stateGaps := map[string][]contract.StateGap{}
-	for _, g := range contract.StateGaps(chains, plans, lib, e.cat) {
-		stateGaps[g.RPC] = append(stateGaps[g.RPC], g)
-	}
-	single := map[string][]contract.SingleItemRepeat{}
-	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
-		single[r.RPC] = append(single[r.RPC], r)
-	}
+	stateGaps := byRPC(contract.StateGaps(chains, plans, lib, e.cat), func(g contract.StateGap) string { return g.RPC })
+	single := byRPC(contract.SingleItemRepeats(chains, e.cat), func(r contract.SingleItemRepeat) string { return r.RPC })
 	called := calledRPCs(e, chains)
 	logins := loginRPCs(e)
-	probeGaps := map[string][]contract.ProbeGap{}
-	for _, g := range contract.AuthProbeGaps(chains, lib, e.cat, planOptions(e)) {
-		probeGaps[g.RPC] = append(probeGaps[g.RPC], g)
-	}
-	emptyGaps := map[string][]contract.EmptyFilterGap{}
-	for _, g := range contract.EmptyFilterGaps(chains, lib, e.cat) {
-		emptyGaps[g.RPC] = append(emptyGaps[g.RPC], g)
-	}
-	loginNames := sortedKeys(logins)
-	loginGaps := map[string][]contract.LoginFailureGap{}
-	for _, g := range contract.LoginFailureGaps(chains, lib, e.cat, loginNames) {
-		loginGaps[g.RPC] = append(loginGaps[g.RPC], g)
-	}
+	probeGaps := byRPC(contract.AuthProbeGaps(chains, lib, e.cat, planOptions(e)), func(g contract.ProbeGap) string { return g.RPC })
+	emptyGaps := byRPC(contract.EmptyFilterGaps(chains, lib, e.cat), func(g contract.EmptyFilterGap) string { return g.RPC })
+	loginGaps := byRPC(contract.LoginFailureGaps(chains, lib, e.cat, sortedKeys(logins)), func(g contract.LoginFailureGap) string { return g.RPC })
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
@@ -243,6 +223,14 @@ func contractStatus(args []string) error {
 	return nil
 }
 
+func byRPC[T any](items []T, rpc func(T) string) map[string][]T {
+	out := map[string][]T{}
+	for _, it := range items {
+		out[rpc(it)] = append(out[rpc(it)], it)
+	}
+	return out
+}
+
 var gapNext = []struct{ kind, next string }{
 	{"no contract", "shrt contract init <domain>"},
 	{"no path to", "a needs: or from:"},
@@ -346,19 +334,15 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 		fmt.Print(statusGapLegend)
 		return
 	}
-	order, kinds := []string{}, map[string][]string{}
+	var kinds grouped[string]
 	for _, m := range gapNext {
-		if !found[m.kind] {
-			continue
+		if found[m.kind] {
+			kinds.add(m.next, m.kind)
 		}
-		if kinds[m.next] == nil {
-			order = append(order, m.next)
-		}
-		kinds[m.next] = append(kinds[m.next], m.kind)
 	}
 	parts := []string{}
-	for _, next := range order {
-		parts = append(parts, next+" ("+strings.Join(kinds[next], ", ")+")")
+	for _, next := range kinds.keys {
+		parts = append(parts, next+" ("+strings.Join(kinds.of[next], ", ")+")")
 	}
 	if len(parts) > 0 {
 		fmt.Println("next: " + strings.Join(parts, "; "))
@@ -504,11 +488,7 @@ func contractQuality(args []string) error {
 		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
 			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}

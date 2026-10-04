@@ -46,6 +46,15 @@ func (e *env) library() (*contract.Library, error) {
 	return lib, nil
 }
 
+func loadLibrary() (*env, *contract.Library, error) {
+	e, err := loadEnv(true)
+	if err != nil {
+		return nil, nil, err
+	}
+	lib, err := e.library()
+	return e, lib, err
+}
+
 func brokenOverlaysError(dir string, broken []error) error {
 	lines := make([]string, 0, len(broken))
 	for _, b := range broken {

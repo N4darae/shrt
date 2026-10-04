@@ -55,11 +55,7 @@ func contractPlan(args []string) error {
 	if len(rest) == 0 && !*all {
 		return fmt.Errorf("usage: shrt contract plan <rpc>[@alias] [<rpc>[@alias] ...] [-write], or -all")
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}

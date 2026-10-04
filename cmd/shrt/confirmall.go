@@ -22,7 +22,7 @@ func proposeAll(e *env, note, by string) error {
 	e.store.Notes = nil
 	branch, commit := gitWhere(e.cfg.Root)
 	rows := []store.ProposalRow{}
-	failed, skipped, reasons := 0, map[string][]string{}, []string{}
+	failed, skipped := 0, grouped[string]{}
 	for _, c := range chains {
 		rec, reason := proposable(e, c)
 		hasSpot := e.store.HasSafeSpot(c.Name)
@@ -33,10 +33,7 @@ func proposeAll(e *env, note, by string) error {
 			}
 		}
 		if reason != "" {
-			if skipped[reason] == nil {
-				reasons = append(reasons, reason)
-			}
-			skipped[reason] = append(skipped[reason], c.Name)
+			skipped.add(reason, c.Name)
 			continue
 		}
 		comparedTo, unstable, carried := unstableFields(e, rec)
@@ -50,8 +47,8 @@ func proposeAll(e *env, note, by string) error {
 		}
 		rows = append(rows, store.ProposalRowOf(p, rec))
 	}
-	for _, r := range reasons {
-		fmt.Printf("skip     %s: %s\n", r, capList(skipped[r], 3))
+	for _, r := range skipped.keys {
+		fmt.Printf("skip     %s: %s\n", r, capList(skipped.of[r], 3))
 	}
 	if len(rows) == 0 {
 		fmt.Println("nothing proposed")
@@ -67,21 +64,17 @@ func proposeAll(e *env, note, by string) error {
 func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 	fmt.Printf("\nproposed %d chain(s), NOT safe spots yet; what the proposer checked: %s\n\n", len(rows), strings.Join(strings.Fields(note), " "))
 	fmt.Print(proposalTable(rows))
-	volatile := map[string][]string{}
-	order := []string{}
+	var volatile grouped[string]
 	for _, r := range rows {
-		if volatile[r.Volatile] == nil {
-			order = append(order, r.Volatile)
-		}
-		volatile[r.Volatile] = append(volatile[r.Volatile], r.Chain)
+		volatile.add(r.Volatile, r.Chain)
 	}
-	for _, v := range order {
+	for _, v := range volatile.keys {
 		if v == "" {
 			continue
 		}
 		which := "every chain above"
-		if len(volatile[v]) < len(rows) {
-			which = strings.Join(volatile[v], ", ")
+		if len(volatile.of[v]) < len(rows) {
+			which = strings.Join(volatile.of[v], ", ")
 		}
 		fmt.Printf("\n**Volatile, never compared by `shrt verify`:** %s (%s)\n", v, which)
 	}
@@ -95,22 +88,18 @@ func printProposalRows(e *env, rows []store.ProposalRow, note string) {
 func proposalTable(rows []store.ProposalRow) string {
 	var b strings.Builder
 	b.WriteString("| chain | run | steps passed | refusals asserted |\n|---|---|---|---|\n")
-	chains, order := map[string][]string{}, []string{}
+	var chains grouped[string]
 	for _, r := range rows {
 		fmt.Fprintf(&b, "| %s | `%s` | %s | %s |\n", r.Chain, r.Run, r.Steps, r.Refusals)
-		if r.Check == "" || r.Check == "none" {
-			continue
+		if r.Check != "" && r.Check != "none" {
+			chains.add(r.Check, "`"+r.Chain+"`")
 		}
-		if chains[r.Check] == nil {
-			order = append(order, r.Check)
-		}
-		chains[r.Check] = append(chains[r.Check], "`"+r.Chain+"`")
 	}
-	if len(order) > 0 {
+	if len(chains.keys) > 0 {
 		b.WriteString("\n**Check before approving:**\n")
 	}
-	for _, check := range order {
-		fmt.Fprintf(&b, "- %s: %s\n", strings.Join(chains[check], ", "), check)
+	for _, check := range chains.keys {
+		fmt.Fprintf(&b, "- %s: %s\n", strings.Join(chains.of[check], ", "), check)
 	}
 	return b.String()
 }

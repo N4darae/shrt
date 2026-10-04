@@ -305,21 +305,18 @@ func findingMeaning(repeated bool, where string) string {
 }
 
 func (i *intermittentFailure) line(explain bool) string {
-	resent, order, each := map[string][]string{}, []string{}, []string{}
+	var resent grouped[string]
+	each := []string{}
 	for _, f := range i.steps {
 		at := fmt.Sprintf("step %d %s", f.step.Index, f.step.ID)
 		if !f.resent {
 			each = append(each, fmt.Sprintf("%s got %s, but %s", at, errorText(f.step), f.evidence()))
 			continue
 		}
-		why := f.step.FirstAttempt.Text()
-		if resent[why] == nil {
-			order = append(order, why)
-		}
-		resent[why] = append(resent[why], at)
+		resent.add(f.step.FirstAttempt.Text(), at)
 	}
-	for _, why := range order {
-		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent[why], 3), why))
+	for _, why := range resent.keys {
+		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent.of[why], 3), why))
 	}
 	each = each[:min(len(each), 4)]
 	hidden := ""
@@ -353,20 +350,16 @@ func serverErrors(rec *runner.Record) []gateFlaky {
 			answered[st.Call] = true
 		}
 	}
-	steps, order := map[string][]string{}, []string{}
+	var steps grouped[string]
 	for _, st := range rec.Steps {
-		if serverError(st) == "" && !(runner.NotAnsweredByService(st) && answered[st.Call]) {
-			continue
+		if serverError(st) != "" || runner.NotAnsweredByService(st) && answered[st.Call] {
+			steps.add(st.Call, st.ID)
 		}
-		if steps[st.Call] == nil {
-			order = append(order, st.Call)
-		}
-		steps[st.Call] = append(steps[st.Call], st.ID)
 	}
 	var out []gateFlaky
-	for _, call := range order {
+	for _, call := range steps.keys {
 		r := callCounts(rec, call)
-		r.Steps, r.Failed = steps[call], max(r.Failed, len(steps[call]))
+		r.Steps, r.Failed = steps.of[call], max(r.Failed, len(steps.of[call]))
 		out = append(out, r)
 	}
 	return out

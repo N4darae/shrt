@@ -22,11 +22,7 @@ func contractShow(args []string) error {
 	if len(rest) == 0 && *filter == "" {
 		return fmt.Errorf("usage: shrt contract show <rpc>... | -filter <substring>")
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}
