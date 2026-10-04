@@ -402,24 +402,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		after = probeStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
 		after.Body[filterKey] = filter.EnumValues[0]
 		after.Description = fmt.Sprintf("the list as before, with no filter, after %s: every fixture is still listed, in the state it was left in.", strings.Join(moveIDs, ", "))
-		after.Expect = SuccessExpectation(lm)
-		for i, prod := range t.producers {
-			id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-			v, known := assigned[prod]
-			if creation {
-				after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
-				if known {
-					after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField.Name), Equals: v})
-				}
-				continue
-			}
-			want := map[string]any{t.itemID: id}
-			if known {
-				want[stateField.Name] = v
-			}
-			after.Expect = append(after.Expect, chain.Expectation{Path: t.listPath, Includes: want})
-		}
-		after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+		after.Expect = append(SuccessExpectation(lm), t.listedAs(creation, stateField.Name, func(prod *chain.Step) string { return assigned[prod] })...)
 		added = append(added, after)
 	}
 	ids := []string{}
@@ -483,6 +466,27 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			"whatever the filtered lists do", after.ID, strings.Join(moveIDs, ", "))
 	}
 	p.note("%s", msg)
+}
+
+func (t *listTarget) listedAs(positional bool, stateField string, state func(*chain.Step) string) []chain.Expectation {
+	out := []chain.Expectation{}
+	for i, prod := range t.producers {
+		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
+		v := state(prod)
+		if !positional {
+			want := map[string]any{t.itemID: id}
+			if v != "" {
+				want[stateField] = v
+			}
+			out = append(out, chain.Expectation{Path: t.listPath, Includes: want})
+			continue
+		}
+		out = append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
+		if v != "" {
+			out = append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField), Equals: v})
+		}
+	}
+	return append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 }
 
 func stepIDs(steps []*chain.Step) []string {

@@ -349,25 +349,9 @@ func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, s
 		}
 	}
 	key, desc, stated := stateOrder(c, t.listPath)
-	positional := stated && !desc && creationWord().MatchString(key)
-	for i, prod := range t.producers {
-		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-		v := ""
-		if field != nil {
-			v = state(prod, t.carrier, field)
-		}
-		if !positional {
-			want := map[string]any{t.itemID: id}
-			if v != "" {
-				want[field.Name] = v
-			}
-			st.Expect = append(st.Expect, chain.Expectation{Path: t.listPath, Includes: want})
-			continue
-		}
-		st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
-		if v != "" {
-			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, field.Name), Equals: v})
-		}
+	name, stateOf := "", func(*chain.Step) string { return "" }
+	if field != nil {
+		name, stateOf = field.Name, func(prod *chain.Step) string { return state(prod, t.carrier, field) }
 	}
-	st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+	st.Expect = append(st.Expect, t.listedAs(stated && !desc && creationWord().MatchString(key), name, stateOf)...)
 }

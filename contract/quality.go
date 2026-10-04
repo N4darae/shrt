@@ -307,15 +307,6 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 
 	writePath := !chain.IsReadOnlyCall(rpc)
 	unwired, unchecked := measureIDKeys(c, fields, writePath)
-
-	noFailures := writePath && len(c.Failures) == 0
-
-	noProducer := !writePath && !hasWriteProducer(c, fields, requiredBy) && !Explains(c.NoProducer)
-
-	missingRole := len(c.RequiresRole) == 0
-
-	emptyRequired := len(shape.RequestFields) > 0 && !requiredSaysSomething(c, shape)
-
 	row := QualityRPC{
 		Domain:                   domain,
 		RPC:                      rpc,
@@ -325,10 +316,10 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		UnwiredIDs:               unwired,
 		UncheckedIDs:             unchecked,
 		UndeclaredResponseFields: undeclaredResponse,
-		NoFailuresDeclared:       noFailures,
-		ReadWithNoProducer:       noProducer,
-		MissingRequiresRole:      missingRole,
-		EmptyRequired:            emptyRequired,
+		NoFailuresDeclared:       writePath && len(c.Failures) == 0,
+		ReadWithNoProducer:       !writePath && !hasWriteProducer(c, fields, requiredBy) && !Explains(c.NoProducer),
+		MissingRequiresRole:      len(c.RequiresRole) == 0,
+		EmptyRequired:            len(shape.RequestFields) > 0 && !requiredSaysSomething(c, shape),
 		WiredFields:              wired,
 		HasSummary:               Explains(c.Summary),
 	}

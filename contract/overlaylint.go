@@ -63,13 +63,15 @@ func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 	return issues
 }
 
+func issueAdder(domain, rpc string, issues *[]Issue) func(sev, field, format string, args ...any) {
+	return func(sev, field, format string, args ...any) {
+		*issues = append(*issues, Issue{Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...)})
+	}
+}
+
 func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
-	add := func(sev, field, format string, args ...any) {
-		issues = append(issues, Issue{
-			Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...),
-		})
-	}
+	add := issueAdder(domain, rpc, &issues)
 	m, err := cat.Lookup(rpc)
 	if errors.Is(err, catalog.ErrNotFound) {
 		add(SeverityError, "", "rpc %q is not in the descriptor (removed from the proto?): delete this entry, or rebuild "+
@@ -137,22 +139,15 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	}
 	issues = append(issues, lintOneOf(domain, rpc, c)...)
 
-	for _, name := range sortedKeys(c.Exports) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) && !catalog.HasPath(m.Response().Fields, chain.SplitPath(name)) {
-			add(SeverityError, name, "exports names %q which is not a field of %s", name, m.Output().FullName())
-		}
-	}
-	for _, name := range sortedKeys(c.Terminal) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) {
-			add(SeverityError, name, "terminal names %q which is not a field of %s", name, m.Output().FullName())
-		}
-		if _, both := c.Exports[name]; both {
-			add(SeverityError, name, "%q is listed in both exports and terminal", name)
-		}
-	}
-	for _, name := range sortedKeys(c.SoftSignals) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) {
-			add(SeverityError, name, "soft_signals names %q which is not a field of %s", name, m.Output().FullName())
+	sections := map[string]map[string]string{"exports": c.Exports, "terminal": c.Terminal, "soft_signals": c.SoftSignals}
+	for _, section := range []string{"exports", "terminal", "soft_signals"} {
+		for _, name := range sortedKeys(sections[section]) {
+			if !catalog.HasPath(out, chain.SplitPath(name)) && (section != "exports" || !catalog.HasPath(m.Response().Fields, chain.SplitPath(name))) {
+				add(SeverityError, name, "%s names %q which is not a field of %s", section, name, m.Output().FullName())
+			}
+			if _, both := c.Exports[name]; both && section == "terminal" {
+				add(SeverityError, name, "%q is listed in both exports and terminal", name)
+			}
 		}
 	}
 
@@ -196,11 +191,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, in []*catalog.Field, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
-	add := func(sev, field, format string, args ...any) {
-		issues = append(issues, Issue{
-			Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...),
-		})
-	}
+	add := issueAdder(domain, rpc, &issues)
 	for _, name := range sortedKeys(fields) {
 		f := fields[name]
 		qualified := label + "." + name
@@ -305,33 +296,30 @@ func lintAliasDeclared(domain, rpc, label, target, alias string, lib *Library, c
 
 func lintFailure(domain, rpc, label string, f Failure) []Issue {
 	issues := []Issue{}
-	add := func(sev, format string, args ...any) {
-		issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: label, Severity: sev,
-			Message: fmt.Sprintf(format, args...)})
-	}
+	add := issueAdder(domain, rpc, &issues)
 	if f.Code == 0 && f.ConnectCode == "" && f.Reason == "" {
-		add(SeverityError, "%s names nothing — give it a code, a connect_code or a reason", label)
+		add(SeverityError, label, "%s names nothing — give it a code, a connect_code or a reason", label)
 	}
 	if f.Code != 0 && f.Reason == "" {
-		add(SeverityWarn, "%s has code %d but no reason", label, f.Code)
+		add(SeverityWarn, label, "%s has code %d but no reason", label, f.Code)
 	}
 	if f.Unreachable != "" && f.When != "" {
-		add(SeverityWarn, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
+		add(SeverityWarn, label, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
 	}
 	if f.Unique != nil {
 		if f.Unique.Case != "" && f.Unique.Case != UniqueCaseIgnore && f.Unique.Case != UniqueCaseExact {
-			add(SeverityError, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
+			add(SeverityError, label, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
 		}
 		if _, unique := uniquenessNoun(f); !unique {
-			add(SeverityWarn, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
+			add(SeverityWarn, label, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
 		}
 	}
 	if f.PendingDeploy != "" {
 		if f.Unreachable != "" {
-			add(SeverityError, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)
+			add(SeverityError, label, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)
 		}
 		if !commitish(f.PendingDeploy) {
-			add(SeverityError, "%s pending_deploy must be a commit, not prose (%q) — the field earns its keep only because a gate can run git merge-base --is-ancestor against the deployed release", label, f.PendingDeploy)
+			add(SeverityError, label, "%s pending_deploy must be a commit, not prose (%q) — the field earns its keep only because a gate can run git merge-base --is-ancestor against the deployed release", label, f.PendingDeploy)
 		}
 	}
 	return issues
