@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 
@@ -256,12 +257,7 @@ func copyStep(s *chain.Step, id string) *chain.Step {
 	for i := range c.Expect {
 		c.Expect[i] = c.Expect[i].MapOperands(cloneBody)
 	}
-	if s.Headers != nil {
-		c.Headers = map[string]string{}
-		for k, v := range s.Headers {
-			c.Headers[k] = v
-		}
-	}
+	c.Headers = maps.Clone(s.Headers)
 	if s.Export != nil {
 		c.Export = map[string]string{}
 		for k, v := range s.Export {

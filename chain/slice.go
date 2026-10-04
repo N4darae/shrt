@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -1066,29 +1067,14 @@ func isWriteCall(call string) bool {
 func copyStep(s *Step) *Step {
 	out := *s
 	out.Body, _ = copyValue(s.Body).(map[string]any)
-	if len(s.Headers) > 0 {
-		headers := make(map[string]string, len(s.Headers))
-		for k, v := range s.Headers {
-			headers[k] = v
-		}
-		out.Headers = headers
-	}
+	out.Headers = maps.Clone(s.Headers)
+	out.Export = maps.Clone(s.Export)
+	out.Volatile = slices.Clone(s.Volatile)
 	if len(s.Expect) > 0 {
-		expect := make([]Expectation, 0, len(s.Expect))
+		out.Expect = make([]Expectation, 0, len(s.Expect))
 		for _, e := range s.Expect {
-			expect = append(expect, e.MapOperands(copyValue))
+			out.Expect = append(out.Expect, e.MapOperands(copyValue))
 		}
-		out.Expect = expect
-	}
-	if len(s.Export) > 0 {
-		export := make(map[string]string, len(s.Export))
-		for k, v := range s.Export {
-			export[k] = v
-		}
-		out.Export = export
-	}
-	if len(s.Volatile) > 0 {
-		out.Volatile = append([]string{}, s.Volatile...)
 	}
 	return &out
 }
