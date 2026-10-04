@@ -81,11 +81,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintTransport(s, m)...)
 		issues = append(issues, lintDeprecated(s, m)...)
 		issues = append(issues, lintExpectRefs(s, known, knownExports, responses, idx)...)
-		issues = append(issues, lintExpectRules(s)...)
-		issues = append(issues, lintAssertsSomething(s)...)
-		issues = append(issues, lintInertAllowFail(s)...)
-		issues = append(issues, lintLiteralIdempotency(s)...)
-		issues = append(issues, lintUnterminatedPrefix(s)...)
+		for _, lint := range []func(*Step) []Issue{lintExpectRules, lintAssertsSomething, lintInertAllowFail, lintLiteralIdempotency, lintUnterminatedPrefix} {
+			issues = append(issues, lint(s)...)
+		}
 		issues = append(issues, lintUnscopedCount(s, m)...)
 		issues = append(issues, lintUnevaluableOnRefusal(s)...)
 		known[s.ID] = true
@@ -445,8 +443,7 @@ func lintAuthProfile(s *Step, profiles []string) []Issue {
 			"asks for auth profile %q, but the config declares no auth at all, so shrt run refuses the chain "+
 				"before sending anything", s.Auth)}}
 	}
-	have := append([]string{}, profiles...)
-	sort.Strings(have)
+	have := slices.Sorted(slices.Values(profiles))
 	return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 		"asks for auth profile %q, which the config does not define (have: %s), so shrt run refuses the "+
 			"chain before sending anything%s", s.Auth, strings.Join(have, ", "), didYouMean(s.Auth, have))}}

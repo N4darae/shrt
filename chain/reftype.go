@@ -189,13 +189,10 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 		return nil, "", false, false
 	}
 	last := segs[len(segs)-1]
-	if f.MapKey != "" {
-		if !namecase.Equal(f.Name, last) {
-			return nil, "", false, false
-		}
-		return f, fmt.Sprintf("%s.%s", msg, rest), true, true
+	if f.MapKey != "" && !namecase.Equal(f.Name, last) {
+		return nil, "", false, false
 	}
-	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !IsDigits(last), true
+	return f, fmt.Sprintf("%s.%s", msg, rest), f.MapKey != "" || f.Repeated && !IsDigits(last), true
 }
 
 func refOrigin(r Ref, exports map[string]exportOrigin) (step, rest string, ok bool) {

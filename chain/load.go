@@ -26,7 +26,7 @@ func loadBytes(raw []byte, path string) (*Chain, error) {
 	}
 	markVacuousRules(raw, c)
 	if c.Name == "" {
-		c.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		c.Name = FileStem(path)
 	}
 	if err := c.Normalize(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)

@@ -359,22 +359,16 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			continue
 		}
 		vars[name] = c.Vars[name]
+		from, given := VarFromRun, opts.RunVars
 		if fresh[name] {
-			if v, ok := opts.Vars[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
-				vars[name] = v
-				res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag, Declared: true, Default: c.Vars[name]})
-			}
+			from, given = VarFromFlag, opts.Vars
+		} else if !opts.RunVarsAsDefaults {
 			continue
 		}
-		if !opts.RunVarsAsDefaults {
-			continue
+		if v, ok := given[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
+			vars[name] = v
+			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: from, Declared: true, Default: c.Vars[name]})
 		}
-		v, ok := opts.RunVars[name]
-		if !ok || fmt.Sprint(v) == fmt.Sprint(c.Vars[name]) {
-			continue
-		}
-		vars[name] = v
-		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
 	for _, name := range sortedKeys(usedVars) {
 		if _, declared := c.Vars[name]; declared {
