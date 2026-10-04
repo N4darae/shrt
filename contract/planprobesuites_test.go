@@ -48,14 +48,7 @@ func TestAnIdempotencyReplayIsNotExpectedToFailWithAnUnrelatedFailureMentioningT
 }
 
 func TestAStateTransitionWhosePrerequisiteIsNotInThePlanIsLeftOutWithANote(t *testing.T) {
-	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
-			c.Needs = nil
-		}
-		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
-			c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
-		}
-	}, "ListOrders")
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, confirmNeedsBatch, "ListOrders")
 	for _, st := range p.Chain.Steps {
 		if strings.HasPrefix(st.ID, "confirm_order") {
 			t.Fatalf("no stock was added, so confirming a fixture would fail for a reason the plan made:\n%s", text)

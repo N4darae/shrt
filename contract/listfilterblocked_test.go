@@ -7,15 +7,17 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
+func confirmNeedsBatch(rpcs map[string]*contract.RPCContract) {
+	if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
+		c.Needs = nil
+	}
+	if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
+		c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
+	}
+}
+
 func TestAListFilterStateWhoseProducerNeedsAnUncalledRpcIsNotCalledUnreachable(t *testing.T) {
-	p, _ := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
-			c.Needs = nil
-		}
-		if c := rpcs["shop.orders.v1.OrderService/ConfirmOrder"]; c != nil {
-			c.Needs = []string{"shop.catalog.v1.StockService/AddStockBatch"}
-		}
-	}, "ListOrders")
+	p, _ := shopDemoMutated(t, contract.PlanOptions{}, confirmNeedsBatch, "ListOrders")
 	notes := strings.Join(p.Notes, "\n")
 	if !strings.Contains(notes, "ConfirmOrder would move a fixture to CONFIRMED, but it needs AddStockBatch") {
 		t.Fatalf("fixture: ConfirmOrder needs AddStockBatch, which a plan of ListOrders alone neither calls nor adds:\n%s", notes)
