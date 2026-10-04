@@ -107,14 +107,14 @@ failures by suspect rpc:
   OrderService/CreateOrder order.total_minor: 2 step(s) in 2 chain(s); e.g. orders create
 
 # a slice failing as its parent folds into the parent's line
-FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+1 slice(s) fail the same: orders-slice-list)
-FAIL       orders-slice-list  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
-FAIL       orders-slice-held  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as orders (ConfirmOrder)
+FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+2 slice(s) fail the same: orders-slice-list, orders-slice-held)
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
+FAIL       orders-slice-more  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (OrderService/CreateOrder)
 FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders (ConfirmOrder)
 failures by suspect rpc:
-  OrderService/ConfirmOrder: 4 step(s) in 4 chain(s); e.g. orders confirm
+  OrderService/ConfirmOrder: 5 step(s) in 5 chain(s); e.g. orders confirm
   OrderService/ListOrders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
+  OrderService/CreateOrder: 1 step(s) in 1 chain(s); e.g. orders-slice-more create
 
 # a failed first change leads over a drift
 FAIL       a  add (ThingService/Add) status.code want=REJECTED got=SUCCESS; suspect the write

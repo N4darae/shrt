@@ -1556,11 +1556,11 @@ func foldSlices(chains []*gateChain) {
 	}
 	for _, g := range chains {
 		i := strings.LastIndex(g.name, "-slice-")
-		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" || g.pinsHeld {
+		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" {
 			continue
 		}
 		p := byName[g.name[:i]]
-		if p == nil || !p.failed || p.findingOnly() || p.echoOf != "" {
+		if p == nil || !p.failed || p.findingOnly() || p.echoOf != "" || g.pinsHeld && !p.failsAsAll(g) {
 			continue
 		}
 		a, okA := g.firstItem()
@@ -1569,6 +1569,14 @@ func foldSlices(chains []*gateChain) {
 			g.echoOf, p.slices = p.name, append(p.slices, g.name)
 		}
 	}
+}
+
+func (g *gateChain) failsAsAll(slice *gateChain) bool {
+	roots := map[string]bool{}
+	for _, it := range g.items {
+		roots[it.root()] = true
+	}
+	return !slices.ContainsFunc(slice.items, func(it gateItem) bool { return !it.Passes && !roots[it.root()] })
 }
 
 func groupKeys(chains []*gateChain) func(string, gateItem) string {

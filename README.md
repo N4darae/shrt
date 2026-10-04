@@ -113,8 +113,9 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one, or `same
 fault as <chain>` when an earlier line named it and every other suspect of this chain; a slice failing at its parent's
-first change, and not a kept-red slice failing not as pinned, has no line of its own, the
-parent's says `(+N slice(s) fail the same: ...)`. Then one line per suspect rpc and changed path. `-v` adds, under each
+first change has no line of its own, the parent's says `(+N slice(s) fail the same: ...)`; a
+kept-red slice folds so only when its pins held and its parent fails every way it does (by suspect
+rpc and field), and one failing not as pinned keeps its line. Then one line per suspect rpc and changed path. `-v` adds, under each
 failing chain, the suspect's request and every change with its want and got as `verify` prints it (`run`'s failed
 expectations for a chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`),
 and the knock-on counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
