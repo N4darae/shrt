@@ -177,6 +177,13 @@ func gateCases() []gateCase {
 				{Step: "get", Call: "x.v1.S/Get", Path: "product.qty_on_hand", Want: "12", Got: "6", Reason: unclear},
 			}}}
 		}},
+		{name: "a row's example names its rpc for sure before one unclear between it and another", chains: func() []*gateChain {
+			unclear := reason{Kind: reasonUnclear, Step: "batch", RPC: shopBatch, Read: "get", ReadRPC: shopGet, Path: "results.1.qty_on_hand", Want: "12", Got: "6"}
+			return []*gateChain{
+				{name: "batches", failed: true, items: []gateItem{stock("get", unclear, "")}},
+				{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "stock_batch", RPC: shopBatch}, "2")}},
+			}
+		}},
 		{name: "knock-on changes on the same record fold into the root write", chains: laterWrites},
 		{name: "a chain with a root the earlier chain lacks names that root, not the same fault", chains: func() []*gateChain {
 			return []*gateChain{

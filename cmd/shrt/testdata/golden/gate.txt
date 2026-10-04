@@ -109,6 +109,12 @@ PASS       one
 failures by suspect rpc:
   S/Batch results[].qty_on_hand: 2 step(s) in 1 chain(s); e.g. one get; unclear: write w or the read (Get)
 
+# a row's example names its rpc for sure before one unclear between it and another
+FAIL       batches  get (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write batch (StockService/AddStockBatch) or the read
+FAIL       guard-slice  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; same fault as batches (AddStockBatch)
+failures by suspect rpc:
+  StockService/AddStockBatch product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. guard-slice get_b; write stock_batch
+
 # knock-on changes on the same record fold into the root write
 FAIL       c  add_negative (StockService/AddStock) status.code want= got=; suspect the write
 failures by suspect rpc:

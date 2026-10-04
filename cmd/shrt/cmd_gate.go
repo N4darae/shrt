@@ -1605,7 +1605,7 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			rank := 0
 			switch {
 			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
-			case len(it.Reason.Or) > 0:
+			case it.Reason.Kind == reasonUnclear:
 				rank += 4
 			case it.Reason.Kind == reasonWrite:
 				rank += 8
