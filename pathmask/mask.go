@@ -272,28 +272,25 @@ func (m *Masker) walk(v any, path string) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
-			child := Join(path, k)
-			if m.masked(child) && m.coversValue(child, item) {
-				out[k] = m.value
-				continue
-			}
-			out[k] = m.walk(item, child)
+			out[k] = m.walkChild(item, Join(path, k))
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(t))
 		for i, item := range t {
-			child := Join(path, IndexKey(i))
-			if m.masked(child) && m.coversValue(child, item) {
-				out = append(out, m.value)
-				continue
-			}
-			out = append(out, m.walk(item, child))
+			out = append(out, m.walkChild(item, Join(path, IndexKey(i))))
 		}
 		return out
 	default:
 		return v
 	}
+}
+
+func (m *Masker) walkChild(item any, path string) any {
+	if m.masked(path) && m.coversValue(path, item) {
+		return m.value
+	}
+	return m.walk(item, path)
 }
 
 func (m *Masker) Masks(path string) bool {
