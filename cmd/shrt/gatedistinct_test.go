@@ -18,7 +18,7 @@ func TestAReorderedListIsOneOrderChangeNotAValueChangePerField(t *testing.T) {
 	for _, want := range []string{
 		"order changed: create (ThingService/Create) thing.parts same items in another order\n",
 		"    thing.parts at 1 step(s) (create); e.g. same items in another order\n",
-		"  ThingService/Create: 1 step(s) in 1 chain(s); e.g. cli-thing-flow create thing.parts same items in another order\n",
+		"  ThingService/Create thing.parts: 1 step(s) in 1 chain(s); e.g. cli-thing-flow create thing.parts same items in another order\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)
@@ -82,7 +82,7 @@ func TestAWriteThatFailedItsOwnExpectationsUnderTwoProfilesIsOneChange(t *testin
 	out, _ := runGateOut(t, "-v")
 	for _, want := range []string{
 		"    status.code at 2 step(s) (move_zero, move_as_other); e.g. want≠SUCCESS got=SUCCESS\n",
-		"  ThingService/Move: 3 step(s) in 1 chain(s); e.g. cli-thing-flow get_after_move_as_other; write move_as_other as other\n",
+		"  ThingService/Move status.code, thing.level: 3 step(s) in 1 chain(s); e.g. cli-thing-flow get_after_move_as_other; write move_as_other as other\n",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("want %q in:\n%s", want, out)

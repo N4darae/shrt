@@ -1443,7 +1443,10 @@ func foldSlices(chains []*gateChain) {
 func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	keys := map[string]string{}
 	keyOf := func(it gateItem, path string) string {
-		return rowKey(it.rpc(), path)
+		if chain.IsEnvelopePath(path) {
+			path = chain.EnvelopeField()
+		}
+		return it.rpc() + " " + listOf(path)
 	}
 	for _, g := range chains {
 		for _, it := range g.items {
@@ -1461,11 +1464,16 @@ func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	}
 }
 
-func rowKey(rpc, path string) string {
-	if chain.IsEnvelopePath(path) {
-		path = chain.EnvelopeField()
+func (it gateItem) field() (string, string) {
+	switch {
+	case it.Reason.Kind == reasonKnockOn || it.Path == "step" || strings.HasPrefix(it.Path, "("):
+		return "", ""
+	case chain.IsEnvelopePath(it.Path):
+		return chain.EnvelopePath(), chain.EnvelopePath()
+	case it.Kind != "" || it.Reason.Kind == reasonSet || it.Reason.Kind == reasonOrder || it.Reason.Kind == reasonStoredOrder:
+		return listOf(it.Path), listOf(it.Path)
 	}
-	return rpc + " " + listOf(path)
+	return gateIndex.ReplaceAllString(it.Path, "[]$1"), leafOf(it.Path)
 }
 
 func unclearLabel(chains []*gateChain) func(gateItem) string {
@@ -1513,27 +1521,31 @@ func unclearLabel(chains []*gateChain) func(gateItem) string {
 
 func printGateGroups(chains []*gateChain, verbose bool) {
 	type group struct {
-		rpc, path            string
-		steps, knock, chains map[string]bool
-		example              gateItem
-		in                   string
-		rank                 int
+		rpc                        string
+		fields                     []string
+		seen, steps, knock, chains map[string]bool
+		example                    gateItem
+		in                         string
+		rank                       int
 	}
-	groups, order, keyOf, label := map[string]*group{}, []*group{}, groupKeys(chains), unclearLabel(chains)
+	groups, order, label := map[string]*group{}, []*group{}, unclearLabel(chains)
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
-			key, rpc := keyOf(g.name, it), it.rpc()
-			if l := label(it); l != rpc {
-				key, rpc = rowKey(l, it.Path), l
-			}
+			key := label(it)
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: rpc, path: strings.TrimPrefix(key, rpc+" "), steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &group{rpc: key, seen: map[string]bool{}, steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
+			}
+			if f, same := it.field(); f != "" && !gr.seen[g.name+" "+it.Step] {
+				gr.seen[g.name+" "+it.Step] = true
+				if !gr.seen[same] {
+					gr.seen[same], gr.fields = true, append(gr.fields, f)
+				}
 			}
 			if it.Reason.Kind == reasonKnockOn {
 				gr.knock[g.name+" "+it.Step] = true
@@ -1571,10 +1583,6 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		}
 		return len(order[i].steps) > len(order[j].steps)
 	})
-	perRPC := map[string]int{}
-	for _, gr := range order {
-		perRPC[gr.rpc]++
-	}
 	fmt.Println("failures by suspect rpc:")
 	for _, gr := range order {
 		n, it := len(gr.steps), gr.example
@@ -1582,8 +1590,8 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			n = len(gr.knock)
 		}
 		head := gr.rpc
-		if perRPC[gr.rpc] > 1 && gr.path != "" {
-			head += " " + gr.path
+		if len(gr.fields) > 0 {
+			head += " " + capList(gr.fields, 3)
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", head, n, len(gr.chains), gr.in, it.Step)
 		if r := it.Reason.in(said{step: it.Step, rpc: gr.rpc}); r != "" {
