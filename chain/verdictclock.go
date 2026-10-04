@@ -27,10 +27,7 @@ func ClockRelative(step *Step, v Verdict) Verdict {
 	}
 	out := v
 	out.Expect = append([]ExpectResult(nil), v.Expect...)
-	for i := range out.Expect {
-		if i >= len(step.Expect) {
-			break
-		}
+	for i := range min(len(out.Expect), len(step.Expect)) {
 		e := step.Expect[i]
 		r := out.Expect[i]
 		if e.Path != r.Path || !ClockRelativeExpectation(e) {

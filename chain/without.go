@@ -50,6 +50,7 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 		Unordered:   append([]string{}, c.Unordered...),
 		Redact:      append([]string{}, c.Redact...),
 	}
+	kept := map[string]bool{}
 	for i, s := range c.Steps {
 		if named[s.ID] {
 			gone[i] = true
@@ -68,9 +69,6 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 			continue
 		}
 		out.Steps = append(out.Steps, s)
-	}
-	kept := map[string]bool{}
-	for _, s := range out.Steps {
 		kept[s.ID] = true
 	}
 	for _, k := range c.KeptRed {

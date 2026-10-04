@@ -44,13 +44,11 @@ func (c *Chain) DeclaredVarNames() []string {
 		seen[name] = true
 	}
 	note := func(v any) {
-		walkText(v, "", func(_, s string) {
-			for _, ref := range collectRefs(s) {
-				if name, ok := strings.CutPrefix(ref, "vars."); ok {
-					seen[name] = true
-				}
+		for _, ref := range collectRefs(v) {
+			if name, ok := strings.CutPrefix(ref, "vars."); ok {
+				seen[name] = true
 			}
-		})
+		}
 	}
 	note(c.Vars)
 	for _, s := range c.Steps {
@@ -139,14 +137,11 @@ func (s *Step) References() []string {
 	if s == nil {
 		return nil
 	}
-	values := []any{s.Body}
-	for _, v := range s.Headers {
-		values = append(values, v)
-	}
+	refs := s.SendReferences()
 	for _, e := range s.Expect {
-		values = append(values, e.Operands()...)
+		refs = append(refs, e.References()...)
 	}
-	return collectRefs(values)
+	return refs
 }
 
 func (c *Chain) MissingVars(supplied map[string]any) []string {

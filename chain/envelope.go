@@ -228,7 +228,7 @@ func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
 			seen[line] = true
 			out = append(out, MisspeltItemVerdict{
 				Refusal: ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line},
-				Key:     strings.Join(append(append([]string{}, segs[:depth]...), segs[depth]), "."),
+				Key:     rest,
 				Want:    strings.Join(fieldSegs[:depth+1], "."),
 			})
 		}

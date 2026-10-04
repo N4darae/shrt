@@ -3,7 +3,6 @@ package chain
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -21,11 +20,10 @@ var TransportFields = map[string]string{
 }
 
 func TransportFieldNames() []string {
-	out := make([]string, 0, len(TransportFields))
-	for name := range TransportFields {
-		out = append(out, TransportPrefix+"."+name)
+	out := sortedKeys(TransportFields)
+	for i, name := range out {
+		out[i] = TransportPrefix + "." + name
 	}
-	sort.Strings(out)
 	return out
 }
 

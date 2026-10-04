@@ -61,7 +61,6 @@ func Claimants(dir, name string) []string {
 			out = append(out, p)
 		}
 	}
-	sort.Strings(out)
 	return out
 }
 
