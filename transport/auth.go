@@ -69,14 +69,18 @@ func (s *LoginTokenSource) Token(ctx context.Context) (string, error) {
 		return s.token, nil
 	}
 	if e, ok := s.readCache(); ok {
-		s.token, s.expiresAt, s.issuedAt, s.sentAt = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt
+		s.set(e, true)
 		if !s.stale() {
-			s.fromCache, s.accepted = true, false
 			return s.token, nil
 		}
-		s.token, s.expiresAt, s.issuedAt, s.sentAt = "", time.Time{}, time.Time{}, time.Time{}
+		s.set(cachedToken{}, false)
 	}
 	return s.login(ctx)
+}
+
+func (s *LoginTokenSource) set(e cachedToken, fromCache bool) {
+	s.token, s.expiresAt, s.issuedAt, s.sentAt = e.Token, e.ExpiresAt, e.IssuedAt, e.SentAt
+	s.fromCache, s.accepted = fromCache, false
 }
 
 func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
@@ -85,11 +89,7 @@ func (s *LoginTokenSource) Seed(token string, expiresAt time.Time) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.token = token
-	s.expiresAt = expiresAt
-	s.issuedAt = time.Now()
-	s.sentAt = time.Time{}
-	s.fromCache, s.accepted = false, false
+	s.set(cachedToken{Token: token, ExpiresAt: expiresAt, IssuedAt: time.Now()}, false)
 }
 
 func (s *LoginTokenSource) Accepted(token string) {
@@ -137,11 +137,7 @@ func (s *LoginTokenSource) CurrentToken() string {
 func (s *LoginTokenSource) Invalidate() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.token = ""
-	s.expiresAt = time.Time{}
-	s.issuedAt = time.Time{}
-	s.sentAt = time.Time{}
-	s.fromCache, s.accepted = false, false
+	s.set(cachedToken{}, false)
 	s.dropCache()
 }
 
@@ -217,18 +213,15 @@ func (s *LoginTokenSource) login(ctx context.Context) (string, error) {
 	if !ok || token == "" {
 		return "", fmt.Errorf("auth login response has no token at %q; the backend answered %s%s", s.spec.TokenPath, excerpt(raw, 300), s.whose())
 	}
-	s.token = token
-	s.expiresAt = time.Time{}
-	s.issuedAt = time.Now()
-	s.sentAt = sentAt
-	s.fromCache, s.accepted = false, false
+	entry := cachedToken{Token: token, IssuedAt: time.Now(), SentAt: sentAt}
 	if s.spec.ExpiresPath != "" {
 		if unix, ok := lookupInt(payload, s.spec.ExpiresPath); ok && unix > 0 {
-			s.expiresAt = time.Unix(unix, 0)
+			entry.ExpiresAt = time.Unix(unix, 0)
 		}
 	}
+	s.set(entry, false)
 	s.logins++
-	s.writeCache(cachedToken{Token: s.token, ExpiresAt: s.expiresAt, IssuedAt: s.issuedAt, SentAt: s.sentAt})
+	s.writeCache(entry)
 	return token, nil
 }
 
