@@ -1338,11 +1338,7 @@ func lintLiteralIdempotency(s *Step) []Issue {
 		switch t := v.(type) {
 		case map[string]any:
 			for _, k := range sortedKeys(t) {
-				child := k
-				if path != "" {
-					child = path + "." + k
-				}
-				visit(t[k], child, k)
+				visit(t[k], joinPath(path, k), k)
 			}
 		case []any:
 			for i, x := range t {

@@ -76,11 +76,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 		switch t := v.(type) {
 		case map[string]any:
 			for _, k := range sortedKeys(t) {
-				p := k
-				if path != "" {
-					p = path + "." + k
-				}
-				walk(t[k], p)
+				walk(t[k], joinPath(path, k))
 			}
 		case []any:
 			for i, x := range t {

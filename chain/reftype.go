@@ -237,10 +237,7 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 		if !found || f == nil || f.Truncated {
 			continue
 		}
-		path := key
-		if prefix != "" {
-			path = prefix + "." + key
-		}
+		path := joinPath(prefix, key)
 		if text, isText := body[key].(string); isText && (f.Repeated || f.MapKey != "") {
 			fn(path, f, text, true)
 			continue

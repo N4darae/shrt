@@ -647,30 +647,19 @@ func findCode(v any, code, prefix string) (string, bool) {
 	case map[string]any:
 		keys := sortedKeys(t)
 		for _, k := range keys {
-			path := k
-			if prefix != "" {
-				path = prefix + "." + k
-			}
+			path := joinPath(prefix, k)
 			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {
 				return path, true
 			}
 		}
 		for _, k := range keys {
-			path := k
-			if prefix != "" {
-				path = prefix + "." + k
-			}
-			if p, ok := findCode(t[k], code, path); ok {
+			if p, ok := findCode(t[k], code, joinPath(prefix, k)); ok {
 				return p, true
 			}
 		}
 	case []any:
 		for i, item := range t {
-			path := strconv.Itoa(i)
-			if prefix != "" {
-				path = prefix + "." + path
-			}
-			if p, ok := findCode(item, code, path); ok {
+			if p, ok := findCode(item, code, joinPath(prefix, strconv.Itoa(i))); ok {
 				return p, true
 			}
 		}

@@ -1267,11 +1267,7 @@ func filterVars(v any, path string, out map[string]string) {
 		}
 	case map[string]any:
 		for _, k := range sortedKeys(t) {
-			next := k
-			if path != "" {
-				next = path + "." + k
-			}
-			filterVars(t[k], next, out)
+			filterVars(t[k], joinPath(path, k), out)
 		}
 	case []any:
 		for i, item := range t {
