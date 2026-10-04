@@ -178,14 +178,11 @@ func replayOfRecorded(c *chain.Chain, st *runner.StepRecord, name string, runs [
 			return found
 		}
 		for _, prior := range prev.Steps {
-			if prior == nil || prior.Call != st.Call || !createdStep(prior) {
-				continue
-			}
-			if prev.Chain == name && prior.ID != st.ID {
+			if prior == nil || prior.Call != st.Call || prev.Chain == name && prior.ID != st.ID {
 				continue
 			}
 			r := replayedKey(c, st, prior)
-			if r == nil {
+			if r == nil || !createdStep(prior) {
 				continue
 			}
 			if r.answered, r.id = sameIDAnswered(st, prior); r.answered != "" {
