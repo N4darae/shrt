@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -30,12 +31,7 @@ func (p *Plan) nameBySituation() {
 		methods[st] = m
 	}
 	to := map[string]string{}
-	final := func(id string) string {
-		if n, ok := to[id]; ok {
-			return n
-		}
-		return id
-	}
+	final := func(id string) string { return cmp.Or(to[id], id) }
 	acted := map[string]bool{}
 	reaches := map[string][]string{}
 	touched := map[string]string{}
