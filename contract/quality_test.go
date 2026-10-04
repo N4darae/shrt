@@ -53,12 +53,35 @@ func TestMeasureChargesAnRPCWhoseRequiredIsEmpty(t *testing.T) {
 	}
 }
 
-func TestMeasureDoesNotChargeAnRPCThatTakesNoRequestFields(t *testing.T) {
-	c := settled(&RPCContract{})
-	c.Required = nil
-
-	if measureOne(t, c, nil).EmptyRequired {
-		t.Fatal("an rpc whose request has no fields was charged for an empty required: — there is nothing it could list")
+func TestMeasureEmptyRequired(t *testing.T) {
+	named := map[string]*FieldContract{"name": {Value: "x"}}
+	for _, tc := range []struct {
+		name            string
+		fields          map[string]*FieldContract
+		required, sends []string
+		want            bool
+		why             string
+	}{
+		{"no request fields", nil, nil, nil, false,
+			"an rpc whose request has no fields was charged for an empty required: — there is nothing it could list"},
+		{"a bogus field name", nil, []string{"totally_bogus_field_name"}, []string{"name"}, true,
+			"a required: entry naming a field the request does not have cleared the charge — " +
+				"quality would report an answered contract while contract lint reports an error, and an " +
+				"author optimising the score alone is rewarded for writing nonsense"},
+		{"a real field beside a bogus one", nil, []string{"totally_bogus_field_name", "name"}, []string{"name"}, false,
+			"one real field alongside a bogus one should still count as an answered required:"},
+		{"UNKNOWN", named, []string{RequiredUnknown}, []string{"name"}, true,
+			"UNKNOWN cleared the required charge — saying 'I could not find the handler' must not " +
+				"score the same as having found it, or the cheapest path to a clean score is to stop looking"},
+		{"NONE", named, []string{RequiredNone}, []string{"name"}, false, "NONE stopped clearing the charge"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := settled(&RPCContract{Fields: tc.fields})
+			c.Required = tc.required
+			if measureOne(t, c, tc.sends).EmptyRequired != tc.want {
+				t.Fatal(tc.why)
+			}
+		})
 	}
 }
 
@@ -531,22 +554,6 @@ func TestMeasureAcceptsTheNoneSentinelAsARoleDeclaration(t *testing.T) {
 	}
 }
 
-func TestMeasureDoesNotLetABogusFieldNameClearTheRequiredCharge(t *testing.T) {
-	c := settled(&RPCContract{})
-	c.Required = []string{"totally_bogus_field_name"}
-
-	if !measureOne(t, c, []string{"name"}).EmptyRequired {
-		t.Fatal("a required: entry naming a field the request does not have cleared the charge — " +
-			"quality would report an answered contract while contract lint reports an error, and an " +
-			"author optimising the score alone is rewarded for writing nonsense")
-	}
-
-	c.Required = []string{"totally_bogus_field_name", "name"}
-	if measureOne(t, c, []string{"name"}).EmptyRequired {
-		t.Fatal("one real field alongside a bogus one should still count as an answered required:")
-	}
-}
-
 func TestAHollowFieldEntryDoesNotCountAsDocumentation(t *testing.T) {
 	c := settled(&RPCContract{Fields: map[string]*FieldContract{"name": {}}})
 	if len(measureOne(t, c, []string{"name"}).UndocumentedFields) != 1 {
@@ -587,21 +594,5 @@ func TestASummaryOfOneCharacterIsNotASummary(t *testing.T) {
 	c.Summary = "creates an invoice and its first line"
 	if !measureOne(t, c, nil).HasSummary {
 		t.Fatal("a real summary was rejected")
-	}
-}
-
-func TestUnknownIsAnHonestAnswerThatStillCostsWhatIgnoranceCosts(t *testing.T) {
-	c := settled(&RPCContract{Fields: map[string]*FieldContract{"name": {Value: "x"}}})
-	c.Required = []string{RequiredUnknown}
-
-	got := measureOne(t, c, []string{"name"})
-	if !got.EmptyRequired {
-		t.Fatal("UNKNOWN cleared the required charge — saying 'I could not find the handler' must not " +
-			"score the same as having found it, or the cheapest path to a clean score is to stop looking")
-	}
-
-	c.Required = []string{RequiredNone}
-	if measureOne(t, c, []string{"name"}).EmptyRequired {
-		t.Fatal("NONE stopped clearing the charge")
 	}
 }
