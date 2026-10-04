@@ -56,3 +56,13 @@ func BenchmarkCompareSafeSpot(b *testing.B) {
 		_ = rep.Text()
 	}
 }
+
+func BenchmarkCompareGrownList(b *testing.B) {
+	a, z := bulkyRun("run-a", 1, 2, 1500), bulkyRun("run-b", 2, 2, 1520)
+	spot := &store.SafeSpot{Chain: a.Chain, RunID: a.RunID, Volatile: a.Volatile, Steps: a.Steps}
+	b.ReportAllocs()
+	for b.Loop() {
+		rep := diff.CompareMasking(spot, z, nil)
+		_ = rep.Text()
+	}
+}
