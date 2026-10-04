@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -266,16 +267,11 @@ func copyStep(s *chain.Step, id string) *chain.Step {
 }
 
 func (p *Plan) insertAfter(id string, s *chain.Step) {
-	steps := p.Chain.Steps
-	for i, x := range steps {
-		if x.ID == id {
-			out := append([]*chain.Step{}, steps[:i+1]...)
-			out = append(out, s)
-			p.Chain.Steps = append(out, steps[i+1:]...)
-			return
-		}
+	i := stepIndex(p.Chain.Steps, id)
+	if i < 0 {
+		i = len(p.Chain.Steps) - 1
 	}
-	p.Chain.Steps = append(steps, s)
+	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), i+1, s)
 }
 
 func markAfterVar(text string, loc []int, marker string) string {

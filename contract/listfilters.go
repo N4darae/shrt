@@ -155,15 +155,11 @@ func (p *Plan) sharedAnchorPrefix(t *listTarget) string {
 }
 
 func (p *Plan) insertBefore(id string, steps ...*chain.Step) {
-	for i, x := range p.Chain.Steps {
-		if x.ID == id {
-			out := append([]*chain.Step{}, p.Chain.Steps[:i]...)
-			out = append(out, steps...)
-			p.Chain.Steps = append(out, p.Chain.Steps[i:]...)
-			return
-		}
+	i := stepIndex(p.Chain.Steps, id)
+	if i < 0 {
+		i = len(p.Chain.Steps)
 	}
-	p.Chain.Steps = append(p.Chain.Steps, steps...)
+	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), i, steps...)
 }
 
 func (p *Plan) otherParent(lib *Library, t *listTarget, scope listScope) []string {
