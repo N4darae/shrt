@@ -126,8 +126,10 @@ it does (by suspect rpc and field), and one failing not as pinned keeps its line
 line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
 shows it, its example from a chain with a safe spot when one fails so. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
-chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
-counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
+chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
+when they all have its value, else `(and N more below)` with `the same at ...` and one line per other value, each with
+the steps that have it, past 6 such lines the steps named only), and the knock-on counts: no separate `verify` is
+needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
 `-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts

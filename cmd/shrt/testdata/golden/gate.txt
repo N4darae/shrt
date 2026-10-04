@@ -197,7 +197,8 @@ failures by suspect rpc:
 # -v prints verify's lines, a change at more steps or items once
 FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
     [create] changed    order.total_minor want=600 got=400 (and 2 more at confirm, fetch)
-    [list] changed    orders.0.total_minor want=600 got=400 (and 1 more at list)
+    [list] changed    orders.0.total_minor want=600 got=400 (and 1 more below)
+      [list] orders.1.total_minor want=900 got=700
     [get] type       customer want=null <nil> got=object {"name":""}
     [get] length     status.details want=1 item(s) got=0 item(s)
     [later..last] not_reached status 2 step(s) want=passed, not sent (it reads step "get", which did not pass)
