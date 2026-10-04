@@ -118,11 +118,8 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 		if f.Repeated || !chain.IsNumericKind(f.Kind) || !isQuantityName(f.Name) {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, f.Name)
+		key, ok := literalKey(st.Body, f.Name)
 		if !ok {
-			continue
-		}
-		if _, literal := numericValue(st.Body[key]); !literal {
 			continue
 		}
 		for _, o := range scalars {

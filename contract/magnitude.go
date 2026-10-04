@@ -175,11 +175,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) || idLike(f.Name) || len(f.EnumValues) > 0 {
 				continue
 			}
-			key, ok := namecase.LookupKey(st.Body, f.Name)
+			key, ok := literalKey(st.Body, f.Name)
 			if !ok {
-				continue
-			}
-			if _, literal := numericValue(st.Body[key]); !literal {
 				continue
 			}
 			quantity := isQuantityName(f.Name)
@@ -284,11 +281,8 @@ func (p *Plan) echoNumbers() {
 			if f.Repeated || f.MapKey != "" || !chain.IsNumericKind(f.Kind) {
 				continue
 			}
-			key, ok := namecase.LookupKey(st.Body, f.Name)
+			key, ok := literalKey(st.Body, f.Name)
 			if !ok {
-				continue
-			}
-			if _, literal := numericValue(st.Body[key]); !literal {
 				continue
 			}
 			for _, out := range carriers[0].Fields {
@@ -419,11 +413,8 @@ func (p *Plan) largeItemFields(lib *Library, rules *effectRules, st *chain.Step,
 			if sub.Repeated || !chain.IsNumericKind(sub.Kind) || idLike(sub.Name) || len(sub.EnumValues) > 0 {
 				continue
 			}
-			k, ok := namecase.LookupKey(first, sub.Name)
+			k, ok := literalKey(first, sub.Name)
 			if !ok {
-				continue
-			}
-			if _, literal := numericValue(first[k]); !literal {
 				continue
 			}
 			if isQuantityName(sub.Name) && rules.movesStock(rpc) {
@@ -583,11 +574,8 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		if entity == nil || canonicalCall(p.cat, entity.Call) != t.entity {
 			continue
 		}
-		priceKey, ok := namecase.LookupKey(entity.Body, t.price)
+		priceKey, ok := literalKey(entity.Body, t.price)
 		if !ok {
-			continue
-		}
-		if _, literal := numericValue(entity.Body[priceKey]); !literal {
 			continue
 		}
 		price := widePrice

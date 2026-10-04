@@ -59,6 +59,12 @@ func otherValue(v any, kind, marker string) (any, bool) {
 	return lengthen(text, marker), true
 }
 
+func literalKey(body map[string]any, name string) (string, bool) {
+	key, ok := namecase.LookupKey(body, name)
+	_, literal := numericValue(body[key])
+	return key, ok && literal
+}
+
 func numericValue(v any) (int64, bool) {
 	switch t := v.(type) {
 	case string:
