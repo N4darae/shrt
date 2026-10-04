@@ -89,7 +89,7 @@ func (p *Plan) probeInsufficiency(lib *Library, isTarget func(*chain.Step) bool)
 func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Method, f Failure) {
 	name := "over_quantity"
 	if f.Reason != "" {
-		name = defaultID(f.Reason)
+		name = chain.SnakeCase(f.Reason)
 	}
 	expect, _ := refusalExpectations(m, f, false)
 	source, paths := p.shortagePaths(st, m)
@@ -200,7 +200,7 @@ func (p *Plan) freshen(lib *Library, st *chain.Step) {
 		return
 	}
 	fields := catalog.DescribeMessage(m.Input()).Fields
-	marker := strings.TrimPrefix(st.ID, defaultID(m.Name)+"_")
+	marker := strings.TrimPrefix(st.ID, chain.SnakeCase(m.Name)+"_")
 	for path := range p.uniqueFields(lib, st) {
 		v, _ := bodyValue(st.Body, path)
 		kind := ""
@@ -324,9 +324,9 @@ func (e entityRead) echoingRead(id, description string) *chain.Step {
 }
 
 func (p *Plan) readBase(e entityRead) string {
-	base := defaultID(e.reader.Name)
+	base := chain.SnakeCase(e.reader.Name)
 	if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-		if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
+		if suffix := strings.TrimPrefix(e.producer.ID, chain.SnakeCase(pm.Name)); isIndexSuffix(suffix) {
 			base += suffix
 		}
 	}

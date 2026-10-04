@@ -142,7 +142,7 @@ func (p *Plan) textReadBack(lib *Library, st, probe *chain.Step, m *catalog.Meth
 		return nil
 	}
 	stored := carrierFields(e.reader, e.carrier)
-	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+probe.ID),
+	read := e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+probe.ID),
 		fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID), "${"+probe.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	for _, name := range names {

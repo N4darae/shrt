@@ -585,9 +585,9 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 			if !ok {
 				continue
 			}
-			base := defaultID(en.reader.Name)
+			base := chain.SnakeCase(en.reader.Name)
 			if pm, err := p.cat.Lookup(prod.Call); err == nil {
-				suffix, _, _ := strings.Cut(strings.TrimPrefix(prod.ID, defaultID(pm.Name)), "_for_")
+				suffix, _, _ := strings.Cut(strings.TrimPrefix(prod.ID, chain.SnakeCase(pm.Name)), "_for_")
 				if isIndexSuffix(suffix) {
 					base += suffix
 				}
@@ -1232,7 +1232,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		act.Description = fmt.Sprintf("%s on an order naming one %s on two %s: the stock read after it is down by both quantities.", st.ID, noun, v.list)
 		steps := []*chain.Step{fixture, act}
 		if e, ok := p.readerMatching(lib, entity, v.stock.idPath, true); ok {
-			steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+			steps = append(steps, e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+id),
 				fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 		}
 		p.Chain.Steps = append(p.Chain.Steps, steps...)
@@ -1291,7 +1291,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		} else {
 			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
 			if e, ok := p.readerMatching(lib, entity, stock.idPath, true); ok {
-				steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+				steps = append(steps, e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+id),
 					fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 			}
 			p.note("step %s: %s names %s on both of its %s (%d and %d), so the second line's %s and the read after it "+

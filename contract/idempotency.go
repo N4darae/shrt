@@ -131,7 +131,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 	}
 	added, ids := []*chain.Step{}, []string{}
 	for _, tr := range transitions {
-		label := defaultID(tr.method.Name)
+		label := chain.SnakeCase(tr.method.Name)
 		fid := p.freeStepID(st.ID + "_for_replay_after_" + label)
 		fixture := p.fixtureCopy(lib, st, fid, map[string]string{st.ID: fid}, fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label))
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
@@ -139,7 +139,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		move := tr.step(p.freeStepID(label+"_for_replay"),
 			fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]), fixtureID, carrier+"."+stateField.Name)
 
-		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
+		readID := p.freeStepID(chain.SnakeCase(read.reader.Name) + "_after_" + move.ID)
 		fetch := read.readStep(readID, fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID), fixtureID)
 		fetch.Expect = append(fetch.Expect, chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value})
 

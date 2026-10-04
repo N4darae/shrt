@@ -46,7 +46,7 @@ func (p *Plan) nameBySituation() {
 		id := st.ID
 		if m := methods[st]; m != nil {
 			subject := p.subjectOf(st, m)
-			base := defaultID(m.Name) + p.indexSuffix(subject, final(subject))
+			base := chain.SnakeCase(m.Name) + p.indexSuffix(subject, final(subject))
 			key := st.Call + " " + subject
 			after := touched[subject]
 			if subject == "" {
@@ -134,7 +134,7 @@ func (p *Plan) indexSuffix(subject, named string) string {
 	if err != nil {
 		return ""
 	}
-	suffix, ok := strings.CutPrefix(named, defaultID(m.Name))
+	suffix, ok := strings.CutPrefix(named, chain.SnakeCase(m.Name))
 	if !ok || !isIndexSuffix(suffix) {
 		return ""
 	}

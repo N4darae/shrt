@@ -106,7 +106,7 @@ func (p *Plan) needMetBefore(upto int, rpc, producer string) bool {
 }
 
 func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, producer, reader *chain.Step) *chain.Step {
-	id := p.freeStepID(defaultID(m.Name) + "_for_" + producer.ID)
+	id := p.freeStepID(chain.SnakeCase(m.Name) + "_for_" + producer.ID)
 	var template *chain.Step
 	if src, ok := p.stepOf[m.FullName]; ok {
 		template = p.stepByID(src)

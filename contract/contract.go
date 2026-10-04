@@ -43,7 +43,7 @@ func ForCuratedWithNotes(m *catalog.Method, lib *Library, cat *catalog.Catalog) 
 	if lib == nil || cat == nil {
 		return c, nil
 	}
-	nodes, notes, err := ScaffoldSteps([]string{m.FullName}, []string{defaultID(m.Name)}, lib, cat)
+	nodes, notes, err := ScaffoldSteps([]string{m.FullName}, []string{chain.SnakeCase(m.Name)}, lib, cat)
 	if err != nil || len(nodes) == 0 {
 		return c, nil
 	}
@@ -96,7 +96,7 @@ func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 
 func stepYAML(m *catalog.Method, prefer []string) string {
 	node := &yaml.Node{}
-	if err := node.Encode(&chain.Step{ID: defaultID(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
+	if err := node.Encode(&chain.Step{ID: chain.SnakeCase(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
 		return ""
 	}
 	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
@@ -143,22 +143,7 @@ func bodyNode(fields []*catalog.Field, example map[string]any) *yaml.Node {
 	return out
 }
 
-func defaultID(name string) string {
-	var b strings.Builder
-	for i, r := range name {
-		if r >= 'A' && r <= 'Z' {
-			if i > 0 {
-				b.WriteByte('_')
-			}
-			b.WriteRune(r + 32)
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-func (c *Contract) StepID() string { return defaultID(shortRPC(c.RPC)) }
+func (c *Contract) StepID() string { return chain.SnakeCase(shortRPC(c.RPC)) }
 
 func (c *Contract) Text() string {
 	var b strings.Builder

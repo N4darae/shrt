@@ -378,7 +378,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			continue
 		}
 		suffix := strings.TrimPrefix(prod.ID, first.ID)
-		added = append(added, tr.step(p.freeStepID(defaultID(tr.method.Name)+suffix),
+		added = append(added, tr.step(p.freeStepID(chain.SnakeCase(tr.method.Name)+suffix),
 			fmt.Sprintf("moves %s to %s, so the fixtures sit in different states for the filtered lists.", prod.ID, short[tr.value]),
 			"${"+prod.ID+"."+t.carrier+"."+t.itemID+"}", t.carrier+"."+stateField.Name))
 	}

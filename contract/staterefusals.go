@@ -133,7 +133,7 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 	fixture := p.fixtureCopy(lib, e.producer, fid, map[string]string{e.producer.ID: fid}, fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value]))
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
-	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
+	moved := move.step(p.freeStepID(chain.SnakeCase(move.method.Name)+"_to_"+label+"_for_"+st.ID),
 		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
 	refused := p.probeCopy(lib, st, "when_"+label)

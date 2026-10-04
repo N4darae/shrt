@@ -135,7 +135,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		if err != nil {
 			return nil, err
 		}
-		base := defaultID(method.Name)
+		base := chain.SnakeCase(method.Name)
 		if alias != "" {
 			base += "_" + alias
 		}

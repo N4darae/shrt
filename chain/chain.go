@@ -124,12 +124,12 @@ func (c *Chain) checkKeptRed() error {
 }
 
 func defaultStepID(call string, i int) string {
-	return fmt.Sprintf("%s_%d", toSnake(RPCName(call)), i+1)
+	return fmt.Sprintf("%s_%d", SnakeCase(RPCName(call)), i+1)
 }
 
 func RPCName(call string) string { return call[strings.LastIndex(call, "/")+1:] }
 
-func toSnake(s string) string {
+func SnakeCase(s string) string {
 	var b strings.Builder
 	for i, r := range s {
 		if r >= 'A' && r <= 'Z' {

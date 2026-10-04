@@ -267,7 +267,7 @@ func (p *Plan) readBackStep(lib *Library, prod *chain.Step, idPath string) *chai
 	if !ok {
 		return nil
 	}
-	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+prod.ID),
+	read := e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+prod.ID),
 		fmt.Sprintf("the %s %s stored, read back: every field it sent, as sent.", e.carrier, prod.ID), "${"+prod.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	return read
