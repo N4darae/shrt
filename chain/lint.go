@@ -492,12 +492,12 @@ func probeValue(v any, fields []*catalog.Field) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
-			f := findField(fields, k)
-			if f == nil {
+			at := slices.IndexFunc(fields, func(f *catalog.Field) bool { return f.Name == k })
+			if at < 0 {
 				out[k] = item
 				continue
 			}
-			out[k] = probeField(item, f)
+			out[k] = probeField(item, fields[at])
 		}
 		return out
 	case []any:
@@ -533,15 +533,6 @@ func probeElement(v any, f *catalog.Field) any {
 		return probeValue(t, f.Fields)
 	}
 	return v
-}
-
-func findField(fields []*catalog.Field, name string) *catalog.Field {
-	for _, f := range fields {
-		if f.Name == name {
-			return f
-		}
-	}
-	return nil
 }
 
 func placeholder(f *catalog.Field) any {

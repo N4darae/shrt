@@ -221,18 +221,10 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 
 func reproCommand(c *Chain, best WhichStep, opts WhichOptions) string {
 	cmd := "shrt chain slice " + c.Name + " -step " + best.Step
-	if step, _ := c.Step(best.Step); best.Observed != nil && !IsAuthProbe(step) && writeStep(c, best.Step, opts.ReadsOnly) {
+	if step, ok := c.Step(best.Step); best.Observed != nil && !IsAuthProbe(step) && ok && !IsReadOnlyCall(step.Call) && (opts.ReadsOnly == nil || !opts.ReadsOnly(step)) {
 		cmd += " -keep " + SliceKeepWrites
 	}
 	return cmd + freshFlags(c, best.Step, opts.FreshVars)
-}
-
-func writeStep(c *Chain, id string, readsOnly func(*Step) bool) bool {
-	s, ok := c.Step(id)
-	if !ok || IsReadOnlyCall(s.Call) {
-		return false
-	}
-	return readsOnly == nil || !readsOnly(s)
 }
 
 func freshFlags(c *Chain, step string, fresh func(*Chain, string) []string) string {
