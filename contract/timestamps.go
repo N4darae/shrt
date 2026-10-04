@@ -44,11 +44,6 @@ func durationSeconds(text string) (int64, string, bool) {
 	return n, m[0], n > 0
 }
 
-func isExpiryName(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.Contains(lower, "expire") || strings.Contains(lower, "expiry")
-}
-
 func isStampName(name string) bool {
 	lower := strings.ToLower(name)
 	for _, w := range []string{"created", "updated", "modified", "issued", "inserted", "registered"} {
@@ -94,7 +89,7 @@ func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPC
 			continue
 		}
 		switch {
-		case isExpiryName(last):
+		case chain.IsExpiryName(last):
 			texts := []string{note, c.Summary, c.Note, domain}
 			var secs int64
 			phrase := ""

@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var (
@@ -793,9 +794,9 @@ func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
 			continue
 		}
 		st.Expect[i] = chain.Expectation{Path: path, Equals: v}
-		md.met[[2]string{md.at.Call, leafName(path)}] = true
+		md.met[[2]string{md.at.Call, chain.PathLeaf(path)}] = true
 		if !md.echoes(st) {
-			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", leafName(path), md.at.ID, md.at.ID)
+			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", chain.PathLeaf(path), md.at.ID, md.at.ID)
 		}
 		return true
 	}
@@ -813,7 +814,7 @@ func (md *effectModel) echoes(st *chain.Step) bool {
 
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
 	if md.apply {
-		md.met[[2]string{md.at.Call, leafName(path)}] = true
+		md.met[[2]string{md.at.Call, chain.PathLeaf(path)}] = true
 	}
 	return md.apply && assertNumber(st, path, v)
 }
@@ -892,7 +893,7 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 			}
 			md.alias[st.ID] = src
 			if t := r.total[rpc]; t != nil {
-				if o := md.order(src); o != nil && o.hasTotal && md.set(st, join(t.carrier, t.field), o.total) {
+				if o := md.order(src); o != nil && o.hasTotal && md.set(st, pathmask.Join(t.carrier, t.field), o.total) {
 					mark("total", st.ID)
 				}
 			}
@@ -933,7 +934,7 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 	md.orders[st.ID] = o
 	if t != nil && priced && len(items) > 0 {
 		o.total, o.hasTotal = total, true
-		if md.set(st, join(t.carrier, t.field), total) {
+		if md.set(st, pathmask.Join(t.carrier, t.field), total) {
 			mark("total", st.ID)
 		}
 	}
@@ -1087,7 +1088,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 	}
 	for _, rpc := range keysIn(r.total, called) {
 		t := r.total[rpc]
-		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
+		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", pathmask.Join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
 	}
 	ids := []string{}
 	for _, kind := range []string{"increase", "batch", "total", "read"} {
@@ -1313,7 +1314,7 @@ func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectat
 	out := []chain.Expectation{}
 	for _, e := range expect {
 		segs := chain.SplitPath(e.Path)
-		if len(segs) >= 2 && segs[len(segs)-2] == list && isIndexSegment(segs[len(segs)-1]) {
+		if len(segs) >= 2 && segs[len(segs)-2] == list && chain.IsDigits(segs[len(segs)-1]) {
 			continue
 		}
 		out = append(out, e)

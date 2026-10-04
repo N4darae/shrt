@@ -9,6 +9,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 	"gopkg.in/yaml.v3"
 )
 
@@ -70,7 +71,7 @@ func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
 		if prefix == "" && f.Name == chain.EnvelopeField() || f.Repeated || f.MapKey != "" {
 			continue
 		}
-		path := join(prefix, f.Name)
+		path := pathmask.Join(prefix, f.Name)
 		if f.Kind == "message" || f.Kind == "group" {
 			out = append(out, responsePathsTo(f.Fields, leaf, path)...)
 			continue
@@ -527,7 +528,7 @@ func collectTodos(domain, rpc, path string, node *yaml.Node, issues *[]Issue) {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, value := node.Content[i], node.Content[i+1]
-			child := join(path, key.Value)
+			child := pathmask.Join(path, key.Value)
 			if text := todoText("", key.LineComment); text != "" {
 				report(child, text)
 			}
@@ -571,13 +572,6 @@ func IsTodo(text string) bool {
 func cleanTodo(raw string) string {
 	text := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#")), TodoMarker)
 	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
-}
-
-func join(prefix, key string) string {
-	if prefix == "" {
-		return key
-	}
-	return prefix + "." + key
 }
 
 func mappingValue(node *yaml.Node, key string) *yaml.Node {

@@ -94,7 +94,7 @@ func listedMembers(st *chain.Step, listPath string) ([][2]string, string) {
 			continue
 		}
 		index, field, nested := strings.Cut(strings.TrimPrefix(e.Path, listPath+"."), ".")
-		if nested && e.Equals != nil && isIndexSegment(index) && strings.HasPrefix(e.Path, listPath+".") && !strings.Contains(field, ".") {
+		if nested && e.Equals != nil && chain.IsDigits(index) && strings.HasPrefix(e.Path, listPath+".") && !strings.Contains(field, ".") {
 			add(field, e.Equals)
 		}
 	}

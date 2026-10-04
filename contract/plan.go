@@ -12,6 +12,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 	"gopkg.in/yaml.v3"
 )
 
@@ -651,15 +652,11 @@ func cloneBody(v any) any {
 func indexDepth(path string) int {
 	n := 0
 	for _, seg := range chain.SplitPath(path) {
-		if isIndexSegment(seg) {
+		if chain.IsDigits(seg) {
 			n++
 		}
 	}
 	return n
-}
-
-func isIndexSegment(seg string) bool {
-	return seg != "" && strings.Trim(seg, "0123456789") == ""
 }
 
 func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
@@ -1016,7 +1013,7 @@ func scaffoldZeros(body map[string]any, schema []*catalog.Field, c *RPCContract,
 			if !ok || IsPagingFieldName(f.Name) || f.MapKey != "" || f.JSONForm != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			list, isList := child.([]any)
 			if !isList {
 				list = []any{child}
@@ -1069,7 +1066,7 @@ func contractSpeaksFor(c *RPCContract, fields map[string]*FieldContract, path st
 }
 
 func stripIndexes(path string) string {
-	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), isIndexSegment), ".")
+	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), chain.IsDigits), ".")
 }
 
 func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {

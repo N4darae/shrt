@@ -494,7 +494,7 @@ func indexProblem(in []*catalog.Field, name string) string {
 	var prev *catalog.Field
 	prevIndex := false
 	for i, seg := range segs {
-		if isIndexSegment(seg) {
+		if chain.IsDigits(seg) {
 			switch {
 			case prev == nil || prevIndex:
 				return fmt.Sprintf("%q puts index %s where a field name belongs — an index follows a repeated field, as in lines.1.qty", name, seg)
@@ -535,7 +535,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 		segs := chain.SplitPath(name)
 		cur := in
 		for i, seg := range segs {
-			if isIndexSegment(seg) {
+			if chain.IsDigits(seg) {
 				continue
 			}
 			f := fieldByName(cur, seg)
@@ -547,7 +547,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 				continue
 			}
 			list := strings.Join(segs[:i+1], ".")
-			if isIndexSegment(segs[i+1]) {
+			if chain.IsDigits(segs[i+1]) {
 				n, _ := strconv.Atoi(segs[i+1])
 				if named[list] == nil {
 					named[list] = map[int]bool{}

@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
 )
 
 func KeyFieldFor(lib *Library) func(rpc, field string) (bool, bool) {
@@ -13,7 +14,7 @@ func KeyFieldFor(lib *Library) func(rpc, field string) (bool, bool) {
 			return false, false
 		}
 		field = stripIndexes(field)
-		if IsEntityIDField(field) || isIdempotencyField(&catalog.Field{Name: leafName(field), Kind: "string"}) {
+		if IsEntityIDField(field) || isIdempotencyField(&catalog.Field{Name: chain.PathLeaf(field), Kind: "string"}) {
 			return true, true
 		}
 		if fc := c.Fields[field]; fc != nil && strings.Contains(strings.ToLower(fc.Note), "unique") {

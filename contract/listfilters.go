@@ -75,7 +75,7 @@ func assertedLength(st *chain.Step, listPath string) (int, bool) {
 
 func hasExistsFalse(st *chain.Step, listPath string) bool {
 	for _, e := range st.Expect {
-		if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, listPath+".") && isIndexSegment(strings.TrimPrefix(e.Path, listPath+".")) {
+		if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, listPath+".") && chain.IsDigits(strings.TrimPrefix(e.Path, listPath+".")) {
 			return true
 		}
 	}

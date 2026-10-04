@@ -30,7 +30,7 @@ func notFoundFailures(lib *Library, rpc string) []Failure {
 }
 
 func unknownIDFailure(failures []Failure, field string, ref Ref, only bool) (Failure, bool) {
-	leaf := leafName(field)
+	leaf := chain.PathLeaf(field)
 	for _, f := range failures {
 		if f.Field != "" && stripIndexes(f.Field) == stripIndexes(field) {
 			return f, true
@@ -118,14 +118,14 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 	} else if key, ok := namecase.LookupKey(st.Body, field); ok {
 		path = key
 	}
-	probe := p.probeCopy(lib, st, "unknown_"+leafName(field))
+	probe := p.probeCopy(lib, st, "unknown_"+chain.PathLeaf(field))
 	renameStepRefs(probe, st.ID, probe.ID)
 	cur, _ := bodyValue(st.Body, path)
 	text, isText := cur.(string)
 	if !isText {
 		return ""
 	}
-	unknown, wording := "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"), "an id nothing created"
+	unknown, wording := "no-such-"+strings.ReplaceAll(chain.PathLeaf(path), "_", "-"), "an id nothing created"
 	if wholeReference(text) {
 		unknown, wording = text+unknownIDSuffix, fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
 	}

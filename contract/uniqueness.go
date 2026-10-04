@@ -109,14 +109,6 @@ func stableAcrossSteps(v string) string {
 	return strings.Trim(out, "-_")
 }
 
-func leafName(path string) string {
-	segs := chain.SplitPath(path)
-	if len(segs) == 0 {
-		return path
-	}
-	return segs[len(segs)-1]
-}
-
 func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
@@ -153,7 +145,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	if fc := c.Fields[field]; fc != nil {
 		text += " " + fc.Note
 	}
-	leaf := leafName(field)
+	leaf := chain.PathLeaf(field)
 	ref := "${steps." + st.ID + ".request." + field + "}"
 	attempt := func(suffix, description string, value any) *chain.Step {
 		body, _ := cloneBody(st.Body).(map[string]any)

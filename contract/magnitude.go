@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const largeValue = 12345
@@ -578,7 +579,7 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		if price*qty <= wideLimit {
 			p.gap("step %s: %s is a 64-bit number, but the bounds its contract states on %s and %s keep %s × %s at or below 2^31, "+
-				"so no probe checks the sum past 32 bits", st.ID, join(t.carrier, t.field), t.price, t.itemQty, t.price, t.itemQty)
+				"so no probe checks the sum past 32 bits", st.ID, pathmask.Join(t.carrier, t.field), t.price, t.itemQty, t.price, t.itemQty)
 			continue
 		}
 		id := p.freeStepID(st.ID + "_wide_total")
@@ -601,10 +602,10 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		probe.Expect = SuccessExpectation(m)
 		p.assertEcho(probe)
 		probe.Description = fmt.Sprintf("one %s of %d at %d: %s is %d, past 2^31 and 2^32, so a sum kept in 32 bits wraps and fails.",
-			strings.TrimSuffix(t.list, "s"), qty, price, join(t.carrier, t.field), price*qty)
+			strings.TrimSuffix(t.list, "s"), qty, price, pathmask.Join(t.carrier, t.field), price*qty)
 		p.Chain.Steps = append(p.Chain.Steps, prod, probe)
 		p.note("step %s: %s is a 64-bit number, so %s sends one %s of %d at %s %d (from %s) and asserts it is exactly %d: "+
 			"the fixtures' totals fit in 32 bits, and a backend that computes or stores the sum in 32 bits wraps there",
-			st.ID, join(t.carrier, t.field), id, strings.TrimSuffix(t.list, "s"), qty, t.price, price, prod.ID, price*qty)
+			st.ID, pathmask.Join(t.carrier, t.field), id, strings.TrimSuffix(t.list, "s"), qty, t.price, price, prod.ID, price*qty)
 	}
 }

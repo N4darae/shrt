@@ -452,9 +452,9 @@ func relatedKey(a, b string) bool {
 		switch {
 		case x[0] == y[0]:
 			x, y = x[1:], y[1:]
-		case isIndexSegment(x[0]) && !isIndexSegment(y[0]):
+		case chain.IsDigits(x[0]) && !chain.IsDigits(y[0]):
 			x = x[1:]
-		case isIndexSegment(y[0]) && !isIndexSegment(x[0]):
+		case chain.IsDigits(y[0]) && !chain.IsDigits(x[0]):
 			y = y[1:]
 		default:
 			return false

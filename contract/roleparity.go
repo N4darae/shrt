@@ -7,6 +7,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var roleSpecific = lazyRegexp(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
@@ -40,7 +41,7 @@ func roleSpecificPath(c *RPCContract, path string) bool {
 	if c == nil {
 		return false
 	}
-	leaf := leafName(path)
+	leaf := chain.PathLeaf(path)
 	for _, m := range []map[string]string{c.Terminal, c.SoftSignals} {
 		for k, text := range m {
 			if (k == path || k == leaf) && roleSpecific().MatchString(text) {
@@ -56,7 +57,7 @@ func responseLeaves(fields []*catalog.Field, path string, out *[]string) {
 		if f.Repeated || f.MapKey != "" {
 			continue
 		}
-		at := join(path, f.Name)
+		at := pathmask.Join(path, f.Name)
 		if f.Kind == "message" && f.JSONForm == "" && len(f.Fields) > 0 {
 			responseLeaves(f.Fields, at, out)
 			continue
@@ -185,7 +186,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	}
 	comparable := []entityRead{}
 	for _, e := range entities {
-		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || isExpiryName(name) })
+		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || chain.IsExpiryName(name) })
 		if len(kept) > 0 {
 			e.scalars = kept
 			comparable = append(comparable, e)

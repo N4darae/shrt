@@ -7,6 +7,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var (
@@ -182,7 +183,7 @@ func bumpNumbers(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || f.MapKey != "" || idLike(f.Name) {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			switch v := m[key].(type) {
 			case []any:
 				for i, item := range v {

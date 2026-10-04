@@ -8,6 +8,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const overdrawValue = "100000"
@@ -36,7 +37,7 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || f.MapKey != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			switch v := m[key].(type) {
 			case []any:
 				if len(f.Fields) == 0 || len(v) == 0 {
@@ -317,7 +318,7 @@ func (e entityRead) readStep(id, description, ref string) *chain.Step {
 func (e entityRead) echoingRead(id, description string) *chain.Step {
 	ref := "${" + e.producer.ID + "." + e.idPath + "}"
 	read := e.readStep(id, description, ref)
-	leaf := leafName(e.idPath)
+	leaf := chain.PathLeaf(e.idPath)
 	for _, sf := range carrierFields(e.reader, e.carrier) {
 		if sf.Name == leaf {
 			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
@@ -426,7 +427,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 }
 
 func isIndexSuffix(s string) bool {
-	return s == "" || (strings.HasPrefix(s, "_") && isIndexSegment(s[1:]))
+	return s == "" || (strings.HasPrefix(s, "_") && chain.IsDigits(s[1:]))
 }
 
 func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {

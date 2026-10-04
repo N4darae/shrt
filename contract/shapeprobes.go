@@ -206,7 +206,7 @@ func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f
 	expect := refusalFor(m, f)
 	ids := []string{}
 	for _, sc := range cases {
-		probe := probeStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
+		probe := probeStep(st, p.freeStepID(st.ID+"_"+chain.PathLeaf(sc.field)+"_"+sc.kind))
 		if !chain.IsReadOnlyCall(st.Call) {
 			p.freshen(lib, probe)
 		}

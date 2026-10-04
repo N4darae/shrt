@@ -8,6 +8,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 type SingleItemRepeat struct {
@@ -33,7 +34,7 @@ func secondItems(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || len(f.Fields) == 0 || f.MapKey != "" || f.JSONForm != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			list, isList := m[key].([]any)
 			if !isList {
 				walk(m[key], f.Fields, at)
@@ -226,11 +227,11 @@ func resourceLeaves(c *chain.Chain, at *chain.Step, v any, path, name string, ou
 	switch t := v.(type) {
 	case map[string]any:
 		for k, x := range t {
-			resourceLeaves(c, at, x, join(path, k), k, out)
+			resourceLeaves(c, at, x, pathmask.Join(path, k), k, out)
 		}
 	case []any:
 		for i, x := range t {
-			resourceLeaves(c, at, x, join(path, strconv.Itoa(i)), name, out)
+			resourceLeaves(c, at, x, pathmask.Join(path, strconv.Itoa(i)), name, out)
 		}
 	case string:
 		t = stepReference(c, at, t)
@@ -283,7 +284,7 @@ func countRepeats(v any, fields []*catalog.Field, path string, record func(path 
 		if !ok || len(f.Fields) == 0 || f.MapKey != "" || f.JSONForm != "" {
 			continue
 		}
-		at := join(path, f.Name)
+		at := pathmask.Join(path, f.Name)
 		if !f.Repeated {
 			countRepeats(m[key], f.Fields, at, record)
 			continue
