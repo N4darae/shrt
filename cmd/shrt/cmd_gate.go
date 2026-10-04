@@ -1202,7 +1202,7 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 			fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it runs in turn (%s), so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits, g.queued)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now, beside the other chains, so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits)
+		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now%s, so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits, besideOthers(chains))
 		beside.Add(1)
 		go func() {
 			defer beside.Done()
@@ -1224,12 +1224,23 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 			if d := g.waits - time.Since(started); d > 0 {
 				left = fmt.Sprintf(", about %s left", d.Round(time.Second))
 			}
-			fmt.Fprintf(os.Stderr, "gate: the other chains are done; waiting for %s, which waits %s by design%s\n", g.name, g.waits, left)
+			done := ""
+			if besideOthers(chains) != "" {
+				done = "the other chains are done; "
+			}
+			fmt.Fprintf(os.Stderr, "gate: %swaiting for %s, which waits %s by design%s\n", done, g.name, g.waits, left)
 		}
 	}
 	mu.Unlock()
 	beside.Wait()
 	return outs
+}
+
+func besideOthers(chains []*gateChain) string {
+	if slices.ContainsFunc(chains, func(o *gateChain) bool { return !o.beside() && !o.skipped }) {
+		return ", beside the other chains"
+	}
+	return ""
 }
 
 func (g *gateChain) beside() bool {
@@ -1301,7 +1312,7 @@ func gateTime(chains []*gateChain, total time.Duration) string {
 		part := g.name + " " + g.took.Round(time.Second).String()
 		switch {
 		case g.beside():
-			part += fmt.Sprintf(" (waits %s by design, beside the other chains)", g.waits)
+			part += fmt.Sprintf(" (waits %s by design%s)", g.waits, besideOthers(chains))
 		case g.waits > 0:
 			part += fmt.Sprintf(" (waits %s by design, in turn: %s)", g.waits, g.queued)
 		}

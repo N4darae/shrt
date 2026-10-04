@@ -86,6 +86,24 @@ func TestAWaitingChainThatOnlyReadsItsOwnTagRunsBesideTheOthers(t *testing.T) {
 	}
 }
 
+func TestAWaitingChainGatedAloneNamesNoOtherChains(t *testing.T) {
+	f := gateWorkspace(t, nil)
+	appendFile(t, ".shrt/config.yaml", gateAuthConfig)
+	writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
+	gateExec = func(ctx context.Context, args []string) gateOutcome {
+		time.Sleep(200 * time.Millisecond)
+		return f.exec(ctx, args)
+	}
+	var errOut string
+	out := captureStdout(t, func() {
+		errOut = captureStderr(t, func() { _ = runGate(context.Background(), []string{"-hollow-baseline", "", "a-hold"}) })
+	})
+	if !strings.Contains(errOut, "it starts now, so this gate takes at least that long") || !strings.Contains(errOut, "gate: waiting for a-hold, which waits 4m0s by design") ||
+		strings.Contains(errOut+out, "other chains") || !strings.Contains(out, "slowest: a-hold 0s (waits 4m0s by design)\n") {
+		t.Errorf("with no other chain sent, no line mentions other chains:\n%s%s", errOut, out)
+	}
+}
+
 func TestAWaitingChainThatWritesOrReadsSharedStateRunsInTurn(t *testing.T) {
 	for _, c := range []struct{ first, why string }{
 		{"    - id: make\n      call: ThingService/Create\n      body:\n          name: n-${vars.tag}\n", "make writes"},
