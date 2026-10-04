@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -101,7 +102,7 @@ func blockedReason(sourceRun string, blocked []blockedRead) string {
 	upstream := []string{}
 	for _, b := range blocked {
 		lines = append(lines, b.line(sourceRun))
-		if !containsStr(upstream, b.upstream) {
+		if !slices.Contains(upstream, b.upstream) {
 			upstream = append(upstream, b.upstream)
 		}
 	}

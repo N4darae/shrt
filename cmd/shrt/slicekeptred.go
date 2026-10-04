@@ -190,7 +190,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 	}
 	for _, id := range drop {
 		if id != "failed" {
-			if !containsStr(ids, id) {
+			if !slices.Contains(ids, id) {
 				ids = append(ids, id)
 			}
 			continue
@@ -204,7 +204,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 			return fmt.Errorf("run %s of %s has no failed step: -without failed leaves nothing out", rec.RunID, c.Name)
 		}
 		for _, f := range failed {
-			if _, ok := c.Step(f); ok && !containsStr(ids, f) {
+			if _, ok := c.Step(f); ok && !slices.Contains(ids, f) {
 				ids = append(ids, f)
 			}
 		}
@@ -301,15 +301,6 @@ func writeWithout(path string, source bool, res *chain.WithoutResult) error {
 	return writeSliceFile(path, res.Chain)
 }
 
-func containsStr(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
 type sliceKeptRed struct {
 	on      bool
 	steps   []string
@@ -323,7 +314,7 @@ func keptStepPins(res *chain.SliceResult, rec *runner.Record, named []string) ([
 		if k.ID == res.Target {
 			continue
 		}
-		if containsStr(named, k.ID) {
+		if slices.Contains(named, k.ID) {
 			pins, err := failurePins(res.Chain, rec, k.ID)
 			if err != nil {
 				return nil, fmt.Errorf("pin %s: %w", k.ID, err)

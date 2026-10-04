@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -447,7 +448,7 @@ func keptRedSlice(ctx context.Context, args []string) error {
 		}
 		red.on = true
 		for _, id := range strings.Split(steps, ",") {
-			if id != "" && !containsStr(red.steps, id) {
+			if id != "" && !slices.Contains(red.steps, id) {
 				red.steps = append(red.steps, id)
 			}
 		}

@@ -617,13 +617,11 @@ func sourceTargetDiffers(e *env, rec *runner.Record) string {
 
 func (v *sliceVerdict) text() string {
 	var b strings.Builder
-	head := map[string]string{
-		sliceReproduced:    "reproduced",
-		sliceNotReproduced: "NOT REPRODUCED",
-		sliceInconclusive:  "INCONCLUSIVE",
-		sliceDidNotRun:     "DID NOT RUN",
-		sliceIntermittent:  "intermittent: reproduced",
-	}[v.Outcome] + v.countLabel()
+	head := outcomeWord(v.Outcome)
+	if v.Outcome == sliceIntermittent {
+		head += ": reproduced"
+	}
+	head += v.countLabel()
 	slice := v.SliceRun
 	if slice == "" {
 		slice = "none"

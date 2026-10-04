@@ -223,7 +223,7 @@ func pinGroup(c *chain.Chain, rec *runner.Record, failing []string) []string {
 		switch {
 		case !chain.IsReadOnlyCall(s.Call):
 			lastWrite = s.ID
-		case containsStr(steps, lastWrite) && containsStr(failing, s.ID) && !containsStr(steps, s.ID):
+		case slices.Contains(steps, lastWrite) && slices.Contains(failing, s.ID) && !slices.Contains(steps, s.ID):
 			steps = append(steps, s.ID)
 		}
 	}
@@ -272,7 +272,7 @@ func expectationFailures(rec *runner.Record) []string {
 func slicesWithout(all, drop []string) []string {
 	out := []string{}
 	for _, s := range all {
-		if !containsStr(drop, s) {
+		if !slices.Contains(drop, s) {
 			out = append(out, s)
 		}
 	}
@@ -313,12 +313,16 @@ func refusedFailure(rec *runner.Record) bool {
 }
 
 func quietly(fn func() error) (string, error) {
-	saved := os.Stdout
+	return capturing(&os.Stdout, fn)
+}
+
+func capturing(f **os.File, fn func() error) (string, error) {
+	saved := *f
 	r, w, err := os.Pipe()
 	if err != nil {
 		return "", fn()
 	}
-	os.Stdout = w
+	*f = w
 	done := make(chan []byte, 1)
 	go func() {
 		out, _ := io.ReadAll(r)
@@ -326,7 +330,7 @@ func quietly(fn func() error) (string, error) {
 	}()
 	runErr := fn()
 	_ = w.Close()
-	os.Stdout = saved
+	*f = saved
 	out := <-done
 	_ = r.Close()
 	return string(out), runErr

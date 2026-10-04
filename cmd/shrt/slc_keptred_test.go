@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -248,7 +249,7 @@ func TestChainPinGivesSeparateDefectsTheirOwnSliceAndLeavesTheChainGreen(t *test
 			t.Fatalf("each defect gets a slice of its own: %v\n%s", err, out)
 		}
 		for _, k := range c.KeptRed {
-			if !containsStr(pins[target], k.Step) {
+			if !slices.Contains(pins[target], k.Step) {
 				pins[target] = append(pins[target], k.Step)
 			}
 		}

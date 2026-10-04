@@ -15,40 +15,13 @@ import (
 )
 
 func captureStdout(t *testing.T, fn func()) string {
-	t.Helper()
-	return capture(t, &os.Stdout, fn)
+	out, _ := capturing(&os.Stdout, func() error { fn(); return nil })
+	return out
 }
 
 func captureStderr(t *testing.T, fn func()) string {
-	t.Helper()
-	return capture(t, &os.Stderr, fn)
-}
-
-func capture(t *testing.T, f **os.File, fn func()) string {
-	t.Helper()
-	saved := *f
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	*f = w
-	done := make(chan string, 1)
-	go func() {
-		buf := make([]byte, 0, 4096)
-		chunk := make([]byte, 1024)
-		for {
-			n, err := r.Read(chunk)
-			buf = append(buf, chunk[:n]...)
-			if err != nil {
-				break
-			}
-		}
-		done <- string(buf)
-	}()
-	fn()
-	_ = w.Close()
-	*f = saved
-	return <-done
+	out, _ := capturing(&os.Stderr, func() error { fn(); return nil })
+	return out
 }
 
 func helpOf(t *testing.T, command string, args ...string) string {
