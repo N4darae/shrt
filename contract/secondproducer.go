@@ -242,6 +242,12 @@ func readsStep(s *chain.Step, id string) bool {
 	return false
 }
 
+func probeStep(s *chain.Step, id string) *chain.Step {
+	c := copyStep(s, id)
+	c.Export = nil
+	return c
+}
+
 func copyStep(s *chain.Step, id string) *chain.Step {
 	c := *s
 	c.ID = id

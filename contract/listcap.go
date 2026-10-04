@@ -116,8 +116,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 	made := []string{}
 	for n := len(members) + 1; n <= want; n++ {
 		id := p.freeStepID(first.ID)
-		clone := copyStep(first, id)
-		clone.Export = nil
+		clone := probeStep(first, id)
 		suffix := strings.TrimPrefix(id, first.ID+"_")
 		distinctProducerAt(clone.Body, fields, suffix, n-1)
 		for key, prefix := range prefixes {
@@ -131,8 +130,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 		made = append(made, id)
 		refs = append(refs, "${"+id+carrierRef)
 	}
-	v := copyStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
-	v.Export = nil
+	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
 	exact := hasExistsFalse(st, listPath)
 	kept := v.Expect[:0]
 	for _, e := range v.Expect {

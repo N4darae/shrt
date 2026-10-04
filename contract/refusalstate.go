@@ -107,14 +107,12 @@ func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Me
 		if i > 0 {
 			suffix = name + "_last_item"
 		}
-		refused := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-		refused.Export = nil
+		refused := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		refused.Expect = append([]chain.Expectation{}, expect...)
 		body := refused.Body
 		var short *chain.Step
 		if source != nil {
-			short = copyStep(source, p.freeStepID(source.ID+"_for_"+suffix))
-			short.Export = nil
+			short = probeStep(source, p.freeStepID(source.ID+"_for_"+suffix))
 			body = short.Body
 		}
 		qty, derived := p.shortageQuantity(lib, body, path)

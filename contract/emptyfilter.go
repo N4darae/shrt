@@ -59,8 +59,7 @@ func (p *Plan) probeEmptyFilter(lib *Library, t *listTarget, key string) {
 	if err != nil {
 		return
 	}
-	probe := copyStep(t.step, p.freeStepID(t.step.ID+"_empty_"+key))
-	probe.Export = nil
+	probe := probeStep(t.step, p.freeStepID(t.step.ID+"_empty_"+key))
 	probe.Body[key] = ""
 	probe.Expect = SuccessExpectation(m)
 	ids := []string{}

@@ -114,8 +114,7 @@ func (p *Plan) addPartialBatch(lib *Library, st *chain.Step, c *RPCContract, m *
 
 func (p *Plan) batchProbe(lib *Library, st *chain.Step, m *catalog.Method, key string, results *catalog.Field, listPath, verdict, suffix, desc string,
 	lines []batchLine) (*chain.Step, []*chain.Step) {
-	probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-	probe.Export = nil
+	probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 	items := make([]any, len(lines))
 	okValue := chain.EnvelopeOK()
 	probe.Expect = SuccessExpectation(m)

@@ -147,8 +147,7 @@ func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func (p *Plan) probeCopy(lib *Library, st *chain.Step, suffix string) *chain.Step {
-	probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-	probe.Export = nil
+	probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 	if !chain.IsReadOnlyCall(st.Call) && !p.streams(st) {
 		p.freshen(lib, probe)
 	}

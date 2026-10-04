@@ -177,13 +177,11 @@ func (p *Plan) insertBefore(id string, steps ...*chain.Step) {
 
 func (p *Plan) otherParent(lib *Library, t *listTarget, scope listScope) []string {
 	noun := strings.TrimPrefix(scope.parent.ID, "create_")
-	parent := copyStep(scope.parent, p.freeStepID(scope.parent.ID+"_other"))
-	parent.Export = nil
+	parent := probeStep(scope.parent, p.freeStepID(scope.parent.ID+"_other"))
 	parent.Description = fmt.Sprintf("another %s, whose items %s must not list.", noun, t.step.ID)
 	p.freshen(lib, parent)
 	renameStepRefs(parent, scope.parent.ID, parent.ID)
-	item := copyStep(t.producers[0], p.freeStepID(t.producers[0].ID+"_other_"+noun))
-	item.Export = nil
+	item := probeStep(t.producers[0], p.freeStepID(t.producers[0].ID+"_other_"+noun))
 	item.Description = fmt.Sprintf("an item of %s, not of %s, so %s must not list it.", parent.ID, scope.parent.ID, t.step.ID)
 	p.freshen(lib, item)
 	renameStepRefs(item, scope.parent.ID, parent.ID)
@@ -230,8 +228,7 @@ func (p *Plan) terminatePrefix(t *listTarget, scope *listScope) {
 func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []string {
 	first := t.producers[0]
 	said := []string{}
-	inside := copyStep(first, p.freeStepID(first.ID+"_prefix_inside"))
-	inside.Export = nil
+	inside := probeStep(first, p.freeStepID(first.ID+"_prefix_inside"))
 	renameStepRefs(inside, first.ID, inside.ID)
 	inside.Body[scope.target] = "x-" + scope.prefix
 	inside.Description = fmt.Sprintf("its %s contains the %s %q but does not start with it, so %s must not list it.", scope.target, scope.prefixKey, scope.prefix, t.step.ID)
@@ -259,8 +256,7 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	case !prefixCaseSensitive.MatchString(text):
 		p.listInOtherCase(t, scope, swapped)
 	default:
-		cased := copyStep(first, p.freeStepID(first.ID+"_prefix_case"))
-		cased.Export = nil
+		cased := probeStep(first, p.freeStepID(first.ID+"_prefix_case"))
 		renameStepRefs(cased, first.ID, cased.ID)
 		cased.Body[scope.target] = strings.TrimRight(swapped, "-_./:#|~") + "-case"
 		cased.Description = fmt.Sprintf("its %s starts with the %s in another letter case; the comparison is case-sensitive, so %s must not list it.", scope.target, scope.prefixKey, t.step.ID)
@@ -280,8 +276,7 @@ func (p *Plan) listInOtherCase(t *listTarget, scope listScope, swapped string) {
 	if !ok {
 		n = len(t.producers)
 	}
-	probe := copyStep(t.step, p.freeStepID(t.step.ID+"_prefix_case"))
-	probe.Export = nil
+	probe := probeStep(t.step, p.freeStepID(t.step.ID+"_prefix_case"))
 	probe.Body[scope.prefixKey] = swapped
 	probe.Expect = append(SuccessExpectation(m), chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, n), Exists: boolPtr(false)})
 	probe.Description = fmt.Sprintf("%s with the %s in another letter case: the contract does not say whether case counts, "+
@@ -431,8 +426,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	}
 	var after *chain.Step
 	if len(moveIDs) > 0 {
-		after = copyStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
-		after.Export = nil
+		after = probeStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
 		after.Body[filterKey] = filter.EnumValues[0]
 		after.Description = fmt.Sprintf("the list as before, with no filter, after %s: every fixture is still listed, in the state it was left in.", strings.Join(moveIDs, ", "))
 		after.Expect = SuccessExpectation(lm)
@@ -461,8 +455,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		if len(matching) == 0 {
 			continue
 		}
-		filtered := copyStep(t.step, p.freeStepID(t.step.ID+"_"+strings.ToLower(short[v])))
-		filtered.Export = nil
+		filtered := probeStep(t.step, p.freeStepID(t.step.ID+"_"+strings.ToLower(short[v])))
 		filtered.Body[filterKey] = v
 		filtered.Description = fmt.Sprintf("filtered to %s: only %s, and nothing else of the scope.", short[v], stepIDList(matching))
 		filtered.Expect = SuccessExpectation(lm)

@@ -145,8 +145,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 	at := st.ID
 	ids := []string{}
 	for _, prof := range profiles {
-		probe := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		probe.Export = nil
+		probe := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		probe.Auth = prof
 		probe.Description = fmt.Sprintf("the same read as %s, as profile %s: the same answer, field for field.", st.ID, prof)
 		probe.Expect = SuccessExpectation(m)
@@ -275,16 +274,14 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			if !owned[s.ID] {
 				continue
 			}
-			c := copyStep(s, rename[s.ID])
-			c.Export = nil
+			c := probeStep(s, rename[s.ID])
 			retarget(c, rename)
 			p.freshen(lib, c)
 			c.Description = fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof)
 			p.assertEcho(c)
 			added = append(added, c)
 		}
-		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		w.Export = nil
+		w := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		w.Auth = prof
 		retarget(w, rename)
 		p.freshen(lib, w)
@@ -326,8 +323,7 @@ func (p *Plan) createParity(lib *Library, st *chain.Step, idPath string, profile
 	}
 	ids := []string{}
 	for _, prof := range profiles {
-		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		w.Export = nil
+		w := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		w.Auth = prof
 		p.freshen(lib, w)
 		renameStepRefs(w, st.ID, w.ID)

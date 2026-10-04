@@ -170,8 +170,7 @@ func (p *Plan) addExactStockProbe(lib *Library, st *chain.Step, m *catalog.Metho
 		renameStepRefs(exact, source.ID, exact.ID)
 		exact.Description = fmt.Sprintf("as %s, but asking for exactly the stock this chain added (%s), for %s.", source.ID, strings.Join(set, ", "), id)
 		p.assertEcho(exact)
-		act := copyStep(st, id)
-		act.Export = nil
+		act := probeStep(st, id)
 		renameStepRefs(act, source.ID, exact.ID)
 		renameStepRefs(act, st.ID, act.ID)
 		act.Description = fmt.Sprintf("%s when every line asks for exactly the stock on hand: it succeeds and leaves none, since %s is refused only for more than there is.", st.ID, f.Label())

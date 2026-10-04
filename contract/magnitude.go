@@ -624,14 +624,12 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 			continue
 		}
 		id := p.freeStepID(st.ID + "_wide_total")
-		prod := copyStep(entity, p.freeStepID(entity.ID+"_for_"+id))
-		prod.Export = nil
+		prod := probeStep(entity, p.freeStepID(entity.ID+"_for_"+id))
 		p.freshen(lib, prod)
 		prod.Body[priceKey] = strconv.FormatInt(price, 10)
 		renameStepRefs(prod, entity.ID, prod.ID)
 		prod.Description = fmt.Sprintf("as %s, but priced at %d, for %s.", entity.ID, price, id)
-		probe := copyStep(st, id)
-		probe.Export = nil
+		probe := probeStep(st, id)
 		p.freshen(lib, probe)
 		line := cloneBody(first).(map[string]any)
 		line[t.itemID] = strings.Replace(ref, "${"+entity.ID+".", "${"+prod.ID+".", 1)

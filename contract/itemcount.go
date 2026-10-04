@@ -105,8 +105,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 	ids := []string{}
 	for _, c := range counts {
 		suffix := fmt.Sprintf("%d_%s", c.n, il.field.Name)
-		v := copyStep(fx, p.freeStepID(fx.ID+"_"+suffix))
-		v.Export = nil
+		v := probeStep(fx, p.freeStepID(fx.ID+"_"+suffix))
 		v.Body[il.key] = c.items
 		p.freshen(lib, v)
 		renameStepRefs(v, fx.ID, v.ID)
@@ -117,8 +116,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 			ids = append(ids, v.ID)
 			continue
 		}
-		t := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-		t.Export = nil
+		t := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		p.freshen(lib, t)
 		renameStepRefs(t, fx.ID, v.ID)
 		t.Description = fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID)
@@ -161,8 +159,7 @@ func (p *Plan) manyItems(lib *Library, st *chain.Step, il itemList, third any, t
 		items = append(items, next)
 		prev = next
 	}
-	v := copyStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, lotsOfItems, il.field.Name)))
-	v.Export = nil
+	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, lotsOfItems, il.field.Name)))
 	v.Body[il.key] = items
 	p.freshen(lib, v)
 	renameStepRefs(v, st.ID, v.ID)

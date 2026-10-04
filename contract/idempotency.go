@@ -67,8 +67,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	first := "${" + st.ID + "." + carrier + "." + idField + "}"
 	idPath := carrier + "." + idField
 
-	replay := copyStep(st, p.freeStepID(st.ID+"_replay"))
-	replay.Export = nil
+	replay := probeStep(st, p.freeStepID(st.ID+"_replay"))
 	replay.Body[key] = sent
 	renameStepRefs(replay, st.ID, replay.ID)
 	replay.Body[key] = sent
@@ -146,8 +145,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 	added, ids := []*chain.Step{}, []string{}
 	for _, tr := range transitions {
 		label := defaultID(tr.method.Name)
-		fixture := copyStep(st, p.freeStepID(st.ID+"_for_replay_after_"+label))
-		fixture.Export = nil
+		fixture := probeStep(st, p.freeStepID(st.ID+"_for_replay_after_"+label))
 		p.freshen(lib, fixture)
 		renameStepRefs(fixture, st.ID, fixture.ID)
 		fixture.Description = fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label)

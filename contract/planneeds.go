@@ -129,8 +129,7 @@ func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, pro
 	}
 	var st *chain.Step
 	if template != nil {
-		st = copyStep(template, id)
-		st.Export = nil
+		st = probeStep(template, id)
 		renameStepRefs(st, template.ID, id)
 	} else {
 		notes := len(p.Notes)

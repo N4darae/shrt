@@ -142,8 +142,7 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 
 func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, f Failure, move transition, short map[string]string) {
 	label := strings.ToLower(short[move.value])
-	fixture := copyStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+st.ID+"_"+label))
-	fixture.Export = nil
+	fixture := probeStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+st.ID+"_"+label))
 	p.freshen(lib, fixture)
 	renameStepRefs(fixture, e.producer.ID, fixture.ID)
 	fixture.Description = fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value])
@@ -153,8 +152,7 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
 		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
-	refused := copyStep(st, p.freeStepID(st.ID+"_when_"+label))
-	refused.Export = nil
+	refused := probeStep(st, p.freeStepID(st.ID+"_when_"+label))
 	if !chain.IsReadOnlyCall(st.Call) {
 		p.freshen(lib, refused)
 	}

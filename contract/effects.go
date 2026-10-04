@@ -1318,8 +1318,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		}
 		noun := strings.TrimPrefix(v.itemID, "id_")
 		id := p.freeStepID(st.ID + "_same_" + noun + "_twice")
-		fixture := copyStep(order, p.freeStepID(order.ID+"_for_"+id))
-		fixture.Export = nil
+		fixture := probeStep(order, p.freeStepID(order.ID+"_for_"+id))
 		p.freshen(lib, fixture)
 		renameStepRefs(fixture, order.ID, fixture.ID)
 		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)
@@ -1332,8 +1331,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		fixture.Expect = withoutItemCounts(fixture.Expect, v.list)
 		fixture.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d), so %s must take %d of it.", order.ID, entity.ID, v.list, a, b, id, a+b)
 		p.assertEcho(fixture)
-		act := copyStep(st, id)
-		act.Export = nil
+		act := probeStep(st, id)
 		p.freshen(lib, act)
 		act.Body[key] = "${" + fixture.ID + "." + v.orderIDPath + "}"
 		renameStepRefs(act, st.ID, act.ID)
@@ -1391,8 +1389,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		}
 		noun := strings.TrimPrefix(itemID, "id_")
 		id := p.freeStepID(st.ID + "_same_" + noun + "_twice")
-		probe := copyStep(st, id)
-		probe.Export = nil
+		probe := probeStep(st, id)
 		p.freshen(lib, probe)
 		renameStepRefs(probe, st.ID, probe.ID)
 		one, other := cloneBody(first).(map[string]any), cloneBody(first).(map[string]any)

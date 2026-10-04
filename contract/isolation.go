@@ -136,8 +136,7 @@ func (p *Plan) ownFixtures(lib *Library, group []*chain.Step, tag string) []*cha
 			continue
 		}
 		src := p.stepByID(id)
-		c := copyStep(src, rename[id])
-		c.Export = nil
+		c := probeStep(src, rename[id])
 		retarget(c, rename)
 		p.freshen(lib, c)
 		c.Description = fmt.Sprintf("as %s, a fixture of the %s probes' own, so a defect another probe leaves in %s cannot fail them.", id, strings.ReplaceAll(tag, "_", " "), id)
@@ -231,8 +230,7 @@ func (p *Plan) ownMovedResources(lib *Library, t *listTarget, moves map[*chain.S
 		if !owned[id] {
 			continue
 		}
-		c := copyStep(p.stepByID(id), rename[id])
-		c.Export = nil
+		c := probeStep(p.stepByID(id), rename[id])
 		retarget(c, rename)
 		p.freshen(lib, c)
 		c.Description = fmt.Sprintf("as %s, for the fixtures the status filters move, so a defect a main-path write leaves in %s cannot fail the move.", id, id)

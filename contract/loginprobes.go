@@ -79,8 +79,7 @@ func userKey(body map[string]any) string {
 func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string {
 	out := []string{}
 	add := func(suffix, key, value, what string) {
-		probe := copyStep(st, p.freeStepID(st.ID+"_"+suffix))
-		probe.Export = nil
+		probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		probe.Body[key] = value
 		probe.Expect = refusalFor(m, f)
 		probe.Description = fmt.Sprintf("%s: refused with %s, as the contract declares.", what, f.Label())
@@ -120,8 +119,7 @@ func (p *Plan) paddedSecretLogin(st *chain.Step, m *catalog.Method, f Failure, d
 	if key == "" || !ok || cur == "" {
 		return ""
 	}
-	probe := copyStep(st, p.freeStepID(st.ID+"_padded_"+strings.ToLower(key)))
-	probe.Export = nil
+	probe := probeStep(st, p.freeStepID(st.ID+"_padded_"+strings.ToLower(key)))
 	probe.Body[key] = " " + cur + " "
 	refused := "refused with " + f.Label() + ", as a wrong one is"
 	if declared {
@@ -204,8 +202,7 @@ func (p *Plan) loginRoles(lib *Library, st *chain.Step, m *catalog.Method, c *RP
 			out = append(out, fmt.Sprintf("profile %s names none of the roles the contract lists (%s), so its login role is not asserted", prof, strings.Join(roles, ", ")))
 			continue
 		}
-		probe := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
-		probe.Export = nil
+		probe := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		probe.Body = map[string]any{}
 		for k, v := range body {
 			key, ok := namecase.LookupKey(st.Body, k)
