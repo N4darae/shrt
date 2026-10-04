@@ -333,7 +333,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			k := stepKey(rec.Chain, step.ID)
 			f, ok := seen[k]
 			if !ok {
-				f = &Finding{Chain: rec.Chain, Step: step.ID, RPC: procedure[strings.LastIndex(procedure, "/")+1:], Procedure: procedure}
+				f = &Finding{Chain: rec.Chain, Step: step.ID, RPC: chain.RPCName(procedure), Procedure: procedure}
 				seen[k] = f
 				order = append(order, k)
 			}

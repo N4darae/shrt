@@ -34,7 +34,7 @@ func DefaultReadOnlyPrefixes() []string {
 func IsReadOnlyCall(call string) bool { return callHasPrefix(call, ReadOnlyPrefixes()) }
 
 func callHasPrefix(call string, prefixes []string) bool {
-	name := call[strings.LastIndex(call, "/")+1:]
+	name := RPCName(call)
 	return slices.ContainsFunc(prefixes, func(p string) bool {
 		return strings.HasPrefix(name, p) && (len(name) == len(p) || name[len(p)] < 'a' || name[len(p)] > 'z')
 	})

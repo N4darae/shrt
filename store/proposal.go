@@ -318,7 +318,7 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 	asserted, bare, verdictOnly, warned := 0, []string{}, []string{}, []string{}
 	envelope := chain.EnvelopePath()
 	for _, st := range rec.Steps {
-		calls.add(shortCall(st.Call))
+		calls.add(chain.RPCName(st.Call))
 		answer := answerKind(st, envelope)
 		answers.add(answer)
 		asserted += len(st.Expect)
@@ -397,10 +397,6 @@ func clipList(items []string, max int) string {
 		return strings.Join(items[:max], ", ") + fmt.Sprintf(" and %d more", len(items)-max)
 	}
 	return strings.Join(items, ", ")
-}
-
-func shortCall(call string) string {
-	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func answerKind(st *runner.StepRecord, envelope string) string {
