@@ -9,22 +9,7 @@ import (
 
 const MinorityPackage = "shrt.minority.v1"
 
-func MinorityDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{minorityFile()}}
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
-func Minority() *catalog.Catalog {
-	cat, err := catalog.Parse(MinorityDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Minority() *catalog.Catalog { return parse(descriptor(minorityFile())) }
 
 func minorityFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{

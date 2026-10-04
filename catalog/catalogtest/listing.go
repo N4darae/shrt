@@ -9,22 +9,7 @@ import (
 
 const ListingPackage = "shrt.listing.v1"
 
-func ListingDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{listingFile()}}
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
-func Listing() *catalog.Catalog {
-	cat, err := catalog.Parse(ListingDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Listing() *catalog.Catalog { return parse(descriptor(listingFile())) }
 
 func listingFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{

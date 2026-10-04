@@ -9,22 +9,7 @@ import (
 
 const ForeignPackage = "shrt.foreign.v1"
 
-func ForeignDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{foreignFile()}}
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
-func Foreign() *catalog.Catalog {
-	cat, err := catalog.Parse(ForeignDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Foreign() *catalog.Catalog { return parse(descriptor(foreignFile())) }
 
 func foreignFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{
