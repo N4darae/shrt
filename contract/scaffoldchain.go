@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -41,7 +42,7 @@ func scaffoldPlan(name, noun string, refs, ids []string, lib *Library, cat *cata
 			if read {
 				return choices[readRun[m.FullName]%len(choices)]
 			}
-			return leastUsed(choices, used)
+			return slices.MinFunc(choices, func(a, b string) int { return cmp.Compare(used[a], used[b]) })
 		}
 		for rpc, ids := range producers {
 			p.stepOf[rpc] = choose(ids)
@@ -107,16 +108,6 @@ func (p *Plan) rewireProducers(step *chain.Step, producers map[string][]string, 
 		return v
 	}
 	walk(step.Body, -1)
-}
-
-func leastUsed(choices []string, used map[string]int) string {
-	pick := choices[0]
-	for _, c := range choices[1:] {
-		if used[c] < used[pick] {
-			pick = c
-		}
-	}
-	return pick
 }
 
 func distinguishFixtures(step *chain.Step, id, first string) {

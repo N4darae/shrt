@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -269,17 +270,10 @@ func dropTodoRequired(o *Overlay) {
 		if c == nil || len(c.Required) == 0 {
 			continue
 		}
-		kept := make([]string, 0, len(c.Required))
-		for _, name := range c.Required {
-			if IsTodo(name) {
-				continue
-			}
-			kept = append(kept, name)
-		}
-		if len(kept) == len(c.Required) {
+		n := len(c.Required)
+		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) == n {
 			continue
 		}
-		c.Required = kept
 		if c.Unfilled == nil {
 			c.Unfilled = map[string]bool{}
 		}
@@ -557,21 +551,9 @@ func decodeStrict(raw []byte, into any) error {
 			"parse (%v); only the first is read, so the rest would be silently ignored. Split it into separate "+
 			"files, or remove the '---'", err)
 	}
-	if err == nil && carriesContent(&extra) {
+	if err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
-}
-
-func carriesContent(n *yaml.Node) bool {
-	if n == nil {
-		return false
-	}
-	for _, c := range n.Content {
-		if c.Tag != "!!null" {
-			return true
-		}
-	}
-	return false
 }

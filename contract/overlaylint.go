@@ -353,19 +353,7 @@ func lintFailure(domain, rpc, label string, f Failure) []Issue {
 }
 
 func commitish(s string) bool {
-	if len(s) < 7 || len(s) > 40 {
-		return false
-	}
-	for _, r := range s {
-		switch {
-		case r >= '0' && r <= '9':
-		case r >= 'a' && r <= 'f':
-		case r >= 'A' && r <= 'F':
-		default:
-			return false
-		}
-	}
-	return true
+	return len(s) >= 7 && len(s) <= 40 && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
 
 func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {

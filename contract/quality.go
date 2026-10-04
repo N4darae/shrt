@@ -260,16 +260,7 @@ func requiredSaysSomething(c *RPCContract, shape MethodShape) bool {
 	if len(c.Required) == 1 && strings.TrimSpace(c.Required[0]) == RequiredNone {
 		return true
 	}
-	real := map[string]bool{}
-	for _, name := range shape.RequestFields {
-		real[name] = true
-	}
-	for _, key := range c.Required {
-		if real[headSegment(key)] {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(c.Required, func(key string) bool { return slices.Contains(shape.RequestFields, headSegment(key)) })
 }
 
 func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredBy []string) QualityRPC {
@@ -360,13 +351,10 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 func hasWriteProducer(c *RPCContract, fields map[string]*FieldContract, requiredBy []string) bool {
 	isWrite := func(node string) bool {
 		rpc, _ := SplitNode(node)
-		rpc = strings.TrimSpace(rpc)
 		return rpc != "" && !chain.IsReadOnlyCall(rpc)
 	}
-	for _, n := range c.Needs {
-		if isWrite(n) {
-			return true
-		}
+	if slices.ContainsFunc(c.Needs, isWrite) {
+		return true
 	}
 	for _, f := range fields {
 		if f == nil {
@@ -379,12 +367,7 @@ func hasWriteProducer(c *RPCContract, fields map[string]*FieldContract, required
 			}
 		}
 	}
-	for _, n := range requiredBy {
-		if isWrite(n) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(requiredBy, isWrite)
 }
 
 var placeholderText = map[string]bool{
