@@ -195,13 +195,9 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 	}
 	if a.KeepGoing != b.KeepGoing {
-		kept, other := a, b
+		kept, other, otherSteps := a, b, allB
 		if b.KeepGoing {
-			kept, other = b, a
-		}
-		otherSteps := map[string]*runner.StepRecord{}
-		for _, s := range other.Steps {
-			otherSteps[s.ID] = s
+			kept, other, otherSteps = b, a, allA
 		}
 		for _, s := range kept.Steps {
 			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !StepReached(other, o)) {
@@ -547,10 +543,8 @@ func (r *RunReport) Text() string {
 			b.WriteString("\n")
 		}
 	}
-	if len(r.VarChanges) > 0 {
-		if parts := r.varChanges(false); len(parts) > 0 {
-			fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
-		}
+	if parts := r.varChanges(false); len(parts) > 0 {
+		fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
 	}
 	if r.FirstFailureA != r.FirstFailureB {
 		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", cmp.Or(r.FirstFailureA, "none"), cmp.Or(r.FirstFailureB, "none"))

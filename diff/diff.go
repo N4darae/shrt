@@ -293,13 +293,10 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		if !StepReached(rec, got) {
 			continue
 		}
-		gotRedacted := map[string]bool{}
-		for _, p := range pathmask.RedactedPaths(got.Response) {
-			gotRedacted[p] = true
-		}
+		gotRedacted := pathmask.RedactedPaths(got.Response)
 		for _, p := range pathmask.RedactedPaths(want.Response) {
 			switch {
-			case !gotRedacted[p]:
+			case !slices.Contains(gotRedacted, p):
 			case len(rec.Redacted) > 0 && !redactPaths.Masks(p):
 				rep.ScrubbedPaths = append(rep.ScrubbedPaths, want.ID+" "+p)
 			default:
@@ -1395,10 +1392,7 @@ func (r *Report) Text() string {
 		if c.Kind == KindNotReached {
 			c.Detail = skips.Condense(c.Step, c.Detail)
 		}
-		step := c.Step
-		if step == "" {
-			step = "-"
-		}
+		step := cmp.Or(c.Step, "-")
 		if r.folded[c.Step] && c.Kind != KindNotReached {
 			if !foldSaid[c.Step] {
 				foldSaid[c.Step] = true
