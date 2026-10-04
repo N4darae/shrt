@@ -46,7 +46,7 @@ type verification struct {
 	edits, unsupplied                                              []string
 	spot                                                           *store.SafeSpot
 	rec                                                            *runner.Record
-	c                                                              *chain.Chain
+	c, resolved                                                    *chain.Chain
 	report                                                         *diff.Report
 	latency                                                        []diff.LatencyFlag
 	declared, independent                                          []diff.Change
@@ -60,11 +60,12 @@ type verification struct {
 	literal                                                        *literalCollision
 	idem, lateIdem                                                 *idempotentReplay
 	notes                                                          []string
+	items                                                          []gateItem
 }
 
 func runVerify(ctx context.Context, args []string) (err error) {
 	v := &verification{vars: varFlags{}}
-	defer func() { writeGateSidecar(v.sidecar(), err) }()
+	defer func() { writeGateSidecar(v.sidecar, err) }()
 	if err := v.parse(args); err != nil {
 		return err
 	}
@@ -86,7 +87,7 @@ func runVerify(ctx context.Context, args []string) (err error) {
 	}
 	body := &strings.Builder{}
 	defer func() {
-		verdict, rest := verifyVerdict(v.e, v.name, v.rec, v.report, v.flaky, v.nonBackend != nil, err, body.String())
+		verdict, rest := verifyVerdict(v.e, v.name, v.rec, v.report, v.gateItems(), v.flaky, v.nonBackend != nil, err, body.String())
 		fmt.Print(verdict + rest)
 		if first, _ := firstChange(v.report, v.rec); err != nil && v.nonBackend == nil && first != nil {
 			err = shownError{err}
@@ -125,7 +126,7 @@ func (v *verification) load(ctx context.Context) error {
 		return err
 	}
 	v.e = e
-	if v.name, err = e.chainName(v.arg); err != nil {
+	if v.name, v.resolved, err = e.namedChain(v.arg); err != nil {
 		return err
 	}
 	if err := e.knownChain(v.name); err != nil {
@@ -188,16 +189,26 @@ func (v *verification) loadRun() error {
 		fmt.Fprintf(os.Stderr, "verify: run %s IS the safe spot's own run, so this is a control for the differ, NOT evidence about "+
 			"the backend; pass a later run id, or drop -run to replay live\n", v.useRun)
 	}
-	if resolved, resolveErr := e.resolveChainNamed(v.arg, name); resolveErr == nil {
+	if resolved, resolveErr := v.chain(); resolveErr == nil {
 		v.c = resolved
 	}
 	v.rec = rec
 	return nil
 }
 
+func (v *verification) chain() (*chain.Chain, error) {
+	switch {
+	case v.resolved == nil:
+		return v.e.resolveChainNamed(v.arg, v.name)
+	case v.resolved.Name == v.name:
+		return v.resolved, nil
+	}
+	return v.e.resolveChain(v.name)
+}
+
 func (v *verification) replay(ctx context.Context) error {
 	e := v.e
-	c, err := e.resolveChainNamed(v.arg, v.name)
+	c, err := v.chain()
 	if err != nil {
 		for _, o := range doctor.OrphanSafeSpots(e.cfg) {
 			if o.Name == v.name {
@@ -226,7 +237,8 @@ func (v *verification) compare() {
 	spot, renamedSteps := diff.RenameSpotSteps(v.spot, rec.Steps)
 	v.spot = spot
 	v.latency = latencyFlags(e, spot, rec, latencyPolicy(e))
-	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	volatile := currentVolatile(e, name)
+	report := diff.CompareMasking(spot, rec, volatile)
 	v.report = report
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
@@ -238,7 +250,7 @@ func (v *verification) compare() {
 		edited := diff.ChainChangesIn(spot, c, rec)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
-		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
+		report.SeparateInput(spot, rec, volatile, requestFixtures(c))
 	}
 }
 
@@ -247,7 +259,7 @@ func (v *verification) sidecar() gateSidecar {
 		return gateSidecar{}
 	}
 	side := earlySidecar(v.e, v.rec)
-	side.Items = verifyItems(v.e, v.rec, v.report)
+	side.Items = v.gateItems()
 	if latencyPolicy(v.e).Fail {
 		side.Items = append(side.Items, latencyItems(v.latency)...)
 	}
@@ -257,6 +269,13 @@ func (v *verification) sidecar() gateSidecar {
 		side.Flaky, side.FlakyOnly = v.flaky.rates(), v.flakyOnly
 	}
 	return side
+}
+
+func (v *verification) gateItems() []gateItem {
+	if v.items == nil {
+		v.items = verifyItems(v.e, v.rec, v.report)
+	}
+	return v.items
 }
 
 func (v *verification) note(body *strings.Builder, line string) {
@@ -1138,7 +1157,7 @@ func intendedChangeNext(name string) string {
 	return fmt.Sprintf("if intended, a person approves a passing run: shrt confirm %s -supersede -note \"...\"", name)
 }
 
-func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
+func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report, items []gateItem, flaky *intermittentFailure, noVerdict bool, err error, body string) (string, string) {
 	if noVerdict {
 		return "", body
 	}
@@ -1177,11 +1196,10 @@ func verifyVerdict(e *env, name string, rec *runner.Record, report *diff.Report,
 	if hint := tellApart(e, r, first.Path); hint != "" {
 		line += "\n  " + hint
 	}
-	return line + "\n" + otherRoots(e, rec, report, first), body
+	return line + "\n" + otherRoots(items, first), body
 }
 
-func otherRoots(e *env, rec *runner.Record, report *diff.Report, first *diff.Change) string {
-	items := verifyItems(e, rec, report)
+func otherRoots(items []gateItem, first *diff.Change) string {
 	seen := map[string]bool{}
 	for _, it := range items {
 		if it.Step == first.Step && (it.Path == first.Path || first.Kind == diff.KindStatus) {
@@ -1277,7 +1295,7 @@ func rootChange(report *diff.Report, rec *runner.Record, c diff.Change) *diff.Ch
 			bad[x.Step] = true
 		}
 	}
-	w, fallback := suspectWrite(rec, c.Step, c.Path, bad, -1)
+	w, fallback := attribution{rec: rec}.suspectWrite(c.Step, c.Path, bad, -1)
 	if fallback || w < 0 || !bad[rec.Steps[w].ID] {
 		return nil
 	}

@@ -103,8 +103,9 @@ func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *r
 		if st == nil {
 			continue
 		}
+		keyed := replayedKeys(c, st)
 		if prior := was[st.ID]; prior != nil {
-			if r := replayedKey(c, st, prior); r != nil {
+			if r := keyed(prior); r != nil {
 				if r.answered, r.id = sameIDAnswered(st, prior); r.answered != "" {
 					r.index, r.spot = i, spot.RunID
 					return r
@@ -115,7 +116,7 @@ func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *r
 			if !loaded {
 				recorded, loaded = recordedRuns(e, rec, spot.RunID), true
 			}
-			if r := replayOfRecorded(c, st, rec.Chain, recorded); r != nil {
+			if r := replayOfRecorded(keyed, st, rec.Chain, recorded); r != nil {
 				r.index = i
 				return r
 			}
@@ -171,21 +172,18 @@ func recordedRuns(e *env, rec *runner.Record, spot string) []*runner.Record {
 	return out
 }
 
-func replayOfRecorded(c *chain.Chain, st *runner.StepRecord, name string, runs []*runner.Record) *idempotentReplay {
+func replayOfRecorded(keyed func(*runner.StepRecord) *idempotentReplay, st *runner.StepRecord, name string, runs []*runner.Record) *idempotentReplay {
 	var found *idempotentReplay
 	for _, prev := range runs {
 		if found != nil && prev.Chain != name {
 			return found
 		}
 		for _, prior := range prev.Steps {
-			if prior == nil || prior.Call != st.Call || !createdStep(prior) {
+			if prior == nil || prior.Call != st.Call || prev.Chain == name && prior.ID != st.ID {
 				continue
 			}
-			if prev.Chain == name && prior.ID != st.ID {
-				continue
-			}
-			r := replayedKey(c, st, prior)
-			if r == nil {
+			r := keyed(prior)
+			if r == nil || !createdStep(prior) {
 				continue
 			}
 			if r.answered, r.id = sameIDAnswered(st, prior); r.answered != "" {
@@ -202,9 +200,11 @@ func replayOfRecorded(c *chain.Chain, st *runner.StepRecord, name string, runs [
 	return found
 }
 
-func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay {
-	var a, b any
-	if json.Unmarshal(now.Request, &b) == nil && json.Unmarshal(was.Request, &a) == nil {
+func replayedKeys(c *chain.Chain, now *runner.StepRecord) func(was *runner.StepRecord) *idempotentReplay {
+	type key struct{ field, name, value, template string }
+	var body, headers []key
+	var b any
+	if json.Unmarshal(now.Request, &b) == nil {
 		paths := []string{}
 		eachLeaf(b, "", func(path string, _ any) {
 			if chain.IdempotencyKeyName(leafName(path)) {
@@ -213,14 +213,10 @@ func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay 
 		})
 		sort.Strings(paths)
 		for _, path := range paths {
-			x, okA := chain.Get(a, path)
 			y, okB := chain.Get(b, path)
 			template, ok := requestTemplate(c, now.ID, path)
-			text, isText := template.(string)
-			if okA && okB && ok && isText {
-				if r := sameKey(now.ID, path, fmt.Sprint(x), fmt.Sprint(y), text); r != nil {
-					return r
-				}
+			if text, isText := template.(string); okB && ok && isText {
+				body = append(body, key{path, path, fmt.Sprint(y), text})
 			}
 		}
 	}
@@ -228,16 +224,31 @@ func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay 
 		if !chain.IdempotencyKeyName(k) {
 			continue
 		}
-		prior, had := was.Headers[k]
 		template, ok := requestTemplate(c, now.ID, diff.HeadersPathPrefix+k)
-		text, isText := template.(string)
-		if had && ok && isText {
-			if r := sameKey(now.ID, "header "+k, prior, now.Headers[k], text); r != nil {
-				return r
-			}
+		if text, isText := template.(string); ok && isText {
+			headers = append(headers, key{"header " + k, k, now.Headers[k], text})
 		}
 	}
-	return nil
+	return func(was *runner.StepRecord) *idempotentReplay {
+		var a any
+		if len(body) > 0 && json.Unmarshal(was.Request, &a) == nil {
+			for _, k := range body {
+				if x, ok := chain.Get(a, k.name); ok {
+					if r := sameKey(now.ID, k.field, fmt.Sprint(x), k.value, k.template); r != nil {
+						return r
+					}
+				}
+			}
+		}
+		for _, k := range headers {
+			if prior, had := was.Headers[k.name]; had {
+				if r := sameKey(now.ID, k.field, prior, k.value, k.template); r != nil {
+					return r
+				}
+			}
+		}
+		return nil
+	}
 }
 
 func sameKey(step, field, was, now, template string) *idempotentReplay {

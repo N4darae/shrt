@@ -57,7 +57,7 @@ func typedVar(s string) any {
 
 func runRun(ctx context.Context, args []string) (err error) {
 	side := func() gateSidecar { return gateSidecar{} }
-	defer func() { writeGateSidecar(side(), err) }()
+	defer func() { writeGateSidecar(side, err) }()
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a chain var as `key=value`, repeatable")

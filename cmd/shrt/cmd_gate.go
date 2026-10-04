@@ -161,11 +161,12 @@ var gateSleep = func(ctx context.Context, d time.Duration) {
 	}
 }
 
-func writeGateSidecar(side gateSidecar, err error) {
+func writeGateSidecar(sidecar func() gateSidecar, err error) {
 	path := os.Getenv(gateReportEnv)
 	if path == "" {
 		return
 	}
+	side := sidecar()
 	if err != nil {
 		side.Error, _, _ = strings.Cut(err.Error(), "\n")
 	}
@@ -313,6 +314,7 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 		return &cp
 	}
 	return attribution{e: e, rec: rec, bad: badSteps(rec),
+		bodies: map[*runner.StepRecord]stepBody{}, produced: map[int]map[string]string{},
 		unchanged: func(step, path string) bool {
 			st, ok := rec.Step(step)
 			if !ok || st == nil {
@@ -478,13 +480,17 @@ func verifyAttribution(e *env, rec *runner.Record, report *diff.Report) attribut
 }
 
 func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attribution {
-	bad := map[string]bool{}
+	bad, changedAt := map[string]bool{}, map[string][]string{}
 	for _, c := range changes {
 		if c.Kind != diff.KindNotReached {
 			bad[c.Step] = true
 		}
+		if c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
+			changedAt[c.Step] = append(changedAt[c.Step], c.Path)
+		}
 	}
 	return attribution{e: e, rec: rec, bad: bad, ref: true,
+		bodies: map[*runner.StepRecord]stepBody{}, produced: map[int]map[string]string{},
 		unchanged: func(step, path string) bool {
 			held := ""
 			if st, ok := rec.Step(step); ok && st != nil {
@@ -506,13 +512,7 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			})
 		},
 		changed: func(step string) []string {
-			var out []string
-			for _, c := range changes {
-				if c.Step == step && c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
-					out = append(out, c.Path)
-				}
-			}
-			return out
+			return changedAt[step]
 		},
 		resized: func(step, path string) string {
 			var lists []string
