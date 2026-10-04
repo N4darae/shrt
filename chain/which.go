@@ -470,10 +470,7 @@ func DescribeFailure(r ExpectResult) string {
 	if r.Got != nil {
 		out += " " + GotText(r.Rule, scalarText(r.Got))
 	}
-	if r.Detail != "" {
-		out += " (" + r.Detail + ")"
-	}
-	return out
+	return withNote(out, r.Detail)
 }
 
 func scalarText(v any) string {

@@ -227,10 +227,7 @@ func (r ExpectResult) String() string {
 	if !ruleShown(r.Rule) {
 		out = fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
 	}
-	if r.Detail != "" {
-		out += " (" + r.Detail + ")"
-	}
-	return out
+	return withNote(out, r.Detail)
 }
 
 func ruleShown(rule string) bool {

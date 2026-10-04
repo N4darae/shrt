@@ -274,11 +274,7 @@ type MissingPathError struct {
 }
 
 func (e *MissingPathError) Error() string {
-	msg := fmt.Sprintf("unresolved reference ${%s}: step %q answered without %s", e.Expr, e.Step, e.Path)
-	if e.Near != "" {
-		msg += " (" + e.Near + ")"
-	}
-	return msg
+	return withNote(fmt.Sprintf("unresolved reference ${%s}: step %q answered without %s", e.Expr, e.Step, e.Path), e.Near)
 }
 
 func nearestPresent(root any, path string) string {

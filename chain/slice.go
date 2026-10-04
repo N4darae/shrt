@@ -419,21 +419,13 @@ func (r *SliceResult) MarkReproduced(sourceRun, sliceRun string, at time.Time) {
 }
 
 func (r *SliceResult) MarkNotReproduced(sourceRun, sliceRun string, at time.Time, difference string) {
-	text := fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	if difference != "" {
-		text += " (" + difference + ")"
-	}
-	r.settle(&r.NotReproduced, text)
+	r.settle(&r.NotReproduced, withNote(fmt.Sprintf("on %s slice run %s%s did not give step %s the verdict it had in source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun), difference))
 }
 
 func (r *SliceResult) MarkInconclusive(sourceRun, sliceRun string, at time.Time, why string) {
-	text := fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
-		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun)
-	if why != "" {
-		text += " (" + why + ")"
-	}
-	r.settle(&r.Inconclusive, text)
+	r.settle(&r.Inconclusive, withNote(fmt.Sprintf("on %s slice run %s%s gave step %s a verdict that does not settle whether it reproduces source run %s",
+		at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), r.Target, sourceRun), why))
 }
 
 func (r *SliceResult) MarkIntermittent(sourceRun, sliceRuns string, reproduced, runs int, at time.Time) {
@@ -449,12 +441,15 @@ func (r *SliceResult) OwnRunOutcome(outcome, chainName, sourceRun, sliceRun stri
 	case strings.HasPrefix(outcome, "INTERMITTENT"):
 		gave = "in only some runs the verdict of"
 	}
-	out := fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
-		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun)
-	if why != "" {
-		out += " (" + why + ")"
+	return withNote(fmt.Sprintf("%s on %s: run %s%s of %s gave step %s %s %s's own run %s",
+		outcome, at.UTC().Format("2006-01-02"), sliceRun, r.onBuild(), chainName, r.Target, gave, chainName, sourceRun), why)
+}
+
+func withNote(text, note string) string {
+	if note == "" {
+		return text
 	}
-	return out
+	return text + " (" + note + ")"
 }
 
 func (r *SliceResult) OwnRunVerdict(chainName, sourceRun, sliceRun string, at time.Time) string {
