@@ -142,11 +142,8 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 
 func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, f Failure, move transition, short map[string]string) {
 	label := strings.ToLower(short[move.value])
-	fixture := probeStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+st.ID+"_"+label))
-	p.freshen(lib, fixture)
-	renameStepRefs(fixture, e.producer.ID, fixture.ID)
-	fixture.Description = fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value])
-	p.assertEcho(fixture)
+	fid := p.freeStepID(e.producer.ID + "_for_" + st.ID + "_" + label)
+	fixture := p.fixtureCopy(lib, e.producer, fid, map[string]string{e.producer.ID: fid}, fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value]))
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
 	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),

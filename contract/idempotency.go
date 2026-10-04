@@ -145,11 +145,8 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 	added, ids := []*chain.Step{}, []string{}
 	for _, tr := range transitions {
 		label := defaultID(tr.method.Name)
-		fixture := probeStep(st, p.freeStepID(st.ID+"_for_replay_after_"+label))
-		p.freshen(lib, fixture)
-		renameStepRefs(fixture, st.ID, fixture.ID)
-		fixture.Description = fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label)
-		p.assertEcho(fixture)
+		fid := p.freeStepID(st.ID + "_for_replay_after_" + label)
+		fixture := p.fixtureCopy(lib, st, fid, map[string]string{st.ID: fid}, fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label))
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
 
 		move := tr.step(p.freeStepID(label+"_for_replay"),

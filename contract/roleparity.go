@@ -274,11 +274,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			if !owned[s.ID] {
 				continue
 			}
-			c := probeStep(s, rename[s.ID])
-			retarget(c, rename)
-			p.freshen(lib, c)
-			c.Description = fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof)
-			p.assertEcho(c)
+			c := p.fixtureCopy(lib, s, rename[s.ID], rename, fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof))
 			added = append(added, c)
 		}
 		w := probeStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))

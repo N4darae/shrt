@@ -116,11 +116,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 			ids = append(ids, v.ID)
 			continue
 		}
-		t := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
-		p.freshen(lib, t)
-		renameStepRefs(t, fx.ID, v.ID)
-		t.Description = fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID)
-		p.assertEcho(t)
+		t := p.fixtureCopy(lib, st, p.freeStepID(st.ID+"_"+suffix), map[string]string{fx.ID: v.ID}, fmt.Sprintf("%s on %s, whose %s holds %s: the same outcome as with %s's 2.", st.ID, v.ID, il.field.Name, itemCount(c.n), fx.ID))
 		added = append(added, t)
 		ids = append(ids, t.ID)
 	}

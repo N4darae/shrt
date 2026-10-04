@@ -88,11 +88,8 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
 	label := strings.ToLower(short[tr.value])
 	id := p.freeStepID(st.ID + "_after_" + label)
-	fixture := probeStep(e.producer, p.freeStepID(e.producer.ID+"_for_"+id))
-	p.freshen(lib, fixture)
-	renameStepRefs(fixture, e.producer.ID, fixture.ID)
-	fixture.Description = fmt.Sprintf("as %s, %s of its own for %s to move to %s and %s to act on.", e.producer.ID, withArticle(e.carrier), defaultID(tr.method.Name), short[tr.value], st.ID)
-	p.assertEcho(fixture)
+	fid := p.freeStepID(e.producer.ID + "_for_" + id)
+	fixture := p.fixtureCopy(lib, e.producer, fid, map[string]string{e.producer.ID: fid}, fmt.Sprintf("as %s, %s of its own for %s to move to %s and %s to act on.", e.producer.ID, withArticle(e.carrier), defaultID(tr.method.Name), short[tr.value], st.ID))
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
 	moved := tr.step(p.freeStepID(defaultID(tr.method.Name)+"_before_"+id),
