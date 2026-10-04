@@ -380,11 +380,7 @@ func newestUnreached(list []Observation, order []string, last map[string]Observa
 		if o.Reached {
 			return nil
 		}
-		status := o.Status
-		if status == "" {
-			status = "not reached"
-		}
-		return &WhichNewest{Run: newest, Status: status}
+		return &WhichNewest{Run: newest, Status: cmp.Or(o.Status, "not reached")}
 	}
 	out := &WhichNewest{Run: newest, Status: "not in run"}
 	if o, ok := last[newest]; ok {

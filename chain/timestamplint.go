@@ -151,16 +151,11 @@ func lintUnassertedTimestamps(c *Chain, methods map[string]*catalog.Method) []Is
 		i := Issue{Step: ids[0], Severity: SeverityWarn, Kind: KindUnassertedTimestamp, Why: unassertedTimestampWhy,
 			Message: fmt.Sprintf("timestamp %s unasserted; expect %s", path, fix)}
 		if len(ids) > 1 {
-			shown := ids[:min(len(ids), 3)]
-			more := ""
-			if len(ids) > len(shown) {
-				more = fmt.Sprintf(" and %d more", len(ids)-len(shown))
-			}
 			if strings.HasSuffix(key, "\x00read-back") {
 				fix = fmt.Sprintf("equals: the stamp the step that created it received, e.g. %s %s", ids[0], fix)
 			}
 			i.Step = ""
-			i.Message = fmt.Sprintf("timestamp %s unasserted at %d steps (%s%s); expect %s", path, len(ids), strings.Join(shown, ", "), more, fix)
+			i.Message = fmt.Sprintf("timestamp %s unasserted at %d steps (%s); expect %s", path, len(ids), ListSome(ids, 3), fix)
 		}
 		issues = append(issues, i)
 	}

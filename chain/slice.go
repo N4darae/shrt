@@ -576,7 +576,7 @@ func replaceVerdict(description, line string, prefixes ...string) string {
 	return strings.TrimRight(description, "\n") + "\n"
 }
 
-func listSome(names []string, max int) string {
+func ListSome(names []string, max int) string {
 	if len(names) <= max {
 		return strings.Join(names, ", ")
 	}
@@ -622,7 +622,7 @@ func sliceDescription(res *SliceResult) string {
 		}
 	}
 	if len(asked) > 0 {
-		fmt.Fprintf(&b, "Kept on request: %s.\n", listSome(asked, 8))
+		fmt.Fprintf(&b, "Kept on request: %s.\n", ListSome(asked, 8))
 	}
 	for _, k := range res.Kept {
 		if k.Kind == KeepCheckpoint {
@@ -647,16 +647,16 @@ func sliceDescription(res *SliceResult) string {
 		fmt.Fprintf(&b, "Kept writes create with %s: run it with -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
 	if len(res.DroppedWrites) > 0 {
-		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(res.DroppedWrites), listSome(DroppedIDs(res.DroppedWrites), 8))
+		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(res.DroppedWrites), ListSome(DroppedIDs(res.DroppedWrites), 8))
 	}
 	if len(res.RefusedWrites) > 0 {
-		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(res.RefusedWrites), res.Run, listSome(DroppedIDs(res.RefusedWrites), 8))
+		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(res.RefusedWrites), res.Run, ListSome(DroppedIDs(res.RefusedWrites), 8))
 	}
 	if len(res.Minimized) > 0 {
-		fmt.Fprintf(&b, "Dropped by -minimize, as %s failed the same way in a run without each: %s.\n", res.Target, listSome(DroppedIDs(res.Minimized), 8))
+		fmt.Fprintf(&b, "Dropped by -minimize, as %s failed the same way in a run without each: %s.\n", res.Target, ListSome(DroppedIDs(res.Minimized), 8))
 	}
 	if len(res.Untried) > 0 {
-		fmt.Fprintf(&b, "Kept untried, past the -minimize cap of runs: %s.\n", listSome(res.Untried, 8))
+		fmt.Fprintf(&b, "Kept untried, past the -minimize cap of runs: %s.\n", ListSome(res.Untried, 8))
 	}
 	return b.String()
 }
