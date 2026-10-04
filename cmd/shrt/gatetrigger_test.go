@@ -283,3 +283,28 @@ func TestGoldenGateTrigger(t *testing.T) {
 	}
 	checkGolden(t, "gate-trigger.txt", golden.String())
 }
+
+func TestGateReproSettlesEachUnclearWriteAndReadPairInARow(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct, shop.addStockLostBug = true, true
+	chdirToFakeShop(t, shop)
+	inProcessGate(t)
+	list := `    - id: list_products
+      call: ProductService/ListProducts
+      body:
+        sku_prefix: ${steps.create_product.request.sku}
+      expect:
+        - path: products.0.qty_on_hand
+          equals: "5"
+`
+	listed := strings.Replace(shelfChain, "name: shelf", "name: shelf-list", 1)
+	writeFile(t, ".shrt/chains/shelf.yaml", shelfChain)
+	writeFile(t, ".shrt/chains/shelf-list.yaml", listed[:strings.Index(listed, "    - id: get_product")]+list)
+	writeFile(t, ".shrt/chains/shelf-both.yaml", strings.Replace(shelfChain, "name: shelf", "name: shelf-both", 1)+list)
+	out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+	_, block, _ := strings.Cut(out, "repro, for each row of failures by suspect rpc:\n")
+	if code != 1 || strings.Count(block, "settled on the write add_stock") != 2 || !strings.Contains(block, "ProductService/ListProducts read product.qty_on_hand=0") ||
+		!strings.Contains(block, "ProductService/GetProduct read products[].qty_on_hand=0") {
+		t.Errorf("one row holds the write against GetProduct and against ListProducts, and -repro settles both pairs, got %d:\n%s", code, out)
+	}
+}

@@ -40,7 +40,7 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 	done := map[string]string{}
 	for _, gr := range groups {
 		fmt.Println("  " + gr.head)
-		if line := settleRow(ctx, e, gr, spot, wait); line != "" {
+		for _, line := range settleRow(ctx, e, gr, spot, wait) {
 			fmt.Println("    " + line)
 		}
 		at := gateRef{chain: gr.in, it: gr.example}
@@ -57,18 +57,26 @@ func scratchDir(e *env) string {
 	return e.cfg.Abs(filepath.Join(config.DirName, "scratch"))
 }
 
-func settleRow(ctx context.Context, e *env, gr *gateGroup, spot map[string]bool, wait time.Duration) string {
+func settleRow(ctx context.Context, e *env, gr *gateGroup, spot map[string]bool, wait time.Duration) []string {
+	var out []string
+	asked := map[string]bool{}
+	refs := append([]gateRef{{chain: gr.in, it: gr.example}}, gr.refs...)
 	for _, onSpot := range []bool{true, false} {
-		for _, ref := range gr.refs {
-			if spot[ref.chain] != onSpot || ref.it.Reason.Read != ref.it.Step {
+		for _, ref := range refs {
+			r := ref.it.Reason
+			pair := r.RPC + " " + r.ReadRPC + " " + leafOf(ref.it.Path)
+			if spot[ref.chain] != onSpot || r.Read != ref.it.Step || asked[pair] {
 				continue
 			}
-			if _, via, _ := tellApartReads(e, ref.it.Reason, ref.it.Path); len(via) > 0 {
-				return settle(ctx, e, ref, via[0], wait)
+			if _, via, _ := tellApartReads(e, r, ref.it.Path); len(via) > 0 {
+				asked[pair] = true
+				if line := settle(ctx, e, ref, via[0], wait); line != "" {
+					out = append(out, line)
+				}
 			}
 		}
 	}
-	return ""
+	return out
 }
 
 func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Duration) string {

@@ -145,8 +145,8 @@ the stderr line names the step that keeps it there. Every line still comes in it
 such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <chain> <time> (waits
 <d> by design, ...)`, so a long gate is not mistaken for a hang.
 
-`-repro` follows the summary with one block per row: for an `unclear` suspect whose field another
-read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
+`-repro` follows the summary with one block per row: for each `unclear` write and read pair in the
+row whose field another read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
 that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
 <path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
 the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
