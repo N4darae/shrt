@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,10 +65,8 @@ func (m *Masker) addSecret(v string, withTail bool) {
 }
 
 func (s *secretSet) add(v string) bool {
-	for _, have := range s.values {
-		if have == v {
-			return false
-		}
+	if slices.Contains(s.values, v) {
+		return false
 	}
 	s.values = append(s.values, v)
 	return true

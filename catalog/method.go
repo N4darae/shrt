@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -109,13 +110,7 @@ func (m *Method) ResponseSample() map[string]any {
 func leadingComment(d protoreflect.Descriptor) string {
 	loc := d.ParentFile().SourceLocations().ByDescriptor(d)
 	parts := []string{cleanComment(loc.LeadingComments), cleanComment(loc.TrailingComments)}
-	out := make([]string, 0, 2)
-	for _, p := range parts {
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return strings.Join(out, " — ")
+	return strings.Join(slices.DeleteFunc(parts, func(p string) bool { return p == "" }), " — ")
 }
 
 func cleanComment(raw string) string {

@@ -264,9 +264,6 @@ func setAt(v any, at []string, value any) any {
 		}
 		return t
 	case nil:
-		if len(at) == 1 {
-			return map[string]any{at[0]: value}
-		}
 		return map[string]any{at[0]: setAt(nil, at[1:], value)}
 	}
 	return v

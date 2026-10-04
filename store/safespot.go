@@ -75,7 +75,6 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 			return nil, "", err
 		}
 	case errors.Is(err, os.ErrNotExist):
-		prev = nil
 	default:
 		return nil, "", err
 	}

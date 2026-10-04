@@ -1230,10 +1230,7 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		check = append(check, "every field volatile at "+clipList(masked, 3))
 	}
 	row := ProposalRow{Chain: p.Chain, Run: p.RunID, Steps: fmt.Sprintf("%d/%d", passed, len(rec.Steps)),
-		Refusals: "none", Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
-	if len(refusals.order) > 0 {
-		row.Refusals = refusals.top(3)
-	}
+		Refusals: refusals.top(3), Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
 	if len(check) > 0 {
 		row.Check = strings.Join(check, "; ")
 	}

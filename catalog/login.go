@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"github.com/N4darae/shrt/namecase"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -51,14 +52,8 @@ func DetectLogins(cat *Catalog) []LoginCandidate {
 
 func scoreLogin(m *Method) LoginCandidate {
 	c := LoginCandidate{Method: m}
-	lower := strings.ToLower(m.Name)
-	named := false
-	for _, verb := range loginVerbs {
-		if strings.Contains(strings.ReplaceAll(lower, "_", ""), verb) {
-			named = true
-			break
-		}
-	}
+	squashed := strings.ReplaceAll(strings.ToLower(m.Name), "_", "")
+	named := slices.ContainsFunc(loginVerbs, func(verb string) bool { return strings.Contains(squashed, verb) })
 
 	in := DescribeMessage(m.Input()).Fields
 	c.UserField = firstMatch(in, userFieldNames)

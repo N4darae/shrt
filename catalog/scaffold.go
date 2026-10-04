@@ -51,10 +51,8 @@ func OneofMember(od protoreflect.OneofDescriptor, prefer []string) protoreflect.
 		return nil
 	}
 	for _, name := range prefer {
-		for i := range fds.Len() {
-			if string(fds.Get(i).Name()) == name {
-				return fds.Get(i)
-			}
+		if fd := fds.ByName(protoreflect.Name(name)); fd != nil {
+			return fd
 		}
 	}
 	return fds.Get(0)
