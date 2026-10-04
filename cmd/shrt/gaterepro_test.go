@@ -223,3 +223,33 @@ func TestSliceMinimizeDropsWhatTheStepFailsWithoutAndKeepsWhatItReads(t *testing
 		}
 	}
 }
+
+func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
+	order := func(n int) string {
+		return fmt.Sprintf("    - id: order_%d\n      call: OrderService/CreateOrder\n      body:\n        idempotency_key: sizes-%d-${vars.tag}\n        lines:\n%s"+
+			"      expect:\n        - path: status.code\n          equals: SUCCESS\n", n, n, strings.Repeat("            - id_product: ${create_product.product.id_product}\n              qty: \"1\"\n", n))
+	}
+	for _, c := range []struct {
+		refuse func(int) bool
+		want   string
+	}{
+		{func(n int) bool { return n >= 3 }, "    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n    repro: "},
+		{func(n int) bool { return n == 3 }, "    trigger above does not hold: 2 more calls around its boundary did not fail and pass as it says\n    repro: "},
+	} {
+		shop := newFakeShop()
+		chdirToFakeShop(t, shop)
+		inProcessGate(t)
+		writeFile(t, ".shrt/chains/sizes.yaml", "apiVersion: shrt/v1\nname: sizes\nsteps:\n    - id: create_product\n      call: ProductService/CreateProduct\n"+
+			"      body:\n        sku: sizes-${vars.tag}\n        price_minor: \"250\"\n"+order(1)+order(2)+order(3))
+		for _, args := range [][]string{{"run", "sizes", "-var", "tag=tfirst001"}, {"confirm", "sizes", "-note", "sizes"}, {"confirm", "sizes", "-approve", "-by", "alice@example.test"}} {
+			if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+				t.Fatalf("%v: exit %d\n%s", args, code, out)
+			}
+		}
+		shop.refuseOrder = c.refuse
+		out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+		if !strings.Contains(out, "    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls: 1, 2)\n") || !strings.Contains(out, c.want) {
+			t.Fatalf("under -repro a 3-line order refused beside a 1- and 2-line one is sent with 4 and 2 lines, and the repro block says what they showed:\n%s", out)
+		}
+	}
+}

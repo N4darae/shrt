@@ -497,6 +497,11 @@ func triggerSide(calls, other []rowCall, keys []string, notes ...string) string 
 	for _, k := range keys {
 		p, x := dimPhrase(calls, other, k)
 		parts, extra = append(parts, p), append(extra, x)
+		if ns := numbers(dimValues(calls, k)); strings.HasPrefix(k, "len ") && len(ns) > 1 {
+			for i, n := range ns {
+				extra[0] += map[bool]string{true: ": ", false: ", "}[i == 0] + shown(n)
+			}
+		}
 	}
 	return strings.Join(parts, " ") + " (" + strings.Join(slices.DeleteFunc(append(extra, notes...), func(x string) bool { return x == "" }), "; ") + ")"
 }

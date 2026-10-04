@@ -65,7 +65,7 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	out, code := runGateOut(t, "-repro")
 	pending := ", so it acts on a PENDING order too\n" +
 		"    OrderService/CancelOrder status.code, order.status: 2 step(s) in 1 chain(s); e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n" +
-		"    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls)\n" +
+		"    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n" +
 		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml  (6 of 62 steps, reproduced 3/3)\n"
 	if code != 0 || !strings.Contains(out, "No safe spot covers these states, so a failure here is no regression") || !strings.Contains(out, pending) ||
 		!strings.Contains(out, "though its plan calls it so\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
@@ -80,6 +80,15 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	}
 	if chains, _ := os.ReadDir(".shrt/chains"); len(chains) != 1 {
 		t.Fatalf("the probe writes nothing into the chains directory: %v", chains)
+	}
+}
+
+func TestGateReproPrintsNoTriggerTheCallsAroundItsBoundaryContradict(t *testing.T) {
+	defer stateGapWorkspace(t)()
+	gapShop(t, func(state string, lines int) bool { return state == "PENDING" && lines == 3 })
+	out, _ := runGateOut(t, "-repro")
+	if !strings.Contains(out, "e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n    repro: ") || strings.Contains(out, "trigger:") {
+		t.Fatalf("a 4-line PENDING cancel that passes contradicts lines of 3+ items, so the row says no trigger:\n%s", out)
 	}
 }
 

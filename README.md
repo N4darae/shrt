@@ -133,7 +133,7 @@ whose request differs from a passing one only in the trigger (with no trigger, t
 the smallest slice. Under the row, `trigger: fails as clerk (3 calls); passes as default (12 calls)` sets that rpc's
 failing calls against its calls that passed in the same gate's runs, by what the requests show: the auth profile
 (`fails when ConfirmOrder itself is sent as clerk` when calls show the profile of the steps it uses does not decide
-it), a list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat
+it), a list's length (`fails with lines of 2+ items`, the lengths listed when a side shows several: `(2 calls: 2, 3)`), a list repeating an item key (`fails when lines repeat
 id_product`), a field set or empty, a number in a field or in a list's first or last item (`with lines[last].qty above
 1`), or the byte length of the field the failing value echoes (`with name of 21+ bytes`; the bounds the calls show, a
 boundary only where they pin it); a value needs two calls on each side. When none splits them alone, the one pair that
@@ -175,7 +175,12 @@ the row has one), keeping the row's suspect writes, written to `.shrt/scratch/<c
 the slice says so, or `repro: none:` and why. `-minimize` re-runs the slice once without each step no kept step
 reads, earliest writes first, at most 8 runs, and drops it when the step fails the same way (same fields, same got);
 a write refused in that run and in the approved run goes without a run; the slice's description names what it dropped,
-and a minimized slice that does not reproduce gives way to the unminimized one. When the row's write answered other than a later read returns
+and a minimized slice that does not reproduce gives way to the unminimized one.
+A `trigger:` resting on one call on a side, split on a list's length or a repeated item key, for a call refused, is
+firmed up from that slice: the call sent once more with one item more, and once with one fewer when that crosses the
+boundary, folded into the counts (`fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3
+calls: 1, 2)`), in place of a gap's trigger or above a row's repro; extra calls that contradict it leave a gap's row
+no trigger and a row's repro `trigger above does not hold:`. When the row's write answered other than a later read returns
 (`answered <x>, but <rpc> read <y>`), that read is appended to the slice expecting what the write answered and run once
 more: `repro: shrt run <path> -keep-going  (6 of 119 steps, reproduced 3/3; the read-back <step> (<rpc>) reads <field>=<y> where the
 write answered <x>)`, both sides in one run. One `masks:` line closes it: `verify -run latest -json`
