@@ -218,20 +218,6 @@ func TestMeasureAcceptsAnyValueSourceOnARequiredID(t *testing.T) {
 	}
 }
 
-func TestMeasureAcceptsAnIDWiredOnAnIndexedSibling(t *testing.T) {
-	c := settled(&RPCContract{
-		Required: []string{"id_obligation"},
-		Fields: map[string]*FieldContract{
-			"id_obligation":   {Note: "repeated, 1..100 ids"},
-			"id_obligation.0": {From: "svc/CreateDeal->results.0.id_obligation_give", CheckedBy: CheckedByNone},
-		},
-	})
-	got := measureRPC("d", "svc/ProposeThing", c, MethodShape{}, nil)
-	if len(got.UnwiredIDs) != 0 {
-		t.Fatalf("unwired = %v, want none — element 0 carries the edge", got.UnwiredIDs)
-	}
-}
-
 func TestMeasureExemptsAPreviewRPCFromTheNoFailuresCharge(t *testing.T) {
 	read := measureRPC("d", "svc/PreviewFeeVariance", &RPCContract{Summary: "creates the thing and returns its id", RequiresRole: []string{RoleNone}}, MethodShape{}, nil)
 	if read.NoFailuresDeclared {
@@ -259,38 +245,36 @@ func TestMeasureAcceptsAnAliasWiringAnID(t *testing.T) {
 	}
 }
 
-func TestMeasureSparesAnOptionalIDThatSaysWhyItIsUnwired(t *testing.T) {
-	c := settled(&RPCContract{
-		Fields: map[string]*FieldContract{
+func TestMeasureUnwiredIDs(t *testing.T) {
+	for _, tc := range []struct {
+		name, rpc string
+		c         *RPCContract
+		want      int
+		why       string
+	}{
+		{"an id wired on an indexed sibling", "svc/ProposeThing", &RPCContract{
+			Required: []string{"id_obligation"},
+			Fields: map[string]*FieldContract{
+				"id_obligation":   {Note: "repeated, 1..100 ids"},
+				"id_obligation.0": {From: "svc/CreateDeal->results.0.id_obligation_give", CheckedBy: CheckedByNone},
+			},
+		}, 0, "want none — element 0 carries the edge"},
+		{"an optional id that says why it is unwired", "svc/CreateFeeSchedule", &RPCContract{Fields: map[string]*FieldContract{
 			"id_instrument": {Note: "Empty is the wildcard over every channel. Deliberately left unwired."},
-		},
-	})
-	got := measureRPC("d", "svc/CreateFeeSchedule", c, MethodShape{}, nil)
-	if len(got.UnwiredIDs) != 0 {
-		t.Fatalf("unwired = %v, want none — not required, and the note explains it", got.UnwiredIDs)
-	}
-}
-
-func TestMeasureChargesAnOptionalIDWhoseOnlyNoteIsATodo(t *testing.T) {
-	c := settled(&RPCContract{
-		Fields: map[string]*FieldContract{
+		}}, 0, "want none — not required, and the note explains it"},
+		{"an optional id whose only note is a todo", "svc/CreateFeeSchedule", &RPCContract{Fields: map[string]*FieldContract{
 			"id_instrument": {Note: TodoMarker + ": where this value comes from, or delete the entry"},
-		},
-	})
-	got := measureRPC("d", "svc/CreateFeeSchedule", c, MethodShape{}, nil)
-	if len(got.UnwiredIDs) != 1 {
-		t.Fatalf("unwired = %v, want [id_instrument] — a %s is not an explanation", got.UnwiredIDs, TodoMarker)
-	}
-}
-
-func TestMeasureSparesAnUnwiredIDOnAReadPath(t *testing.T) {
-	c := settled(&RPCContract{
-		Required: []string{"id_book"},
-		Fields:   map[string]*FieldContract{"id_book": {Note: "filter, empty means no filter"}},
-	})
-	got := measureRPC("d", "svc/FetchDailyBookSummary", c, MethodShape{}, nil)
-	if len(got.UnwiredIDs) != 0 {
-		t.Fatalf("unwired = %v, want none — a read filter needs no producer", got.UnwiredIDs)
+		}}, 1, "want [id_instrument] — a " + TodoMarker + " is not an explanation"},
+		{"an unwired id on a read path", "svc/FetchDailyBookSummary", &RPCContract{
+			Required: []string{"id_book"},
+			Fields:   map[string]*FieldContract{"id_book": {Note: "filter, empty means no filter"}},
+		}, 0, "want none — a read filter needs no producer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := measureRPC("d", tc.rpc, settled(tc.c), MethodShape{}, nil); len(got.UnwiredIDs) != tc.want {
+				t.Fatalf("unwired = %v, %s", got.UnwiredIDs, tc.why)
+			}
+		})
 	}
 }
 
@@ -473,70 +457,52 @@ func TestMeasureChargesAReadRPCWithNoProducer(t *testing.T) {
 	}
 }
 
-func TestMeasureAcceptsAnyOfTheThreeWaysToNameAProducer(t *testing.T) {
-	base := func() *RPCContract {
-		return &RPCContract{Summary: "creates the thing and returns its id", RequiresRole: []string{"ACCOUNTING"}}
+func TestMeasureReadWithNoProducer(t *testing.T) {
+	const creates, reads = "creates the thing and returns its id", "reads the thing and returns it"
+	accounting := []string{"ACCOUNTING"}
+	read := func(note, noProducer string) *RPCContract {
+		return &RPCContract{Summary: reads, RequiresRole: []string{"ADMIN"}, Required: []string{RequiredNone}, Note: note, NoProducer: noProducer}
 	}
-	byNeeds := base()
-	byNeeds.Needs = []string{"svc/FreezeAssetDailyMark"}
-
-	byFrom := base()
-	byFrom.Fields = map[string]*FieldContract{
-		"id_book": {From: "svc/CreateBook->id_book", CheckedBy: CheckedByFK},
-	}
-
-	bySameAs := base()
-	bySameAs.Fields = map[string]*FieldContract{
-		"id_book": {SameAs: "svc/CreateBook->id_book", CheckedBy: CheckedByFK},
-	}
-
-	byAlias := base()
-	byAlias.Aliases = map[string]*AliasContract{
-		"quote": {Fields: map[string]*FieldContract{
-			"id_asset": {From: "svc/CreateAsset->id_asset", CheckedBy: CheckedByFK},
-		}},
-	}
-
-	for name, c := range map[string]*RPCContract{
-		"needs": byNeeds, "from": byFrom, "same_as": bySameAs, "alias from": byAlias,
+	for _, tc := range []struct {
+		name, rpc  string
+		c          *RPCContract
+		requiredBy []string
+		want       bool
+		why        string
+	}{
+		{"needs", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting, Needs: []string{"svc/FreezeAssetDailyMark"}}, nil,
+			false, "needs: ReadWithNoProducer = true, want the edge to count as a producer"},
+		{"from", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting, Fields: map[string]*FieldContract{
+			"id_book": {From: "svc/CreateBook->id_book", CheckedBy: CheckedByFK},
+		}}, nil, false, "from: ReadWithNoProducer = true, want the edge to count as a producer"},
+		{"same_as", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting, Fields: map[string]*FieldContract{
+			"id_book": {SameAs: "svc/CreateBook->id_book", CheckedBy: CheckedByFK},
+		}}, nil, false, "same_as: ReadWithNoProducer = true, want the edge to count as a producer"},
+		{"alias from", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting, Aliases: map[string]*AliasContract{
+			"quote": {Fields: map[string]*FieldContract{"id_asset": {From: "svc/CreateAsset->id_asset", CheckedBy: CheckedByFK}}},
+		}}, nil, false, "alias from: ReadWithNoProducer = true, want the edge to count as a producer"},
+		{"declared elsewhere", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting}, []string{"svc/FreezeAssetDailyMark"},
+			false, "a producer that declares before: on this read must count"},
+		{"a read as its own producer", "svc/FetchAssetDailyMark", &RPCContract{Summary: reads, RequiresRole: accounting, Needs: []string{"svc/FetchBook"},
+			Fields: map[string]*FieldContract{"id_book": {From: "svc/ListBooks->id_book"}}}, []string{"svc/GetBook"},
+			true, "a chain of reads produces no state — it must not satisfy the producer check"},
+		{"no_producer saying why", "svc/FetchAssetDailyMark", &RPCContract{Summary: reads, RequiresRole: accounting,
+			NoProducer: "reads a table seeded by migration 000020; no rpc on this surface writes it"}, nil,
+			false, "no_producer saying why must spare the charge — same shape as the optional-id rule"},
+		{"a todo in no_producer", "svc/FetchAssetDailyMark", &RPCContract{Summary: creates, RequiresRole: accounting, NoProducer: TodoMarker + ": why?"}, nil,
+			true, "a TODO is not an explanation"},
+		{"a general-purpose note", "svc/FetchThing", read("reads a table other domains populate", ""), nil,
+			true, "a general-purpose note cleared the no-producer charge — that exemption costs one " +
+				"sentence and leaves contract plan composing a one-step chain, which is the gap the term exists to find"},
+		{"a no_producer migration", "svc/FetchThing", read("", "seeded by migration 000112, no rpc writes these rows"), nil,
+			false, "no_producer did not clear the charge, so there is no way to declare a genuinely unproduced read"},
+		{"a literal TODO in no_producer", "svc/FetchThing", read("", "TODO: why?"), nil, true, "a TODO in no_producer cleared the charge"},
 	} {
-		if got := measureNamed(t, "svc/FetchAssetDailyMark", c, nil); got.ReadWithNoProducer {
-			t.Fatalf("%s: ReadWithNoProducer = true, want the edge to count as a producer", name)
-		}
-	}
-
-	declaredElsewhere := base()
-	got := measureNamed(t, "svc/FetchAssetDailyMark", declaredElsewhere, []string{"svc/FreezeAssetDailyMark"})
-	if got.ReadWithNoProducer {
-		t.Fatal("a producer that declares before: on this read must count")
-	}
-}
-
-func TestMeasureDoesNotCountAReadAsItsOwnProducer(t *testing.T) {
-	c := &RPCContract{
-		Summary:      "reads the thing and returns it",
-		RequiresRole: []string{"ACCOUNTING"},
-		Needs:        []string{"svc/FetchBook"},
-		Fields:       map[string]*FieldContract{"id_book": {From: "svc/ListBooks->id_book"}},
-	}
-	if got := measureNamed(t, "svc/FetchAssetDailyMark", c, []string{"svc/GetBook"}); !got.ReadWithNoProducer {
-		t.Fatal("a chain of reads produces no state — it must not satisfy the producer check")
-	}
-}
-
-func TestMeasureSparesAReadWhoseNoProducerExplainsIt(t *testing.T) {
-	c := &RPCContract{
-		Summary:      "reads the thing and returns it",
-		RequiresRole: []string{"ACCOUNTING"},
-		NoProducer:   "reads a table seeded by migration 000020; no rpc on this surface writes it",
-	}
-	if got := measureNamed(t, "svc/FetchAssetDailyMark", c, nil); got.ReadWithNoProducer {
-		t.Fatal("no_producer saying why must spare the charge — same shape as the optional-id rule")
-	}
-
-	todo := &RPCContract{Summary: "creates the thing and returns its id", RequiresRole: []string{"ACCOUNTING"}, NoProducer: TodoMarker + ": why?"}
-	if got := measureNamed(t, "svc/FetchAssetDailyMark", todo, nil); !got.ReadWithNoProducer {
-		t.Fatal("a TODO is not an explanation")
+		t.Run(tc.name, func(t *testing.T) {
+			if measureNamed(t, tc.rpc, tc.c, tc.requiredBy).ReadWithNoProducer != tc.want {
+				t.Fatal(tc.why)
+			}
+		})
 	}
 }
 
@@ -578,27 +544,6 @@ func TestMeasureDoesNotLetABogusFieldNameClearTheRequiredCharge(t *testing.T) {
 	c.Required = []string{"totally_bogus_field_name", "name"}
 	if measureOne(t, c, []string{"name"}).EmptyRequired {
 		t.Fatal("one real field alongside a bogus one should still count as an answered required:")
-	}
-}
-
-func TestAGeneralPurposeNoteNoLongerBuysTheProducerExemption(t *testing.T) {
-	read := func(note, noProducer string) QualityRPC {
-		c := &RPCContract{
-			Summary: "reads the thing and returns it", RequiresRole: []string{"ADMIN"},
-			Required: []string{RequiredNone}, Note: note, NoProducer: noProducer,
-		}
-		return measureRPC("d", "svc/FetchThing", c, MethodShape{}, nil)
-	}
-
-	if !read("reads a table other domains populate", "").ReadWithNoProducer {
-		t.Fatal("a general-purpose note cleared the no-producer charge — that exemption costs one " +
-			"sentence and leaves contract plan composing a one-step chain, which is the gap the term exists to find")
-	}
-	if read("", "seeded by migration 000112, no rpc writes these rows").ReadWithNoProducer {
-		t.Fatal("no_producer did not clear the charge, so there is no way to declare a genuinely unproduced read")
-	}
-	if !read("", "TODO: why?").ReadWithNoProducer {
-		t.Fatal("a TODO in no_producer cleared the charge")
 	}
 }
 
