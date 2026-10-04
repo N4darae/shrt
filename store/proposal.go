@@ -829,9 +829,26 @@ func assertedSummary(st *runner.StepRecord) string {
 }
 
 func answeredSummary(st *runner.StepRecord) string {
-	head, pairs := answerParts(st)
-	out := flat(head)
-	for i, pair := range pairs {
+	if st.Transport != nil {
+		if st.HTTPStatus != 0 {
+			return flat(fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message))
+		}
+		return flat(st.Transport.Code + ": " + st.Transport.Message)
+	}
+	var body any
+	if json.Unmarshal(st.Response, &body) != nil {
+		return flat(st.Status)
+	}
+	path := chain.EnvelopePath()
+	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
+	if !ok {
+		return flat("answered, nothing at " + path)
+	}
+	if items := itemsSummary(body); items != "" {
+		out += "; items: " + items
+	}
+	out = flat(out)
+	for i, pair := range assertedValues(st, path) {
 		sep := " "
 		if i == 0 {
 			sep = "; "
@@ -839,28 +856,6 @@ func answeredSummary(st *runner.StepRecord) string {
 		out += sep + flat(pair)
 	}
 	return out
-}
-
-func answerParts(st *runner.StepRecord) (string, []string) {
-	if st.Transport != nil {
-		if st.HTTPStatus != 0 {
-			return fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message), nil
-		}
-		return st.Transport.Code + ": " + st.Transport.Message, nil
-	}
-	var body any
-	if json.Unmarshal(st.Response, &body) != nil {
-		return st.Status, nil
-	}
-	path := chain.EnvelopePath()
-	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
-	if !ok {
-		return "answered, nothing at " + path, nil
-	}
-	if items := itemsSummary(body); items != "" {
-		out += "; items: " + items
-	}
-	return out, assertedValues(st, path)
 }
 
 func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
