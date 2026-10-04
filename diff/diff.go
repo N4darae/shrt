@@ -198,16 +198,6 @@ func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
-func (r *Report) NotReachedCount() int {
-	n := 0
-	for _, c := range r.Changes {
-		if c.Kind == KindNotReached {
-			n++
-		}
-	}
-	return n
-}
-
 func (r *Report) Counted() int {
 	changedAt := r.valueChangedSteps()
 	n := 0
@@ -330,11 +320,11 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
-		if everyFieldMasked(stepMask, want.Response) && everyFieldMasked(stepMask, got.Response) {
-			rep.FullyMasked = append(rep.FullyMasked, want.ID)
-		}
 		a, errA := decode(want.Response)
 		b, errB := decode(got.Response)
+		if everyFieldMasked(stepMask, a) && everyFieldMasked(stepMask, b) {
+			rep.FullyMasked = append(rep.FullyMasked, want.ID)
+		}
 		var stepChanges []Change
 		moves := map[string][]int{}
 		if errA != nil || errB != nil {
@@ -374,7 +364,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
 				c.Mask = maskOf(stepMask, c)
 				rep.VolatileValues = append(rep.VolatileValues, c)
-				if !maskedValue(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
+				if !maskedValue(approved, c) && (c.Kind != KindChanged || !LooksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
 			case shaped && !valueVanished(c):
@@ -392,7 +382,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 		}
 		if errA == nil && errB == nil {
-			collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
+			collectIDPairs(want.ID, a, b, stepMask, &idPairs)
 			sent, _ := decode(got.Request)
 			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, sent: sent, mask: stepMask})
 		}
@@ -401,7 +391,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	rep.renames = idRenames(idPairs)
 	rep.collapseMembership(rec)
 	var renamed []Change
-	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, rep.renames)
+	rep.Changes, renamed, _ = splitStaleEchoes(rep.Changes, rep.compared, rep.renames)
 	rep.Masked += len(renamed)
 	rep.ShapeMasked = append(rep.ShapeMasked, renamed...)
 	rep.dropEchoedUnapproved(rep.renames)
@@ -798,7 +788,7 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 			if derived != nil && derived(want.ID, c.Path) {
 				return
 			}
-			if derived == nil && c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+			if derived == nil && c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got) {
 				return
 			}
 			if (c.Kind == KindChanged || c.Kind == KindType) && (c.Want == pathmask.MaskRedacted || c.Got == pathmask.MaskRedacted) {
@@ -999,17 +989,8 @@ func maskedValue(m *pathmask.Masker, c Change) bool {
 }
 
 func maskedAt(m *pathmask.Masker, c Change) bool {
-	segs := strings.Split(c.Path, ".")
-	limit := len(segs)
-	if c.Kind == KindMissing || c.Kind == KindUnexpected {
-		limit--
-	}
-	for i := limit; i > 0; i-- {
-		if m.Masks(strings.Join(segs[:i], ".")) {
-			return true
-		}
-	}
-	return false
+	_, ok := m.HidingPattern(c.Path, c.Kind != KindMissing && c.Kind != KindUnexpected)
+	return ok
 }
 
 func compareStep(want, got *runner.StepRecord) []Change {
@@ -1102,18 +1083,21 @@ func sameScalar(a, b any) bool {
 	if a == nil && b == nil {
 		return true
 	}
+	if x, ok := a.(string); ok {
+		if y, ok := b.(string); ok {
+			return x == y
+		}
+	}
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 func sortedKeys(a, b map[string]any) []string {
-	seen := map[string]bool{}
-	keys := []string{}
+	keys := make([]string, 0, len(a)+len(b))
 	for k := range a {
-		seen[k] = true
 		keys = append(keys, k)
 	}
 	for k := range b {
-		if !seen[k] {
+		if _, inA := a[k]; !inA {
 			keys = append(keys, k)
 		}
 	}

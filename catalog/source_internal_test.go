@@ -3,6 +3,7 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -35,7 +36,7 @@ func TestBuildArgsSpeaksEachToolsOwnCommandLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if buf[0] != "build" || !contains(buf, "--as-file-descriptor-set") {
+	if buf[0] != "build" || !slices.Contains(buf, "--as-file-descriptor-set") {
 		t.Fatalf("buf args are not buf's grammar: %v", buf)
 	}
 
@@ -43,11 +44,11 @@ func TestBuildArgsSpeaksEachToolsOwnCommandLine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if contains(pc, "build") || contains(pc, "--as-file-descriptor-set") {
+	if slices.Contains(pc, "build") || slices.Contains(pc, "--as-file-descriptor-set") {
 		t.Fatalf("protoc was handed buf's grammar, which is what made descriptor.binary a trap: %v", pc)
 	}
 	for _, want := range []string{"--include_imports", "--include_source_info", "-I"} {
-		if !contains(pc, want) {
+		if !slices.Contains(pc, want) {
 			t.Errorf("protoc args missing %s: %v", want, pc)
 		}
 	}
@@ -65,13 +66,4 @@ func TestBuildArgsRefusesProtocWithNoProtoFiles(t *testing.T) {
 	if !strings.Contains(err.Error(), "descriptor.source") {
 		t.Errorf("the error does not name the key to fix: %v", err)
 	}
-}
-
-func contains(all []string, want string) bool {
-	for _, s := range all {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }

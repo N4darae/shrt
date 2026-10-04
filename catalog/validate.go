@@ -3,6 +3,8 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -13,24 +15,17 @@ import (
 )
 
 func (c *Catalog) ValidateInput(m *Method, body []byte) error {
-	return c.validate(m.Input(), body, "request")
-}
-
-func (c *Catalog) ValidateOutput(m *Method, body []byte) error {
-	return c.validate(m.Output(), body, "response")
-}
-
-func (c *Catalog) validate(md protoreflect.MessageDescriptor, body []byte, side string) error {
 	if len(body) == 0 {
 		return nil
 	}
+	md := m.Input()
 	msg := dynamicpb.NewMessage(md)
 	opts := protojson.UnmarshalOptions{Resolver: c.types, DiscardUnknown: false}
 	if err := opts.Unmarshal(body, msg); err != nil {
 		if hint := nameHint(md, body); hint != "" {
-			return fmt.Errorf("%s does not match %s: %w\n       %s", side, md.FullName(), err, hint)
+			return fmt.Errorf("request does not match %s: %w\n       %s", md.FullName(), err, hint)
 		}
-		return fmt.Errorf("%s does not match %s: %w", side, md.FullName(), err)
+		return fmt.Errorf("request does not match %s: %w", md.FullName(), err)
 	}
 	return nil
 }
@@ -48,17 +43,9 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return ""
 	}
-	keys := make([]string, 0, len(obj))
-	for k := range obj {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
 	fields := md.Fields()
-	for _, k := range keys {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+	for _, k := range slices.Sorted(maps.Keys(obj)) {
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			names := make([]string, 0, fields.Len())
 			for i := 0; i < fields.Len(); i++ {
@@ -196,12 +183,8 @@ func collectUnknownEnums(md protoreflect.MessageDescriptor, v any, at []string, 
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return
 	}
-	fields := md.Fields()
 	for k, inner := range obj {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			continue
 		}
@@ -281,9 +264,6 @@ func setAt(v any, at []string, value any) any {
 		}
 		return t
 	case nil:
-		if len(at) == 1 {
-			return map[string]any{at[0]: value}
-		}
 		return map[string]any{at[0]: setAt(nil, at[1:], value)}
 	}
 	return v
@@ -306,12 +286,8 @@ func collectUnknown(md protoreflect.MessageDescriptor, v any, at string, seen ma
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return
 	}
-	fields := md.Fields()
 	for k, inner := range obj {
-		fd := fields.ByName(protoreflect.Name(k))
-		if fd == nil {
-			fd = fields.ByJSONName(k)
-		}
+		fd := fieldByJSONKey(md, k)
 		if fd == nil {
 			if !seen[at+k] {
 				seen[at+k] = true

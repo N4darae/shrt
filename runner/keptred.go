@@ -27,10 +27,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 		return KeptRedGone, "every step passed, so the defect kept_red pins (" + pinSummary(c.KeptRed) +
 			") is gone: check the fix is the one intended, then remove kept_red and assert the corrected behaviour", ""
 	}
-	pins := map[string][]chain.Pin{}
-	for _, k := range c.KeptRed {
-		pins[k.Step] = append(pins[k.Step], k)
-	}
+	pins := pinsByStep(c.KeptRed)
 	problems, found := []string{}, []string{}
 	unsentPinned, unsentOther, unpinnedFail := []string{}, []string{}, []string{}
 	maskedBy := ""
@@ -85,7 +82,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	case 1:
 		problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", unsentOther[0]))
 	default:
-		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capSteps(unsentOther, 5)))
+		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capIDs(unsentOther, 5)))
 	}
 	if len(problems) == 0 {
 		return KeptRedAsPinned, "failed exactly as kept_red pins: " + pinSummary(c.KeptRed), ""
@@ -118,10 +115,7 @@ func PinChanges(c *chain.Chain, rec *Record) (map[string]string, bool) {
 	if rec == nil || rec.KeptRed != KeptRedNotAsPinned && rec.KeptRed != KeptRedGone {
 		return nil, false
 	}
-	pins := map[string][]chain.Pin{}
-	for _, k := range c.KeptRed {
-		pins[k.Step] = append(pins[k.Step], k)
-	}
+	pins := pinsByStep(c.KeptRed)
 	scope := recordScope(rec)
 	changed, held := map[string]string{}, true
 	for _, step := range c.Steps {
@@ -155,10 +149,7 @@ func PinsHeld(c *chain.Chain, rec *Record) bool {
 	if rec == nil || rec.KeptRed != KeptRedNotAsPinned {
 		return false
 	}
-	pins := map[string][]chain.Pin{}
-	for _, k := range c.KeptRed {
-		pins[k.Step] = append(pins[k.Step], k)
-	}
+	pins := pinsByStep(c.KeptRed)
 	scope := recordScope(rec)
 	for _, step := range c.Steps {
 		sr, ok := rec.Step(step.ID)
@@ -174,6 +165,14 @@ func PinsHeld(c *chain.Chain, rec *Record) bool {
 		}
 	}
 	return true
+}
+
+func pinsByStep(kept []chain.Pin) map[string][]chain.Pin {
+	pins := map[string][]chain.Pin{}
+	for _, k := range kept {
+		pins[k.Step] = append(pins[k.Step], k)
+	}
+	return pins
 }
 
 func resolvedPins(pins []chain.Pin, scope *chain.Scope) []chain.Pin {
@@ -274,13 +273,6 @@ func stepList(ids []string) string {
 		return "step " + quoted[0]
 	}
 	return "steps " + strings.Join(quoted, ", ")
-}
-
-func capSteps(ids []string, max int) string {
-	if len(ids) <= max {
-		return strings.Join(ids, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
 }
 
 const unevaluatedRule = "unevaluated"

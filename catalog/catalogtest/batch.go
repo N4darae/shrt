@@ -7,22 +7,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 )
 
-func BatchDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{file(), batchFile()}}
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
-func Batch() *catalog.Catalog {
-	cat, err := catalog.Parse(BatchDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Batch() *catalog.Catalog { return parse(descriptor(file(), batchFile())) }
 
 func batchFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{

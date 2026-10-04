@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io/fs"
@@ -27,10 +28,7 @@ func Build(ctx context.Context, spec BuildSpec) error {
 	if err := os.MkdirAll(filepath.Dir(spec.Output), 0o755); err != nil {
 		return err
 	}
-	bin := spec.Binary
-	if bin == "" {
-		bin = "buf"
-	}
+	bin := cmp.Or(spec.Binary, "buf")
 	if _, err := exec.LookPath(bin); err != nil {
 		return fmt.Errorf("%q is not on PATH, and shrt builds the descriptor by running it: %w\n"+
 			"shrt speaks two command lines, buf's and protoc's, chosen by descriptor.binary — install either, "+

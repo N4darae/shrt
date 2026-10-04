@@ -83,8 +83,6 @@ func registerEnums(types *protoregistry.Types, enums protoreflect.EnumDescriptor
 	}
 }
 
-func (c *Catalog) Types() *protoregistry.Types { return c.types }
-
 func (c *Catalog) Methods() []*Method {
 	out := make([]*Method, 0, len(c.order))
 	for _, k := range c.order {
@@ -113,7 +111,7 @@ func (c *Catalog) Lookup(ref string) (*Method, error) {
 	}
 	matches := []*Method{}
 	for _, k := range c.order {
-		if matchesRef(c.methods[k], ref) {
+		if m := c.methods[k]; strings.EqualFold(m.Name, ref) || strings.EqualFold(shortService(m.Service)+"/"+m.Name, ref) {
 			matches = append(matches, c.methods[k])
 		}
 	}
@@ -167,27 +165,13 @@ func (c *Catalog) closestRPC(ref string) string {
 }
 
 func rpcName(ref string) string {
-	if i := strings.LastIndexAny(ref, "/."); i >= 0 {
-		return ref[i+1:]
-	}
-	return ref
+	return ref[strings.LastIndexAny(ref, "/.")+1:]
 }
 
 func (c *Catalog) SuggestRPC(ref string) string {
 	return c.closestRPC(strings.TrimPrefix(strings.TrimSpace(ref), "/"))
 }
 
-func matchesRef(m *Method, ref string) bool {
-	if strings.EqualFold(m.Name, ref) {
-		return true
-	}
-	short := shortService(m.Service) + "/" + m.Name
-	return strings.EqualFold(short, ref)
-}
-
 func shortService(full string) string {
-	if i := strings.LastIndex(full, "."); i >= 0 {
-		return full[i+1:]
-	}
-	return full
+	return full[strings.LastIndex(full, ".")+1:]
 }

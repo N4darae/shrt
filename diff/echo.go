@@ -84,49 +84,18 @@ func walkRenamedText(steps []comparedStep, r *strings.Replacer, visit func(step,
 		return
 	}
 	for _, st := range steps {
-		var rec func(want, got any, path string)
-		rec = func(want, got any, path string) {
-			if path != "" && st.mask != nil && underMask(st.mask, path) {
+		prune := func(path string) bool { return underMask(st.mask, path) }
+		walkShared(st.want, st.got, "", prune, func(path string, want, got any) {
+			w, okW := want.(string)
+			g, okG := got.(string)
+			if !okW || !okG {
 				return
 			}
-			switch w := want.(type) {
-			case map[string]any:
-				g, ok := got.(map[string]any)
-				if !ok {
-					return
-				}
-				for _, k := range sortedKeys(w, g) {
-					wv, inW := w[k]
-					gv, inG := g[k]
-					if inW && inG {
-						rec(wv, gv, pathmask.Join(path, k))
-					}
-				}
-			case []any:
-				g, ok := got.([]any)
-				if !ok {
-					return
-				}
-				for i := range min(len(w), len(g)) {
-					rec(w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)))
-				}
-			case string:
-				g, ok := got.(string)
-				if !ok || renameable(path, w, g) {
-					return
-				}
-				if renamed := r.Replace(w); renamed != w {
-					visit(st.id, pathOr(path), w, g, renamed)
-				}
+			if renamed := r.Replace(w); renamed != w && !renameable(path, w, g) {
+				visit(st.id, pathOr(path), w, g, renamed)
 			}
-		}
-		rec(st.want, st.got, "")
+		})
 	}
-}
-
-func splitEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed []Change) {
-	kept, echoed, _ = splitStaleEchoes(changes, steps, pairs)
-	return kept, echoed
 }
 
 func splitStaleEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed, stale []Change) {

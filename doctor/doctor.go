@@ -148,10 +148,8 @@ func (r *Report) Count(level Level) int {
 }
 
 func (r *Report) Failed(strict bool) bool {
-	if r.Worst() == LevelError {
-		return true
-	}
-	return strict && r.Worst() == LevelWarn
+	worst := r.Worst()
+	return worst == LevelError || strict && worst == LevelWarn
 }
 
 func (r *Report) Checks() []string {

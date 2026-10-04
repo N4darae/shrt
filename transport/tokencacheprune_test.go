@@ -1,29 +1,22 @@
 package transport_test
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/N4darae/shrt/transport"
 )
 
-func cacheEntries(t *testing.T, path string) map[string]struct {
+func cacheEntries(t *testing.T, path string) (out map[string]struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
-} {
+}) {
 	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read cache: %v", err)
 	}
-	out := map[string]struct {
-		Token     string    `json:"token"`
-		ExpiresAt time.Time `json:"expires_at"`
-	}{}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("decode cache: %v", err)
 	}
@@ -45,10 +38,7 @@ func TestTokenCacheDropsExpiredEntriesWhenItIsRewritten(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logins := 0
-	src := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&logins, "tok-new", time.Now().Add(time.Hour)))
-	src.UseCache(path, "default")
-	if _, err := src.Token(context.Background()); err != nil {
+	if _, _, err := mint(cacheSpec(), path, "default", "tok-new", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("token: %v", err)
 	}
 
@@ -81,10 +71,7 @@ func TestTokenCacheKeepsAnEntryWithNoExpiryRatherThanGuessing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	logins := 0
-	src := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&logins, "tok-new", time.Now().Add(time.Hour)))
-	src.UseCache(path, "default")
-	if _, err := src.Token(context.Background()); err != nil {
+	if _, _, err := mint(cacheSpec(), path, "default", "tok-new", time.Now().Add(time.Hour)); err != nil {
 		t.Fatalf("token: %v", err)
 	}
 

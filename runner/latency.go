@@ -16,10 +16,7 @@ func (r *Runner) remeasure(ctx context.Context, step *chain.Step, procedure stri
 	}
 	var out []int64
 	for i := 0; i < opts.Remeasure; i++ {
-		again := &transport.Call{Procedure: procedure, Body: body, Header: header.Clone()}
-		if step.SkipAuth || step.Auth != "" {
-			again.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
-		}
+		again := &transport.Call{Procedure: procedure, Body: body, Header: header.Clone(), Meta: authMeta(step)}
 		res, err := r.Client.Do(ctx, again)
 		if err != nil || res.Error != nil {
 			break

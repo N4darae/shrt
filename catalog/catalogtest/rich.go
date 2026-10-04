@@ -17,23 +17,9 @@ import (
 
 const RichPackage = "shrt.test.rich.v1"
 
-func RichDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: wellKnownFiles()}
-	fds.File = append(fds.File, richFile())
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
+func RichDescriptor() []byte { return descriptor(append(wellKnownFiles(), richFile())...) }
 
-func Rich() *catalog.Catalog {
-	cat, err := catalog.Parse(RichDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Rich() *catalog.Catalog { return parse(RichDescriptor()) }
 
 func wellKnownFiles() []*descriptorpb.FileDescriptorProto {
 	seen := map[string]bool{}

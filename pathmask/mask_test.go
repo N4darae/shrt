@@ -148,3 +148,26 @@ func TestJoinBuildsDottedPaths(t *testing.T) {
 		t.Fatalf("Join = %q", got)
 	}
 }
+
+func TestHidingPatternNamesTheFirstPatternAtTheLongestMaskedPrefix(t *testing.T) {
+	m := pathmask.NewMasker([]string{"items", "**.created_at", "items.*.createdAt", "**.owner"})
+	for _, c := range []struct {
+		path, want string
+		leaf, ok   bool
+	}{
+		{"items.0.created_at", "**.created_at", true, true},
+		{"items.0.created_at", "items", false, true},
+		{"items.0.owner.id", "**.owner", true, true},
+		{"items", "items", true, true},
+		{"items", "", false, false},
+		{"orders.0.total", "", true, false},
+	} {
+		if got, ok := m.HidingPattern(c.path, c.leaf); got != c.want || ok != c.ok {
+			t.Errorf("HidingPattern(%q, leaf=%v) = %q %v, want %q %v", c.path, c.leaf, got, ok, c.want, c.ok)
+		}
+	}
+	var none *pathmask.Masker
+	if got, ok := none.HidingPattern("items", true); got != "" || ok {
+		t.Errorf("a nil masker hides nothing, got %q %v", got, ok)
+	}
+}

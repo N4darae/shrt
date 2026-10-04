@@ -1,26 +1,15 @@
-package config
+package config_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/config"
 )
 
-func writeLatencyConfig(t *testing.T, body string) string {
-	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, DirName), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, DirName, FileName), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	return dir
-}
-
 func TestConfigReadsALatencyBlock(t *testing.T) {
-	dir := writeLatencyConfig(t, "target:\n  base_url: http://x\nlatency:\n  floor_ms: 100\n  ratio: 2.5\n  remeasure: 3\n  fail: true\n")
-	cfg, err := Load(dir)
+	dir := write(t, "target:\n  base_url: http://x\nlatency:\n  floor_ms: 100\n  ratio: 2.5\n  remeasure: 3\n  fail: true\n")
+	cfg, err := config.Load(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,8 +19,8 @@ func TestConfigReadsALatencyBlock(t *testing.T) {
 }
 
 func TestConfigRefusesARatioBelowOne(t *testing.T) {
-	dir := writeLatencyConfig(t, "target:\n  base_url: http://x\nlatency:\n  ratio: 0.5\n")
-	if _, err := Load(dir); err == nil || !strings.Contains(err.Error(), "latency.ratio") {
+	dir := write(t, "target:\n  base_url: http://x\nlatency:\n  ratio: 0.5\n")
+	if _, err := config.Load(dir); err == nil || !strings.Contains(err.Error(), "latency.ratio") {
 		t.Fatalf("want a latency.ratio error, got %v", err)
 	}
 }

@@ -29,7 +29,7 @@ func SealState(rec *runner.Record) error {
 		}
 		return ErrRunUnsealed
 	}
-	seal, err := runSeal(rec)
+	seal, err := decodedSeal(rec)
 	if err != nil {
 		return err
 	}
@@ -84,8 +84,13 @@ func runSeal(rec *runner.Record) (string, error) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		return "", err
 	}
-	back.Seal = ""
-	canonical, err := json.Marshal(&back)
+	return decodedSeal(&back)
+}
+
+func decodedSeal(rec *runner.Record) (string, error) {
+	unsealed := *rec
+	unsealed.Seal = ""
+	canonical, err := json.Marshal(&unsealed)
 	if err != nil {
 		return "", err
 	}
@@ -96,7 +101,7 @@ func runSeal(rec *runner.Record) (string, error) {
 func (s *Store) checkSealed(rec *runner.Record) error {
 	path := s.runPath(rec.Chain, rec.RunID)
 	disk := &runner.Record{}
-	if err := readJSON(path, disk); err != nil {
+	if err := readRecord(path, disk); err != nil {
 		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
 	}
 	if why := disk.SealingBuildEvidence(); (disk.Seal == "" || disk.MalformedSeal()) && why != "" {
@@ -108,7 +113,7 @@ func (s *Store) checkSealed(rec *runner.Record) error {
 			"removed), so it cannot be checked for edits and cannot be proposed. Run the chain again and propose the new run: "+
 			"shrt run %s, then shrt confirm %s -note \"...\"", ErrRunUnsealed, rec.RunID, rec.Chain, rec.Chain)
 	}
-	seal, err := runSeal(disk)
+	seal, err := decodedSeal(disk)
 	if err != nil {
 		return err
 	}
@@ -130,7 +135,7 @@ func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
 	}
 	path := s.runPath(chainName, runID)
 	rec := &runner.Record{}
-	if err := readJSON(path, rec); err != nil {
+	if err := readRecord(path, rec); err != nil {
 		return nil, fmt.Errorf("load run %s/%s: %w", chainName, runID, err)
 	}
 	if slug(rec.Chain) != slug(chainName) {
@@ -241,7 +246,7 @@ func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
 			continue
 		}
 		rec := &runner.Record{}
-		if err := readJSON(path, rec); err != nil {
+		if err := readRecord(path, rec); err != nil {
 			return nil, fmt.Errorf("load run %s: %w", path, err)
 		}
 		if err := s.vouch(path, rec); err != nil {
@@ -250,6 +255,14 @@ func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
 		out = append(out, rec)
 	}
 	return out, nil
+}
+
+func readRecord(path string, rec *runner.Record) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return rec.UnmarshalJSON(raw)
 }
 
 func runSecond(id string) string {

@@ -9,22 +9,7 @@ import (
 
 const StampedPackage = "shrt.stamped.v1"
 
-func StampedDescriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{stampedFile()}}
-	raw, err := proto.Marshal(fds)
-	if err != nil {
-		panic(err)
-	}
-	return raw
-}
-
-func Stamped() *catalog.Catalog {
-	cat, err := catalog.Parse(StampedDescriptor())
-	if err != nil {
-		panic(err)
-	}
-	return cat
-}
+func Stamped() *catalog.Catalog { return parse(descriptor(stampedFile())) }
 
 func stampedFile() *descriptorpb.FileDescriptorProto {
 	return &descriptorpb.FileDescriptorProto{

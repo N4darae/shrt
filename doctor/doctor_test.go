@@ -24,17 +24,22 @@ var embedded = fstest.MapFS{
 
 var docNames = []string{"README.md", "GRAMMAR.md", "PLAYBOOK.md"}
 
+func acmeAuth(password string, profiles map[string]*config.Auth) *config.Auth {
+	return &config.Auth{
+		Call:      "acme.iam.v1.AuthService/Login",
+		Body:      map[string]any{"username": "${env.ACME_USER}", "password": password},
+		TokenPath: "access_token",
+		Profiles:  profiles,
+	}
+}
+
 func repo(t *testing.T) *config.Config {
 	t.Helper()
 	root := t.TempDir()
 	cfg := config.Default()
 	cfg.Root = root
 	cfg.Descriptor.Source = ""
-	cfg.Auth = &config.Auth{
-		Call:      "acme.iam.v1.AuthService/Login",
-		Body:      map[string]any{"username": "${env.ACME_USER}", "password": "${env.ACME_PASSWORD}"},
-		TokenPath: "access_token",
-	}
+	cfg.Auth = acmeAuth("${env.ACME_PASSWORD}", nil)
 	if err := cfg.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -193,11 +198,7 @@ func TestADirectoryRuleCoversThePathsUnderneathIt(t *testing.T) {
 
 func TestALiteralPasswordInConfigIsAFailureNotAStyleNote(t *testing.T) {
 	cfg := repo(t)
-	cfg.Auth = &config.Auth{
-		Call:      "acme.iam.v1.AuthService/Login",
-		Body:      map[string]any{"username": "${env.ACME_USER}", "password": "hunter2"},
-		TokenPath: "access_token",
-	}
+	cfg.Auth = acmeAuth("hunter2", nil)
 
 	got := find(t, run(t, cfg, options()), doctor.CheckAuth)
 
@@ -215,14 +216,9 @@ func TestALiteralPasswordInConfigIsAFailureNotAStyleNote(t *testing.T) {
 
 func TestAnUnsetAuthEnvVarWarnsAndNamesTheProfileItBelongsTo(t *testing.T) {
 	cfg := repo(t)
-	cfg.Auth = &config.Auth{
-		Call:      "acme.iam.v1.AuthService/Login",
-		Body:      map[string]any{"username": "${env.ACME_USER}", "password": "${env.ACME_PASSWORD}"},
-		TokenPath: "access_token",
-		Profiles: map[string]*config.Auth{
-			"partner": {Call: "acme.partner.v1.AuthService/Login", Body: map[string]any{"password": "${env.PARTNER_PASSWORD}"}},
-		},
-	}
+	cfg.Auth = acmeAuth("${env.ACME_PASSWORD}", map[string]*config.Auth{
+		"partner": {Call: "acme.partner.v1.AuthService/Login", Body: map[string]any{"password": "${env.PARTNER_PASSWORD}"}},
+	})
 	opts := options()
 	opts.Env = func(name string) string {
 		if name == "PARTNER_PASSWORD" {
@@ -250,16 +246,11 @@ func TestAnUnsetAuthEnvVarWarnsAndNamesTheProfileItBelongsTo(t *testing.T) {
 
 func TestAnAuthBodyReferenceTheLoginCannotResolveFails(t *testing.T) {
 	cfg := repo(t)
-	cfg.Auth = &config.Auth{
-		Call:      "acme.iam.v1.AuthService/Login",
-		Body:      map[string]any{"username": "${env.ACME_USER}", "password": "${env.ACME_PASSWORD}"},
-		TokenPath: "access_token",
-		Profiles: map[string]*config.Auth{
-			"owner": {Call: "acme.iam.v1.AuthService/Login", Body: map[string]any{
-				"username": "${vars.owner_user}", "password": "${env.OWNER_PASSWORD}",
-			}},
-		},
-	}
+	cfg.Auth = acmeAuth("${env.ACME_PASSWORD}", map[string]*config.Auth{
+		"owner": {Call: "acme.iam.v1.AuthService/Login", Body: map[string]any{
+			"username": "${vars.owner_user}", "password": "${env.OWNER_PASSWORD}",
+		}},
+	})
 
 	got := find(t, run(t, cfg, options()), doctor.CheckAuth)
 

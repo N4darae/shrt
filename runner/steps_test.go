@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/catalog/catalogtest"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/transport"
@@ -273,7 +274,7 @@ func TestEachStepIsRecordedAndJudged(t *testing.T) {
 			cfg := partnerConfig(f.URL)
 			p := cfg.Auth.Profiles["partner"]
 			p.Calls, p.Header, p.Scheme = []string{"shrt.test.v1.PartnerService/*"}, "X-Partner-Token", "Token"
-			return profileRunner(t, f, cfg)
+			return buildRunner(t, cfg, catalogtest.New())
 		}, chain: func() *chain.Chain {
 			s := step("bad", "PartnerService/FetchMine", byID("p-1"), unauthenticatedExpect()...)
 			s.Auth = transport.InvalidTokenProfile

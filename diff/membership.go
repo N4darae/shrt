@@ -3,6 +3,7 @@ package diff
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -102,16 +103,16 @@ func (r *Report) pairedChanges(cs comparedStep, list string) []Change {
 	if key == "" {
 		return nil
 	}
-	names := renamer(r.renames)
+	wkeys, _ := occurrences(wl, key, renamer(r.renames))
 	was := map[string][]any{}
-	for i := range wl {
-		v, _ := occurrence(wl, key, i, names)
+	for i, v := range wkeys {
 		was[v] = append(was[v], wl[i])
 	}
+	gkeys, gnth := occurrences(gl, key, nil)
 	aligned := make([]any, len(gl))
 	var out []Change
 	for i, it := range gl {
-		v, n := occurrence(gl, key, i, nil)
+		v, n := gkeys[i], gnth[i]
 		if n >= len(was[v]) {
 			continue
 		}
@@ -119,7 +120,7 @@ func (r *Report) pairedChanges(cs comparedStep, list string) []Change {
 		aligned[i] = w
 		walk(w, it, list+"."+strconv.Itoa(i), func(c Change) {
 			c.Step = cs.id
-			if cs.mask != nil && maskedValue(cs.mask, c) || c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+			if cs.mask != nil && maskedValue(cs.mask, c) || c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got) {
 				return
 			}
 			out = append(out, c)
@@ -236,24 +237,22 @@ func itemKey(lists ...[]any) string {
 
 func repeatedKey(key string, lists ...[]any) bool {
 	for _, l := range lists {
-		for i := range l {
-			if _, n := occurrence(l, key, i, nil); n > 0 {
-				return true
-			}
+		if _, nth := occurrences(l, key, nil); slices.ContainsFunc(nth, func(n int) bool { return n > 0 }) {
+			return true
 		}
 	}
 	return false
 }
 
-func occurrence(items []any, key string, i int, names *strings.Replacer) (string, int) {
-	v := keyOf(items[i], key, names)
-	n := 0
-	for _, it := range items[:i] {
-		if keyOf(it, key, names) == v {
-			n++
-		}
+func occurrences(items []any, key string, names *strings.Replacer) ([]string, []int) {
+	keys, nth := make([]string, len(items)), make([]int, len(items))
+	seen := map[string]int{}
+	for i, it := range items {
+		keys[i] = keyOf(it, key, names)
+		nth[i] = seen[keys[i]]
+		seen[keys[i]]++
 	}
-	return v, n
+	return keys, nth
 }
 
 func keyOf(item any, key string, names *strings.Replacer) string {
@@ -425,9 +424,10 @@ func (r *Report) Moved(step, path string) bool {
 		if key == "" || i < 0 || i >= len(wl) {
 			continue
 		}
-		want, n := occurrence(wl, key, i, names)
+		wkeys, wnth := occurrences(wl, key, names)
+		gkeys, gnth := occurrences(gl, key, nil)
 		for j := range gl {
-			if v, m := occurrence(gl, key, j, nil); v == want && m == n {
+			if gkeys[j] == wkeys[i] && gnth[j] == wnth[i] {
 				if j != i {
 					return true
 				}

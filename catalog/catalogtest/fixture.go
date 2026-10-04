@@ -11,17 +11,20 @@ import (
 
 const Package = "shrt.test.v1"
 
-func Descriptor() []byte {
-	fds := &descriptorpb.FileDescriptorSet{File: []*descriptorpb.FileDescriptorProto{file()}}
-	raw, err := proto.Marshal(fds)
+func Descriptor() []byte { return descriptor(file()) }
+
+func New() *catalog.Catalog { return parse(Descriptor()) }
+
+func descriptor(files ...*descriptorpb.FileDescriptorProto) []byte {
+	raw, err := proto.Marshal(&descriptorpb.FileDescriptorSet{File: files})
 	if err != nil {
 		panic(err)
 	}
 	return raw
 }
 
-func New() *catalog.Catalog {
-	cat, err := catalog.Parse(Descriptor())
+func parse(raw []byte) *catalog.Catalog {
+	cat, err := catalog.Parse(raw)
 	if err != nil {
 		panic(err)
 	}

@@ -58,25 +58,36 @@ func (o Orphan) Remedy() string {
 		"If the chain was deleted on purpose, remove the orphan: git rm %s", next, o.Name, next, o.Name, next, next, o.Path, o.Path)
 }
 
+func spotFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	names := []string{}
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
+			names = append(names, e.Name())
+		}
+	}
+	return names, nil
+}
+
 func OrphanSafeSpots(cfg *config.Config) []Orphan {
 	spots := cfg.Abs(cfg.Paths.SafeSpots)
-	entries, err := os.ReadDir(spots)
+	files, err := spotFiles(spots)
 	if err != nil {
 		return nil
 	}
 	chainsDir := cfg.Abs(cfg.Paths.Chains)
 	names := declaredNames(chainsDir)
 	out := []Orphan{}
-	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".json")
+	for _, file := range files {
+		name := strings.TrimSuffix(file, ".json")
 		if slices.Contains(names, name) {
 			continue
 		}
-		o := Orphan{Name: name, Path: filepath.ToSlash(filepath.Join(cfg.Paths.SafeSpots, e.Name()))}
-		o.RenamedTo, o.Candidates = sameStepsAs(filepath.Join(spots, e.Name()), spots, chainsDir, names)
+		o := Orphan{Name: name, Path: filepath.ToSlash(filepath.Join(cfg.Paths.SafeSpots, file))}
+		o.RenamedTo, o.Candidates = sameStepsAs(filepath.Join(spots, file), spots, chainsDir, names)
 		if o.RenamedTo == "" && len(o.Candidates) == 0 {
 			o.Near = strings.TrimSuffix(strings.TrimPrefix(chain.DidYouMean(name, names), " (did you mean \""), "\"?)")
 		}
@@ -206,14 +217,8 @@ func checkSafeSpots(_ context.Context, cfg *config.Config, _ Options, r *Report)
 		return
 	}
 	if len(orphans) == 0 {
-		if entries, err := os.ReadDir(cfg.Abs(cfg.Paths.SafeSpots)); err == nil {
-			n := 0
-			for _, e := range entries {
-				if !e.IsDir() && filepath.Ext(e.Name()) == ".json" {
-					n++
-				}
-			}
-			r.add(CheckSafeSpots, LevelOK, fmt.Sprintf("%d safe spot(s), each with its chain under %s", n, cfg.Paths.Chains), "")
+		if files, err := spotFiles(cfg.Abs(cfg.Paths.SafeSpots)); err == nil {
+			r.add(CheckSafeSpots, LevelOK, fmt.Sprintf("%d safe spot(s), each with its chain under %s", len(files), cfg.Paths.Chains), "")
 		}
 		return
 	}

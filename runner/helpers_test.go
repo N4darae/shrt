@@ -387,7 +387,7 @@ func testChain() *chain.Chain {
 	return c
 }
 
-func buildRunner(t *testing.T, cfg *config.Config, cat *catalog.Catalog) *runner.Runner {
+func buildRunner(t testing.TB, cfg *config.Config, cat *catalog.Catalog) *runner.Runner {
 	t.Helper()
 	deps, err := runner.Build(context.Background(), cfg, cat, nil)
 	if err != nil {
@@ -399,11 +399,6 @@ func buildRunner(t *testing.T, cfg *config.Config, cat *catalog.Catalog) *runner
 func newRunner(t *testing.T, srv *fakeServer) *runner.Runner {
 	t.Helper()
 	return buildRunner(t, testConfig(srv.URL), catalogtest.New())
-}
-
-func profileRunner(t *testing.T, srv *fakeServer, cfg *config.Config) *runner.Runner {
-	t.Helper()
-	return buildRunner(t, cfg, catalogtest.New())
 }
 
 func newBatchRunner(t *testing.T, srv *fakeServer) *runner.Runner {

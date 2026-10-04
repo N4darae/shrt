@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -160,10 +162,7 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 	if len(want) == 0 {
 		return
 	}
-	ignored, err := opts.Ignored(cfg.Root, want)
-	if err != nil || ignored == nil {
-		ignored = ignoredByFile(cfg.Root, want)
-	}
+	ignored := ignoredBy(opts, cfg.Root, want)
 	secret := config.DirName + "/" + config.TokensFile
 	leaked := []string{}
 	for _, p := range want {
@@ -185,11 +184,7 @@ func checkIgnored(_ context.Context, cfg *config.Config, opts Options, r *Report
 			"shrt init -build=false -agents=false   # appends only the lines that are missing")
 	}
 	if len(leaked) == 0 && ignored[secret] {
-		scratch, err := opts.Ignored(cfg.Root, []string{config.ScratchDir})
-		if err != nil || scratch == nil {
-			scratch = ignoredByFile(cfg.Root, []string{config.ScratchDir})
-		}
-		if scratch[config.ScratchDir] {
+		if ignoredBy(opts, cfg.Root, []string{config.ScratchDir})[config.ScratchDir] {
 			r.add(CheckIgnored, LevelOK, fmt.Sprintf("%d path(s) that must never be committed are ignored, and so is %s",
 				len(want), config.ScratchDir), "")
 			return
@@ -253,12 +248,7 @@ func entriesNotInDescriptor(lib *contract.Library, cat *catalog.Catalog, root st
 		if rel, err := filepath.Rel(root, where); err == nil && where != "" {
 			where = filepath.ToSlash(rel)
 		}
-		names := make([]string, 0, len(o.RPCs))
-		for rpc := range o.RPCs {
-			names = append(names, rpc)
-		}
-		sort.Strings(names)
-		for _, rpc := range names {
+		for _, rpc := range slices.Sorted(maps.Keys(o.RPCs)) {
 			if _, err := cat.Lookup(rpc); errors.Is(err, catalog.ErrNotFound) {
 				out = append(out, rpc+" in "+where)
 			}
@@ -303,13 +293,13 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 	counts := fmt.Sprintf("%d cached token(s), %d expired", len(entries), expired)
 	off := expired > 0
 	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
-		off = split.expired > 0 || split.foreignTotal() > 0 || split.other > 0
+		off = split.expired > 0 || split.foreign.total() > 0 || split.other > 0
 		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d expired", split.mine, split.expired)
 		if off {
 			counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d of them expired by their own expires_at; "+
-				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreignTotal())
-			if split.foreignTotal() > 0 {
-				counts += " (" + split.foreignTargets() + ")"
+				"apart from those, %d minted against another base_url", split.mine, split.expired, split.foreign.total())
+			if split.foreign.total() > 0 {
+				counts += " (" + strings.Join(split.foreign.names(), ", ") + ")"
 			}
 			counts += fmt.Sprintf(" and %d for another login (other credentials or another auth call), which no login here uses", split.other)
 		}
@@ -400,17 +390,12 @@ func checkAuth(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 
 func envRefsIn(v any) []string {
 	seen := map[string]bool{}
-	out := []string{}
 	walkStrings(v, func(s string) {
 		for _, m := range envRef.FindAllStringSubmatch(s, -1) {
-			if !seen[m[1]] {
-				seen[m[1]] = true
-				out = append(out, m[1])
-			}
+			seen[m[1]] = true
 		}
 	})
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func literalSecrets(body map[string]any) []string {
@@ -421,15 +406,20 @@ func literalSecrets(body map[string]any) []string {
 			continue
 		}
 		lower := strings.ToLower(key)
-		for _, hint := range secretish {
-			if strings.Contains(lower, hint) {
-				out = append(out, key)
-				break
-			}
+		if slices.ContainsFunc(secretish, func(hint string) bool { return strings.Contains(lower, hint) }) {
+			out = append(out, key)
 		}
 	}
 	sort.Strings(out)
 	return out
+}
+
+func ignoredBy(opts Options, root string, paths []string) map[string]bool {
+	ignored, err := opts.Ignored(root, paths)
+	if err != nil || ignored == nil {
+		ignored = ignoredByFile(root, paths)
+	}
+	return ignored
 }
 
 func walkStrings(v any, fn func(string)) {

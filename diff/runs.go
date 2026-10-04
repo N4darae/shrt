@@ -2,7 +2,6 @@ package diff
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -83,10 +82,6 @@ func (r *RunReport) Same() bool {
 		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0 && len(r.RequestChanges) == 0
 }
 
-func reached(rec *runner.Record, s *runner.StepRecord) bool {
-	return StepReached(rec, s)
-}
-
 func stepError(s *runner.StepRecord) string {
 	if s == nil || (s.Status != runner.StatusError && s.Status != runner.StatusSkipped && s.Transport == nil) {
 		return ""
@@ -137,7 +132,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	allB := map[string]*runner.StepRecord{}
 	for _, s := range b.Steps {
 		allB[s.ID] = s
-		if reached(b, s) {
+		if StepReached(b, s) {
 			byID[s.ID] = s
 		}
 	}
@@ -148,7 +143,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	inA := map[string]bool{}
 	base := mergePatterns(a.Volatile, b.Volatile, extra)
 	for _, sa := range a.Steps {
-		if !reached(a, sa) {
+		if !StepReached(a, sa) {
 			continue
 		}
 		inA[sa.ID] = true
@@ -166,8 +161,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
 		rep.compareRequests(sa, sb, masker, fx)
-		rep.compareResponses(sa, sb, masker)
-		if everyFieldMasked(masker, sa.Response) && everyFieldMasked(masker, sb.Response) {
+		if x, y := rep.compareResponses(sa, sb, masker); everyFieldMasked(masker, x) && everyFieldMasked(masker, y) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
 		}
 	}
@@ -181,7 +175,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 	}
 	var renamed, echoed []Change
-	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
+	rep.Changes, renamed, _ = splitStaleEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
 	rep.MaskedChanges = append(rep.MaskedChanges, withMask(renamed, renamedMask)...)
 	var stale []Change
@@ -191,7 +185,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	rep.Changes = append(rep.Changes, stale...)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
-		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
+		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || StepReached(a, sa) || StepReached(b, sb) {
 			continue
 		}
 		if ea, eb := firstLineOf(sa.Error), firstLineOf(sb.Error); ea != eb {
@@ -208,13 +202,13 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 			otherSteps[s.ID] = s
 		}
 		for _, s := range kept.Steps {
-			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !reached(other, o)) {
+			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !StepReached(other, o)) {
 				rep.SkippedKeepGoing = append(rep.SkippedKeepGoing, s.ID)
 			}
 		}
 	}
 	for _, sb := range b.Steps {
-		if reached(b, sb) && !inA[sb.ID] {
+		if StepReached(b, sb) && !inA[sb.ID] {
 			rep.NewlyReached = append(rep.NewlyReached, sb.ID)
 			if why := stepError(allA[sb.ID]); why != "" {
 				rep.WhyNotReached = append(rep.WhyNotReached, StepStatus{Step: sb.ID, A: allA[sb.ID].Status, B: sb.Status, ErrorA: why})
@@ -249,16 +243,16 @@ func varChanges(a, b map[string]any) []VarChange {
 	return out
 }
 
-func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask.Masker) {
+func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask.Masker) (any, any) {
 	x, errA := decode(sa.Response)
 	y, errB := decode(sb.Response)
 	if errA != nil || errB != nil {
 		if string(sa.Response) != string(sb.Response) {
 			r.Changes = append(r.Changes, Change{Step: sa.ID, Path: "response", Kind: KindType, Want: string(sa.Response), Got: string(sb.Response)})
 		}
-		return
+		return x, y
 	}
-	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
+	collectIDPairs(sa.ID, x, y, masker, &r.idPairs)
 	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
 	walk(x, y, "", func(c Change) {
 		shaped, why := false, ""
@@ -290,6 +284,7 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		c.Step = sa.ID
 		r.Changes = append(r.Changes, c)
 	})
+	return x, y
 }
 
 func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.Masker, fx Fixtures) {
@@ -325,7 +320,7 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 				}
 			}
 		}
-		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
 			hidden := c
 			hidden.Step, hidden.Path, hidden.Mask = sa.ID, "request."+c.Path, shapeMask
@@ -350,9 +345,8 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 	})
 }
 
-func everyFieldMasked(m *pathmask.Masker, raw []byte) bool {
-	body, err := decode(raw)
-	if err != nil || body == nil {
+func everyFieldMasked(m *pathmask.Masker, body any) bool {
+	if body == nil {
 		return false
 	}
 	masked, open := 0, 0
@@ -391,25 +385,73 @@ func firstFailure(rec *runner.Record) string {
 }
 
 func underMask(m *pathmask.Masker, path string) bool {
-	segs := strings.Split(path, ".")
-	for i := len(segs); i > 0; i-- {
-		if m.Masks(strings.Join(segs[:i], ".")) {
-			return true
+	_, ok := m.HidingPattern(path, true)
+	return ok
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
+func isHex(c byte) bool { return isDigit(c) || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F' }
+
+func isLetter(c byte) bool { return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' }
+
+func isAlnum(c byte) bool { return isDigit(c) || isLetter(c) }
+
+func allOf(s string, class func(byte) bool) bool {
+	for i := 0; i < len(s); i++ {
+		if !class(s[i]) {
+			return false
 		}
 	}
-	return false
+	return s != ""
 }
 
-var (
-	uuidShape  = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
-	digitsOnly = regexp.MustCompile(`^[0-9]+$`)
-)
+func digitsOnly(s string) bool { return allOf(s, isDigit) }
+
+func hexRun(s string) bool { return len(s) >= 8 && allOf(s, isHex) }
+
+func uuidShape(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if dash := i == 8 || i == 13 || i == 18 || i == 23; dash != (s[i] == '-') || !dash && !isHex(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func alnumRuns(s string) []string {
+	var runs []string
+	for i := 0; i < len(s); {
+		if !isAlnum(s[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isAlnum(s[j]) {
+			j++
+		}
+		runs = append(runs, s[i:j])
+		i = j
+	}
+	return runs
+}
+
+func runShape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if !isAlnum(s[i]) {
+			b.WriteByte(s[i])
+		} else if i == 0 || !isAlnum(s[i-1]) {
+			b.WriteByte('x')
+		}
+	}
+	return b.String()
+}
 
 func LooksVolatile(path string, a, b any) bool {
-	return looksVolatile(path, a, b)
-}
-
-func looksVolatile(path string, a, b any) bool {
 	if timeMismatch(path, a, b, nil, nil) != "" {
 		return false
 	}
@@ -423,10 +465,8 @@ func looksVolatile(path string, a, b any) bool {
 		camelIDPrefix(key):
 		return sameShape(a, b)
 	}
-	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString)
+	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape)
 }
-
-var alnumRun = regexp.MustCompile(`[A-Za-z0-9]+`)
 
 func sameShape(a, b any) bool {
 	if x, ok := a.(float64); ok {
@@ -438,23 +478,20 @@ func sameShape(a, b any) bool {
 	if !ok1 || !ok2 || x == "" || y == "" || zeroID(x) != zeroID(y) {
 		return false
 	}
-	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape.MatchString) {
+	if bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape) {
 		return true
 	}
-	return alnumRun.ReplaceAllString(x, "x") == alnumRun.ReplaceAllString(y, "x") && sameRunClasses(x, y) &&
-		kindPrefix(x) == kindPrefix(y)
+	return runShape(x) == runShape(y) && sameRunClasses(x, y) && kindPrefix(x) == kindPrefix(y)
 }
 
-var hexRun = regexp.MustCompile(`^[0-9a-fA-F]{8,}$`)
-
 func sameRunClasses(x, y string) bool {
-	xs, ys := alnumRun.FindAllString(x, -1), alnumRun.FindAllString(y, -1)
+	xs, ys := alnumRuns(x), alnumRuns(y)
 	if len(xs) != len(ys) {
 		return false
 	}
 	hasDigit := func(s string) bool { return strings.ContainsAny(s, "0123456789") }
 	for i := range xs {
-		if len(xs[i]) == len(ys[i]) && hexRun.MatchString(xs[i]) && hexRun.MatchString(ys[i]) {
+		if len(xs[i]) == len(ys[i]) && hexRun(xs[i]) && hexRun(ys[i]) {
 			continue
 		}
 		if hasDigit(xs[i]) != hasDigit(ys[i]) {
@@ -464,23 +501,28 @@ func sameRunClasses(x, y string) bool {
 	return true
 }
 
-var letterPrefix = regexp.MustCompile(`^([A-Za-z]+)[^A-Za-z0-9]`)
-
 func kindPrefix(s string) string {
-	if m := letterPrefix.FindStringSubmatch(s); m != nil {
-		return m[1]
+	i := 0
+	for i < len(s) && isLetter(s[i]) {
+		i++
 	}
-	return ""
+	if i == 0 || i == len(s) || isDigit(s[i]) {
+		return ""
+	}
+	return s[:i]
 }
 
 func lastKey(path string) string {
-	segs := strings.Split(path, ".")
-	for i := len(segs) - 1; i >= 0; i-- {
-		if !digitsOnly.MatchString(segs[i]) {
-			return segs[i]
+	for {
+		i := strings.LastIndexByte(path, '.')
+		if seg := path[i+1:]; !digitsOnly(seg) {
+			return seg
 		}
+		if i < 0 {
+			return ""
+		}
+		path = path[:i]
 	}
-	return ""
 }
 
 func camelIDPrefix(key string) bool {
@@ -502,6 +544,9 @@ func bothAre(a, b any, pred func(string) bool) bool {
 }
 
 func isTimestamp(s string) bool {
+	if len(s) < len("2006-01-02T1:04:05Z") || s[4] != '-' {
+		return false
+	}
 	_, err := time.Parse(time.RFC3339Nano, s)
 	return err == nil
 }

@@ -3,6 +3,9 @@ package namecase
 import "strings"
 
 func Fold(s string) string {
+	if folded(s) {
+		return s
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
@@ -15,6 +18,15 @@ func Fold(s string) string {
 		b.WriteRune(r)
 	}
 	return b.String()
+}
+
+func folded(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c >= 0x80 || c == '_' || c == '-' || c >= 'A' && c <= 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 func Equal(a, b string) bool {

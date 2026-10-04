@@ -1,12 +1,14 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,12 +41,8 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 		timeout = d
 	}
 
-	base := transport.New(transport.Options{
-		BaseURL:      cfg.Target.BaseURL,
-		HostOverride: cfg.Target.HostOverride,
-		Timeout:      timeout,
-		Headers:      cfg.Target.Headers,
-	})
+	opts := transport.Options{BaseURL: cfg.Target.BaseURL, HostOverride: cfg.Target.HostOverride, Timeout: timeout, Headers: cfg.Target.Headers}
+	base := transport.New(opts)
 
 	deps := &Deps{Catalog: cat, Client: base}
 	mws := []transport.Middleware{}
@@ -61,22 +59,14 @@ func Build(ctx context.Context, cfg *config.Config, cat *catalog.Catalog, obs fu
 		deps.Route = routeOf(router, cat)
 	}
 
-	deps.Client = transport.New(transport.Options{
-		BaseURL:      cfg.Target.BaseURL,
-		HostOverride: cfg.Target.HostOverride,
-		Timeout:      timeout,
-		Headers:      cfg.Target.Headers,
-		Middlewares:  mws,
-	})
+	opts.Middlewares = mws
+	deps.Client = transport.New(opts)
 	return deps, nil
 }
 
 func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handler, deps *Deps) (*transport.AuthRouter, error) {
 	profiles := cfg.AuthProfiles()
-	envelopePath := strings.TrimSpace(cfg.Conventions.EnvelopePath)
-	if envelopePath == "" {
-		envelopePath = chain.DefaultEnvelopePath
-	}
+	envelopePath := cmp.Or(strings.TrimSpace(cfg.Conventions.EnvelopePath), chain.DefaultEnvelopePath)
 	router := &transport.AuthRouter{
 		Default:  config.DefaultAuthProfile,
 		Envelope: transport.EnvelopeCodeReader(envelopePath),
@@ -113,7 +103,7 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 			Sink:        src,
 			EnvVars:     chain.AuthBodyEnvNames(orEmpty(auth.Body)),
 			BodyFields:  orEmpty(auth.Body),
-			Header:      authHeader(spec),
+			Header:      spec.Header,
 		})
 		owns, err := matcher(auth.Calls, cat)
 		if err != nil {
@@ -130,12 +120,7 @@ func authRouter(cfg *config.Config, cat *catalog.Catalog, invoke transport.Handl
 		return nil, fmt.Errorf("auth.skip_calls: %w", err)
 	}
 	router.Skip = func(procedure string) bool {
-		for _, login := range logins {
-			if login == procedure {
-				return true
-			}
-		}
-		return skip != nil && skip(procedure)
+		return slices.Contains(logins, procedure) || skip != nil && skip(procedure)
 	}
 	return router, nil
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -31,12 +33,7 @@ func (c chainCounts) total() int {
 }
 
 func (c chainCounts) names() []string {
-	out := make([]string, 0, len(c))
-	for k := range c {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(c))
 }
 
 func (c chainCounts) list() string {
@@ -53,12 +50,12 @@ func sameTarget(recorded, now string) bool {
 
 type tokenSplit struct {
 	mine, other int
-	foreign     map[string]int
+	foreign     chainCounts
 	expired     int
 }
 
 func splitTokens(cfg *config.Config, opts Options, entries map[string]time.Time) (tokenSplit, bool) {
-	split := tokenSplit{foreign: map[string]int{}}
+	split := tokenSplit{foreign: chainCounts{}}
 	if opts.TokenKeys == nil {
 		return split, false
 	}
@@ -93,23 +90,6 @@ func splitTokens(cfg *config.Config, opts Options, entries map[string]time.Time)
 	return split, true
 }
 
-func (t tokenSplit) foreignTotal() int {
-	n := 0
-	for _, v := range t.foreign {
-		n += v
-	}
-	return n
-}
-
-func (t tokenSplit) foreignTargets() string {
-	out := []string{}
-	for k := range t.foreign {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return strings.Join(out, ", ")
-}
-
 func recordedTargets(cfg *config.Config) []string {
 	now := strings.TrimRight(strings.TrimSpace(cfg.Target.BaseURL), "/")
 	seen := map[string]bool{}
@@ -132,12 +112,7 @@ func recordedTargets(cfg *config.Config) []string {
 			note(head.Target)
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for t := range seen {
-		out = append(out, t)
-	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func readTokenCache(cfg *config.Config) map[string]time.Time {
@@ -175,7 +150,7 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 				continue
 			}
 			rec := &runner.Record{}
-			if json.Unmarshal(raw, rec) != nil {
+			if rec.UnmarshalJSON(raw) != nil {
 				continue
 			}
 			name := rec.Chain
@@ -248,21 +223,16 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 	}
 	if n := foreign.total(); n > 0 {
 		found = true
-		targets := make([]string, 0, len(foreignTargets))
-		for t := range foreignTargets {
-			targets = append(targets, t)
-		}
-		sort.Strings(targets)
 		r.add(CheckUpgrade, LevelWarn,
-			fmt.Sprintf("%d run record(s) were recorded against another base_url (%s) than %s: %s", n, strings.Join(targets, ", "), orUnset(now), foreign.list()),
+			fmt.Sprintf("%d run record(s) were recorded against another base_url (%s) than %s: %s", n, strings.Join(slices.Sorted(maps.Keys(foreignTargets)), ", "), orUnset(now), foreign.list()),
 			"chain slice does not pin from them and chain which does not cite them; re-run the chains here, and delete the old\n"+
 				"records once their evidence has served its purpose")
 	}
-	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok && split.foreignTotal() > 0 {
+	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok && split.foreign.total() > 0 {
 		found = true
 		r.add(CheckUpgrade, LevelWarn,
 			fmt.Sprintf("%d cached token(s) minted against another base_url (%s) sit in %s; no login against %s uses them",
-				split.foreignTotal(), split.foreignTargets(), config.DirName+"/"+config.TokensFile, orUnset(now)),
+				split.foreign.total(), strings.Join(split.foreign.names(), ", "), config.DirName+"/"+config.TokensFile, orUnset(now)),
 			fmt.Sprintf("rm %s drops them (every login here then logs in afresh once)", config.DirName+"/"+config.TokensFile))
 	}
 	if !found {

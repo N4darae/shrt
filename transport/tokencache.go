@@ -45,23 +45,28 @@ func (s *LoginTokenSource) cacheKey() string {
 	return s.cacheProfile + "#" + hex.EncodeToString(sum.Sum(nil))[:16]
 }
 
-func (s *LoginTokenSource) readCache() (cachedToken, bool) {
+func (s *LoginTokenSource) loadCache() (string, map[string]cachedToken, bool) {
 	if s.cachePath == "" {
-		return cachedToken{}, false
+		return "", nil, false
 	}
 	key := s.cacheKey()
 	if key == "" {
-		return cachedToken{}, false
+		return "", nil, false
 	}
 	raw, err := os.ReadFile(s.cachePath)
 	if err != nil {
-		return cachedToken{}, false
+		return "", nil, false
 	}
 	entries := map[string]cachedToken{}
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return cachedToken{}, false
+		return "", nil, false
 	}
-	e, ok := entries[key]
+	return key, entries, true
+}
+
+func (s *LoginTokenSource) readCache() (cachedToken, bool) {
+	key, entries, ok := s.loadCache()
+	e := entries[key]
 	if !ok || e.Token == "" || e.ExpiresAt.IsZero() {
 		return cachedToken{}, false
 	}
@@ -69,34 +74,12 @@ func (s *LoginTokenSource) readCache() (cachedToken, bool) {
 }
 
 func (s *LoginTokenSource) dropCache() {
-	if s.cachePath == "" {
-		return
-	}
-	key := s.cacheKey()
-	if key == "" {
-		return
-	}
-	raw, err := os.ReadFile(s.cachePath)
-	if err != nil {
-		return
-	}
-	entries := map[string]cachedToken{}
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		return
-	}
-	if _, ok := entries[key]; !ok {
+	key, entries, ok := s.loadCache()
+	if _, found := entries[key]; !ok || !found {
 		return
 	}
 	delete(entries, key)
-	body, err := json.Marshal(entries)
-	if err != nil {
-		return
-	}
-	tmp := s.cachePath + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, s.cachePath)
+	s.saveCache(entries)
 }
 
 func (s *LoginTokenSource) writeCache(entry cachedToken) {
@@ -118,6 +101,10 @@ func (s *LoginTokenSource) writeCache(entry cachedToken) {
 		}
 	}
 	entries[key] = entry
+	s.saveCache(entries)
+}
+
+func (s *LoginTokenSource) saveCache(entries map[string]cachedToken) {
 	body, err := json.Marshal(entries)
 	if err != nil {
 		return

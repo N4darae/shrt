@@ -2,12 +2,15 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,10 +104,7 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	if now.IsZero() {
 		now = time.Now()
 	}
-	by := strings.TrimSpace(in.By)
-	if by == "" {
-		by = "agent"
-	}
+	by := cmp.Or(strings.TrimSpace(in.By), "agent")
 	p := &Proposal{
 		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
 		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
@@ -186,9 +186,6 @@ func (s *Store) LoadProposal(chainName string) (*Proposal, error) {
 func (s *Store) ListProposals() ([]*Proposal, error) {
 	names, err := listJSONFiles(s.pendingDir())
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	out := []*Proposal{}
@@ -239,11 +236,7 @@ func ProposalReport(p *Proposal, rec *runner.Record) string {
 	}
 	fmt.Fprintf(&b, "| status | %s, %d step(s), %d ms |\n", rec.Status, len(rec.Steps), rec.DurationMS)
 	if len(rec.Vars) > 0 {
-		keys := make([]string, 0, len(rec.Vars))
-		for k := range rec.Vars {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(rec.Vars))
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
 			parts = append(parts, fmt.Sprintf("`%s=%v`", k, rec.Vars[k]))
@@ -409,10 +402,7 @@ func clipList(items []string, max int) string {
 }
 
 func shortCall(call string) string {
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		return call[i+1:]
-	}
-	return call
+	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func answerKind(st *runner.StepRecord, envelope string) string {
@@ -668,15 +658,17 @@ func clip(s string, n int) string {
 }
 
 func shortValue(v any) string {
-	if s, isString := v.(string); isString && (s == "" || strings.TrimSpace(s) != s) {
-		return clipMiddle(strconv.Quote(s), summaryValue)
+	s, n := fullValue(v), summaryValue
+	r := []rune(s)
+	if len(r) <= n {
+		return s
 	}
-	if b, err := json.Marshal(v); err == nil {
-		if _, isString := v.(string); !isString {
-			return clipMiddle(flat(string(b)), summaryValue)
+	if strings.Contains(s, " ") {
+		if out, ok := clipWords(strings.Split(s, " "), n); ok {
+			return out
 		}
 	}
-	return clipMiddle(flat(fmt.Sprint(v)), summaryValue)
+	return clipToken(r, n)
 }
 
 func fullValue(v any) string {
@@ -689,19 +681,6 @@ func fullValue(v any) string {
 		}
 	}
 	return flat(fmt.Sprint(v))
-}
-
-func clipMiddle(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if strings.Contains(s, " ") {
-		if out, ok := clipWords(strings.Split(s, " "), n); ok {
-			return out
-		}
-	}
-	return clipToken(r, n)
 }
 
 func clipWords(words []string, n int) (string, bool) {
@@ -792,20 +771,15 @@ func sentSummary(st *runner.StepRecord) string {
 	walk = func(prefix string, v any) {
 		switch t := v.(type) {
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
-				walk(joinKey(prefix, k), t[k])
+			for _, k := range slices.Sorted(maps.Keys(t)) {
+				walk(pathmask.Join(prefix, k), t[k])
 			}
 		case []any:
 			if len(t) == 0 {
 				leaves = append(leaves, prefix+"=[]")
 			}
 			for i, e := range t {
-				walk(joinKey(prefix, fmt.Sprint(i)), e)
+				walk(pathmask.Join(prefix, fmt.Sprint(i)), e)
 			}
 		default:
 			if referenceLike(prefix, t) {
@@ -830,10 +804,7 @@ func sentSummary(st *runner.StepRecord) string {
 var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 func referenceLike(path string, v any) bool {
-	key := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		key = path[i+1:]
-	}
+	key := path[strings.LastIndex(path, ".")+1:]
 	lower := strings.ToLower(key)
 	switch {
 	case lower == "id", strings.HasPrefix(lower, "id_"), strings.HasSuffix(lower, "_id"),
@@ -842,13 +813,6 @@ func referenceLike(path string, v any) bool {
 	}
 	text, ok := v.(string)
 	return ok && uuidShape.MatchString(text)
-}
-
-func joinKey(prefix, k string) string {
-	if prefix == "" {
-		return k
-	}
-	return prefix + "." + k
 }
 
 func assertedSummary(st *runner.StepRecord) string {
@@ -935,7 +899,7 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 		switch t := v.(type) {
 		case map[string]any:
 			for k, x := range t {
-				walk(joinKey(path, k), depth+1, x)
+				walk(pathmask.Join(path, k), depth+1, x)
 			}
 		case []any:
 			if unordered[listKey(path)] && len(t) > 0 {
@@ -943,7 +907,7 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 				return
 			}
 			for i, x := range t {
-				walk(joinKey(path, fmt.Sprint(i)), depth+1, x)
+				walk(pathmask.Join(path, fmt.Sprint(i)), depth+1, x)
 			}
 		case nil:
 		default:
@@ -1045,21 +1009,17 @@ func itemsSummary(body any) string {
 	if !found || !isList || len(items) == 0 {
 		return ""
 	}
-	order := []string{}
-	counts := map[string]int{}
+	counts := counter{}
 	for _, item := range items {
 		text, ok := verdictText(item, field, "details.0.app_code", "details.0.reason")
 		if !ok {
 			text = "no verdict"
 		}
-		if counts[text] == 0 {
-			order = append(order, text)
-		}
-		counts[text]++
+		counts.add(text)
 	}
-	parts := make([]string, 0, len(order))
-	for _, text := range order {
-		parts = append(parts, fmt.Sprintf("%d %s", counts[text], text))
+	parts := make([]string, 0, len(counts.order))
+	for _, text := range counts.order {
+		parts = append(parts, fmt.Sprintf("%d %s", counts.n[text], text))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -1261,15 +1221,8 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 	if len(scrubbed) > 0 {
 		check = append(check, "scrubbed "+clipList(scrubbed, 3))
 	}
-	stepVolatile, chainVolatile := []string{}, []string{}
-	for _, st := range rec.Steps {
-		for _, v := range st.Volatile {
-			stepVolatile = append(stepVolatile, fmt.Sprintf("`%s` (%s)", v, st.ID))
-		}
-	}
-	for _, v := range rec.Volatile {
-		chainVolatile = append(chainVolatile, "`"+v+"`")
-	}
+	volatile := volatileSummary(rec)
+	chainVolatile, stepVolatile := volatile[:len(rec.Volatile)], volatile[len(rec.Volatile):]
 	if len(stepVolatile) > 0 {
 		check = append(check, "volatile "+clipList(stepVolatile, 3))
 	}
@@ -1277,10 +1230,7 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		check = append(check, "every field volatile at "+clipList(masked, 3))
 	}
 	row := ProposalRow{Chain: p.Chain, Run: p.RunID, Steps: fmt.Sprintf("%d/%d", passed, len(rec.Steps)),
-		Refusals: "none", Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
-	if len(refusals.order) > 0 {
-		row.Refusals = refusals.top(3)
-	}
+		Refusals: refusals.top(3), Check: "none", Volatile: strings.Join(chainVolatile, ", ")}
 	if len(check) > 0 {
 		row.Check = strings.Join(check, "; ")
 	}

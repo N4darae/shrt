@@ -87,7 +87,7 @@ func epochDigits(v any) (string, bool) {
 		}
 		return strconv.FormatFloat(t, 'f', 0, 64), true
 	case string:
-		if t == "" || t[0] == '0' || !digitsOnly.MatchString(t) {
+		if t == "" || t[0] == '0' || !digitsOnly(t) {
 			return "", false
 		}
 		return t, true
@@ -172,7 +172,7 @@ func volatileIn(path string, a, b any, wa, wb *runWindow) (bool, string) {
 	if why := timeMismatch(path, a, b, wa, wb); why != "" {
 		return false, why
 	}
-	return looksVolatile(path, a, b), ""
+	return LooksVolatile(path, a, b), ""
 }
 
 func noteTimeUnit(c *Change) {

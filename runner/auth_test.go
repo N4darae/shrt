@@ -91,7 +91,7 @@ func TestEachStepCarriesTheTokenOfTheProfileItRunsAs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakeServer()
 			t.Cleanup(f.Close)
-			rec := run(t, profileRunner(t, f, tc.cfg(f.URL)), normalized(t, tc.c), runner.Options{})
+			rec := run(t, buildRunner(t, tc.cfg(f.URL), catalogtest.New()), normalized(t, tc.c), runner.Options{})
 			if !rec.Passed() {
 				t.Fatalf("want passed, got %s: %s", rec.Status, rec.Failure)
 			}
@@ -191,7 +191,7 @@ func principalOf(t *testing.T, user, password string, redact ...string) (string,
 	cfg := testConfig(srv.URL)
 	cfg.Auth.Body = map[string]any{"username": "${env.PRINCIPAL_USER}", "password": "${env.PRINCIPAL_PASSWORD}"}
 	cfg.Redact = append(append([]string{}, cfg.Redact...), redact...)
-	rec := run(t, profileRunner(t, srv, cfg), normalized(t, flow(step("create", "ThingService/Create", thing("w"), okExpect()...))), runner.Options{Redact: cfg.Redact})
+	rec := run(t, buildRunner(t, cfg, catalogtest.New()), normalized(t, flow(step("create", "ThingService/Create", thing("w"), okExpect()...))), runner.Options{Redact: cfg.Redact})
 	return rec.Steps[0].AuthPrincipal, recordText(t, rec)
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -64,10 +65,8 @@ func (m *Masker) addSecret(v string, withTail bool) {
 }
 
 func (s *secretSet) add(v string) bool {
-	for _, have := range s.values {
-		if have == v {
-			return false
-		}
+	if slices.Contains(s.values, v) {
+		return false
 	}
 	s.values = append(s.values, v)
 	return true
@@ -273,23 +272,13 @@ func (m *Masker) walk(v any, path string) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, item := range t {
-			child := Join(path, k)
-			if m.masked(child) && m.coversValue(child, item) {
-				out[k] = m.value
-				continue
-			}
-			out[k] = m.walk(item, child)
+			out[k] = m.walkChild(item, Join(path, k))
 		}
 		return out
 	case []any:
 		out := make([]any, 0, len(t))
 		for i, item := range t {
-			child := Join(path, IndexKey(i))
-			if m.masked(child) && m.coversValue(child, item) {
-				out = append(out, m.value)
-				continue
-			}
-			out = append(out, m.walk(item, child))
+			out = append(out, m.walkChild(item, Join(path, IndexKey(i))))
 		}
 		return out
 	default:
@@ -297,11 +286,37 @@ func (m *Masker) walk(v any, path string) any {
 	}
 }
 
+func (m *Masker) walkChild(item any, path string) any {
+	if m.masked(path) && m.coversValue(path, item) {
+		return m.value
+	}
+	return m.walk(item, path)
+}
+
 func (m *Masker) Masks(path string) bool {
 	if m == nil || len(m.patterns) == 0 {
 		return false
 	}
 	return m.masked(path)
+}
+
+func (m *Masker) HidingPattern(path string, leaf bool) (string, bool) {
+	if m == nil || len(m.patterns) == 0 {
+		return "", false
+	}
+	segs := foldSegments(strings.Split(path, "."))
+	limit := len(segs)
+	if !leaf {
+		limit--
+	}
+	for i := limit; i > 0; i-- {
+		for j, p := range m.split {
+			if matchFolded(p, segs[:i]) {
+				return m.patterns[j], true
+			}
+		}
+	}
+	return "", false
 }
 
 func (m *Masker) MasksValue(path string, v any) bool {
@@ -375,39 +390,21 @@ func (m *Masker) masked(path string) bool {
 }
 
 func Match(pattern, path string) bool {
-	return matchSegments(strings.Split(pattern, "."), strings.Split(path, "."))
-}
-
-func matchSegments(pat, seg []string) bool {
-	if len(pat) == 0 {
-		return len(seg) == 0
-	}
-	head := pat[0]
-	if head == "**" {
-		for i := 0; i <= len(seg); i++ {
-			if matchSegments(pat[1:], seg[i:]) {
-				return true
-			}
-		}
-		return false
-	}
-	if len(seg) == 0 {
-		return false
-	}
-	if head != "*" && !segmentMatches(head, seg[0]) {
-		return false
-	}
-	return matchSegments(pat[1:], seg[1:])
+	return matchWith(strings.Split(pattern, "."), strings.Split(path, "."), segmentMatches)
 }
 
 func matchFolded(pat, seg []string) bool {
+	return matchWith(pat, seg, globFolded)
+}
+
+func matchWith(pat, seg []string, matches func(pattern, segment string) bool) bool {
 	if len(pat) == 0 {
 		return len(seg) == 0
 	}
 	head := pat[0]
 	if head == "**" {
 		for i := 0; i <= len(seg); i++ {
-			if matchFolded(pat[1:], seg[i:]) {
+			if matchWith(pat[1:], seg[i:], matches) {
 				return true
 			}
 		}
@@ -416,10 +413,10 @@ func matchFolded(pat, seg []string) bool {
 	if len(seg) == 0 {
 		return false
 	}
-	if head != "*" && !globFolded(head, seg[0]) {
+	if head != "*" && !matches(head, seg[0]) {
 		return false
 	}
-	return matchFolded(pat[1:], seg[1:])
+	return matchWith(pat[1:], seg[1:], matches)
 }
 
 func segmentMatches(pattern, segment string) bool {
@@ -454,12 +451,5 @@ func Join(prefix, key string) string {
 }
 
 func IndexKey(i int) string {
-	if i < 10 {
-		return string(rune('0' + i))
-	}
-	digits := []byte{}
-	for n := i; n > 0; n /= 10 {
-		digits = append([]byte{byte('0' + n%10)}, digits...)
-	}
-	return string(digits)
+	return strconv.Itoa(i)
 }

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"slices"
 	"sort"
 	"strings"
 )
@@ -90,13 +91,7 @@ func scalarAt(fields []*Field, segs []string) (*Field, bool) {
 	cur := fields
 	var f *Field
 	for i, seg := range segs {
-		f = nil
-		for _, c := range cur {
-			if c.Name == seg {
-				f = c
-				break
-			}
-		}
+		f = fieldNamed(cur, seg, false)
 		if f == nil || f.Repeated || f.MapKey != "" || f.Truncated {
 			return nil, false
 		}
@@ -135,14 +130,14 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 			if f.Repeated || f.Kind != "message" {
 				continue
 			}
-			if !matchesAny(f.Name, envelopeFieldNames) {
+			if !slices.Contains(envelopeFieldNames, f.Name) {
 				continue
 			}
 			for _, inner := range f.Fields {
 				if inner.Kind == "message" || inner.Repeated {
 					continue
 				}
-				if matchesAny(inner.Name, envelopeCodeNames) {
+				if slices.Contains(envelopeCodeNames, inner.Name) {
 					seen[f.Name+"."+inner.Name]++
 				}
 			}
@@ -153,13 +148,7 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 		if n*2 < total {
 			continue
 		}
-		field := path
-		for i := 0; i < len(path); i++ {
-			if path[i] == '.' {
-				field = path[:i]
-				break
-			}
-		}
+		field, _, _ := strings.Cut(path, ".")
 		out = append(out, EnvelopeCandidate{Path: path, Field: field, Count: n, Of: total})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -169,13 +158,4 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 		return out[i].Path < out[j].Path
 	})
 	return out
-}
-
-func matchesAny(name string, wanted []string) bool {
-	for _, w := range wanted {
-		if name == w {
-			return true
-		}
-	}
-	return false
 }

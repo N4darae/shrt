@@ -2,12 +2,14 @@ package runner
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -53,23 +55,10 @@ type AuthBinding struct {
 
 type AuthBindings []*AuthBinding
 
-func (a *AuthBinding) observe(procedure string, response any) bool {
-	if a == nil || a.Sink == nil || a.Procedure != procedure {
-		return false
-	}
+func (a *AuthBinding) token(response any) (string, bool) {
 	token, ok := chain.Get(response, a.TokenPath)
 	text, isText := token.(string)
-	if !ok || !isText || text == "" {
-		return false
-	}
-	a.Sink.Seed(text, expiryOf(response, a.ExpiresPath))
-	return true
-}
-
-func (a *AuthBinding) carriesToken(response any) bool {
-	token, ok := chain.Get(response, a.TokenPath)
-	text, isText := token.(string)
-	return ok && isText && text != ""
+	return text, ok && isText && text != ""
 }
 
 func (a *AuthBinding) sentOwnCredentials(sent []byte, canonical func([]byte) ([]byte, error)) bool {
@@ -110,16 +99,6 @@ func sameJSON(canonical func([]byte) ([]byte, error), a, b []byte) bool {
 	return reflect.DeepEqual(left, right)
 }
 
-func (bs AuthBindings) matching(procedure string) AuthBindings {
-	out := make(AuthBindings, 0, len(bs))
-	for _, b := range bs {
-		if b != nil && b.Sink != nil && b.Procedure == procedure {
-			out = append(out, b)
-		}
-	}
-	return out
-}
-
 type seeding struct {
 	seeded    []string
 	refused   []string
@@ -128,20 +107,21 @@ type seeding struct {
 
 func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical func([]byte) ([]byte, error), response any) seeding {
 	var out seeding
-	for _, b := range bs.matching(procedure) {
-		if profile != "" && b.Profile != profile {
+	for _, b := range bs {
+		if b == nil || b.Sink == nil || b.Procedure != procedure || profile != "" && b.Profile != profile {
 			continue
 		}
-		if !b.sentOwnCredentials(sent, canonical) {
-			if b.carriesToken(response) {
-				out.refused = append(out.refused, b.Profile)
-			} else {
-				out.tokenless = append(out.tokenless, b.Profile)
+		token, carries := b.token(response)
+		switch {
+		case b.sentOwnCredentials(sent, canonical):
+			if carries {
+				b.Sink.Seed(token, expiryOf(response, b.ExpiresPath))
+				out.seeded = append(out.seeded, b.Profile)
 			}
-			continue
-		}
-		if b.observe(procedure, response) {
-			out.seeded = append(out.seeded, b.Profile)
+		case carries:
+			out.refused = append(out.refused, b.Profile)
+		default:
+			out.tokenless = append(out.tokenless, b.Profile)
 		}
 	}
 	return out
@@ -244,17 +224,9 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 }
 
 func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope, open)
-		}
-	case []any:
-		for i, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope, open)
-		}
-	case string:
-		if !redactor.Masks(path) {
+	eachLeaf(v, path, func(v any, path string) {
+		t, ok := v.(string)
+		if !ok || !redactor.Masks(path) {
 			return
 		}
 		env := scope.Env
@@ -281,28 +253,19 @@ func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *cha
 				redactor.AddWholeSecret(fmt.Sprint(value))
 			}
 		}
-	}
+	})
 }
 
 func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, item := range t {
-			learnMaskedTemplate(redactor, item, pathmask.Join(path, k))
-		}
-	case []any:
-		for i, item := range t {
-			learnMaskedTemplate(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
-		}
-	default:
+	eachLeaf(v, path, func(v any, path string) {
 		if !redactor.Masks(path) {
 			return
 		}
-		resolved, err := chain.AuthBodyScope().ResolveValue(t)
+		resolved, err := chain.AuthBodyScope().ResolveValue(v)
 		if err == nil && redactor.MasksValue(path, resolved) {
 			learnSecret(redactor, resolved)
 		}
-	}
+	})
 }
 
 func (bs AuthBindings) learnTokens(redactor *pathmask.Masker) {
@@ -427,7 +390,7 @@ func UndeclaredFieldsLine(rec *Record) string {
 				order = append(order, sr.Call)
 			}
 			for _, f := range strings.Split(rest, ", ") {
-				if f != "" && !slicesContain(fields[sr.Call], f) {
+				if f != "" && !slices.Contains(fields[sr.Call], f) {
 					fields[sr.Call] = append(fields[sr.Call], f)
 				}
 			}
@@ -441,15 +404,6 @@ func UndeclaredFieldsLine(rec *Record) string {
 		parts = append(parts, call+" -> "+strings.Join(fields[call], ", "))
 	}
 	return UndeclaredFieldsAdvice + ": " + strings.Join(parts, "; ")
-}
-
-func slicesContain(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func unavailableAnswer(status int, code string) bool {
@@ -563,10 +517,8 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.T
 }
 
 func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
-	for i := range refusals {
-		if refusals[i].Early() {
-			return &refusals[i]
-		}
+	if i := slices.IndexFunc(refusals, transport.TokenRefusal.Early); i >= 0 {
+		return &refusals[i]
 	}
 	return nil
 }
@@ -628,7 +580,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, firstFailedExpectation(sr)))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, firstFailedExpectation(sr)))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -658,10 +610,6 @@ func (x exportSources) steps() map[string]string {
 		out[name] = src.step
 	}
 	return out
-}
-
-func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
-	return readsBrokenIn(step.SendReferences(), broken, exporter)
 }
 
 func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
@@ -705,15 +653,9 @@ func readsSoundField(ref string, sr *StepRecord) bool {
 		return false
 	}
 	failed := failedPaths(sr.Expect)
-	if len(failed) == 0 {
-		return false
-	}
-	for _, f := range failed {
-		if f == "" || strings.Contains(f, "[]") || f == path || strings.HasPrefix(path, f+".") || strings.HasPrefix(f, path+".") {
-			return false
-		}
-	}
-	return true
+	return len(failed) > 0 && !slices.ContainsFunc(failed, func(f string) bool {
+		return f == "" || strings.Contains(f, "[]") || f == path || strings.HasPrefix(path, f+".") || strings.HasPrefix(f, path+".")
+	})
 }
 
 func exportedPath(ref string, exporter exportSources) string {
@@ -778,11 +720,16 @@ func producerOf(ref string, exporter map[string]string) string {
 	return head
 }
 
-func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
+func (r *Runner) skippedRecord(i int, step *chain.Step) *StepRecord {
 	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile}
 	if method, err := r.Catalog.Lookup(step.Call); err == nil {
 		sr.Call, sr.Procedure = method.FullName, method.Procedure()
 	}
+	return sr
+}
+
+func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *StepRecord) *StepRecord {
+	sr := r.skippedRecord(i, step)
 	sr.Error = fmt.Sprintf("not sent: ${%s} reads step %q, which %s", ref, producer.ID, whyNotReadable(producer))
 	if producer.Request != nil {
 		sr.Error += fmt.Sprintf(" A reference to its request (${steps.%s.request...}) is still safe: that "+
@@ -792,10 +739,8 @@ func (r *Runner) skippedBehind(i int, step *chain.Step, ref string, producer *St
 }
 
 func (r *Runner) skippedUnreachable(i int, step *chain.Step, dead *StepRecord) *StepRecord {
-	sr := &StepRecord{Index: i + 1, ID: step.ID, Call: step.Call, Status: StatusSkipped, Volatile: step.Volatile, unreachable: dead.unreachable}
-	if method, err := r.Catalog.Lookup(step.Call); err == nil {
-		sr.Call, sr.Procedure = method.FullName, method.Procedure()
-	}
+	sr := r.skippedRecord(i, step)
+	sr.unreachable = dead.unreachable
 	sr.Error = "not sent: " + unreachableReason(r.Client.BaseURL(), dead)
 	return sr
 }
@@ -835,7 +780,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
 			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
 	}
-	return "did not pass (" + firstLine(firstNonEmpty(sr.Error, sr.Status)) + "), so -keep-going does not " +
+	return "did not pass (" + firstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
 }
 
@@ -872,7 +817,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 	verdicts, refusals := true, true
 	for text, n := range counts {
 		shown := text
-		if !looksLikeVerdict(text) {
+		if !verdictShape.MatchString(text) {
 			shown = strconv.Quote(text)
 			verdicts = false
 		}
@@ -896,12 +841,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 }
 
 func assertsTransport(results []chain.ExpectResult) bool {
-	for _, e := range results {
-		if chain.IsTransportPath(e.Path) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(results, func(e chain.ExpectResult) bool { return chain.IsTransportPath(e.Path) })
 }
 
 var (
@@ -910,27 +850,13 @@ var (
 		"NOTFOUND", "REFUSE", "DECLINE", "CONFLICT", "ABORT", "EXPIRED"}
 )
 
-func looksLikeVerdict(text string) bool {
-	return verdictShape.MatchString(text)
-}
-
 func looksLikeRefusal(text string) bool {
 	upper := strings.ToUpper(text)
-	for _, w := range refusalWords {
-		if strings.Contains(upper, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(refusalWords, func(w string) bool { return strings.Contains(upper, w) })
 }
 
 func assertedValue(results []chain.ExpectResult, path string) bool {
-	for _, e := range results {
-		if e.Passed && e.Path == path && e.Rule == "equals" {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(results, func(e chain.ExpectResult) bool { return e.Passed && e.Path == path && e.Rule == "equals" })
 }
 
 func inBandRefusal(response json.RawMessage) (string, bool) {
@@ -941,12 +867,8 @@ func inBandRefusal(response json.RawMessage) (string, bool) {
 	if err := json.Unmarshal(response, &v); err != nil {
 		return "", false
 	}
-	code, ok := chain.Get(v, chain.EnvelopePath())
-	if !ok || code == nil {
-		return "", false
-	}
-	text := fmt.Sprint(code)
-	return text, text != "" && text != chain.EnvelopeOK()
+	text, ok := verdictText(v, chain.EnvelopePath())
+	return text, ok && text != chain.EnvelopeOK()
 }
 
 func failedPaths(results []chain.ExpectResult) []string {
@@ -1083,7 +1005,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			continue
 		}
 		if keepGoing {
-			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
+			if ref, producer, ok := readsBrokenIn(step.SendReferences(), broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
 				behind, behindOn[i] = true, producer.ID
 			}
@@ -1223,15 +1145,19 @@ func (r *Runner) requestProblems(c *chain.Chain, vars map[string]any) []string {
 				}
 			}
 		}
-		sample := method.ResponseSample()
-		scope.RecordSynthetic(step.ID, resolved, sample)
-		for name, path := range step.Export {
-			if v, ok := chain.Get(sample, path); ok {
-				scope.Exports[name] = v
-			}
-		}
+		recordSynthetic(scope, step, method, resolved)
 	}
 	return problems
+}
+
+func recordSynthetic(scope *chain.Scope, step *chain.Step, method *catalog.Method, resolved any) {
+	sample := method.ResponseSample()
+	scope.RecordSynthetic(step.ID, resolved, sample)
+	for name, path := range step.Export {
+		if v, ok := chain.Get(sample, path); ok {
+			scope.Exports[name] = v
+		}
+	}
 }
 
 func (r *Runner) validWithoutSynthetic(scope *chain.Scope, method *catalog.Method, body map[string]any, vars map[string]any) bool {
@@ -1303,11 +1229,9 @@ func readsSynthetic(v any, vars map[string]any) bool {
 	return false
 }
 
-var refExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
-
 func chainRefs(text string) []string {
 	out := []string{}
-	for _, m := range refExpr.FindAllStringSubmatch(text, -1) {
+	for _, m := range bodyRef.FindAllStringSubmatch(text, -1) {
 		out = append(out, m[1])
 	}
 	return out
@@ -1369,13 +1293,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	}
 	if opts.DryRun {
 		sr.Status = StatusSkipped
-		sample := method.ResponseSample()
-		scope.RecordSynthetic(step.ID, resolved, sample)
-		for name, path := range step.Export {
-			if v, ok := chain.Get(sample, path); ok {
-				scope.Exports[name] = v
-			}
-		}
+		recordSynthetic(scope, step, method, resolved)
 		for _, e := range step.Expect {
 			if _, err := e.ResolveWith(scope); err != nil {
 				sr.Status = StatusFailed
@@ -1386,19 +1304,16 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		return sr
 	}
 
-	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders}
+	call := &transport.Call{Procedure: method.Procedure(), Body: body, Header: resolvedHeaders, Meta: authMeta(step)}
 	if method.ServerStreaming {
 		call.Stream = 1
-	}
-	if step.SkipAuth || step.Auth != "" {
-		call.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
 	}
 	sentAt := time.Now()
 	res, err := r.Client.Do(ctx, call)
 	res = r.resendRead(ctx, step, call, resolvedHeaders, sr, res, err)
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
-		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
+		sr.AuthProfile = cmp.Or(profile, NoAuthProfile)
 		sr.AuthPrincipal = opts.principals[profile]
 	}
 	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
@@ -1554,12 +1469,10 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	sr.Note = seedingNote(r.Auth.observe(step.Auth, method.Procedure(), body, canonicalInput, decoded))
 
 	for i, e := range step.Expect {
-		response, presence := any(decoded), sent
+		response, presence, kind := any(decoded), sent, ""
 		if chain.IsTransportPath(e.Path) {
 			response, presence = outcome, outcome
-		}
-		kind := ""
-		if !chain.IsTransportPath(e.Path) {
+		} else {
 			kind = fieldKind(outputFields, e.Path)
 		}
 		result := evaluateTyped(scope, e, response, presence, kind, redactor)
@@ -1962,13 +1875,7 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 	if v, ok := chain.Get(decoded, chain.EnvelopePath()); ok && v != nil {
 		said = fmt.Sprintf("the top-level envelope said %v", v)
 		top := fmt.Sprint(v)
-		same := len(surprises) > 0
-		for _, r := range surprises {
-			if r.Code != top {
-				same = false
-			}
-		}
-		if same {
+		if len(surprises) > 0 && !slices.ContainsFunc(surprises, func(r chain.ItemRefusal) bool { return r.Code != top }) {
 			return fmt.Sprintf("these items carry %s, the very value the top-level envelope carries, and "+
 				"conventions.envelope_ok is %q, so every one counts as refused. If %s is this backend's success "+
 				"value, the items were not refused at all: set conventions.envelope_ok: %s in .shrt/config.yaml",
@@ -1976,13 +1883,10 @@ func itemEnvelopeDetail(decoded any, surprises []chain.ItemRefusal) string {
 		}
 	}
 	missing := ""
-	for _, r := range surprises {
-		if r.Code == chain.NoItemVerdict {
-			missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
-				"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
-				"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
-			break
-		}
+	if slices.ContainsFunc(surprises, func(r chain.ItemRefusal) bool { return r.Code == chain.NoItemVerdict }) {
+		missing = fmt.Sprintf(". A line marked %s carries no verdict shrt can read (none at all while another line of the same "+
+			"batch carries %s explicitly, or one under a key that differs from the verdict only in case), so nothing says that "+
+			"line succeeded", chain.NoItemVerdict, chain.EnvelopeOK())
 	}
 	return "every item in a batch response carries its own verdict, and these were refused while " + said + missing +
 		" — a step that asserts only the envelope would pass having achieved nothing. A line this step " +
@@ -2001,10 +1905,6 @@ func capValue(v any, n int) string {
 		return string(text)
 	}
 	return string(text[:n-3]) + "..."
-}
-
-func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
-	return evaluateTyped(scope, e, response, presence, "", redactor)
 }
 
 func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence any, kind string, redactor *pathmask.Masker) chain.ExpectResult {
@@ -2033,7 +1933,7 @@ func fieldKind(fields []*catalog.Field, path string) string {
 	if !ok || f == nil || f.MapKey != "" || len(segs) == 0 {
 		return ""
 	}
-	if f.Repeated && !isIndexSegment(segs[len(segs)-1]) {
+	if f.Repeated && !chain.IsDigits(segs[len(segs)-1]) {
 		return ""
 	}
 	return f.Kind
@@ -2041,18 +1941,6 @@ func fieldKind(fields []*catalog.Field, path string) string {
 
 func numericPaths(fields []*catalog.Field) func(string) bool {
 	return func(path string) bool { return chain.IsNumericKind(fieldKind(fields, path)) }
-}
-
-func isIndexSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func transportOutcome(res *transport.Result) map[string]any {
@@ -2066,32 +1954,25 @@ func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map
 	out := unevaluated(expect, redactor)
 	for i, e := range expect {
 		if chain.IsTransportPath(e.Path) {
-			out[i] = evaluate(scope, e, outcome, outcome, redactor)
+			out[i] = evaluateTyped(scope, e, outcome, outcome, "", redactor)
 		}
 	}
 	return out
 }
 
 func refusalAsserted(expect []chain.Expectation, results []chain.ExpectResult) bool {
-	if !chain.HasTransportExpectation(expect) {
-		return false
-	}
-	for _, r := range results {
-		if !r.Passed {
-			return false
-		}
-	}
-	return true
+	return chain.HasTransportExpectation(expect) && !slices.ContainsFunc(results, failedResult)
+}
+
+func failedResult(e chain.ExpectResult) bool {
+	return !e.Passed
 }
 
 func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redactor *pathmask.Masker) map[string]any {
 	if len(exports) == 0 {
 		return exports
 	}
-	out := make(map[string]any, len(exports))
-	for name, v := range exports {
-		out[name] = v
-	}
+	out := maps.Clone(exports)
 	for _, s := range steps {
 		masker := redactor
 		if r.Catalog != nil {
@@ -2211,24 +2092,24 @@ func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
 }
 
 func seedingNote(s seeding) string {
+	all := slices.Concat(s.refused, s.tokenless)
 	if len(s.seeded) > 0 {
 		notes := make([]string, 0, len(s.seeded)+1)
 		for _, profile := range s.seeded {
 			notes = append(notes, seededNote(profile))
 		}
-		if others := append(append([]string{}, s.refused...), s.tokenless...); len(others) > 0 {
-			if len(others) == 1 {
-				notes = append(notes, "the "+profileNames(others)+" profile on the same login rpc was not seeded: "+
+		if len(all) > 0 {
+			if len(all) == 1 {
+				notes = append(notes, "the "+profileNames(all)+" profile on the same login rpc was not seeded: "+
 					"its configured body differs from what this login sent, so steps under it keep logging in with that body")
 			} else {
-				notes = append(notes, "the "+profileNames(others)+" profiles on the same login rpc were not seeded: "+
+				notes = append(notes, "the "+profileNames(all)+" profiles on the same login rpc were not seeded: "+
 					"each one's configured body differs from what this login sent, so steps under each keep logging in "+
 					"with that profile's own body")
 			}
 		}
 		return strings.Join(notes, "\n")
 	}
-	all := append(append([]string{}, s.refused...), s.tokenless...)
 	switch {
 	case len(s.refused) > 0:
 		return "did not seed any auth token: what this login sent differs from the configured body of every " +
@@ -2350,22 +2231,9 @@ func orEmpty(m map[string]any) map[string]any {
 
 func mergeVars(base, override map[string]any) map[string]any {
 	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func newRunID(t time.Time) string {

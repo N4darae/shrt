@@ -19,12 +19,7 @@ func conventionsReport(t *testing.T, cfg *config.Config, cat *catalog.Catalog) [
 	rep := doctor.Run(context.Background(), cfg, doctor.Options{
 		Catalog: func(*config.Config) (*catalog.Catalog, error) { return cat, nil },
 	})
-	out := []doctor.Finding{}
-	for _, f := range rep.Findings {
-		if f.Check == doctor.CheckConventions {
-			out = append(out, f)
-		}
-	}
+	out := findAll(rep, doctor.CheckConventions)
 	if len(out) == 0 {
 		t.Fatal("doctor reported nothing about conventions at all")
 	}
@@ -32,13 +27,7 @@ func conventionsReport(t *testing.T, cfg *config.Config, cat *catalog.Catalog) [
 }
 
 func worstOf(findings []doctor.Finding) doctor.Level {
-	worst := doctor.LevelOK
-	for _, f := range findings {
-		if f.Level > worst {
-			worst = f.Level
-		}
-	}
-	return worst
+	return (&doctor.Report{Findings: findings}).Worst()
 }
 
 func TestDoctorReportsAnEnvelopePathNoResponseCarries(t *testing.T) {

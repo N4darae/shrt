@@ -29,13 +29,8 @@ var resendCodes = map[string]bool{
 }
 
 func resendable(step *chain.Step, res *transport.Result, err error) bool {
-	if err != nil || res == nil || res.Error == nil || !chain.IsReadOnlyCall(step.Call) {
+	if err != nil || res == nil || res.Error == nil || !chain.IsReadOnlyCall(step.Call) || chain.HasTransportExpectation(step.Expect) {
 		return false
-	}
-	for _, e := range step.Expect {
-		if chain.IsTransportPath(e.Path) {
-			return false
-		}
 	}
 	switch res.Error.Code {
 	case "http_502", "http_503", "http_504":
@@ -44,14 +39,18 @@ func resendable(step *chain.Step, res *transport.Result, err error) bool {
 	return resendCodes[res.Error.Code] || res.Status >= http.StatusInternalServerError
 }
 
+func authMeta(step *chain.Step) map[string]any {
+	if !step.SkipAuth && step.Auth == "" {
+		return nil
+	}
+	return map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
+}
+
 func (r *Runner) resendRead(ctx context.Context, step *chain.Step, call *transport.Call, header http.Header, sr *StepRecord, res *transport.Result, err error) *transport.Result {
 	if !resendable(step, res, err) {
 		return res
 	}
-	again := &transport.Call{Procedure: call.Procedure, Body: call.Body, Header: header.Clone(), Stream: call.Stream}
-	if step.SkipAuth || step.Auth != "" {
-		again.Meta = map[string]any{"skip_auth": step.SkipAuth, "auth": step.Auth}
-	}
+	again := &transport.Call{Procedure: call.Procedure, Body: call.Body, Header: header.Clone(), Stream: call.Stream, Meta: authMeta(step)}
 	next, err := r.Client.Do(ctx, again)
 	if err != nil {
 		return res

@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -58,11 +59,6 @@ func routedProfile(router *transport.AuthRouter, cat *catalog.Catalog, s *chain.
 	return p, true
 }
 
-func authHeader(spec *transport.AuthSpec) string {
-	header, _ := (&transport.AuthProfile{Spec: *spec}).HeaderScheme()
-	return header
-}
-
 func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 	if len(r.Auth) == 0 {
 		return nil
@@ -70,7 +66,7 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 	headers := map[string]string{}
 	for _, b := range r.Auth {
 		if b != nil {
-			headers[b.Profile] = firstNonEmpty(b.Header, "Authorization")
+			headers[b.Profile] = cmp.Or(b.Header, "Authorization")
 		}
 	}
 	for i, step := range c.Steps {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,10 +66,7 @@ func IsReadProcedure(procedure string) bool {
 }
 
 func MethodName(procedure string) string {
-	if i := strings.LastIndex(procedure, "/"); i >= 0 {
-		return procedure[i+1:]
-	}
-	return procedure
+	return procedure[strings.LastIndex(procedure, "/")+1:]
 }
 
 func IsEnvelopePath(path string) bool { return chain.IsEnvelopePath(path) }
@@ -80,23 +78,13 @@ func IsMetadataAssertion(path, rule string) bool {
 	if rule == "unevaluated" {
 		return true
 	}
-	if !chain.IsPagingFieldName(headSegment(path)) {
+	if head, _, _ := strings.Cut(path, "."); !chain.IsPagingFieldName(head) {
 		return false
 	}
 	return rule == "" || rule == "not_empty" || rule == "exists"
 }
 
-func headSegment(path string) string {
-	if i := strings.Index(path, "."); i >= 0 {
-		return path[:i]
-	}
-	return path
-}
-
 func assertsOnlyEnvelope(rec *runner.StepRecord) bool {
-	if len(rec.Expect) == 0 {
-		return true
-	}
 	for _, e := range rec.Expect {
 		if AssertsAbsence(e) || IsVacuousResult(e) {
 			continue
@@ -112,17 +100,11 @@ func pinsEnvelopeDetail(e chain.ExpectResult) bool {
 	if e.Rule != "equals" || fmt.Sprint(e.Want) == "" || e.Want == nil || !IsEnvelopePath(e.Path) {
 		return false
 	}
-	if strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath() {
+	segs := chain.SplitPath(e.Path)
+	if strings.Join(segs, ".") == chain.EnvelopePath() {
 		return false
 	}
-	segs := chain.SplitPath(e.Path)
-	last := segs[len(segs)-1]
-	for _, name := range chain.CodeFields() {
-		if last == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(chain.CodeFields(), segs[len(segs)-1])
 }
 
 func AssertsAbsenceExpectation(e chain.Expectation) bool {
@@ -140,14 +122,9 @@ func AssertsAbsence(e chain.ExpectResult) bool {
 func discriminatesEmptiness(path string, want bool) bool {
 	segs := strings.Split(path, ".")
 	if !want {
-		return isIndexSegment(segs[len(segs)-1])
+		return chain.IsDigits(segs[len(segs)-1])
 	}
-	for _, seg := range segs {
-		if isIndexSegment(seg) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(segs, chain.IsDigits)
 }
 
 func DeclaresRefusal(expect []chain.ExpectResult) bool {
@@ -181,18 +158,6 @@ func pinsRefusal(path, rule string, want any) bool {
 		return isOK
 	}
 	return false
-}
-
-func isIndexSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func DataAsserted(chains []*chain.Chain) map[string]bool {
@@ -236,12 +201,10 @@ func bindVars(e chain.Expectation, vars map[string]any) (chain.Expectation, bool
 		}
 		return v, true
 	}
-	var unbound, u bool
-	e.Equals, u = bind(e.Equals)
-	unbound = unbound || u
-	e.NotEqual, u = bind(e.NotEqual)
-	unbound = unbound || u
-	return e, unbound && strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath()
+	var equals, notEqual bool
+	e.Equals, equals = bind(e.Equals)
+	e.NotEqual, notEqual = bind(e.NotEqual)
+	return e, (equals || notEqual) && strings.Join(chain.SplitPath(e.Path), ".") == chain.EnvelopePath()
 }
 
 func BodyIsEmpty(response json.RawMessage) bool {
@@ -256,37 +219,12 @@ func BodyIsEmpty(response json.RawMessage) bool {
 		if chain.IsMetadataField(name) {
 			continue
 		}
-		if !valueIsEmpty(raw) {
+		var v any
+		if json.Unmarshal(raw, &v) != nil || !anyIsEmpty(v) {
 			return false
 		}
 	}
 	return true
-}
-
-func valueIsEmpty(raw json.RawMessage) bool {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return false
-	}
-	switch t := v.(type) {
-	case nil:
-		return true
-	case bool:
-		return !t
-	case float64:
-		return t == 0
-	case string:
-		if t == "" {
-			return true
-		}
-		n, err := strconv.ParseFloat(t, 64)
-		return err == nil && n == 0
-	case []any:
-		return listIsEmpty(t)
-	case map[string]any:
-		return mapIsEmpty(t)
-	}
-	return false
 }
 
 func listIsEmpty(items []any) bool {
@@ -385,7 +323,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			return nil, err
 		}
 		rec := &runner.Record{}
-		if err := json.Unmarshal(raw, rec); err != nil {
+		if err := rec.UnmarshalJSON(raw); err != nil {
 			continue
 		}
 		switch err := store.SealState(rec); {

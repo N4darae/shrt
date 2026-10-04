@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -302,6 +303,29 @@ func TestAnUnsealedRunRecordIsReadWithOneNoteButCannotBeProposed(t *testing.T) {
 	}
 	if _, err := s.Propose(loaded, store.ProposalInput{Checked: "checked"}); err != nil {
 		t.Fatalf("an untouched record must stay proposable after a round trip through disk: %v", err)
+	}
+}
+
+func TestARecordWhoseValuesJSONRewritesStaysSealedOnLoad(t *testing.T) {
+	s := newStore(t)
+	rec := passingRun("run-awkward")
+	rec.StartedAt = time.Date(2026, 9, 25, 16, 16, 18, 500000000, time.FixedZone("", 7*3600))
+	rec.Vars = map[string]any{"huge": int64(1<<60 + 1), "f": float32(0.1), "list": []any{int8(3), "<b>"}}
+	st := rec.Steps[0]
+	st.Request = json.RawMessage("{ \"q\" : \"a<b>&c\u2028\" ,\n \"n\": 1.50 }")
+	st.Exported = map[string]any{"id": uint64(1<<63 + 5), "at": time.Unix(0, 1).UTC()}
+	st.Headers = map[string]string{}
+	st.Expect = []chain.ExpectResult{{Path: "id", Rule: "equals", Want: int64(1<<53 + 1), Got: []string{"x"}, Passed: true}}
+	mustSave(t, s, rec)
+	loaded, err := s.LoadRun(rec.Chain, rec.RunID)
+	if err != nil {
+		t.Fatalf("a record SaveRun wrote loads: %v", err)
+	}
+	if err := store.SealState(loaded); err != nil {
+		t.Fatalf("a record SaveRun wrote is sealed however JSON rewrites its values: %v", err)
+	}
+	if _, err := s.Propose(loaded, store.ProposalInput{Checked: "checked"}); err != nil {
+		t.Fatalf("and stays proposable: %v", err)
 	}
 }
 

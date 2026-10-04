@@ -79,15 +79,6 @@ func scalarDefault(fd protoreflect.FieldDescriptor, v any) bool {
 			return x == 0
 		}
 		return false
-	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
-		protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
-		switch x := v.(type) {
-		case string:
-			return x == "0"
-		case float64:
-			return x == 0
-		}
-		return false
 	default:
 		switch x := v.(type) {
 		case float64:

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/N4darae/shrt/pathmask"
@@ -62,20 +61,8 @@ func vanishedUnderMask(m *pathmask.Masker, c Change) bool {
 }
 
 func hidingPattern(m *pathmask.Masker, path string, leaf bool) string {
-	segs := strings.Split(path, ".")
-	limit := len(segs)
-	if !leaf {
-		limit--
-	}
-	for i := limit; i > 0; i-- {
-		prefix := strings.Join(segs[:i], ".")
-		for _, p := range m.Patterns() {
-			if pathmask.NewMasker([]string{p}).Masks(prefix) {
-				return p
-			}
-		}
-	}
-	return ""
+	p, _ := m.HidingPattern(path, leaf)
+	return p
 }
 
 func vanishedDetail(m *pathmask.Masker, c Change, was, now string) string {

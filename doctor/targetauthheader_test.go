@@ -4,17 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/doctor"
 )
 
 func TestAnAuthorizationWrittenIntoTargetHeadersFails(t *testing.T) {
 	cfg := repo(t)
-	cfg.Auth = &config.Auth{
-		Call:      "acme.iam.v1.AuthService/Login",
-		Body:      map[string]any{"username": "${env.ACME_USER}", "password": "${env.ACME_PASSWORD}"},
-		TokenPath: "access_token",
-	}
+	cfg.Auth = acmeAuth("${env.ACME_PASSWORD}", nil)
 	cfg.Target.Headers = map[string]string{"Authorization": "Bearer hand-written"}
 
 	got := find(t, run(t, cfg, options()), doctor.CheckAuth)
