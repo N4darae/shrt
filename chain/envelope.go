@@ -109,12 +109,6 @@ func SetItemEnvelope(path string) {
 	active.itemPath = strings.TrimSpace(path)
 }
 
-func SetReadOnlyPrefixes(prefixes []string) {
-	conventionsMu.Lock()
-	defer conventionsMu.Unlock()
-	setReadOnlyPrefixesLocked(prefixes)
-}
-
 func setReadOnlyPrefixesLocked(prefixes []string) {
 	if len(prefixes) == 0 {
 		active.readOnly = DefaultReadOnlyPrefixes()

@@ -62,7 +62,7 @@ func TestSetEnvelopeDerivesTheFieldFromThePathAndFallsBackToTheDefault(t *testin
 }
 
 func TestApplyConventionsWidensWhatCountsAsARead(t *testing.T) {
-	defer chain.SetReadOnlyPrefixes(nil)
+	defer contract.ApplyConventions(nil, "", "")
 
 	if !chain.IsReadOnlyCall("FleetService/QueryTrips") {
 		t.Error("Query is not read-only by default, so a repo naming its reads Query* has every read " +
