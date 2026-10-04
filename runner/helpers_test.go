@@ -387,7 +387,7 @@ func testChain() *chain.Chain {
 	return c
 }
 
-func buildRunner(t *testing.T, cfg *config.Config, cat *catalog.Catalog) *runner.Runner {
+func buildRunner(t testing.TB, cfg *config.Config, cat *catalog.Catalog) *runner.Runner {
 	t.Helper()
 	deps, err := runner.Build(context.Background(), cfg, cat, nil)
 	if err != nil {
