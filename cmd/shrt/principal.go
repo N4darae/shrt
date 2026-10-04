@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"slices"
 
 	"github.com/N4darae/shrt/chain"
@@ -15,7 +14,7 @@ func (a attribution) bears(i int, path string) bool {
 	if a.bad[w.ID] {
 		return true
 	}
-	if refusalOf(w) != "" {
+	if a.refusal(w) != "" {
 		eff := a.e.effectsOf(w.Call)[leafOf(path)]
 		return !a.ref || path != "" && eff != nil && eff.Is != contract.EffectNone
 	}
@@ -33,7 +32,7 @@ func (a attribution) bears(i int, path string) bool {
 
 func (a attribution) bearing(at int, path string) int {
 	from, _ := a.lastMatch(a.rec.Steps[at], path)
-	for _, i := range entityWrites(a.rec, at, path, a.bad, from) {
+	for _, i := range a.entityWrites(at, path, a.bad, from) {
 		if a.bears(i, path) {
 			return i
 		}
@@ -63,7 +62,7 @@ func (a attribution) heldApart(st *runner.StepRecord, path string) string {
 
 func (a attribution) answeredAs(st *runner.StepRecord, path, want string, held bool) string {
 	var rb any
-	if json.Unmarshal(st.Response, &rb) != nil {
+	if !a.decode(st, &rb) {
 		return ""
 	}
 	if _, ok := chain.Get(rb, path); !ok {
@@ -72,7 +71,7 @@ func (a attribution) answeredAs(st *runner.StepRecord, path, want string, held b
 	at := a.index(st.ID)
 	for j, o := range a.rec.Steps {
 		var ob any
-		if o == nil || o == st || isWrite(o) || o.Call != st.Call || profileOf(o) == profileOf(st) || refusalOf(o) != "" || json.Unmarshal(o.Response, &ob) != nil {
+		if o == nil || o == st || isWrite(o) || o.Call != st.Call || profileOf(o) == profileOf(st) || a.refusal(o) != "" || !a.decode(o, &ob) {
 			continue
 		}
 		v, ok := chain.Get(ob, path)
@@ -91,14 +90,14 @@ func (a attribution) changedBetween(from, to int) bool {
 func (a attribution) listedFrom(step, path string) int {
 	at := a.index(step)
 	var body any
-	if at < 0 || json.Unmarshal(a.rec.Steps[at].Response, &body) != nil {
+	if at < 0 || !a.decode(a.rec.Steps[at], &body) {
 		return -1
 	}
 	items, _ := chain.Get(body, path)
 	list, _ := items.([]any)
 	for _, item := range list {
 		for _, id := range idsOf(item) {
-			if src := producer(a.rec, at, id); src != "" && a.bad[src] {
+			if src := a.producer(at, id); src != "" && a.bad[src] {
 				if i := a.index(src); i >= 0 && isWrite(a.rec.Steps[i]) {
 					return i
 				}

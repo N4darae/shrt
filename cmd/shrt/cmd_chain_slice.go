@@ -1024,7 +1024,10 @@ func verdictPath(sr *runner.StepRecord) string {
 }
 
 func verdictOf(sr *runner.StepRecord) chain.Verdict {
-	response := decoded(sr.Response)
+	return verdictIn(sr, decoded(sr.Response))
+}
+
+func verdictIn(sr *runner.StepRecord, response any) chain.Verdict {
 	path := streamedEnvelope(response) + chain.EnvelopePath()
 	code := ""
 	if v, ok := chain.Get(response, path); ok {

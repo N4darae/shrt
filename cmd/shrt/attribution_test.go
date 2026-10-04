@@ -756,7 +756,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 		{"fill_item", "", "", false},
 		{"get_item_unknown_id", "", "", false},
 	} {
-		i, knock := suspectWrite(rec, c.read, "", map[string]bool{c.bad: c.bad != ""}, -1)
+		i, knock := attribution{rec: rec}.suspectWrite(c.read, "", map[string]bool{c.bad: c.bad != ""}, -1)
 		got := ""
 		if i >= 0 {
 			got = rec.Steps[i].ID
@@ -781,7 +781,7 @@ func TestASuspectWriteIsTheWriteAReadObserves(t *testing.T) {
 			exported("fetch_order", "FetchOrder", "", map[string]string{"id_order": orderRef}),
 			exported("stock_a_confirmed", "GetProduct", "", map[string]string{"id_product": "${id_a}"}),
 		}}
-		if i, knock := suspectWrite(rec, "stock_a_confirmed", "", map[string]bool{}, -1); i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
+		if i, knock := (attribution{rec: rec}).suspectWrite("stock_a_confirmed", "", map[string]bool{}, -1); i < 0 || rec.Steps[i].ID != "confirm_order" || knock {
 			t.Errorf("%s: got step %d knock-on %v, want confirm_order found through the exported id", orderRef, i, knock)
 		}
 	}
@@ -792,7 +792,7 @@ func TestAttributionHelpers(t *testing.T) {
 	defer chain.SetEnvelope("", "")
 	for _, firstRefused := range []bool{false, true} {
 		rec := replaysRecord(firstRefused)
-		if got := entityWrites(rec, len(rec.Steps)-1, "", map[string]bool{}, -1); !slices.Equal(got, []int{2, 1, 0}) {
+		if got := (attribution{rec: rec}).entityWrites(len(rec.Steps)-1, "", map[string]bool{}, -1); !slices.Equal(got, []int{2, 1, 0}) {
 			t.Errorf("entityWrites (first refused %v): got steps %v, want the writes before the read without the repeats", firstRefused, got)
 		}
 	}

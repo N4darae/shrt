@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +19,7 @@ func (a attribution) orderKey(st *runner.StepRecord, path string) string {
 		}
 	}
 	var body any
-	if a.was == nil || json.Unmarshal(st.Response, &body) != nil {
+	if a.was == nil || !a.decode(st, &body) {
 		return ""
 	}
 	got, _ := lookupPath(body, list).([]any)

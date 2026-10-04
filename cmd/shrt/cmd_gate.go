@@ -312,7 +312,7 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 		}
 		return &cp
 	}
-	return attribution{e: e, rec: rec, bad: badSteps(rec),
+	return attribution{e: e, rec: rec, bad: badSteps(rec), bodies: map[*runner.StepRecord]stepBody{},
 		unchanged: func(step, path string) bool {
 			st, ok := rec.Step(step)
 			if !ok || st == nil {
@@ -484,7 +484,7 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			bad[c.Step] = true
 		}
 	}
-	return attribution{e: e, rec: rec, bad: bad, ref: true,
+	return attribution{e: e, rec: rec, bad: bad, ref: true, bodies: map[*runner.StepRecord]stepBody{},
 		unchanged: func(step, path string) bool {
 			held := ""
 			if st, ok := rec.Step(step); ok && st != nil {
