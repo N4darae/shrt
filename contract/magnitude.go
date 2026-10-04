@@ -355,17 +355,13 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 		if !rf.Repeated || rf.Kind != "message" || rf.MapKey != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(st.Body, rf.Name)
+		key, first, ok := firstLine(st.Body, rf.Name)
 		if !ok {
 			continue
 		}
-		items, _ := st.Body[key].([]any)
-		if len(items) == 0 {
-			continue
-		}
-		first, ok1 := items[0].(map[string]any)
-		last, ok2 := items[len(items)-1].(map[string]any)
-		if !ok1 || !ok2 {
+		items := st.Body[key].([]any)
+		last, ok := items[len(items)-1].(map[string]any)
+		if !ok {
 			continue
 		}
 		single, field, inc := p.singleItemLarge(lib, rules, st.Call, rf)
