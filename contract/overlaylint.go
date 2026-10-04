@@ -47,14 +47,12 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 
 func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
+	add := issueAdder(o.Domain, "", &issues)
 	for i, f := range o.Failures {
 		issues = append(issues, lintFailure(o.Domain, "", fmt.Sprintf("domain failure %d", i+1), f)...)
-	}
-	for i, f := range o.Failures {
 		if f.Scope != "" && f.Scope != FailureScopeAll {
-			issues = append(issues, Issue{Domain: o.Domain, Field: fmt.Sprintf("domain failure %d", i+1), Severity: SeverityError,
-				Message: fmt.Sprintf("scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
-					"write scope: all for one every rpc of every domain shares", f.Scope)})
+			add(SeverityError, fmt.Sprintf("domain failure %d", i+1), "scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
+				"write scope: all for one every rpc of every domain shares", f.Scope)
 		}
 	}
 	for _, rpc := range sortedKeys(o.RPCs) {
@@ -168,9 +166,8 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	for i, f := range c.Failures {
 		issues = append(issues, lintFailure(domain, rpc, fmt.Sprintf("failure %d", i+1), f)...)
 		if f.Scope != "" {
-			issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: fmt.Sprintf("failure %d", i+1), Severity: SeverityError,
-				Message: "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every " +
-					"rpc of every domain; a failure under one rpc is that rpc's alone"})
+			add(SeverityError, fmt.Sprintf("failure %d", i+1), "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every "+
+				"rpc of every domain; a failure under one rpc is that rpc's alone")
 		}
 		if f.Code != 0 {
 			key := f.Label() + "\x00" + f.Field
@@ -241,6 +238,7 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 
 func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 	issues := []Issue{}
+	add := issueAdder(domain, rpc, &issues)
 	for _, alias := range append([]string{""}, sortedKeys(c.Aliases)...) {
 		groups := map[string][]string{}
 		fields := c.FieldsFor(alias)
@@ -251,12 +249,8 @@ func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 		}
 		for _, group := range sortedKeys(groups) {
 			if len(groups[group]) > 1 {
-				label := Ref{RPC: rpc, Alias: alias}.Node()
-				issues = append(issues, Issue{
-					Domain: domain, RPC: rpc, Field: "oneof." + group, Severity: SeverityError,
-					Message: fmt.Sprintf("%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
-						label, group, len(groups[group]), strings.Join(groups[group], ", ")),
-				})
+				add(SeverityError, "oneof."+group, "%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
+					Ref{RPC: rpc, Alias: alias}.Node(), group, len(groups[group]), strings.Join(groups[group], ", "))
 			}
 		}
 	}

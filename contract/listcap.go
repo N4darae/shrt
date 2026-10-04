@@ -130,7 +130,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 		refs = append(refs, "${"+id+carrierRef)
 	}
 	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
-	exact := hasExistsFalse(st, listPath)
+	_, exact := assertedLength(st, listPath)
 	kept := v.Expect[:0]
 	for _, e := range v.Expect {
 		if e.Path != listPath && !strings.HasPrefix(e.Path, listPath+".") {

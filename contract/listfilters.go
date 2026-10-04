@@ -49,7 +49,7 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 		if scope.prefixKey != "" {
 			p.probeEmptyFilter(lib, t, scope.prefixKey)
 		}
-		if !hasExistsFalse(st, t.listPath) {
+		if _, exact := assertedLength(st, t.listPath); !exact {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}
 		assertLowerBound(st, t.listPath)
@@ -71,15 +71,6 @@ func assertedLength(st *chain.Step, listPath string) (int, bool) {
 		}
 	}
 	return 0, false
-}
-
-func hasExistsFalse(st *chain.Step, listPath string) bool {
-	for _, e := range st.Expect {
-		if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, listPath+".") && chain.IsDigits(strings.TrimPrefix(e.Path, listPath+".")) {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *Plan) scopeOf(t *listTarget) listScope {

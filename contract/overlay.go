@@ -252,24 +252,7 @@ func LoadOverlayBytes(path string, raw []byte) (*Overlay, error) {
 	o.SourcePath = path
 	o.EmptyEntries = normalizeEmptyEntries(o)
 	markUnfilled(o, raw)
-	dropTodoRequired(o)
 	return o, nil
-}
-
-func dropTodoRequired(o *Overlay) {
-	for _, c := range o.RPCs {
-		if c == nil || len(c.Required) == 0 {
-			continue
-		}
-		n := len(c.Required)
-		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) == n {
-			continue
-		}
-		if c.Unfilled == nil {
-			c.Unfilled = map[string]bool{}
-		}
-		c.Unfilled["required"] = true
-	}
 }
 
 func normalizeEmptyEntries(o *Overlay) []string {
@@ -305,15 +288,25 @@ func normalizeEmptyEntries(o *Overlay) []string {
 }
 
 func markUnfilled(o *Overlay, raw []byte) {
-	for _, issue := range ScanTodos(o.Domain, raw) {
-		c, ok := o.RPCs[issue.RPC]
-		if !ok || c == nil {
-			continue
-		}
+	mark := func(c *RPCContract, key string) {
 		if c.Unfilled == nil {
 			c.Unfilled = map[string]bool{}
 		}
-		c.Unfilled[issue.Field] = true
+		c.Unfilled[key] = true
+	}
+	for _, issue := range ScanTodos(o.Domain, raw) {
+		if c := o.RPCs[issue.RPC]; c != nil {
+			mark(c, issue.Field)
+		}
+	}
+	for _, c := range o.RPCs {
+		if c == nil {
+			continue
+		}
+		n := len(c.Required)
+		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) < n {
+			mark(c, "required")
+		}
 	}
 }
 
@@ -388,9 +381,6 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		kept = append(kept, o)
-	}
-	if len(kept) == len(overlays) {
-		return lib, broken, nil
 	}
 	return NewLibrary(kept), broken, nil
 }

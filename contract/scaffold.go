@@ -195,7 +195,7 @@ func requiredTodo() *yaml.Node {
 }
 
 func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []*catalog.Method) {
-	known := map[string]bool{}
+	known, aliased := map[string]bool{}, map[string]bool{}
 	for key := range prior.Fields {
 		known[headSegment(key)] = true
 	}
@@ -209,7 +209,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 			continue
 		}
 		for key := range alias.Fields {
-			known[headSegment(key)] = true
+			known[headSegment(key)], aliased[key] = true, true
 		}
 	}
 	hint := fieldHint
@@ -222,7 +222,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 			nested := &yaml.Node{Kind: yaml.MappingNode}
 			scaffoldNested(nested, f, f.Name, m, all, 1, false, hint)
 			for i := 0; i+1 < len(nested.Content); i += 2 {
-				if _, have := prior.Fields[nested.Content[i].Value]; !have && !priorAliasField(prior, nested.Content[i].Value) {
+				if _, have := prior.Fields[nested.Content[i].Value]; !have && !aliased[nested.Content[i].Value] {
 					added.Content = append(added.Content, nested.Content[i], nested.Content[i+1])
 				}
 			}
@@ -244,18 +244,6 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	}
 	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
 	node.Content = append(node.Content[:at:at], rest...)
-}
-
-func priorAliasField(prior *RPCContract, key string) bool {
-	for _, alias := range prior.Aliases {
-		if alias == nil {
-			continue
-		}
-		if _, ok := alias.Fields[key]; ok {
-			return true
-		}
-	}
-	return false
 }
 
 func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
