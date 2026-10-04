@@ -306,6 +306,8 @@ refused write) counts with it. **Fix.** A real backend defect (exit 1), just not
 **Cause.** Sessions end before their stated expiry, or the backend restarted. **Fix.** A short
 chain whose reads carry `wait:` between the suspected and the stated lifetime, twice after the
 login: early expiry prints `FINDING: token refused ...` (exit 1). Keep it out of the per-commit gate.
+Build it of the login and reads whose request carries `${vars.tag}`, with no write: `shrt gate`
+then runs it beside the other chains instead of adding its waits to the gate's time.
 
 ## 50. `drift after a chain change` or `drift with different input`, not `regression`
 

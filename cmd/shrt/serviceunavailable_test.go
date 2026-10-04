@@ -28,8 +28,8 @@ func inProcessGate(t *testing.T) *int {
 		side := t.TempDir() + "/side.json"
 		t.Setenv(gateReportEnv, side)
 		var err error
-		captureStdout(t, func() { err = commands[args[0]].run(ctx, args[1:]) })
-		o := gateOutcome{code: exitCodeOf(err)}
+		stdout := captureStdout(t, func() { err = commands[args[0]].run(ctx, args[1:]) })
+		o := gateOutcome{stdout: stdout, code: exitCodeOf(err)}
 		if raw, rerr := os.ReadFile(side); rerr == nil {
 			_ = json.Unmarshal(raw, &o.side)
 		}

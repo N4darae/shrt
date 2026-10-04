@@ -7,6 +7,7 @@ import (
 	"flag"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,12 +16,15 @@ import (
 )
 
 type fakeGate struct {
+	mu       sync.Mutex
 	calls    [][]string
 	outcomes map[string][]gateOutcome
 	tries    map[string]int
 }
 
 func (f *fakeGate) exec(_ context.Context, args []string) gateOutcome {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, args)
 	key := args[0]
 	if len(args) > 1 && !strings.HasPrefix(args[1], "-") {
@@ -289,5 +293,14 @@ func TestRunHandsItsNotesAndErrorToTheGateInTheSidecar(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	if json.Unmarshal(raw, &side) != nil || len(side.Notes) != 1 || !strings.HasPrefix(side.Notes[0], "CHAIN DEFECT: the chain collides with itself") || side.Error == "" {
 		t.Fatalf("the CHAIN DEFECT line and the error reach the gate in the sidecar: %s", raw)
+	}
+}
+
+func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
+	twoDefectWorkspace(t, "name", "gadget")
+	inProcessGate(t)
+	out, code := runGateOut(t, "-v", "cli-two-defects")
+	if code != 1 || !strings.Contains(out, "    [fetch] name want=gadget got=widget (and 1 more at fetch_again)\n") {
+		t.Fatalf("a chain with no safe spot runs with -keep-going, so a failing step after the first reaches the gate, got %d:\n%s", code, out)
 	}
 }

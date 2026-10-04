@@ -132,6 +132,7 @@ func TestGoldenOutput(t *testing.T) {
 	step("verify", "probe-orders")
 	step("diff", runs[0], failed)
 	step("gate", "-no-session-check", "-hollow-baseline", "")
+	step("gate", "-v", "-no-session-check", "-hollow-baseline", "")
 	step("chain", "slice", "probe-orders", "-step", "cancel_confirmed")
 	step("chain", "slice", "probe-orders", "-step", "cancel_confirmed", "-run", failed, "-verify")
 	step("chain", "slice", "probe-orders", "-without", "confirm_single", "-run", failed, "-verify")

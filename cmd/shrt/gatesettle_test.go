@@ -148,6 +148,7 @@ func gateCases() []gateCase {
 				{name: "orders-slice-list", failed: true, items: []gateItem{confirmed}},
 				{name: "orders-slice-held", failed: true, pinsHeld: true, items: []gateItem{confirmed}},
 				{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}}},
+				{name: "orders-slice-more", failed: true, pinsHeld: true, items: []gateItem{confirmed, total}},
 				{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
 			}
 		}},
@@ -164,6 +165,18 @@ func gateCases() []gateCase {
 			}
 		}},
 		{name: "-v shows the suspect's request and the same fault in a later chain", verbose: true, chains: func() []*gateChain { return []*gateChain{sent("one"), sent("two")} }},
+		{name: "-v prints verify's lines, a change at more steps or items once", verbose: true, chains: func() []*gateChain {
+			return []*gateChain{{name: "orders", failed: true, items: []gateItem{total}, shown: []string{
+				"[create] changed    order.total_minor want=600 got=400",
+				"[confirm] changed    order.total_minor want=600 got=400",
+				"[fetch] changed    order.total_minor want=600 got=400",
+				"[list] changed    orders.0.total_minor want=600 got=400",
+				"[list] changed    orders.1.total_minor want=900 got=700",
+				"[get] type       customer want=null <nil> got=object {\"name\":\"\"}",
+				"[get] length     status.details want=1 item(s) got=0 item(s)",
+				"[later..last] not_reached status 2 step(s) want=passed, not sent (it reads step \"get\", which did not pass)",
+			}}}
+		}},
 		{name: "-v lists each changed path once", verbose: true, chains: func() []*gateChain {
 			return []*gateChain{{name: "one", failed: true, items: []gateItem{
 				{Step: "make", Path: "thing.n", Want: "1", Got: "2"},
@@ -187,6 +200,9 @@ func renderGateCase(t *testing.T, c gateCase) string {
 	return captureStdout(t, func() {
 		fmt.Printf("# %s\n", c.name)
 		for _, g := range chains {
+			if g.echoOf != "" {
+				continue
+			}
 			fmt.Println(g.line(0))
 			if c.verbose {
 				g.printChanges(nil)
@@ -235,8 +251,8 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		t.Errorf("%s: got %q", b, chains[1].first)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")
-	if chains[1].echoOf != "orders" || chains[2].echoOf != "" || chains[3].echoOf != "" || chains[4].echoOf != "" {
-		t.Errorf("only the slice whose first change is its parent's and fails as pinned folds: %q %q %q %q", chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf)
+	if got := []string{chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf, chains[5].echoOf}; strings.Join(got, ",") != "orders,orders,,," {
+		t.Errorf("a slice whose first change is its parent's folds, a kept-red one only when its pins held and its parent fails every way it does: %q", got)
 	}
 	chains = settled("a moved pin with no suspect does not point above")
 	if chains[1].class != "not as pinned" || sameAs(chains[1]) != "" {

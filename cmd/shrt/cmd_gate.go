@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/N4darae/shrt/chain"
@@ -741,6 +742,10 @@ type gateChain struct {
 	slow      map[string]bool
 	echoOf    string
 	slices    []string
+	shown     []string
+	waits     time.Duration
+	took      time.Duration
+	queued    string
 }
 
 func (g *gateChain) findingOnly() bool {
@@ -901,7 +906,7 @@ func (g *gateChain) explainedBy(found map[string]bool) map[string]bool {
 func runGate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	wait := fs.Duration("retry-wait", 20*time.Second, "wait before re-running a run or verify that exited 3")
-	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every changed path; knock-on counts in the summary")
+	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every change with its want and got, as verify prints it; knock-on counts in the summary")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
@@ -924,24 +929,14 @@ func runGate(ctx context.Context, args []string) error {
 	for _, g := range chains {
 		width = max(width, len(g.name))
 	}
+	began := time.Now()
+	outs := sendGate(ctx, e, chains, *wait)
 	early := map[string]int{}
 	earlyAt := map[string]gateEarly{}
 	reads := map[string]gateRead{}
-	for _, g := range chains {
-		readsTag, keptRed := false, false
-		if c, err := e.resolveChain(g.name); err == nil {
-			readsTag = len(c.UnusedVarNames(map[string]any{"tag": ""})) == 0
-			keptRed = len(c.KeptRed) > 0
-		}
-		outs := map[string]gateOutcome{}
-		if g.spot {
-			outs["verify"] = gateAttempt(ctx, "verify", g.name, readsTag, *wait)
-		}
-		if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
-			outs["run"] = gateAttempt(ctx, "run", g.name, readsTag, *wait)
-		}
+	for i, g := range chains {
 		for _, what := range []string{"run", "verify"} {
-			out, ok := outs[what]
+			out, ok := outs[i][what]
 			if !ok {
 				continue
 			}
@@ -1029,10 +1024,16 @@ func runGate(ctx context.Context, args []string) error {
 			fmt.Println(line)
 		}
 	}
+	if line := gateTime(chains, time.Since(began)); line != "" {
+		fmt.Println(line)
+	}
 	switch {
 	case failed > 0 || len(findings) > 0:
-		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; details: shrt verify <chain>, or shrt run <chain> -keep-going",
-			failed, len(chains), gateAlso(unverified, len(findings)))
+		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
+		if *verbose {
+			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
+		}
+		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s", failed, len(chains), gateAlso(unverified, len(findings)), next)
 	case unverified > 0:
 		return exitWith(3, "NO VERDICT: %d of %d chain(s) could not be verified (exit 3 twice: backend down, restarting or refusing auth); re-run once it is up",
 			unverified, len(chains))
@@ -1095,10 +1096,126 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	return out, nil
 }
 
+func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration) []map[string]gateOutcome {
+	outs := make([]map[string]gateOutcome, len(chains))
+	resolved := make([]*chain.Chain, len(chains))
+	var mu sync.Mutex
+	var beside sync.WaitGroup
+	started := time.Now()
+	for i, g := range chains {
+		resolved[i], _ = e.resolveChain(g.name)
+		if g.waits, g.queued = gateWaits(e, resolved[i]); g.waits == 0 {
+			continue
+		}
+		if g.queued != "" {
+			fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it runs in turn (%s), so this gate takes at least that long\n", g.name, g.waits, g.queued)
+			continue
+		}
+		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now, beside the other chains, so this gate takes at least that long\n", g.name, g.waits)
+		beside.Add(1)
+		go func() {
+			defer beside.Done()
+			out := g.send(ctx, resolved[i], wait)
+			mu.Lock()
+			outs[i] = out
+			mu.Unlock()
+		}()
+	}
+	for i, g := range chains {
+		if !g.beside() {
+			outs[i] = g.send(ctx, resolved[i], wait)
+		}
+	}
+	mu.Lock()
+	for i, g := range chains {
+		if g.beside() && outs[i] == nil {
+			left := ""
+			if d := g.waits - time.Since(started); d > 0 {
+				left = fmt.Sprintf(", about %s left", d.Round(time.Second))
+			}
+			fmt.Fprintf(os.Stderr, "gate: the other chains are done; waiting for %s, which waits %s by design%s\n", g.name, g.waits, left)
+		}
+	}
+	mu.Unlock()
+	beside.Wait()
+	return outs
+}
+
+func (g *gateChain) beside() bool {
+	return g.waits > 0 && g.queued == ""
+}
+
+func gateWaits(e *env, c *chain.Chain) (time.Duration, string) {
+	if c == nil {
+		return 0, ""
+	}
+	var waits time.Duration
+	queued, logins := "", loginRPCs(e)
+	for _, s := range c.Steps {
+		d, _ := s.WaitFor()
+		waits += d
+		m, err := e.cat.Lookup(s.Call)
+		switch {
+		case queued != "" || err == nil && logins[m.FullName]:
+		case !chain.IsReadOnlyCall(s.Call):
+			queued = s.ID + " writes"
+		case !slices.Contains(s.SendReferences(), "vars."+chain.RunTagVar):
+			queued = s.ID + " reads without ${vars." + chain.RunTagVar + "}"
+		}
+	}
+	return waits, queued
+}
+
+func (g *gateChain) send(ctx context.Context, c *chain.Chain, wait time.Duration) map[string]gateOutcome {
+	began := time.Now()
+	defer func() { g.took = time.Since(began) }()
+	readsTag, keptRed := false, false
+	if c != nil {
+		readsTag = len(c.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0
+		keptRed = len(c.KeptRed) > 0
+	}
+	outs := map[string]gateOutcome{}
+	if g.spot {
+		outs["verify"] = gateAttempt(ctx, "verify", g.name, readsTag, wait)
+	}
+	if v, ok := outs["verify"]; g.file != "" && (!ok || keptRed || v.code == 3 || v.side.RunToo) {
+		outs["run"] = gateAttempt(ctx, "run", g.name, readsTag, wait)
+	}
+	return outs
+}
+
+func gateTime(chains []*gateChain, total time.Duration) string {
+	var slow []*gateChain
+	for _, g := range chains {
+		if g.waits > 0 || total >= 30*time.Second && 4*g.took >= total {
+			slow = append(slow, g)
+		}
+	}
+	if len(slow) == 0 {
+		return ""
+	}
+	sort.SliceStable(slow, func(i, j int) bool { return slow[i].took > slow[j].took })
+	var parts []string
+	for _, g := range slow[:min(3, len(slow))] {
+		part := g.name + " " + g.took.Round(time.Second).String()
+		switch {
+		case g.beside():
+			part += fmt.Sprintf(" (waits %s by design, beside the other chains)", g.waits)
+		case g.waits > 0:
+			part += fmt.Sprintf(" (waits %s by design, in turn: %s)", g.waits, g.queued)
+		}
+		parts = append(parts, part)
+	}
+	return fmt.Sprintf("time: %s; slowest: %s", total.Round(time.Second), strings.Join(parts, ", "))
+}
+
 func gateAttempt(ctx context.Context, what, name string, readsTag bool, wait time.Duration) gateOutcome {
 	var out gateOutcome
 	for try := 1; try <= 2; try++ {
 		args := []string{what, name, "-quiet"}
+		if what == "run" {
+			args = append(args, "-keep-going")
+		}
 		if readsTag {
 			args = append(args, "-var", chain.RunTagVar+"="+chain.NewRunTag())
 		}
@@ -1190,6 +1307,9 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if what == "verify" && g.class == "" && len(out.side.Items) > 0 {
 			g.class = out.side.Items[0].Class
 		}
+		if what == "verify" {
+			g.shown = changeLines(out.stdout)
+		}
 	}
 }
 
@@ -1242,49 +1362,69 @@ func (g *gateChain) printChanges(e *env) {
 			fmt.Println("  " + hint)
 		}
 	}
-	seen, paths := map[string]bool{}, []string{}
-	steps, example := map[string][]string{}, map[string]string{}
+	type row struct {
+		key, line string
+		steps, at []string
+		more      int
+	}
+	var rows []*row
+	byKey, seen := map[string]*row{}, map[string]bool{}
+	add := func(key, step, id, line string) {
+		if seen[step+" "+id] {
+			return
+		}
+		seen[step+" "+id] = true
+		r := byKey[key]
+		if r == nil {
+			r = &row{key: key, line: line}
+			byKey[key], rows = r, append(rows, r)
+		} else if r.more++; !slices.Contains(r.at, step) {
+			r.at = append(r.at, step)
+		}
+		if !slices.Contains(r.steps, step) {
+			r.steps = append(r.steps, step)
+		}
+	}
+	for _, l := range g.shown {
+		key, step := l, ""
+		if m := verifyChangeLine.FindStringSubmatch(l); m != nil {
+			key, step = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), m[1]
+		}
+		add(key, step, l, l)
+	}
 	for _, it := range g.items {
-		if seen[it.Step+" "+it.Path] {
-			continue
-		}
-		seen[it.Step+" "+it.Path] = true
-		path, eg := it.shown()
-		if it.Reason.Kind == reasonKnockOn {
-			path, eg = it.Reason.String(), ""
-		}
-		if steps[path] == nil {
-			paths = append(paths, path)
-			example[path] = eg
-		}
-		if !slices.Contains(steps[path], it.Step) {
-			steps[path] = append(steps[path], it.Step)
+		path, _ := it.shown()
+		switch {
+		case len(g.shown) > 0:
+		case it.Reason.Kind == reasonKnockOn:
+			add("\x00"+it.Reason.String(), it.Step, "", it.Reason.String())
+		default:
+			line := "[" + it.Step + "] " + it.headline()
+			add(path, it.Step, line, line)
 		}
 	}
-	var sets []string
-	together := map[string][]string{}
-	for _, p := range paths {
-		key := strings.Join(steps[p], " ")
-		if example[p] == "" {
-			key = "\x00" + p
+	for _, r := range rows {
+		switch {
+		case strings.HasPrefix(r.key, "\x00"):
+			fmt.Printf("    %d step(s) %s (%s)\n", len(r.steps), r.line, capList(r.steps, 3))
+		case r.more > 0:
+			fmt.Printf("    %s (and %d more at %s)\n", r.line, r.more, capList(r.at, 3))
+		default:
+			fmt.Println("    " + r.line)
 		}
-		if together[key] == nil {
-			sets = append(sets, key)
-		}
-		together[key] = append(together[key], p)
 	}
-	for _, key := range sets {
-		ps := together[key]
-		eg := example[ps[0]]
-		if eg == "" {
-			fmt.Printf("    %d step(s) %s (%s)\n", len(steps[ps[0]]), ps[0], capList(steps[ps[0]], 3))
-			continue
+}
+
+var verifyChangeLine = regexp.MustCompile(`^\[([^\]]+)\] +(\S+) +(\S+)`)
+
+func changeLines(stdout string) []string {
+	var out []string
+	for _, l := range strings.Split(stdout, "\n") {
+		if rest, ok := strings.CutPrefix(l, "  ["); ok {
+			out = append(out, "["+rest)
 		}
-		if len(ps) > 1 {
-			eg = ps[0] + " " + eg
-		}
-		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", capList(ps, 4), len(steps[ps[0]]), capList(steps[ps[0]], 3), eg)
 	}
+	return out
 }
 
 func (g *gateChain) line(width int) string {
@@ -1416,11 +1556,11 @@ func foldSlices(chains []*gateChain) {
 	}
 	for _, g := range chains {
 		i := strings.LastIndex(g.name, "-slice-")
-		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" || g.pinsHeld {
+		if i < 0 || !g.failed || g.findingOnly() || g.class == "not as pinned" {
 			continue
 		}
 		p := byName[g.name[:i]]
-		if p == nil || !p.failed || p.findingOnly() || p.echoOf != "" {
+		if p == nil || !p.failed || p.findingOnly() || p.echoOf != "" || g.pinsHeld && !p.failsAsAll(g) {
 			continue
 		}
 		a, okA := g.firstItem()
@@ -1429,6 +1569,14 @@ func foldSlices(chains []*gateChain) {
 			g.echoOf, p.slices = p.name, append(p.slices, g.name)
 		}
 	}
+}
+
+func (g *gateChain) failsAsAll(slice *gateChain) bool {
+	roots := map[string]bool{}
+	for _, it := range g.items {
+		roots[it.root()] = true
+	}
+	return !slices.ContainsFunc(slice.items, func(it gateItem) bool { return !it.Passes && !roots[it.root()] })
 }
 
 func groupKeys(chains []*gateChain) func(string, gateItem) string {
