@@ -557,10 +557,14 @@ shrt run .shrt/scratch/repro.yaml -repeat 3
 
 It runs the chain 3 times exactly as written, changes nothing in it, and compares each run with the
 first as `-verify` compares a slice: the same steps fail, with the same envelope code, refusal,
-failed expectations and got values, ids, fixture values and clock offsets masked. `reproduced 3/3:
-<step> ...` (exit 0) is the receipt, with each failed expectation and the suspect; `NOT
-REPRODUCED` (1) lists what differed from run 1, `passed 3/3` (1) means nothing failed, `DID NOT
-RUN` (3) a run got no answer. Every run gets a fresh `tag` unless you pass `-var tag=`, and then
-each later run gets your value plus a fresh suffix; `-keep-going` compares every failing step, not
-only the first. To keep a receipt against a source chain's run instead, slice the source with
+failed expectations and got values, ids, fixture values and clock offsets masked. Each run goes past
+a failed step, so every step of the repro is checked every time (a step reading a failed step's
+value is skipped); `-keep-going=false` stops each run at its first failure and names the steps left
+unrun. `reproduced 3/3: <step> ...` (exit 0) is the receipt, with what each failed step answered
+(`answered status.code "SUCCESS"`), its failed expectations and the suspect; `NOT REPRODUCED` (1)
+lists what differed from run 1, `passed 3/3` (1) means nothing failed, `DID NOT RUN` (3) a run got
+no answer. The last line states the outcome with its exit code, `exit 0: reproduced 3/3; -repeat
+exits 0 when every run failed the same way, ...`: under `-repeat`, 0 means the failure is there.
+Every run gets a fresh `tag` unless you pass `-var tag=`, and then each later run gets your value
+plus a fresh suffix. To keep a receipt against a source chain's run instead, slice the source with
 `-keep <ids of the minimal chain> -verify`.

@@ -8,7 +8,7 @@ shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chai
 
 $ shrt gate -v -no-session-check -hollow-baseline   [exit 1]
 FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
-  cancel_confirmed sent {"id_order":"ord-0045"}
+  cancel_confirmed sent {"id_order":"ord-0055"}
     [cancel_confirmed] changed    status.code want=SUCCESS got=REJECTED
     [cancel_confirmed] changed    status.message want="" got=StillConfirmed
 PASS       shop-product

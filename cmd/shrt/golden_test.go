@@ -129,6 +129,7 @@ func TestGoldenOutput(t *testing.T) {
 	step("run", "probe-orders")
 	failed := runs[len(runs)-1]
 	step("run", "probe-orders", "-quiet")
+	step("run", "probe-orders", "-repeat", "2")
 	step("verify", "probe-orders")
 	step("diff", runs[0], failed)
 	step("gate", "-no-session-check", "-hollow-baseline", "")

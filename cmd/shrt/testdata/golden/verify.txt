@@ -7,7 +7,7 @@ probe-orders: no drift vs safe spot RUNID
 
 $ shrt verify probe-orders  [exit 1]
 probe-orders: DRIFT (regression), 1 step(s) changed vs safe spot RUNID; first: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect write cancel_confirmed (OrderService/CancelOrder)
-  cancel_confirmed sent {"id_order":"ord-0034"}
+  cancel_confirmed sent {"id_order":"ord-0044"}
   [cancel_confirmed] changed    status.code want=SUCCESS got=REJECTED
   [cancel_confirmed] changed    status.message want="" got=StillConfirmed
 not counted: 31 (-masked lists them)

@@ -78,7 +78,7 @@ func runRepeated(ctx context.Context, e *env, c *chain.Chain, n int, vars map[st
 		}
 		return v.err()
 	}
-	fmt.Print(v.text(e, first))
+	fmt.Print(v.text(e, c, first))
 	if err := v.err(); err != nil {
 		return shownError{err}
 	}
@@ -156,18 +156,14 @@ func repeatLine(i, n int, rec *runner.Record, diffs []string) string {
 	return line
 }
 
-func (v *repeatVerdict) text(e *env, first *runner.Record) string {
+func (v *repeatVerdict) text(e *env, c *chain.Chain, first *runner.Record) string {
 	var b strings.Builder
 	switch v.Outcome {
 	case sliceReproduced:
 		fmt.Fprintf(&b, "reproduced %d/%d: %s failed the same way in every run\n", v.Same, v.Repeat, capList(v.Failed, 3))
 		for _, id := range v.Failed {
 			st, _ := first.Step(id)
-			verdict, code := verdictOf(st), ""
-			if verdict.ErrorCode != "" {
-				code = fmt.Sprintf(", %s %q", verdictPath(st), verdict.ErrorCode)
-			}
-			fmt.Fprintf(&b, "  %s (%s): status %s%s%s\n", id, shortRPC(st.Call), verdict.Status, code, refusalText(verdict))
+			fmt.Fprintf(&b, "  %s (%s): %s\n", id, shortRPC(st.Call), answeredText(st))
 			for _, x := range st.Expect {
 				if !x.Passed && x.Rule != "unevaluated" {
 					fmt.Fprintf(&b, "    failed: %s %s\n", x.Path, chain.WantGot(x.Rule, quoted(x.Want), quoted(x.Got)))
@@ -187,22 +183,61 @@ func (v *repeatVerdict) text(e *env, first *runner.Record) string {
 	case sliceDidNotRun:
 		fmt.Fprintf(&b, "DID NOT RUN: %s, so the runs have no verdict to compare; re-run\n", v.Reason)
 	}
+	if line := neverRanLine(c, first); line != "" && v.Outcome != sliceDidNotRun {
+		fmt.Fprintf(&b, "  %s\n", line)
+	}
 	where := ""
 	if v.Records != "" {
 		where = " in " + v.Records
 	}
 	fmt.Fprintf(&b, "  runs %s%s; the chain ran as written and is unchanged\n", strings.Join(v.Runs, ", "), where)
+	fmt.Fprintf(&b, "exit %d: %s; -repeat exits 0 when every run failed the same way, 1 when the runs differ or none failed, 3 when a run got no answer\n",
+		v.exitCode(), v.outcomeText())
 	return b.String()
 }
 
-func (v *repeatVerdict) err() error {
+func answeredText(st *runner.StepRecord) string {
+	verdict := verdictOf(st)
+	answer := strings.TrimPrefix(refusalText(verdict), ", transport")
+	if verdict.ErrorCode != "" {
+		answer = fmt.Sprintf(" %s %q%s", verdictPath(st), verdict.ErrorCode, refusalText(verdict))
+	}
+	if answer == "" {
+		why, _, _ := strings.Cut(st.Error, "\n")
+		return "got no answer: " + why
+	}
+	return "answered" + answer
+}
+
+func (v *repeatVerdict) exitCode() int {
+	switch v.Outcome {
+	case repeatPassed, sliceNotReproduced:
+		return 1
+	case sliceDidNotRun:
+		return 3
+	}
+	return 0
+}
+
+func (v *repeatVerdict) outcomeText() string {
 	switch v.Outcome {
 	case repeatPassed:
-		return exitWith(1, "chain %s: passed %d/%d, nothing reproduced", v.Chain, v.Same, v.Repeat)
+		return fmt.Sprintf("passed %d/%d, nothing reproduced", v.Same, v.Repeat)
 	case sliceNotReproduced:
-		return exitWith(1, "chain %s: NOT REPRODUCED, %d of %d runs failed as run 1 did", v.Chain, v.Same, len(v.Runs))
+		return fmt.Sprintf("NOT REPRODUCED, %d of %d runs failed as run 1 did", v.Same, len(v.Runs))
 	case sliceDidNotRun:
-		return exitWith(3, "chain %s: DID NOT RUN, %s", v.Chain, v.Reason)
+		return "DID NOT RUN"
 	}
-	return nil
+	return fmt.Sprintf("reproduced %d/%d", v.Same, v.Repeat)
+}
+
+func (v *repeatVerdict) err() error {
+	what := v.outcomeText()
+	if v.Reason != "" {
+		what += ", " + v.Reason
+	}
+	if v.exitCode() == 0 {
+		return nil
+	}
+	return exitWith(v.exitCode(), "chain %s: %s", v.Chain, what)
 }
