@@ -419,14 +419,6 @@ func ScaffoldSteps(refs, ids []string, lib *Library, cat *catalog.Catalog) ([]*y
 	return nodes, p.Notes, nil
 }
 
-func ScaffoldStep(m *catalog.Method, id string, lib *Library, cat *catalog.Catalog) *yaml.Node {
-	nodes, _, err := ScaffoldSteps([]string{m.FullName}, []string{id}, lib, cat)
-	if err != nil || len(nodes) == 0 {
-		return nil
-	}
-	return nodes[0]
-}
-
 func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *chain.Step {
 	c, ok := lib.Get(m.FullName)
 	step := &chain.Step{
