@@ -417,14 +417,9 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string) *totalRule {
 			if sf.Repeated || !chain.IsNumericKind(sf.Kind) {
 				continue
 			}
-			re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(sf.Name) + `\b`)
-			for _, t := range texts {
-				for _, clause := range clauseBreaks().Split(t, -1) {
-					if re.MatchString(clause) && sumWord().MatchString(clause) {
-						return &totalRule{rpc: rpc, sentence: strings.TrimSpace(clause), carrier: out.Name, field: sf.Name, list: list,
-							itemID: itemID, itemQty: itemQty, entity: entity, price: price}
-					}
-				}
+			if clause := namingClause(texts, sf.Name, sumWord()); clause != "" {
+				return &totalRule{rpc: rpc, sentence: strings.TrimSpace(clause), carrier: out.Name, field: sf.Name, list: list,
+					itemID: itemID, itemQty: itemQty, entity: entity, price: price}
 			}
 		}
 	}
@@ -1001,7 +996,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 		return stated || restoreWord().MatchString(strings.Join(texts, " "))
 	}
 	texts = append(texts, lib.DescriptionOf(lib.Domain(rpc)))
-	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || !restoresFrom(texts, o.held)) {
+	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || namingClause(texts, o.held, restoreWord()) == "") {
 		return false
 	}
 	restored := map[string]int64{}

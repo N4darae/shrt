@@ -13,16 +13,16 @@ var (
 	clauseBreaks = lazyRegexp(`[.;]\s*`)
 )
 
-func restoresFrom(texts []string, state string) bool {
-	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(state) + `\b`)
+func namingClause(texts []string, word string, kind *regexp.Regexp) string {
+	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(word) + `\b`)
 	for _, text := range texts {
 		for _, clause := range clauseBreaks().Split(text, -1) {
-			if re.MatchString(clause) && restoreWord().MatchString(clause) {
-				return true
+			if re.MatchString(clause) && kind.MatchString(clause) {
+				return clause
 			}
 		}
 	}
-	return false
+	return ""
 }
 
 func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step) bool) {
@@ -68,7 +68,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				if p.addComposedTransition(lib, st, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
+				if p.addComposedTransition(lib, st, e, tr, result, short, namingClause(texts, short[tr.value], restoreWord()) != "" || c.Effects.restores(short[tr.value])) {
 					for field, ef := range c.Effects {
 						if ef != nil && ef.Restore != "" && SameState(ef.Restore, short[tr.value]) {
 							p.met[[2]string{st.Call, field}] = true

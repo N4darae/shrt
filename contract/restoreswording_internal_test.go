@@ -11,7 +11,7 @@ func TestAContractSayingTheWriteGivesItBackInAnyTenseRestores(t *testing.T) {
 		"Voids the invoice, giving the credit back when it was POSTED.",
 		"Voids the invoice; a POSTED invoice is refunded.",
 	} {
-		if !restoresFrom([]string{text}, "POSTED") {
+		if namingClause([]string{text}, "POSTED", restoreWord()) == "" {
 			t.Errorf("%q says the write gives back what POSTED took", text)
 		}
 	}
@@ -19,7 +19,7 @@ func TestAContractSayingTheWriteGivesItBackInAnyTenseRestores(t *testing.T) {
 		"Move an invoice to VOID; a POSTED invoice keeps its credit.",
 		"Returns the invoice as VOID.; POSTED invoices are archived",
 	} {
-		if restoresFrom([]string{text}, "POSTED") {
+		if namingClause([]string{text}, "POSTED", restoreWord()) != "" {
 			t.Errorf("%q says nothing is given back from POSTED", text)
 		}
 	}
