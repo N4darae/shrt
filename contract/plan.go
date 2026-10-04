@@ -13,6 +13,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -767,11 +768,7 @@ func (p *Plan) YAML() ([]byte, error) {
 		}
 		steps.Content = append(steps.Content, node)
 	}
-	if i := mappingIndex(doc, "steps"); i >= 0 {
-		doc.Content[i+1] = steps
-	} else {
-		put(doc, "steps", steps)
-	}
+	yamlkey.Set(doc, "steps", steps)
 	return yaml.Marshal(doc)
 }
 

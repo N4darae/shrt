@@ -37,12 +37,27 @@ func MappingValue(n *yaml.Node, key string) *yaml.Node {
 	if n == nil || n.Kind != yaml.MappingNode {
 		return nil
 	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == key {
-			return n.Content[i+1]
-		}
+	if i := Index(n, key); i >= 0 {
+		return n.Content[i+1]
 	}
 	return nil
+}
+
+func Index(mapping *yaml.Node, key string) int {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func Set(mapping *yaml.Node, key string, value *yaml.Node) {
+	if i := Index(mapping, key); i >= 0 {
+		mapping.Content[i+1] = value
+		return
+	}
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 
 func Explain(err error, into any, raw []byte) error {

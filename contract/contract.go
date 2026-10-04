@@ -8,6 +8,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -112,7 +113,7 @@ func inject(mapping *yaml.Node, body *yaml.Node) {
 		return
 	}
 	at := len(mapping.Content)
-	if i := mappingIndex(mapping, "call"); i >= 0 {
+	if i := yamlkey.Index(mapping, "call"); i >= 0 {
 		at = i + 2
 	}
 	mapping.Content = slices.Insert(mapping.Content, at, scalar("body"), body)

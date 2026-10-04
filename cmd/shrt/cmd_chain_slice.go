@@ -21,6 +21,7 @@ import (
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -1569,7 +1570,7 @@ func recordVerdictIn(path string, record func(string) string) error {
 		}
 	}
 	value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: record(current), Style: yaml.LiteralStyle}
-	setKey(top, "description", value)
+	yamlkey.Set(top, "description", value)
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return err

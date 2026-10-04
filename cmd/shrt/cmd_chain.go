@@ -16,7 +16,6 @@ import (
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/runner"
-	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -102,17 +101,6 @@ func chainNew(args []string) error {
 	}
 	fmt.Printf("wrote %s (%d step(s))\nedit the body, then: shrt chain lint %s\n", path, n, *name)
 	return nil
-}
-
-func setKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
 }
 
 func chainList(args []string) error {

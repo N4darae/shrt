@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -133,7 +134,7 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 	if prior != nil {
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
-			if i := mappingIndex(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
+			if i := yamlkey.Index(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
 				node.Content[i+1] = requiredTodo()
 			}
 			if todo := effectsTodo(m, all); todo != "" && len(prior.Effects) == 0 && prior.IsUnfilled("effects") {
@@ -232,12 +233,12 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	if len(added.Content) == 0 {
 		return
 	}
-	if i := mappingIndex(node, "fields"); i >= 0 && node.Content[i+1].Kind == yaml.MappingNode {
+	if i := yamlkey.Index(node, "fields"); i >= 0 && node.Content[i+1].Kind == yaml.MappingNode {
 		node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
 		return
 	}
 	at := len(node.Content)
-	if i := mappingIndex(node, "required"); i >= 0 {
+	if i := yamlkey.Index(node, "required"); i >= 0 {
 		at = i + 2
 	}
 	node.Content = slices.Insert(node.Content, at, scalar("fields"), added)
@@ -282,8 +283,8 @@ func inferredFroms(m *catalog.Method, all []*catalog.Method) map[string]string {
 	out := map[string]string{}
 	fields := scaffoldFields(m, all, fieldHint)
 	for i := 0; i+1 < len(fields.Content); i += 2 {
-		if entry := fields.Content[i+1]; entry.Kind == yaml.MappingNode && mappingIndex(entry, "from") >= 0 {
-			out[fields.Content[i].Value] = entry.Content[mappingIndex(entry, "from")+1].Value
+		if entry := fields.Content[i+1]; entry.Kind == yaml.MappingNode && yamlkey.Index(entry, "from") >= 0 {
+			out[fields.Content[i].Value] = entry.Content[yamlkey.Index(entry, "from")+1].Value
 		}
 	}
 	return out
@@ -538,13 +539,4 @@ func IsTodo(text string) bool {
 func cleanTodo(raw string) string {
 	text := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#")), TodoMarker)
 	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
-}
-
-func mappingIndex(node *yaml.Node, key string) int {
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return i
-		}
-	}
-	return -1
 }
