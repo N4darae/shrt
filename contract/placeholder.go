@@ -27,13 +27,6 @@ func IsPlaceholder(v any, how Strictness) bool {
 		if t == "" || strings.HasSuffix(t, "_UNSPECIFIED") {
 			return true
 		}
-		return how == ScaffoldedBody && t == "0"
-	case float64:
-		return how == ScaffoldedBody && t == 0
-	case int:
-		return how == ScaffoldedBody && t == 0
-	case bool:
-		return false
 	case []any:
 		for _, item := range t {
 			if !IsPlaceholder(item, how) {
@@ -48,9 +41,8 @@ func IsPlaceholder(v any, how Strictness) bool {
 			}
 		}
 		return true
-	default:
-		return false
 	}
+	return how == ScaffoldedBody && isNumericZero(v)
 }
 
 func bodyValue(body map[string]any, path string) (any, bool) {
