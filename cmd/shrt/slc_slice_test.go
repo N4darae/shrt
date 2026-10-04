@@ -603,12 +603,12 @@ func TestSliceCases(t *testing.T) {
 
 		{name: "-without names the failures the left-out write caused", setup: func(t *testing.T) { stockWorkspace(t, 0) },
 			args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
-			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total\n", "still fail, so another cause: fetch_name"}, not: []string{"not proof"}},
+			want: []string{"1 of 2 step(s) that failed in source run", "pass without it: fetch_total\n", "still fail as they did, so another cause: fetch_name"}, not: []string{"not proof"}},
 		{name: "-without is inconclusive when the steps still failing read what the left-out write writes", setup: func(t *testing.T) {
 			srv := stockBackend(0)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
-			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: 6", "equals: 99", "equals: gadget", "equals: widget").Replace(stockChain))
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: 6", "equals: 99", "equals: gadget", "equals: widget", "trace_id: ${make.id}", "trace_id: ${make.id}\n              source: lost").Replace(stockChain))
 			slcRunAny("stock", "-keep-going")
 		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 3,
 			want: []string{"verify INCONCLUSIVE without stray_add: the 1 step(s) that failed", "still fail, but they read what the left-out steps write: fetch_total"}, not: []string{"NOT REPRODUCED"}},
@@ -616,24 +616,36 @@ func TestSliceCases(t *testing.T) {
 			srv := stockBackend(1)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
-			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "equals: 6", "equals: 15").Replace(stockChain))
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "equals: 6", "equals: 15", "qty: 9", "qty: 0").Replace(stockChain))
 			slcRunAny("stock", "-keep-going")
 		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 1,
-			want: []string{"verify STILL FAILS without stray_add: the 2 step(s) that failed in source run ", " still fail (fetch_total, fetch_name), so stray_add is not their cause\n", "STILL FAILS without stray_add"},
-			not:  []string{"NOT REPRODUCED"}},
-		{name: "-without counts a failure with another value as still failing", setup: func(t *testing.T) {
+			want: []string{"verify STILL FAILS without stray_add: the 2 step(s) that failed in source run ", " still fail exactly as they did (fetch_total, fetch_name), so stray_add is not their cause\n", "STILL FAILS without stray_add"},
+			not:  []string{"NOT REPRODUCED", "FAILS DIFFERENTLY"}},
+		{name: "-without says a read whose got flips fails differently, never that the write is not its cause", setup: func(t *testing.T) {
+			srv := stockBackend(0)
+			t.Cleanup(srv.Close)
+			chdirToFreshCLIWorkspace(t, srv.URL)
+			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "qty: 6", "qty: 3", "qty: 9", "qty: -6", "equals: 6", "equals: 0", "equals: gadget", "equals: widget").Replace(stockChain))
+			slcRunAny("stock", "-keep-going")
+		}, args: []string{"stock", "-without", "stray_add", "-verify"}, code: 3,
+			want: []string{"verify FAILS DIFFERENTLY without stray_add: the 1 step(s) that failed in source run ", "still fail, but not as they did (fetch_total), so stray_add is involved",
+				"fetch_total expectation 1 (total equals): failed in both, differently: source got -3, without it got 3\n", "next: shrt chain slice stock -step fetch_total -verify -run "},
+			not: []string{"STILL FAILS", "not their cause"}},
+		{name: "-without lists the steps that fail differently apart from those failing as they did", setup: func(t *testing.T) {
 			srv := stockBackend(1)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
 			writeFile(t, ".shrt/chains/stock.yaml", strings.NewReplacer("equals: DENIED", "equals: OK", "equals: 6", "equals: 15").Replace(stockChain))
 			slcRunAny("stock", "-keep-going")
-		}, args: []string{"stock", "-without", "stray_add", "-verify", "-json"}, code: 1,
+		}, args: []string{"stock", "-without", "stray_add", "-verify", "-json"}, code: 3,
 			check: func(t *testing.T, out string) {
 				var payload struct {
 					Verify withoutVerdict `json:"verify"`
 				}
 				_ = json.NewDecoder(strings.NewReader(out)).Decode(&payload)
-				if v := payload.Verify; len(v.Cleared) != 0 || strings.Join(v.StillFail, ",") != "fetch_total,fetch_name" {
+				v := payload.Verify
+				if len(v.Cleared) != 0 || strings.Join(v.Changed, ",") != "fetch_total" || strings.Join(v.StillFail, ",") != "fetch_name" ||
+					len(v.Changes) != 1 || !strings.Contains(v.Changes[0], "source got 16, without it got 7") {
 					t.Fatalf("%+v\n%s", v, out)
 				}
 			}},

@@ -1030,49 +1030,49 @@ type Verdict struct {
 }
 
 func CompareVerdicts(source, replay Verdict) []string {
-	return CompareVerdictsMasking(source, replay, nil)
+	return CompareVerdictsMasking(source, replay, nil, "slice")
 }
 
-func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool) []string {
+func CompareVerdictsMasking(source, replay Verdict, same func(path string, a, b any) bool, other string) []string {
 	alike := func(path string, a, b any) bool { return same != nil && same(path, a, b) }
 	diffs := []string{}
 	if source.ErrorCode != replay.ErrorCode {
-		diffs = append(diffs, fmt.Sprintf("%s: source %q, slice %q", EnvelopePath(), source.ErrorCode, replay.ErrorCode))
+		diffs = append(diffs, fmt.Sprintf("%s: source %q, %s %q", EnvelopePath(), source.ErrorCode, other, replay.ErrorCode))
 	}
 	if source.Transport != replay.Transport {
-		diffs = append(diffs, fmt.Sprintf("transport: source %s, slice %s", orNoRefusal(source.Transport), orNoRefusal(replay.Transport)))
+		diffs = append(diffs, fmt.Sprintf("transport: source %s, %s %s", orNoRefusal(source.Transport), other, orNoRefusal(replay.Transport)))
 	}
 	for _, field := range refusalFields(source.Refusal, replay.Refusal) {
 		a, b := source.Refusal[field], replay.Refusal[field]
 		if a != b && !alike(field, a, b) {
-			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, slice %s", field, orNoRefusal(strconv.Quote(a)), orNoRefusal(strconv.Quote(b))))
+			diffs = append(diffs, fmt.Sprintf("refusal %s: source %s, %s %s", field, orNoRefusal(strconv.Quote(a)), other, orNoRefusal(strconv.Quote(b))))
 		}
 	}
 	if source.Status != replay.Status {
-		diffs = append(diffs, fmt.Sprintf("step status: source %q, slice %q", source.Status, replay.Status))
+		diffs = append(diffs, fmt.Sprintf("step status: source %q, %s %q", source.Status, other, replay.Status))
 	}
 	if len(source.Expect) != len(replay.Expect) {
-		diffs = append(diffs, fmt.Sprintf("expectation count: source %d, slice %d", len(source.Expect), len(replay.Expect)))
+		diffs = append(diffs, fmt.Sprintf("expectation count: source %d, %s %d", len(source.Expect), other, len(replay.Expect)))
 		return diffs
 	}
 	for i, want := range source.Expect {
 		got := replay.Expect[i]
 		if want.Path != got.Path || want.Rule != got.Rule {
-			diffs = append(diffs, fmt.Sprintf("expectation %d: source %s %s, slice %s %s", i+1, want.Path, want.Rule, got.Path, got.Rule))
+			diffs = append(diffs, fmt.Sprintf("expectation %d: source %s %s, %s %s %s", i+1, want.Path, want.Rule, other, got.Path, got.Rule))
 			continue
 		}
 		if want.Passed != got.Passed {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, slice passed=%t", i+1, want.Path, want.Rule, want.Passed, got.Passed))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): source passed=%t, %s passed=%t", i+1, want.Path, want.Rule, want.Passed, other, got.Passed))
 			continue
 		}
 		if !want.Passed && verdictText(want.Want) != verdictText(got.Want) && !alike(want.Path, want.Want, got.Want) {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, with other values: source want %s got %s, slice want %s got %s",
-				i+1, want.Path, want.Rule, verdictText(want.Want), verdictText(want.Got), verdictText(got.Want), verdictText(got.Got)))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, with other values: source want %s got %s, %s want %s got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Want), verdictText(want.Got), other, verdictText(got.Want), verdictText(got.Got)))
 			continue
 		}
 		if !want.Passed && verdictText(want.Got) != verdictText(got.Got) && !alike(want.Path, want.Got, got.Got) {
-			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, slice got %s",
-				i+1, want.Path, want.Rule, verdictText(want.Got), verdictText(got.Got)))
+			diffs = append(diffs, fmt.Sprintf("expectation %d (%s %s): failed in both, differently: source got %s, %s got %s",
+				i+1, want.Path, want.Rule, verdictText(want.Got), other, verdictText(got.Got)))
 		}
 	}
 	return diffs

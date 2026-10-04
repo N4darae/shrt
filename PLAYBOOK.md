@@ -400,8 +400,11 @@ unclear read form to `or the read`; a summary line leaves out what its heading s
 | `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
-<step> -verify` (§11): `STILL FAILS` means it is not the cause; steps that pass without it may
-only need the state it leaves.
+<step> -verify` (§11). It compares how each failing step fails, envelope code and each
+expectation's got: `STILL FAILS` (exit 1) only when every one fails exactly as it did, so the write
+is not their cause. `FAILS DIFFERENTLY` (exit 3, `source got -3, without it got 3`) means the write
+changes them: it is involved, and a read that expects what it does cannot pass without it, so run
+the `next:` slice instead of clearing it. Steps that pass without it may only need its state.
 
 ## 9. Refactor and test against a safe spot
 
@@ -516,7 +519,7 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 | `intermittent: reproduced k/n` (1) | flaky there; a run that did not reach the target, or in which a kept step that passed in the source failed, is not counted | keeping more steps will not help |
 | `DID NOT RUN` (3) | the target was never answered | read why the slice run stopped, printed under it |
 | `INCONCLUSIVE` (3) | verdicts match but dropped writes act on kept entities, another target, or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
-| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those still failing (another cause, exit 1, `STILL FAILS` when none passes; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it; cleared steps acting on a record the left-out step changed are marked `may need that state: not proof` | test a suspect write |
+| `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those failing with another code or got (`FAILS DIFFERENTLY`, exit 3: it is involved), those failing exactly as before (another cause, exit 1, `STILL FAILS` when no other; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it; cleared steps acting on a record the left-out step changed are marked `may need that state: not proof` | test a suspect write |
 
 Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares: the
 newest record, but a `shrt run` over a verify replay recorded right after it, unless only the

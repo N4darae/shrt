@@ -951,13 +951,18 @@ func stockBackend(fetchBias int) *httptest.Server {
 		ok := map[string]any{"code": "OK"}
 		switch r.URL.Path {
 		case "/shrt.test.v1.ThingService/Create":
-			id := ""
+			id, lost := "", false
 			if meta, _ := body["meta"].(map[string]any); meta != nil {
 				id, _ = meta["trace_id"].(string)
+				lost = meta["source"] == "lost"
 			}
 			if id == "" {
 				next++
 				id = "thing-" + itoa(next)
+			}
+			if lost {
+				_ = json.NewEncoder(w).Encode(map[string]any{"error": ok, "id": id, "total": totals[id] + n})
+				return
 			}
 			totals[id] += n
 			_ = json.NewEncoder(w).Encode(map[string]any{"error": ok, "id": id, "total": totals[id]})

@@ -575,7 +575,7 @@ func TestCompareVerdicts(t *testing.T) {
 			chain.Verdict{Expect: []chain.ExpectResult{{Path: "error.code", Rule: "equals", Passed: true}, {Path: "qty", Rule: "equals"}}}, 1, []string{"expectation 2 (qty equals)"}},
 		{total(3697, 1995), total(4548, 6250), 1, []string{"3697", "6250"}},
 	} {
-		diffs := chain.CompareVerdictsMasking(tc.a, tc.b, nil)
+		diffs := chain.CompareVerdictsMasking(tc.a, tc.b, nil, "slice")
 		if len(diffs) != tc.n {
 			t.Errorf("want %d difference(s), got %v", tc.n, diffs)
 		}
@@ -604,10 +604,10 @@ func TestSliceVerdictReResolvesAClockRelativeBound(t *testing.T) {
 	if d := chain.CompareVerdicts(verdict(1790325508, nil), verdict(1790325514, nil)); len(d) != 0 {
 		t.Errorf("a bound resolved at each run's own time is the same bound: %v", d)
 	}
-	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790329115"), alike); len(d) != 0 {
+	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790329115"), alike, "slice"); len(d) != 0 {
 		t.Errorf("a stamp an hour ahead of each run's clock fails the same way: %v", d)
 	}
-	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790325000"), alike); len(d) == 0 {
+	if d := chain.CompareVerdictsMasking(verdict(1790325508, "1790329108"), verdict(1790325514, "1790325000"), alike, "slice"); len(d) == 0 {
 		t.Error("an hour ahead in one run and minutes behind in the other is a different failure")
 	}
 }

@@ -29,7 +29,7 @@ const sliceUsage = "usage: shrt chain slice <chain> -step <id> [flags]\n" +
 const sliceExitCodes = "\nexit codes:\n" +
 	"  0  printed or written; -verify: reproduced\n" +
 	"  1  refused; -verify: NOT REPRODUCED, intermittent, or STILL FAILS without\n" +
-	"  3  -run latest did not evaluate the step; -verify: DID NOT RUN or INCONCLUSIVE\n"
+	"  3  -run latest did not evaluate the step; -verify: DID NOT RUN, INCONCLUSIVE, or FAILS DIFFERENTLY without\n"
 
 const sliceRepeat = 3
 
@@ -821,12 +821,14 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			res.Target, replay.Transport.Code, replay.Transport.Message))
 	}
 	v.Replay = verdictOf(replay)
-	v.Differences = compareSliceVerdicts(res, v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
-	v.ByDistance = clockDistanceLines(res, v.Source, v.Replay, sameUpToFixtures(rec.Vars, replayRec.Vars))
+	target, _ := res.Chain.Step(res.Target)
+	same := sameUpToFixtures(rec.Vars, replayRec.Vars)
+	v.Differences = compareVerdictsAt(target, v.Source, v.Replay, same, "slice")
+	v.ByDistance = clockDistanceLines(res, v.Source, v.Replay, same)
 	blocked := blockedReads(v.Source, v.Replay)
 	upstreamOnly := false
 	if evaluatedBlocked(blocked) {
-		v.Differences = compareSliceVerdicts(res, v.Source, withoutBlocked(v.Source, v.Replay, blocked), sameUpToFixtures(rec.Vars, replayRec.Vars))
+		v.Differences = compareVerdictsAt(target, v.Source, withoutBlocked(v.Source, v.Replay, blocked), same, "slice")
 		upstreamOnly = len(v.Differences) == 0
 	}
 	driftUnseen := false
@@ -1084,12 +1086,11 @@ func sameUpToIDs(path string, a, b any) bool {
 	return true
 }
 
-func compareSliceVerdicts(res *chain.SliceResult, source, replay chain.Verdict, same func(path string, a, b any) bool) []string {
-	step, _ := res.Chain.Step(res.Target)
+func compareVerdictsAt(step *chain.Step, source, replay chain.Verdict, same func(path string, a, b any) bool, other string) []string {
 	alike := func(path string, a, b any) bool {
 		return chain.SameClockOffset(a, b) || (same != nil && same(path, a, b))
 	}
-	return chain.CompareVerdictsMasking(chain.ClockRelative(step, source), chain.ClockRelative(step, replay), alike)
+	return chain.CompareVerdictsMasking(chain.ClockRelative(step, source), chain.ClockRelative(step, replay), alike, other)
 }
 
 func clockDistanceLines(res *chain.SliceResult, source, replay chain.Verdict, same func(path string, a, b any) bool) []string {

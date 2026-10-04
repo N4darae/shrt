@@ -169,6 +169,9 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 	if bare {
 		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
 	}
+	if verify != nil {
+		verify.ref = sliceChainRef(chainArg, c)
+	}
 	ids := []string{}
 	fromRun := ""
 	var rec *runner.Record
