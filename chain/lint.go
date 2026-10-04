@@ -858,7 +858,7 @@ func objectNotEqualRemedy(path string) string {
 
 func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Issue, bool) {
 	f, ok := catalog.ResponseFieldAt(fields, SplitPath(e.Path))
-	if !ok || f == nil || !numericKinds[f.Kind] {
+	if !ok || f == nil || !IsNumericKind(f.Kind) {
 		return Issue{}, false
 	}
 	for _, rule := range []struct {

@@ -22,11 +22,6 @@ func noteExports(s *Step, into map[string]exportOrigin) {
 	}
 }
 
-var numericKinds = map[string]bool{
-	"int32": true, "int64": true, "uint32": true, "uint64": true, "sint32": true, "sint64": true,
-	"fixed32": true, "fixed64": true, "sfixed32": true, "sfixed64": true, "float": true, "double": true,
-}
-
 var dynamicWellKnown = map[string]bool{
 	"google.protobuf.Value": true, "google.protobuf.ListValue": true, "google.protobuf.Any": true,
 	"google.protobuf.Struct": true,
@@ -113,7 +108,7 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 				"before sending anything", refs[0], path, targetKind, where, sourceKind))
 			return
 		}
-		if !numericKinds[target.Kind] {
+		if !IsNumericKind(target.Kind) {
 			if !isMessage(target) && isMessage(src) && !dynamicWellKnown[src.Message] && !scalarWellKnown[src.Message] {
 				never = append(never, fmt.Sprintf("${%s} fills %s, declared %s, from %s, declared %s — a whole "+
 					"message is sent as a JSON object, which a %s field never accepts, so the request would be rejected "+
