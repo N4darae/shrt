@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1080,24 +1081,9 @@ func varNameOf(ref string) string {
 }
 
 func stepRefs(s *Step) []string {
-	seen := map[string]bool{}
-	out := []string{}
-	collect := func(refs []string) {
-		for _, r := range refs {
-			if seen[r] {
-				continue
-			}
-			seen[r] = true
-			out = append(out, r)
-		}
-	}
-	collect(collectRefs(s.Body))
-	collect(collectRefs(headerValues(s.Headers)))
-	for _, e := range s.Expect {
-		collect(collectRefs(e.Operands()))
-	}
-	sort.Strings(out)
-	return out
+	refs := s.References()
+	sort.Strings(refs)
+	return slices.Compact(refs)
 }
 
 func isWriteCall(call string) bool {

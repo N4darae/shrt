@@ -590,8 +590,7 @@ func placeholder(f *catalog.Field) any {
 
 func lintRefs(s *Step, known, knownExports map[string]bool, responses map[string]*catalog.Method, idx *refIndex) []Issue {
 	issues := []Issue{}
-	refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-	for _, ref := range refs {
+	for _, ref := range s.SendReferences() {
 		r := ParseRef(ref)
 		if why := referenceProblem(r, known, knownExports, idx); why != "" {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf("${%s} %s", ref, why)})
@@ -708,14 +707,6 @@ func responseRefProblem(r Ref, responses map[string]*catalog.Method) (string, bo
 	}
 	return fmt.Sprintf("reads %q, which is not a field of %s, so step %q cannot produce it%s", rest,
 		m.Output().FullName(), r.Head, nearPath(fields, SplitPath(rest))), true
-}
-
-func headerValues(in map[string]string) []any {
-	out := make([]any, 0, len(in))
-	for _, v := range in {
-		out = append(out, v)
-	}
-	return out
 }
 
 const unfailableWhy = "An assertion that cannot fail is the one fault no gate downstream can see: a green step proves nothing"
@@ -1049,11 +1040,7 @@ func ExternalInputs(c *Chain) (vars []string, env []string) {
 func chainRefs(c *Chain) []Ref {
 	out := []Ref{}
 	for _, s := range c.Steps {
-		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-		for _, e := range s.Expect {
-			refs = append(refs, collectRefs(e.Operands())...)
-		}
-		for _, ref := range refs {
+		for _, ref := range s.References() {
 			out = append(out, ParseRef(ref))
 		}
 	}

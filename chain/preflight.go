@@ -65,11 +65,7 @@ func (c *Chain) ResponseRefProblems(cat *catalog.Catalog) []string {
 				out = append(out, fmt.Sprintf("step %q (step %d): %s", s.ID, i+1, why))
 			}
 		}
-		refs := append(collectRefs(s.Body), collectRefs(headerValues(s.Headers))...)
-		for _, e := range s.Expect {
-			refs = append(refs, e.References()...)
-		}
-		for _, ref := range refs {
+		for _, ref := range s.References() {
 			if why, bad := responseRefProblem(ParseRef(ref), responses); bad {
 				out = append(out, fmt.Sprintf("step %q (step %d): ${%s} %s", s.ID, i+1, ref, why))
 			}
