@@ -501,12 +501,9 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			return true
 		},
 		reordered: func(step, path string) bool {
-			for _, c := range changes {
-				if c.Step == step && c.Kind == diff.KindOrder && (c.Path == path || strings.HasPrefix(path, c.Path+".")) {
-					return true
-				}
-			}
-			return false
+			return slices.ContainsFunc(changes, func(c diff.Change) bool {
+				return c.Step == step && c.Kind == diff.KindOrder && (c.Path == path || strings.HasPrefix(path, c.Path+"."))
+			})
 		},
 		changed: func(step string) []string {
 			var out []string

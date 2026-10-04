@@ -61,15 +61,7 @@ func (b blockedRead) line(sourceRun string) string {
 }
 
 func evaluatedBlocked(blocked []blockedRead) bool {
-	if len(blocked) == 0 {
-		return false
-	}
-	for _, b := range blocked {
-		if b.eval == nil {
-			return false
-		}
-	}
-	return true
+	return len(blocked) > 0 && !slices.ContainsFunc(blocked, func(b blockedRead) bool { return b.eval == nil })
 }
 
 func withoutBlocked(source, replay chain.Verdict, blocked []blockedRead) chain.Verdict {

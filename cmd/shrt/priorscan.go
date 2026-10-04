@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -175,12 +176,9 @@ func (s *priorScan) conflictVanished(st *runner.StepRecord) bool {
 	if !answeredCleanly(st) || st.Status != runner.StatusFailed || !s.readsBefore(st) {
 		return false
 	}
-	for _, e := range st.Expect {
-		if !e.Passed && e.Path == chain.EnvelopePath() && e.Want != nil && fmt.Sprint(e.Want) != chain.EnvelopeOK() {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.ExpectResult) bool {
+		return !e.Passed && e.Path == chain.EnvelopePath() && e.Want != nil && fmt.Sprint(e.Want) != chain.EnvelopeOK()
+	})
 }
 
 func (s *priorScan) readsBefore(st *runner.StepRecord) bool {

@@ -621,12 +621,10 @@ func (a attribution) explains(wi int, st *runner.StepRecord, path string) bool {
 	if !ok {
 		return false
 	}
-	for _, p := range a.changed(w.ID) {
-		if v, ok := chain.Get(wb, p); ok && compactValue(v) == compactValue(rv) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a.changed(w.ID), func(p string) bool {
+		v, ok := chain.Get(wb, p)
+		return ok && compactValue(v) == compactValue(rv)
+	})
 }
 
 func number(v any) (float64, bool) {

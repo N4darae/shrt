@@ -160,12 +160,7 @@ func quotesValue(why, value string) bool {
 	if len(value) >= 3 {
 		return strings.Contains(why, value)
 	}
-	for _, word := range strings.Fields(why) {
-		if strings.Trim(word, "\"'`()[]{}<>,;:.!?") == value {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(strings.Fields(why), func(word string) bool { return strings.Trim(word, "\"'`()[]{}<>,;:.!?") == value })
 }
 
 func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord, paths []string, sent map[string]string) []string {

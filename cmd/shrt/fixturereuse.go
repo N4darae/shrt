@@ -362,27 +362,17 @@ func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool 
 		}
 		others = append(others, fixtureField{path: path, sent: text})
 	})
-	quoted := func(set []fixtureField) bool {
-		for _, f := range set {
-			if f.sent != "" && strings.Contains(why, f.sent) {
-				return true
-			}
-		}
-		return false
-	}
 	named := func(set []fixtureField, shortest int) bool {
 		folded := foldName(why)
-		for _, f := range set {
-			if name := foldName(leafName(f.path)); name != "" && len(name) >= shortest && strings.Contains(folded, name) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(set, func(f fixtureField) bool {
+			name := foldName(leafName(f.path))
+			return name != "" && len(name) >= shortest && strings.Contains(folded, name)
+		})
 	}
 	switch {
-	case quoted(fields):
+	case quotesSent(why, fields):
 		return false
-	case quoted(others):
+	case quotesSent(why, others):
 		return true
 	case named(fields, 1):
 		return false
