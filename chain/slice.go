@@ -334,15 +334,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		fresh[name] = true
 	}
 	vars := map[string]any{}
-	declared := []string{}
-	for name, v := range c.Vars {
-		if usedVars[name] {
-			vars[name] = v
-			declared = append(declared, name)
+	for _, name := range sortedKeys(c.Vars) {
+		if !usedVars[name] {
+			continue
 		}
-	}
-	sort.Strings(declared)
-	for _, name := range declared {
+		vars[name] = c.Vars[name]
 		if fresh[name] {
 			if v, ok := opts.Vars[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
 				vars[name] = v
@@ -360,16 +356,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		vars[name] = v
 		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
-	undeclared := []string{}
-	for name := range usedVars {
-		if _, declared := c.Vars[name]; !declared {
-			if _, set := vars[name]; !set {
-				undeclared = append(undeclared, name)
-			}
+	for _, name := range sortedKeys(usedVars) {
+		if _, declared := c.Vars[name]; declared {
+			continue
 		}
-	}
-	sort.Strings(undeclared)
-	for _, name := range undeclared {
 		if v, ok := opts.Vars[name]; ok {
 			vars[name] = v
 			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag})
