@@ -14,8 +14,12 @@ later replays are diffed against it, so a regression names the rpc that changed.
 Run `shrt gate -repro`. It leaves out the chains that wait by design (marked `W` in `shrt chain
 ls`, then `SKIPPED`; `shrt gate <chain>` runs one), so it takes seconds. Each row of `failures by
 suspect rpc:` gets the read that settles an unclear write or read and a verified one-line repro
-(`repro: shrt run <path>  (reproduced 3/3)`); one `masks:` line says whether a mask hid more than
-run tags, ids and timestamps; each `KEPT RED` line names what its slice pins. For what the chains
+(`repro: shrt run <path>  (reproduced 3/3)`, with the read-back that contradicts a write's answer
+kept in it); a row of a number a write moved says how far against the approved run (`fell 4 from 10
+to 6 where the approved run fell 2 from 10 to 8: 2x`); one `masks:` line says whether a mask hid more
+than run tags, ids and timestamps; each `KEPT RED` line names what its slice pins and the day it was
+pinned. `shrt verify <chain> -run latest` shows every changed value of the gate's run offline; `shrt
+diff <chain> -step a,b` shows those steps as recorded. For what the chains
 cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
 `gaps:` block names each state no chain calls a gated write from, with the `shrt contract plan
 <rpc> -write -force` that plans it. Probe only what a gap line names, or a support ticket that no

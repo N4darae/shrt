@@ -109,7 +109,7 @@ probe only what its `gaps:` lines name, or a support ticket no row explains.
 | line | means |
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
-| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> (<rpc>) <expectation>` names the first pin (`(+N more pin(s))`) |
+| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> (<rpc>) <expectation>` names the first pin (`(+N more pin(s))`); `; pinned <date>`, the day its slice reproduced, tells a red older than this build at a glance |
 | `FAIL pins held, new change:` | every pin held; a change outside them is a regression, not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
 | `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain and says once what that means |
@@ -119,7 +119,8 @@ probe only what its `gaps:` lines name, or a support ticket no row explains.
 | `SKIPPED` | `-repro` or `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
-write, the field it changed; `at transport code <code>` when it was refused before a body existed), or
+write, the field it changed; `at transport code <code>: <cause>` when it was refused before a body existed, the cause
+the error's last clause, `field Customer.name contains invalid UTF-8`), or
 `same fault as <chain>` when that chain's line names it and every other suspect of this chain (the first chain with a
 safe spot that fails so, which may be below; else the first above); a suspect that line leaves out keeps this line's
 own suspect and `also` for it; a slice failing at its parent's first change has no line of its own, the parent's says
@@ -133,7 +134,14 @@ failing calls against its calls that passed in the same gate's runs, by what the
 list's length (`fails with lines of 2+ items`), a list repeating an item key (`fails when lines repeat id_product`),
 or a field set or empty. A call passes only where the gate checked the row's field on it (its own expectation, or a
 later read of the same record; for a refusal, any call of it that succeeded). No line when nothing splits them, when
-a call alike in all of these passed, or when the failing calls should have been refused. `-v` adds, under each failing chain, the
+a call alike in all of these passed, or when the failing calls should have been refused. A row whose example reads a
+number a suspect write moved says by how much against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where
+the approved run fell 3 from 3 to 0: 2x on every failing step`, from the last earlier value of that field of that
+record before the write (a read, or another write's answer), in both runs; said only when each write in between is a
+suspect, declares `none` for the field, or was refused in both; the ratio only when it is a whole number or a
+fraction over 2, 3 or 4; `on every failing step` only when each has that ratio, else `on N of M failing steps` when
+the rest have none. `verify` adds the same after each such change. Below the rows, `offline: shrt verify <chain> -run latest ...`:
+that diff of the run the gate just made prints every changed value without re-sending. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
 chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`
 when they all have its value, else `(and N more below)` with `the same at ...` and one line per other value, each with

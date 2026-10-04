@@ -79,6 +79,8 @@ type gateItem struct {
 	Length string `json:"length,omitempty"`
 	Kind   string `json:"kind,omitempty"`
 	Pinned string `json:"pinned,omitempty"`
+	Effect string `json:"effect,omitempty"`
+	Times  string `json:"times,omitempty"`
 	Failed bool   `json:"failed,omitempty"`
 	Passes bool   `json:"passes,omitempty"`
 
@@ -183,7 +185,7 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
 	if rec.KeptRed == runner.KeptRedAsPinned {
-		side.Pins = pinnedText(c, rec)
+		side.Pins = pinnedText(c, rec) + pinnedOn(c)
 	}
 	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
@@ -570,6 +572,11 @@ func (a attribution) item(it gateItem) gateItem {
 			it.Kind = "order"
 		case path != "" && a.resized != nil && a.resized(it.Step, path).Path != "":
 			it.Kind = "membership"
+		}
+		if why := transportCause(st); why != "" && path == "" {
+			it.Got = st.Transport.Code + ": " + why
+		} else if shown, _ := it.shown(); why != "" && shown == transportCode {
+			it.Got += ": " + why
 		}
 	}
 	return it
@@ -1905,6 +1912,7 @@ func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
 			path, eg := it.shown()
 			line += " " + path + " " + eg
 		}
+		line += gr.effectNote()
 		if verbose && len(gr.steps) > 0 && len(gr.knock) > 0 {
 			line += fmt.Sprintf(" (+%d knock-on step(s))", len(gr.knock))
 		}
@@ -1912,6 +1920,9 @@ func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
 		if gr.trigger != "" {
 			fmt.Println("    " + gr.trigger)
 		}
+	}
+	if !verbose && slices.ContainsFunc(chains, func(g *gateChain) bool { return g.spot && g.failed }) {
+		fmt.Println("offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending")
 	}
 	return order
 }
