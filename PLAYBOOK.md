@@ -490,8 +490,8 @@ shrt chain which -rpc PayInvoice -code 1204 -json
 
 ```bash
 shrt chain slice billing -step pay_invoice_twice
-shrt chain slice billing -step pay_invoice_twice -write probe
-shrt chain lint probe
+shrt chain slice billing -step pay_invoice_twice -write probe   # .shrt/scratch/probe.yaml
+shrt chain lint .shrt/scratch/probe.yaml
 shrt chain slice billing -step pay_invoice_twice -write probe -verify -run latest
 ```
 
@@ -505,9 +505,10 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
    can be state the target needed, and the slice can go green without it. A contract prerequisite
    no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.
-3. **`-write [name]`, then `chain lint` it.** The file lands beside the source chain, where gates
-   run it; a value with a slash is a path (`-write .shrt/scratch/<name>.yaml`, run by that path).
-   A slice of the same chain and step is replaced in place; any other file is refused.
+3. **`-write [name]`, then `chain lint` it by path.** Without a path it lands in `.shrt/scratch/`
+   (`<chain>-slice-<step>.yaml` by default), which no gate, lint or hollow sweep reads: run it by
+   path. A value with a slash is a path; the source chain's own file name replaces the source. A
+   slice of the same chain and step is replaced in place; any other file is refused.
 4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
    compares the target step's verdict with the source run's: envelope code, reason and app code,
    transport refusal, and each expectation's pass, want and got; when those match and the target

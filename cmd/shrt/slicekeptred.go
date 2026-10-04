@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -167,7 +166,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 		return err
 	}
 	if bare {
-		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
+		writePath = slicePath(e, c, name+".yaml", false)
 	}
 	if verify != nil {
 		verify.ref = sliceChainRef(chainArg, c)
@@ -218,7 +217,7 @@ func sliceWithout(ctx context.Context, chainArg string, drop []string, runID str
 	}
 	written, replaced := "", false
 	if write.set {
-		path := filepath.Join(sliceDir(e, c), res.Chain.Name+".yaml")
+		path := slicePath(e, c, res.Chain.Name+".yaml", false)
 		if writePath != "" {
 			path = writePath
 		}

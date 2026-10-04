@@ -16,6 +16,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
@@ -47,7 +48,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	vars := varFlags{}
 	fs.Var(vars, "var", "set a var as `key=value`, repeatable")
 	write := &optionalString{}
-	fs.Var(write, "write", "write .shrt/chains/`[name]`.yaml (default <chain>-slice-<step>), or a path with a slash")
+	fs.Var(write, "write", "write .shrt/scratch/`[name]`.yaml, which the gate does not run (default <chain>-slice-<step>), or a path with a slash")
 	without := &stepList{}
 	fs.Var(without, "without", "leave out these steps and those reading them: `id[,id]|failed`")
 	keep := &stepList{}
@@ -112,7 +113,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	}
 	ref := sliceChainRef(rest[0], c)
 	if bare {
-		writePath = filepath.Join(sliceDir(e, c), name+".yaml")
+		writePath = slicePath(e, c, name+".yaml", keptRed.on)
 	}
 
 	opts := chain.SliceOptions{Name: name, RPCOf: rpcOf(e), Keep: append(append([]string{}, *keep...), keptRed.steps...), Pinned: keptRed.steps, Vars: vars, IsLogin: isLoginStep(e)}
@@ -193,7 +194,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 			fmt.Printf("the slice keeps all %d steps of %s, so it is %s itself: nothing written\n", res.Total, c.Name, c.Name)
 		}
 	} else if write.set {
-		path := filepath.Join(sliceDir(e, c), res.Chain.Name+".yaml")
+		path := slicePath(e, c, res.Chain.Name+".yaml", keptRed.on)
 		if writePath != "" {
 			path = writePath
 		}
@@ -1613,6 +1614,14 @@ func sliceDir(e *env, c *chain.Chain) string {
 		return chains
 	}
 	return dir
+}
+
+func slicePath(e *env, c *chain.Chain, file string, pinned bool) string {
+	path := filepath.Join(sliceDir(e, c), file)
+	if pinned || filepath.Dir(path) != e.chainsDir() || sameFile(path, c.SourcePath) {
+		return path
+	}
+	return filepath.Join(e.cfg.Abs(filepath.Join(config.DirName, "scratch")), file)
 }
 
 func sameFile(a, b string) bool {

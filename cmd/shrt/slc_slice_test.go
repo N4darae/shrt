@@ -205,16 +205,18 @@ func TestSliceCases(t *testing.T) {
 		{name: "a slice verified with a fresh var carries that value", setup: freshTagWorkspace,
 			args: []string{"cli-fresh-flow", "-step", "fetch", "-run", "latest", "-verify", "-var", "tag=T2", "-write", "cli-fresh-slice"},
 			check: func(t *testing.T, _ string) {
-				c, _ := slcSteps(t, ".shrt/chains/cli-fresh-slice.yaml")
+				c, _ := slcSteps(t, ".shrt/scratch/cli-fresh-slice.yaml")
 				if c.Vars["tag"] != "T2" || !strings.Contains(c.Description, "=<fresh>") {
 					t.Fatalf("want tag T2 and a fresh-var note: %v\n%s", c.Vars, c.Description)
 				}
 			}},
-		{name: "-write of a bare file name lands beside the source chain", setup: freshTagWorkspace,
-			args: []string{"cli-fresh-flow", "-step", "fetch", "-write", "kept.yaml"}, want: []string{"lint, hollow and the gate run"},
+		{name: "-write of a bare file name lands in .shrt/scratch, out of the gate", setup: freshTagWorkspace,
+			args: []string{"cli-fresh-flow", "-step", "fetch", "-write", "kept.yaml"}, want: []string{"no sweep reads .shrt/scratch/kept.yaml"},
+			not: []string{"lint, hollow and the gate run"},
 			check: func(t *testing.T, _ string) {
 				slcExists(t, "kept.yaml", false)
-				if c, _ := slcSteps(t, ".shrt/chains/kept.yaml"); c.Name != "kept" {
+				slcExists(t, ".shrt/chains/kept.yaml", false)
+				if c, _ := slcSteps(t, ".shrt/scratch/kept.yaml"); c.Name != "kept" {
 					t.Fatalf("got name %q", c.Name)
 				}
 			}},
@@ -224,9 +226,11 @@ func TestSliceCases(t *testing.T) {
 				slcExists(t, "here.yaml", true)
 				slcExists(t, ".shrt/chains/here.yaml", false)
 			}},
-		{name: "-write joins every sweep and says how to keep it out", setup: freshTagWorkspace,
-			args: []string{"cli-fresh-flow", "-step", "fetch", "-write"},
-			want: []string{"cli-fresh-flow-slice-fetch.yaml", "lint, hollow and the gate run", "mv .shrt/chains/cli-fresh-flow-slice-fetch.yaml .shrt/scratch/"}},
+		{name: "-write without a path stays out of the gate and says where it went", setup: freshTagWorkspace,
+			args:  []string{"cli-fresh-flow", "-step", "fetch", "-write"},
+			want:  []string{"/.shrt/scratch/cli-fresh-flow-slice-fetch.yaml\n", "no sweep reads .shrt/scratch/cli-fresh-flow-slice-fetch.yaml; run it by path"},
+			not:   []string{"lint, hollow and the gate run"},
+			check: func(t *testing.T, _ string) { slcExists(t, ".shrt/chains/cli-fresh-flow-slice-fetch.yaml", false) }},
 		{name: "-write into paths.chains joins the gate", setup: freshTagWorkspace,
 			args: []string{"cli-fresh-flow", "-step", "fetch", "-write", ".shrt/chains/kept.yaml"},
 			want: []string{"lint, hollow and the gate run", "mv .shrt/chains/kept.yaml .shrt/scratch/"}},
@@ -281,6 +285,15 @@ func TestSliceCases(t *testing.T) {
 				}
 				slcMustRun(t, "one-defect-rest", "-var", "tag=T11")
 				slcExists(t, ".shrt/chains/cli-one-defect.yaml", true)
+			}},
+		{name: "-without -write without a path lands in .shrt/scratch", setup: oneDefectWorkspace, red: true,
+			args: []string{"cli-one-defect", "-without", "failed", "-write"},
+			want: []string{"written: .shrt/scratch/cli-one-defect-without-fetch.yaml\n", "no sweep reads .shrt/scratch/cli-one-defect-without-fetch.yaml"},
+			check: func(t *testing.T, _ string) {
+				slcExists(t, ".shrt/chains/cli-one-defect-without-fetch.yaml", false)
+				if _, ids := slcSteps(t, ".shrt/scratch/cli-one-defect-without-fetch.yaml"); ids != "create,other" {
+					t.Fatalf("got %s", ids)
+				}
 			}},
 		{name: "-without -write of the chain's own file name replaces it", setup: oneDefectWorkspace, red: true,
 			args: []string{"cli-one-defect", "-without", "failed", "-write", "cli-one-defect.yaml"},
@@ -523,7 +536,7 @@ func TestSliceCases(t *testing.T) {
 		{name: "-write records not reproduced instead of the hypothesis", setup: changeMessage,
 			args: []string{"cli-pair", "-step", "fetch", "-run", "latest", "-verify", "-write", "probe"}, code: 1,
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/chains/probe.yaml", "NOT REPRODUCED by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") {
+				if raw := slcHas(t, ".shrt/scratch/probe.yaml", "NOT REPRODUCED by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") {
 					t.Fatalf("%s", raw)
 				}
 			}},
@@ -559,15 +572,15 @@ func TestSliceCases(t *testing.T) {
 			slcRunAny("cli-trio")
 		}, args: []string{"cli-trio", "-step", "fetch", "-run", "latest", "-verify", "-write"},
 			check: func(t *testing.T, _ string) {
-				first := string(mustRead(t, ".shrt/chains/cli-trio-slice-fetch.yaml"))
+				first := string(mustRead(t, ".shrt/scratch/cli-trio-slice-fetch.yaml"))
 				verified := regexp.MustCompile(`VERIFIED by [^\n]*source run [^\n]*`).FindString(first)
 				if verified == "" {
 					t.Fatalf("%s", first)
 				}
-				if out, code := slcSlice(t, false, "cli-trio-slice-fetch", "-step", "fetch", "-run", "latest", "-verify", "-write"); code != 0 {
+				if out, code := slcSlice(t, false, ".shrt/scratch/cli-trio-slice-fetch.yaml", "-step", "fetch", "-run", "latest", "-verify", "-write"); code != 0 {
 					t.Fatalf("%s", out)
 				}
-				slcHas(t, ".shrt/chains/cli-trio-slice-fetch.yaml", verified, "own run")
+				slcHas(t, ".shrt/scratch/cli-trio-slice-fetch.yaml", verified, "own run")
 			}},
 		{name: "the same failure with another value is not reproduced", setup: func(t *testing.T) {
 			calls := 0
@@ -586,7 +599,7 @@ func TestSliceCases(t *testing.T) {
 			want: []string{"verify reproduced", "refused: error.code = INTERNAL in run", "refused: transport invalid_argument in run"},
 			not:  []string{"WARNING possible under-inclusion"},
 			check: func(t *testing.T, _ string) {
-				c, _ := slcSteps(t, ".shrt/chains/cli-r2-flow-slice-fetch.yaml")
+				c, _ := slcSteps(t, ".shrt/scratch/cli-r2-flow-slice-fetch.yaml")
 				if strings.Contains(c.Description, "HYPOTHESIS") || !strings.Contains(c.Description, "VERIFIED") || c.Vars["batch"] != "T2" {
 					t.Fatalf("%v\n%s", c.Vars, c.Description)
 				}
@@ -605,13 +618,13 @@ func TestSliceCases(t *testing.T) {
 			args: []string{"cli-r2-flow", "-step", "fetch", "-run", "latest", "-verify"}, code: 1, want: []string{"-var batch=<fresh>"}},
 		{name: "-write never overwrites another chain", setup: func(t *testing.T) {
 			round2Workspace(t)
-			writeFile(t, ".shrt/chains/probe.yaml", slcOtherChain)
+			writeFile(t, ".shrt/scratch/probe.yaml", slcOtherChain)
 		}, args: []string{"cli-r2-flow", "-step", "fetch", "-write", "probe"}, code: 1, want: []string{"name another file"},
 			check: func(t *testing.T, _ string) {
-				if raw := string(mustRead(t, ".shrt/chains/probe.yaml")); raw != slcOtherChain {
+				if raw := string(mustRead(t, ".shrt/scratch/probe.yaml")); raw != slcOtherChain {
 					t.Fatalf("overwritten:\n%s", raw)
 				}
-				_ = os.Remove(".shrt/chains/probe.yaml")
+				_ = os.Remove(".shrt/scratch/probe.yaml")
 				for _, c := range []struct {
 					args []string
 					ok   bool
@@ -680,7 +693,7 @@ func TestSliceCases(t *testing.T) {
 		{name: "an identical re-write keeps a verified slice's verdict", setup: slcVerifiedProbe,
 			args: []string{"cli-thing-flow", "-step", "fetch", "-write", "probe"},
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/chains/probe.yaml", "VERIFIED by"); strings.Contains(raw, "HYPOTHESIS") {
+				if raw := slcHas(t, ".shrt/scratch/probe.yaml", "VERIFIED by"); strings.Contains(raw, "HYPOTHESIS") {
 					t.Fatalf("%s", raw)
 				}
 			}},
@@ -688,7 +701,7 @@ func TestSliceCases(t *testing.T) {
 			slcVerifiedProbe(t)
 			writeFile(t, ".shrt/chains/cli-thing-flow.yaml", strings.Replace(string(mustRead(t, ".shrt/chains/cli-thing-flow.yaml")), "equals: widget", "equals: gadget", 1))
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-write", "probe"}, code: 1, want: []string{"VERIFIED"},
-			check: func(t *testing.T, _ string) { slcHas(t, ".shrt/chains/probe.yaml", "VERIFIED by") }},
+			check: func(t *testing.T, _ string) { slcHas(t, ".shrt/scratch/probe.yaml", "VERIFIED by") }},
 		{name: "the configured login is no dropped write", setup: func(t *testing.T) {
 			chdirToFreshCLIWorkspace(t, "http://127.0.0.1:1")
 			appendAuth(t, "${env.WIDGET_USER}")
@@ -796,7 +809,7 @@ func slcVerifiedProbe(t *testing.T) {
 	if out, code := slcSlice(t, false, "cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify", "-write", "probe"); code != 0 {
 		t.Fatalf("%s", out)
 	}
-	slcHas(t, ".shrt/chains/probe.yaml", "VERIFIED by")
+	slcHas(t, ".shrt/scratch/probe.yaml", "VERIFIED by")
 }
 
 func TestSliceExitCodesAreDocumented(t *testing.T) {
