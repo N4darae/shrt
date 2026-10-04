@@ -301,28 +301,17 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 }
 
 func (p *Plan) plainLooksDuplicate(rpc string, nodes, via []string) bool {
-	onlyBefore := len(via) > 0
-	for _, edge := range via {
-		if !strings.Contains(edge, " before: ") {
-			onlyBefore = false
-		}
-	}
-	if onlyBefore {
+	if len(via) > 0 && !slices.ContainsFunc(via, func(edge string) bool { return !strings.Contains(edge, " before: ") }) {
 		return true
 	}
 	plain := p.stepByID(p.stepOf[rpc])
-	if plain == nil {
-		return false
-	}
-	for _, node := range nodes {
+	return plain != nil && slices.ContainsFunc(nodes, func(node string) bool {
 		if node == rpc {
-			continue
+			return false
 		}
-		if s := p.stepByID(p.stepOf[node]); s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body) {
-			return true
-		}
-	}
-	return false
+		s := p.stepByID(p.stepOf[node])
+		return s != nil && s.Auth == plain.Auth && reflect.DeepEqual(s.Body, plain.Body)
+	})
 }
 
 func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *Library) {
@@ -673,15 +662,7 @@ func indexDepth(path string) int {
 }
 
 func isIndexSegment(seg string) bool {
-	if seg == "" {
-		return false
-	}
-	for _, r := range seg {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	return seg != "" && strings.Trim(seg, "0123456789") == ""
 }
 
 func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
@@ -938,12 +919,8 @@ func (p *Plan) declareInterpolatedVars() {
 }
 
 func (p *Plan) stepByID(id string) *chain.Step {
-	for i := range p.Chain.Steps {
-		if p.Chain.Steps[i].ID == id {
-			return p.Chain.Steps[i]
-		}
-	}
-	return nil
+	s, _ := p.Chain.Step(id)
+	return s
 }
 
 func hasTemplate(v any) bool {
@@ -1018,18 +995,8 @@ func typedValue(raw string, schema *catalog.Schema, path string) any {
 	if schema == nil || chain.HasReference(raw) {
 		return raw
 	}
-	kind := ""
-	if f, ok := catalog.FieldAt(schema.Fields, chain.SplitPath(path)); ok && f != nil {
-		kind = f.Kind
-	}
-	switch kind {
-	case "bool":
-		switch raw {
-		case "true":
-			return true
-		case "false":
-			return false
-		}
+	if f, ok := catalog.FieldAt(schema.Fields, chain.SplitPath(path)); ok && f != nil && f.Kind == "bool" && (raw == "true" || raw == "false") {
+		return raw == "true"
 	}
 	return raw
 }
@@ -1113,13 +1080,7 @@ func contractSpeaksFor(c *RPCContract, fields map[string]*FieldContract, path st
 }
 
 func stripIndexes(path string) string {
-	kept := []string{}
-	for _, seg := range chain.SplitPath(path) {
-		if !isIndexSegment(seg) {
-			kept = append(kept, seg)
-		}
-	}
-	return strings.Join(kept, ".")
+	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), isIndexSegment), ".")
 }
 
 func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
