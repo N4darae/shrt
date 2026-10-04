@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -42,46 +43,30 @@ func DefaultCodeFields() []string {
 	return []string{"app_code", "reason", "error_code"}
 }
 
-func CodeFields() []string {
+func current[T any](get func(conventions) T) T {
 	conventionsMu.RLock()
 	defer conventionsMu.RUnlock()
-	return append([]string(nil), active.codes...)
+	return get(active)
+}
+
+func CodeFields() []string {
+	return current(func(c conventions) []string { return append([]string(nil), c.codes...) })
 }
 
 func EnvelopeLeaf() string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return active.path[strings.LastIndex(active.path, ".")+1:]
+	return current(func(c conventions) string { return c.path[strings.LastIndex(c.path, ".")+1:] })
 }
 
-func EnvelopeField() string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return active.field
-}
+func EnvelopeField() string { return current(func(c conventions) string { return c.field }) }
 
-func EnvelopePath() string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return active.path
-}
+func EnvelopePath() string { return current(func(c conventions) string { return c.path }) }
 
-func EnvelopeOK() string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return active.ok
-}
+func EnvelopeOK() string { return current(func(c conventions) string { return c.ok }) }
 
-func ItemEnvelope() string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return active.itemPath
-}
+func ItemEnvelope() string { return current(func(c conventions) string { return c.itemPath }) }
 
 func ReadOnlyPrefixes() []string {
-	conventionsMu.RLock()
-	defer conventionsMu.RUnlock()
-	return append([]string(nil), active.readOnly...)
+	return current(func(c conventions) []string { return append([]string(nil), c.readOnly...) })
 }
 
 func SetItemEnvelope(path string) {
@@ -99,17 +84,8 @@ func setReadOnlyPrefixesLocked(prefixes []string) {
 }
 
 func setEnvelopeLocked(path, ok string) {
-	path = strings.TrimSpace(path)
-	ok = strings.TrimSpace(ok)
-	if path == "" {
-		path = DefaultEnvelopePath
-	}
-	if ok == "" {
-		ok = DefaultEnvelopeOK
-	}
-	active.path = path
-	active.ok = ok
-	active.field = path
+	path, ok = cmp.Or(strings.TrimSpace(path), DefaultEnvelopePath), cmp.Or(strings.TrimSpace(ok), DefaultEnvelopeOK)
+	active.path, active.ok, active.field = path, ok, path
 	if i := strings.Index(path, "."); i > 0 {
 		active.field = path[:i]
 	}
