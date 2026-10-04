@@ -455,14 +455,7 @@ func (r *Report) reorderedGroups() []reorderGroup {
 }
 
 func (g reorderGroup) String() string {
-	return stepsText(g.steps, 3) + " " + g.path
-}
-
-func stepsText(steps []string, max int) string {
-	if len(steps) <= max {
-		return strings.Join(steps, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(steps[:max], ", "), len(steps)-max)
+	return chain.ListSome(g.steps, 3) + " " + g.path
 }
 
 func (r *Report) ReorderedLists() []string {
@@ -493,7 +486,7 @@ func (r *Report) reorderedText() string {
 		}
 		b.WriteString("  " + g.String() + ": same items in another order than the safe spot")
 		if len(failed) > 0 {
-			b.WriteString("; the expectation(s) reading it by position, which passed there, failed: " + stepsText(failed, 3))
+			b.WriteString("; the expectation(s) reading it by position, which passed there, failed: " + chain.ListSome(failed, 3))
 		} else {
 			b.WriteString(". Only if the order also varies between runs of one release, declare `unordered: [" + g.path + "]` on " + on +
 				" (or at chain level) to compare it as a multiset")

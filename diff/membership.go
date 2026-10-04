@@ -320,16 +320,13 @@ func (r *Report) membership(rec *runner.Record, step, list string, repeats bool)
 
 func namedItems(ids []string, made map[string]string) string {
 	shown := []string{}
-	for _, id := range ids[:min(len(ids), 5)] {
+	for _, id := range ids {
 		if by := made[id]; by != "" {
 			id += " (" + by + ")"
 		}
 		shown = append(shown, id)
 	}
-	if len(ids) > 5 {
-		return fmt.Sprintf("%s and %d more", strings.Join(shown, ", "), len(ids)-5)
-	}
-	return strings.Join(shown, ", ")
+	return chain.ListSome(shown, 5)
 }
 
 func producedIDs(rec *runner.Record, before string) map[string]string {

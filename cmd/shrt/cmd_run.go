@@ -782,12 +782,7 @@ func shownWarnings(sr *runner.StepRecord) []string {
 	return out
 }
 
-func capList(items []string, max int) string {
-	if len(items) <= max {
-		return strings.Join(items, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(items[:max], ", "), len(items)-max)
-}
+func capList(items []string, max int) string { return chain.ListSome(items, max) }
 
 func exportJSON(v any) string {
 	var buf bytes.Buffer
