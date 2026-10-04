@@ -87,10 +87,10 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only` | 1 a lint error |
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command; under `-rpc`, the state and item count each write step acts on | 1 nothing matched |
-| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step; `-verify` proves it against the latest run or `-run <id>` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
+| `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records | 1 hollow reads, or `-gate` off baseline; 2 no run records |
-| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned | 1 failed, or refused before sending; 3 |
+| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, 0 when every run failed the same way (`reproduced n/n`) | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot: a short summary to show the user, the full report in `.shrt/safespots/pending/`; `-all` proposes every chain whose latest run passed and whose safe spot is missing or differs | 1 refused |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes (`-all` for each pending one); `-reject`, `-pending`; `<new> -rename-from <old>` carries one across a pure rename | 1 refused |
 | `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
@@ -117,15 +117,17 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `SKIPPED` | `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
-write, the field it changed), or `same fault as <chain>` when an earlier line named it and every other suspect of
-this chain; a slice failing at its parent's first change has no line of its own, the parent's says `(+N slice(s) fail
-the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way it does (by suspect
-rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one line per suspect rpc
-(or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read shows it. `-v` adds,
-under each failing chain, the suspect's request and every change with its want and got as `verify` prints it (`run`'s
-failed expectations for a chain with no safe spot; a change repeated at more steps or list items once, `(and N more at
-...)`), and the knock-on counts: no separate `verify` is needed to see the values. How a suspect is chosen:
-`PLAYBOOK.md` §8.
+write, the field it changed; `at transport code <code>` when it was refused before a body existed), or
+`same fault as <chain>` when that chain's line names it and every other suspect of this chain (the first chain with a
+safe spot that fails so, which may be below; else the first above); a suspect that line leaves out keeps this line's
+own suspect and `also` for it; a slice failing at its parent's first change has no line of its own, the parent's says
+`(+N slice(s) fail the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way
+it does (by suspect rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
+line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
+shows it, its example from a chain with a safe spot when one fails so. `-v` adds, under each failing chain, the
+suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
+chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
+counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
 `-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts

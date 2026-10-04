@@ -797,12 +797,31 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 			Kind:     KindUnreachable,
 			Message: fmt.Sprintf(
 				"expect on %q reads a path that is not a field of %s, so it can never be present — "+
-					"the assertion cannot pass on a well-formed response, and -dry-run would not say so. "+
+					"the assertion cannot pass on a well-formed response, so shrt run refuses the chain before sending. "+
 					"Fix the path; if the field is new, rebuild the descriptor with 'shrt catalog build'%s%s",
 				e.Path, m.Output().FullName(), renamedFieldHint(e.Path, schema.Fields), transportHint(e.Path)),
 		})
 	}
 	return issues
+}
+
+func UnreachableExpectations(c *Chain, cat *catalog.Catalog) []Issue {
+	out := []Issue{}
+	for _, s := range c.Steps {
+		if s == nil {
+			continue
+		}
+		m, err := cat.Lookup(s.Call)
+		if err != nil {
+			continue
+		}
+		for _, i := range lintExpectPaths(s, m) {
+			if i.IsError() && i.Kind == KindUnreachable {
+				out = append(out, i)
+			}
+		}
+	}
+	return out
 }
 
 func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, bool) {
@@ -1219,6 +1238,32 @@ const (
 	KindAuthEnvUnset         = "auth-env-unset"
 )
 
+func FoldEnvelopeOnly(issues []Issue) []Issue {
+	folded := func(i Issue) bool { return i.Kind == KindEnvelopeOnly && i.Severity == SeverityWarn && i.Step != "" }
+	steps := []string{}
+	for _, i := range issues {
+		if folded(i) {
+			steps = append(steps, i.Step)
+		}
+	}
+	if len(steps) < 2 {
+		return issues
+	}
+	out := make([]Issue, 0, len(issues)-len(steps)+1)
+	for _, i := range issues {
+		if !folded(i) {
+			out = append(out, i)
+			continue
+		}
+		if len(steps) > 0 {
+			i.Step, i.Message = strings.Join(steps, ", "), fmt.Sprintf("%d steps assert only the verdict, though the "+
+				"contracts for their rpcs declare what each response carries ('chain lint -v' names the fields per step)", len(steps))
+			out, steps = append(out, i), nil
+		}
+	}
+	return out
+}
+
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
 	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,
@@ -1342,6 +1387,9 @@ func renamedFieldHint(path string, fields []*catalog.Field) string {
 	if len(parent) > 0 {
 		f, ok := catalog.FieldAt(fields, parent)
 		if !ok || len(f.Fields) == 0 {
+			if found := fieldPathsNamed(fields, leaf, ""); len(found) > 0 {
+				return fmt.Sprintf("; did you mean %s? The response declares %s there", strings.Join(found, " or "), leaf)
+			}
 			return ""
 		}
 		siblings, where = f.Fields, strings.Join(parent, ".")
@@ -1357,6 +1405,19 @@ func renamedFieldHint(path string, fields []*catalog.Field) string {
 		return ""
 	}
 	return fmt.Sprintf("; if it was renamed in the proto, assert the new name: %s declares %s", where, strings.Join(names, ", "))
+}
+
+func fieldPathsNamed(fields []*catalog.Field, leaf, prefix string) []string {
+	out := []string{}
+	for _, f := range fields {
+		if namecase.Equal(f.Name, leaf) {
+			out = append(out, prefix+f.Name)
+		}
+		if !f.Repeated && f.MapKey == "" {
+			out = append(out, fieldPathsNamed(f.Fields, leaf, prefix+f.Name+".")...)
+		}
+	}
+	return out
 }
 
 func sortedKeys[V any](m map[string]V) []string {

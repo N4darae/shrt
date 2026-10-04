@@ -157,10 +157,13 @@ func (r reason) detail() string {
 		reasonProfile: "answers " + shown + " unlike as " + r.Other,
 		reasonSet:     "answers another set of " + shown,
 		reasonOrder:   "answers the same items in another order",
-		reasonCode:    "answers " + r.Got + " where it answered " + r.Want,
+		reasonCode:    "answers " + r.Got + " where " + cmp.Or(r.Other, "it answered") + " " + r.Want,
 		reasonDiffers: "answers " + shown + " unlike what " + r.Other + " returned",
 		reasonSlow:    "slower than in the safe spot's run",
 	}[r.Kind]
+	if r.Kind == reasonSet && r.Want != r.Got {
+		detail = "answers " + r.Got + " " + shown + " where it answered " + r.Want
+	}
 	if r.Kind == reasonOrder && r.Other != "" {
 		detail += " (" + r.Other + ")"
 	}

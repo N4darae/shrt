@@ -343,14 +343,15 @@ a reader of your backend's error constructor, so it is a script you write (PITFA
 ```bash
 shrt chain lint <name>          # fix every error before sending traffic
 shrt chain lint -strict <name>  # and every assertion-quality warning, before it is a gate
-shrt run <name> -dry-run        # resolve and validate, send nothing; does not lint
+shrt run <name> -dry-run        # resolve and validate, send nothing; lints only expect paths
 shrt run <name>
 ```
 
 Step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the request), `ERROR`
 (never completed), `SKIP` (held back under `-keep-going`), `--` (dry run). `shrt run` refuses a
 chain before sending anything on a missing var, an unset env var, a reference to an undeclared
-field, or a body the proto rejects (`run -h` lists them). A step refused in-band fails unless an
+field, a body the proto rejects, or an expect path the response message has no field for (`chain
+error ..., not a backend fault`, the `unreachable-path` lint error, so no suspect is named). A step refused in-band fails unless an
 expectation pins the verdict (PITFALLS §17). Read `error` as a fixture problem first (PITFALLS §4).
 
 **Run the chain twice, then propose:**
@@ -404,11 +405,11 @@ from the rpc's other faults.
 | verdict word | what it means | what to do |
 |---|---|---|
 | `suspect write <step> (<rpc>)` | its answer changed, or a read of the record observes it; `...: answered <path>=<x>, but <rpc> read <y>` (or `in another order than`): it stores other than it answers | fix the write |
-| `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items, a code it did not answer before, `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
+| `suspect read <step> (<rpc>): <what>` | a server error, a failed auth probe, refused (`passes as <p>` when another profile passes), another set or order of items (`answers <n> <list> where it answered <m>` when the count changed), a code it did not answer before (`answers <code> where it answered <code>`; with no earlier answer, `where the chain expects <code>` or `anything but <code>`), `answers <path> unlike as <p>` (a role-scoped view leaks or hides the field), or `unlike what <write> returned` | fix the read |
 | `unclear: write <a> (<rpc>) or <b> (<rpc>)` (`+N more`) | several writes on the record move the field (by `effects:`, a `restore:` only from a state seen; against a reference, any acting on it, but not a changed write whose `effects:` says `none` for the field) since the last read of it that still matched, and none answered differently. A write answering the field as before in a message of its own (a per-line result, a stock level) is one of them, since it may store other than it answered, and the writes before it are not; one answering the record's own message as before counts as a read. A candidate whose own `increase:`/`decrease:` quantity on the record is known and is not the change drops out when another's is | read the record between them |
 | `unclear: write ... or the read: answered ...` | the write answered as before and only the read moved | read the field through the rpc `tell them apart:` names (`run`, `verify`, `gate -v`); with no such rpc, `<write> answered <field> as sent; only <Rpc> differs` leans to the read; or check what the write persisted |
 | `knock-on of <step> (<rpc>)` | the step failed behind that one's failure; a held-back step answering otherwise than the step it copies is judged on its own | fix that one first |
-| `same fault as <chain> (<rpc>)` | the suspect and field an earlier gate line named (or one of this line's `unclear` writes), and no suspect that chain lacks; otherwise the line names its own suspect and `also` the first other one, if any | fix it once, under the earlier line |
+| `same fault as <chain> (<rpc>)` | the suspect and field that chain's gate line names (or one of this line's `unclear` writes), and that line names every other suspect of this chain too; the chain is the first with a safe spot whose line leads with that fault, even one below, else the first above. Otherwise the line names its own suspect and `also` the first other one that chain's line leaves out, if any | fix it once, under that line |
 | `not as pinned` / `pins held, new change` | a kept-red chain's pin moved, or a new defect beside the pinned ones | do not re-pin; run its `shrt diff` |
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
@@ -519,10 +520,13 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
    can be state the target needed, and the slice can go green without it. A contract prerequisite
    no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.
+   Put steps back with `-keep id[,id]`; the word `writes` keeps every earlier write and combines
+   with ids: `-keep writes,check_stock`.
 3. **`-write [name]`, then `chain lint` it by path.** Without a path it lands in `.shrt/scratch/`
    (`<chain>-slice-<step>.yaml` by default), which no gate, lint or hollow sweep reads: run it by
-   path. A value with a slash is a path; the source chain's own file name replaces the source. A
-   slice of the same chain and step is replaced in place; any other file is refused.
+   path. A value with a slash is a path. A slice of the same chain and step is replaced in place;
+   any other file is refused, the source chain's own file too when the slice drops a step or an
+   expectation of it (a slice keeping every step as written only records its verdict there).
 4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
    compares the target step's verdict with the source run's: envelope code, reason and app code,
    transport refusal, and each expectation's pass, want and got; when those match and the target
@@ -545,6 +549,18 @@ newest record, but a `shrt run` over a verify replay recorded right after it, un
 replay failed or drifted the step (for `-without`: unless their failed steps differ); it refuses
 (3) if that run left the target unevaluated.
 
-For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run
-latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
-`-keep <ids of the minimal chain>` instead.
+**A chain written by hand is proven by running it, not by slicing it:**
+
+```bash
+shrt run .shrt/scratch/repro.yaml -repeat 3
+```
+
+It runs the chain 3 times exactly as written, changes nothing in it, and compares each run with the
+first as `-verify` compares a slice: the same steps fail, with the same envelope code, refusal,
+failed expectations and got values, ids, fixture values and clock offsets masked. `reproduced 3/3:
+<step> ...` (exit 0) is the receipt, with each failed expectation and the suspect; `NOT
+REPRODUCED` (1) lists what differed from run 1, `passed 3/3` (1) means nothing failed, `DID NOT
+RUN` (3) a run got no answer. Every run gets a fresh `tag` unless you pass `-var tag=`, and then
+each later run gets your value plus a fresh suffix; `-keep-going` compares every failing step, not
+only the first. To keep a receipt against a source chain's run instead, slice the source with
+`-keep <ids of the minimal chain> -verify`.

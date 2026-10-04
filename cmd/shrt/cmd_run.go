@@ -68,6 +68,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 	build := fs.String("build", "", buildFlagUsage)
 	keepGoing := fs.Bool("keep-going", false, "run past a failed step; a step reading a failed step is recorded skipped")
 	verbose := fs.Bool("v", false, "with -keep-going, print every step, not only the ones that did not pass")
+	repeat := fs.Int("repeat", 0, "run the chain `n` times as written, changing nothing in it, and say whether every run failed the same way "+
+		"(steps, code, failed expectations and got): 0 reproduced n/n; 1 the runs differ, or none failed; 3 a run got no answer")
 	setUsage(fs, "usage: shrt run <chain> [flags]", runExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -87,10 +89,21 @@ func runRun(ctx context.Context, args []string) (err error) {
 	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
+	if err := refuseUnreachableExpects(e, c, rest[0]); err != nil {
+		return err
+	}
 
 	supplied := c.CoerceVars(vars)
 	if err := checkUnusedVars(c, vars, supplied); err != nil {
 		return err
+	}
+	if *repeat != 0 {
+		if *repeat < 2 || *dry {
+			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
+		}
+		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing, Build: *build,
+		}, *save, *quiet, *asJSON)
 	}
 
 	var spot *store.SafeSpot
@@ -255,9 +268,22 @@ func runRun(ctx context.Context, args []string) (err error) {
 }
 
 const runExitCodes = "\nexit codes:\n" +
-	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request\n" +
+	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request; -repeat: reproduced\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
 	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
+
+func refuseUnreachableExpects(e *env, c *chain.Chain, ref string) error {
+	issues := chain.UnreachableExpectations(c, e.cat)
+	if len(issues) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(issues))
+	for _, i := range issues {
+		lines = append(lines, "step "+i.Step+": "+i.Message)
+	}
+	return fmt.Errorf("chain error in %s, not a backend fault, so nothing was sent: %s\nshrt chain lint %s lists every lint error",
+		c.Name, strings.Join(lines, "\n"), ref)
+}
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

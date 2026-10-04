@@ -52,7 +52,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 	without := &stepList{}
 	fs.Var(without, "without", "leave out these steps and those reading them: `id[,id]|failed`")
 	keep := &stepList{}
-	fs.Var(keep, "keep", "also keep these earlier `id[,id]` steps; writes keeps every earlier write")
+	fs.Var(keep, "keep", "also keep these earlier `id[,id]` steps; the word writes keeps every earlier write and combines with ids: -keep writes,<id>")
 	setUsage(fs, sliceUsage, sliceExitCodes)
 	rest, err := parseArgs(fs, args)
 	if err != nil {
@@ -184,7 +184,18 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		}
 	}
 
-	whole := write.set && name == "" && len(res.Kept) == res.Total && c.SourcePath != "" && !keptRed.on
+	path := ""
+	if write.set {
+		path = slicePath(e, c, res.Chain.Name+".yaml", keptRed.on)
+		if writePath != "" {
+			path = writePath
+		}
+	}
+	source := path != "" && sameFile(path, c.SourcePath)
+	whole := write.set && (name == "" || source) && len(res.Kept) == res.Total && c.SourcePath != "" && !keptRed.on
+	if source && !keptRed.on && (!whole || len(res.Relaxed) > 0) {
+		return sourceRewriteRefusal(c, res, path, slicePath(e, c, chain.DefaultSliceName(c.Name, *step)+".yaml", false), ref)
+	}
 	if whole {
 		res.Chain.Name = c.Name
 	}
@@ -194,11 +205,6 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 			fmt.Printf("the slice keeps all %d steps of %s, so it is %s itself: nothing written\n", res.Total, c.Name, c.Name)
 		}
 	} else if write.set {
-		path := slicePath(e, c, res.Chain.Name+".yaml", keptRed.on)
-		if writePath != "" {
-			path = writePath
-		}
-		source := writePath != "" && sameFile(path, c.SourcePath)
 		if source {
 			res.Chain.Name = c.Name
 		}
@@ -289,6 +295,30 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 		fmt.Printf("\n%s\n", string(raw))
 	}
 	return verifyErr
+}
+
+func sourceRewriteRefusal(c *chain.Chain, res *chain.SliceResult, path, beside, ref string) error {
+	kept := map[string]bool{}
+	for _, k := range res.Kept {
+		kept[k.ID] = true
+	}
+	dropped := []string{}
+	for _, s := range c.Steps {
+		if s != nil && !kept[s.ID] {
+			dropped = append(dropped, s.ID)
+		}
+	}
+	changes := []string{}
+	if len(dropped) > 0 {
+		changes = append(changes, fmt.Sprintf("drop %d of its %d steps (%s)", len(dropped), res.Total, capList(dropped, 4)))
+	}
+	if len(res.Relaxed) > 0 {
+		changes = append(changes, "drop the expectations a kept step failed: "+chain.RelaxedList(res.Relaxed))
+	}
+	return fmt.Errorf("-write %s is %s itself, and writing the slice there would %s: the chain as you wrote it would be lost. "+
+		"Nothing was sent or written.\nTo prove the chain reproduces as written, run it unchanged: shrt run %s -repeat 3\n"+
+		"To keep the slice beside it, -write another name, or -write alone for %s",
+		shownPath(path), c.Name, strings.Join(changes, " and "), ref, shownPath(beside))
 }
 
 func recordSliceVerdict(res *chain.SliceResult, c *chain.Chain, verdict *sliceVerdict, whole bool) error {

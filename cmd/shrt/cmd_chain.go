@@ -251,7 +251,8 @@ type lintReport struct {
 func chainLint(args []string) error {
 	fs := flag.NewFlagSet("chain lint", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	verbose := fs.Bool("v", false, "also print each clean chain, and each chain's unasserted-timestamp warning under it, not one line for the whole lint")
+	verbose := fs.Bool("v", false, "also print each clean chain, each chain's unasserted-timestamp warning under it, not one line for the whole lint, "+
+		"and each step's envelope-only warning, not one line per chain")
 	strict := fs.Bool("strict", false, "treat the assertion-quality warnings as errors: an assertion that cannot fail (unfailable-assertion), "+
 		"a step asserting nothing (asserts-nothing), an allow_fail that does nothing (inert-allow-fail), an export a later step "+
 		"silently overwrites (export-overwritten), arithmetic such as ${a.qty}+${b.qty} in an equals on a numeric field, compared "+
@@ -356,8 +357,11 @@ func chainLint(args []string) error {
 					status = "FAIL"
 				}
 			}
-			shown := []chain.Issue{}
-			for _, i := range r.Issues {
+			shown, issues := []chain.Issue{}, r.Issues
+			if !*verbose {
+				issues = chain.FoldEnvelopeOnly(issues)
+			}
+			for _, i := range issues {
 				if *verbose || i.Kind != chain.KindUnassertedTimestamp || !stamps.add(r.Chain, i) {
 					shown = append(shown, i)
 				}

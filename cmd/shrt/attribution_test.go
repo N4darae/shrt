@@ -640,6 +640,16 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 					shopStep("replay", shopOrder, `{"order":{"id_order":"o2"},`+shopOK+`}`),
 					shopStep("list_orders", "shop.orders.v1.OrderService/ListOrders", `{"orders":[{"id_order":"o1"},{"id_order":"o2"}],`+shopOK+`}`))
 			}, step: "list_orders", path: "orders", kind: reasonWrite, blamed: "replay"},
+		{name: "against a reference a list of another size names both counts", env: "shop", moved: []diff.Change{{Step: "list", Path: "products", Kind: diff.KindLength, Want: 316, Got: 0}},
+			rec: func() *runner.Record { return shopRecord(shopStep("list", shopList, `{"products":[]}`)) }, step: "list", path: "products", kind: reasonSet, blamed: "",
+			check: func(r reason) bool {
+				return strings.HasSuffix(r.String(), ": answers 0 products where it answered 316")
+			}},
+		{name: "against a reference a list of as many other items is another set", env: "shop", moved: []diff.Change{{Step: "list", Path: "products", Kind: diff.KindMembership, Want: 1, Got: 1}},
+			rec: func() *runner.Record {
+				return shopRecord(shopStep("list", shopList, `{"products":[{"id_product":"p2"}]}`))
+			}, step: "list", path: "products", kind: reasonSet, blamed: "",
+			check: func(r reason) bool { return strings.HasSuffix(r.String(), ": answers another set of products") }},
 		{name: "a record emptied under another profile is filed under the read as that profile", envelope: true, env: "effects", moved: changed("clerk_get", "product.sku", "s1", ""),
 			rec: emptied, step: "clerk_get", path: "product.sku", kind: reasonProfile, blamed: "", check: func(r reason) bool { return r.Profile == "clerk" && r.blamed("clerk_get") == "" }},
 		{name: "a cancel of an order never seen in the state it restores from moves nothing", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "7"),
@@ -652,7 +662,22 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 			rec: asBefore(false, asBeforeList), step: "list", path: "products.1.qty_on_hand", kind: reasonUnclear, blamed: "add_stock", check: orSteps("add_stock", "confirm_order")},
 		{name: "a read no longer refused is its own suspect", envelope: true, rec: func() *runner.Record {
 			return shopRecord(shopStep("get_unknown", "shop.customers.v1.CustomerService/GetCustomer", `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
-		}, step: "get_unknown", path: "customer", kind: reasonCode, blamed: "", check: func(r reason) bool { return r.Want == "REJECTED" && r.Got == "SUCCESS" }},
+		}, step: "get_unknown", path: "customer", kind: reasonCode, blamed: "", check: func(r reason) bool {
+			return r.Want == "REJECTED" && r.Got == "SUCCESS" && strings.HasSuffix(r.String(), ": answers SUCCESS where the chain expects REJECTED")
+		}},
+		{name: "a read answering the code its chain says it must not is its own suspect", envelope: true, rec: func() *runner.Record {
+			return shopRecord(shopStep("get_unknown", "shop.customers.v1.CustomerService/GetCustomer", `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).with(func(st *runner.StepRecord) {
+				st.Status = runner.StatusFailed
+				st.Expect = append(st.Expect, chain.ExpectResult{Path: "status.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS"})
+			}))
+		}, step: "get_unknown", path: "status.code", kind: reasonCode, blamed: "", check: func(r reason) bool {
+			return strings.HasSuffix(r.String(), ": answers SUCCESS where the chain expects anything but SUCCESS")
+		}},
+		{name: "against a reference a read no longer refused names the code it answered", envelope: true, moved: changed("get_unknown", "status.code", "REJECTED", "SUCCESS"), rec: func() *runner.Record {
+			return shopRecord(shopStep("get_unknown", "shop.customers.v1.CustomerService/GetCustomer", `{"customer":{"name":""},"status":{"code":"SUCCESS"}}`).failing("status.code", "REJECTED", "SUCCESS"))
+		}, step: "get_unknown", path: "status.code", kind: reasonCode, blamed: "", check: func(r reason) bool {
+			return strings.HasSuffix(r.String(), ": answers SUCCESS where it answered REJECTED")
+		}},
 		{name: "a hedged read is filed under the write that heads the hedge", env: "effects", moved: changed("get", "product.qty_on_hand", "8", "9"), rec: func() *runner.Record {
 			order := `{"order":{"id_order":"o1","status":"CONFIRMED","lines":[{"id_product":"p1","qty":"2"}]}}`
 			return shopRecord(shopStep("create_product", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`),

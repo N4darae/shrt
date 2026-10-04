@@ -59,8 +59,8 @@ func (gr *gateGroup) reproAt(spot map[string]bool) gateRef {
 		return at
 	}
 	for _, r := range gr.refs {
-		if spot[r.chain] && r.it.groupRank() > rank {
-			at, rank = r, r.it.groupRank()
+		if spot[r.chain] && r.it.groupRank(true) > rank {
+			at, rank = r, r.it.groupRank(true)
 		}
 	}
 	return at

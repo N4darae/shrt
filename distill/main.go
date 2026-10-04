@@ -54,7 +54,7 @@ var notes = map[string]string{
 	"Step.unordered":   "Unordered lists for this step only, added to the chain's. Each must name a repeated field of this step's response.",
 	"Step.wait":        "A Go duration (`25s`, at most `10m`) waited before the step is sent, outside its latency. For behaviour that needs time to pass, such as a session that must outlive an age.",
 
-	"Expectation.path":      "JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error. Field names match case- and separator-insensitively.",
+	"Expectation.path":      "JSON path into this step's response (`invoice.lines.0.amount_minor`), or a reserved `transport.*` path. No `${...}`; a path the response message has no field for is a lint error, and `run` refuses the chain before sending. Field names match case- and separator-insensitively.",
 	"Expectation.equals":    "Compared as text, so `1` matches `\"1\"`. May carry `${...}` (an earlier step, or this step's own request). No arithmetic is done.",
 	"Expectation.not_equal": "Present AND different; an absent path fails it. May carry `${...}`.",
 	"Expectation.contains":  "Substring of the value's text. May carry `${...}`.",
