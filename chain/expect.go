@@ -225,9 +225,16 @@ func (r ExpectResult) String() string {
 	}
 	out := fmt.Sprintf("%s %s %s", status, r.Path, WantGot(r.Rule, fmt.Sprint(r.Want), fmt.Sprint(r.Got)))
 	if !ruleShown(r.Rule) {
-		out = fmt.Sprintf("%s %s %s want=%v got=%v", status, r.Path, r.Rule, r.Want, r.Got)
+		out = fmt.Sprintf("%s %s %s want=%v", status, r.Path, r.Rule, r.Want)
+		if !unchecked(r) {
+			out += fmt.Sprintf(" got=%v", r.Got)
+		}
 	}
 	return withNote(out, r.Detail)
+}
+
+func unchecked(r ExpectResult) bool {
+	return r.Rule == "unevaluated" && (r.Got == nil || scalarText(r.Got) == scalarText(r.Want))
 }
 
 func ruleShown(rule string) bool {

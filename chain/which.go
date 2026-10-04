@@ -434,7 +434,7 @@ func DescribeFailure(r ExpectResult) string {
 	} else if r.Want != nil || r.Rule == "not_empty" || r.Rule == "exists" {
 		out += " " + WantText(r.Rule, scalarText(r.Want))
 	}
-	if r.Got != nil {
+	if !unchecked(r) && r.Got != nil {
 		out += " " + GotText(r.Rule, scalarText(r.Got))
 	}
 	return withNote(out, r.Detail)

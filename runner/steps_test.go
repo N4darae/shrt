@@ -291,7 +291,7 @@ func TestEachStepIsRecordedAndJudged(t *testing.T) {
 		}},
 		{name: "allow_fail does not swallow assertions that never ran", chain: partnerRefused(chain.Expectation{Path: "error.code", Equals: "OK"}, chain.Expectation{Path: "name", NotEmpty: true}),
 			check: func(t *testing.T, rec *runner.Record, f *fakeServer) {
-				if sr := rec.Steps[0]; len(sr.Expect) != 2 || sr.Expect[0].Passed || !strings.Contains(sr.Expect[0].Detail, "never ran") || !strings.Contains(sr.Expect[1].Detail, "never ran") {
+				if sr := rec.Steps[0]; len(sr.Expect) != 2 || sr.Expect[0].Passed || !strings.HasPrefix(sr.Expect[0].Detail, "never ran: the call was refused with transport ") || !strings.Contains(sr.Expect[1].Detail, "never ran") {
 					t.Fatalf("both assertions are recorded unevaluated with why: %+v", sr.Expect)
 				}
 			}},

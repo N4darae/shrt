@@ -1951,7 +1951,8 @@ func transportOutcome(res *transport.Result) map[string]any {
 }
 
 func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map[string]any, redactor *pathmask.Masker) []chain.ExpectResult {
-	out := unevaluated(expect, redactor)
+	code, _ := chain.Get(outcome, chain.TransportPrefix+".code")
+	out := unevaluatedBecause(expect, redactor, fmt.Sprintf("never ran: the call was refused with transport %v", code))
 	for i, e := range expect {
 		if chain.IsTransportPath(e.Path) {
 			out[i] = evaluateTyped(scope, e, outcome, outcome, "", redactor)
@@ -2333,12 +2334,6 @@ func unknownHoldsAVerdict(unknown []string) bool {
 		}
 	}
 	return false
-}
-
-func unevaluated(expect []chain.Expectation, redactor *pathmask.Masker) []chain.ExpectResult {
-	return unevaluatedBecause(expect, redactor, "the call was refused before a response body existed, so this assertion never ran. "+
-		"allow_fail tolerates a refusal, not an assertion going unchecked. A refusal is asserted "+
-		"with transport.code or transport.http_status")
 }
 
 func unevaluatedBecause(expect []chain.Expectation, redactor *pathmask.Masker, why string) []chain.ExpectResult {
