@@ -1230,9 +1230,8 @@ func isListingCall(call string) bool {
 	return false
 }
 
-func filterVars(v any, path string, out map[string]string) {
-	switch t := v.(type) {
-	case string:
+func filterVars(v any, out map[string]string) {
+	walkLeaves(v, "", "", func(path, _, t string) {
 		refs := []string{}
 		for _, m := range refPattern.FindAllStringSubmatch(t, -1) {
 			refs = append(refs, strings.TrimSpace(m[1]))
@@ -1248,15 +1247,7 @@ func filterVars(v any, path string, out map[string]string) {
 				out[name] = path
 			}
 		}
-	case map[string]any:
-		for _, k := range sortedKeys(t) {
-			filterVars(t[k], joinPath(path, k), out)
-		}
-	case []any:
-		for i, item := range t {
-			filterVars(item, fmt.Sprintf("%s.%d", path, i), out)
-		}
-	}
+	})
 }
 
 func listFilterShared(writer, reader *Step) (string, string) {
@@ -1264,12 +1255,12 @@ func listFilterShared(writer, reader *Step) (string, string) {
 		return "", ""
 	}
 	filters := map[string]string{}
-	filterVars(reader.Body, "", filters)
+	filterVars(reader.Body, filters)
 	if len(filters) == 0 {
 		return "", ""
 	}
 	sent := map[string]string{}
-	filterVars(writer.Body, "", sent)
+	filterVars(writer.Body, sent)
 	for _, name := range sortedKeys(sent) {
 		if field, ok := filters[name]; ok {
 			return field, name

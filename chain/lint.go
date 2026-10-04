@@ -1317,24 +1317,11 @@ func lintLiteralIdempotency(s *Step) []Issue {
 			Why: "Every run after the first sends the same idempotency key, so the backend answers it with the first run's " +
 				"result (the same record, the same id) instead of performing the call, and verify compares that replay, not the call"})
 	}
-	var visit func(v any, path, key string)
-	visit = func(v any, path, key string) {
-		switch t := v.(type) {
-		case map[string]any:
-			for _, k := range sortedKeys(t) {
-				visit(t[k], joinPath(path, k), k)
-			}
-		case []any:
-			for i, x := range t {
-				visit(x, fmt.Sprintf("%s.%d", path, i), key)
-			}
-		case string:
-			if IdempotencyKeyName(key) && t != "" && !hasRef(t) {
-				warn(path, t)
-			}
+	walkLeaves(s.Body, "", "", func(path, key, t string) {
+		if IdempotencyKeyName(key) && t != "" && !hasRef(t) {
+			warn(path, t)
 		}
-	}
-	visit(s.Body, "", "")
+	})
 	for _, k := range sortedKeys(s.Headers) {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)

@@ -290,6 +290,21 @@ func (c *Chain) Wires() []Wire {
 	return out
 }
 
+func walkLeaves(v any, path, key string, fn func(path, key, s string)) {
+	switch t := v.(type) {
+	case map[string]any:
+		for _, k := range sortedKeys(t) {
+			walkLeaves(t[k], joinPath(path, k), k, fn)
+		}
+	case []any:
+		for i, x := range t {
+			walkLeaves(x, fmt.Sprintf("%s.%d", path, i), key, fn)
+		}
+	case string:
+		fn(path, key, t)
+	}
+}
+
 func walkText(v any, path string, fn func(string, string)) {
 	switch t := v.(type) {
 	case string:

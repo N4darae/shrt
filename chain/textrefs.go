@@ -71,22 +71,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 				"before sending anything. Interpolate one scalar field of it instead (${vars.%s.<field>})", ref, how, text, kind, kind, r.Rest))
 		}
 	}
-	var walk func(v any, path string)
-	walk = func(v any, path string) {
-		switch t := v.(type) {
-		case map[string]any:
-			for _, k := range sortedKeys(t) {
-				walk(t[k], joinPath(path, k))
-			}
-		case []any:
-			for i, x := range t {
-				walk(x, fmt.Sprintf("%s.%d", path, i))
-			}
-		case string:
-			check(path, t, false)
-		}
-	}
-	walk(s.Body, "")
+	walkLeaves(s.Body, "", "", func(path, _, t string) { check(path, t, false) })
 	for _, name := range sortedKeys(s.Headers) {
 		check("header "+name, s.Headers[name], true)
 	}
