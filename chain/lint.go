@@ -251,15 +251,12 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 			if len(near) == 0 {
 				near = namesWithWord(seg, names, 3)
 			}
-			quoted := make([]string, 0, len(near))
+			paths := make([]string, 0, len(near))
 			for _, n := range near {
 				path := append(append(append([]string{}, segs[:i]...), strings.Split(n, ".")...), segs[i+1:]...)
-				quoted = append(quoted, strconv.Quote(strings.Join(fitIndexes(top, path), ".")))
+				paths = append(paths, strings.Join(fitIndexes(top, path), "."))
 			}
-			if len(quoted) == 0 {
-				return ""
-			}
-			return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+			return namecase.Suggest(paths)
 		}
 		if next.Truncated || next.MapKey != "" {
 			return ""
@@ -305,14 +302,7 @@ func didYouMean(name string, candidates []string) string {
 	if len(near) == 0 {
 		near = namesSharingWords(name, candidates, 3)
 	}
-	if len(near) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(near))
-	for _, n := range near {
-		quoted = append(quoted, strconv.Quote(n))
-	}
-	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+	return namecase.Suggest(near)
 }
 
 func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex) string {

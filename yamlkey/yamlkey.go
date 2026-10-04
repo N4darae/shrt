@@ -47,11 +47,7 @@ func Explain(err error, into any, raw []byte) error {
 			said = append(said, e)
 			continue
 		}
-		line := fmt.Sprintf("unknown key %q at line %s", m[2], m[1])
-		if near := namecase.Closest(m[2], keys[m[3]], 1); len(near) > 0 {
-			line += fmt.Sprintf(" (did you mean %q?)", near[0])
-		}
-		said = append(said, line)
+		said = append(said, fmt.Sprintf("unknown key %q at line %s", m[2], m[1])+namecase.Suggest(namecase.Closest(m[2], keys[m[3]], 1)))
 	}
 	return errors.New(strings.Join(said, "; "))
 }

@@ -151,11 +151,7 @@ func Names(dir string) []string {
 }
 
 func DidYouMean(ref string, names []string) string {
-	near := namecase.Closest(ref, names, 1)
-	if len(near) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (did you mean %q?)", near[0])
+	return namecase.Suggest(namecase.Closest(ref, names, 1))
 }
 
 func (c *Chain) Marshal() ([]byte, error) {

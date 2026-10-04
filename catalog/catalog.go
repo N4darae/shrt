@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -149,19 +148,10 @@ func (c *Catalog) closestRPC(ref string) string {
 	near := []string{}
 	for _, form := range namecase.Closest(ref, forms, 3) {
 		if len(namecase.Closest(rpcName(ref), []string{rpcName(form)}, 1)) > 0 {
-			near = append(near, form)
+			near = append(near, byForm[form]...)
 		}
 	}
-	if len(near) == 0 {
-		return ""
-	}
-	quoted := []string{}
-	for _, form := range near {
-		for _, full := range byForm[form] {
-			quoted = append(quoted, strconv.Quote(full))
-		}
-	}
-	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+	return namecase.Suggest(near)
 }
 
 func rpcName(ref string) string {
