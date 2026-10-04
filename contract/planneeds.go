@@ -103,10 +103,8 @@ func (p *Plan) needMetBefore(upto int, rpc, producer string) bool {
 		if canonicalCall(p.cat, s.Call) != rpc || isRefusalStep(s) || s.SkipAuth {
 			continue
 		}
-		for _, id := range referencedSteps(s.Body) {
-			if id == producer {
-				return true
-			}
+		if readsValue(s.Body, producer) {
+			return true
 		}
 	}
 	return false
