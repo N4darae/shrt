@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1049,7 +1050,6 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			failures = append(failures, failure)
 		}
 	}
-	failedCount := len(failed)
 	for i, sr := range rec.Steps {
 		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
 			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
@@ -1059,14 +1059,14 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(ids, 10))
 	}
 	switch {
-	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && failedCount == 1 && unreached == 0:
+	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && len(failed) == 1 && unreached == 0:
 		rec.Failure = failures[0]
-	case pastPins && len(failures) > 0:
-		rec.Failure = fmt.Sprintf("kept_red: ran every step, as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
-			strings.Join(failures, "\n")
 	case len(failures) > 0:
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
-			strings.Join(failures, "\n")
+		how := "-keep-going:"
+		if pastPins {
+			how = "kept_red: ran every step, as -keep-going does;"
+		}
+		rec.Failure = fmt.Sprintf("%s %d of %d steps did not pass\n", how, len(failed)+unreached, len(c.Steps)) + strings.Join(failures, "\n")
 	}
 	if unreached > 0 {
 		rec.Failure += fmt.Sprintf("\n%d later step(s) not sent: %s", unreached, unreachableReason(r.Client.BaseURL(), dead))
@@ -2204,7 +2204,9 @@ func mergeVars(base, override map[string]any) map[string]any {
 }
 
 func newRunID(t time.Time) string {
-	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return t.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b)
 }
 
 func capIDs(ids []string, max int) string {
