@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -153,5 +154,47 @@ func TestSkipWaitsLeavesOutAWaitingChainAndNeverCountsItAsPassing(t *testing.T) 
 				t.Errorf("%s: a skipped chain is not sent: %v", c.name, call)
 			}
 		}
+	}
+}
+
+func TestReproLeavesOutAWaitingChainUnlessKeptOrNamed(t *testing.T) {
+	f := gateWorkspace(t, nil)
+	appendFile(t, ".shrt/config.yaml", gateAuthConfig)
+	writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
+	sent := func() bool {
+		return slices.ContainsFunc(f.calls, func(call []string) bool { return call[1] == "a-hold" })
+	}
+	var err error
+	var errOut string
+	out := captureStdout(t, func() {
+		errOut = captureStderr(t, func() { err = runGate(context.Background(), []string{"-hollow-baseline", "", "-repro"}) })
+	})
+	if exitCodeOf(err) != 3 || err == nil || !strings.HasSuffix(err.Error(), "NO VERDICT: 2 of 3 chain(s) passed; -repro left out a-hold: shrt gate a-hold runs it") || sent() {
+		t.Fatalf("-repro leaves a waiting chain out and never counts it as passing, got %d %v, calls %v:\n%s", exitCodeOf(err), err, f.calls, out)
+	}
+	if !strings.HasPrefix(out, "SKIPPED    a-hold          (waits 4m by design; shrt gate a-hold runs it)\n") ||
+		!strings.Contains(errOut, "gate: -repro leaves out a-hold, which waits 4m by design (its wait: steps); shrt gate a-hold runs it\n") {
+		t.Errorf("the skipped chain keeps its place, and the start line names what left it out:\n%s%s", out, errOut)
+	}
+	for _, args := range [][]string{{"-repro", "-skip-waits=false"}, {"-repro", "a-hold", "cli-unique"}, nil} {
+		f.calls = nil
+		if out, code := runGateOut(t, args...); code != 0 || !sent() || strings.Contains(out, "SKIPPED") {
+			t.Errorf("gate %v sends the waiting chain, got %d, calls %v:\n%s", args, code, f.calls, out)
+		}
+	}
+}
+
+func TestChainLsMarksAChainThatWaitsWithItsTotalWait(t *testing.T) {
+	chdirToFreshCLIWorkspace(t, "http://127.0.0.1:1")
+	writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
+	var err error
+	out := captureStdout(t, func() { err = chainList(nil) })
+	if err != nil || !strings.Contains(out, "  W a-hold           2 step(s)  waits 4m\n") || !strings.Contains(out, "    cli-thing-flow   2 step(s)\n") ||
+		!strings.Contains(out, "W = waits by design (shrt gate -repro leaves it out, shrt gate <chain> runs it)") {
+		t.Fatalf("a chain with wait: steps is marked W with its total wait, before any gate starts (%v):\n%s", err, out)
+	}
+	out = captureStdout(t, func() { err = chainList([]string{"-json"}) })
+	if err != nil || !strings.Contains(out, `"waits": "4m"`) {
+		t.Fatalf("the JSON row carries the wait (%v):\n%s", err, out)
 	}
 }

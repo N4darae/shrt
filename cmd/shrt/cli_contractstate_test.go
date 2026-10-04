@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -102,5 +103,37 @@ func TestChainWhichSaysTheStateAndItemCountAWriteStepActsOn(t *testing.T) {
 		if strings.Contains(line, " cancel_order_when_cancelled ") && strings.HasPrefix(lines[i+1], "    called ") {
 			t.Fatalf("a refused step acts on nothing, so no state is printed under it:\n%s", out)
 		}
+	}
+}
+
+func TestGateReproNamesTheStatesNoChainCallsAGatedWriteFrom(t *testing.T) {
+	defer stateGapWorkspace(t)()
+	saved := gateExec
+	t.Cleanup(func() { gateExec = saved })
+	gateExec = func(context.Context, []string) gateOutcome {
+		return gateOutcome{code: 1, side: gateSidecar{Error: "boom"}}
+	}
+	out, code := runGateOut(t, "-repro")
+	gap := "\n  CancelOrder on an order in PENDING: no chain calls it so; its plan sends lines of 1, 2 or 3 items, though needs: [ConfirmOrder] only takes the order to CONFIRMED"
+	if code != 1 || !strings.Contains(out, "\ngaps: 3 state(s) no chain calls a gated write from, so no row above can show a fault there; probe only these:\n") ||
+		!strings.Contains(out, gap) || !strings.Contains(out, ": shrt contract plan CancelOrder -write -force\n") ||
+		!strings.HasSuffix(out, "; the rows and repro lines above are the answer for what the chains cover; probe further only for what the gaps: lines name, or for a support ticket no row explains\n") {
+		t.Fatalf("gate -repro lists the state gaps of the rpcs it covers beside its verdict, and the verdict points at them, got %d:\n%s", code, out)
+	}
+	if out, _ = runGateOut(t); strings.Contains(out, "gaps:") || strings.Contains(out, "probe further") {
+		t.Fatalf("the CI gate prints no gap block:\n%s", out)
+	}
+	writeFile(t, ".shrt/chains/customer-only.yaml", "apiVersion: shrt/v1\nname: customer-only\nsteps:\n    - id: create_customer\n"+
+		"      call: shop.customers.v1.CustomerService/CreateCustomer\n      body:\n          email: b@example.test\n          name: B\n")
+	if out, _ = runGateOut(t, "-repro", "customer-only"); !strings.Contains(out, "\ngaps: none: ") {
+		t.Fatalf("a gate of chains that call no write with a gap lists none:\n%s", out)
+	}
+	var err error
+	if captureStdout(t, func() { err = contractPlan([]string{"CancelOrder", "-write"}) }); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ = runGateOut(t, "-repro"); !strings.Contains(out, "gaps: none: each write this gate calls is called from every state its plan calls it from, with each item count\n") ||
+		!strings.HasSuffix(out, "; probe further only for a support ticket no row explains\n") {
+		t.Fatalf("once a chain covers the state, the gate says no gap is left:\n%s", out)
 	}
 }
