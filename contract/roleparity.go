@@ -245,21 +245,11 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	}
 
 	baseRead := func(e entityRead, producer string) *chain.Step {
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+producer+"."+e.idPath+"}")
-		r := &chain.Step{Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+		r := e.readStep("", "", "${"+producer+"."+e.idPath+"}")
 		p.assertEcho(r)
 		return r
 	}
-	readID := func(e entityRead, tail string) string {
-		base := defaultID(e.reader.Name)
-		if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
-		return p.freeStepID(base + "_after_" + tail)
-	}
+	readID := func(e entityRead, tail string) string { return p.freeStepID(p.readBase(e) + "_after_" + tail) }
 	adminReads := map[string]string{}
 	at := st.ID
 	for _, e := range comparable {

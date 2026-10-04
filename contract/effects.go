@@ -1341,16 +1341,8 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		act.Description = fmt.Sprintf("%s on an order naming one %s on two %s: the stock read after it is down by both quantities.", st.ID, noun, v.list)
 		steps := []*chain.Step{fixture, act}
 		if e, ok := p.readerFor(lib, entity, v.stock.idPath); ok {
-			body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, e.field, "${"+entity.ID+"."+e.idPath+"}")
-			steps = append(steps, &chain.Step{
-				ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + id),
-				Description: fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b),
-				Call:        e.reader.FullName,
-				Auth:        e.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(e.reader),
-			})
+			steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+				fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 		}
 		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		p.note("step %s: %s names %s on both of its %s (%d and %d), so %s must take %d of it: a backend that reserves per product "+
@@ -1417,16 +1409,8 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		} else {
 			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
 			if e, ok := p.readerFor(lib, entity, stock.idPath); ok {
-				body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-				setBodyPath(body, e.field, "${"+entity.ID+"."+e.idPath+"}")
-				steps = append(steps, &chain.Step{
-					ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + id),
-					Description: fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b),
-					Call:        e.reader.FullName,
-					Auth:        e.contract.Auth,
-					Body:        body,
-					Expect:      SuccessExpectation(e.reader),
-				})
+				steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+					fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 			}
 			p.note("step %s: %s names %s on both of its %s (%d and %d), so the second line's %s and the read after it "+
 				"count both: a backend that applies one line per %s fails", st.ID, id, entity.ID, list, a, b, stock.moved, noun)

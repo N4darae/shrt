@@ -342,6 +342,22 @@ func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityR
 	return p.readerMatching(lib, prod, idPath, true)
 }
 
+func (e entityRead) readStep(id, description, ref string) *chain.Step {
+	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
+	setBodyPath(body, e.field, ref)
+	return &chain.Step{ID: id, Description: description, Call: e.reader.FullName, Auth: e.contract.Auth, Body: body, Expect: SuccessExpectation(e.reader)}
+}
+
+func (p *Plan) readBase(e entityRead) string {
+	base := defaultID(e.reader.Name)
+	if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
+		if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
+			base += suffix
+		}
+	}
+	return base
+}
+
 func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, needScalars bool) (entityRead, bool) {
 	pm, err := p.cat.Lookup(prod.Call)
 	if err != nil {
@@ -418,25 +434,10 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 	before, after := []*chain.Step{}, []*chain.Step{}
 	reserved := map[string]bool{}
 	for _, e := range entities {
-		base := defaultID(e.reader.Name)
-		pm, _ := p.cat.Lookup(e.producer.Call)
-		if pm != nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
+		base := p.readBase(e)
 		beforeID := p.freeProbeID(base+"_before_"+label, reserved)
 		afterID := p.freeProbeID(base+"_after_"+label, reserved)
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+e.producer.ID+"."+e.idPath+"}")
-		read := &chain.Step{
-			ID:          beforeID,
-			Description: fmt.Sprintf("the %s as it stands before %s.", e.carrier, label),
-			Call:        e.reader.FullName,
-			Auth:        e.contract.Auth,
-			Body:        body,
-			Expect:      SuccessExpectation(e.reader),
-		}
+		read := e.readStep(beforeID, fmt.Sprintf("the %s as it stands before %s.", e.carrier, label), "${"+e.producer.ID+"."+e.idPath+"}")
 		leaf := leafName(e.idPath)
 		for _, sf := range carrierFields(e.reader, e.carrier) {
 			if sf.Name == leaf {

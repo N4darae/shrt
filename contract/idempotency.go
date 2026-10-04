@@ -165,17 +165,9 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: carrier + "." + stateField.Name, Equals: tr.value}),
 		}
 
-		rbody := catalog.ScaffoldWith(read.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(rbody, read.field, fixtureID)
 		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
-		fetch := &chain.Step{
-			ID:          readID,
-			Description: fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID),
-			Call:        read.reader.FullName,
-			Auth:        read.contract.Auth,
-			Body:        rbody,
-			Expect:      append(SuccessExpectation(read.reader), chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value}),
-		}
+		fetch := read.readStep(readID, fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID), fixtureID)
+		fetch.Expect = append(fetch.Expect, chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value})
 
 		replay := copyStep(fixture, p.freeStepID(st.ID+"_replay_after_"+label))
 		replay.Body[key] = "${steps." + fixture.ID + ".request." + key + "}"

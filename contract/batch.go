@@ -172,22 +172,9 @@ func (p *Plan) refusedLineReads(lib *Library, probe *chain.Step, lines []batchLi
 			if !ok {
 				continue
 			}
-			base := defaultID(e.reader.Name)
-			if pm, err := p.cat.Lookup(prod.Call); err == nil {
-				if suffix := strings.TrimPrefix(prod.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-					base += suffix
-				}
-			}
-			body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-			setBodyPath(body, e.field, "${"+prod.ID+"."+e.idPath+"}")
-			read := &chain.Step{
-				ID:          p.freeStepID(base + "_before_" + probe.ID),
-				Description: fmt.Sprintf("the %s as it stands before %s, whose line naming it is refused.", e.carrier, probe.ID),
-				Call:        e.reader.FullName,
-				Auth:        e.contract.Auth,
-				Body:        body,
-				Expect:      SuccessExpectation(e.reader),
-			}
+			base := p.readBase(e)
+			read := e.readStep(p.freeStepID(base+"_before_"+probe.ID),
+				fmt.Sprintf("the %s as it stands before %s, whose line naming it is refused.", e.carrier, probe.ID), "${"+prod.ID+"."+e.idPath+"}")
 			check := copyStep(read, p.freeStepID(base+"_after_"+probe.ID))
 			check.Description = fmt.Sprintf("the %s after %s is unchanged: its line was refused, so %s read as in %s.", e.carrier, probe.ID, strings.Join(e.scalars, ", "), read.ID)
 			for _, name := range e.scalars {
@@ -235,21 +222,7 @@ func (p *Plan) reportedMatchesStored(lib *Library, partial *chain.Step, key stri
 	out := []*chain.Step{}
 	for _, id := range order {
 		e := entity[id]
-		base := defaultID(e.reader.Name)
-		if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-			if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, "${"+e.producer.ID+"."+e.idPath+"}")
-		read := &chain.Step{
-			ID:     p.freeStepID(base + "_after_" + partial.ID),
-			Call:   e.reader.FullName,
-			Auth:   e.contract.Auth,
-			Body:   body,
-			Expect: SuccessExpectation(e.reader),
-		}
+		read := e.readStep(p.freeStepID(p.readBase(e)+"_after_"+partial.ID), "", "${"+e.producer.ID+"."+e.idPath+"}")
 		names := []string{}
 		for _, name := range e.scalars {
 			if reported[name] {

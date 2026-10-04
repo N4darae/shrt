@@ -181,16 +181,8 @@ func (p *Plan) textReadBack(lib *Library, st, probe *chain.Step, m *catalog.Meth
 	for _, sf := range carrierFields(e.reader, e.carrier) {
 		stored[sf.Name] = true
 	}
-	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, e.field, "${"+probe.ID+"."+idPath+"}")
-	read := &chain.Step{
-		ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + probe.ID),
-		Description: fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID),
-		Call:        e.reader.FullName,
-		Auth:        e.contract.Auth,
-		Body:        body,
-		Expect:      SuccessExpectation(e.reader),
-	}
+	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+probe.ID),
+		fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID), "${"+probe.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	for _, name := range names {
 		if stored[name] {

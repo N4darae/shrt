@@ -121,22 +121,9 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	reserved := map[string]bool{}
 	held := []string{}
 	for _, en := range entities {
-		base := defaultID(en.reader.Name)
-		if pm, err := p.cat.Lookup(en.producer.Call); err == nil {
-			if suffix := strings.TrimPrefix(en.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
-				base += suffix
-			}
-		}
-		rbody := catalog.ScaffoldWith(en.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(rbody, en.field, "${"+en.producer.ID+"."+en.idPath+"}")
-		read := &chain.Step{
-			ID:          p.freeProbeID(base+"_before_"+moved.ID, reserved),
-			Description: fmt.Sprintf("the %s before %s moves %s to %s.", en.carrier, moved.ID, fixture.ID, short[tr.value]),
-			Call:        en.reader.FullName,
-			Auth:        en.contract.Auth,
-			Body:        rbody,
-			Expect:      SuccessExpectation(en.reader),
-		}
+		base := p.readBase(en)
+		read := en.readStep(p.freeProbeID(base+"_before_"+moved.ID, reserved),
+			fmt.Sprintf("the %s before %s moves %s to %s.", en.carrier, moved.ID, fixture.ID, short[tr.value]), "${"+en.producer.ID+"."+en.idPath+"}")
 		check := copyStep(read, p.freeProbeID(base+"_after_"+id, reserved))
 		if en.producer == fixture {
 			check.Description = fmt.Sprintf("the %s after %s is %s.", en.carrier, id, short[result])

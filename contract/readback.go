@@ -269,16 +269,8 @@ func (p *Plan) readBackStep(lib *Library, prod *chain.Step, idPath string) *chai
 	if !ok {
 		return nil
 	}
-	body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, e.field, "${"+prod.ID+"."+idPath+"}")
-	read := &chain.Step{
-		ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + prod.ID),
-		Description: fmt.Sprintf("the %s %s stored, read back: every field it sent, as sent.", e.carrier, prod.ID),
-		Call:        e.reader.FullName,
-		Auth:        e.contract.Auth,
-		Body:        body,
-		Expect:      SuccessExpectation(e.reader),
-	}
+	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+prod.ID),
+		fmt.Sprintf("the %s %s stored, read back: every field it sent, as sent.", e.carrier, prod.ID), "${"+prod.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	return read
 }

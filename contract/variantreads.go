@@ -64,16 +64,8 @@ func (p *Plan) readBackVariants(lib *Library) {
 		if len(states) == 0 && (e.producer != st || mains[st.ID] || p.readsCreated(st, e.idPath)) {
 			continue
 		}
-		body := catalog.ScaffoldWith(e.reader.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, e.field, ref)
-		r := &chain.Step{
-			ID:          p.freeStepID(defaultID(e.reader.Name) + "_after_" + st.ID),
-			Description: fmt.Sprintf("the %s as %s left it, read back as its main step's is.", e.carrier, st.ID),
-			Call:        e.reader.FullName,
-			Auth:        e.contract.Auth,
-			Body:        body,
-			Expect:      SuccessExpectation(e.reader),
-		}
+		r := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+st.ID),
+			fmt.Sprintf("the %s as %s left it, read back as its main step's is.", e.carrier, st.ID), ref)
 		p.assertEcho(r)
 		r.Expect = append(r.Expect, states...)
 		p.insertAfter(st.ID, r)
