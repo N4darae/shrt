@@ -541,9 +541,7 @@ func RecordRerun(description, verdict string) string {
 }
 
 func replaceVerdict(description, line string, prefixes ...string) string {
-	if strings.Contains(description, hypothesisParagraph) {
-		description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
-	}
+	description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
 	kept := []string{}
 	for _, l := range strings.SplitAfter(description, "\n") {
 		verdict := strings.HasPrefix(l, hypothesisPrefix)
