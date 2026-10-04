@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -99,13 +100,7 @@ func ResolveUnique(dir, ref string) (*Chain, error) {
 		}
 	}
 	claim := Claimants(dir, c.Name)
-	inDir := false
-	for _, p := range claim {
-		if sameFile(p, c.SourcePath) {
-			inDir = true
-		}
-	}
-	if inDir && len(claim) > 1 {
+	if len(claim) > 1 && slices.ContainsFunc(claim, func(p string) bool { return sameFile(p, c.SourcePath) }) {
 		return nil, &NameClashError{Ref: ref, Name: c.Name, Files: claim}
 	}
 	return c, nil

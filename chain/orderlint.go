@@ -3,6 +3,7 @@ package chain
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -230,14 +231,7 @@ func echoesRequestList(v any, at map[int]string, idx []int) bool {
 			}
 		}
 	case []any:
-		mirrors := true
-		for _, i := range idx {
-			if i >= len(t) || !referencesStep(t[i], at[i]) {
-				mirrors = false
-				break
-			}
-		}
-		if mirrors {
+		if !slices.ContainsFunc(idx, func(i int) bool { return i >= len(t) || !referencesStep(t[i], at[i]) }) {
 			return true
 		}
 		for _, item := range t {

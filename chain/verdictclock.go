@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -13,12 +14,7 @@ const clockOffsetTolerance = 2
 var firstNumberPattern = regexp.MustCompile(`-?[0-9]+(\.[0-9]+)?`)
 
 func ClockRelativeExpectation(e Expectation) bool {
-	for _, op := range e.Operands() {
-		if text, ok := op.(string); ok && strings.Contains(text, "${now") {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(e.Operands(), func(op any) bool { text, ok := op.(string); return ok && strings.Contains(text, "${now") })
 }
 
 func ClockRelative(step *Step, v Verdict) Verdict {

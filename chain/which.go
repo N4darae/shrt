@@ -86,19 +86,9 @@ func IsAuthProbe(s *Step) bool {
 		return false
 	}
 	withoutToken := s.SkipAuth || s.Auth == InvalidTokenAuth
-	for _, e := range s.Expect {
-		if !ExpectsTransportRefusal(e) {
-			continue
-		}
-		if withoutToken {
-			return true
-		}
-		switch strings.ToLower(stringify(e.Equals)) {
-		case "unauthenticated", "permission_denied", "401", "403":
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return ExpectsTransportRefusal(e) && (withoutToken || slices.Contains([]string{"unauthenticated", "permission_denied", "401", "403"}, strings.ToLower(stringify(e.Equals))))
+	})
 }
 
 type WhichChain struct {
@@ -262,10 +252,8 @@ func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
 	if !q.IsNumericCode() {
 		return slices.ContainsFunc(q.Aliases, func(code string) bool { return assertsCode(asserts, code) }), ""
 	}
-	for _, a := range asserts {
-		if isDigits(a.Value) {
-			return false, ""
-		}
+	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return isDigits(a.Value) }) {
+		return false, ""
 	}
 	for _, alias := range q.Aliases {
 		if !isDigits(alias) && assertsCode(asserts, alias) {
@@ -626,19 +614,9 @@ func CodeAliases(code string, responses []any) []string {
 		switch t := v.(type) {
 		case map[string]any:
 			names := CodeFields()
-			hit := false
-			for _, name := range names {
-				if x, ok := t[name]; ok && strings.EqualFold(stringify(x), code) {
-					hit = true
-				}
-			}
-			if hit {
+			if slices.ContainsFunc(names, func(name string) bool { x, ok := t[name]; return ok && strings.EqualFold(stringify(x), code) }) {
 				for _, name := range names {
-					x, ok := t[name]
-					if !ok || x == nil {
-						continue
-					}
-					if text := stringify(x); text != "" && !seen[strings.ToLower(text)] {
+					if text := stringify(t[name]); text != "" && !seen[strings.ToLower(text)] {
 						seen[strings.ToLower(text)] = true
 						out = append(out, text)
 					}

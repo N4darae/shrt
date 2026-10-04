@@ -372,13 +372,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 	if _, declared := c.Vars[RunTagVar]; !declared && fresh[RunTagVar] {
 		if _, given := opts.Vars[RunTagVar]; !given {
-			kept := []string{}
-			for _, name := range res.FreshVars {
-				if name != RunTagVar {
-					kept = append(kept, name)
-				}
-			}
-			res.FreshVars = kept
+			res.FreshVars = slices.DeleteFunc(res.FreshVars, func(name string) bool { return name == RunTagVar })
 		}
 	}
 	if len(vars) > 0 {
@@ -485,13 +479,7 @@ func replaceVerdict(description, line string, prefixes ...string) string {
 	description = strings.Replace(description, hypothesisParagraph, "\n\x00", 1)
 	kept := []string{}
 	for _, l := range strings.SplitAfter(description, "\n") {
-		verdict := strings.HasPrefix(l, hypothesisPrefix)
-		for _, p := range prefixes {
-			if strings.HasPrefix(l, p) {
-				verdict = true
-			}
-		}
-		if !verdict {
+		if !strings.HasPrefix(l, hypothesisPrefix) && !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(l, p) }) {
 			kept = append(kept, l)
 			continue
 		}
@@ -698,11 +686,8 @@ func (x *stepIndex) callsSharingProducers(p Prereq, before int, referenced map[i
 		if !p.calledBy(x.rpcOf(i, opts)) || producesNothing(x.c.Steps[i], opts) {
 			continue
 		}
-		for _, ref := range stepRefs(x.c.Steps[i]) {
-			if j, kind := x.producerOf(ref, i); kind == refStep && referenced[j] {
-				out = append(out, i)
-				break
-			}
+		if slices.ContainsFunc(stepRefs(x.c.Steps[i]), func(ref string) bool { j, kind := x.producerOf(ref, i); return kind == refStep && referenced[j] }) {
+			out = append(out, i)
 		}
 	}
 	return out
@@ -889,15 +874,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 }
 
 func (x *stepIndex) rpcNeeds(rpc, need string, opts SliceOptions) bool {
-	if opts.Prereqs == nil {
-		return false
-	}
-	for _, p := range opts.Prereqs(rpc) {
-		if p.RPC == need && !valueEdge(p.Edge) {
-			return true
-		}
-	}
-	return false
+	return opts.Prereqs != nil && slices.ContainsFunc(opts.Prereqs(rpc), func(p Prereq) bool { return p.RPC == need && !valueEdge(p.Edge) })
 }
 
 func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
@@ -912,12 +889,7 @@ func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
 	case map[string]any, []any:
 		return false
 	}
-	for _, ref := range collectRefs(v) {
-		if _, kind := x.producerOf(ref, at); kind == refStep {
-			return false
-		}
-	}
-	return true
+	return !slices.ContainsFunc(collectRefs(v), func(ref string) bool { _, kind := x.producerOf(ref, at); return kind == refStep })
 }
 
 func producesNothing(s *Step, opts SliceOptions) bool {
@@ -938,15 +910,9 @@ func notSent(s *Step, opts SliceOptions) bool {
 }
 
 func ExpectsRefusal(s *Step) bool {
-	for _, e := range s.Expect {
-		if ExpectsTransportRefusal(e) {
-			return true
-		}
-		if strings.Join(SplitPath(e.Path), ".") == EnvelopePath() && (e.Equals != nil && stringify(e.Equals) != EnvelopeOK() || e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK()) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return ExpectsTransportRefusal(e) || strings.Join(SplitPath(e.Path), ".") == EnvelopePath() && (e.Equals != nil && stringify(e.Equals) != EnvelopeOK() || e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK())
+	})
 }
 
 func valueEdge(edge string) bool {
@@ -1142,14 +1108,9 @@ func isListingCall(call string) bool { return callHasPrefix(call, listingPrefixe
 
 func filterVars(v any, out map[string]string) {
 	walkLeaves(v, "", "", func(path, _, t string) {
-		refs := []string{}
-		for _, m := range refPattern.FindAllStringSubmatch(t, -1) {
-			refs = append(refs, strings.TrimSpace(m[1]))
-		}
-		for _, ref := range refs {
-			if r := ParseRef(ref); r.Kind != RefVars {
-				return
-			}
+		refs := collectRefs(t)
+		if slices.ContainsFunc(refs, func(ref string) bool { return ParseRef(ref).Kind != RefVars }) {
+			return
 		}
 		for _, ref := range refs {
 			name, _, _ := strings.Cut(ParseRef(ref).Rest, ".")

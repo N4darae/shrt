@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -54,17 +55,7 @@ func lintUnorderedChain(c *Chain, methods []*catalog.Method) []Issue {
 				"chain unordered path %q %s; verify would compare nothing as unordered there", p, why)})
 			continue
 		}
-		if len(methods) == 0 {
-			continue
-		}
-		matched := false
-		for _, m := range methods {
-			if why, _ := unorderedPathProblem(p, m); why == "" {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if len(methods) > 0 && !slices.ContainsFunc(methods, func(m *catalog.Method) bool { why, _ := unorderedPathProblem(p, m); return why == "" }) {
 			issues = append(issues, Issue{Severity: SeverityError, Message: fmt.Sprintf(
 				"chain unordered path %q names a repeated field of no step's response in this chain; verify would compare nothing as unordered there", p)})
 		}

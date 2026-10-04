@@ -951,25 +951,15 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 			out = append(out, seg)
 			continue
 		}
-		var f *catalog.Field
-		spelled := ""
-		for _, candidate := range fields {
-			if candidate.Name == seg || candidate.JSONName == seg {
-				f, spelled = candidate, seg
-				break
+		spelled, at := seg, slices.IndexFunc(fields, func(f *catalog.Field) bool { return f.Name == seg || f.JSONName == seg })
+		if at < 0 {
+			at = slices.IndexFunc(fields, func(f *catalog.Field) bool { return namecase.Equal(f.Name, seg) })
+			if at < 0 {
+				return "", false
 			}
+			spelled = fields[at].Name
 		}
-		if f == nil {
-			for _, candidate := range fields {
-				if namecase.Equal(candidate.Name, seg) {
-					f, spelled = candidate, candidate.Name
-					break
-				}
-			}
-		}
-		if f == nil {
-			return "", false
-		}
+		f := fields[at]
 		out = append(out, spelled)
 		if f.Truncated || f.MapKey != "" {
 			out = append(out, segs[i+1:]...)
@@ -1044,13 +1034,7 @@ func lintExternalInputs(c *Chain, env func(string) (string, bool)) []Issue {
 		}
 		return issues
 	}
-	unset := []string{}
-	for _, name := range needEnv {
-		if _, ok := env(name); !ok {
-			unset = append(unset, name)
-		}
-	}
-	if len(unset) > 0 {
+	if unset := slices.DeleteFunc(needEnv, func(name string) bool { _, ok := env(name); return ok }); len(unset) > 0 {
 		issues = append(issues, Issue{Severity: SeverityWarn, Message: fmt.Sprintf(
 			"reads environment variables that are not exported in this shell: %s — shrt run refuses the "+
 				"chain before sending anything until they are set",
@@ -1086,13 +1070,7 @@ func UnsetAuthEnv(c *Chain, opts LintOptions) []AuthEnvGap {
 	}
 	gaps := []AuthEnvGap{}
 	for _, profile := range order {
-		unset := []string{}
-		for _, name := range opts.AuthEnv(profile) {
-			if _, ok := opts.Env(name); !ok {
-				unset = append(unset, name)
-			}
-		}
-		if len(unset) > 0 {
+		if unset := slices.DeleteFunc(slices.Clone(opts.AuthEnv(profile)), func(name string) bool { _, ok := opts.Env(name); return ok }); len(unset) > 0 {
 			gaps = append(gaps, AuthEnvGap{Profile: profile, Step: firstStep[profile], Unset: unset})
 		}
 	}
@@ -1329,15 +1307,9 @@ func lintUnevaluableOnRefusal(s *Step) []Issue {
 }
 
 func lintUnterminatedPrefix(s *Step) []Issue {
-	positional := false
-	for _, e := range s.Expect {
-		for _, seg := range SplitPath(e.Path) {
-			if _, err := strconv.Atoi(seg); err == nil {
-				positional = true
-			}
-		}
-	}
-	if !positional {
+	if !slices.ContainsFunc(s.Expect, func(e Expectation) bool {
+		return slices.ContainsFunc(SplitPath(e.Path), func(seg string) bool { _, err := strconv.Atoi(seg); return err == nil })
+	}) {
 		return nil
 	}
 	issues := []Issue{}

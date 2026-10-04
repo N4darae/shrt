@@ -305,15 +305,7 @@ func ValidateEnvelopeIn(cat *catalog.Catalog, path string) error {
 }
 
 func joinDataPath(path string) string {
-	segs := SplitPath(path)
-	kept := make([]string, 0, len(segs))
-	for _, s := range segs {
-		if isDigits(s) {
-			continue
-		}
-		kept = append(kept, s)
-	}
-	return strings.Join(kept, ".")
+	return strings.Join(slices.DeleteFunc(SplitPath(path), isDigits), ".")
 }
 
 func IsVerdictPath(path string) bool {
@@ -352,12 +344,7 @@ func (e Expectation) PinsValue() bool {
 
 func DeclaresVerdict(expect []Expectation, path string) bool {
 	want := strings.Join(SplitPath(path), ".")
-	for _, e := range expect {
-		if e.PinsValue() && strings.Join(SplitPath(e.Path), ".") == want {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(expect, func(e Expectation) bool { return e.PinsValue() && strings.Join(SplitPath(e.Path), ".") == want })
 }
 
 func DeclaresRefusal(expect []Expectation, r ItemRefusal) bool {
@@ -372,19 +359,10 @@ func DeclaresRefusal(expect []Expectation, r ItemRefusal) bool {
 	if line == "" {
 		return false
 	}
-	for _, e := range expect {
-		if !namesCode(e) {
-			continue
-		}
+	return slices.ContainsFunc(expect, func(e Expectation) bool {
 		segs := SplitPath(e.Path)
-		if len(segs) == 0 || !strings.HasPrefix(strings.Join(segs, "."), line+".") {
-			continue
-		}
-		if isCodeField(segs) {
-			return true
-		}
-	}
-	return false
+		return namesCode(e) && strings.HasPrefix(strings.Join(segs, "."), line+".") && isCodeField(segs)
+	})
 }
 
 func UndeclaredRefusals(refusals []ItemRefusal, expect []Expectation) []ItemRefusal {
@@ -410,15 +388,7 @@ func IsEnvelopePath(path string) bool {
 func CoversVerdict(path string) bool {
 	verdict := SplitPath(EnvelopePath())
 	segs := SplitPath(path)
-	if len(segs) == 0 || len(segs) > len(verdict) {
-		return false
-	}
-	for i, seg := range segs {
-		if !namecase.Equal(seg, verdict[i]) {
-			return false
-		}
-	}
-	return true
+	return len(segs) > 0 && len(segs) <= len(verdict) && slices.EqualFunc(segs, verdict[:len(segs)], namecase.Equal)
 }
 
 func namesCode(e Expectation) bool {
@@ -435,15 +405,7 @@ func PinsVerdictCode(e Expectation) bool {
 	}
 	segs := SplitPath(e.Path)
 	verdict := SplitPath(EnvelopePath())
-	if len(segs) == 0 || len(segs) < len(verdict) {
-		return false
-	}
-	for i, seg := range verdict[:len(verdict)-1] {
-		if !namecase.Equal(segs[i], seg) {
-			return false
-		}
-	}
-	return isCodeField(segs)
+	return len(segs) > 0 && len(segs) >= len(verdict) && slices.EqualFunc(segs[:len(verdict)-1], verdict[:len(verdict)-1], namecase.Equal) && isCodeField(segs)
 }
 
 func IsVerdictItself(path string) bool {

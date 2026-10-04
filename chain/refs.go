@@ -2,7 +2,6 @@ package chain
 
 import (
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -28,14 +27,7 @@ func (c *Chain) UnusedVarNames(supplied map[string]any) []string {
 		return nil
 	}
 	declared := c.DeclaredVarNames()
-	out := []string{}
-	for name := range supplied {
-		if !slices.Contains(declared, name) {
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
+	return slices.DeleteFunc(sortedKeys(supplied), func(name string) bool { return slices.Contains(declared, name) })
 }
 
 func (c *Chain) DeclaredVarNames() []string {
@@ -146,11 +138,5 @@ func (s *Step) References() []string {
 
 func (c *Chain) MissingVars(supplied map[string]any) []string {
 	undeclared, _ := ExternalInputs(c)
-	out := []string{}
-	for _, name := range undeclared {
-		if _, ok := supplied[name]; !ok {
-			out = append(out, name)
-		}
-	}
-	return out
+	return slices.DeleteFunc(undeclared, func(name string) bool { _, ok := supplied[name]; return ok })
 }
