@@ -2,6 +2,7 @@ package chain_test
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -218,10 +219,5 @@ func lintErrors(c *chain.Chain, text string) bool {
 	if err := c.Normalize(); err != nil {
 		return false
 	}
-	for _, i := range chain.Lint(c, catalogtest.Shop()) {
-		if i.IsError() && strings.Contains(i.Message, text) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(chain.Lint(c, catalogtest.Shop()), func(i chain.Issue) bool { return i.IsError() && strings.Contains(i.Message, text) })
 }
