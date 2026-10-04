@@ -1303,11 +1303,9 @@ func readsSynthetic(v any, vars map[string]any) bool {
 	return false
 }
 
-var refExpr = regexp.MustCompile(`\$\{([^}]+)\}`)
-
 func chainRefs(text string) []string {
 	out := []string{}
-	for _, m := range refExpr.FindAllStringSubmatch(text, -1) {
+	for _, m := range bodyRef.FindAllStringSubmatch(text, -1) {
 		out = append(out, m[1])
 	}
 	return out
