@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"sort"
 	"strconv"
 	"strings"
 
@@ -117,7 +116,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		chains   map[string]bool
 	}
 	seen := map[string]*tally{}
-	keys := []string{}
 	for _, c := range chains {
 		if c == nil {
 			continue
@@ -137,7 +135,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 				if t == nil {
 					t = &tally{chains: map[string]bool{}}
 					seen[k] = t
-					keys = append(keys, k)
 				}
 				t.unknown = t.unknown || unknown
 				t.most = max(t.most, len(list))
@@ -166,7 +163,7 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 	}
 	out := []SingleItemRepeat{}
-	for _, k := range keys {
+	for _, k := range sortedKeys(seen) {
 		t := seen[k]
 		noRepeat := t.most >= 2 && t.distinct && t.sourced && !t.repeat
 		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "") && !noRepeat) {
@@ -183,12 +180,6 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 		out = append(out, r)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Field < out[j].Field
-	})
 	return out
 }
 

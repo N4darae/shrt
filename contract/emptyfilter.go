@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -121,19 +120,11 @@ func EmptyFilterGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog) 
 		}
 	}
 	out := []EmptyFilterGap{}
-	for k, t := range seen {
-		if t.empty {
-			continue
+	for _, k := range sortedKeys(seen) {
+		if !seen[k].empty {
+			rpc, field, _ := strings.Cut(k, "\x00")
+			out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: sortedKeys(seen[k].chains)})
 		}
-		rpc, field, _ := strings.Cut(k, "\x00")
-		names := sortedKeys(t.chains)
-		out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: names})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].RPC != out[j].RPC {
-			return out[i].RPC < out[j].RPC
-		}
-		return out[i].Field < out[j].Field
-	})
 	return out
 }
