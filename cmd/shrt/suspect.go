@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"sort"
@@ -688,6 +689,12 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func keysOfBoth[V any](a, b map[string]V) []string {
+	keys := append(slices.Collect(maps.Keys(a)), slices.Collect(maps.Keys(b))...)
+	slices.Sort(keys)
+	return slices.Compact(keys)
 }
 
 func (a attribution) inputsBefore(at int) map[string]map[string]input {

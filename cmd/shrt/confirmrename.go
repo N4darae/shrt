@@ -9,7 +9,6 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -293,17 +292,7 @@ func firstJSONDifference(a, b any, path string) string {
 		if !ok {
 			return orRoot(path)
 		}
-		keys := []string{}
-		for k := range x {
-			keys = append(keys, k)
-		}
-		for k := range y {
-			if _, seen := x[k]; !seen {
-				keys = append(keys, k)
-			}
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range keysOfBoth(x, y) {
 			if d := firstJSONDifference(x[k], y[k], pathmask.Join(path, k)); d != "" {
 				return d
 			}

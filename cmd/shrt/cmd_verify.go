@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -685,18 +684,8 @@ func varsDifferFromConfirmed(e *env, spotRun string, c *chain.Chain, rec *runner
 	} else {
 		return ""
 	}
-	names := []string{}
-	for k := range rec.Vars {
-		names = append(names, k)
-	}
-	for k := range confirmed {
-		if _, ok := rec.Vars[k]; !ok {
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
 	out := []string{}
-	for _, k := range names {
+	for _, k := range keysOfBoth(rec.Vars, confirmed) {
 		if _, supplied := only[k]; only != nil && !supplied {
 			continue
 		}
