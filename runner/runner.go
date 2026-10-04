@@ -653,10 +653,6 @@ func (x exportSources) steps() map[string]string {
 	return out
 }
 
-func readsBroken(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
-	return readsBrokenIn(step.SendReferences(), broken, exporter)
-}
-
 func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
 	held := map[int]string{}
 	for i, e := range step.Expect {
@@ -859,7 +855,7 @@ func envelopeOKNeverSeen(steps []*StepRecord) string {
 	verdicts, refusals := true, true
 	for text, n := range counts {
 		shown := text
-		if !looksLikeVerdict(text) {
+		if !verdictShape.MatchString(text) {
 			shown = strconv.Quote(text)
 			verdicts = false
 		}
@@ -892,10 +888,6 @@ var (
 		"NOTFOUND", "REFUSE", "DECLINE", "CONFLICT", "ABORT", "EXPIRED"}
 )
 
-func looksLikeVerdict(text string) bool {
-	return verdictShape.MatchString(text)
-}
-
 func looksLikeRefusal(text string) bool {
 	upper := strings.ToUpper(text)
 	return slices.ContainsFunc(refusalWords, func(w string) bool { return strings.Contains(upper, w) })
@@ -913,12 +905,8 @@ func inBandRefusal(response json.RawMessage) (string, bool) {
 	if err := json.Unmarshal(response, &v); err != nil {
 		return "", false
 	}
-	code, ok := chain.Get(v, chain.EnvelopePath())
-	if !ok || code == nil {
-		return "", false
-	}
-	text := fmt.Sprint(code)
-	return text, text != "" && text != chain.EnvelopeOK()
+	text, ok := verdictText(v, chain.EnvelopePath())
+	return text, ok && text != chain.EnvelopeOK()
 }
 
 func failedPaths(results []chain.ExpectResult) []string {
@@ -1055,7 +1043,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			continue
 		}
 		if keepGoing {
-			if ref, producer, ok := readsBroken(step, broken, exporter); ok {
+			if ref, producer, ok := readsBrokenIn(step.SendReferences(), broken, exporter); ok {
 				sr = r.skippedBehind(i, step, ref, producer)
 				behind, behindOn[i] = true, producer.ID
 			}
@@ -1964,10 +1952,6 @@ func capValue(v any, n int) string {
 	return string(text[:n-3]) + "..."
 }
 
-func evaluate(scope *chain.Scope, e chain.Expectation, response, presence any, redactor *pathmask.Masker) chain.ExpectResult {
-	return evaluateTyped(scope, e, response, presence, "", redactor)
-}
-
 func evaluateTyped(scope *chain.Scope, e chain.Expectation, response, presence any, kind string, redactor *pathmask.Masker) chain.ExpectResult {
 	bound, err := e.ResolveWith(scope)
 	if err != nil {
@@ -2015,7 +1999,7 @@ func evaluateRefused(scope *chain.Scope, expect []chain.Expectation, outcome map
 	out := unevaluated(expect, redactor)
 	for i, e := range expect {
 		if chain.IsTransportPath(e.Path) {
-			out[i] = evaluate(scope, e, outcome, outcome, redactor)
+			out[i] = evaluateTyped(scope, e, outcome, outcome, "", redactor)
 		}
 	}
 	return out
