@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -71,8 +72,7 @@ func TestSameAsEmitsOneNoteNamingTheVarToFill(t *testing.T) {
 	}
 }
 
-func TestLintCatchesACycleFormedThroughSameAs(t *testing.T) {
-	const raw = `apiVersion: shrt/contract/v1
+const sameAsCycle = `apiVersion: shrt/contract/v1
 domain: demo
 rpcs:
     shrt.test.v1.AuthService/Login:
@@ -90,45 +90,25 @@ rpcs:
                 same_as: shrt.test.v1.AuthService/Login->username
         status: draft
 `
-	cat := catalogtest.New()
-	var found bool
-	for _, i := range LintLibrary(libraryFrom(t, raw), cat) {
-		if i.Severity == SeverityError && strings.Contains(i.Message, "dependency cycle") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("a cycle formed entirely through same_as edges must be reported — BuildPlan already refuses it, lint must not be blind to it")
-	}
-}
 
-func TestLintRejectsSameAsNamingAResponseOnlyField(t *testing.T) {
-	cat := catalogtest.New()
-	raw := strings.Replace(sharesARequestValue, "Login->username", "Login->access_token", 1)
-	var found bool
-	for _, i := range LintLibrary(libraryFrom(t, raw), cat) {
-		if i.Severity == SeverityError && strings.Contains(i.Message, "not a REQUEST field") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("same_as naming a response-only field must be an error — it reads what a step SENDS")
-	}
-}
-
-func TestLintRejectsFromAndSameAsTogether(t *testing.T) {
-	cat := catalogtest.New()
-	raw := strings.Replace(sharesARequestValue,
-		"                same_as: shrt.test.v1.AuthService/Login->username",
-		"                same_as: shrt.test.v1.AuthService/Login->username\n                from: shrt.test.v1.AuthService/Login->access_token", 1)
-	var found bool
-	for _, i := range LintLibrary(libraryFrom(t, raw), cat) {
-		if i.Severity == SeverityError && strings.Contains(i.Message, "mutually exclusive") {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("from and same_as on one field must be an error")
+func TestLintRejectsABrokenSameAs(t *testing.T) {
+	for _, tc := range []struct{ name, raw, needle, why string }{
+		{"a cycle formed through same_as", sameAsCycle, "dependency cycle",
+			"a cycle formed entirely through same_as edges must be reported — BuildPlan already refuses it, lint must not be blind to it"},
+		{"same_as naming a response-only field", strings.Replace(sharesARequestValue, "Login->username", "Login->access_token", 1),
+			"not a REQUEST field", "same_as naming a response-only field must be an error — it reads what a step SENDS"},
+		{"from and same_as together", strings.Replace(sharesARequestValue,
+			"                same_as: shrt.test.v1.AuthService/Login->username",
+			"                same_as: shrt.test.v1.AuthService/Login->username\n                from: shrt.test.v1.AuthService/Login->access_token", 1),
+			"mutually exclusive", "from and same_as on one field must be an error"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !slices.ContainsFunc(LintLibrary(libraryFrom(t, tc.raw), catalogtest.New()), func(i Issue) bool {
+				return i.Severity == SeverityError && strings.Contains(i.Message, tc.needle)
+			}) {
+				t.Fatal(tc.why)
+			}
+		})
 	}
 }
 
