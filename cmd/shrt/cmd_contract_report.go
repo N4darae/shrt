@@ -433,24 +433,17 @@ func loginRPCs(e *env) map[string]bool {
 }
 
 func calledRPCs(e *env, chains []*chain.Chain) map[string]bool {
-	out := map[string]bool{}
-	mark := func(call string) {
-		if m, err := e.cat.Lookup(call); err == nil {
-			out[m.FullName] = true
-		}
-	}
-	for _, p := range e.cfg.AuthProfiles() {
-		if p != nil && p.Call != "" {
-			mark(p.Call)
-		}
-	}
+	out := loginRPCs(e)
 	for _, c := range chains {
 		if c == nil {
 			continue
 		}
 		for _, s := range c.Steps {
-			if s != nil {
-				mark(s.Call)
+			if s == nil {
+				continue
+			}
+			if m, err := e.cat.Lookup(s.Call); err == nil {
+				out[m.FullName] = true
 			}
 		}
 	}

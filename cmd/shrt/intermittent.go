@@ -95,10 +95,6 @@ func sameRequest(a, b *runner.StepRecord) bool {
 	return bytes.Equal(ex, ey)
 }
 
-func latestRunBefore(e *env, rec *runner.Record) *runner.Record {
-	return previousRun(e, rec, true, nil)
-}
-
 func runKind(rec *runner.Record) string {
 	if rec.ReplayOf != "" {
 		return "verify"
@@ -117,7 +113,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 		if resentAnswered(st) {
 			f := flakyStep{step: st, resent: true}
 			if !loaded {
-				last, loaded = latestRunBefore(e, rec), true
+				last, loaded = previousRun(e, rec, true, nil), true
 			}
 			if was, ok := stepOf(last, st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
 				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
@@ -136,7 +132,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 			}
 		}
 		if !loaded {
-			last, loaded = latestRunBefore(e, rec), true
+			last, loaded = previousRun(e, rec, true, nil), true
 		}
 		if last != nil {
 			if was, ok := last.Step(st.ID); ok && serverError(was) == why {

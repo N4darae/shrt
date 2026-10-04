@@ -77,12 +77,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	baseURLGiven := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "base-url" {
-			baseURLGiven = true
-		}
-	})
+	baseURLGiven := flagGiven(fs, "base-url")
 	root, err := os.Getwd()
 	if err != nil {
 		return err

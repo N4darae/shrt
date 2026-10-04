@@ -103,14 +103,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 		if *repeat < 2 || *dry {
 			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
 		}
-		past := true
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "keep-going" {
-				past = *keepGoing
-			}
-		})
 		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
-			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: past, Build: *build,
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build,
 		}, *save, *quiet, *asJSON)
 	}
 
