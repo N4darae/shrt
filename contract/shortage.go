@@ -139,16 +139,12 @@ func (p *Plan) addExactStockProbe(lib *Library, st *chain.Step, m *catalog.Metho
 	if len(paths) == 0 {
 		return
 	}
-	base := st
-	if source != nil {
-		base = source
-	}
 	id := p.freeStepID(st.ID + "_exact_stock")
-	exact := copyStep(base, id)
+	base, exactID := st, id
 	if source != nil {
-		exact = copyStep(source, p.freeStepID(source.ID+"_for_"+id))
+		base, exactID = source, p.freeStepID(source.ID+"_for_"+id)
 	}
-	exact.Export = nil
+	exact := probeStep(base, exactID)
 	seen := map[string]bool{}
 	set := []string{}
 	for _, path := range paths {
