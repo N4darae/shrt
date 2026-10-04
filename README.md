@@ -146,10 +146,13 @@ succeeded). No line when nothing splits them, when a single split and a pair (or
 failing calls should have been refused. A row whose example reads a
 number a suspect write moved says by how much against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where
 the approved run fell 3 from 3 to 0: 2x on every failing step`, from the last earlier value of that field of that
-record before the write (a read, or another write's answer), in both runs; said only when each write in between is a
-suspect, declares `none` for the field, or was refused in both; the ratio only when it is a whole number or a
-fraction over 2, 3 or 4; `on every failing step` only when each has that ratio, else `on N of M failing steps` when
-the rest have none. `verify` adds the same after each such change. Below the rows, `offline: shrt verify <chain> -run latest ...`:
+record before the write (a read, or the answer of another write the suspect search weighed; never a refused call or
+a refused line of a batch, and the last applied line when one call answers several for the record), in both runs;
+said only when one suspect write moved it and each other write in between declares `none` for the field or was
+refused in both; the ratio only when it is a whole number or a fraction over 2, 3 or 4; `on every failing step` (of
+that field) only when each has that ratio, else `on N of M failing steps; list_prefix follows cancel_two, which may
+move it too (+1 more)`, the first step without a measure and why. `verify` adds the same after each such change.
+Below the rows, `offline: shrt verify <chain> -run latest ...`:
 that diff of the run the gate just made prints every changed value without re-sending. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
 chain with no safe spot; a change repeated at more steps or list items once, naming every one: `(and N more at ...)`

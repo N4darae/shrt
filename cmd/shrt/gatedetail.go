@@ -1,7 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
+	"maps"
 	"math"
 	"regexp"
 	"slices"
@@ -38,33 +40,41 @@ func (gr *gateGroup) effectNote() string {
 	if it.Effect == "" {
 		return ""
 	}
-	note, steps, measured := "; "+leafOf(it.Path)+" "+it.effect(), map[string]bool{}, map[string]bool{}
+	note, steps, measured, rest := "; "+leafOf(it.Path)+" "+it.effect(), map[string]bool{}, map[string]bool{}, []gateItem{}
 	for _, r := range gr.refs {
-		if r.it.Reason.Kind == reasonKnockOn {
+		key := r.chain + " " + r.it.Step
+		if r.it.Reason.Kind == reasonKnockOn || leafOf(r.it.Path) != leafOf(it.Path) || steps[key] {
 			continue
 		}
 		if it.Times == "" || r.it.Effect != "" && r.it.Times != it.Times {
 			return note
 		}
-		key := r.chain + " " + r.it.Step
 		steps[key] = true
 		if r.it.Effect != "" {
 			measured[key] = true
+		} else {
+			rest = append(rest, r.it)
 		}
 	}
 	switch {
 	case len(measured) == len(steps):
 		return note + " on every failing step"
 	case len(measured) > 1:
-		return note + fmt.Sprintf(" on %d of %d failing steps (no measure for the rest)", len(measured), len(steps))
+		more := ""
+		if len(rest) > 1 {
+			more = fmt.Sprintf(" (+%d more)", len(rest)-1)
+		}
+		return note + fmt.Sprintf(" on %d of %d failing steps; %s %s%s", len(measured), len(steps), rest[0].Step, cmp.Or(rest[0].Unmeasured, "is not measured"), more)
 	}
 	return note
 }
 
-func effectOf(a attribution, spot []*runner.StepRecord, it gateItem) (string, string) {
+const noEarlier, notMeasured = "has no earlier value of that record to measure from", "is not measured"
+
+func effectOf(a attribution, spot []*runner.StepRecord, it gateItem) (string, string, string) {
 	rec, at, r := a.rec, a.index(it.Step), it.Reason
 	if at < 0 || isWrite(rec.Steps[at]) || !r.blames() || r.Kind == reasonKnockOn {
-		return "", ""
+		return "", "", ""
 	}
 	suspect, first := map[int]bool{}, at
 	for _, s := range append([]reason{r}, r.Or...) {
@@ -72,59 +82,67 @@ func effectOf(a attribution, spot []*runner.StepRecord, it gateItem) (string, st
 			suspect[i], first = true, min(first, i)
 		}
 	}
-	now, ids, ok := valueAt(rec.Steps[at], it.Path)
-	if len(suspect) == 0 || !ok {
-		return "", ""
+	if len(suspect) != 1 {
+		return "", "", notMeasured
+	}
+	now, ids, why := valueAt(rec.Steps[at], it.Path)
+	if why != "" {
+		return "", "", why
 	}
 	leaf, anchor, was := leafOf(it.Path), -1, 0.0
 	for i := first - 1; i >= 0 && anchor < 0; i-- {
 		v, found, clear := entityValue(rec.Steps[i], leaf, ids)
 		if !clear {
-			return "", ""
+			return "", "", noEarlier
 		}
 		if found {
 			anchor, was = i, v
 		}
 	}
 	if anchor < 0 {
-		return "", ""
+		return "", "", noEarlier
 	}
-	approved := &runner.Record{Steps: spot}
-	for _, j := range a.entityWrites(at, it.Path, nil, anchor) {
+	approved, writes := &runner.Record{Steps: spot}, a.entityWrites(at, it.Path, nil, anchor-1)
+	if !slices.Contains(writes, anchor) && isWrite(rec.Steps[anchor]) {
+		return "", "", "follows " + rec.Steps[anchor].ID + ", which may move it too"
+	}
+	for _, j := range writes {
 		w := rec.Steps[j]
 		sw, _ := approved.Step(w.ID)
 		eff := a.e.effectsOf(w.Call)[leaf]
-		if !suspect[j] && (eff == nil || eff.Is != contract.EffectNone) && (refusalOf(w) == "" || sw == nil || refusalOf(sw) == "") {
-			return "", ""
+		if j != anchor && !suspect[j] && (eff == nil || eff.Is != contract.EffectNone) && (refusalOf(w) == "" || sw == nil || refusalOf(sw) == "") {
+			return "", "", "follows " + w.ID + ", which may move it too"
 		}
 	}
 	sAt, _ := approved.Step(it.Step)
 	sAnchor, _ := approved.Step(rec.Steps[anchor].ID)
-	sNow, sIDs, ok := valueAt(sAt, it.Path)
+	sNow, sIDs, why := valueAt(sAt, it.Path)
 	sWas, found, _ := entityValue(sAnchor, leaf, sIDs)
-	if !ok || !found {
-		return "", ""
+	if why != "" || !found {
+		return "", "", noEarlier
 	}
-	return moved(was, now) + " where the approved run " + moved(sWas, sNow), times(now-was, sNow-sWas)
+	return moved(was, now) + " where the approved run " + moved(sWas, sNow), times(now-was, sNow-sWas), ""
 }
 
-func valueAt(st *runner.StepRecord, path string) (float64, []string, bool) {
+func valueAt(st *runner.StepRecord, path string) (float64, []string, string) {
 	if st == nil {
-		return 0, nil, false
+		return 0, nil, notMeasured
 	}
 	body, segs := decoded(st.Response), chain.SplitPath(path)
 	for k, seg := range segs {
 		if _, err := strconv.Atoi(seg); err == nil {
 			list, _ := chain.Get(body, strings.Join(segs[:k], "."))
 			if items, _ := list.([]any); len(items) != 1 {
-				return 0, nil, false
+				return 0, nil, "reads it in a list of several records"
 			}
 		}
 	}
 	v, _ := chain.Get(body, path)
 	n, ok := number(v)
-	ids := holderIDs(st, body, path)
-	return n, ids, ok && len(ids) > 0
+	if ids := holderIDs(st, body, path); ok && len(ids) > 0 {
+		return n, ids, ""
+	}
+	return 0, nil, notMeasured
 }
 
 func holderIDs(st *runner.StepRecord, body any, path string) []string {
@@ -140,23 +158,32 @@ func holderIDs(st *runner.StepRecord, body any, path string) []string {
 }
 
 func entityValue(st *runner.StepRecord, leaf string, ids []string) (float64, bool, bool) {
-	var vals []float64
-	if st != nil && st.Status != runner.StatusSkipped && refusalOf(st) == "" {
-		body := decoded(st.Response)
-		eachLeaf(body, "", func(p string, v any) {
-			n, ok := number(v)
-			if ok && leafOf(p) == leaf && slices.ContainsFunc(holderIDs(st, body, p), func(id string) bool { return slices.Contains(ids, id) }) {
-				vals = append(vals, n)
-			}
-		})
-	}
-	if len(vals) == 0 {
+	if st == nil || st.Status == runner.StatusSkipped || refusalOf(st) != "" {
 		return 0, false, true
 	}
-	if slices.ContainsFunc(vals, func(v float64) bool { return v != vals[0] }) {
+	body, vals, line := decoded(st.Response), map[string]float64{}, func(p string) int {
+		n, _ := strconv.Atoi(strings.Trim(gateIndex.FindString(p), "."))
+		return n
+	}
+	refused, _ := chain.ItemRefusals(body)
+	eachLeaf(body, "", func(p string, v any) {
+		n, ok := number(v)
+		if ok && leafOf(p) == leaf && !slices.ContainsFunc(refused, func(r chain.ItemRefusal) bool { return strings.HasPrefix(p, r.Line+".") }) &&
+			slices.ContainsFunc(holderIDs(st, body, p), func(id string) bool { return slices.Contains(ids, id) }) {
+			vals[p] = n
+		}
+	})
+	paths := slices.SortedFunc(maps.Keys(vals), func(x, y string) int { return cmp.Compare(line(x), line(y)) })
+	if len(paths) == 0 {
+		return 0, false, true
+	}
+	last := paths[len(paths)-1]
+	if slices.ContainsFunc(paths, func(p string) bool {
+		return vals[p] != vals[last] && gateIndex.ReplaceAllString(p, "[]$1") != gateIndex.ReplaceAllString(last, "[]$1")
+	}) {
 		return 0, false, false
 	}
-	return vals[0], true, true
+	return vals[last], true, true
 }
 
 func moved(from, to float64) string {

@@ -68,21 +68,22 @@ type gateFlaky struct {
 }
 
 type gateItem struct {
-	Step   string `json:"step"`
-	Call   string `json:"call"`
-	Path   string `json:"path"`
-	Rule   string `json:"rule,omitempty"`
-	Want   string `json:"want"`
-	Got    string `json:"got"`
-	Reason reason `json:"reason"`
-	Class  string `json:"class,omitempty"`
-	Length string `json:"length,omitempty"`
-	Kind   string `json:"kind,omitempty"`
-	Pinned string `json:"pinned,omitempty"`
-	Effect string `json:"effect,omitempty"`
-	Times  string `json:"times,omitempty"`
-	Failed bool   `json:"failed,omitempty"`
-	Passes bool   `json:"passes,omitempty"`
+	Step       string `json:"step"`
+	Call       string `json:"call"`
+	Path       string `json:"path"`
+	Rule       string `json:"rule,omitempty"`
+	Want       string `json:"want"`
+	Got        string `json:"got"`
+	Reason     reason `json:"reason"`
+	Class      string `json:"class,omitempty"`
+	Length     string `json:"length,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Pinned     string `json:"pinned,omitempty"`
+	Effect     string `json:"effect,omitempty"`
+	Times      string `json:"times,omitempty"`
+	Unmeasured string `json:"unmeasured,omitempty"`
+	Failed     bool   `json:"failed,omitempty"`
+	Passes     bool   `json:"passes,omitempty"`
 
 	from string
 }

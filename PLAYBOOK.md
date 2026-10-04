@@ -444,10 +444,14 @@ when another chain fails so, and `-repro` slices that step.
 **How far it moved.** When the example reads a number a suspect write moved, the row adds the move
 next to the approved run's: `qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10
 to 8: 2x`, measured from the last value of that field of that record before the suspect (a read, or
-another write's answer) in the run and in the safe spot's run. Nothing is said when no such value
-exists or another write in between may move the field (no `effects:` of `none`, not refused both
-times): a wrong number is worse than none. `on every failing step` means each failing step of the row
-has the same ratio. `verify` and `gate -v` print it after each such change.
+the answer of another write the suspect search weighed; never a refused call or a refused line of a
+batch; the last applied line when one call answers several for the record) in the run and in the
+safe spot's run. Nothing is said when no such value exists, when more than one suspect write moved
+it (an `unclear` pair), or another write in between may move the field (no `effects:` of `none`, not
+refused both times): a wrong number is worse than none. `on every failing step` means each failing
+step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix follows
+cancel_two, which may move it too` names the first step without one and why. `verify` and `gate -v`
+print it after each such change.
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each

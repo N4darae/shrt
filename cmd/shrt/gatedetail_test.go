@@ -27,26 +27,68 @@ func TestARowSaysHowFarAWriteMovedAFieldAgainstTheApprovedRun(t *testing.T) {
 	cancel := shopStep("cancel", shopCancel, `{"order":{"id_order":"o1"},`+shopOK+`}`, "order")
 	e := effectsEnv(t)
 	for _, c := range []struct {
-		name          string
-		e             *env
-		rec           *runner.Record
-		effect, times string
+		name               string
+		e                  *env
+		rec                *runner.Record
+		effect, times, why string
 	}{
-		{"the confirm took twice the approved fall", e, confirmRecord("p1", "10", "6"), "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8", "2x"},
-		{"half the approved fall is a simple fraction", e, confirmRecord("p1", "10", "9"), "fell 1 from 10 to 9 where the approved run fell 2 from 10 to 8", "1/2x"},
-		{"the same fall from another start has no ratio", e, confirmRecord("p1", "9", "7"), "fell 2 from 9 to 7 where the approved run fell 2 from 10 to 8", ""},
-		{"a write that may move the field between them says nothing", e, confirmRecord("p1", "10", "6", cancel), "", ""},
-		{"without contracts the order's effect is unknown, so nothing", &env{}, confirmRecord("p1", "10", "6"), "", ""},
+		{"the confirm took twice the approved fall", e, confirmRecord("p1", "10", "6"), "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8", "2x", ""},
+		{"half the approved fall is a simple fraction", e, confirmRecord("p1", "10", "9"), "fell 1 from 10 to 9 where the approved run fell 2 from 10 to 8", "1/2x", ""},
+		{"the same fall from another start has no ratio", e, confirmRecord("p1", "9", "7"), "fell 2 from 9 to 7 where the approved run fell 2 from 10 to 8", "", ""},
+		{"a write that may move the field between them says nothing", e, confirmRecord("p1", "10", "6", cancel), "", "", "follows cancel, which may move it too"},
+		{"without contracts the order's effect is unknown, so nothing", &env{}, confirmRecord("p1", "10", "6"), "", "", "follows order, which may move it too"},
 	} {
-		effect, times := effectOf(runAttribution(c.e, c.rec), spot, read)
-		if effect != c.effect || times != c.times {
-			t.Errorf("%s: got %q %q, want %q %q", c.name, effect, times, c.effect, c.times)
+		effect, times, why := effectOf(runAttribution(c.e, c.rec), spot, read)
+		if effect != c.effect || times != c.times || why != c.why {
+			t.Errorf("%s: got %q %q %q, want %q %q %q", c.name, effect, times, why, c.effect, c.times, c.why)
 		}
 	}
 	noStock := confirmRecord("p1", "10", "6")
 	noStock.Steps = append(noStock.Steps[:1], noStock.Steps[2:]...)
-	if effect, _ := effectOf(runAttribution(e, noStock), spot, read); effect != "" {
-		t.Errorf("no earlier read of the product, so no effect: %q", effect)
+	if effect, _, why := effectOf(runAttribution(e, noStock), spot, read); effect != "" || why != noEarlier {
+		t.Errorf("no earlier read of the product, so no effect: %q %q", effect, why)
+	}
+}
+
+func guardRecord(lines, after string, confirm reason) (*runner.Record, gateItem) {
+	return shopRecord(
+		shopStep("create_product_b", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"0"},`+shopOK+`}`),
+		shopStep("stock_batch", shopBatch, `{"results":[`+lines+`],`+shopOK+`}`, "create_product_b"),
+		shopStep("order_fits", shopOrder, `{"order":{"id_order":"o1","lines":[{"id_product":"p2","qty":"1"}]},`+shopOK+`}`, "create_product_b"),
+		shopStep("confirm_fits", shopConfirm, `{"order":{"id_order":"o1"},`+shopOK+`}`, "order_fits"),
+		shopStep("stock_b_after_fits", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"`+after+`"},`+shopOK+`}`, "create_product_b"),
+	), gateItem{Step: "stock_b_after_fits", Path: "product.qty_on_hand", Reason: confirm}
+}
+
+func TestTheEarlierValueIsNeverARefusedLineAndIsTheLastAppliedLineOfABatch(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	chain.SetItemEnvelope("results[].status.code")
+	defer chain.SetEnvelope("", "")
+	defer chain.SetItemEnvelope("")
+	const refused, applied = `{"id_product":"p2","qty_on_hand":"0","status":{"code":"REJECTED"}}`, `{"id_product":"p2","qty_on_hand":"1",` + shopOK + `}`
+	both := reason{Kind: reasonUnclear, Step: "stock_batch", RPC: shopBatch, Or: []reason{{Step: "stock_batch", RPC: shopBatch}, {Step: "confirm_fits", RPC: shopConfirm}}}
+	confirm := reason{Kind: reasonWrite, Step: "confirm_fits", RPC: shopConfirm}
+	approved, _ := guardRecord(refused+","+applied, "0", both)
+	e := effectsEnv(t)
+	for _, c := range []struct {
+		name, lines, after string
+		r                  reason
+		effect, times, why string
+	}{
+		{"the batch stored only its refused first line and the confirm took 1 as approved: the note spans both suspects, so it says nothing", refused + "," + applied, "-1", both, "", "", notMeasured},
+		{"the confirm alone took 2: measured from the batch's last applied line, 1", refused + "," + applied, "-1", confirm, "fell 2 from 1 to -1 where the approved run fell 1 from 1 to 0", "2x", ""},
+		{"a batch whose only line for the record was refused is no earlier value, and it may move the field", refused, "-2", confirm, "", "", "follows stock_batch, which may move it too"},
+	} {
+		rec, read := guardRecord(c.lines, c.after, c.r)
+		effect, times, why := effectOf(runAttribution(e, rec), approved.Steps, read)
+		if effect != c.effect || times != c.times || why != c.why {
+			t.Errorf("%s: got %q %q %q, want %q %q %q", c.name, effect, times, why, c.effect, c.times, c.why)
+		}
+	}
+	rec, read := guardRecord(refused+","+applied, "-1", confirm)
+	rec.Steps[4].BodyRefs = map[string]string{"a": "${order_fits.x}"}
+	if effect, _, why := effectOf(runAttribution(e, rec), approved.Steps, read); effect != "" || why != "follows stock_batch, which may move it too" {
+		t.Errorf("a read the suspects were weighed for without the batch takes no earlier value from the batch's answer, which may not be what it stored: %q %q", effect, why)
 	}
 }
 
@@ -66,20 +108,25 @@ func TestARatioIsAWholeMultipleOrASimpleFraction(t *testing.T) {
 func TestARowClaimsARatioOnEveryFailingStepOnlyWhenEachHasIt(t *testing.T) {
 	at := func(step, times string) gateRef {
 		it := gateItem{Step: step, Path: "product.qty_on_hand", Times: times}
-		if times != "-" {
+		switch times {
+		case "-", "list":
+			it.Times, it.Unmeasured = "", map[string]string{"list": "reads it in a list of several records"}[times]
+		default:
 			it.Effect = "fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8"
-		} else {
-			it.Times = ""
 		}
 		return gateRef{chain: "c", it: it}
 	}
+	status := gateRef{chain: "c", it: gateItem{Step: "confirm", Path: "order.status"}}
 	for _, c := range []struct {
 		name string
 		refs []gateRef
 		want string
 	}{
 		{"all 2x", []gateRef{at("a", "2x"), at("b", "2x")}, " on every failing step"},
-		{"one not measured", []gateRef{at("a", "2x"), at("b", "2x"), at("c", "-")}, " on 2 of 3 failing steps (no measure for the rest)"},
+		{"a step of another field is not one of them", []gateRef{at("a", "2x"), at("b", "2x"), status}, " on every failing step"},
+		{"one not measured", []gateRef{at("a", "2x"), at("b", "2x"), at("c", "-")}, " on 2 of 3 failing steps; c is not measured"},
+		{"the first unmeasured step says why, the rest are counted", []gateRef{at("a", "2x"), at("b", "2x"), at("list_prefix", "list"), at("d", "-")},
+			" on 2 of 4 failing steps; list_prefix reads it in a list of several records (+1 more)"},
 		{"one other ratio", []gateRef{at("a", "2x"), at("b", "3x")}, ""},
 	} {
 		gr := &gateGroup{example: c.refs[0].it, refs: c.refs}
