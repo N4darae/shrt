@@ -186,8 +186,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			}
 			if !stated {
 				unbounded = append(unbounded, f.Name)
-			}
-			if stated {
+			} else {
 				probe := p.probeCopy(lib, st, f.Name+"_min")
 				probe.Body[key] = strconv.FormatInt(min, 10)
 				renameStepRefs(probe, st.ID, probe.ID)
@@ -225,7 +224,6 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				said = append(said, fmt.Sprintf("%s (%s = %s, an addition the fixtures' small quantities never make, so a cap or "+
 					"overflow on it shows in %s, asserted as the level before plus %s)", strings.Join(ids, ", "), f.Name,
 					joinInts(largeQuantities), inc.moved, f.Name))
-				quantity = false
 			} else if !quantity {
 				large := p.probeCopy(lib, st, f.Name+"_large")
 				large.Body[key] = strconv.Itoa(largeValue)
@@ -251,12 +249,9 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func isRefusalStep(st *chain.Step) bool {
-	for _, e := range st.Expect {
-		if e.Path == "transport.code" || (chain.IsEnvelopePath(e.Path) && e.NotEqual != nil) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Path == "transport.code" || (chain.IsEnvelopePath(e.Path) && e.NotEqual != nil)
+	})
 }
 
 func (p *Plan) echoNumbers() {
@@ -268,13 +263,8 @@ func (p *Plan) echoNumbers() {
 		if err != nil {
 			continue
 		}
-		carriers := []*catalog.Field{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != chain.EnvelopeField() && !IsVerdictFieldName(fd.Name) {
-				carriers = append(carriers, fd)
-			}
-		}
-		if len(carriers) != 1 {
+		car := singleCarrier(m)
+		if car == nil {
 			continue
 		}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
@@ -285,8 +275,8 @@ func (p *Plan) echoNumbers() {
 			if !ok {
 				continue
 			}
-			for _, out := range carriers[0].Fields {
-				path := carriers[0].Name + "." + out.Name
+			for _, out := range car.Fields {
+				path := car.Name + "." + out.Name
 				if out.Name != f.Name || !chain.IsNumericKind(out.Kind) || out.Repeated || hasExpectOn(st, path) {
 					continue
 				}
@@ -536,10 +526,6 @@ func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string)
 	return best, found
 }
 
-func is64BitKind(kind string) bool {
-	return strings.Contains(kind, "64")
-}
-
 func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 	rules := p.effectRules(lib)
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
@@ -562,7 +548,7 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 				kind = sf.Kind
 			}
 		}
-		if !is64BitKind(kind) {
+		if !strings.Contains(kind, "64") {
 			continue
 		}
 		key, first, ok := firstLine(st.Body, t.list)
