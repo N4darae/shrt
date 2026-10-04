@@ -665,6 +665,7 @@ func TestVerifyScenarios(t *testing.T) {
 			return []verTCheck{
 				{args: v, code: 1, has: []string{"ERR: chain cli-thing-flow has no safe spot:", ".shrt/safespots/cli-thing-flow.json"}, not: []string{"file does not exist"}},
 				{args: []string{"run", "cli-thing-flow", "-quiet"}, code: 0},
+				{args: []string{"verify", "cli-thing-flow", "-run", "latest"}, code: 1, has: []string{"passed; no safe spot to diff it against", "no safe spot yet"}},
 				{args: []string{"confirm", "cli-thing-flow", "-note", "fetch returns the created name"}, code: 0},
 				{args: v, code: 1, has: []string{"shrt confirm cli-thing-flow -approve -by <their email>"}, not: []string{"<name>"}},
 			}

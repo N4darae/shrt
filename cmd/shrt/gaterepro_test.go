@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 )
 
@@ -130,8 +131,21 @@ func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
 	if !strings.Contains(slice, "- id: fetch") || !strings.Contains(slice, "Then fetch reads order.total_minor back and expects what confirm answered, 0") {
 		t.Fatalf("the slice ends with the read-back expecting what the write answered:\n%s", slice)
 	}
-	if out, code := shrtOut(t, "run", ".shrt/scratch/till-slice-confirm.yaml", "-keep-going"); code != 1 || !strings.Contains(out, "FAIL order.total_minor want=0 got=500") {
+	if out, code := shrtOut(t, "run", ".shrt/scratch/till-slice-confirm.yaml", "-keep-going"); code != 1 || !strings.Contains(out, "FAIL order.total_minor want=0 (${vars.confirm_answered}) got=500") {
 		t.Fatalf("run with -keep-going, the slice shows the stored value beside the answer, got %d:\n%s", code, out)
+	}
+}
+
+func TestARunLineSaysWhereAReferencedWantCameFrom(t *testing.T) {
+	c := &chain.Chain{Steps: []*chain.Step{{ID: "fetch", Expect: []chain.Expectation{
+		{Path: "order.status", Equals: "${vars.confirm_answered}"}, {Path: "order.id_order", Equals: "o-${vars.tag}"}, {Path: "order.total_minor", Equals: "500"}}}}}
+	for path, want := range map[string]string{"order.status": "${vars.confirm_answered}", "order.id_order": "", "order.total_minor": "", "order.lines": ""} {
+		if got := wantRef(c, "fetch", path); got != want {
+			t.Errorf("%s: got %q, want %q", path, got, want)
+		}
+	}
+	if got := wantRef(c, "gone", "order.status"); got != "" {
+		t.Errorf("a step the chain does not have names no reference: %q", got)
 	}
 }
 
@@ -241,6 +255,74 @@ func TestGateReproSettlesAnUnclearPairOfWritesOnACounter(t *testing.T) {
 				t.Errorf("%s: no settle line %q:\n%s", c.name, not, out)
 			}
 		}
+	}
+}
+
+const shelfCheckChain = `apiVersion: shrt/v1
+name: shelfcheck
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: shelf-${vars.tag}
+        price_minor: "900"
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "3"
+      expect:
+        - path: qty_on_hand
+          equals: "3"
+    - id: list
+      call: ProductService/ListProducts
+      body:
+        sku_prefix: shelf-${vars.tag}
+      expect:
+        - path: products.0.qty_on_hand
+          equals: "3"
+    - id: create_order
+      call: OrderService/CreateOrder
+      body:
+        idempotency_key: ${uuid}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "3"
+    - id: confirm
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order.order.id_order}
+    - id: read_back
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create_product.product.id_product}
+      expect:
+        - path: product.qty_on_hand
+          equals: "0"
+`
+
+func TestARunOfTheGatesReproNamesTheSuspectTheGateRowNamed(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct = true
+	chdirToFakeShop(t, shop)
+	inProcessGate(t)
+	writeFile(t, ".shrt/contracts/shop.yaml", stockEffects)
+	writeFile(t, ".shrt/chains/shelfcheck.yaml", shelfCheckChain)
+	for _, args := range [][]string{{"run", "shelfcheck", "-var", "tag=tfirst001"}, {"confirm", "shelfcheck", "-note", "shelf"}, {"confirm", "shelfcheck", "-approve", "-by", "alice@example.test"}} {
+		if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	shop.confirmExtraUnit = true
+	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+	if !strings.Contains(out, "suspect write confirm (OrderService/ConfirmOrder)") || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelfcheck-slice-read_back.yaml  (") {
+		t.Fatalf("the list read 3 after add_stock, so the gate names the confirm:\n%s", out)
+	}
+	if slice := string(mustRead(t, ".shrt/scratch/shelfcheck-slice-read_back.yaml")); !strings.Contains(slice, "- id: list\n") {
+		t.Fatalf("the repro keeps the read that cleared add_stock, which the read-back does not need to fail:\n%s", slice)
+	}
+	if out, _ := shrtOut(t, "run", ".shrt/scratch/shelfcheck-slice-read_back.yaml", "-repeat", "3"); !strings.Contains(out, "suspect write confirm (OrderService/ConfirmOrder)") || strings.Contains(out, "unclear") {
+		t.Fatalf("run on the gate's repro names the gate row's suspect, not add_stock or confirm:\n%s", out)
 	}
 }
 

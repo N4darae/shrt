@@ -292,7 +292,7 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 			args = append(args, "-var", v+"="+chain.NewRunTag())
 		}
 		at, keep := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == step }), []string{}
-		for _, r := range append([]reason{{Step: ref.it.suspect()}}, ref.it.Reason.Or...) {
+		for _, r := range append([]reason{{Step: ref.it.suspect()}, {Step: clearingRead(e, ref)}}, ref.it.Reason.Or...) {
 			if j := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == r.Step }); j >= 0 && j < at && !slices.Contains(keep, r.Step) {
 				keep = append(keep, r.Step)
 			}
@@ -336,6 +336,23 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	return fmt.Sprintf("repro: none: %s (slice of %s)", why, ref.chain), ""
 }
 
+func clearingRead(e *env, ref gateRef) string {
+	rec, err := e.store.LatestRun(ref.chain)
+	if err != nil || ref.it.Reason.Kind != reasonWrite {
+		return ""
+	}
+	a := runAttribution(e, rec)
+	at := a.index(ref.it.Step)
+	if at < 0 {
+		return ""
+	}
+	i, _ := a.lastMatch(rec.Steps[at], ref.it.Path)
+	if i < 0 || len(a.entityWrites(at, ref.it.Path, a.bad, i)) == len(a.entityWrites(at, ref.it.Path, a.bad, -1)) {
+		return ""
+	}
+	return rec.Steps[i].ID
+}
+
 func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
 	r, path := ref.it.Reason, ""
 	if r.Kind != reasonStored || r.Read == "" {
@@ -361,7 +378,12 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	field := gateIndex.ReplaceAllString(path, "[]$1")
 	orig, _ := os.ReadFile(file)
 	back := *read
-	back.Expect = []chain.Expectation{{Path: path, Equals: r.Want}}
+	answered := r.Step + "_answered"
+	back.Expect = []chain.Expectation{{Path: path, Equals: "${vars." + answered + "}"}}
+	if slice.Vars == nil {
+		slice.Vars = map[string]any{}
+	}
+	slice.Vars[answered] = r.Want
 	slice.Steps = append(slice.Steps, &back)
 	slice.Description = strings.TrimSpace(slice.Description) + fmt.Sprintf("\nThen %s reads %s back and expects what %s answered, %s: run it with -keep-going to see the answer and the stored value side by side.", r.Read, field, r.Step, valueText(r.Want))
 	args := []string{"run", file, "-quiet", "-keep-going"}
@@ -528,7 +550,7 @@ func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duratio
 		lines = append(lines, fmt.Sprintf("  and %d more: shrt contract status -gaps", len(gaps)-8))
 	}
 	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; -repro planned and ran %d of them "+
-		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is no regression, only a miss against what the contract and its plan expect:\n%s",
+		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is not comparable to an approved run; it fails what the contract and its plan expect, so treat it as a fault unless the contract is wrong:\n%s",
 		len(gaps), min(len(gaps), gapProbes), time.Since(began).Round(time.Second), strings.Join(lines, "\n")), tally
 }
 

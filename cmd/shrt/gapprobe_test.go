@@ -67,9 +67,9 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 		"    OrderService/CancelOrder status.code, order.status: 2 step(s) in 1 chain(s); e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n" +
 		"    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n" +
 		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml  (6 of 62 steps, reproduced 3/3)\n"
-	if code != 0 || !strings.Contains(out, "No safe spot covers these states, so a failure here is no regression") || !strings.Contains(out, pending) ||
+	if code != 0 || !strings.Contains(out, "No safe spot covers these states, so a failure here is not comparable to an approved run; it fails what the contract and its plan expect, so treat it as a fault unless the contract is wrong:") || !strings.Contains(out, pending) ||
 		!strings.Contains(out, "  CancelOrder on a CONFIRMED order: no chain sends 2 or 3 lines (cancel-confirmed sends 1)\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
-		!strings.HasSuffix(out, "gate: PASS: 1 chain(s); 1 gap probe failed, no regression\n") {
+		!strings.HasSuffix(out, "gate: PASS: 1 chain(s); 1 gap probe failed (a state no safe spot covers, so not comparable to an approved run)\n") {
 		t.Fatalf("the gate plans each gap into .shrt/scratch/, runs it, and rows the 3-line PENDING cancel it refuses with a trigger and a verified repro, got %d:\n%s", code, out)
 	}
 	slice, err := os.ReadFile(".shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml")

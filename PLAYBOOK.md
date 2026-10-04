@@ -417,10 +417,11 @@ from the rpc's other faults.
 **What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
 failing calls of that rpc set against its calls that passed in the same gate, split by what the
 requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
-`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile that created what
-the call acts on does not decide it: `the profile that created what it acts on does not decide it: 2
-of the 3 failing calls act on records created as default` (or of the passing calls, `act on records
-created as clerk`).
+`fails when ConfirmOrder itself is sent as clerk` when some calls act on records another profile
+created, and says only what those calls show: `2 of them act on records created as default, so the
+creator need not be clerk`, or on the passing side `1 of them acts on records created as clerk, so
+that alone does not fail it`. It never speaks for a mix no call covered, such as a clerk acting on
+records a clerk created.
 A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
 calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
 3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
@@ -444,17 +445,19 @@ No line means none of these splits them, so probe from the example. The example 
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
 when another chain fails so, and `-repro` slices that step.
 
-**How far it moved.** When the example reads a number a suspect write moved, the row adds the move
-next to the approved run's: `qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10
-to 8: 2x`, measured from the last value of that field of that record before the suspect (a read, or
-the answer of another write the suspect search weighed; never a refused call or a refused line of a
-batch; the last applied line when one call answers several for the record) in the run and in the
-safe spot's run. Nothing is said when no such value exists, when more than one suspect write moved
-it (an `unclear` pair), or another write in between may move the field (no `effects:` of `none`, not
-refused both times): a wrong number is worse than none. `on every failing step` means each failing
-step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix follows
-cancel_two, which may move it too` names the first step without one and why. `verify` and `gate -v`
-print it after each such change.
+**How far it moved.** When the example reads a counter a suspect write moved (the write's contract
+declares `increase:` or `decrease:` for the field), the row adds the move next to the approved run's:
+`qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`, measured from the
+last value of that field of the same record (matched by its ids, never another record sharing one of
+them) before the suspect (a read, or the answer of another write the suspect search weighed; never a
+refused call or a refused line of a batch; the last applied line when one call answers several for
+the record) in the run and in the safe spot's run. Nothing is said for a field the write does not
+count (a total its own create set), when no such value exists, when more than one suspect write
+moved it (an `unclear` pair), or another write in between may move the field (no `effects:` of
+`none`, not refused both times): a wrong number is worse than none. `on every failing step` means
+each failing step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix
+not measured (cancel_two acts on that record between)` names the first step without one and why.
+`verify` and `gate -v` print it after each such change.
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each
@@ -470,7 +473,7 @@ matches what a person approved.
 
 ```bash
 shrt run <name>                                  # before the change
-shrt verify <name> -run <run-id>                 # re-diff that record, offline
+shrt verify <name> -run <run-id>                 # re-diff that record, offline (no safe spot: its failed expectations)
 # change the code, then the same two lines
 ```
 
@@ -512,7 +515,7 @@ shrt run billing                     # green: propose and approve it
 slices the first failing step (with the failing steps that read it, fail the same call the same way
 or with list items ignoring the same request filter, or are failing reads with no write between),
 cuts them from the chain, adds `Kept red in <slice>: <steps>.` to its description and `Pins <step>
-<rpc> <field>, ...` to the slice's (the pins the gate's `KEPT RED` line names), and re-runs
+<rpc> <field>=<got>, ...` to the slice's (the pins and pinned values the gate's `KEPT RED` line names), and re-runs
 until it passes. A pinned read keeps the last earlier read of its field that passed, when kept
 writes lie between (`checkpoint:`), so a later defect in an earlier write fails there and is
 named. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the

@@ -10,9 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -198,7 +200,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		return "", "", fmt.Errorf("%s is written kept red and %s rewritten without %s, but its description was not updated: %v",
 			shownPath(slicePath), c.Name, strings.Join(steps, ", "), err)
 	}
-	fmt.Printf("wrote %s: kept red on %s\n", shownPath(slicePath), pinList(pinned, pinned.KeptRed))
+	fmt.Printf("wrote %s: kept red, pins %s\n", shownPath(slicePath), pinnedText(pinned))
 	for _, line := range strings.Split(sliceOut, "\n") {
 		if strings.HasPrefix(line, "verify ") {
 			fmt.Println(line)
@@ -382,7 +384,11 @@ func pinnedText(c *chain.Chain) string {
 	for i, p := range pins[:min(len(pins), pinsShown)] {
 		field, _ := gateItem{Path: p.Path}.shown()
 		field = strings.TrimSuffix(field, "[]")
-		if s, ok := c.Step(p.Step); i == 0 || pins[i-1].Step != p.Step {
+		s, ok := c.Step(p.Step)
+		if p.Got != nil {
+			field = pinnedGot(field, s, p)
+		}
+		if i == 0 || pins[i-1].Step != p.Step {
 			if ok {
 				field = methodName(s.Call) + " " + field
 			}
@@ -395,6 +401,20 @@ func pinnedText(c *chain.Chain) string {
 		text += fmt.Sprintf(" and %d more", n)
 	}
 	return text
+}
+
+func pinnedGot(field string, s *chain.Step, p chain.Pin) string {
+	v, _, cut := strings.Cut(capText(*p.Got, 40), ", ")
+	if cut {
+		v += ",..."
+	}
+	switch {
+	case s != nil && slices.ContainsFunc(s.Expect, func(x chain.Expectation) bool { return x.Exists != nil && namecase.Equal(x.Path, p.Path) }):
+		return p.Path + map[bool]string{true: " present", false: " absent"}[v == "true"]
+	case v == "" || strings.ContainsAny(v, " ,"):
+		return field + "=" + strconv.Quote(v)
+	}
+	return field + "=" + v
 }
 
 const pinsShown = 4

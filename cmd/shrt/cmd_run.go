@@ -467,6 +467,9 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 				} else {
 					shownDetail = ex.Detail
 				}
+				if ref := wantRef(c, sr.ID, ex.Path); ref != "" && ex.Rule == "equals" {
+					ex.Want = fmt.Sprintf("%v (%s)", ex.Want, ref)
+				}
 				fmt.Printf("       %s\n", ex.String())
 			}
 			if sr.Error != "" {
@@ -495,6 +498,19 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	}
 	fmt.Printf("%d step(s) passed (-v prints every step)\n", passed)
 	return rec, nil
+}
+
+func wantRef(c *chain.Chain, step, path string) string {
+	s, ok := c.Step(step)
+	if !ok {
+		return ""
+	}
+	for _, x := range s.Expect {
+		if ref, ok := x.Equals.(string); ok && x.Path == path && wholeRef.MatchString(ref) {
+			return ref
+		}
+	}
+	return ""
 }
 
 func answeredHeld(sr *runner.StepRecord) string {

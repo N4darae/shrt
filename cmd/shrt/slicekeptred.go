@@ -7,7 +7,6 @@ import (
 	"maps"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -348,28 +347,6 @@ func replayPins(res *chain.SliceResult, replay *runner.Record) []chain.Pin {
 		}
 	}
 	return out
-}
-
-func pinList(c *chain.Chain, pins []chain.Pin) string {
-	order := map[string]int{}
-	for i, s := range c.Steps {
-		order[s.ID] = i
-	}
-	sorted := append([]chain.Pin{}, pins...)
-	sort.SliceStable(sorted, func(a, b int) bool { return order[sorted[a].Step] < order[sorted[b].Step] })
-	byStep := map[string][]string{}
-	steps := []string{}
-	for _, p := range sorted {
-		if _, seen := byStep[p.Step]; !seen {
-			steps = append(steps, p.Step)
-		}
-		byStep[p.Step] = append(byStep[p.Step], p.Path)
-	}
-	parts := []string{}
-	for _, s := range steps {
-		parts = append(parts, s+" at "+strings.Join(byStep[s], ", "))
-	}
-	return strings.Join(parts, "; ")
 }
 
 func checkpointReads(c *chain.Chain, res *chain.SliceResult, rec *runner.Record, targets []string) map[string]string {
