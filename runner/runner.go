@@ -246,17 +246,9 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 }
 
 func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, k), scope, open)
-		}
-	case []any:
-		for i, item := range t {
-			learnMaskedInputs(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)), scope, open)
-		}
-	case string:
-		if !redactor.Masks(path) {
+	eachLeaf(v, path, func(v any, path string) {
+		t, ok := v.(string)
+		if !ok || !redactor.Masks(path) {
 			return
 		}
 		env := scope.Env
@@ -283,28 +275,19 @@ func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *cha
 				redactor.AddWholeSecret(fmt.Sprint(value))
 			}
 		}
-	}
+	})
 }
 
 func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, item := range t {
-			learnMaskedTemplate(redactor, item, pathmask.Join(path, k))
-		}
-	case []any:
-		for i, item := range t {
-			learnMaskedTemplate(redactor, item, pathmask.Join(path, pathmask.IndexKey(i)))
-		}
-	default:
+	eachLeaf(v, path, func(v any, path string) {
 		if !redactor.Masks(path) {
 			return
 		}
-		resolved, err := chain.AuthBodyScope().ResolveValue(t)
+		resolved, err := chain.AuthBodyScope().ResolveValue(v)
 		if err == nil && redactor.MasksValue(path, resolved) {
 			learnSecret(redactor, resolved)
 		}
-	}
+	})
 }
 
 func (bs AuthBindings) learnTokens(redactor *pathmask.Masker) {
