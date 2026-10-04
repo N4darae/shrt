@@ -55,23 +55,10 @@ type AuthBinding struct {
 
 type AuthBindings []*AuthBinding
 
-func (a *AuthBinding) observe(procedure string, response any) bool {
-	if a == nil || a.Sink == nil || a.Procedure != procedure {
-		return false
-	}
+func (a *AuthBinding) token(response any) (string, bool) {
 	token, ok := chain.Get(response, a.TokenPath)
 	text, isText := token.(string)
-	if !ok || !isText || text == "" {
-		return false
-	}
-	a.Sink.Seed(text, expiryOf(response, a.ExpiresPath))
-	return true
-}
-
-func (a *AuthBinding) carriesToken(response any) bool {
-	token, ok := chain.Get(response, a.TokenPath)
-	text, isText := token.(string)
-	return ok && isText && text != ""
+	return text, ok && isText && text != ""
 }
 
 func (a *AuthBinding) sentOwnCredentials(sent []byte, canonical func([]byte) ([]byte, error)) bool {
@@ -112,16 +99,6 @@ func sameJSON(canonical func([]byte) ([]byte, error), a, b []byte) bool {
 	return reflect.DeepEqual(left, right)
 }
 
-func (bs AuthBindings) matching(procedure string) AuthBindings {
-	out := make(AuthBindings, 0, len(bs))
-	for _, b := range bs {
-		if b != nil && b.Sink != nil && b.Procedure == procedure {
-			out = append(out, b)
-		}
-	}
-	return out
-}
-
 type seeding struct {
 	seeded    []string
 	refused   []string
@@ -130,20 +107,21 @@ type seeding struct {
 
 func (bs AuthBindings) observe(profile, procedure string, sent []byte, canonical func([]byte) ([]byte, error), response any) seeding {
 	var out seeding
-	for _, b := range bs.matching(procedure) {
-		if profile != "" && b.Profile != profile {
+	for _, b := range bs {
+		if b == nil || b.Sink == nil || b.Procedure != procedure || profile != "" && b.Profile != profile {
 			continue
 		}
-		if !b.sentOwnCredentials(sent, canonical) {
-			if b.carriesToken(response) {
-				out.refused = append(out.refused, b.Profile)
-			} else {
-				out.tokenless = append(out.tokenless, b.Profile)
+		token, carries := b.token(response)
+		switch {
+		case b.sentOwnCredentials(sent, canonical):
+			if carries {
+				b.Sink.Seed(token, expiryOf(response, b.ExpiresPath))
+				out.seeded = append(out.seeded, b.Profile)
 			}
-			continue
-		}
-		if b.observe(procedure, response) {
-			out.seeded = append(out.seeded, b.Profile)
+		case carries:
+			out.refused = append(out.refused, b.Profile)
+		default:
+			out.tokenless = append(out.tokenless, b.Profile)
 		}
 	}
 	return out
