@@ -29,10 +29,20 @@ type itemList struct {
 }
 
 func (p *Plan) itemListOf(st *chain.Step) (itemList, bool) {
+	for _, il := range p.sentLists(st) {
+		if list, _ := st.Body[il.key].([]any); len(list) == 2 {
+			return il, true
+		}
+	}
+	return itemList{}, false
+}
+
+func (p *Plan) sentLists(st *chain.Step) []itemList {
 	m, err := p.cat.Lookup(st.Call)
 	if err != nil {
-		return itemList{}, false
+		return nil
 	}
+	out := []itemList{}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 		if !f.Repeated || f.Kind != "message" || f.MapKey != "" || f.JSONForm != "" || len(f.Fields) == 0 {
 			continue
@@ -41,11 +51,11 @@ func (p *Plan) itemListOf(st *chain.Step) (itemList, bool) {
 		if !ok {
 			continue
 		}
-		if list, isList := st.Body[key].([]any); isList && len(list) == 2 {
-			return itemList{fixture: st, key: key, field: f}, true
+		if _, isList := st.Body[key].([]any); isList {
+			out = append(out, itemList{fixture: st, key: key, field: f})
 		}
 	}
-	return itemList{}, false
+	return out
 }
 
 func (p *Plan) probeItemCounts(lib *Library, isTarget func(*chain.Step) bool) {
@@ -123,9 +133,28 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 	}
 	p.Chain.Steps = append(p.Chain.Steps, added...)
 	many := ""
+	acts := ids
 	if fx == st {
+		lots := p.manyItems(lib, st, il, third, thirds)
+		acts = append(slices.Clip(acts), lots)
 		many = fmt.Sprintf("; %s sends %d, each item with its own resource where the item names one, and asserts the last "+
-			"item was applied too, so a cap on the number of items shows", p.manyItems(lib, st, il, third, thirds), lotsOfItems)
+			"item was applied too, so a cap on the number of items shows", lots, lotsOfItems)
+	}
+	again, why := []string{}, ""
+	for _, id := range acts {
+		src := p.stepByID(id)
+		fixture, act, from := p.fromSkippedStart(lib, src)
+		if act == nil {
+			continue
+		}
+		if listPath, ok := p.middles[src]; ok {
+			p.middles[act] = listPath
+		}
+		p.Chain.Steps = append(p.Chain.Steps, fixture, act)
+		again, why = append(again, act.ID), from
+	}
+	if len(again) > 0 {
+		many += fmt.Sprintf(". %s %s the same on %s", strings.Join(again, ", "), pluralVerb(len(again), "does", "do"), why)
 	}
 	p.note("step %s: %s sends %s with 2 items, so %s repeat %s with one item and with three, expecting what %s expects: "+
 		"a backend whose logic changes with the number of items (a loop bound, a limit, a check on the first or last only) "+

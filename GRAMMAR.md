@@ -181,7 +181,7 @@ Produced by resolving each form against a fixture scope:
 | `auth` | string |  | Auth profile this rpc needs when the default principal is the wrong one; `plan` writes it onto the step. |
 | `requires_role` | list of string |  | Roles the caller must hold. `[NONE]` says no role gate; leaving the key out is scored as an omission. With auth configured, `plan` calls a gated rpc as each other profile, expecting the denial. |
 | `required` | list of string | + | Fields the server rejects without, read from the backend; reads too. `[NONE]`: it rejects nothing. `[UNKNOWN]`: the handler could not be found (a warning, scored as empty). |
-| `needs` | list of string |  | An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it. |
+| `needs` | list of string |  | An rpc that must run first but whose output no field consumes, e.g. the write that creates what a list lists. `plan` makes it hold for every entity the step touches; a slice counts an rpc whose effects increase a field this one increases as meeting it. A write that only takes the record to the state this rpc's `restore:` names is a way to reach that state, not a precondition: `plan` also calls this rpc on a record left in the state before it, item-count probes included, unless a failure refuses that state. |
 | `no_producer` | string |  | Why no write in this API creates the rows this read returns (a seed, a migration, a feed). The only thing that spares the no-producer charge. |
 | `before` | list of string |  | The inverse of `needs`, declared by the prerequisite's own domain. Takes rpc names only and pulls in the unaliased rpc. |
 | `fields` | map string → fieldcontract |  | Per request field. Dotted keys reach nested messages; after a repeated field an index picks one entry (`lines.1.id_account`), and an unindexed key (`lines.qty`) applies to every entry. |
@@ -221,7 +221,7 @@ Produced by resolving each form against a fixture scope:
 | `increase` | string |  | The request number it grows by: `amount`, or `lines.amount` for each line. The record moved is the one a `from:`-wired id names whose response carries the key. |
 | `decrease` | string |  | As `increase`, shrinking. |
 | `of` | string |  | An id wired `from:` another write: the path is read from that record's request, one move per line, e.g. `{decrease: lines.amount, of: id_invoice}`. Only with `increase` or `decrease`; `restore` takes none. |
-| `restore` | string |  | The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. |
+| `restore` | string |  | The state from which this write gives back what a decrease took, e.g. `{balance: {restore: POSTED}}`. From any other state it gives back nothing, so the write is valid there too. |
 | `sum` | string |  | `<list>.<qty>`: the key is the sum over the lines of qty times `times`; a 64-bit key also gets a line past 2^32. |
 | `times` | string |  | The price in the request of the record each line names: `{total: {sum: lines.qty, times: unit_price}}`. |
 

@@ -33,12 +33,13 @@ type statusRow struct {
 	ProbeGaps  []contract.ProbeGap         `json:"probe_gaps,omitempty"`
 	EmptyGaps  []contract.EmptyFilterGap   `json:"empty_filter_gaps,omitempty"`
 	LoginGaps  []contract.LoginFailureGap  `json:"login_failure_gaps,omitempty"`
+	StateGaps  []contract.StateGap         `json:"state_gaps,omitempty"`
 }
 
 func contractStatus(args []string) error {
 	fs := flag.NewFlagSet("contract status", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
-	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no role probe, no profile probe, no token, first message, streaming; -v explains each kind in full")
+	showGaps := fs.Bool("gaps", false, "list the gaps instead of the table: no contract, no path to, one item, same resource, no repeat, no empty filter, no login probe, no chain, no state, no role probe, no profile probe, no token, first message, streaming; -v explains each kind in full")
 	phase := fs.String("phase", contract.PhaseAll, "score only one phase: happy (what a working chain needs), failure (refusal curation), or all")
 	verbose := fs.Bool("v", false, "explain each column and the scoring under the table; with -gaps, each kind of gap in full")
 	setUsage(fs, "usage: shrt contract status [-v] [-gaps] [-phase happy|failure|all] [-json]   contract-entry coverage per domain",
@@ -67,10 +68,14 @@ func contractStatus(args []string) error {
 
 	quality := contract.MeasurePhase(lib, e.cat, "", *phase)
 	gaps, scores := quality.GapsByDomain(), quality.ScoreByDomain()
-	reached := reachableRPCs(lib, e.cat)
+	reached, plans := reachableRPCs(lib, e.cat)
 	chains, _, err := chain.LoadDirPartial(e.chainsDir())
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	stateGaps := map[string][]contract.StateGap{}
+	for _, g := range contract.StateGaps(chains, plans, lib, e.cat) {
+		stateGaps[g.RPC] = append(stateGaps[g.RPC], g)
 	}
 	single := map[string][]contract.SingleItemRepeat{}
 	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
@@ -101,6 +106,7 @@ func contractStatus(args []string) error {
 			r.ProbeGaps = append(r.ProbeGaps, probeGaps[m.FullName]...)
 			r.EmptyGaps = append(r.EmptyGaps, emptyGaps[m.FullName]...)
 			r.LoginGaps = append(r.LoginGaps, loginGaps[m.FullName]...)
+			r.StateGaps = append(r.StateGaps, stateGaps[m.FullName]...)
 			if m.StreamRefusal() == "" && !called[m.FullName] {
 				r.NoChain = append(r.NoChain, noChainLine(m))
 			}
@@ -203,6 +209,14 @@ func contractStatus(args []string) error {
 	if unchained > 0 {
 		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
 	}
+	unstated := 0
+	for _, r := range rows {
+		unstated += len(r.StateGaps)
+	}
+	if unstated > 0 {
+		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
+			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
+	}
 	roleGaps, tokenGaps, parityGaps := 0, 0, 0
 	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
@@ -237,6 +251,7 @@ var gapNext = []struct{ kind, next string }{
 	{"no empty filter", "shrt contract plan <rpc>"},
 	{"no login probe", "shrt contract plan <rpc>"},
 	{"no chain", "shrt contract plan <rpc>"},
+	{"no state", "shrt contract plan <rpc> -write -force"},
 	{"no role probe", "shrt contract plan <rpc>"},
 	{"no profile probe", "shrt contract plan <rpc>"},
 	{"no token", "shrt contract plan <rpc>"},
@@ -294,6 +309,11 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 		}
 	}
 	for _, r := range rows {
+		for _, g := range r.StateGaps {
+			gap("no state", "no state     %s\n", g.Line())
+		}
+	}
+	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
 			if g.Kind == "role" {
 				gap("no role probe", "no role probe %s: requires %s, and no chain calls it as profile %s\n", g.RPC, g.Roles, g.Profile)
@@ -317,6 +337,7 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 	if len(found) == 0 {
 		fmt.Println("no gaps: every rpc has a contract, every callable one appears in some multi-step plan and is called by " +
 			"some chain, every repeated message field a chain sends is sent with two or more items, pointing at different resources somewhere and at one resource twice somewhere, every list filter whose contract says empty lists all is sent empty somewhere, every failure a login's contract declares is expected somewhere, " +
+			"every write is called from each state its plan calls it from, with each item count, " +
 			"and every chained rpc is called without a token and, when role-gated, as each profile lacking the role")
 		return
 	}
@@ -376,6 +397,12 @@ const statusGapLegend = "\nno contract  the rpc has no entry in .shrt/contracts/
 	"no chain     no chain under paths.chains calls the rpc (a login the config's auth calls counts as\n" +
 	"             called), so no run, verify or gate exercises it, and a repeated field it takes is never\n" +
 	"             sent at all. Write a chain that calls it: shrt contract plan <rpc>.\n" +
+	"no state     the write's own plan calls it on a record in a state (an order in PENDING), or with an item\n" +
+	"             count there, that no chain does; chains are read step by step for the state each record\n" +
+	"             is in. A needs: whose write only takes the record to the state a restore: names leaves\n" +
+	"             the state before it valid too, and plan calls the write from both. A backend that\n" +
+	"             refuses or miscounts from the state no chain reaches passes every gate. Re-plan with\n" +
+	"             shrt contract plan <rpc> -write -force, then pin what it finds red.\n" +
 	"no role probe the contract's requires_role names a role the profile's name is not, and no chain calls the\n" +
 	"             rpc with auth: <profile>, so a role check that was dropped passes every gate. shrt contract\n" +
 	"             plan <rpc> scaffolds <step>_as_<profile> expecting the declared denial, with reads proving\n" +
@@ -441,11 +468,15 @@ func noChainLine(m *catalog.Method) string {
 	return m.FullName + " (repeated request field(s) no chain sends at all: " + strings.Join(repeated, ", ") + ")"
 }
 
-func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) map[string]bool {
-	reached := map[string]bool{}
+func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) (map[string]bool, map[string]*contract.Plan) {
+	reached, plans := map[string]bool{}, map[string]*contract.Plan{}
 	for _, m := range cat.Methods() {
 		p, err := contract.BuildPlan(m.FullName, lib, cat, "reachability")
-		if err != nil || len(p.Order) < 2 {
+		if err != nil {
+			continue
+		}
+		plans[m.FullName] = p
+		if len(p.Order) < 2 {
 			continue
 		}
 		for _, node := range p.Order {
@@ -453,7 +484,7 @@ func reachableRPCs(lib *contract.Library, cat *catalog.Catalog) map[string]bool 
 			reached[rpc] = true
 		}
 	}
-	return reached
+	return reached, plans
 }
 
 func contractQuality(args []string) error {

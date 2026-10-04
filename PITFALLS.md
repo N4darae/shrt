@@ -190,7 +190,12 @@ chain's own tag isolates.
 `order:` line as a claim about the flow. A missing step means a missing `needs:`/`from:` in the
 contract: fix the contract and re-plan, rather than adding the step by hand. A `gap:` saying an rpc
 `says nothing of` a number means nothing is asserted after it: paste the `effects:` it prints.
-`summary` is prose for people; wording it differently does not help.
+`summary` is prose for people; wording it differently does not help. A `needs:` puts every call of
+the rpc after it, so a defect from the state before it (a PENDING order of three lines) passes: when
+the needed write only takes the record to the state a `restore:` names, state that `restore:` and
+re-plan, and `plan` calls the rpc from both states. `shrt contract status -gaps` lists a write no
+chain calls from a state its plan does (`no state`); `shrt chain which -rpc` prints the state and
+item count each step acts on.
 
 ## 30. The plan leaves a numeric zero that lint accepts
 
