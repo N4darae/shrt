@@ -401,11 +401,6 @@ func newRunner(t *testing.T, srv *fakeServer) *runner.Runner {
 	return buildRunner(t, testConfig(srv.URL), catalogtest.New())
 }
 
-func profileRunner(t *testing.T, srv *fakeServer, cfg *config.Config) *runner.Runner {
-	t.Helper()
-	return buildRunner(t, cfg, catalogtest.New())
-}
-
 func newBatchRunner(t *testing.T, srv *fakeServer) *runner.Runner {
 	t.Helper()
 	return buildRunner(t, testConfig(srv.URL), catalogtest.Batch())
