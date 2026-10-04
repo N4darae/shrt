@@ -19,16 +19,3 @@ func readRoots(c *chain.Chain) map[string]bool {
 	}
 	return out
 }
-
-func readExports(exports map[string]string, read map[string]bool) map[string]string {
-	out := map[string]string{}
-	for name, path := range exports {
-		if read[name] {
-			out[name] = path
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}

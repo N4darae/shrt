@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -785,7 +786,8 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 	shallow := *step
 	shallow.Body = nil
 	if read != nil {
-		shallow.Export = readExports(step.Export, read)
+		shallow.Export = maps.Clone(step.Export)
+		maps.DeleteFunc(shallow.Export, func(name, _ string) bool { return !read[name] })
 	}
 	node := &yaml.Node{}
 	if err := node.Encode(&shallow); err != nil {
