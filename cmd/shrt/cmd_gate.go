@@ -741,6 +741,7 @@ type gateChain struct {
 	slow      map[string]bool
 	echoOf    string
 	slices    []string
+	shown     []string
 }
 
 func (g *gateChain) findingOnly() bool {
@@ -1031,8 +1032,11 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	switch {
 	case failed > 0 || len(findings) > 0:
-		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; details: shrt verify <chain>, or shrt run <chain> -keep-going",
-			failed, len(chains), gateAlso(unverified, len(findings)))
+		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
+		if *verbose {
+			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
+		}
+		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s", failed, len(chains), gateAlso(unverified, len(findings)), next)
 	case unverified > 0:
 		return exitWith(3, "NO VERDICT: %d of %d chain(s) could not be verified (exit 3 twice: backend down, restarting or refusing auth); re-run once it is up",
 			unverified, len(chains))
@@ -1190,6 +1194,9 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		if what == "verify" && g.class == "" && len(out.side.Items) > 0 {
 			g.class = out.side.Items[0].Class
 		}
+		if what == "verify" {
+			g.shown = changeLines(out.stdout)
+		}
 	}
 }
 
@@ -1242,49 +1249,69 @@ func (g *gateChain) printChanges(e *env) {
 			fmt.Println("  " + hint)
 		}
 	}
-	seen, paths := map[string]bool{}, []string{}
-	steps, example := map[string][]string{}, map[string]string{}
+	type row struct {
+		key, line string
+		steps, at []string
+		more      int
+	}
+	var rows []*row
+	byKey, seen := map[string]*row{}, map[string]bool{}
+	add := func(key, step, id, line string) {
+		if seen[step+" "+id] {
+			return
+		}
+		seen[step+" "+id] = true
+		r := byKey[key]
+		if r == nil {
+			r = &row{key: key, line: line}
+			byKey[key], rows = r, append(rows, r)
+		} else if r.more++; !slices.Contains(r.at, step) {
+			r.at = append(r.at, step)
+		}
+		if !slices.Contains(r.steps, step) {
+			r.steps = append(r.steps, step)
+		}
+	}
+	for _, l := range g.shown {
+		key, step := l, ""
+		if m := verifyChangeLine.FindStringSubmatch(l); m != nil {
+			key, step = m[2]+" "+gateIndex.ReplaceAllString(m[3], "[]$1"), m[1]
+		}
+		add(key, step, l, l)
+	}
 	for _, it := range g.items {
-		if seen[it.Step+" "+it.Path] {
-			continue
-		}
-		seen[it.Step+" "+it.Path] = true
-		path, eg := it.shown()
-		if it.Reason.Kind == reasonKnockOn {
-			path, eg = it.Reason.String(), ""
-		}
-		if steps[path] == nil {
-			paths = append(paths, path)
-			example[path] = eg
-		}
-		if !slices.Contains(steps[path], it.Step) {
-			steps[path] = append(steps[path], it.Step)
+		path, _ := it.shown()
+		switch {
+		case len(g.shown) > 0:
+		case it.Reason.Kind == reasonKnockOn:
+			add("\x00"+it.Reason.String(), it.Step, "", it.Reason.String())
+		default:
+			line := "[" + it.Step + "] " + it.headline()
+			add(path, it.Step, line, line)
 		}
 	}
-	var sets []string
-	together := map[string][]string{}
-	for _, p := range paths {
-		key := strings.Join(steps[p], " ")
-		if example[p] == "" {
-			key = "\x00" + p
+	for _, r := range rows {
+		switch {
+		case strings.HasPrefix(r.key, "\x00"):
+			fmt.Printf("    %d step(s) %s (%s)\n", len(r.steps), r.line, capList(r.steps, 3))
+		case r.more > 0:
+			fmt.Printf("    %s (and %d more at %s)\n", r.line, r.more, capList(r.at, 3))
+		default:
+			fmt.Println("    " + r.line)
 		}
-		if together[key] == nil {
-			sets = append(sets, key)
-		}
-		together[key] = append(together[key], p)
 	}
-	for _, key := range sets {
-		ps := together[key]
-		eg := example[ps[0]]
-		if eg == "" {
-			fmt.Printf("    %d step(s) %s (%s)\n", len(steps[ps[0]]), ps[0], capList(steps[ps[0]], 3))
-			continue
+}
+
+var verifyChangeLine = regexp.MustCompile(`^\[([^\]]+)\] +(\S+) +(\S+)`)
+
+func changeLines(stdout string) []string {
+	var out []string
+	for _, l := range strings.Split(stdout, "\n") {
+		if rest, ok := strings.CutPrefix(l, "  ["); ok {
+			out = append(out, "["+rest)
 		}
-		if len(ps) > 1 {
-			eg = ps[0] + " " + eg
-		}
-		fmt.Printf("    %s at %d step(s) (%s); e.g. %s\n", capList(ps, 4), len(steps[ps[0]]), capList(steps[ps[0]], 3), eg)
 	}
+	return out
 }
 
 func (g *gateChain) line(width int) string {

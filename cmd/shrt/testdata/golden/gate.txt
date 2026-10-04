@@ -4,7 +4,18 @@ PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-shrt gate: FAIL: 1 of 2 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
+shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+
+$ shrt gate -v -no-session-check -hollow-baseline   [exit 1]
+FAIL       probe-orders  regression: cancel_confirmed (OrderService/CancelOrder) status.code want=SUCCESS got=REJECTED; suspect the write
+  cancel_confirmed sent {"id_order":"ord-0045"}
+    [cancel_confirmed] changed    status.code want=SUCCESS got=REJECTED
+    [cancel_confirmed] changed    status.message want="" got=StillConfirmed
+PASS       shop-product
+failures by suspect rpc:
+  OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed
+coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
+shrt gate: FAIL: 1 of 2 chain(s) failed; next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)
 
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
 FAIL       probe-orders                         chain change: cancel_confirmed (OrderService/CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
@@ -13,7 +24,7 @@ PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
 coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
-shrt gate: FAIL: 1 of 3 chain(s) failed; details: shrt verify <chain>, or shrt run <chain> -keep-going
+shrt gate: FAIL: 1 of 3 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
 
 # a read unclear between two writes names both and is grouped once, under the earlier
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
@@ -61,9 +72,10 @@ failures by suspect rpc:
 
 # -v counts the knock-on steps
 PASS       one
-    list[].a, list[].b at 1 step(s) (list); e.g. list[].a want=1 got=2
-    list at 2 step(s) (list, list_2); e.g. want=1 got=2
-    n at 2 step(s) (find, make); e.g. want=1 got=2
+    [list] list.0.a want=1 got=2
+    [list] list.0.b want=1 got=2
+    [list] list want=1 got=2 (and 1 more at list_2)
+    [find] n want=1 got=2 (and 1 more at make)
     2 step(s) knock-on of write make (S/Make) (get, get_2)
 failures by suspect rpc:
   S/List: 2 step(s) in 1 chain(s); e.g. one list; answers another set of list
@@ -120,19 +132,30 @@ failures by suspect rpc:
 # -v shows the suspect's request and the same fault in a later chain
 FAIL       one  get (S/Get) thing.state want=a got=b; suspect write w (S/Move)
   w sent {"w":1}
-    thing.state at 1 step(s) (get); e.g. want=a got=b
+    [get] thing.state want=a got=b
 FAIL       two  get (S/Get) thing.state want=a got=b; same fault as one (Move)
   w sent {"w":1}
-    thing.state at 1 step(s) (get); e.g. want=a got=b
+    [get] thing.state want=a got=b
 failures by suspect rpc:
   S/Move: 2 step(s) in 2 chain(s); e.g. one get; write w
 
+# -v prints verify's lines, a change at more steps or items once
+FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write
+    [create] changed    order.total_minor want=600 got=400 (and 2 more at confirm, fetch)
+    [list] changed    orders.0.total_minor want=600 got=400 (and 1 more at list)
+    [get] type       customer want=null <nil> got=object {"name":""}
+    [get] length     status.details want=1 item(s) got=0 item(s)
+    [later..last] not_reached status 2 step(s) want=passed, not sent (it reads step "get", which did not pass)
+failures by suspect rpc:
+  OrderService/CreateOrder: 1 step(s) in 1 chain(s); e.g. orders create
+
 # -v lists each changed path once
 FAIL       one  later status want=passed got=failed; knock-on of write make (S/Make)
-    thing.n at 2 step(s) (make, get); e.g. want=1 got=2
-    things[].n at 1 step(s) (list); e.g. want=1 got=2
+    [make] thing.n want=1 got=2 (and 1 more at get)
+    [list] things.3.n want=1 got=2
     1 step(s) knock-on of write make (S/Make) (later)
-    (error), code at 2 step(s) (put, put_2); e.g. (error) unavailable: busy
+    [put] (error) unavailable: busy (and 1 more at put_2)
+    [put] code want=<none> got=unavailable (and 1 more at put_2)
 failures by suspect rpc:
   (no rpc) thing.n: 2 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2 (+1 knock-on step(s))
   (no rpc) (error): 2 step(s) in 1 chain(s); e.g. one put (error) unavailable: busy

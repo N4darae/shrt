@@ -164,6 +164,18 @@ func gateCases() []gateCase {
 			}
 		}},
 		{name: "-v shows the suspect's request and the same fault in a later chain", verbose: true, chains: func() []*gateChain { return []*gateChain{sent("one"), sent("two")} }},
+		{name: "-v prints verify's lines, a change at more steps or items once", verbose: true, chains: func() []*gateChain {
+			return []*gateChain{{name: "orders", failed: true, items: []gateItem{total}, shown: []string{
+				"[create] changed    order.total_minor want=600 got=400",
+				"[confirm] changed    order.total_minor want=600 got=400",
+				"[fetch] changed    order.total_minor want=600 got=400",
+				"[list] changed    orders.0.total_minor want=600 got=400",
+				"[list] changed    orders.1.total_minor want=900 got=700",
+				"[get] type       customer want=null <nil> got=object {\"name\":\"\"}",
+				"[get] length     status.details want=1 item(s) got=0 item(s)",
+				"[later..last] not_reached status 2 step(s) want=passed, not sent (it reads step \"get\", which did not pass)",
+			}}}
+		}},
 		{name: "-v lists each changed path once", verbose: true, chains: func() []*gateChain {
 			return []*gateChain{{name: "one", failed: true, items: []gateItem{
 				{Step: "make", Path: "thing.n", Want: "1", Got: "2"},
