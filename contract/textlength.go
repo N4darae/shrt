@@ -95,33 +95,17 @@ func (p *Plan) probeTextLength(lib *Library, isTarget func(*chain.Step) bool) {
 		if !ok {
 			continue
 		}
-		carrier, echoed := "", map[string]bool{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-				continue
-			}
-			for _, sf := range fd.Fields {
-				if sf.Kind == "string" && !sf.Repeated {
-					echoed[sf.Name] = true
-				}
-			}
-			if carrier == "" {
-				carrier = fd.Name
-			} else {
-				carrier = "-"
-			}
-		}
-		if carrier == "" || carrier == "-" {
+		car := singleCarrier(m)
+		if car == nil {
 			continue
 		}
-		unique := map[string]bool{}
-		for _, f := range lib.AllFailures(st.Call) {
-			if noun, isUnique := uniquenessNoun(f); isUnique {
-				if field := p.uniqueField(st, c, f, noun); field != "" {
-					unique[stripIndexes(field)] = true
-				}
+		carrier, echoed := car.Name, map[string]bool{}
+		for _, sf := range car.Fields {
+			if sf.Kind == "string" && !sf.Repeated {
+				echoed[sf.Name] = true
 			}
 		}
+		unique := p.uniqueFields(lib, st)
 		fields := []textField{}
 		for _, f := range catalog.DescribeMessage(m.Input()).Fields {
 			if f.Kind != "string" || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || idLike(f.Name) || isIdempotencyField(f) || !echoed[f.Name] {
@@ -163,15 +147,12 @@ func (p *Plan) textReadBack(lib *Library, st, probe *chain.Step, m *catalog.Meth
 	if !ok {
 		return nil
 	}
-	stored := map[string]bool{}
-	for _, sf := range carrierFields(e.reader, e.carrier) {
-		stored[sf.Name] = true
-	}
+	stored := carrierFields(e.reader, e.carrier)
 	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+probe.ID),
 		fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID), "${"+probe.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	for _, name := range names {
-		if stored[name] {
+		if fieldByName(stored, name) != nil {
 			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + name, Equals: "${steps." + probe.ID + ".request." + name + "}"})
 		}
 	}
@@ -200,11 +181,9 @@ func (p *Plan) textProbe(lib *Library, st *chain.Step, m *catalog.Method, carrie
 
 func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, carrier string, fields []textField, unique map[string]bool) {
 	long, multi := map[string]string{}, map[string]string{}
-	capped := []string{}
 	for _, tf := range fields {
 		v := st.Body[tf.key].(string)
 		if tf.max > 0 {
-			capped = append(capped, tf.name)
 			continue
 		}
 		long[tf.key] = lengthen(v, padding(longTextPad))
@@ -252,7 +231,7 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 	msg := fmt.Sprintf("step %s: text the response echoes is probed with values the fixtures never reach: %s; each asserts "+
 		"the text echoed and, where a read takes the id, stored exactly as sent, so a backend that truncates, trims or "+
 		"re-encodes it fails", st.ID, strings.Join(said, "; "))
-	if len(capped) < len(fields) {
+	if len(long) > 0 {
 		msg += ". If the backend limits a field's length, state it in its note or a failure's when: (\"at most 40 characters\") " +
 			"and plan again: the probe then sends exactly that many and one more, expecting the refusal"
 	}

@@ -187,26 +187,28 @@ func (p *Plan) shortageFailure(lib *Library, st *chain.Step) (*catalog.Method, F
 	return nil, Failure{}, false
 }
 
+func (p *Plan) uniqueFields(lib *Library, st *chain.Step) map[string]bool {
+	unique := map[string]bool{}
+	if c, ok := lib.Get(st.Call); ok {
+		for _, f := range lib.AllFailures(st.Call) {
+			if noun, isUnique := uniquenessNoun(f); isUnique {
+				if field := p.uniqueField(st, c, f, noun); field != "" {
+					unique[stripIndexes(field)] = true
+				}
+			}
+		}
+	}
+	return unique
+}
+
 func (p *Plan) freshen(lib *Library, st *chain.Step) {
 	m, err := p.cat.Lookup(st.Call)
 	if err != nil {
 		return
 	}
 	fields := catalog.DescribeMessage(m.Input()).Fields
-	unique := map[string]bool{}
-	if c, ok := lib.Get(st.Call); ok {
-		for _, f := range lib.AllFailures(st.Call) {
-			noun, isUnique := uniquenessNoun(f)
-			if !isUnique {
-				continue
-			}
-			if field := p.uniqueField(st, c, f, noun); field != "" {
-				unique[stripIndexes(field)] = true
-			}
-		}
-	}
 	marker := strings.TrimPrefix(st.ID, defaultID(m.Name)+"_")
-	for path := range unique {
+	for path := range p.uniqueFields(lib, st) {
 		v, _ := bodyValue(st.Body, path)
 		kind := ""
 		if fd, ok := catalog.FieldAt(fields, chain.SplitPath(path)); ok && fd != nil {
