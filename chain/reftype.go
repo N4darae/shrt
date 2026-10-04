@@ -83,7 +83,7 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 			return
 		}
 		if len(refs) != 1 || strings.TrimSpace(value) != "${"+refs[0]+"}" {
-			never = append(never, interpolatedStructures(path, value, refs, responses, exports)...)
+			never = append(never, structureProblems("is interpolated inside other text in "+path, value, refs, false, responses, exports)...)
 			return
 		}
 		src, where, collection, ok := refSourceField(ParseRef(refs[0]), responses, exports)
@@ -132,21 +132,24 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 				"sent. Check that the source really carries a number", refs[0], path, target.Kind, where, kind))
 		}
 	})
-	never = append(never, headerStructures(s, responses, exports)...)
+	for _, name := range sortedKeys(s.Headers) {
+		never = append(never, structureProblems("fills header "+name, s.Headers[name], collectRefs(s.Headers[name]), true, responses, exports)...)
+	}
 	return never, maybe
 }
 
-func interpolatedStructures(path, value string, refs []string, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
+func structureProblems(how, value string, refs []string, header bool, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
+	carries, fix := "", "Interpolate"
+	if header {
+		carries, fix = "a header carries text only, and ", "Reference"
+	}
 	out := []string{}
 	for _, ref := range refs {
-		kind, where, ok := structureOf(ref, responses, exports)
-		if !ok {
-			continue
+		if kind, where, ok := structureOf(ref, responses, exports); ok {
+			out = append(out, fmt.Sprintf("${%s} %s (%q), from %s, declared %s — %sa message, list or map has no text form, "+
+				"so it would be sent as Go syntax (map[...] or [...]) instead of anything the backend reads, and shrt run "+
+				"refuses the chain before sending anything. %s one scalar field of it instead", ref, how, value, where, kind, carries, fix))
 		}
-		out = append(out, fmt.Sprintf("${%s} is interpolated inside other text in %s (%q), from %s, declared %s — "+
-			"a message, list or map has no text form, so it would be sent as Go syntax (map[...] or [...]) instead of "+
-			"anything the backend reads, and shrt run refuses the chain before sending anything. Interpolate one "+
-			"scalar field of it instead", ref, path, value, where, kind))
 	}
 	return out
 }
@@ -218,11 +221,7 @@ func refOrigin(r Ref, exports map[string]exportOrigin) (step, rest string, ok bo
 	return r.Head, r.Rest, true
 }
 
-func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string, bool)) {
-	body, ok := v.(map[string]any)
-	if !ok {
-		return
-	}
+func walkTypedBody(body map[string]any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string, bool)) {
 	for _, key := range sortedKeys(body) {
 		f, found := catalog.ResponseFieldAt(fields, []string{key})
 		if !found || f == nil || f.Truncated {

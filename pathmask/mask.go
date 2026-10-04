@@ -3,6 +3,7 @@ package pathmask
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"reflect"
 	"slices"
 	"sort"
@@ -178,11 +179,7 @@ func scrubValue(v any, secrets []string) any {
 		return t
 	case map[string]any:
 		out := make(map[string]any, len(t))
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(t))
 		for _, k := range keys {
 			if scrubText(k, secrets) == k {
 				out[k] = scrubValue(t[k], secrets)
