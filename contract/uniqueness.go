@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -157,7 +158,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	attempt := func(suffix, description string, value any) *chain.Step {
 		body, _ := cloneBody(st.Body).(map[string]any)
 		setBodyPath(body, field, value)
-		dup := &chain.Step{
+		return &chain.Step{
 			ID:          uniqueStepID(p.Chain, st.ID+"_same_"+leaf+suffix),
 			Description: description,
 			Call:        st.Call,
@@ -165,7 +166,6 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 			Body:        body,
 			Expect:      append([]chain.Expectation{}, expect...),
 		}
-		return dup
 	}
 	added := []*chain.Step{attempt("", fmt.Sprintf("the same %s again is refused with %s.", leaf, f.Label()), ref)}
 	other := attempt("_other_fields", "", ref)
@@ -216,15 +216,7 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 		p.gap("step %s: the duplicate attempts assert only that the call was refused; the response declares no "+
 			"code field (conventions.code_fields) to pin %s on, so pin it yourself where the refusal carries it", st.ID, f.Label())
 	}
-	at := 0
-	for i, s := range p.Chain.Steps {
-		if s == st {
-			at = i + 1
-		}
-	}
-	steps := append([]*chain.Step{}, p.Chain.Steps[:at]...)
-	steps = append(steps, added...)
-	p.Chain.Steps = append(steps, p.Chain.Steps[at:]...)
+	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), slices.Index(p.Chain.Steps, st)+1, added...)
 }
 
 func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, bool) {
@@ -247,25 +239,15 @@ func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, boo
 		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
 		pinned = true
 	}
-	carriers := []string{}
-	for _, fd := range fields {
-		if fd.Kind == "message" && !fd.Repeated && fd.MapKey == "" && fd.Name != root && !IsVerdictFieldName(fd.Name) {
-			carriers = append(carriers, fd.Name)
-		}
-	}
-	if len(carriers) == 1 {
-		absent := false
-		out = append(out, chain.Expectation{Path: carriers[0], Exists: &absent})
+	if car := singleCarrier(m); car != nil {
+		out = append(out, chain.Expectation{Path: car.Name, Exists: boolPtr(false)})
 	}
 	return out, pinned
 }
 
 func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
-	codes := map[string]bool{}
-	for _, name := range chain.CodeFields() {
-		codes[name] = true
-	}
+	codes := chain.CodeFields()
 	pinned := false
 	seen := map[string]bool{}
 	var walk func(prefix string, fs []*catalog.Field, depth int)
@@ -282,7 +264,7 @@ func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chai
 				}
 				continue
 			}
-			if fd.Repeated || !codes[fd.Name] || seen[fd.Name] {
+			if fd.Repeated || !slices.Contains(codes, fd.Name) || seen[fd.Name] {
 				continue
 			}
 			switch {
