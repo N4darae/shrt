@@ -188,7 +188,11 @@ when the planned calls separate failing from passing, and a `repro:` slice verif
 the gap's own calls and what they need when that still reproduces. No safe spot covers those states,
 so such a row is no regression, only a miss against the contract or its plan; the header says how
 long the probes took. A gap past the cap, or one it could not run, says `not probed:` with the
-command; the closing line says to probe only those, or a support ticket no row explains.
+command. A gap line says the state, the item counts no chain sends and what the chains do send
+(`CancelOrder on a PENDING order: no chain sends 1 or 3 lines (edge-flows sends 2)`); why the plan
+calls it there is in `shrt contract status -gaps`. The closing line comes last, after the block: it
+counts the gap probes that failed (`FAIL: 4 of 31 chain(s) failed and 1 gap probe failed, no
+regression; ...`) and says to probe only the gaps not probed, or a support ticket no row explains.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

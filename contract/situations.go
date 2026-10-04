@@ -193,18 +193,14 @@ func (g StateGap) Line() string {
 	what := "no chain calls it so"
 	switch {
 	case len(g.Sent) > 0 && g.List != "":
-		what = fmt.Sprintf("no chain sends %s of %s (chains send %s: %s)", g.List, itemCounts(g.Missing), itemCounts(g.Sent), strings.Join(clipList(g.Chains, 3), ", "))
+		what = fmt.Sprintf("no chain sends %s (%s %s %s)", itemCounts(g.Missing, g.List), strings.Join(clipList(g.Chains, 3), ", "), pluralVerb(len(g.Chains), "sends", "send"), itemCounts(g.Sent, ""))
 	case g.List != "":
-		what += fmt.Sprintf("; its plan sends %s of %s", g.List, itemCounts(g.Missing))
+		what += "; its plan sends " + itemCounts(g.Missing, g.List)
 	}
-	why := "its plan calls it so"
-	if g.Why != "" {
-		why = g.Why
-	}
-	return fmt.Sprintf("%s on %s in %s: %s, though %s", shortRPC(g.RPC), withArticle(g.Carrier), g.State, what, why)
+	return fmt.Sprintf("%s on %s: %s", shortRPC(g.RPC), withArticle(g.State+" "+g.Carrier), what)
 }
 
-func itemCounts(ns []int) string {
+func itemCounts(ns []int, list string) string {
 	words := make([]string, len(ns))
 	for i, n := range ns {
 		words[i] = strconv.Itoa(n)
@@ -213,5 +209,8 @@ func itemCounts(ns []int) string {
 	if len(words) > 1 {
 		text = strings.Join(words[:len(words)-1], ", ") + " or " + text
 	}
-	return text + " " + pluralVerb(ns[len(ns)-1], "item", "items")
+	if list == "" {
+		return text
+	}
+	return text + " " + pluralVerb(ns[len(ns)-1], strings.TrimSuffix(list, "s"), list)
 }

@@ -304,3 +304,12 @@ func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
 		t.Fatalf("a chain with no safe spot runs with -keep-going, so a failing step after the first reaches the gate, got %d:\n%s", code, out)
 	}
 }
+
+func TestTheFailLineCountsTheGapProbesThatFailed(t *testing.T) {
+	if got := gateAlso(1, 0, "1 gap probe failed, no regression"); got != ", 1 no verdict and 1 gap probe failed, no regression" {
+		t.Errorf("got %q", got)
+	}
+	if got := gateAlso(0, 2, ""); got != ", 2 finding(s) listed above" {
+		t.Errorf("got %q", got)
+	}
+}

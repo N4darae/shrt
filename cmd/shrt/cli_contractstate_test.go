@@ -61,7 +61,7 @@ func TestStatusGapsNameAWriteNoChainCallsFromTheStateBeforeItsNeed(t *testing.T)
 	defer stateGapWorkspace(t)()
 	var err error
 	out := captureStdout(t, func() { err = contractStatus([]string{"-gaps"}) })
-	if err != nil || !strings.Contains(out, "no state     CancelOrder on an order in PENDING: no chain calls it so; its plan sends lines of 1, 2 or 3 items, though needs: [ConfirmOrder] only takes the order to CONFIRMED") ||
+	if err != nil || !strings.Contains(out, "no state     CancelOrder on a PENDING order: no chain calls it so; its plan sends 1, 2 or 3 lines, though needs: [ConfirmOrder] only takes the order to CONFIRMED") ||
 		!strings.Contains(out, ", so it acts on a PENDING order too: shrt contract plan CancelOrder -write orderservice-cancelorder-gaps.yaml (into .shrt/scratch/)\n") ||
 		!strings.Contains(out, "shrt contract plan <rpc> -write <file>.yaml (no state)") || strings.Contains(out, "-force") {
 		t.Fatalf("status -gaps names the state no chain cancels from and what to run (%v):\n%s", err, out)
@@ -115,9 +115,9 @@ func TestGateReproNamesTheStatesNoChainCallsAGatedWriteFrom(t *testing.T) {
 		return gateOutcome{code: 1, side: gateSidecar{Error: "boom"}}
 	}
 	out, code := runGateOut(t, "-repro")
-	gap := "\n  CancelOrder on an order in PENDING: no chain calls it so; its plan sends lines of 1, 2 or 3 items, though needs: [ConfirmOrder] only takes the order to CONFIRMED"
+	gap := "\n  CancelOrder on a PENDING order: no chain calls it so; its plan sends 1, 2 or 3 lines\n"
 	if code != 1 || !strings.Contains(out, "\ngaps: 3 state(s) no chain calls a gated write from, so no row above can show a fault there; -repro planned and ran 3 of them in .shrt/scratch/ (") ||
-		!strings.Contains(out, gap+", where its restore: applies, so it acts on a PENDING order too\n    not probed: boom  (shrt run .shrt/scratch/orderservice-cancelorder-gaps.yaml)\n") ||
+		!strings.Contains(out, gap+"    not probed: boom  (shrt run .shrt/scratch/orderservice-cancelorder-gaps.yaml)\n") || strings.Contains(out, "restore:") ||
 		!strings.HasSuffix(out, "; the rows and repro lines above are the answer for what the chains cover; probe further only for the 3 gap(s) -repro did not probe, or for a support ticket no row explains\n") {
 		t.Fatalf("gate -repro lists the state gaps of the rpcs it covers beside its verdict, says which it could not probe, and the verdict points at those, got %d:\n%s", code, out)
 	}

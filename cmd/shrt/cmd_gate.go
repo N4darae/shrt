@@ -1090,10 +1090,13 @@ func runGate(ctx context.Context, args []string) error {
 			probe = fmt.Sprintf("the %d gap(s) -repro did not probe, or for %s", gaps.left, probe)
 		}
 		if gaps.failed > 0 {
-			gapNote = fmt.Sprintf("; %d gap probe(s) failed above, which is no regression", gaps.failed)
+			gapNote = fmt.Sprintf("%d gap %s failed, no regression", gaps.failed, pluralWord(gaps.failed, "probe", "probes"))
 		}
 	}
-	left := ""
+	left, passNote := "", ""
+	if gapNote != "" {
+		passNote = "; " + gapNote
+	}
 	if len(skipped) > 0 {
 		left = fmt.Sprintf("; %s left out %s: shrt gate %s runs it", skipBy, strings.Join(skipped, ", "), strings.Join(skipped, " "))
 	}
@@ -1106,14 +1109,14 @@ func runGate(ctx context.Context, args []string) error {
 		case *verbose:
 			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
 		}
-		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings)), next, left)
+		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings), gapNote), next, left)
 	case unverified > 0:
 		return exitWith(3, "NO VERDICT: %d of %d chain(s) could not be verified (exit 3 twice: backend down, restarting or refusing auth); re-run once it is up%s",
 			unverified, len(chains), left)
 	case len(skipped) > 0:
-		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), gapNote, left)
+		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), passNote, left)
 	}
-	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), gapNote)
+	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), passNote)
 	return nil
 }
 
@@ -1123,13 +1126,16 @@ func flagGiven(fs *flag.FlagSet, name string) bool {
 	return given
 }
 
-func gateAlso(unverified, findings int) string {
+func gateAlso(unverified, findings int, gaps string) string {
 	out := ""
 	if unverified > 0 {
 		out += fmt.Sprintf(", %d no verdict", unverified)
 	}
 	if findings > 0 {
 		out += fmt.Sprintf(", %d finding(s) listed above", findings)
+	}
+	if gaps != "" {
+		out += " and " + gaps
 	}
 	return out
 }
