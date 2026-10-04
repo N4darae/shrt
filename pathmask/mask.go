@@ -394,39 +394,21 @@ func (m *Masker) masked(path string) bool {
 }
 
 func Match(pattern, path string) bool {
-	return matchSegments(strings.Split(pattern, "."), strings.Split(path, "."))
-}
-
-func matchSegments(pat, seg []string) bool {
-	if len(pat) == 0 {
-		return len(seg) == 0
-	}
-	head := pat[0]
-	if head == "**" {
-		for i := 0; i <= len(seg); i++ {
-			if matchSegments(pat[1:], seg[i:]) {
-				return true
-			}
-		}
-		return false
-	}
-	if len(seg) == 0 {
-		return false
-	}
-	if head != "*" && !segmentMatches(head, seg[0]) {
-		return false
-	}
-	return matchSegments(pat[1:], seg[1:])
+	return matchWith(strings.Split(pattern, "."), strings.Split(path, "."), segmentMatches)
 }
 
 func matchFolded(pat, seg []string) bool {
+	return matchWith(pat, seg, globFolded)
+}
+
+func matchWith(pat, seg []string, matches func(pattern, segment string) bool) bool {
 	if len(pat) == 0 {
 		return len(seg) == 0
 	}
 	head := pat[0]
 	if head == "**" {
 		for i := 0; i <= len(seg); i++ {
-			if matchFolded(pat[1:], seg[i:]) {
+			if matchWith(pat[1:], seg[i:], matches) {
 				return true
 			}
 		}
@@ -435,10 +417,10 @@ func matchFolded(pat, seg []string) bool {
 	if len(seg) == 0 {
 		return false
 	}
-	if head != "*" && !globFolded(head, seg[0]) {
+	if head != "*" && !matches(head, seg[0]) {
 		return false
 	}
-	return matchFolded(pat[1:], seg[1:])
+	return matchWith(pat[1:], seg[1:], matches)
 }
 
 func segmentMatches(pattern, segment string) bool {
