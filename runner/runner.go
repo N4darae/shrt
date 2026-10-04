@@ -475,42 +475,34 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.T
 		return
 	}
 	sr.Status = StatusError
-	if fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil {
-		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run: the "+
-			wasRefused(EarlyRefusalText(refusals))+". Either it ends sessions long before the expiry its login states, or it restarted "+
-			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused "+
-			"early again, with nothing showing a restart, is reported as a finding")
-		return
-	}
-	if fresh == transport.FreshTokenAccepted {
-		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run (issued by a "+
-			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
-			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
-			"reported as a finding. Only a token refused on its first use "+
-			"suggests the backend refuses valid tokens")
-		return
-	}
-	evidence := ""
-	switch fresh {
-	case transport.FreshTokenRelogin:
-		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
-			"was re-sent with the new token, and the backend refused that too"
-	case transport.FreshTokenMinted:
+	why := "the backend refused authentication for this call, so its answer is not a verdict about the rpc: " +
+		"check the credentials of the step's auth profile and re-run"
+	evidence := "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
+		"was re-sent with the new token, and the backend refused that too"
+	confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
+	switch {
+	case fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil:
+		why = "the backend refused a token that it had accepted on an earlier call of this run: the " +
+			wasRefused(EarlyRefusalText(refusals)) + ". Either it ends sessions long before the expiry its login states, or it restarted " +
+			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused " +
+			"early again, with nothing showing a restart, is reported as a finding"
+	case fresh == transport.FreshTokenAccepted:
+		why = "the backend refused a token that it had accepted on an earlier call of this run (issued by a " +
+			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), " +
+			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is " +
+			"reported as a finding. Only a token refused on its first use " +
+			"suggests the backend refuses valid tokens"
+	case fresh == transport.FreshTokenMinted:
 		evidence = "the backend refused a token that a login in this run had just issued"
+		confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
+			"re-sent after a fresh login and refused again is reported as a finding; re-run"
+		fallthrough
+	case fresh == transport.FreshTokenRelogin:
+		why = evidence + ": the credentials work and the token is current, so this " + freshTokenRefused +
+			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, " +
+			"because the rpc itself never answered; " + confirm
 	}
-	if evidence != "" {
-		confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
-		if fresh == transport.FreshTokenMinted {
-			confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
-				"re-sent after a fresh login and refused again is reported as a finding; re-run"
-		}
-		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
-			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
-			"because the rpc itself never answered; "+confirm)
-		return
-	}
-	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
-		"check the credentials of the step's auth profile and re-run")
+	sr.Error = joinLines(sr.Error, why)
 }
 
 func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
@@ -932,11 +924,8 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			return nil, err
 		}
 	}
-	problems := chain.VarRefProblems(rec.Vars)
-	problems = append(problems, c.PreflightProblems()...)
-	problems = append(problems, c.ExportStepClashes()...)
-	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
-	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
+	problems := slices.Concat(chain.VarRefProblems(rec.Vars), c.PreflightProblems(), c.ExportStepClashes(),
+		c.VarStructureProblems(rec.Vars), c.RedactedPinProblems(rec.Redacted))
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
