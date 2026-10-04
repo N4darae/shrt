@@ -160,13 +160,8 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 	}
 	p.captureRegion(targetSteps)
-	targeted := func(st *chain.Step) bool { return targetSteps[st.ID] && !p.streams(st) }
-	denied := func(st *chain.Step) bool { return targetSteps[st.ID] }
 	for _, pass := range probePasses {
-		only := targeted
-		if pass.label == "token/role" {
-			only = denied
-		}
+		only := func(st *chain.Step) bool { return targetSteps[st.ID] && (pass.label == "token/role" || !p.streams(st)) }
 		p.grouped(pass.label, func() { p.isolating(lib, pass.tag, func() { pass.probe(p, lib, only) }) })
 	}
 	p.grouped("setup", func() { p.satisfyNeeds(lib) })
@@ -733,11 +728,8 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 
 func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (string, string, string)) string {
 	kinds := []string{}
-	for _, n := range c.Needs {
-		if got, _, _ := canon(n); got == dep {
-			kinds = append(kinds, "needs:")
-			break
-		}
+	if slices.ContainsFunc(c.Needs, func(n string) bool { got, _, _ := canon(n); return got == dep }) {
+		kinds = append(kinds, "needs:")
 	}
 	fields := c.FieldsFor(alias)
 	for _, name := range sortedKeys(fields) {
@@ -848,7 +840,7 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	if producer == nil {
 		return
 	}
-	varName := producerID + "_" + strings.ReplaceAll(ref.Path, ".", "_")
+	varName := exportName(producerID, ref.Path)
 	token := "${vars." + varName + "}"
 
 	seed, _ := bodyValue(producer.Body, ref.Path)
@@ -1024,26 +1016,20 @@ func scaffoldZeros(body map[string]any, schema []*catalog.Field, c *RPCContract,
 				continue
 			}
 			at := join(path, f.Name)
-			if list, isList := child.([]any); isList {
-				for i, item := range list {
-					itemPath := at
-					if len(list) > 1 {
-						itemPath = fmt.Sprintf("%s.%d", at, i)
-					}
-					if len(f.Fields) > 0 {
-						walk(item, f.Fields, itemPath)
-					} else if isNumericZero(item) && !contractSpeaksFor(c, fields, itemPath) {
-						out = append(out, itemPath)
-					}
+			list, isList := child.([]any)
+			if !isList {
+				list = []any{child}
+			}
+			for i, item := range list {
+				itemPath := at
+				if len(list) > 1 {
+					itemPath = fmt.Sprintf("%s.%d", at, i)
 				}
-				continue
-			}
-			if len(f.Fields) > 0 {
-				walk(child, f.Fields, at)
-				continue
-			}
-			if isNumericZero(child) && !contractSpeaksFor(c, fields, at) {
-				out = append(out, at)
+				if len(f.Fields) > 0 {
+					walk(item, f.Fields, itemPath)
+				} else if isNumericZero(item) && !contractSpeaksFor(c, fields, itemPath) {
+					out = append(out, itemPath)
+				}
 			}
 		}
 	}
