@@ -413,11 +413,8 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 	}
 	added, probes, padded := []string{}, []string{}, []string{}
 	for _, st := range subjects {
-		if _, known := lib.Get(canonicalCall(p.cat, st.Call)); !known {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
+		_, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
+		if !ok {
 			continue
 		}
 		if idPath := p.createdIDPath(m); idPath != "" && isTarget(st) && !p.readsCreated(st, idPath) {

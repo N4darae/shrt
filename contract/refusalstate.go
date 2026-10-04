@@ -416,8 +416,7 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 		before = append(before, read)
 		after = append(after, check)
 	}
-	out := append(before, refused...)
-	return append(out, after...)
+	return append(append(before, refused...), after...)
 }
 
 func isIndexSuffix(s string) bool {

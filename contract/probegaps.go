@@ -47,20 +47,15 @@ func AuthProbeGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog, op
 		if m.StreamRefusal() != "" || p.isLogin(m.FullName) || !called[m.FullName] {
 			continue
 		}
-		if c, ok := lib.Get(m.FullName); ok && !m.ServerStreaming && len(c.RequiresRole) > 0 && !c.DeclaresNoRole() && !IsTodo(strings.Join(c.RequiresRole, " ")) {
+		if c, ok := lib.Get(m.FullName); ok && !m.ServerStreaming && !IsTodo(strings.Join(c.RequiresRole, " ")) {
 			for _, prof := range opts.Profiles {
-				if prof == "default" || holdsRole(prof, c.RequiresRole) || asProfile[m.FullName][prof] {
-					continue
+				switch {
+				case prof == "default" || asProfile[m.FullName][prof]:
+				case !openToEveryRole(c) && !holdsRole(prof, c.RequiresRole):
+					out = append(out, ProbeGap{RPC: m.FullName, Kind: "role", Roles: strings.Join(c.RequiresRole, " or "), Profile: prof})
+				case openToEveryRole(c) && prof != invalidProfile:
+					out = append(out, ProbeGap{RPC: m.FullName, Kind: "parity", Profile: prof})
 				}
-				out = append(out, ProbeGap{RPC: m.FullName, Kind: "role", Roles: strings.Join(c.RequiresRole, " or "), Profile: prof})
-			}
-		}
-		if c, ok := lib.Get(m.FullName); ok && !m.ServerStreaming && openToEveryRole(c) && !IsTodo(strings.Join(c.RequiresRole, " ")) {
-			for _, prof := range opts.Profiles {
-				if prof == "default" || prof == invalidProfile || asProfile[m.FullName][prof] {
-					continue
-				}
-				out = append(out, ProbeGap{RPC: m.FullName, Kind: "parity", Profile: prof})
 			}
 		}
 		if !tokenProbed[m.FullName] {

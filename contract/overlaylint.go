@@ -401,15 +401,9 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 				if !ok {
 					continue
 				}
-				issues = append(issues, Issue{
-					Domain:   domainOf[consumer.rpc],
-					RPC:      consumer.rpc,
-					Field:    field,
-					Severity: SeverityWarn,
-					Message: fmt.Sprintf(
-						"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
-						field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias)),
-				})
+				issues = append(issues, Issue{Domain: domainOf[consumer.rpc], RPC: consumer.rpc, Field: field, Severity: SeverityWarn, Message: fmt.Sprintf(
+					"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
+					field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias))})
 			}
 		}
 	}
