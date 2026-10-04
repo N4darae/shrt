@@ -2,20 +2,18 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/diff"
 )
-
-var blockedPattern = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
 
 func blockedBy(r chain.ExpectResult) (string, bool) {
 	if r.Passed || r.Rule != "unevaluated" {
 		return "", false
 	}
-	m := blockedPattern.FindStringSubmatch(r.Detail)
+	m := diff.HeldBackProducer.FindStringSubmatch(r.Detail)
 	if m == nil {
 		return "", false
 	}

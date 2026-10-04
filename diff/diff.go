@@ -1153,7 +1153,7 @@ func (c Change) describeValues() string {
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
 }
 
-var heldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
+var HeldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
 
 func heldBackDetail(st *runner.StepRecord) string {
 	answered, held, producer := []string{}, []string{}, ""
@@ -1161,7 +1161,7 @@ func heldBackDetail(st *runner.StepRecord) string {
 		if ex.Rule != "unevaluated" {
 			continue
 		}
-		if m := heldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
+		if m := HeldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
 			producer = m[1]
 		}
 		held = append(held, ex.Path)
