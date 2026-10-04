@@ -592,18 +592,26 @@ func (e *env) resolveChainNamed(ref, name string) (*chain.Chain, error) {
 }
 
 func (e *env) chainName(ref string) (string, error) {
+	name, _, err := e.namedChain(ref)
+	return name, err
+}
+
+func (e *env) namedChain(ref string) (string, *chain.Chain, error) {
 	if strings.ContainsAny(ref, "/\\") || strings.HasSuffix(ref, ".yaml") || strings.HasSuffix(ref, ".yml") {
-		return ref, nil
+		return ref, nil, nil
 	}
 	c, err := e.resolveChain(ref)
 	var clash *chain.NameClashError
 	if errors.As(err, &clash) {
-		return "", err
+		return "", nil, err
 	}
-	if err != nil || c.Name == ref || nameMismatchIn(e, c) == nil {
-		return ref, nil
+	if err != nil {
+		return ref, nil, nil
+	}
+	if c.Name == ref || nameMismatchIn(e, c) == nil {
+		return ref, c, nil
 	}
 	fmt.Fprintf(os.Stderr, "shrt: %s is chain %s (its name: differs from its file name), so its runs and safe spot are %s's\n",
 		rel(e.cfg.Root, c.SourcePath), c.Name, c.Name)
-	return c.Name, nil
+	return c.Name, c, nil
 }

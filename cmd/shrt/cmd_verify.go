@@ -46,7 +46,7 @@ type verification struct {
 	edits, unsupplied                                              []string
 	spot                                                           *store.SafeSpot
 	rec                                                            *runner.Record
-	c                                                              *chain.Chain
+	c, resolved                                                    *chain.Chain
 	report                                                         *diff.Report
 	latency                                                        []diff.LatencyFlag
 	declared, independent                                          []diff.Change
@@ -126,7 +126,7 @@ func (v *verification) load(ctx context.Context) error {
 		return err
 	}
 	v.e = e
-	if v.name, err = e.chainName(v.arg); err != nil {
+	if v.name, v.resolved, err = e.namedChain(v.arg); err != nil {
 		return err
 	}
 	if err := e.knownChain(v.name); err != nil {
@@ -189,16 +189,26 @@ func (v *verification) loadRun() error {
 		fmt.Fprintf(os.Stderr, "verify: run %s IS the safe spot's own run, so this is a control for the differ, NOT evidence about "+
 			"the backend; pass a later run id, or drop -run to replay live\n", v.useRun)
 	}
-	if resolved, resolveErr := e.resolveChainNamed(v.arg, name); resolveErr == nil {
+	if resolved, resolveErr := v.chain(); resolveErr == nil {
 		v.c = resolved
 	}
 	v.rec = rec
 	return nil
 }
 
+func (v *verification) chain() (*chain.Chain, error) {
+	switch {
+	case v.resolved == nil:
+		return v.e.resolveChainNamed(v.arg, v.name)
+	case v.resolved.Name == v.name:
+		return v.resolved, nil
+	}
+	return v.e.resolveChain(v.name)
+}
+
 func (v *verification) replay(ctx context.Context) error {
 	e := v.e
-	c, err := e.resolveChainNamed(v.arg, v.name)
+	c, err := v.chain()
 	if err != nil {
 		for _, o := range doctor.OrphanSafeSpots(e.cfg) {
 			if o.Name == v.name {
