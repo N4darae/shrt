@@ -49,17 +49,7 @@ type Prereq struct {
 	Via   []string `json:"via,omitempty"`
 }
 
-func (p Prereq) calledBy(rpc string) bool {
-	if rpc == p.RPC {
-		return true
-	}
-	for _, v := range p.Via {
-		if v == rpc {
-			return true
-		}
-	}
-	return false
-}
+func (p Prereq) calledBy(rpc string) bool { return rpc == p.RPC || slices.Contains(p.Via, rpc) }
 
 func (p Prereq) Node() string {
 	if p.Alias == "" {
@@ -191,7 +181,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		if !ok {
 			return nil, fmt.Errorf("chain %q has no step %q to keep (-keep %s keeps every earlier write step)\nvalid step ids:\n  %s", c.Name, id, SliceKeepWrites, strings.Join(idx.ids(), "\n  "))
 		}
-		if j > at && !containsID(opts.Pinned, id) {
+		if j > at && !slices.Contains(opts.Pinned, id) {
 			return nil, fmt.Errorf("step %q runs after the target %q, so keeping it cannot change the target's verdict", id, target)
 		}
 		add(j, KeepAsked, KeepAsked)

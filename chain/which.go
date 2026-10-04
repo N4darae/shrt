@@ -2,6 +2,7 @@ package chain
 
 import (
 	"encoding/json"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -273,7 +274,7 @@ func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
 		return true, ""
 	}
 	if !q.IsNumericCode() {
-		return assertsAnyCode(asserts, q.Aliases), ""
+		return slices.ContainsFunc(q.Aliases, func(code string) bool { return assertsCode(asserts, code) }), ""
 	}
 	for _, a := range asserts {
 		if isDigits(a.Value) {
@@ -495,22 +496,8 @@ func EdgeQuoted(s string) string {
 	return s
 }
 
-func assertsAnyCode(asserts []CodeAssertion, codes []string) bool {
-	for _, code := range codes {
-		if assertsCode(asserts, code) {
-			return true
-		}
-	}
-	return false
-}
-
 func assertsCode(asserts []CodeAssertion, want string) bool {
-	for _, a := range asserts {
-		if strings.EqualFold(a.Value, want) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return strings.EqualFold(a.Value, want) })
 }
 
 func stepCalls(s *Step, rpc string, rpcOf func(*Step) string) bool {

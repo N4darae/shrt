@@ -456,13 +456,8 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 }
 
 func lintAuthProfile(s *Step, profiles []string) []Issue {
-	if profiles == nil || s.Auth == "" || s.Auth == InvalidTokenAuth {
+	if profiles == nil || s.Auth == "" || s.Auth == InvalidTokenAuth || slices.Contains(profiles, s.Auth) {
 		return nil
-	}
-	for _, name := range profiles {
-		if name == s.Auth {
-			return nil
-		}
 	}
 	if len(profiles) == 0 {
 		return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(

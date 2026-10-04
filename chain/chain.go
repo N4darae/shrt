@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -112,14 +113,7 @@ func (c *Chain) checkKeptRed() error {
 		if !ok {
 			return fmt.Errorf("kept_red[%d]: no step %q in this chain", i, k.Step)
 		}
-		found := false
-		for _, e := range s.Expect {
-			if namecase.Equal(e.Path, k.Path) {
-				found = true
-				break
-			}
-		}
-		if !found {
+		if !slices.ContainsFunc(s.Expect, func(e Expectation) bool { return namecase.Equal(e.Path, k.Path) }) {
 			return fmt.Errorf("kept_red[%d]: step %q has no expectation on path %q, so it can never fail there", i, k.Step, k.Path)
 		}
 	}

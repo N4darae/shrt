@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -309,14 +310,9 @@ func TautologyRemedy(e Expectation) string {
 }
 
 func EnumTautologyReason(e Expectation, enumValues []string) string {
-	if e.NotEqual == nil || len(enumValues) == 0 {
+	if e.NotEqual == nil || len(enumValues) == 0 || slices.Contains(enumValues, stringify(e.NotEqual)) {
 		return ""
 	}
 	want := stringify(e.NotEqual)
-	for _, v := range enumValues {
-		if v == want {
-			return ""
-		}
-	}
 	return fmt.Sprintf("says the value is not %q, which is not one of the values this field can hold (%s)", want, strings.Join(enumValues, ", "))
 }

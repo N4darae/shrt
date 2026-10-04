@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"regexp"
 	"strconv"
@@ -33,20 +34,12 @@ type StepView struct {
 
 func NewScope(vars map[string]any) *Scope {
 	return &Scope{
-		Vars:    cloneMap(vars),
+		Vars:    maps.Collect(maps.All(vars)),
 		Exports: map[string]any{},
 		Steps:   map[string]*StepView{},
 		Now:     time.Now,
 		Env:     os.LookupEnv,
 	}
-}
-
-func cloneMap(in map[string]any) map[string]any {
-	out := map[string]any{}
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 func (s *Scope) Record(id string, request, response any) {

@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -54,12 +55,7 @@ func TransportOutcome(status int, code, message string) map[string]any {
 }
 
 func HasTransportExpectation(expect []Expectation) bool {
-	for _, e := range expect {
-		if IsTransportPath(e.Path) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(expect, func(e Expectation) bool { return IsTransportPath(e.Path) })
 }
 
 const InvalidTokenAuth = "invalid"
