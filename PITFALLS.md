@@ -391,6 +391,12 @@ keep the defect red with `shrt chain pin`, which writes its slices beside the ch
 **Cause.** A kept write interpolates that var into what it creates, and its earlier values already
 exist on the backend. **Fix.** Pass a value never used before.
 
+## 62. `chain slice -write` refuses the chain's own file
+
+**Cause.** The slice drops a step or an expectation of the chain you wrote, so writing it there
+would lose them. **Fix.** To prove that chain reproduces, run it unchanged: `shrt run <file>
+-repeat 3`. To keep the slice, `-write` another name, or `-write` alone.
+
 ## 63. "220 of 229 steps kept" read as 220 passing steps
 
 **Cause.** The count is what the file holds. **Fix.** Run the rest before proposing it.

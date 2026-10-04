@@ -1,0 +1,165 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+	"testing"
+)
+
+const handReproChain = `apiVersion: shrt/v1
+name: repro-confirm
+vars:
+    tag: rc
+steps:
+  - id: create_product
+    call: ProductService/CreateProduct
+    body: {sku: "sku-${vars.tag}", price_minor: "100"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - id: add_stock
+    call: StockService/AddStock
+    body: {id_product: "${create_product.product.id_product}", qty: "10"}
+    expect:
+      - {path: qty_on_hand, equals: "10"}
+  - id: create_customer
+    call: CustomerService/CreateCustomer
+    body: {email: "rc-${vars.tag}@example.test"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - id: create_order
+    call: OrderService/CreateOrder
+    body:
+      id_customer: ${create_customer.customer.id_customer}
+      lines:
+        - {id_product: "${create_product.product.id_product}", qty: "2"}
+      idempotency_key: ${uuid}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - id: peek
+    call: ProductService/GetProduct
+    body: {id_product: "${create_product.product.id_product}"}
+    expect:
+      - {path: product.qty_on_hand, equals: "10"}
+  - id: confirm_order
+    call: OrderService/ConfirmOrder
+    body: {id_order: "${create_order.order.id_order}"}
+    expect:
+      - {path: status.code, equals: SUCCESS}
+  - id: get_after_confirm
+    call: ProductService/GetProduct
+    body: {id_product: "${create_product.product.id_product}"}
+    expect:
+      - {path: product.qty_on_hand, equals: "8"}
+  - id: restock
+    call: StockService/AddStock
+    body: {id_product: "${create_product.product.id_product}", qty: "1"}
+    expect:
+      - {path: qty_on_hand, equals: "9"}
+`
+
+const handReproPath = ".shrt/scratch/repro-confirm.yaml"
+
+func handReproShop(t *testing.T, bug bool, chainText string) *fakeShop {
+	t.Helper()
+	shop := newFakeShop()
+	shop.stockInProduct, shop.confirmExtraUnit = true, bug
+	chdirToFakeShop(t, shop)
+	writeFile(t, handReproPath, chainText)
+	return shop
+}
+
+func runOut(t *testing.T, args ...string) (string, int) {
+	t.Helper()
+	var err error
+	out := captureStdout(t, func() { err = runRun(context.Background(), args) })
+	return out + errText(err), exitCodeOf(err)
+}
+
+func TestRunRepeatProvesAHandWrittenChainAsWrittenAndLeavesItUnchanged(t *testing.T) {
+	handReproShop(t, true, handReproChain)
+	out, code := runOut(t, handReproPath, "-repeat", "3")
+	if code != 0 {
+		t.Fatalf("exit %d, want 0:\n%s", code, out)
+	}
+	for _, want := range []string{
+		"repeat 2 of 3: run ", "get_after_confirm, as run 1",
+		"reproduced 3/3: get_after_confirm failed the same way in every run\n",
+		"  get_after_confirm (ProductService/GetProduct): status failed, status.code \"SUCCESS\"\n",
+		"    failed: product.qty_on_hand want=8 got=7\n",
+		"the chain ran as written and is unchanged",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+	if raw := string(mustRead(t, handReproPath)); raw != handReproChain {
+		t.Fatalf("-repeat changed the chain:\n%s", raw)
+	}
+	if ids := runIDsOf(t, "repro-confirm"); len(ids) != 3 {
+		t.Fatalf("each repeat is a saved run, got %v", ids)
+	}
+	out, code = runOut(t, handReproPath, "-repeat", "2", "-keep-going", "-quiet")
+	if code != 0 || !strings.Contains(out, "reproduced 2/2: get_after_confirm, restock failed the same way in every run") ||
+		!strings.Contains(out, "failed: qty_on_hand want=9 got=8") || strings.Contains(out, "repeat 1 of 2") {
+		t.Fatalf("-keep-going compares every failed step; -quiet drops the per-repeat lines: exit %d\n%s", code, out)
+	}
+	var v repeatVerdict
+	raw, code := runOut(t, handReproPath, "-repeat", "2", "-json")
+	if err := json.Unmarshal([]byte(raw), &v); err != nil || code != 0 || v.Outcome != sliceReproduced || v.Same != 2 || len(v.Runs) != 2 || v.Failed[0] != "get_after_confirm" {
+		t.Fatalf("-json: exit %d, %v, %+v\n%s", code, err, v, raw)
+	}
+}
+
+func TestRunRepeatSaysWhatDifferedWhenTheRunsDoNotFailAlike(t *testing.T) {
+	handReproShop(t, false, strings.Replace(handReproChain, "rc-${vars.tag}@example.test", "rc-fixed@example.test", 1))
+	out, code := runOut(t, handReproPath, "-repeat", "3")
+	if code != 1 {
+		t.Fatalf("exit %d, want 1:\n%s", code, out)
+	}
+	for _, want := range []string{
+		"NOT REPRODUCED: 1 of 3 runs failed as run 1 did; below, source is run 1\n",
+		"): failed steps: source none, run 2 create_customer\n",
+		"repeat 3 of 3: run ", "failed at create_customer, not as run 1",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestRunRepeatGivesEachLaterRunAFreshFixtureAndCallsAllGreenNothingToReproduce(t *testing.T) {
+	handReproShop(t, false, handReproChain)
+	out, code := runOut(t, handReproPath, "-repeat", "3", "-var", "tag=mine")
+	if code != 1 || !strings.Contains(out, "passed 3/3: no step failed in any run, so there is no failure to reproduce") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	out, code = runOut(t, handReproPath, "-repeat", "2")
+	if code != 1 || !strings.Contains(out, "passed 2/2") {
+		t.Fatalf("a declared fixture var gets a fresh value from run 2 on, so the email is not taken: exit %d\n%s", code, out)
+	}
+	for _, args := range [][]string{{"-repeat", "1"}, {"-repeat", "3", "-dry-run"}} {
+		if out, code := runOut(t, append([]string{handReproPath}, args...)...); code != 1 || !strings.Contains(out, "-repeat compares the verdicts of 2 or more real runs") {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+}
+
+func TestRunRepeatAgainstADeadTargetHasNoVerdict(t *testing.T) {
+	handReproShop(t, true, handReproChain)
+	writeFile(t, ".shrt/config.yaml", strings.Replace(string(mustRead(t, ".shrt/config.yaml")), "base_url: ", "base_url: "+deadCLITarget(t)+" #", 1))
+	out, code := runOut(t, handReproPath, "-repeat", "3")
+	if code != 3 || !strings.Contains(out, "DID NOT RUN: run 1 (") || strings.Contains(out, "reproduced") || strings.Contains(out, "repeat 2 of 3") {
+		t.Fatalf("exit %d, want 3 and no second run:\n%s", code, out)
+	}
+}
+
+func TestRunRepeatComparesTheVerdictOfAStepThatFailedInEveryRun(t *testing.T) {
+	shop := handReproShop(t, true, handReproChain)
+	shop.getProductFailAt = map[int]bool{4: true, 5: true}
+	out, code := runOut(t, handReproPath, "-repeat", "3")
+	if code != 1 || !strings.Contains(out, "NOT REPRODUCED: 2 of 3 runs failed as run 1 did") ||
+		!strings.Contains(out, "): get_after_confirm: transport: source none, run 2 HTTP 500 internal: boom\n") || strings.Contains(out, "): get_after_confirm: transport: source none, run 3") {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+}

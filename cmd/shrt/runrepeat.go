@@ -1,0 +1,208 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/runner"
+)
+
+const repeatPassed = "passed"
+
+type repeatVerdict struct {
+	Chain       string   `json:"chain"`
+	Outcome     string   `json:"outcome"`
+	Repeat      int      `json:"repeat"`
+	Same        int      `json:"same_runs"`
+	Failed      []string `json:"failed_steps,omitempty"`
+	Runs        []string `json:"runs"`
+	Records     string   `json:"records,omitempty"`
+	Differences []string `json:"differences,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+}
+
+func runRepeated(ctx context.Context, e *env, c *chain.Chain, n int, vars map[string]any, opts runner.Options, save, quiet, asJSON bool) error {
+	v := &repeatVerdict{Chain: c.Name, Repeat: n, Outcome: sliceReproduced}
+	var first *runner.Record
+	for i := 1; i <= n; i++ {
+		o := opts
+		o.Vars = repeatRunVars(c, vars, i)
+		rec, err := executeChain(ctx, e, c, o, true)
+		if err != nil {
+			return err
+		}
+		v.Runs = append(v.Runs, rec.RunID)
+		if save {
+			path, err := e.store.SaveRun(rec)
+			if err != nil {
+				return err
+			}
+			v.Records = shownPath(filepath.Dir(path))
+		}
+		if first == nil {
+			first, v.Failed = rec, failedSteps(rec)
+		}
+		diffs := repeatDifferences(c, first, rec, fmt.Sprintf("run %d", i))
+		if !quiet && !asJSON {
+			fmt.Println(repeatLine(i, n, rec, diffs))
+		}
+		if why := noVerdictIn(rec); why != "" {
+			v.Outcome, v.Reason = sliceDidNotRun, fmt.Sprintf("run %d (%s) %s", i, rec.RunID, why)
+			break
+		}
+		if len(diffs) == 0 {
+			v.Same++
+		}
+		for j, d := range diffs {
+			if j == 5 {
+				v.Differences = append(v.Differences, fmt.Sprintf("run %d: and %d more", i, len(diffs)-j))
+				break
+			}
+			v.Differences = append(v.Differences, fmt.Sprintf("run %d (%s): %s", i, rec.RunID, d))
+		}
+	}
+	switch {
+	case v.Outcome == sliceDidNotRun:
+	case len(v.Differences) > 0:
+		v.Outcome = sliceNotReproduced
+	case len(v.Failed) == 0:
+		v.Outcome = repeatPassed
+	}
+	if asJSON {
+		if err := emitJSON(v); err != nil {
+			return err
+		}
+		return v.err()
+	}
+	fmt.Print(v.text(e, first))
+	if err := v.err(); err != nil {
+		return shownError{err}
+	}
+	return nil
+}
+
+func repeatRunVars(c *chain.Chain, supplied map[string]any, i int) map[string]any {
+	vars := map[string]any{}
+	for k, val := range supplied {
+		vars[k] = val
+	}
+	if _, given := vars[chain.RunTagVar]; !given && len(c.UnusedVarNames(map[string]any{chain.RunTagVar: ""})) == 0 {
+		vars[chain.RunTagVar] = chain.NewRunTag()
+	}
+	if i > 1 {
+		for _, name := range chain.FreshVars(c.Steps, nil, nil) {
+			if v, given := supplied[name]; given {
+				vars[name] = fmt.Sprintf("%v-%s", v, chain.NewRunTag())
+			}
+		}
+	}
+	return vars
+}
+
+func repeatDifferences(c *chain.Chain, first, rec *runner.Record, label string) []string {
+	if first == rec {
+		return nil
+	}
+	was, now := failedSteps(first), failedSteps(rec)
+	if !slices.Equal(was, now) {
+		return []string{fmt.Sprintf("failed steps: source %s, %s %s", stepsOrNone(was), label, stepsOrNone(now))}
+	}
+	same := sameUpToFixtures(first.Vars, rec.Vars)
+	out := []string{}
+	for _, id := range was {
+		a, _ := first.Step(id)
+		b, _ := rec.Step(id)
+		st, _ := c.Step(id)
+		for _, d := range compareVerdictsAt(st, verdictOf(a), verdictOf(b), same, label) {
+			out = append(out, id+": "+d)
+		}
+	}
+	return out
+}
+
+func stepsOrNone(ids []string) string {
+	if len(ids) == 0 {
+		return "none"
+	}
+	return capList(ids, 5)
+}
+
+func noVerdictIn(rec *runner.Record) string {
+	for _, st := range rec.Steps {
+		if st != nil && (unansweredCall(st) || rec.Status == runner.StatusError && st.Status == runner.StatusError) {
+			why, _, _ := strings.Cut(st.Error, "\n")
+			return fmt.Sprintf("got no answer at step %s (%s)", st.ID, why)
+		}
+	}
+	return ""
+}
+
+func repeatLine(i, n int, rec *runner.Record, diffs []string) string {
+	line := fmt.Sprintf("repeat %d of %d: run %s %s", i, n, rec.RunID, rec.Status)
+	if failed := failedSteps(rec); len(failed) > 0 {
+		line += " at " + capList(failed, 3)
+	}
+	switch {
+	case i == 1:
+	case len(diffs) == 0:
+		line += ", as run 1"
+	default:
+		line += ", not as run 1"
+	}
+	return line
+}
+
+func (v *repeatVerdict) text(e *env, first *runner.Record) string {
+	var b strings.Builder
+	switch v.Outcome {
+	case sliceReproduced:
+		fmt.Fprintf(&b, "reproduced %d/%d: %s failed the same way in every run\n", v.Same, v.Repeat, capList(v.Failed, 3))
+		for _, id := range v.Failed {
+			st, _ := first.Step(id)
+			verdict, code := verdictOf(st), ""
+			if verdict.ErrorCode != "" {
+				code = fmt.Sprintf(", %s %q", verdictPath(st), verdict.ErrorCode)
+			}
+			fmt.Fprintf(&b, "  %s (%s): status %s%s%s\n", id, shortRPC(st.Call), verdict.Status, code, refusalText(verdict))
+			for _, x := range st.Expect {
+				if !x.Passed && x.Rule != "unevaluated" {
+					fmt.Fprintf(&b, "    failed: %s %s\n", x.Path, chain.WantGot(x.Rule, quoted(x.Want), quoted(x.Got)))
+				}
+			}
+		}
+		for _, line := range failureRequests(e, first, false) {
+			fmt.Fprintf(&b, "  %s\n", line)
+		}
+	case repeatPassed:
+		fmt.Fprintf(&b, "passed %d/%d: no step failed in any run, so there is no failure to reproduce\n", v.Same, v.Repeat)
+	case sliceNotReproduced:
+		fmt.Fprintf(&b, "NOT REPRODUCED: %d of %d runs failed as run 1 did; below, source is run 1\n", v.Same, len(v.Runs))
+		for _, d := range v.Differences {
+			fmt.Fprintf(&b, "  %s\n", d)
+		}
+	case sliceDidNotRun:
+		fmt.Fprintf(&b, "DID NOT RUN: %s, so the runs have no verdict to compare; re-run\n", v.Reason)
+	}
+	where := ""
+	if v.Records != "" {
+		where = " in " + v.Records
+	}
+	fmt.Fprintf(&b, "  runs %s%s; the chain ran as written and is unchanged\n", strings.Join(v.Runs, ", "), where)
+	return b.String()
+}
+
+func (v *repeatVerdict) err() error {
+	switch v.Outcome {
+	case repeatPassed:
+		return exitWith(1, "chain %s: passed %d/%d, nothing reproduced", v.Chain, v.Same, v.Repeat)
+	case sliceNotReproduced:
+		return exitWith(1, "chain %s: NOT REPRODUCED, %d of %d runs failed as run 1 did", v.Chain, v.Same, len(v.Runs))
+	case sliceDidNotRun:
+		return exitWith(3, "chain %s: DID NOT RUN, %s", v.Chain, v.Reason)
+	}
+	return nil
+}

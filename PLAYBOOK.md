@@ -519,10 +519,13 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
    can be state the target needed, and the slice can go green without it. A contract prerequisite
    no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.
+   Put steps back with `-keep id[,id]`; the word `writes` keeps every earlier write and combines
+   with ids: `-keep writes,check_stock`.
 3. **`-write [name]`, then `chain lint` it by path.** Without a path it lands in `.shrt/scratch/`
    (`<chain>-slice-<step>.yaml` by default), which no gate, lint or hollow sweep reads: run it by
-   path. A value with a slash is a path; the source chain's own file name replaces the source. A
-   slice of the same chain and step is replaced in place; any other file is refused.
+   path. A value with a slash is a path. A slice of the same chain and step is replaced in place;
+   any other file is refused, the source chain's own file too when the slice drops a step or an
+   expectation of it (a slice keeping every step as written only records its verdict there).
 4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
    compares the target step's verdict with the source run's: envelope code, reason and app code,
    transport refusal, and each expectation's pass, want and got; when those match and the target
@@ -545,6 +548,18 @@ newest record, but a `shrt run` over a verify replay recorded right after it, un
 replay failed or drifted the step (for `-without`: unless their failed steps differ); it refuses
 (3) if that run left the target unevaluated.
 
-For a minimal chain written by hand, verify it with `shrt chain slice <minimal> -step <t> -run
-latest -keep writes -verify -write`; to keep a receipt against the source run, slice the source with
-`-keep <ids of the minimal chain>` instead.
+**A chain written by hand is proven by running it, not by slicing it:**
+
+```bash
+shrt run .shrt/scratch/repro.yaml -repeat 3
+```
+
+It runs the chain 3 times exactly as written, changes nothing in it, and compares each run with the
+first as `-verify` compares a slice: the same steps fail, with the same envelope code, refusal,
+failed expectations and got values, ids, fixture values and clock offsets masked. `reproduced 3/3:
+<step> ...` (exit 0) is the receipt, with each failed expectation and the suspect; `NOT
+REPRODUCED` (1) lists what differed from run 1, `passed 3/3` (1) means nothing failed, `DID NOT
+RUN` (3) a run got no answer. Every run gets a fresh `tag` unless you pass `-var tag=`, and then
+each later run gets your value plus a fresh suffix; `-keep-going` compares every failing step, not
+only the first. To keep a receipt against a source chain's run instead, slice the source with
+`-keep <ids of the minimal chain> -verify`.
