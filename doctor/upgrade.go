@@ -119,17 +119,22 @@ func readTokenCache(cfg *config.Config) map[string]time.Time {
 	if err != nil {
 		return nil
 	}
+	out, _ := parseTokenCache(raw)
+	return out
+}
+
+func parseTokenCache(raw []byte) (map[string]time.Time, error) {
 	entries := map[string]struct {
 		ExpiresAt time.Time `json:"expires_at"`
 	}{}
-	if json.Unmarshal(raw, &entries) != nil {
-		return nil
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
 	}
 	out := make(map[string]time.Time, len(entries))
 	for k, e := range entries {
 		out[k] = e.ExpiresAt
 	}
-	return out
+	return out, nil
 }
 
 func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report) {
