@@ -321,10 +321,7 @@ func stateOrder(c *RPCContract, listPath string) (string, bool, bool) {
 }
 
 func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
-	ids := make([]string, 0, len(t.producers))
-	for _, prod := range t.producers {
-		ids = append(ids, prod.ID)
-	}
+	ids := stepIDs(t.producers)
 	members := append(append([]*chain.Step{}, t.producers...), t.extra...)
 	if t.unscoped {
 		p.noteUnscopedList(t, len(members))
@@ -380,16 +377,17 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 			t.step.ID, t.listPath, key, strings.Join(keys, ", "))
 		return
 	}
+	t.assertPositions(t.producers, order, desc)
+}
+
+func (t *listTarget) assertPositions(members []*chain.Step, order []int, desc bool) {
 	if desc {
-		for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
-			order[i], order[j] = order[j], order[i]
-		}
+		slices.Reverse(order)
 	}
 	for i, k := range order {
-		prod := t.producers[k]
 		t.step.Expect = append(t.step.Expect, chain.Expectation{
 			Path:   fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID),
-			Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}",
+			Equals: "${" + members[k].ID + "." + t.carrier + "." + t.itemID + "}",
 		})
 	}
 	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(order)), Exists: boolPtr(false)})
@@ -398,10 +396,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 func boolPtr(b bool) *bool { return &b }
 
 func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string, desc bool) {
-	ids := make([]string, 0, len(members))
-	for _, prod := range members {
-		ids = append(ids, prod.ID)
-	}
+	ids := stepIDs(members)
 	order, why := memberOrder(members, key)
 	if order == nil {
 		p.note("step %s: %d steps create what %s lists (%s), and the %d beyond the %d shrt varied for the order %s, "+
@@ -412,19 +407,7 @@ func (p *Plan) orderAllMembers(t *listTarget, members []*chain.Step, key string,
 		t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(members)), Exists: boolPtr(false)})
 		return
 	}
-	if desc {
-		for i, j := 0, len(order)-1; i < j; i, j = i+1, j-1 {
-			order[i], order[j] = order[j], order[i]
-		}
-	}
-	for i, k := range order {
-		prod := members[k]
-		t.step.Expect = append(t.step.Expect, chain.Expectation{
-			Path:   fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID),
-			Equals: "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}",
-		})
-	}
-	t.step.Expect = append(t.step.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(order)), Exists: boolPtr(false)})
+	t.assertPositions(members, order, desc)
 }
 
 func memberOrder(members []*chain.Step, key string) ([]int, string) {

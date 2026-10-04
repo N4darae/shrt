@@ -411,10 +411,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		key, desc, stated := stateOrder(c, t.listPath)
 		creation = stated && !desc && creationWord.MatchString(key)
 	}
-	moveIDs := []string{}
-	for _, s := range added {
-		moveIDs = append(moveIDs, s.ID)
-	}
+	moveIDs := stepIDs(added)
 	var after *chain.Step
 	if len(moveIDs) > 0 {
 		after = probeStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
@@ -503,13 +500,15 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	p.note("%s", msg)
 }
 
-func stepIDList(steps []*chain.Step) string {
+func stepIDs(steps []*chain.Step) []string {
 	ids := []string{}
 	for _, s := range steps {
 		ids = append(ids, s.ID)
 	}
-	return strings.Join(ids, ", ")
+	return ids
 }
+
+func stepIDList(steps []*chain.Step) string { return strings.Join(stepIDs(steps), ", ") }
 
 func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step, values []string, short map[string]string, initial string) ([]transition, map[string]string) {
 	blocked := map[string]string{}
