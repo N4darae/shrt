@@ -414,17 +414,30 @@ from the rpc's other faults.
 
 **What triggers it.** A row of `failures by suspect rpc:` may carry a `trigger:` line: the row's
 failing calls of that rpc set against its calls that passed in the same gate, split by what the
-requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`. A list's
-length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12 calls)`. A list
-repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and 3 items); passes
-with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or empty: `fails with
-sku_prefix empty or absent`. A passing call counts only where the gate checked the row's field on it,
-by its own expectation or, when a later read shows the fault, a later read of the same record; for a
-refusal, any call of it that succeeded, leaving out auth probes. Two splits that both hold are both
-said. No line means none of these splits them: a value can (a name's length, the last line's qty),
-so probe from the example. The example is the call that differs from a passing one only in the
-trigger, in a chain with a safe spot, never a kept-red slice when another chain fails so, and
-`-repro` slices that step.
+requests show. The auth profile: `fails as clerk (3 calls); passes as default (12 calls)`; it says
+`fails when ConfirmOrder itself is sent as clerk` when the calls show the profile of the steps the
+call uses does not decide it, with `2 calls using only steps sent as default` among the failing ones
+or `1 call using steps sent as clerk, so those steps' profile does not matter` among the passing
+ones. A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
+calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
+3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
+empty: `fails with sku_prefix empty or absent`. A number in a field or in a list's first or last
+item: `fails with lines[last].qty above 1`. The byte length of the field the failing value echoes:
+`fails with name of 21+ bytes (4 calls); passes with name of up to 18 bytes (9 calls)`, the bounds
+the calls show; `longer than 20 bytes` or `above 1` only where they pin the boundary. A value needs
+two calls on each side and on every call. When no single split holds, two that hold only together,
+if exactly one pair does: `fails with lines of 2+ items and lines[last].qty above 1 (30 calls);
+passes otherwise: lines of 1 item (12 calls), lines[last].qty 1 (6 calls)`. Where the failing value
+echoes the request (its want is a field sent), the line ends with how got relates to what was sent
+when one rule fits every such call: `got keeps the first 20 bytes of the name sent (3 calls)`, the
+last bytes, a count dropped, trimmed, another case; alone under the row when nothing splits the
+calls. A passing call counts only where the gate checked the row's field on it, by its own
+expectation or, when a later read shows the fault, a later read of the same record; for a refusal,
+any call of it that succeeded, leaving out auth probes. Two splits that both hold are both said; a
+single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. No
+line means none of these splits them, so probe from the example. The example is the call that
+differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
+when another chain fails so, and `-repro` slices that step.
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each

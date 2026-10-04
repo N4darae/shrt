@@ -20,6 +20,18 @@ func dimCalls(dims ...map[string]string) []rowCall {
 
 func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 	clerk, admin := map[string]string{"as": "clerk"}, map[string]string{"as": "default"}
+	fail := func(n, first, last int) []int { return []int{n, first, last} }
+	pass := fail
+	one := func(as string, qty int) map[string]string {
+		return map[string]string{"as": as, "len lines": "1", "num lines[first].qty": fmt.Sprint(qty), "num lines[last].qty": fmt.Sprint(qty)}
+	}
+	order := func(calls ...[]int) []map[string]string {
+		var out []map[string]string
+		for _, c := range calls {
+			out = append(out, map[string]string{"len lines": fmt.Sprint(c[0]), "num lines[first].qty": fmt.Sprint(c[1]), "num lines[last].qty": fmt.Sprint(c[2])})
+		}
+		return out
+	}
 	lines := func(n int, repeat string) map[string]string {
 		return map[string]string{"as": "default", "len lines": fmt.Sprint(n), "repeat lines": repeat}
 	}
@@ -46,6 +58,23 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"values on both sides", []map[string]string{clerk, {"as": "default", "set note": "set"}}, []map[string]string{admin}, ""},
 		{"lengths that interleave", []map[string]string{lines(1, ""), lines(3, "")}, []map[string]string{lines(2, "")}, ""},
 		{"no passing call", []map[string]string{clerk}, nil, ""},
+		{"a number above every passing one, the boundary pinned", []map[string]string{{"num lines[last].qty": "2"}, {"num lines[last].qty": "3"}},
+			[]map[string]string{{"num lines[last].qty": "1"}, {"num lines[last].qty": "1"}},
+			"trigger: fails with lines[last].qty above 1 (2 calls); passes with lines[last].qty 1 (2 calls)"},
+		{"a text's length says the bounds seen, not a boundary between them", []map[string]string{{"bytes name": "21"}, {"bytes name": "83"}},
+			[]map[string]string{{"bytes name": "18"}, {"bytes name": "2"}},
+			"trigger: fails with name of 21+ bytes (2 calls); passes with name of up to 18 bytes (2 calls)"},
+		{"a text's length whose boundary the calls pin", []map[string]string{{"bytes name": "21"}, {"bytes name": "30"}},
+			[]map[string]string{{"bytes name": "20"}, {"bytes name": "5"}},
+			"trigger: fails with name longer than 20 bytes (2 calls); passes with name of up to 20 bytes (2 calls)"},
+		{"a value from one failing call is no threshold", []map[string]string{{"num qty": "5"}}, []map[string]string{{"num qty": "1"}, {"num qty": "2"}}, ""},
+		{"a value some call lacks is no threshold", []map[string]string{{"num qty": "5"}, {"num qty": "6"}}, []map[string]string{{"num qty": "1"}, {}}, ""},
+		{"two dimensions that split only together", order(fail(2, 1, 2), fail(3, 2, 4)), order(pass(1, 2, 2), pass(1, 1, 1), pass(2, 2, 1), pass(3, 2, 1)),
+			"trigger: fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (2 calls)"},
+		{"two pairs that both split say nothing, though they split the same calls", order(fail(2, 2, 2), fail(3, 2, 4)), order(pass(1, 3, 3), pass(1, 1, 1), pass(2, 1, 1), pass(3, 1, 1)), ""},
+		{"the first and last item of one-item lists are one dimension", []map[string]string{one("default", 3), one("default", 4)}, []map[string]string{one("clerk", 1), one("default", 5)},
+			"trigger: fails as default and lines[first].qty up to 4 (2 calls); passes otherwise: as clerk (1 call), lines[first].qty above 4 (1 call)"},
+		{"a pair that splits beside one dimension that splits says nothing", order(fail(2, 1, 2), fail(3, 1, 4)), order(pass(1, 3, 3), pass(1, 2, 2), pass(2, 2, 1), pass(3, 5, 1)), ""},
 	} {
 		if got, _ := triggerOf(dimCalls(c.fails...), dimCalls(c.passes...)); got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
@@ -53,13 +82,74 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 	}
 }
 
+func TestATriggerOnTheProfileSaysWhoseCallItIs(t *testing.T) {
+	call := func(at, as string, before ...string) rowCall {
+		c := rowCall{at: at, call: "ConfirmOrder", dims: map[string]string{"as": as}, before: map[string]bool{}}
+		for _, p := range before {
+			c.before[p] = true
+		}
+		return c
+	}
+	for _, c := range []struct {
+		name          string
+		fails, passes []rowCall
+		want          string
+	}{
+		{"a clerk's confirm of an admin's order fails and an admin's confirm of a clerk's order passes",
+			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "clerk", "default")}, []rowCall{call("c", "default", "default"), call("d", "default", "clerk")},
+			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; 1 call using only steps sent as default); passes as default (2 calls; 1 call using steps sent as clerk, so those steps' profile does not matter)"},
+		{"every failing call uses the clerk's steps and no passing one does, so the records cannot tell", []rowCall{call("a", "clerk", "clerk")}, []rowCall{call("c", "default", "default")},
+			"trigger: fails as clerk (1 call); passes as default (1 call)"},
+		{"a failing call that uses no step tells nothing", []rowCall{call("a", "clerk")}, []rowCall{call("c", "default", "default")},
+			"trigger: fails as clerk (1 call); passes as default (1 call)"},
+	} {
+		if got, _ := triggerOf(c.fails, c.passes); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestTheTriggerSaysHowGotKeepsWhatWasSent(t *testing.T) {
+	echo := func(pairs ...string) []rowCall {
+		var out []rowCall
+		for i := 0; i < len(pairs); i += 2 {
+			out = append(out, rowCall{at: fmt.Sprint(i), leaf: "name", sent: pairs[i], got: pairs[i+1]})
+		}
+		return out
+	}
+	long := "Customer t3-abcdefghijklmnopqrstuvwxyz"
+	for _, c := range []struct {
+		name  string
+		fails []rowCall
+		want  string
+	}{
+		{"a prefix of one length", echo("Clerk Buyer t03f7f379", "Clerk Buyer t03f7f37", long, long[:20]), "got keeps the first 20 bytes of the name sent (2 calls)"},
+		{"one call cut short says both lengths", echo(long, long[:20]), "got keeps the first 20 of the 38 bytes of the name sent (1 call)"},
+		{"the same count dropped", echo("abc", "ab", "hello", "hell"), "got drops the last 1 byte of the name sent (2 calls)"},
+		{"a suffix of one length", echo("xxabc", "abc", "yyyydef", "def"), "got keeps the last 3 bytes of the name sent (2 calls)"},
+		{"trimmed", echo(" a ", "a", "b  ", "b"), "got is the name sent with its outer spaces trimmed (2 calls)"},
+		{"upper case", echo("ab", "AB"), "got is the name sent in upper case (1 call)"},
+		{"another case", echo("aB", "Ab"), "got is the name sent in another case (1 call)"},
+		{"a failing call that echoes nothing is left out", append(echo("abc", "ab", "hello", "hell"), rowCall{at: "f"}), "got drops the last 1 byte of the name sent (2 calls)"},
+		{"prefixes cut at no one length or count", echo("abcdef", "ab", "abcdefghij", "abcde"), ""},
+		{"one rule for one call and another for the next", echo("abc", "ab", "abc", "ABC"), ""},
+		{"two fields", append(echo("abc", "ab"), rowCall{at: "e", leaf: "email", sent: "abc", got: "ab"}), ""},
+	} {
+		if got := echoRelation(c.fails); got != c.want {
+			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
+		}
+	}
+}
+
 func TestARequestsDimensionsAreItsProfileListsRepeatsAndSetFields(t *testing.T) {
 	st := &runner.StepRecord{AuthProfile: "clerk", Request: json.RawMessage(
-		`{"id_customer":"c1","note":"","sku_prefix":"ab","order":{"coupon":"X"},"lines":[{"id_product":"p1","qty":"1"},{"id_product":"p1","qty":"2"}],"tags":["a","a"]}`)}
+		`{"id_customer":"c1","note":"","sku_prefix":"ab","order":{"coupon":"X"},"lines":[{"id_product":"p1","qty":"1"},{"id_product":"p1","qty":2.5}],"tags":["a","a"],"Name":"Nan"}`)}
 	got := requestDims(st)
-	want := map[string]string{"as": "clerk", "set sku_prefix": "set", "set order.coupon": "set", "len lines": "2", "repeat lines": "id_product", "len tags": "2", "repeat tags": ""}
+	want := map[string]string{"as": "clerk", "set sku_prefix": "set", "bytes sku_prefix": "2", "set order.coupon": "set", "bytes order.coupon": "1",
+		"len lines": "2", "repeat lines": "id_product", "set lines[first].qty": "set", "num lines[first].qty": "1", "set lines[last].qty": "set", "num lines[last].qty": "2.5",
+		"len tags": "2", "repeat tags": "", "set tags[first]": "set", "bytes tags[first]": "1", "set tags[last]": "set", "bytes tags[last]": "1", "set Name": "set", "bytes Name": "3"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Errorf("an id and an empty field are no dimension, a nested field is:\n got %v\nwant %v", got, want)
+		t.Errorf("an id and an empty field are no dimension; a nested field, a number and a text's length are, and so are the first and last item's:\n got %v\nwant %v", got, want)
 	}
 }
 
@@ -96,6 +186,20 @@ func TestATriggerCountsOnlyTheCallsTheGateCheckedOnTheRowsField(t *testing.T) {
 	refusedBody := `{"status":{"code":"REJECTED","details":[{"app_code":1302,"reason":"OrderNotFound"}]}}`
 	order := `{"order":{"id_order":"o1"},` + shopOK + `}`
 	stock := `{"product":{"id_product":"p1","qty_on_hand":"4"},` + shopOK + `}`
+	create := "shop.customers.v1.CustomerService/CreateCustomer"
+	customer := func(id, name string) recStep {
+		stored := name[:min(len(name), 20)]
+		st := shopStep(id, create, `{"customer":{"name":"`+stored+`"},`+shopOK+`}`).with(requested(`{"name":"` + name + `","email":"` + strings.Repeat("e", len(name)) + `@example.test"}`))
+		if stored == name {
+			return st.holds("customer.name", name)
+		}
+		return st.failing("customer.name", name, stored)
+	}
+	named := func(id, name string) gateItem {
+		want, got := gatePair(name, name[:20])
+		return gateItem{Step: id, Call: create, Path: "customer.name", Rule: "equals", Want: want, Got: got, Failed: true, Reason: reason{Kind: reasonWrite, Step: id, RPC: create}}
+	}
+	long, longer := "Clerk Buyer t03f7f379", "Customer t3-abcdefghijklmnopqrstuvwxyz"
 	for _, c := range []struct {
 		name   string
 		chains []*gateChain
@@ -132,6 +236,21 @@ func TestATriggerCountsOnlyTheCallsTheGateCheckedOnTheRowsField(t *testing.T) {
 					batchStep("batch_unread", 2, "p1", "p1").holds("results.0.qty_on_hand", "10")),
 			},
 			"    trigger: fails when lines repeat id_product (1 call; lines of 2 items); passes with distinct id_product (1 call; lines of 2 items)\n"},
+		{"a refusal only when FetchOrder itself is sent as clerk, on an admin's order, while an admin's fetch of a clerk's order passes",
+			[]*gateChain{
+				gateRun("fetch-clerk", []gateItem{{Step: "fetch_c", Call: shopFetch, Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "REJECTED", Failed: true,
+					Reason: reason{Kind: reasonRefused, Step: "fetch_c", RPC: shopFetch, Got: "1302 OrderNotFound"}}},
+					shopStep("create_o", shopOrder, order),
+					shopStep("fetch_c", shopFetch, refusedBody, "create_o").as("clerk").failing("status.code", "SUCCESS", "REJECTED").with(requested(`{"id_order":"o1"}`))),
+				gateRun("fetch-admin", nil,
+					shopStep("create_c", shopOrder, order).as("clerk"),
+					shopStep("fetch_a", shopFetch, order, "create_c").with(requested(`{"id_order":"o1"}`))),
+			},
+			"    trigger: fails when FetchOrder itself is sent as clerk (1 call; 1 call using only steps sent as default); passes as default (1 call; 1 call using steps sent as clerk, so those steps' profile does not matter)\n"},
+		{"a name cut short: its length splits the calls, not the email's, and got keeps the first 20 bytes",
+			[]*gateChain{gateRun("customers", []gateItem{named("long", long), named("longer", longer)},
+				customer("long", long), customer("longer", longer), customer("short", "Ann"), customer("mid", "Customer t3-abcdef"))},
+			"    trigger: fails with name of 21+ bytes (2 calls); passes with name of up to 18 bytes (2 calls); got keeps the first 20 bytes of the name sent (2 calls)\n"},
 	} {
 		settleGate(c.chains)
 		out := captureStdout(t, func() { printGateGroups(nil, c.chains, false) })
@@ -264,20 +383,25 @@ func TestGoldenGateTrigger(t *testing.T) {
 	writeFile(t, ".shrt/chains/orders.yaml", orderChain("orders", []int{3}, []int{1, 2}))
 	var golden strings.Builder
 	for _, c := range []struct {
-		name, chain string
-		trigger     bool
+		name, file, chain, trigger, example string
 	}{
-		{"CreateOrder prices the last line of a two-line order as qty 1: a one-line order passes, so the row says the trigger", "", true},
-		{"a two-line order ending in qty 1 passes as well, so nothing separates the calls and the row says no trigger", orderChain("ends-in-one", []int{2, 1}), false},
+		{"CreateOrder prices the last line of a two-line order as qty 1: a one-line order passes, so the row says the trigger", "", "",
+			"fails with lines of 2+ items (1 call); passes with lines of 1 item (1 call)", "orders order_1_2"},
+		{"a two-line order ending in qty 1 passes as well, so nothing separates one failing call from the passing ones and the row says no trigger",
+			"ends-in-one", orderChain("ends-in-one", []int{2, 1}), "", "orders order_1_2"},
+		{"with a second failing two-line order and a one-line order of qty 2, only lines of 2+ items together with a last qty above 1 split them", "wide",
+			orderChain("wide", []int{2, 3}, []int{2}),
+			"fails with lines of 2+ items and lines[last].qty above 1 (2 calls); passes otherwise: lines of 1 item (2 calls), lines[last].qty 1 (1 call)", "wide order_2_3"},
 	} {
 		if c.chain != "" {
-			writeFile(t, ".shrt/chains/ends-in-one.yaml", c.chain)
+			writeFile(t, ".shrt/chains/"+c.file+".yaml", c.chain)
 		}
 		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
 		fmt.Fprintf(&golden, "# %s\n$ shrt gate -repro  [exit %d]\n%s\n", c.name, code, out)
-		trigger := "\n    trigger: fails with lines of 2+ items (1 call); passes with lines of 1 item (1 call)\n"
-		if code != 1 || strings.Contains(out, trigger) != c.trigger || strings.Contains(out, "trigger:") != c.trigger ||
-			!strings.Contains(out, "e.g. orders order_1_2") || !strings.Contains(out, "repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (reproduced 3/3)") {
+		trigger := "\n    trigger: " + c.trigger + "\n"
+		slice := strings.ReplaceAll(c.example, " ", "-slice-")
+		if code != 1 || strings.Contains(out, trigger) != (c.trigger != "") || strings.Contains(out, "trigger:") != (c.trigger != "") ||
+			!strings.Contains(out, "e.g. "+c.example+"\n") || !strings.Contains(out, "repro: shrt run .shrt/scratch/"+slice+".yaml  (reproduced 3/3)") {
 			t.Errorf("%s: got %d:\n%s", c.name, code, out)
 		}
 	}
