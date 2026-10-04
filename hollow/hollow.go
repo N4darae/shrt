@@ -140,10 +140,10 @@ func AssertsAbsence(e chain.ExpectResult) bool {
 func discriminatesEmptiness(path string, want bool) bool {
 	segs := strings.Split(path, ".")
 	if !want {
-		return isIndexSegment(segs[len(segs)-1])
+		return chain.IsDigits(segs[len(segs)-1])
 	}
 	for _, seg := range segs {
-		if isIndexSegment(seg) {
+		if chain.IsDigits(seg) {
 			return true
 		}
 	}
@@ -181,18 +181,6 @@ func pinsRefusal(path, rule string, want any) bool {
 		return isOK
 	}
 	return false
-}
-
-func isIndexSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func DataAsserted(chains []*chain.Chain) map[string]bool {
@@ -256,37 +244,12 @@ func BodyIsEmpty(response json.RawMessage) bool {
 		if chain.IsMetadataField(name) {
 			continue
 		}
-		if !valueIsEmpty(raw) {
+		var v any
+		if json.Unmarshal(raw, &v) != nil || !anyIsEmpty(v) {
 			return false
 		}
 	}
 	return true
-}
-
-func valueIsEmpty(raw json.RawMessage) bool {
-	var v any
-	if err := json.Unmarshal(raw, &v); err != nil {
-		return false
-	}
-	switch t := v.(type) {
-	case nil:
-		return true
-	case bool:
-		return !t
-	case float64:
-		return t == 0
-	case string:
-		if t == "" {
-			return true
-		}
-		n, err := strconv.ParseFloat(t, 64)
-		return err == nil && n == 0
-	case []any:
-		return listIsEmpty(t)
-	case map[string]any:
-		return mapIsEmpty(t)
-	}
-	return false
 }
 
 func listIsEmpty(items []any) bool {
