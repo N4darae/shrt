@@ -24,7 +24,7 @@ type stateEntity struct {
 
 func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 	out := []stateEntity{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" || strings.Contains(name, ".") {
 			continue

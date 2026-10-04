@@ -44,7 +44,7 @@ func runPrefix(v string) string {
 }
 
 func (p *Plan) scopeListByPrefix(t *listTarget) (string, string, bool) {
-	for _, key := range sortedKeys(t.step.Body) {
+	for _, key := range chain.SortedKeys(t.step.Body) {
 		if text, ok := t.step.Body[key].(string); !ok || text != "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue
 		}

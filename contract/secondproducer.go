@@ -115,7 +115,7 @@ func sharedProducers(first, second map[string]any, producer func(string) bool) [
 		switch t := b.(type) {
 		case map[string]any:
 			am, _ := a.(map[string]any)
-			for _, k := range sortedKeys(t) {
+			for _, k := range chain.SortedKeys(t) {
 				walk(am[k], t[k])
 			}
 		case []any:

@@ -27,7 +27,7 @@ func (c *Chain) UnusedVarNames(supplied map[string]any) []string {
 		return nil
 	}
 	declared := c.DeclaredVarNames()
-	return slices.DeleteFunc(sortedKeys(supplied), func(name string) bool { return slices.Contains(declared, name) })
+	return slices.DeleteFunc(SortedKeys(supplied), func(name string) bool { return slices.Contains(declared, name) })
 }
 
 func (c *Chain) DeclaredVarNames() []string {
@@ -56,7 +56,7 @@ func (c *Chain) DeclaredVarNames() []string {
 			}
 		}
 	}
-	return sortedKeys(seen)
+	return SortedKeys(seen)
 }
 
 func IsGeneratorRef(s string) bool {

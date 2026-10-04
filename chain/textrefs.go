@@ -40,7 +40,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 		}
 	}
 	walkLeaves(s.Body, "", "", func(path, _, t string) { check(path, t, false) })
-	for _, name := range sortedKeys(s.Headers) {
+	for _, name := range SortedKeys(s.Headers) {
 		check("header "+name, s.Headers[name], true)
 	}
 	return out

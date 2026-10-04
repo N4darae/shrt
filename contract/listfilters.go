@@ -75,7 +75,7 @@ func assertedLength(st *chain.Step, listPath string) (int, bool) {
 
 func (p *Plan) scopeOf(t *listTarget) listScope {
 	scope := listScope{}
-	for _, key := range sortedKeys(t.step.Body) {
+	for _, key := range chain.SortedKeys(t.step.Body) {
 		text, ok := t.step.Body[key].(string)
 		if !ok || text == "" {
 			continue
@@ -514,7 +514,7 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 		}
 		c, _ := lib.Get(rpc)
 		field := ""
-		for _, name := range sortedKeys(c.Fields) {
+		for _, name := range chain.SortedKeys(c.Fields) {
 			if ref, err := ParseRef(c.Fields[name].From); err == nil && canonicalCall(p.cat, ref.RPC) == pm.FullName && ref.Path == idPath {
 				field = name
 			}

@@ -152,7 +152,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 
 func (p *Plan) listPrefixes(st, first *chain.Step) map[string]string {
 	out := map[string]string{}
-	for _, key := range sortedKeys(st.Body) {
+	for _, key := range chain.SortedKeys(st.Body) {
 		text, ok := st.Body[key].(string)
 		if !ok || text == "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue

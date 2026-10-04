@@ -29,7 +29,7 @@ func (c *Chain) PreflightProblems() []string {
 			}
 		}
 		check("", collectRefs(s.Body))
-		for _, name := range sortedKeys(s.Headers) {
+		for _, name := range SortedKeys(s.Headers) {
 			check(" header "+name, collectRefs([]any{s.Headers[name]}))
 		}
 		known[s.ID] = true

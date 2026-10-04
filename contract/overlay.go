@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
@@ -174,7 +175,7 @@ func SplitNode(node string) (rpc, alias string) {
 
 func (c *RPCContract) Dependencies() []string {
 	sets := []map[string]*FieldContract{c.Fields}
-	for _, alias := range sortedKeys(c.Aliases) {
+	for _, alias := range chain.SortedKeys(c.Aliases) {
 		sets = append(sets, c.Aliases[alias].Fields)
 	}
 	return c.dependsOn(sets...)
@@ -197,7 +198,7 @@ func (c *RPCContract) dependsOn(sets ...map[string]*FieldContract) []string {
 		add(n)
 	}
 	for _, fields := range sets {
-		for _, name := range sortedKeys(fields) {
+		for _, name := range chain.SortedKeys(fields) {
 			for _, raw := range []string{fields[name].From, fields[name].SameAs} {
 				if ref, err := ParseRef(raw); err == nil {
 					add(ref.Node())
@@ -342,7 +343,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		clash := false
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			key := rpc
 			if cat != nil {
 				key = canonicalCall(cat, rpc)
@@ -507,7 +508,7 @@ func (l *Library) Count() int {
 }
 
 func (l *Library) RPCs() []string {
-	return sortedKeys(l.byRPC)
+	return chain.SortedKeys(l.byRPC)
 }
 
 func (o *Overlay) Marshal() ([]byte, error) { return yaml.Marshal(o) }

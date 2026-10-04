@@ -20,7 +20,7 @@ var TransportFields = map[string]string{
 }
 
 func TransportFieldNames() []string {
-	out := sortedKeys(TransportFields)
+	out := SortedKeys(TransportFields)
 	for i, name := range out {
 		out[i] = TransportPrefix + "." + name
 	}

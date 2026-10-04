@@ -298,7 +298,7 @@ func (p *Plan) wireInferredIDs(step *chain.Step, m *catalog.Method, fields map[s
 		earlier[st.Call] = true
 	}
 	froms := inferredFroms(m, p.cat.Methods())
-	for _, path := range sortedKeys(froms) {
+	for _, path := range chain.SortedKeys(froms) {
 		ref, err := ParseRef(froms[path])
 		if hasValueSource(fields[path]) || err != nil || !earlier[ref.Node()] {
 			continue
@@ -433,7 +433,7 @@ func isVersionSegment(s string) bool {
 }
 
 func DomainNames(methods []*catalog.Method) []string {
-	return sortedKeys(Domains(methods))
+	return chain.SortedKeys(Domains(methods))
 }
 
 func scalar(v string) *yaml.Node {

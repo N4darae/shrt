@@ -157,7 +157,7 @@ func (p *Plan) textProbe(lib *Library, st *chain.Step, m *catalog.Method, carrie
 	probe := p.probeCopy(lib, st, suffix)
 	renameStepRefs(probe, st.ID, probe.ID)
 	names := []string{}
-	for _, key := range sortedKeys(set) {
+	for _, key := range chain.SortedKeys(set) {
 		probe.Body[key] = set[key]
 		names = append(names, key)
 	}

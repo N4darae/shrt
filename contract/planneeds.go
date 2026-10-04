@@ -89,7 +89,7 @@ func (p *Plan) touchedEntities(st *chain.Step) []*chain.Step {
 }
 
 func entityField(cat *catalog.Catalog, c *RPCContract, producer *chain.Step) (string, string) {
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		ref, err := ParseRef(c.Fields[name].From)
 		if err != nil || strings.Contains(name, ".") || canonicalCall(cat, ref.RPC) != canonicalCall(cat, producer.Call) {
 			continue

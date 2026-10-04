@@ -124,7 +124,7 @@ func DeclaredFacts(rc *RPCContract) []string {
 			seen[key] = true
 		}
 	}
-	return sortedKeys(seen)
+	return chain.SortedKeys(seen)
 }
 
 func AssertsOnlyVerdict(s *chain.Step) bool {

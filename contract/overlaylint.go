@@ -55,7 +55,7 @@ func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 				"write scope: all for one every rpc of every domain shares", f.Scope)
 		}
 	}
-	for _, rpc := range sortedKeys(o.RPCs) {
+	for _, rpc := range chain.SortedKeys(o.RPCs) {
 		issues = append(issues, lintRPC(o.Domain, rpc, o.RPCs[rpc], lib, cat)...)
 	}
 	return issues
@@ -126,7 +126,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		baseGaps[gap.message] = true
 		add(SeverityWarn, "fields."+gap.list, "%s", gap.message)
 	}
-	for _, alias := range sortedKeys(c.Aliases) {
+	for _, alias := range chain.SortedKeys(c.Aliases) {
 		label := "aliases." + alias
 		issues = append(issues, lintFieldMap(domain, rpc, label, c.Aliases[alias].Fields, in, lib, cat)...)
 		for _, gap := range indexGaps(in, c.FieldsFor(alias)) {
@@ -139,7 +139,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 	sections := map[string]map[string]string{"exports": c.Exports, "terminal": c.Terminal, "soft_signals": c.SoftSignals}
 	for _, section := range []string{"exports", "terminal", "soft_signals"} {
-		for _, name := range sortedKeys(sections[section]) {
+		for _, name := range chain.SortedKeys(sections[section]) {
 			if !catalog.HasPath(out, chain.SplitPath(name)) && (section != "exports" || !catalog.HasPath(m.Response().Fields, chain.SplitPath(name))) {
 				add(SeverityError, name, "%s names %q which is not a field of %s", section, name, m.Output().FullName())
 			}
@@ -189,7 +189,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, in []*catalog.Field, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
 	add := issueAdder(domain, rpc, &issues)
-	for _, name := range sortedKeys(fields) {
+	for _, name := range chain.SortedKeys(fields) {
 		f := fields[name]
 		qualified := label + "." + name
 		if !catalog.HasPath(in, chain.SplitPath(name)) {
@@ -239,15 +239,15 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 	issues := []Issue{}
 	add := issueAdder(domain, rpc, &issues)
-	for _, alias := range append([]string{""}, sortedKeys(c.Aliases)...) {
+	for _, alias := range append([]string{""}, chain.SortedKeys(c.Aliases)...) {
 		groups := map[string][]string{}
 		fields := c.FieldsFor(alias)
-		for _, name := range sortedKeys(fields) {
+		for _, name := range chain.SortedKeys(fields) {
 			if f := fields[name]; f.OneOf != "" && (f.From != "" || f.Value != "") {
 				groups[f.OneOf] = append(groups[f.OneOf], name)
 			}
 		}
-		for _, group := range sortedKeys(groups) {
+		for _, group := range chain.SortedKeys(groups) {
 			if len(groups[group]) > 1 {
 				add(SeverityError, "oneof."+group, "%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
 					Ref{RPC: rpc, Alias: alias}.Node(), group, len(groups[group]), strings.Join(groups[group], ", "))
@@ -357,7 +357,7 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 	for _, rpc := range lib.RPCs() {
 		visit(rpc, nil)
 		if c, ok := lib.Get(rpc); ok {
-			for _, alias := range sortedKeys(c.Aliases) {
+			for _, alias := range chain.SortedKeys(c.Aliases) {
 				visit(rpc+"@"+alias, nil)
 			}
 		}
@@ -374,10 +374,10 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 	bySource := map[string][]consumerSite{}
 	domainOf := map[string]string{}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			domainOf[rpc] = o.Domain
 			c := o.RPCs[rpc]
-			for _, name := range sortedKeys(c.Fields) {
+			for _, name := range chain.SortedKeys(c.Fields) {
 				ref, err := ParseRef(c.Fields[name].From)
 				if err != nil {
 					continue
@@ -389,7 +389,7 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 	}
 
 	issues := []Issue{}
-	for _, key := range sortedKeys(bySource) {
+	for _, key := range chain.SortedKeys(bySource) {
 		sites := bySource[key]
 		field := strings.SplitN(key, "\x00", 3)[2]
 		for i, a := range sites {
@@ -531,7 +531,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 		}
 	}
 	out := []indexGap{}
-	for _, list := range sortedKeys(named) {
+	for _, list := range chain.SortedKeys(named) {
 		if broadcast[list] {
 			continue
 		}
@@ -555,14 +555,5 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			list, top, strings.Join(missing, ", "), pluralVerb(len(missing), "is", "are"), top+1, list,
 			strings.Join(missing, ", "), list)})
 	}
-	return out
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
 	return out
 }

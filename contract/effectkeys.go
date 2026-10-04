@@ -268,7 +268,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
 	specs, problems := []effectSpec{}, []string{}
-	keys := sortedKeys(c.Effects)
+	keys := chain.SortedKeys(c.Effects)
 	carries := func(field string) func(*catalog.Method) bool {
 		return func(em *catalog.Method) bool { return numericAt(em, field) != "" }
 	}
@@ -389,7 +389,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 
 func wiredWrites(c *RPCContract, cat *catalog.Catalog) []string {
 	out := []string{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		if _, ok := writeRef(c, name, cat); ok && !strings.Contains(name, ".") {
 			out = append(out, name)
 		}
@@ -456,7 +456,7 @@ func EffectProblems(lib *Library, cat *catalog.Catalog) []Issue {
 		return issues
 	}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			m, err := cat.Lookup(rpc)
 			if err != nil {
 				continue

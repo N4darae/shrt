@@ -118,7 +118,7 @@ func CodePaths(chains []*Chain) []string {
 			}
 		}
 	}
-	return sortedKeys(seen)
+	return SortedKeys(seen)
 }
 
 func assertedCodes(s *Step) []CodeAssertion {
@@ -535,7 +535,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 func findCode(v any, code, prefix string) (string, bool) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := sortedKeys(t)
+		keys := SortedKeys(t)
 		for _, k := range keys {
 			path := pathmask.Join(prefix, k)
 			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {

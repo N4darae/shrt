@@ -158,14 +158,14 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 	}
 	out := []SingleItemRepeat{}
-	for _, k := range sortedKeys(seen) {
+	for _, k := range chain.SortedKeys(seen) {
 		t := seen[k]
 		noRepeat := t.most >= 2 && t.distinct && t.sourced && !t.repeat
 		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "") && !noRepeat) {
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
-		names := sortedKeys(t.chains)
+		names := chain.SortedKeys(t.chains)
 		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
 		switch {
 		case noRepeat:
@@ -190,7 +190,7 @@ func repeatedResource(c *chain.Chain, at *chain.Step, list []any) (bool, bool) {
 			continue
 		}
 		parts := []string{}
-		for _, k := range sortedKeys(got) {
+		for _, k := range chain.SortedKeys(got) {
 			parts = append(parts, k+"="+got[k])
 		}
 		key := strings.Join(parts, "\x00")
@@ -210,7 +210,7 @@ func sharedResource(c *chain.Chain, at *chain.Step, list []any) (string, bool) {
 			return "", false
 		}
 		if want == nil {
-			want, first = got, got[sortedKeys(got)[0]]
+			want, first = got, got[chain.SortedKeys(got)[0]]
 		}
 	}
 	return first, true

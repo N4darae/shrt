@@ -132,7 +132,7 @@ func refTypeProblems(s *Step, m *catalog.Method, responses map[string]*catalog.M
 				"sent. Check that the source really carries a number", refs[0], path, target.Kind, where, kind))
 		}
 	})
-	for _, name := range sortedKeys(s.Headers) {
+	for _, name := range SortedKeys(s.Headers) {
 		never = append(never, structureProblems("fills header "+name, s.Headers[name], collectRefs(s.Headers[name]), true, responses, exports)...)
 	}
 	return never, maybe
@@ -219,7 +219,7 @@ func refOrigin(r Ref, exports map[string]exportOrigin) (step, rest string, ok bo
 }
 
 func walkTypedBody(body map[string]any, fields []*catalog.Field, prefix string, fn func(string, *catalog.Field, string, bool)) {
-	for _, key := range sortedKeys(body) {
+	for _, key := range SortedKeys(body) {
 		f, found := catalog.ResponseFieldAt(fields, []string{key})
 		if !found || f == nil || f.Truncated {
 			continue
@@ -280,7 +280,7 @@ func (c *Chain) Wires() []Wire {
 func walkLeaves(v any, path, key string, fn func(path, key, s string)) {
 	switch t := v.(type) {
 	case map[string]any:
-		for _, k := range sortedKeys(t) {
+		for _, k := range SortedKeys(t) {
 			walkLeaves(t[k], pathmask.Join(path, k), k, fn)
 		}
 	case []any:

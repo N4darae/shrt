@@ -231,7 +231,7 @@ func (p *Plan) statedTotal(rpc string, sp *effectSpec, r *effectRules) *totalRul
 
 func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 	out := map[string]Ref{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" {
 			continue
@@ -288,7 +288,7 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || strings.Contains(name, ".") {
 			continue
@@ -385,7 +385,7 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string) *totalRule {
 		return nil
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedKeys(c.Exports) {
+	for _, k := range chain.SortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	if !slices.ContainsFunc(texts, priceWord().MatchString) {
@@ -553,7 +553,7 @@ func (p *Plan) noteUnmetEffects(lib *Library) {
 		if !ok || !p.isTargetStep(st.ID) {
 			continue
 		}
-		for _, field := range sortedKeys(c.Effects) {
+		for _, field := range chain.SortedKeys(c.Effects) {
 			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
 				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(st, c, field, e))
 			}
@@ -743,7 +743,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
 		adders := []string{}
-		for _, a := range sortedKeys(r.increase) {
+		for _, a := range chain.SortedKeys(r.increase) {
 			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
 				adders = append(adders, a)
 			}
@@ -985,7 +985,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 		return false
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedKeys(c.Exports) {
+	for _, k := range chain.SortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	stated := c.Effects.restoresAny()
@@ -1099,7 +1099,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
 			strings.Join(clipList(ids, 8), ", "), strings.Join(said, "; "))
 	}
-	for _, rpc := range sortedKeys(silent) {
+	for _, rpc := range chain.SortedKeys(silent) {
 		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
 	}
 }
@@ -1119,7 +1119,7 @@ func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) st
 	if !ok {
 		return ""
 	}
-	for _, k := range sortedKeys(c.Effects) {
+	for _, k := range chain.SortedKeys(c.Effects) {
 		if c.Effects.is(k, word) {
 			return quoteEffect(k, c.Effects[k])
 		}
@@ -1139,7 +1139,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		return none
 	}
 	texts := []string{c.Summary, c.Note}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		if f := c.Fields[name]; f != nil {
 			texts = append(texts, f.Note)
 		}
@@ -1161,7 +1161,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		}
 	}
 	from := topFrom(c, p.cat)
-	for _, name := range sortedKeys(from) {
+	for _, name := range chain.SortedKeys(from) {
 		oc, ok := p.lib.Get(from[name].RPC)
 		if moved != "" || !ok || strings.Contains(name, ".") {
 			continue
@@ -1309,5 +1309,5 @@ func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectat
 }
 
 func keysIn[V any](m map[string]V, keep map[string]bool) []string {
-	return slices.DeleteFunc(sortedKeys(m), func(k string) bool { return !keep[k] })
+	return slices.DeleteFunc(chain.SortedKeys(m), func(k string) bool { return !keep[k] })
 }

@@ -57,7 +57,7 @@ func credentialFailure(lib *Library, rpc string) (Failure, bool) {
 }
 
 func keyWhere(body map[string]any, match func(lower string) bool) string {
-	for _, k := range sortedKeys(body) {
+	for _, k := range chain.SortedKeys(body) {
 		if match(strings.ToLower(k)) {
 			return k
 		}
@@ -98,7 +98,7 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 }
 
 func (p *Plan) secretField(body map[string]any) string {
-	for _, k := range sortedKeys(body) {
+	for _, k := range chain.SortedKeys(body) {
 		for _, pat := range p.opts.Redact {
 			if pathmask.Match(pat, k) {
 				return k

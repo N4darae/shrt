@@ -114,7 +114,7 @@ func lintIndistinctOrder(c *Chain) []Issue {
 			}
 			byList[m[1]][idx] = src
 		}
-		for _, list := range sortedKeys(byList) {
+		for _, list := range SortedKeys(byList) {
 			if issue, ok := indistinctOrderIssue(c, s, list, byList[list], position); ok {
 				issues = append(issues, issue)
 			}
@@ -148,7 +148,7 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		}
 		steps, ids = append(steps, st), append(ids, st.ID)
 	}
-	fields := sortedKeys(steps[0].Body)
+	fields := SortedKeys(steps[0].Body)
 	agree := []string{}
 	for _, f := range fields {
 		ascending := true

@@ -134,7 +134,7 @@ func StateGaps(chains []*chain.Chain, plans map[string]*Plan, lib *Library, cat 
 		}
 	}
 	out := []StateGap{}
-	for _, rpc := range sortedKeys(plans) {
+	for _, rpc := range chain.SortedKeys(plans) {
 		p := plans[rpc]
 		if p == nil || chain.IsReadOnlyCall(rpc) {
 			continue

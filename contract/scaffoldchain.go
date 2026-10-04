@@ -138,7 +138,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			readers[src][shortRPC(st.Call)] = true
 		}
 	}
-	for _, rpc := range sortedKeys(producers) {
+	for _, rpc := range chain.SortedKeys(producers) {
 		ids := producers[rpc]
 		if len(ids) < 2 {
 			continue
@@ -148,7 +148,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			maps.Copy(all, readers[id])
 		}
 		for _, id := range ids {
-			missing := slices.DeleteFunc(sortedKeys(all), func(r string) bool { return readers[id][r] })
+			missing := slices.DeleteFunc(chain.SortedKeys(all), func(r string) bool { return readers[id][r] })
 			if len(missing) == 0 {
 				continue
 			}

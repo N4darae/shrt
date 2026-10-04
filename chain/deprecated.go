@@ -40,7 +40,7 @@ func deprecatedBodyPaths(v any, path string, fields []*catalog.Field) []string {
 	out := []string{}
 	switch t := v.(type) {
 	case map[string]any:
-		for _, k := range sortedKeys(t) {
+		for _, k := range SortedKeys(t) {
 			next := pathmask.Join(path, k)
 			if deprecatedAlong(fields, SplitPath(next)) {
 				out = append(out, next)

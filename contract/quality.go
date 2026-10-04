@@ -190,7 +190,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 		if domain != "" && o.Domain != domain {
 			continue
 		}
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			c := o.RPCs[rpc]
 			if c == nil || shapes[rpc].Streaming {
 				continue
@@ -283,7 +283,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		RPC:                      rpc,
 		UndocumentedFields:       undocumented,
 		UnexplainedFailures:      unexplained,
-		UnfilledTodos:            sortedKeys(c.Unfilled),
+		UnfilledTodos:            chain.SortedKeys(c.Unfilled),
 		UnwiredIDs:               unwired,
 		UncheckedIDs:             unchecked,
 		UndeclaredResponseFields: undeclaredResponse,
@@ -348,7 +348,7 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 			keys[key] = true
 		}
 	}
-	for _, key := range sortedKeys(keys) {
+	for _, key := range chain.SortedKeys(keys) {
 		sourced, checked, noted := false, false, false
 		for name, f := range fields {
 			if relatedKey(name, key) {
