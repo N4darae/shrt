@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,10 +61,9 @@ func TestPlanForAListWithNoKnownCreatorSaysTheListIsEmpty(t *testing.T) {
 
 func TestContractLintWarnsOfAListWithoutNeeds(t *testing.T) {
 	issues := contract.LintLibrary(libraryFrom(t, listWithoutNeedsOverlay), catalogtest.Shop())
-	for _, i := range issues {
-		if strings.HasSuffix(i.RPC, "/ListProducts") && i.Field == "needs" && strings.Contains(i.Message, "CreateProduct") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool {
+		return strings.HasSuffix(i.RPC, "/ListProducts") && i.Field == "needs" && strings.Contains(i.Message, "CreateProduct")
+	}) {
+		t.Fatalf("contract lint must warn that ListProducts lists Product and declares no needs: %v", issues)
 	}
-	t.Fatalf("contract lint must warn that ListProducts lists Product and declares no needs: %v", issues)
 }

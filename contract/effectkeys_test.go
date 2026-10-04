@@ -3,9 +3,11 @@ package contract_test
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 )
 
@@ -141,12 +143,9 @@ func TestATotalStatedAsEffectsIsAssertedAndProbedPast32Bits(t *testing.T) {
 	p, _ := mutedPlan(t, shopEffects, "CreateOrder")
 	wantExpect(t, planStep(t, p, "create_order"), "order.total_minor", 2*250+3*1250)
 	wide := planStep(t, p, "create_order_wide_total")
-	for _, e := range wide.Expect {
-		if e.Path == "order.total_minor" && e.Equals != nil {
-			return
-		}
+	if !slices.ContainsFunc(wide.Expect, func(e chain.Expectation) bool { return e.Path == "order.total_minor" && e.Equals != nil }) {
+		t.Fatalf("the wide total probe asserts the sum: %+v", wide.Expect)
 	}
-	t.Fatalf("the wide total probe asserts the sum: %+v", wide.Expect)
 }
 
 func TestTheGapForAnUnstatedEffectPrintsTheEffectsToAdd(t *testing.T) {

@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -111,12 +112,11 @@ rpcs:
     status: draft
 `)
 	issues := contract.LintLibrary(lib, catalogtest.New())
-	for _, i := range issues {
-		if strings.Contains(i.Message, "ghost") && i.Severity == contract.SeverityWarn {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool {
+		return strings.Contains(i.Message, "ghost") && i.Severity == contract.SeverityWarn
+	}) {
+		t.Fatalf("an alias nobody declared must be warned about, got %v", issues)
 	}
-	t.Fatalf("an alias nobody declared must be warned about, got %v", issues)
 }
 
 func TestBeforePullsAPrerequisiteIntoAnotherDomainsPlan(t *testing.T) {
@@ -155,12 +155,9 @@ rpcs:
     status: draft
 `)
 	issues := contract.LintLibrary(lib, catalogtest.New())
-	for _, i := range issues {
-		if strings.Contains(i.Message, "cycle") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool { return strings.Contains(i.Message, "cycle") }) {
+		t.Fatalf("a cycle through before must be reported, got %v", issues)
 	}
-	t.Fatalf("a cycle through before must be reported, got %v", issues)
 }
 
 func TestOneOfRejectsTwoArmsCarryingAValue(t *testing.T) {
@@ -173,12 +170,9 @@ func TestOneOfRejectsTwoArmsCarryingAValue(t *testing.T) {
         oneof: owner
         value: b
 `)
-	for _, i := range issues {
-		if strings.Contains(i.Message, "oneof") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool { return strings.Contains(i.Message, "oneof") }) {
+		t.Fatalf("two armed oneof members must be an error, got %v", issues)
 	}
-	t.Fatalf("two armed oneof members must be an error, got %v", issues)
 }
 
 func TestOneOfAcceptsExactlyOneArm(t *testing.T) {

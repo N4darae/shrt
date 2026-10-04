@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -123,22 +124,18 @@ func planStep(t *testing.T, p *contract.Plan, id string) *chain.Step {
 
 func wantExpect(t *testing.T, st *chain.Step, path string, want any) {
 	t.Helper()
-	for _, e := range st.Expect {
-		if e.Path == path && e.Equals != nil && fmt.Sprint(e.Equals) == fmt.Sprint(want) {
-			return
-		}
+	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
+		return e.Path == path && e.Equals != nil && fmt.Sprint(e.Equals) == fmt.Sprint(want)
+	}) {
+		t.Fatalf("step %s: want %s equals %v, got %+v", st.ID, path, want, st.Expect)
 	}
-	t.Fatalf("step %s: want %s equals %v, got %+v", st.ID, path, want, st.Expect)
 }
 
 func wantExists(t *testing.T, st *chain.Step, path string, want bool) {
 	t.Helper()
-	for _, e := range st.Expect {
-		if e.Path == path && e.Exists != nil && *e.Exists == want {
-			return
-		}
+	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == path && e.Exists != nil && *e.Exists == want }) {
+		t.Fatalf("step %s: want %s exists %v, got %+v", st.ID, path, want, st.Expect)
 	}
-	t.Fatalf("step %s: want %s exists %v, got %+v", st.ID, path, want, st.Expect)
 }
 
 func bodyAt(t *testing.T, st *chain.Step, path string) string {

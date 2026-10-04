@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -175,12 +176,9 @@ rpcs:
     status: draft
 `)
 	issues := contract.LintLibrary(lib, catalogtest.New())
-	for _, i := range issues {
-		if strings.Contains(i.Message, "cycle") {
-			return
-		}
+	if !slices.ContainsFunc(issues, func(i contract.Issue) bool { return strings.Contains(i.Message, "cycle") }) {
+		t.Fatalf("a cycle must be reported, got %v", issues)
 	}
-	t.Fatalf("a cycle must be reported, got %v", issues)
 }
 
 func TestPlanOrdersDependenciesBeforeTheTarget(t *testing.T) {
