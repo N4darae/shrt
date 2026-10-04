@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -16,10 +15,10 @@ import (
 const orderedItems = 3
 
 var (
-	sortedByText = regexp.MustCompile(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
-	newestFirst  = regexp.MustCompile(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
-	oldestFirst  = regexp.MustCompile(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
-	creationWord = regexp.MustCompile(`(?i)^(creation|created|created_at|insertion|inserted|oldest|time)$`)
+	sortedByText = lazyRegexp(`(?i)\b(?:sorted|ordered|sorts|orders|sort|order)\s+by\s+(?:its\s+|their\s+|the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+	newestFirst  = lazyRegexp(`(?i)\b(newest|latest|most recent)\s+first\b|\bdescending\b|\bdesc\b`)
+	oldestFirst  = lazyRegexp(`(?i)\b(?:oldest|earliest|first created)\s+first\b|\b(?:in\s+)?(?:creation|insertion|chronological)\s+order\b|\bchronologically\b|\bin the order (?:they were|it was) created\b`)
+	creationWord = lazyRegexp(`(?i)^(creation|created|created_at|insertion|inserted|oldest|time)$`)
 )
 
 type listTarget struct {
@@ -289,7 +288,7 @@ func orderedValue(v any, name, kind string, rank int) (any, bool) {
 	if !ok || text == "" || wholeReference(text) {
 		return v, false
 	}
-	if loc := planVarRef.FindStringIndex(text); loc != nil {
+	if loc := planVarRef().FindStringIndex(text); loc != nil {
 		if strings.Contains(text[:loc[0]], "${") {
 			return v, false
 		}
@@ -307,13 +306,13 @@ func stateOrder(c *RPCContract, listPath string) (string, bool, bool) {
 	}
 	texts := []string{c.Summary, c.Note, c.Exports[listPath], c.Terminal[listPath]}
 	for _, text := range texts {
-		if m := sortedByText.FindStringSubmatch(text); m != nil {
-			return m[1], newestFirst.MatchString(text), true
+		if m := sortedByText().FindStringSubmatch(text); m != nil {
+			return m[1], newestFirst().MatchString(text), true
 		}
-		if newestFirst.MatchString(text) {
+		if newestFirst().MatchString(text) {
 			return "creation", true, true
 		}
-		if oldestFirst.MatchString(text) {
+		if oldestFirst().MatchString(text) {
 			return "creation", false, true
 		}
 	}
@@ -336,7 +335,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	listRPC := shortRPC(t.step.Call)
 	c, _ := lib.Get(canonicalCall(p.cat, t.step.Call))
 	key, desc, stated := stateOrder(c, t.listPath)
-	if len(keys) == 0 && !(stated && creationWord.MatchString(key)) {
+	if len(keys) == 0 && !(stated && creationWord().MatchString(key)) {
 		p.note("step %s: %s lists what %s create, but their fixtures have no scalar field shrt could vary, so every candidate "+
 			"sort key but creation order agrees; give them values that sort differently before asserting an order",
 			t.step.ID, listRPC, strings.Join(ids, ", "))
@@ -363,7 +362,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 	}
 	var order []int
 	switch {
-	case creationWord.MatchString(key):
+	case creationWord().MatchString(key):
 		order = []int{0, 1, 2}
 	default:
 		for name, r := range ranks {
@@ -415,7 +414,7 @@ func memberOrder(members []*chain.Step, key string) ([]int, string) {
 	for i := range order {
 		order[i] = i
 	}
-	if creationWord.MatchString(key) {
+	if creationWord().MatchString(key) {
 		return order, ""
 	}
 	values := make([]any, len(members))

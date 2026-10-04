@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -13,10 +12,10 @@ import (
 )
 
 var (
-	badSecretWhen = regexp.MustCompile(`(?i)\bpassword|\bpassphrase|\bcredential|\bsecret\b|\bdoes not match\b|\bwrong\b|\bincorrect\b`)
-	unknownUser   = regexp.MustCompile(`(?i)\b(?:unknown|unregistered|non-?existent|no such|not (?:in|found|known|registered)|(?:does not|doesn't|do not|don't) exist|no (?:account|user|login|member|one)s?\b[^.;]*?\b(?:has|have|with|named|called|matches|match|uses|use|by|for)\b|no (?:account|user)s? (?:exists?|found)|(?:account|user|username|login)\b[^.;]*?\b(?:missing|absent|not on file))`)
-	unknownReason = regexp.MustCompile(`(?i)(?:unknown|nosuch|no)(?:user|account|login)|(?:user|account|login)(?:notfound|unknown|missing)`)
-	roleWord      = regexp.MustCompile(`\b[A-Z][A-Z_]{2,}\b`)
+	badSecretWhen = lazyRegexp(`(?i)\bpassword|\bpassphrase|\bcredential|\bsecret\b|\bdoes not match\b|\bwrong\b|\bincorrect\b`)
+	unknownUser   = lazyRegexp(`(?i)\b(?:unknown|unregistered|non-?existent|no such|not (?:in|found|known|registered)|(?:does not|doesn't|do not|don't) exist|no (?:account|user|login|member|one)s?\b[^.;]*?\b(?:has|have|with|named|called|matches|match|uses|use|by|for)\b|no (?:account|user)s? (?:exists?|found)|(?:account|user|username|login)\b[^.;]*?\b(?:missing|absent|not on file))`)
+	unknownReason = lazyRegexp(`(?i)(?:unknown|nosuch|no)(?:user|account|login)|(?:user|account|login)(?:notfound|unknown|missing)`)
+	roleWord      = lazyRegexp(`\b[A-Z][A-Z_]{2,}\b`)
 )
 
 func (p *Plan) probeLogin(lib *Library, isTarget func(*chain.Step) bool) {
@@ -50,7 +49,7 @@ func credentialFailure(lib *Library, rpc string) (Failure, bool) {
 		if isUnauthenticated(f) || f.Unreachable != "" || f.ConnectCode == invalidArgCode {
 			continue
 		}
-		if badSecretWhen.MatchString(f.When) || badSecretWhen.MatchString(f.Reason) || strings.Contains(strings.ToLower(f.Reason), "credential") {
+		if badSecretWhen().MatchString(f.When) || badSecretWhen().MatchString(f.Reason) || strings.Contains(strings.ToLower(f.Reason), "credential") {
 			return f, true
 		}
 	}
@@ -139,7 +138,7 @@ func (p *Plan) paddedSecretLogin(st *chain.Step, m *catalog.Method, f Failure, d
 
 func (p *Plan) unknownUserFailure(rpc string, cred Failure) (Failure, bool) {
 	if p.lib == nil {
-		if unknownUser.MatchString(cred.When) {
+		if unknownUser().MatchString(cred.When) {
 			return cred, true
 		}
 		return Failure{}, false
@@ -152,7 +151,7 @@ func (p *Plan) unknownUserFailure(rpc string, cred Failure) (Failure, bool) {
 		candidates = append(candidates, f)
 	}
 	for _, f := range candidates {
-		if unknownUser.MatchString(f.When) || unknownReason.MatchString(namecase.Fold(f.Reason)) {
+		if unknownUser().MatchString(f.When) || unknownReason().MatchString(namecase.Fold(f.Reason)) {
 			return f, true
 		}
 	}
@@ -175,7 +174,7 @@ func (p *Plan) loginRoles(lib *Library, st *chain.Step, m *catalog.Method, c *RP
 	}
 	text := strings.Join([]string{c.Exports[field], c.Terminal[field], c.SoftSignals[field], c.Summary}, " ")
 	roles := []string{}
-	for _, w := range roleWord.FindAllString(text, -1) {
+	for _, w := range roleWord().FindAllString(text, -1) {
 		if !slices.Contains(roles, w) {
 			roles = append(roles, w)
 		}

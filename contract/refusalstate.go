@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -14,9 +13,9 @@ import (
 const overdrawValue = "100000"
 
 var (
-	shortReason  = regexp.MustCompile(`^(?:Insufficient|NotEnough|OutOf|Exceeds|Exceeded|Over)[A-Z]`)
-	shortWhen    = regexp.MustCompile(`(?i)\binsufficient\b|\bnot enough\b|\bmore than\b|\bexceeds?\b|\bout of stock\b|\bbeyond\b`)
-	stepRefToken = regexp.MustCompile(`\$\{\s*(?:steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.(?:response\.)?([A-Za-z0-9_.]+)\s*\}`)
+	shortReason  = lazyRegexp(`^(?:Insufficient|NotEnough|OutOf|Exceeds|Exceeded|Over)[A-Z]`)
+	shortWhen    = lazyRegexp(`(?i)\binsufficient\b|\bnot enough\b|\bmore than\b|\bexceeds?\b|\bout of stock\b|\bbeyond\b`)
+	stepRefToken = lazyRegexp(`\$\{\s*(?:steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.(?:response\.)?([A-Za-z0-9_.]+)\s*\}`)
 )
 
 func isQuantityName(name string) bool {
@@ -181,7 +180,7 @@ func (p *Plan) shortageFailure(lib *Library, st *chain.Step) (*catalog.Method, F
 		return nil, Failure{}, false
 	}
 	for _, f := range lib.AllFailures(st.Call) {
-		if shortReason.MatchString(f.Reason) || shortWhen.MatchString(f.When) {
+		if shortReason().MatchString(f.Reason) || shortWhen().MatchString(f.When) {
 			return m, f, true
 		}
 	}
@@ -292,7 +291,7 @@ func allStepRefs(v any) [][2]string {
 	walk = func(v any) {
 		switch t := v.(type) {
 		case string:
-			for _, m := range stepRefToken.FindAllStringSubmatch(t, -1) {
+			for _, m := range stepRefToken().FindAllStringSubmatch(t, -1) {
 				if m[1] == "vars" || m[1] == "env" || m[1] == "exports" || strings.HasPrefix(m[2], "request.") {
 					continue
 				}

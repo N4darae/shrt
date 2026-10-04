@@ -11,12 +11,12 @@ import (
 )
 
 var (
-	clauseSplit    = regexp.MustCompile(`(?i)\s*(?:,|;|\bor\b)\s*`)
-	shapeEmpty     = regexp.MustCompile(`(?i)\b(?:empty|missing|blank|absent|unset|omitted|not set|not given|required|none)\b`)
-	shapeSpace     = regexp.MustCompile(`(?i)\bwhitespace\b|\bspaces\b`)
-	shapeZero      = regexp.MustCompile(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
-	shapeNegative  = regexp.MustCompile(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
-	shapeAt        = regexp.MustCompile(`(?i)@|\bat[- ]?(?:sign|symbol|character|char|mark)\b`)
+	clauseSplit    = lazyRegexp(`(?i)\s*(?:,|;|\bor\b)\s*`)
+	shapeEmpty     = lazyRegexp(`(?i)\b(?:empty|missing|blank|absent|unset|omitted|not set|not given|required|none)\b`)
+	shapeSpace     = lazyRegexp(`(?i)\bwhitespace\b|\bspaces\b`)
+	shapeZero      = lazyRegexp(`(?i)\bzero\b|(?:^|\s)0(?:\s|$)`)
+	shapeNegative  = lazyRegexp(`(?i)\bnegative\b|\bbelow zero\b|\bless than zero\b`)
+	shapeAt        = lazyRegexp(`(?i)@|\bat[- ]?(?:sign|symbol|character|char|mark)\b`)
 	invalidArgCode = "invalid_argument"
 )
 
@@ -89,7 +89,7 @@ func shapeCases(body map[string]any, fields []*catalog.Field, f Failure) ([]shap
 	unread := []string{}
 	seen := map[string]bool{}
 	carry := f.Field
-	for _, clause := range clauseSplit.Split(f.When, -1) {
+	for _, clause := range clauseSplit().Split(f.When, -1) {
 		clause = strings.TrimSpace(clause)
 		if clause == "" {
 			continue
@@ -178,24 +178,24 @@ func shapeTarget(body map[string]any, fields []*catalog.Field, field string) (st
 func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 	switch {
 	case fd.Repeated:
-		if shapeEmpty.MatchString(clause) {
+		if shapeEmpty().MatchString(clause) {
 			return "empty", []any{}, true
 		}
 	case fd.Kind == "string":
 		text, _ := cur.(string)
 		switch {
-		case shapeAt.MatchString(clause) && strings.Contains(text, "@"):
+		case shapeAt().MatchString(clause) && strings.Contains(text, "@"):
 			return "no_at", strings.ReplaceAll(text, "@", "."), true
-		case shapeSpace.MatchString(clause):
+		case shapeSpace().MatchString(clause):
 			return "blank", "   ", true
-		case shapeEmpty.MatchString(clause):
+		case shapeEmpty().MatchString(clause):
 			return "empty", "", true
 		}
 	case chain.IsNumericKind(fd.Kind):
 		switch {
-		case shapeNegative.MatchString(clause):
+		case shapeNegative().MatchString(clause):
 			return "negative", "-1", true
-		case shapeZero.MatchString(clause):
+		case shapeZero().MatchString(clause):
 			return "zero", "0", true
 		}
 	}

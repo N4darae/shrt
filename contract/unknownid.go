@@ -13,8 +13,8 @@ import (
 const unknownIDSuffix = "-unknown"
 
 var (
-	notFoundReason = regexp.MustCompile(`NotFound|NoSuch|DoesNotExist|NotExist|^(?:Unknown|Missing|No)[A-Z]|(?:Unknown|Missing)$`)
-	notFoundWhen   = regexp.MustCompile(`(?i)\bno \w+ (?:has|with|matches|named|by)\b|\bdoes not exist\b|\bnot found\b|\bunknown\b|\bnames (?:no|an? (?:unknown|nonexistent|missing))\b|\bno such\b`)
+	notFoundReason = lazyRegexp(`NotFound|NoSuch|DoesNotExist|NotExist|^(?:Unknown|Missing|No)[A-Z]|(?:Unknown|Missing)$`)
+	notFoundWhen   = lazyRegexp(`(?i)\bno \w+ (?:has|with|matches|named|by)\b|\bdoes not exist\b|\bnot found\b|\bunknown\b|\bnames (?:no|an? (?:unknown|nonexistent|missing))\b|\bno such\b`)
 )
 
 func notFoundFailures(lib *Library, rpc string) []Failure {
@@ -23,7 +23,7 @@ func notFoundFailures(lib *Library, rpc string) []Failure {
 		if !probeable(f) || f.ConnectCode == "invalid_argument" {
 			continue
 		}
-		if notFoundReason.MatchString(f.Reason) || notFoundWhen.MatchString(f.When) {
+		if notFoundReason().MatchString(f.Reason) || notFoundWhen().MatchString(f.When) {
 			out = append(out, f)
 		}
 	}

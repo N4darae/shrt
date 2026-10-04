@@ -15,9 +15,9 @@ import (
 const largeValue = 12345
 
 var (
-	positiveOnly = regexp.MustCompile(`(?i)zero or negative|not positive|non-positive|must be positive|is positive|greater than zero|greater than 0\b|less than 1\b|below 1\b|at least 1\b|> ?0\b|<= ?0\b`)
-	atLeastN     = regexp.MustCompile(`(?i)(?:at least|minimum(?: is| of)?|no less than)\s+(\d+)`)
-	belowN       = regexp.MustCompile(`(?i)(?:less than|below|under|fewer than)\s+(\d+)`)
+	positiveOnly = lazyRegexp(`(?i)zero or negative|not positive|non-positive|must be positive|is positive|greater than zero|greater than 0\b|less than 1\b|below 1\b|at least 1\b|> ?0\b|<= ?0\b`)
+	atLeastN     = lazyRegexp(`(?i)(?:at least|minimum(?: is| of)?|no less than)\s+(\d+)`)
+	belowN       = lazyRegexp(`(?i)(?:less than|below|under|fewer than)\s+(\d+)`)
 )
 
 func spreadValue(base int64, rank int, quantity bool) int64 {
@@ -112,10 +112,10 @@ func varyItemNumbers(producers []*chain.Step, fields []*catalog.Field, perm []in
 }
 
 func parseMinimum(text string) (int64, bool) {
-	if positiveOnly.MatchString(text) {
+	if positiveOnly().MatchString(text) {
 		return 1, true
 	}
-	for _, re := range []*regexp.Regexp{atLeastN, belowN} {
+	for _, re := range []*regexp.Regexp{atLeastN(), belowN()} {
 		if m := re.FindStringSubmatch(text); m != nil {
 			if n, err := strconv.ParseInt(m[1], 10, 64); err == nil {
 				return n, true
@@ -519,9 +519,9 @@ const (
 	wideLimit = int64(1) << 31
 )
 
-var lengthUnit = regexp.MustCompile(`(?i)^\s*(?:characters|chars|char|letters|runes|code points|bytes|items|lines|entries)\b`)
+var lengthUnit = lazyRegexp(`(?i)^\s*(?:characters|chars|char|letters|runes|code points|bytes|items|lines|entries)\b`)
 
-var aboveN = regexp.MustCompile(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
+var aboveN = lazyRegexp(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
 
 func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string) (int64, bool) {
 	texts := []string{}
@@ -537,9 +537,9 @@ func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string)
 	}
 	best, found := int64(0), false
 	for _, t := range texts {
-		for _, at := range aboveN.FindAllStringSubmatchIndex(t, -1) {
+		for _, at := range aboveN().FindAllStringSubmatchIndex(t, -1) {
 			n, err := strconv.ParseInt(t[at[2]:at[3]], 10, 64)
-			if err != nil || n <= 0 || lengthUnit.MatchString(t[at[1]:]) {
+			if err != nil || n <= 0 || lengthUnit().MatchString(t[at[1]:]) {
 				continue
 			}
 			if !found || n < best {

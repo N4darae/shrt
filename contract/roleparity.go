@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-var roleSpecific = regexp.MustCompile(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
+var roleSpecific = lazyRegexp(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
 
 func openToEveryRole(c *RPCContract) bool {
 	if c == nil {
@@ -34,7 +33,7 @@ func (p *Plan) parityProfiles(st *chain.Step) []string {
 }
 
 func profileSuffix(prof string) string {
-	return strings.ToLower(profileChars.ReplaceAllString(prof, "_"))
+	return strings.ToLower(profileChars().ReplaceAllString(prof, "_"))
 }
 
 func roleSpecificPath(c *RPCContract, path string) bool {
@@ -44,7 +43,7 @@ func roleSpecificPath(c *RPCContract, path string) bool {
 	leaf := leafName(path)
 	for _, m := range []map[string]string{c.Terminal, c.SoftSignals} {
 		for k, text := range m {
-			if (k == path || k == leaf) && roleSpecific.MatchString(text) {
+			if (k == path || k == leaf) && roleSpecific().MatchString(text) {
 				return true
 			}
 		}

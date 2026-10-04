@@ -75,9 +75,9 @@ func numericValue(v any) (int64, bool) {
 }
 
 func refersToStep(text string) bool {
-	for _, loc := range anyValueRef.FindAllString(text, -1) {
+	for _, loc := range anyValueRef().FindAllString(text, -1) {
 		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(loc, "${"), "}"))
-		if !freshValueRef.MatchString(loc) && !strings.HasPrefix(inner, "vars.") && !strings.HasPrefix(inner, "env.") {
+		if !freshValueRef().MatchString(loc) && !strings.HasPrefix(inner, "vars.") && !strings.HasPrefix(inner, "env.") {
 			return true
 		}
 	}

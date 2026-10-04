@@ -3,7 +3,6 @@ package contract
 import (
 	"fmt"
 	"reflect"
-	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -914,7 +913,7 @@ func (p *Plan) bindSameAs(step *chain.Step, id, field, raw string) {
 	setBodyPath(step.Body, field, token)
 }
 
-var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
+var planVarRef = lazyRegexp(`\$\{vars\.([A-Za-z0-9_]+)\}`)
 
 func (p *Plan) declareInterpolatedVars() {
 	missing, _ := chain.ExternalInputs(p.Chain)
@@ -924,7 +923,7 @@ func (p *Plan) declareInterpolatedVars() {
 			continue
 		}
 		mapStrings(st.Body, func(t string) string {
-			for _, m := range planVarRef.FindAllStringSubmatchIndex(t, -1) {
+			for _, m := range planVarRef().FindAllStringSubmatchIndex(t, -1) {
 				if name := t[m[2]:m[3]]; m[0] == 0 && m[1] == len(t) {
 					whole[name] = true
 				} else {

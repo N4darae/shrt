@@ -211,7 +211,7 @@ func (p *Plan) noteUnterminatedOrdinal(orig, clone *chain.Step) {
 		field := p.uniqueField(orig, c, f, noun)
 		v, _ := bodyValue(orig.Body, field)
 		text, _ := v.(string)
-		loc := planVarRef.FindStringIndex(text)
+		loc := planVarRef().FindStringIndex(text)
 		if loc == nil || loc[0] == 0 || loc[1] != len(text) {
 			continue
 		}
@@ -219,7 +219,7 @@ func (p *Plan) noteUnterminatedOrdinal(orig, clone *chain.Step) {
 		p.note("step %s: %s %q ends in the var, so %s's %q is what %s sends for a tag ending in the ordinal (tag x-2 "+
 			"sends %q, as tag x's %s does): end the contract's value: with a terminator (%q) and the plan puts the "+
 			"ordinal after it, where no other tag's value can end", orig.ID, field, text, clone.ID, second, orig.ID,
-			strings.ReplaceAll(text, planVarRef.FindString(text), "x-2"), clone.ID, text+"-")
+			strings.ReplaceAll(text, planVarRef().FindString(text), "x-2"), clone.ID, text+"-")
 		return
 	}
 }
@@ -306,7 +306,7 @@ func hasJSONForm(f *catalog.Field) bool { return f.JSONForm != "" }
 func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {
 	eachLeaf(body, fields, hasJSONForm, func(m map[string]any, key string, f *catalog.Field) {
 		if t, ok := m[key].(string); ok {
-			if loc := planVarRef.FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
+			if loc := planVarRef().FindStringIndex(t); loc != nil && !(loc[0] == 0 && loc[1] == len(t)) {
 				m[key] = markAfterVar(t, loc, suffix)
 				return
 			}

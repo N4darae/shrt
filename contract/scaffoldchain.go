@@ -122,7 +122,7 @@ func leastUsed(choices []string, used map[string]int) string {
 func distinguishFixtures(step *chain.Step, id, first string) {
 	suffix := strings.TrimPrefix(id, first+"_")
 	step.Body, _ = mapStrings(step.Body, func(t string) string {
-		loc := planVarRef.FindStringIndex(t)
+		loc := planVarRef().FindStringIndex(t)
 		if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
 			return t
 		}
@@ -372,7 +372,7 @@ func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, s
 		}
 	}
 	key, desc, stated := stateOrder(c, t.listPath)
-	positional := stated && !desc && creationWord.MatchString(key)
+	positional := stated && !desc && creationWord().MatchString(key)
 	for i, prod := range t.producers {
 		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
 		v := ""

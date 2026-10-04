@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var statedLimit = regexp.MustCompile(`(?i)\b(?:at most|up to|no more than|maximum of|limited to|first|page (?:size )?of)\s+(\d+)\b|\b(\d+)\s+(?:per page|at a time)\b`)
+var statedLimit = lazyRegexp(`(?i)\b(?:at most|up to|no more than|maximum of|limited to|first|page (?:size )?of)\s+(\d+)\b|\b(\d+)\s+(?:per page|at a time)\b`)
 
 const largestPlannedLimit = 50
 
@@ -20,7 +19,7 @@ func listLimit(c *RPCContract, listPath string) (int, bool) {
 		return 0, false
 	}
 	for _, text := range []string{c.Summary, c.Note, c.Exports[listPath]} {
-		if m := statedLimit.FindStringSubmatch(text); m != nil {
+		if m := statedLimit().FindStringSubmatch(text); m != nil {
 			n, err := strconv.Atoi(m[1] + m[2])
 			return n, err == nil && n > 0
 		}

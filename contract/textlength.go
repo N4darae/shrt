@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,8 +17,8 @@ const (
 )
 
 var (
-	atMostN    = regexp.MustCompile(`(?i)(?:at most|up to|maximum(?: of| is)?|max\.?|no (?:more|longer) than|longer than|more than|exceeds?|over)\s+(\d+)\s*(?:characters|chars|char|letters|runes|code points|bytes)\b`)
-	lengthWord = regexp.MustCompile(`(?i)\b(?:too long|longer than|length|characters|chars|exceeds?)\b`)
+	atMostN    = lazyRegexp(`(?i)(?:at most|up to|maximum(?: of| is)?|max\.?|no (?:more|longer) than|longer than|more than|exceeds?|over)\s+(\d+)\s*(?:characters|chars|char|letters|runes|code points|bytes)\b`)
+	lengthWord = lazyRegexp(`(?i)\b(?:too long|longer than|length|characters|chars|exceeds?)\b`)
 	freeText   = map[string]bool{"name": true, "title": true, "description": true, "note": true, "notes": true, "comment": true,
 		"label": true, "display": true, "text": true, "message": true, "summary": true, "remark": true, "memo": true, "subject": true, "body": true}
 )
@@ -38,7 +37,7 @@ func statedMaximum(lib *Library, rpc string, c *RPCContract, name string) (int, 
 		if f.Field != name && !mentionsField(f.When, name) {
 			continue
 		}
-		if m := atMostN.FindStringSubmatch(f.When); m != nil {
+		if m := atMostN().FindStringSubmatch(f.When); m != nil {
 			if n, err := strconv.Atoi(m[1]); err == nil {
 				failure := f
 				return n, &failure, true
@@ -46,10 +45,10 @@ func statedMaximum(lib *Library, rpc string, c *RPCContract, name string) (int, 
 		}
 	}
 	if fc := c.Fields[name]; fc != nil {
-		if m := atMostN.FindStringSubmatch(fc.Note); m != nil {
+		if m := atMostN().FindStringSubmatch(fc.Note); m != nil {
 			if n, err := strconv.Atoi(m[1]); err == nil {
 				for _, f := range lib.AllFailures(rpc) {
-					if f.Field == name && lengthWord.MatchString(f.When+" "+f.Reason) {
+					if f.Field == name && lengthWord().MatchString(f.When+" "+f.Reason) {
 						failure := f
 						return n, &failure, true
 					}

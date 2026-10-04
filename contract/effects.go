@@ -13,14 +13,14 @@ import (
 )
 
 var (
-	increaseClause = regexp.MustCompile(`(?i)\b(?:increases?|increments?|raises?|adds?)\s+([^.;]+?)\s+by\s+(?:the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
-	reserveClause  = regexp.MustCompile(`(?i)\b(?:reserves?|takes?|deducts?|decrements?|consumes?|removes?|decreases?|allocates?|subtracts?)\s+([^.;]+?)\s+(?:for|from|on|of|across)\s+(?:every|each|all)\s+(?:of\s+(?:its|the)\s+|the\s+|its\s+)?([A-Za-z_]+)`)
-	perItemClause  = regexp.MustCompile(`(?i)\bone\s+([A-Za-z][A-Za-z0-9]*)\s+per\s+(?:line|item|entry|row)\b`)
-	untouchedWords = regexp.MustCompile(`(?i)\b(?:does not|doesn't|do not|never)\s+(?:touch|change|move|affect|alter|modify|reserve)\w*\s+([^.;,]+)`)
-	startsAtZero   = regexp.MustCompile(`(?i)\b(?:zero|no)\s+([a-z]+)`)
-	sumWord        = regexp.MustCompile(`(?i)\bsum\b|\btotal of\b`)
-	priceWord      = regexp.MustCompile(`(?i)(?:\b|_)pric(?:e|ed|es|ing)(?:\b|_)`)
-	plainWord      = regexp.MustCompile(`[A-Za-z]+`)
+	increaseClause = lazyRegexp(`(?i)\b(?:increases?|increments?|raises?|adds?)\s+([^.;]+?)\s+by\s+(?:the\s+)?([A-Za-z_][A-Za-z0-9_]*)`)
+	reserveClause  = lazyRegexp(`(?i)\b(?:reserves?|takes?|deducts?|decrements?|consumes?|removes?|decreases?|allocates?|subtracts?)\s+([^.;]+?)\s+(?:for|from|on|of|across)\s+(?:every|each|all)\s+(?:of\s+(?:its|the)\s+|the\s+|its\s+)?([A-Za-z_]+)`)
+	perItemClause  = lazyRegexp(`(?i)\bone\s+([A-Za-z][A-Za-z0-9]*)\s+per\s+(?:line|item|entry|row)\b`)
+	untouchedWords = lazyRegexp(`(?i)\b(?:does not|doesn't|do not|never)\s+(?:touch|change|move|affect|alter|modify|reserve)\w*\s+([^.;,]+)`)
+	startsAtZero   = lazyRegexp(`(?i)\b(?:zero|no)\s+([a-z]+)`)
+	sumWord        = lazyRegexp(`(?i)\bsum\b|\btotal of\b`)
+	priceWord      = lazyRegexp(`(?i)(?:\b|_)pric(?:e|ed|es|ing)(?:\b|_)`)
+	plainWord      = lazyRegexp(`[A-Za-z]+`)
 )
 
 type stockRule struct {
@@ -105,7 +105,7 @@ func (p *Plan) statedStock(lib *Library, rpc string, sp *effectSpec) *stockRule 
 		s.at = numericAt(m, sp.field)
 	}
 	if c, ok := lib.Get(rpc); ok {
-		if match := increaseClause.FindStringSubmatch(c.Summary); match != nil {
+		if match := increaseClause().FindStringSubmatch(c.Summary); match != nil {
 			s.words = append(s.words, contentWords(match[1], append(namecase.Words(chain.SplitPath(s.idPath)[0]), s.words...))...)
 		}
 	}
@@ -120,7 +120,7 @@ func contentWords(text string, drop []string) []string {
 		skip[strings.ToLower(d)] = true
 	}
 	out := []string{}
-	for _, w := range plainWord.FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
+	for _, w := range plainWord().FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
 		w = strings.ToLower(w)
 		if len(w) < 3 || effectStopWords[w] || skip[w] || slices.Contains(out, w) {
 			continue
@@ -252,7 +252,7 @@ func (p *Plan) increaseRule(lib *Library, rpc string) *stockRule {
 	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
-	match := increaseClause.FindStringSubmatch(c.Summary)
+	match := increaseClause().FindStringSubmatch(c.Summary)
 	if match == nil {
 		return nil
 	}
@@ -296,7 +296,7 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 		if f == nil || strings.Contains(name, ".") {
 			continue
 		}
-		match := perItemClause.FindStringSubmatch(f.Note)
+		match := perItemClause().FindStringSubmatch(f.Note)
 		if match == nil {
 			continue
 		}
@@ -374,7 +374,7 @@ func (p *Plan) reserveRuleFor(lib *Library, rpc string, r *effectRules) *reserve
 	if !ok || chain.IsReadOnlyCall(rpc) {
 		return nil
 	}
-	match := reserveClause.FindStringSubmatch(c.Summary)
+	match := reserveClause().FindStringSubmatch(c.Summary)
 	if match == nil {
 		return nil
 	}
@@ -407,7 +407,7 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule
 	}
 	priced := false
 	for _, t := range texts {
-		priced = priced || priceWord.MatchString(t)
+		priced = priced || priceWord().MatchString(t)
 	}
 	if !priced {
 		return nil
@@ -439,8 +439,8 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule
 			}
 			re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(sf.Name) + `\b`)
 			for _, t := range texts {
-				for _, clause := range clauseBreaks.Split(t, -1) {
-					if re.MatchString(clause) && sumWord.MatchString(clause) {
+				for _, clause := range clauseBreaks().Split(t, -1) {
+					if re.MatchString(clause) && sumWord().MatchString(clause) {
 						return &totalRule{rpc: rpc, sentence: strings.TrimSpace(clause), carrier: out.Name, field: sf.Name, list: list,
 							itemID: itemID, itemQty: itemQty, entity: entity, price: price}
 					}
@@ -874,7 +874,7 @@ func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 	if c.Effects.is(s.moved, EffectZero) {
 		return true
 	}
-	for _, m := range startsAtZero.FindAllStringSubmatch(c.Summary, -1) {
+	for _, m := range startsAtZero().FindAllStringSubmatch(c.Summary, -1) {
 		if slices.Contains(s.words, strings.ToLower(m[1])) {
 			return true
 		}
@@ -988,7 +988,7 @@ func (p *Plan) saysUntouched(c *RPCContract, touched []string, md *effectModel) 
 			return true
 		}
 	}
-	for _, m := range untouchedWords.FindAllStringSubmatch(c.Summary, -1) {
+	for _, m := range untouchedWords().FindAllStringSubmatch(c.Summary, -1) {
 		for _, e := range touched {
 			if sharesWord(contentWords(m[1], nil), md.stockOf[e].words) {
 				return true
@@ -1018,7 +1018,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 	}
 	stated := c.Effects.restoresAny()
 	if !o.reserved {
-		return stated || restoreWord.MatchString(strings.Join(texts, " "))
+		return stated || restoreWord().MatchString(strings.Join(texts, " "))
 	}
 	texts = append(texts, lib.DescriptionOf(lib.Domain(rpc)))
 	if !(stated && (o.held == "" || c.Effects.restores(o.held))) && (o.held == "" || !restoresFrom(texts, o.held)) {
@@ -1083,13 +1083,13 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 		st := p.stepByID(id)
 		if s := r.byEntity[canonicalCall(p.cat, st.Call)]; s != nil {
 			p.note("step %s: its contract says it starts with none (%q), so it asserts %s 0, and so does the read of it right after", id,
-				p.statedQuote(st, EffectZero, startsAtZero), s.moved)
+				p.statedQuote(st, EffectZero, startsAtZero()), s.moved)
 		}
 	}
 	for _, id := range asserted["untouched"] {
 		st := p.stepByID(id)
 		p.note("step %s: its contract says it leaves what the plan tracks alone (%q), so the reads right after it assert every level "+
-			"it names unchanged: a backend that moves it at this step fails there", id, p.statedQuote(st, EffectNone, untouchedWords))
+			"it names unchanged: a backend that moves it at this step fails there", id, p.statedQuote(st, EffectNone, untouchedWords()))
 	}
 	said := []string{}
 	called := map[string]bool{}
@@ -1161,8 +1161,8 @@ func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) st
 }
 
 var (
-	growVerb   = regexp.MustCompile(`(?i)\b(?:adds?|added|adding|increases?|increased|increasing|restocks?|replenish\w*|receives?|tops? up|credits?)\b`)
-	shrinkVerb = regexp.MustCompile(`(?i)\b(?:reserves?|takes?|deducts?|consumes?|removes?|decreases?|ships?|allocates?|subtracts?|sells?|debits?)\b`)
+	growVerb   = lazyRegexp(`(?i)\b(?:adds?|added|adding|increases?|increased|increasing|restocks?|replenish\w*|receives?|tops? up|credits?)\b`)
+	shrinkVerb = lazyRegexp(`(?i)\b(?:reserves?|takes?|deducts?|consumes?|removes?|decreases?|ships?|allocates?|subtracts?|sells?|debits?)\b`)
 )
 
 func (p *Plan) effectSnippet(rpc, field string) string {
@@ -1178,7 +1178,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		}
 	}
 	text := strings.Join(texts, " ")
-	grows, shrinks := growVerb.MatchString(text), shrinkVerb.MatchString(text)
+	grows, shrinks := growVerb().MatchString(text), shrinkVerb().MatchString(text)
 	verb := "increase"
 	if shrinks && !grows {
 		verb = "decrease"

@@ -11,7 +11,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var normalisedClaim = regexp.MustCompile(`(?i)\b(?:lower|upper)[- ]?cased?\b|\bin (?:lower|upper)[- ]?case\b|\bnormali[sz]\w*|\bcase[- ]?fold\w*|\bcanonicali[sz]\w*|\bfolded\b`)
+var normalisedClaim = lazyRegexp(`(?i)\b(?:lower|upper)[- ]?cased?\b|\bin (?:lower|upper)[- ]?case\b|\bnormali[sz]\w*|\bcase[- ]?fold\w*|\bcanonicali[sz]\w*|\bfolded\b`)
 
 func singleCarrier(m *catalog.Method) *catalog.Field {
 	var out *catalog.Field
@@ -39,7 +39,7 @@ func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, 
 	if yes, no := claims(note, word, nil); yes && !no {
 		return true
 	}
-	if yes, no := claims(note, trimClaimed, trimDenied); yes && !no {
+	if yes, no := claims(note, trimClaimed(), trimDenied()); yes && !no {
 		return true
 	}
 	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
@@ -182,7 +182,7 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 				continue
 			}
 			want := "${steps." + src.ID + ".request." + key + "}"
-			if p.normalised(lib, src.Call, sf.Name, normalisedClaim, true) {
+			if p.normalised(lib, src.Call, sf.Name, normalisedClaim(), true) {
 				sm, err := p.cat.Lookup(src.Call)
 				if err != nil {
 					continue
@@ -300,7 +300,7 @@ func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
 		sort.Strings(out)
 		return out
 	}
-	echoed := func(key string) bool { return !p.normalised(lib, st.Call, key, normalisedClaim, true) }
+	echoed := func(key string) bool { return !p.normalised(lib, st.Call, key, normalisedClaim(), true) }
 	return p.retypedTextProbe(lib, st, "mixed_case", pick, swapLiteralCase, echoed, func(fields []string) string {
 		return fmt.Sprintf("as %s, but %s with the letters' case swapped: accepted, and echoed and stored with "+
 			"that case, unless the contract says the backend normalises it.", st.ID, strings.Join(fields, ", "))
@@ -342,7 +342,7 @@ func (p *Plan) retypedTextProbe(lib *Library, st *chain.Step, tag string, pick f
 	return out
 }
 
-var normalisedWord = regexp.MustCompile(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
+var normalisedWord = lazyRegexp(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
 
 func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 	c, ok := lib.Get(canonicalCall(p.cat, rpc))
@@ -350,7 +350,7 @@ func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 		return false
 	}
 	if fc := c.Fields[field]; fc != nil {
-		if _, no := claims(fc.Note, trimClaimed, trimDenied); no {
+		if _, no := claims(fc.Note, trimClaimed(), trimDenied()); no {
 			return true
 		}
 	}
@@ -372,7 +372,7 @@ func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
 			if !isFreeText(name) && !p.keptUntrimmed(lib, st.Call, key) {
 				return
 			}
-			if p.normalised(lib, st.Call, key, normalisedWord, false) {
+			if p.normalised(lib, st.Call, key, normalisedWord(), false) {
 				skipped = append(skipped, key)
 			} else {
 				padded = append(padded, key)

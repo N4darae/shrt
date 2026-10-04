@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode"
 
@@ -12,23 +11,23 @@ import (
 )
 
 var (
-	duplicateReason = regexp.MustCompile(`^(?:Duplicate|NonUnique|NotUnique)([A-Z][A-Za-z0-9]*)$`)
-	takenReason     = regexp.MustCompile(`^([A-Z][A-Za-z0-9]*?)(?:AlreadyExists|AlreadyTaken|AlreadyInUse|AlreadyUsed|Exists|Taken|Duplicate|Duplicated|InUse|NotUnique)$`)
-	uniqueWhen      = regexp.MustCompile(`(?i)\bunique\b|\bduplicate\b`)
-	caseIgnored     = regexp.MustCompile(`(?i)ignor\w*\s+(?:the\s+)?(?:letter\s+)?case|case[- ]?insensitiv|regardless\s+of\s+(?:letter\s+)?case|(?:in|of)\s+any\s+(?:letter\s+)?case`)
-	freshValueRef   = regexp.MustCompile(`\$\{\s*(?:uuid|now|nowunix|today)(?:[+-][^}]*)?\s*\}`)
-	anyValueRef     = regexp.MustCompile(`\$\{[^}]*\}`)
-	varValueRef     = regexp.MustCompile(`\$\{\s*vars\.[A-Za-z0-9_]+\s*\}`)
+	duplicateReason = lazyRegexp(`^(?:Duplicate|NonUnique|NotUnique)([A-Z][A-Za-z0-9]*)$`)
+	takenReason     = lazyRegexp(`^([A-Z][A-Za-z0-9]*?)(?:AlreadyExists|AlreadyTaken|AlreadyInUse|AlreadyUsed|Exists|Taken|Duplicate|Duplicated|InUse|NotUnique)$`)
+	uniqueWhen      = lazyRegexp(`(?i)\bunique\b|\bduplicate\b`)
+	caseIgnored     = lazyRegexp(`(?i)ignor\w*\s+(?:the\s+)?(?:letter\s+)?case|case[- ]?insensitiv|regardless\s+of\s+(?:letter\s+)?case|(?:in|of)\s+any\s+(?:letter\s+)?case`)
+	freshValueRef   = lazyRegexp(`\$\{\s*(?:uuid|now|nowunix|today)(?:[+-][^}]*)?\s*\}`)
+	anyValueRef     = lazyRegexp(`\$\{[^}]*\}`)
+	varValueRef     = lazyRegexp(`\$\{\s*vars\.[A-Za-z0-9_]+\s*\}`)
 )
 
 func uniquenessNoun(f Failure) (string, bool) {
-	if m := duplicateReason.FindStringSubmatch(f.Reason); m != nil {
+	if m := duplicateReason().FindStringSubmatch(f.Reason); m != nil {
 		return m[1], true
 	}
-	if m := takenReason.FindStringSubmatch(f.Reason); m != nil {
+	if m := takenReason().FindStringSubmatch(f.Reason); m != nil {
 		return m[1], true
 	}
-	if uniqueWhen.MatchString(f.When) {
+	if uniqueWhen().MatchString(f.When) {
 		return "", true
 	}
 	return "", false
@@ -84,7 +83,7 @@ func swapLiteralCase(v string) string {
 			}
 		}
 	}
-	for _, loc := range anyValueRef.FindAllStringIndex(v, -1) {
+	for _, loc := range anyValueRef().FindAllStringIndex(v, -1) {
 		flip(v[last:loc[0]])
 		out.WriteString(v[loc[0]:loc[1]])
 		last = loc[1]
@@ -94,13 +93,13 @@ func swapLiteralCase(v string) string {
 }
 
 func stableAcrossSteps(v string) string {
-	if !freshValueRef.MatchString(v) {
+	if !freshValueRef().MatchString(v) {
 		return v
 	}
-	if !varValueRef.MatchString(v) {
-		return freshValueRef.ReplaceAllString(v, "${vars.tag}")
+	if !varValueRef().MatchString(v) {
+		return freshValueRef().ReplaceAllString(v, "${vars.tag}")
 	}
-	out := freshValueRef.ReplaceAllString(v, "")
+	out := freshValueRef().ReplaceAllString(v, "")
 	for _, sep := range []string{"-", "_", "."} {
 		for strings.Contains(out, sep+sep) {
 			out = strings.ReplaceAll(out, sep+sep, sep)

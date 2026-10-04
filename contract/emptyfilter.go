@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -11,19 +10,19 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var emptyListsAll = regexp.MustCompile(`(?i)\b(?:empty|blank|absent|unset|omitted|missing|no)\b[^.;]*?\b(?:lists?|returns?|matches?|means?|shows?|gives?)\b[^.;]*?\b(?:all|every|everything|any|no filter|unfiltered)\b`)
+var emptyListsAll = lazyRegexp(`(?i)\b(?:empty|blank|absent|unset|omitted|missing|no)\b[^.;]*?\b(?:lists?|returns?|matches?|means?|shows?|gives?)\b[^.;]*?\b(?:all|every|everything|any|no filter|unfiltered)\b`)
 
 func EmptyMeansAll(c *RPCContract, field string) bool {
 	if c == nil || field == "" {
 		return false
 	}
-	if fc := c.Fields[field]; fc != nil && emptyListsAll.MatchString(fc.Note) {
+	if fc := c.Fields[field]; fc != nil && emptyListsAll().MatchString(fc.Note) {
 		return true
 	}
 	words := namecase.Words(field)
 	for _, text := range []string{c.Summary, c.Note} {
-		for _, clause := range clauseBreaks.Split(text, -1) {
-			m := emptyListsAll.FindString(clause)
+		for _, clause := range clauseBreaks().Split(text, -1) {
+			m := emptyListsAll().FindString(clause)
 			if m == "" {
 				continue
 			}

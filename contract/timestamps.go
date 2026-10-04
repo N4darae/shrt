@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -10,7 +9,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 )
 
-var durationPhrase = regexp.MustCompile(`(?i)\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|sixty)[\s-]*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b`)
+var durationPhrase = lazyRegexp(`(?i)\b(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|sixty)[\s-]*(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?)\b`)
 
 var numberWords = map[string]int64{
 	"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -18,7 +17,7 @@ var numberWords = map[string]int64{
 }
 
 func durationSeconds(text string) (int64, string, bool) {
-	m := durationPhrase.FindStringSubmatch(text)
+	m := durationPhrase().FindStringSubmatch(text)
 	if m == nil {
 		return 0, "", false
 	}

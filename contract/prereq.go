@@ -79,7 +79,7 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 			if f == nil || strings.Contains(name, ".") {
 				continue
 			}
-			if m := perItemClause.FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !slices.Contains(out, other) {
+			if m := perItemClause().FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !slices.Contains(out, other) {
 				out = append(out, other)
 			}
 		}

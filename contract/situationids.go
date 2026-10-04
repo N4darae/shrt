@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -11,8 +10,8 @@ import (
 )
 
 var (
-	stepRefHead = regexp.MustCompile(`\$\{(\s*)(steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.`)
-	stepToken   = regexp.MustCompile(`\b[a-z][a-z0-9_]*\b`)
+	stepRefHead = lazyRegexp(`\$\{(\s*)(steps\.)?([A-Za-z_][A-Za-z0-9_]*)\.`)
+	stepToken   = lazyRegexp(`\b[a-z][a-z0-9_]*\b`)
 )
 
 func (p *Plan) nameBySituation() {
@@ -95,7 +94,7 @@ func (p *Plan) nameBySituation() {
 		}
 	}
 	for i, n := range p.Notes {
-		p.Notes[i] = stepToken.ReplaceAllStringFunc(n, final)
+		p.Notes[i] = stepToken().ReplaceAllStringFunc(n, final)
 	}
 }
 
@@ -148,8 +147,8 @@ func (p *Plan) indexSuffix(subject, named string) string {
 
 func renameStepsIn(v any, to map[string]string) any {
 	return mapStrings(v, func(t string) string {
-		return stepRefHead.ReplaceAllStringFunc(t, func(ref string) string {
-			sub := stepRefHead.FindStringSubmatch(ref)
+		return stepRefHead().ReplaceAllStringFunc(t, func(ref string) string {
+			sub := stepRefHead().FindStringSubmatch(ref)
 			if id, ok := to[sub[3]]; ok {
 				return "${" + sub[1] + sub[2] + id + "."
 			}

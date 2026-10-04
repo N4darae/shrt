@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -11,7 +10,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var perItemFailure = regexp.MustCompile(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
+var perItemFailure = lazyRegexp(`(?i)\bon that (?:line|item|entry)\b|\b(?:line|item|entry) (?:only|alone)\b|\bper[- ](?:line|item|entry)\b|\bindependently\b|\bthe others? (?:still )?(?:appl|succeed|go through)`)
 
 func (p *Plan) probeBatch(lib *Library, isTarget func(*chain.Step) bool) {
 	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
@@ -48,9 +47,9 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil {
 		return nil
 	}
-	stated := c.Effects.perItem() || perItemFailure.MatchString(c.Summary)
+	stated := c.Effects.perItem() || perItemFailure().MatchString(c.Summary)
 	for _, f := range lib.AllFailures(rpc) {
-		stated = stated || perItemFailure.MatchString(f.When)
+		stated = stated || perItemFailure().MatchString(f.When)
 	}
 	if !stated {
 		return nil

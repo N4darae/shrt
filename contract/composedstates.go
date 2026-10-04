@@ -10,15 +10,15 @@ import (
 )
 
 var (
-	restoreWord  = regexp.MustCompile(`(?i)\b(?:return(?:s|ed|ing)?|(?:gives?|gave|given|giving) (?:\w+ ){0,2}back|restor(?:es|ed|ing|e)|releas(?:es|ed|ing|e)|refund(?:s|ed|ing)?|(?:puts?|putting) (?:\w+ ){0,2}back|restock(?:s|ed|ing)?)\b`)
-	clauseBreaks = regexp.MustCompile(`[.;]\s*`)
+	restoreWord  = lazyRegexp(`(?i)\b(?:return(?:s|ed|ing)?|(?:gives?|gave|given|giving) (?:\w+ ){0,2}back|restor(?:es|ed|ing|e)|releas(?:es|ed|ing|e)|refund(?:s|ed|ing)?|(?:puts?|putting) (?:\w+ ){0,2}back|restock(?:s|ed|ing)?)\b`)
+	clauseBreaks = lazyRegexp(`[.;]\s*`)
 )
 
 func restoresFrom(texts []string, state string) bool {
 	re := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(state) + `\b`)
 	for _, text := range texts {
-		for _, clause := range clauseBreaks.Split(text, -1) {
-			if re.MatchString(clause) && restoreWord.MatchString(clause) {
+		for _, clause := range clauseBreaks().Split(text, -1) {
+			if re.MatchString(clause) && restoreWord().MatchString(clause) {
 				return true
 			}
 		}

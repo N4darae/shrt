@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	prefixCaseSensitive = regexp.MustCompile(`(?i)case[- ]sensitive|exactly as sent|exact case`)
-	toState             = regexp.MustCompile(`(?i)\b(?:to|status|now|becomes|is)\s+([A-Z][A-Z_]+)\b`)
+	prefixCaseSensitive = lazyRegexp(`(?i)case[- ]sensitive|exactly as sent|exact case`)
+	toState             = lazyRegexp(`(?i)\b(?:to|status|now|becomes|is)\s+([A-Z][A-Z_]+)\b`)
 )
 
 type listScope struct {
@@ -177,10 +177,10 @@ func (p *Plan) otherParent(lib *Library, t *listTarget, scope listScope) []strin
 	return []string{fmt.Sprintf("%s, which belongs to %s (another %s)", item.ID, parent.ID, noun)}
 }
 
-var endsInVar = regexp.MustCompile(`\$\{\s*vars\.[^}]+\}$`)
+var endsInVar = lazyRegexp(`\$\{\s*vars\.[^}]+\}$`)
 
 func (p *Plan) terminatePrefix(t *listTarget, scope *listScope) {
-	if !endsInVar.MatchString(scope.prefix) {
+	if !endsInVar().MatchString(scope.prefix) {
 		return
 	}
 	next := byte(0)
@@ -235,12 +235,12 @@ func (p *Plan) prefixExclusions(lib *Library, t *listTarget, scope listScope) []
 	}
 	swapped := swapLiteralCase(scope.prefix)
 	switch {
-	case caseIgnored.MatchString(text):
+	case caseIgnored().MatchString(text):
 		p.gap("step %s: the contracts do not say %s is compared case-sensitively, so no fixture with the prefix in "+
 			"another letter case was planned; say \"case-sensitive\" in the note of %s or %s to have one", t.step.ID, scope.target, scope.prefixKey, scope.target)
 	case swapped == scope.prefix:
 		p.note("step %s: the prefix %q has no letters outside references, so no case variant could be built", t.step.ID, scope.prefix)
-	case !prefixCaseSensitive.MatchString(text):
+	case !prefixCaseSensitive().MatchString(text):
 		p.listInOtherCase(t, scope, swapped)
 	default:
 		cased := probeStep(first, p.freeStepID(first.ID+"_prefix_case"))
@@ -314,7 +314,7 @@ func stateIn(texts []string, values []string, short map[string]string) string {
 		if text == "" {
 			continue
 		}
-		for _, m := range toState.FindAllStringSubmatch(text, -1) {
+		for _, m := range toState().FindAllStringSubmatch(text, -1) {
 			for _, v := range values {
 				if strings.EqualFold(m[1], short[v]) || m[1] == v {
 					return v
@@ -405,7 +405,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	creation := false
 	if c, ok := lib.Get(canonicalCall(p.cat, t.step.Call)); ok {
 		key, desc, stated := stateOrder(c, t.listPath)
-		creation = stated && !desc && creationWord.MatchString(key)
+		creation = stated && !desc && creationWord().MatchString(key)
 	}
 	moveIDs := stepIDs(added)
 	var after *chain.Step

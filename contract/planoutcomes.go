@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -11,7 +10,7 @@ import (
 	"github.com/N4darae/shrt/namecase"
 )
 
-var increaseWord = regexp.MustCompile(`(?i)\b(increase[sd]?|add[sd]?|raise[sd]?|top[s]? up)\b`)
+var increaseWord = lazyRegexp(`(?i)\b(increase[sd]?|add[sd]?|raise[sd]?|top[s]? up)\b`)
 
 func (p *Plan) assertOutcomes(lib *Library) {
 	ids := []string{}
@@ -112,7 +111,7 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 	if list := p.batchOutcomes(st, m, c); len(list) > 0 {
 		return list
 	}
-	if !increaseWord.MatchString(c.Summary) && !c.Effects.increases() {
+	if !increaseWord().MatchString(c.Summary) && !c.Effects.increases() {
 		return out
 	}
 	for _, f := range inputs {
@@ -254,7 +253,7 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 	if listPath, field, ok := strings.Cut(chain.ItemEnvelope(), "[]."); ok && listPath == results.Name {
 		verdict = field
 	}
-	increase := increaseWord.MatchString(c.Summary) || c.Effects.increases()
+	increase := increaseWord().MatchString(c.Summary) || c.Effects.increases()
 	out := []chain.Expectation{}
 	for i, raw := range items {
 		item, _ := raw.(map[string]any)

@@ -33,7 +33,7 @@ const (
 )
 
 func runPrefix(v string) string {
-	loc := planVarRef.FindStringIndex(v)
+	loc := planVarRef().FindStringIndex(v)
 	if loc == nil || strings.Contains(v[:loc[0]], "${") {
 		return ""
 	}

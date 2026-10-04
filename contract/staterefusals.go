@@ -86,7 +86,7 @@ func failureState(f Failure, values []string, short map[string]string) string {
 }
 
 func probeable(f Failure) bool {
-	return f.Unreachable == "" && (f.Code != 0 || f.Reason != "" || f.ConnectCode != "") && !isUnauthenticated(f) && !perItemFailure.MatchString(f.When)
+	return f.Unreachable == "" && (f.Code != 0 || f.Reason != "" || f.ConnectCode != "") && !isUnauthenticated(f) && !perItemFailure().MatchString(f.When)
 }
 
 func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool) {
