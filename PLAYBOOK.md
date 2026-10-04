@@ -514,11 +514,11 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 
 | verdict (exit) | what it means | what to do |
 |---|---|---|
-| `reproduced` (0) | verdicts match, no dropped write touched a kept entity | nothing; `-write` records it in the description |
+| `reproduced` (0) | verdicts match in every counted run; dropped writes on kept entities are a `note:`, the slice did without them | nothing; `-write` records it in the description |
 | `NOT REPRODUCED` (1) | the verdict differs | run the `next:` line |
 | `intermittent: reproduced k/n` (1) | flaky there; a run that did not reach the target, or in which a kept step that passed in the source failed, is not counted | keeping more steps will not help |
 | `DID NOT RUN` (3) | the target was never answered | read why the slice run stopped, printed under it |
-| `INCONCLUSIVE` (3) | verdicts match but dropped writes act on kept entities, another target, or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
+| `INCONCLUSIVE` (3) | a kept step that passed in the source run fails in the slice, so a match can be chance; another target; the source never evaluated the failing expectation; or the run a passing target's drift is measured against is gone | run the `next:` line, or `-keep writes` for every earlier write |
 | `chain slice <c> -without <id> -verify` | runs the chain without it and lists the steps that failed and now pass, those failing with another code or got (`FAILS DIFFERENTLY`, exit 3: it is involved), those failing exactly as before (another cause, exit 1, `STILL FAILS` when no other; INCONCLUSIVE, exit 3, when they read what the left-out steps write), and those that fail only without it; cleared steps acting on a record the left-out step changed are marked `may need that state: not proof` | test a suspect write |
 
 Until a verdict, a slice is a hypothesis. `-run latest` picks the run `shrt diff` compares: the

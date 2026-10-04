@@ -430,7 +430,7 @@ func sliceCountLine(res *chain.SliceResult, verdict *sliceVerdict) string {
 		names = append(names, d.ID)
 	}
 	line += fmt.Sprintf(", writes among them %s", capList(names, 3))
-	if res.UnderIncluded {
+	if res.UnderIncluded && (verdict == nil || verdict.Outcome != sliceReproduced) {
 		line += ": WARNING possible under-inclusion, a kept step may depend on state they left"
 	}
 	return line
@@ -901,15 +901,13 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 	case driftUnseen:
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("step %s passed in source run %s and the run its drift was measured against cannot be loaded", res.Target, rec.RunID)
-	case len(related) > 0:
-		v.Outcome = sliceInconclusive
-		v.Reason = fmt.Sprintf("the verdict matched, but the slice dropped write step(s) on entities the kept steps use: %s", capList(related, 5))
-		v.OtherDropped = other
-		v.suggestKeep(res, rec, a, related)
 	default:
 		v.Outcome = sliceReproduced
 		v.Reproduced = true
 		v.OtherDropped = other
+		if len(related) > 0 {
+			v.Reason = fmt.Sprintf("note: the slice dropped write step(s) on entities the kept steps use and gave the step its verdict without them: %s", capList(related, 5))
+		}
 		if a.otherTarget != "" {
 			v.Reason = strings.TrimPrefix(v.Reason+"\n"+a.otherTarget+": the slice gave step "+res.Target+" the verdict it had there", "\n")
 		}
@@ -933,7 +931,7 @@ func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) str
 
 func (v *sliceVerdict) suggestKeep(res *chain.SliceResult, rec *runner.Record, a sliceVerifyArgs, names []string) {
 	if len(names) > 0 {
-		v.Prove = fmt.Sprintf("shrt chain slice %s -without %s -verify -run %s", res.Source, names[len(names)-1], rec.RunID)
+		v.Prove = fmt.Sprintf("shrt chain slice %s -without %s -verify -run %s", res.SourceCommandRef(), names[len(names)-1], rec.RunID)
 	}
 	usable, blocked := failedInSource(rec, names)
 	asked, askedBlocked := failedInSource(rec, a.keep)

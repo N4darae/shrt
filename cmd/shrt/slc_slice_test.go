@@ -162,31 +162,28 @@ func TestSliceCases(t *testing.T) {
 	total := 2
 	var round2Code *string
 	cases := []slcCase{
-		{name: "a dropped write makes a match inconclusive and next settles it", setup: slcNoisy, args: noisy, code: 3,
-			want: []string{"verify INCONCLUSIVE: step fetch, source run ", "the verdict matched in 3 of 3 slice runs", "slice run not kept", "-keep writes"}, not: []string{"0/3"},
+		{name: "a dropped write on a kept entity is a note on a matched verdict, not a reason for INCONCLUSIVE", setup: slcNoisy, args: noisy,
+			want: []string{"verify reproduced 3/3: step fetch, source run ", "note: the slice dropped write step(s) on entities the kept steps use and gave the step its verdict without them: fill\n", "slice run not kept"},
+			not:  []string{"INCONCLUSIVE", "next:", "WARNING possible under-inclusion", "whether a dropped write caused it"},
 			check: func(t *testing.T, out string) {
 				slcExists(t, ".shrt/runs/cli-noisy-flow-slice-fetch", false)
 				if hollow := captureStdout(t, func() { _ = chainHollow(nil) }); strings.Contains(hollow, "orphan") {
 					t.Fatalf("slice -verify left an orphan run:\n%s", hollow)
 				}
-				again, code := slcRunNext(t, out)
-				if code != 0 || !strings.Contains(again, "verify reproduced") {
-					t.Fatalf("with the write kept the verdict is a receipt (exit %d):\n%s", code, again)
-				}
-				slcExists(t, ".shrt/chains/cli-noisy-flow-slice-fetch.yaml", false)
-				slcHas(t, ".shrt/chains/cli-noisy-flow.yaml", "VERIFIED by 'shrt chain slice -verify'")
-				if n := len(runIDsOf(t, "cli-noisy-flow")); n != 4 {
-					t.Fatalf("the source run and three repeats are kept, got %d", n)
-				}
 			}},
-		{name: "an inconclusive -write keeps the path and records the verdict", setup: slcNoisy,
-			args: append(noisy, "-write", ".shrt/scratch/noisy-repro.yaml"), code: 3,
-			want: []string{"-verify -write .shrt/scratch/noisy-repro.yaml\n"},
+		{name: "a matched -write records VERIFIED at the path it names", setup: slcNoisy,
+			args: append(noisy, "-write", ".shrt/scratch/noisy-repro.yaml"),
+			want: []string{"verify reproduced 3/3"},
 			check: func(t *testing.T, _ string) {
-				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "INCONCLUSIVE by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") || strings.Contains(raw, "0 of 3 reproduced") {
+				if raw := slcHas(t, ".shrt/scratch/noisy-repro.yaml", "VERIFIED by 'shrt chain slice -verify'"); strings.Contains(raw, "HYPOTHESIS") || strings.Contains(raw, "INCONCLUSIVE") {
 					t.Fatalf("the verdict replaces the hypothesis:\n%s", raw)
 				}
 			}},
+		{name: "next keeps the -write path", setup: func(t *testing.T) {
+			round2Code = round2Workspace(t)
+			*round2Code = "PERMISSION_DENIED"
+		}, args: []string{"cli-r2-flow", "-step", "fetch", "-run", "latest", "-var", "batch=T2", "-verify", "-write", ".shrt/scratch/r2-repro.yaml"}, code: 1,
+			want: []string{"NOT REPRODUCED", "-verify -write .shrt/scratch/r2-repro.yaml\n"}},
 		{name: "an unset env var is did not run", setup: func(t *testing.T) {
 			srv := newFakeCLIBackend()
 			t.Cleanup(srv.Close)
