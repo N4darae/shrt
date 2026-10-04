@@ -123,26 +123,30 @@ func (p *Plan) ownFixtures(lib *Library, group []*chain.Step, tag string) []*cha
 			}
 		}
 	}
+	out, rename := p.copyOwned(lib, r.order, owned, tag, func(id string) string {
+		return fmt.Sprintf("as %s, a fixture of the %s probes' own, so a defect another probe leaves in %s cannot fail them.", id, strings.ReplaceAll(tag, "_", " "), id)
+	})
+	for _, st := range group {
+		retarget(st, rename)
+	}
+	return append(out, group...)
+}
+
+func (p *Plan) copyOwned(lib *Library, order []string, owned map[string]bool, tag string, describe func(string) string) ([]*chain.Step, map[string]string) {
 	rename := map[string]string{}
 	reserved := map[string]bool{}
-	for _, id := range r.order {
+	for _, id := range order {
 		if owned[id] {
 			rename[id] = p.freeProbeID(id+"_for_"+tag, reserved)
 		}
 	}
 	out := []*chain.Step{}
-	for _, id := range r.order {
-		if !owned[id] {
-			continue
+	for _, id := range order {
+		if owned[id] {
+			out = append(out, p.fixtureCopy(lib, p.stepByID(id), rename[id], rename, describe(id)))
 		}
-		src := p.stepByID(id)
-		c := p.fixtureCopy(lib, src, rename[id], rename, fmt.Sprintf("as %s, a fixture of the %s probes' own, so a defect another probe leaves in %s cannot fail them.", id, strings.ReplaceAll(tag, "_", " "), id))
-		out = append(out, c)
 	}
-	for _, st := range group {
-		retarget(st, rename)
-	}
-	return append(out, group...)
+	return out, rename
 }
 
 func (p *Plan) fixtureCopy(lib *Library, src *chain.Step, id string, rename map[string]string, description string) *chain.Step {
@@ -223,21 +227,9 @@ func (p *Plan) ownMovedResources(lib *Library, t *listTarget, moves map[*chain.S
 			owned[id] = true
 		}
 	}
-	rename := map[string]string{}
-	reserved := map[string]bool{}
-	for _, id := range p.region.order {
-		if owned[id] {
-			rename[id] = p.freeProbeID(id+"_for_filter", reserved)
-		}
-	}
-	copies := []*chain.Step{}
-	for _, id := range p.region.order {
-		if !owned[id] {
-			continue
-		}
-		c := p.fixtureCopy(lib, p.stepByID(id), rename[id], rename, fmt.Sprintf("as %s, for the fixtures the status filters move, so a defect a main-path write leaves in %s cannot fail the move.", id, id))
-		copies = append(copies, c)
-	}
+	copies, rename := p.copyOwned(lib, p.region.order, owned, "filter", func(id string) string {
+		return fmt.Sprintf("as %s, for the fixtures the status filters move, so a defect a main-path write leaves in %s cannot fail the move.", id, id)
+	})
 	names := []string{}
 	for _, prod := range moved {
 		retarget(prod, rename)
