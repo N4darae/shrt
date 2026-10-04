@@ -3,14 +3,13 @@ package chain
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 )
 
 func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, opts SliceOptions) []sideEffectWrite {
 	target := x.c.Steps[at]
 	sent := map[string]string{}
-	stringLeaves(target.Body, "", sent)
+	walkLeaves(target.Body, "", "", func(path, _, t string) { sent[path] = t })
 	fields := make([]string, 0, len(sent))
 	for field, v := range sent {
 		if x.keyValue(at, field, v, opts) {
@@ -31,7 +30,7 @@ func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, opts SliceOptio
 			continue
 		}
 		theirs := map[string]string{}
-		stringLeaves(s.Body, "", theirs)
+		walkLeaves(s.Body, "", "", func(path, _, t string) { theirs[path] = t })
 		for _, field := range fields {
 			if v, ok := theirs[field]; ok && strings.EqualFold(v, sent[field]) && x.keyValue(w, field, v, opts) {
 				out = append(out, sideEffectWrite{index: w, reason: fmt.Sprintf("sends the %s %s sends again (%s)", field, target.ID, v)})
@@ -57,26 +56,4 @@ func (x *stepIndex) keyValue(i int, field, v string, opts SliceOptions) bool {
 	}
 	key, known := opts.KeyField(x.rpcOf(i, opts), field)
 	return key || !known
-}
-
-func stringLeaves(v any, prefix string, into map[string]string) {
-	switch t := v.(type) {
-	case map[string]any:
-		for k, child := range t {
-			stringLeaves(child, joinPath(prefix, k), into)
-		}
-	case []any:
-		for i, child := range t {
-			stringLeaves(child, joinPath(prefix, strconv.Itoa(i)), into)
-		}
-	case string:
-		into[prefix] = t
-	}
-}
-
-func joinPath(prefix, k string) string {
-	if prefix == "" {
-		return k
-	}
-	return prefix + "." + k
 }

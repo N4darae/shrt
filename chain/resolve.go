@@ -252,11 +252,7 @@ func (s *Scope) lookupStep(rest, expr string) (any, error) {
 	if tail == "" {
 		return root, nil
 	}
-	lookup := Get
-	if view.Synthetic {
-		lookup = GetSynthetic
-	}
-	v, ok := lookup(root, tail)
+	v, ok := get(root, tail, view.Synthetic)
 	if !ok {
 		if view.Synthetic {
 			return nil, fmt.Errorf("unresolved reference ${%s}: path %q missing in step %q", expr, tail, id)

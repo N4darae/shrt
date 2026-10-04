@@ -25,10 +25,6 @@ func Get(root any, path string) (any, bool) {
 	return get(root, path, false)
 }
 
-func GetSynthetic(root any, path string) (any, bool) {
-	return get(root, path, true)
-}
-
 func get(root any, path string, synthetic bool) (any, bool) {
 	cur := root
 	for _, seg := range SplitPath(path) {

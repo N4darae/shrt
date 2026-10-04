@@ -201,7 +201,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 	out := []string{}
 	var last *catalog.Field
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			if last == nil || last.Repeated {
 				out = append(out, seg)
 			}
@@ -225,7 +225,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 func nearPath(fields []*catalog.Field, segs []string) string {
 	top := fields
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			continue
 		}
 		var next *catalog.Field
@@ -370,7 +370,7 @@ func refSyntaxProblems(text string) []string {
 		if r.Err != nil || r.Rest == "" || (r.Kind != RefClock && r.Kind != RefUUID) {
 			continue
 		}
-		if r.Kind == RefClock && r.Offset != 0 && isDigits(r.Rest) {
+		if r.Kind == RefClock && r.Offset != 0 && IsDigits(r.Rest) {
 			out = append(out, fmt.Sprintf("%q: the offset in ${%s} is a whole number of seconds, so it "+
 				"resolves as ${%s} and the .%s is dropped. Write the offset in whole seconds", text, trimmed,
 				r.Expr[:len(r.Expr)-len(r.Rest)-1], r.Rest))
@@ -834,7 +834,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 	switch {
 	case f.MapKey != "" && namecase.Equal(f.Name, last):
 		return "a map", true
-	case f.Repeated && !isDigits(last):
+	case f.Repeated && !IsDigits(last):
 		return "a list", true
 	case (f.Kind == "message" || f.Kind == "group") && f.MapKey == "" &&
 		(f.Message == "google.protobuf.Struct" || !strings.HasPrefix(f.Message, "google.protobuf.")):
@@ -956,7 +956,7 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 	segs := SplitPath(path)
 	out := make([]string, 0, len(segs))
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			out = append(out, seg)
 			continue
 		}
@@ -1157,7 +1157,7 @@ func lintExpectRules(s *Step) []Issue {
 }
 
 func enumValuesAt(fields []*catalog.Field, segs []string) []string {
-	for len(segs) > 0 && isDigits(segs[0]) {
+	for len(segs) > 0 && IsDigits(segs[0]) {
 		segs = segs[1:]
 	}
 	if len(segs) == 0 {
@@ -1168,7 +1168,7 @@ func enumValuesAt(fields []*catalog.Field, segs []string) []string {
 			continue
 		}
 		rest := segs[1:]
-		for len(rest) > 0 && isDigits(rest[0]) {
+		for len(rest) > 0 && IsDigits(rest[0]) {
 			rest = rest[1:]
 		}
 		if len(rest) == 0 {

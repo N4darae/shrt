@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const (
@@ -31,13 +33,6 @@ type WhichQuery struct {
 	RPC     string
 	Code    string
 	Aliases []string
-}
-
-func (q WhichQuery) Codes() []string {
-	if q.Code == "" {
-		return nil
-	}
-	return append([]string{q.Code}, q.Aliases...)
 }
 
 type WhichOptions struct {
@@ -242,7 +237,7 @@ func observationsFor(chainName string, load func(string) []Observation) (map[str
 }
 
 func (q WhichQuery) IsNumericCode() bool {
-	return isDigits(strings.TrimSpace(q.Code))
+	return IsDigits(strings.TrimSpace(q.Code))
 }
 
 func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
@@ -252,11 +247,11 @@ func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
 	if !q.IsNumericCode() {
 		return slices.ContainsFunc(q.Aliases, func(code string) bool { return assertsCode(asserts, code) }), ""
 	}
-	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return isDigits(a.Value) }) {
+	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return IsDigits(a.Value) }) {
 		return false, ""
 	}
 	for _, alias := range q.Aliases {
-		if !isDigits(alias) && assertsCode(asserts, alias) {
+		if !IsDigits(alias) && assertsCode(asserts, alias) {
 			return true, alias
 		}
 	}
@@ -272,7 +267,7 @@ func (q WhichQuery) matchResponse(response any) (string, string, bool) {
 		if !ok {
 			continue
 		}
-		if q.IsNumericCode() && !isDigits(alias) && siblingCodeDiffers(response, path, q.Code) {
+		if q.IsNumericCode() && !IsDigits(alias) && siblingCodeDiffers(response, path, q.Code) {
 			continue
 		}
 		return path, alias, true
@@ -292,7 +287,7 @@ func siblingCodeDiffers(response any, path, code string) bool {
 	}
 	for _, name := range CodeFields() {
 		if v, ok := obj[name]; ok {
-			if text := stringify(v); isDigits(text) && !strings.EqualFold(text, code) {
+			if text := stringify(v); IsDigits(text) && !strings.EqualFold(text, code) {
 				return true
 			}
 		}
@@ -301,15 +296,15 @@ func siblingCodeDiffers(response any, path, code string) bool {
 }
 
 func PrimaryAssertionFor(asserts []CodeAssertion, q WhichQuery) (CodeAssertion, bool) {
-	for _, code := range q.Codes() {
+	if q.Code == "" {
+		return PrimaryAssertion(asserts, "")
+	}
+	for _, code := range append([]string{q.Code}, q.Aliases...) {
 		if a, ok := PrimaryAssertion(asserts, code); ok {
 			return a, true
 		}
 	}
-	if q.Code != "" {
-		return CodeAssertion{}, false
-	}
-	return PrimaryAssertion(asserts, "")
+	return CodeAssertion{}, false
 }
 
 func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool) {
@@ -322,7 +317,7 @@ func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool
 		return CodeAssertion{}, false
 	}
 	for _, a := range asserts {
-		if isDigits(a.Value) {
+		if IsDigits(a.Value) {
 			return a, true
 		}
 	}
@@ -332,11 +327,9 @@ func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool
 	return CodeAssertion{}, false
 }
 
-func isDigits(s string) bool {
+func IsDigits(s string) bool {
 	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
-
-func IsDigits(s string) bool { return isDigits(s) }
 
 func evidenceFor(list []Observation, order []string, paths []string, assert CodeAssertion, byCode bool) *WhichEvidence {
 	var last *Observation
@@ -583,19 +576,19 @@ func findCode(v any, code, prefix string) (string, bool) {
 	case map[string]any:
 		keys := sortedKeys(t)
 		for _, k := range keys {
-			path := joinPath(prefix, k)
+			path := pathmask.Join(prefix, k)
 			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {
 				return path, true
 			}
 		}
 		for _, k := range keys {
-			if p, ok := findCode(t[k], code, joinPath(prefix, k)); ok {
+			if p, ok := findCode(t[k], code, pathmask.Join(prefix, k)); ok {
 				return p, true
 			}
 		}
 	case []any:
 		for i, item := range t {
-			if p, ok := findCode(item, code, joinPath(prefix, strconv.Itoa(i))); ok {
+			if p, ok := findCode(item, code, pathmask.Join(prefix, strconv.Itoa(i))); ok {
 				return p, true
 			}
 		}

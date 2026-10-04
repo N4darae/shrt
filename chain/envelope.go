@@ -75,14 +75,6 @@ func SetItemEnvelope(path string) {
 	active.itemPath = strings.TrimSpace(path)
 }
 
-func setReadOnlyPrefixesLocked(prefixes []string) {
-	if len(prefixes) == 0 {
-		active.readOnly = DefaultReadOnlyPrefixes()
-		return
-	}
-	active.readOnly = append([]string(nil), prefixes...)
-}
-
 func setEnvelopeLocked(path, ok string) {
 	path, ok = cmp.Or(strings.TrimSpace(path), DefaultEnvelopePath), cmp.Or(strings.TrimSpace(ok), DefaultEnvelopeOK)
 	active.path, active.ok, active.field = path, ok, path
@@ -305,7 +297,7 @@ func ValidateEnvelopeIn(cat *catalog.Catalog, path string) error {
 }
 
 func joinDataPath(path string) string {
-	return strings.Join(slices.DeleteFunc(SplitPath(path), isDigits), ".")
+	return strings.Join(slices.DeleteFunc(SplitPath(path), IsDigits), ".")
 }
 
 func IsVerdictPath(path string) bool {
@@ -434,7 +426,10 @@ func IsMetadataField(name string) bool {
 func ApplyConventions(readOnlyPrefixes []string, envelopePath, envelopeOK string) {
 	conventionsMu.Lock()
 	defer conventionsMu.Unlock()
-	setReadOnlyPrefixesLocked(readOnlyPrefixes)
+	active.readOnly = append([]string(nil), readOnlyPrefixes...)
+	if len(readOnlyPrefixes) == 0 {
+		active.readOnly = DefaultReadOnlyPrefixes()
+	}
 	setEnvelopeLocked(envelopePath, envelopeOK)
 }
 

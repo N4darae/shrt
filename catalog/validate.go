@@ -117,12 +117,8 @@ func namesHint(name string, valid []string, what string) string {
 }
 
 func (c *Catalog) Canonicalize(md protoreflect.MessageDescriptor, body []byte) ([]byte, error) {
-	full, _, err := c.CanonicalizeWithPresence(md, body)
+	full, _, err := c.canonicalize(md, body, false)
 	return full, err
-}
-
-func (c *Catalog) CanonicalizeWithPresence(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, err error) {
-	return c.canonicalize(md, body, false)
 }
 
 func (c *Catalog) CanonicalizeDiscardingUnknown(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, unknown []string, err error) {

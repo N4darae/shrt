@@ -9,6 +9,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 type exportOrigin struct {
@@ -191,7 +192,7 @@ func refSourceField(r Ref, responses map[string]*catalog.Method, exports map[str
 		}
 		return f, fmt.Sprintf("%s.%s", msg, rest), true, true
 	}
-	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !isDigits(last), true
+	return f, fmt.Sprintf("%s.%s", msg, rest), f.Repeated && !IsDigits(last), true
 }
 
 func refOrigin(r Ref, exports map[string]exportOrigin) (step, rest string, ok bool) {
@@ -227,7 +228,7 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 		if !found || f == nil || f.Truncated {
 			continue
 		}
-		path := joinPath(prefix, key)
+		path := pathmask.Join(prefix, key)
 		if text, isText := body[key].(string); isText && (f.Repeated || f.MapKey != "") {
 			fn(path, f, text, true)
 			continue
@@ -269,7 +270,7 @@ func (c *Chain) Wires() []Wire {
 				return
 			}
 			step, rest, ok := refOrigin(ParseRef(refs[0]), exports)
-			segs := slices.DeleteFunc(SplitPath(strings.TrimPrefix(rest, "response.")), isDigits)
+			segs := slices.DeleteFunc(SplitPath(strings.TrimPrefix(rest, "response.")), IsDigits)
 			if call, known := calls[step]; ok && known && len(segs) > 0 && segs[0] != "request" {
 				out = append(out, Wire{s.ID, field, call, strings.Join(segs, ".")})
 			}
@@ -284,7 +285,7 @@ func walkLeaves(v any, path, key string, fn func(path, key, s string)) {
 	switch t := v.(type) {
 	case map[string]any:
 		for _, k := range sortedKeys(t) {
-			walkLeaves(t[k], joinPath(path, k), k, fn)
+			walkLeaves(t[k], pathmask.Join(path, k), k, fn)
 		}
 	case []any:
 		for i, x := range t {

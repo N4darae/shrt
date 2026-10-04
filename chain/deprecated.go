@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const KindDeprecated = "deprecated"
@@ -40,7 +41,7 @@ func deprecatedBodyPaths(v any, path string, fields []*catalog.Field) []string {
 	switch t := v.(type) {
 	case map[string]any:
 		for _, k := range sortedKeys(t) {
-			next := joinPath(path, k)
+			next := pathmask.Join(path, k)
 			if deprecatedAlong(fields, SplitPath(next)) {
 				out = append(out, next)
 				continue
@@ -57,7 +58,7 @@ func deprecatedBodyPaths(v any, path string, fields []*catalog.Field) []string {
 
 func deprecatedAlong(fields []*catalog.Field, segs []string) bool {
 	for i := range segs {
-		if f, ok := catalog.FieldAt(fields, segs[:i+1]); ok && f.Deprecated && !isDigits(segs[i]) {
+		if f, ok := catalog.FieldAt(fields, segs[:i+1]); ok && f.Deprecated && !IsDigits(segs[i]) {
 			return true
 		}
 	}
