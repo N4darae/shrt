@@ -174,7 +174,13 @@ such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <
 
 `-repro` follows the summary with one block per row: for each `unclear` write and read pair in the
 row whose field another read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
-that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
+that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); for each pair of writes unclear on a
+counter (`unclear: write <a> or <b>`, `<b>` declaring `increase:` or `decrease:`), what a read of the record right
+after `<a>` shows, from the gate's run when a read sits between them, else from that copy with the read sent again
+right after `<a>`: `settled on the write <a> (<rpc>) in <chain>: <rpc> read <field>=<v> right after it where the write
+answered <w>, and <b> fell 1 from 0 to -1, as the approved run fell 1 from 1 to 0` (or the chain's expected values
+when it has no safe spot), `settled on the write <b>` when `<a>` stored what it answered and `<b>` moved it otherwise,
+else `not settled:` with both; then `repro: shrt run
 <path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
 the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
 the slice says so, or `repro: none:` and why. When the row's write answered other than a later read returns

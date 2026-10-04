@@ -32,6 +32,7 @@ type fakeShop struct {
 	stockReadBug       bool
 	lastLineBug        bool
 	confirmTotalBug    bool
+	batchFirstLineBug  bool
 
 	next      int
 	getCalls  int
@@ -153,6 +154,28 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			s.stock[id] = answered
 		}
 		return 200, map[string]any{"status": ok(), "qty_on_hand": strconv.FormatInt(answered, 10)}
+	case "/shop.catalog.v1.StockService/AddStockBatch":
+		lines, _ := body["lines"].([]any)
+		results, answer := []any{}, map[string]int64{}
+		for _, l := range lines {
+			line, _ := l.(map[string]any)
+			id, qty := fmt.Sprint(line["id_product"]), num64(line["qty"])
+			was, seen := answer[id]
+			if !seen {
+				was = s.stock[id]
+			}
+			status := rejected("InvalidQty")
+			if _, found := s.products[id]; found && qty > 0 {
+				status = ok()
+				if answer[id] = was + qty; !seen || !s.batchFirstLineBug {
+					s.stock[id] += qty
+				}
+			} else {
+				answer[id] = was
+			}
+			results = append(results, map[string]any{"id_product": id, "qty_on_hand": strconv.FormatInt(answer[id], 10), "status": status})
+		}
+		return 200, map[string]any{"status": ok(), "results": results}
 	case "/shop.orders.v1.OrderService/CreateOrder":
 		key := fmt.Sprint(body["idempotency_key"])
 		if prev, seen := s.idem[key]; seen && key != "" {
