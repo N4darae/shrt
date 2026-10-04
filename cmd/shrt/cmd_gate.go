@@ -479,10 +479,13 @@ func verifyAttribution(e *env, rec *runner.Record, report *diff.Report) attribut
 }
 
 func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attribution {
-	bad := map[string]bool{}
+	bad, changedAt := map[string]bool{}, map[string][]string{}
 	for _, c := range changes {
 		if c.Kind != diff.KindNotReached {
 			bad[c.Step] = true
+		}
+		if c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
+			changedAt[c.Step] = append(changedAt[c.Step], c.Path)
 		}
 	}
 	return attribution{e: e, rec: rec, bad: bad, ref: true,
@@ -508,13 +511,7 @@ func changesAttribution(e *env, rec *runner.Record, changes []diff.Change) attri
 			})
 		},
 		changed: func(step string) []string {
-			var out []string
-			for _, c := range changes {
-				if c.Step == step && c.Kind != diff.KindNotReached && c.Kind != diff.KindStatus {
-					out = append(out, c.Path)
-				}
-			}
-			return out
+			return changedAt[step]
 		},
 		resized: func(step, path string) string {
 			var lists []string
