@@ -11,19 +11,19 @@ import (
 
 func (a attribution) bears(i int, path string) bool {
 	w := a.rec.Steps[i]
+	leaf := leafOf(path)
+	effects := a.e.effectsOf(w.Call)
+	eff := effects[leaf]
 	if a.bad[w.ID] {
-		return true
+		return path == "" || eff == nil || eff.Is != contract.EffectNone || a.changed != nil && leafFields(a.changed(w.ID))[leaf]
 	}
 	if a.refusal(w) != "" {
-		eff := a.e.effectsOf(w.Call)[leafOf(path)]
 		return !a.ref || path != "" && eff != nil && eff.Is != contract.EffectNone
 	}
 	if a.e == nil || a.e.cat == nil || path == "" {
 		return true
 	}
-	leaf := leafOf(path)
-	effects := a.e.effectsOf(w.Call)
-	if eff := effects[leaf]; eff != nil && eff.Is != contract.EffectNone {
+	if eff != nil && eff.Is != contract.EffectNone {
 		return true
 	}
 	m, err := a.e.cat.Lookup(w.Call)

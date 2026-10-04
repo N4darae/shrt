@@ -320,7 +320,7 @@ func (a attribution) of(step, path string) reason {
 	}
 	if src, ref := heldBackBy(st); src != "" && src != step && (a.changed == nil || !slices.Contains(a.changed(step), path)) {
 		up, i := a.of(src, ref), -1
-		if up.blames() {
+		if up.blames() && len(up.Or) == 0 {
 			i = a.index(up.blamed(src))
 			if j := a.index(src); i < 0 && j >= 0 && isWrite(a.rec.Steps[j]) {
 				i = j
@@ -440,11 +440,15 @@ func (a attribution) asBefore(at int, path string, w int) reason {
 	from, _ := a.lastMatch(st, path)
 	var ws []reason
 	for _, i := range a.entityWrites(at, path, a.bad, from) {
-		if a.answers(a.rec.Steps[i], st, path) {
+		answered, itself := a.answers(a.rec.Steps[i], st, path)
+		if itself {
 			break
 		}
 		if a.moves(i, path) {
 			ws = append([]reason{{Step: a.rec.Steps[i].ID, RPC: a.rec.Steps[i].Call, Profile: profileAs(a.e, a.rec.Steps[i])}}, ws...)
+		}
+		if answered {
+			break
 		}
 	}
 	if len(ws) < 2 {
@@ -485,16 +489,30 @@ func (a attribution) seenIn(i int, state string) bool {
 	return found
 }
 
-func (a attribution) answers(w, st *runner.StepRecord, path string) bool {
+func (a attribution) answers(w, st *runner.StepRecord, path string) (answered, itself bool) {
 	var rb, wb any
 	if a.unchanged == nil || path == "" || envelopeOnly(path) || !a.decode(st, &rb) || !a.decode(w, &wb) {
-		return false
+		return false, false
 	}
-	found := false
+	want := a.carrier(st.Call, path)
 	eachLeaf(wb, "", func(p string, _ any) {
-		found = found || leafOf(p) == leafOf(path) && sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p)
+		if leafOf(p) == leafOf(path) && sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) {
+			answered, itself = true, itself || want == "" || a.carrier(w.Call, p) == want
+		}
 	})
-	return found
+	return answered, itself
+}
+
+func (a attribution) carrier(call, path string) string {
+	if a.e == nil || a.e.cat == nil {
+		return ""
+	}
+	m, err := a.e.cat.Lookup(call)
+	if err != nil {
+		return ""
+	}
+	c, _ := carrierOf(m, path)
+	return c
 }
 
 func (a attribution) movedFor(path string) map[string]bool {
