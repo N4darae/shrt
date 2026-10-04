@@ -161,7 +161,7 @@ func DeclaredFacts(rc *RPCContract) []string {
 			seen[key] = true
 		}
 	}
-	return sortedFlagKeys(seen)
+	return sortedKeys(seen)
 }
 
 func AssertsOnlyVerdict(s *chain.Step) bool {

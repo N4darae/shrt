@@ -2,7 +2,6 @@ package chain
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -67,11 +66,7 @@ func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {
 			}
 		}
 	}
-	names := make([]string, 0, len(counted))
-	for name := range counted {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := sortedKeys(counted)
 	issues := []Issue{}
 	for _, list := range names {
 		n := counted[list]

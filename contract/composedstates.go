@@ -166,7 +166,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	} else if len(entities) > 1 {
 		number := "<number>"
 		if r := p.effectRules(lib); len(r.byEntity) > 0 {
-			number = r.byEntity[sortedRuleKeys(r.byEntity)[0]].moved
+			number = r.byEntity[sortedKeys(r.byEntity)[0]].moved
 		}
 		gap = fmt.Sprintf("%s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
 			shortRPC(st.Call), short[tr.value], number, short[tr.value])

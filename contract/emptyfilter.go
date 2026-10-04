@@ -128,11 +128,7 @@ func EmptyFilterGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog) 
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
-		names := []string{}
-		for n := range t.chains {
-			names = append(names, n)
-		}
-		sort.Strings(names)
+		names := sortedKeys(t.chains)
 		out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: names})
 	}
 	sort.Slice(out, func(i, j int) bool {

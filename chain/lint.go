@@ -183,12 +183,7 @@ func newRefIndex(c *Chain) *refIndex {
 		if _, seen := idx.stepAt[s.ID]; !seen {
 			idx.stepAt[s.ID] = i + 1
 		}
-		names := make([]string, 0, len(s.Export))
-		for name := range s.Export {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range sortedKeys(s.Export) {
 			if _, seen := idx.exportedBy[name]; !seen {
 				idx.exportedBy[name] = i + 1
 				idx.exporter[name] = s.ID
@@ -369,7 +364,7 @@ func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex)
 
 func lintRefSyntax(s *Step) []Issue {
 	values := []any{s.Body}
-	for _, name := range sortedHeaderNames(s.Headers) {
+	for _, name := range sortedKeys(s.Headers) {
 		values = append(values, s.Headers[name])
 	}
 	for _, e := range s.Expect {
@@ -923,12 +918,7 @@ func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Iss
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := m.Response()
-	names := make([]string, 0, len(s.Export))
-	for name := range s.Export {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(s.Export) {
 		path := s.Export[name]
 		if exact, inexact := inexactPath(schema.Fields, path); inexact {
 			issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("export %q reads %q", name, path), exact, m))
@@ -972,12 +962,7 @@ func lintExportNames(c *Chain) []Issue {
 		if s == nil {
 			continue
 		}
-		names := make([]string, 0, len(s.Export))
-		for name := range s.Export {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		for _, name := range names {
+		for _, name := range sortedKeys(s.Export) {
 			if at, clash := stepAt[name]; clash {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"export %q has the same name as step %q (step %d), so ${%s} is ambiguous: the bare reference "+
@@ -1072,15 +1057,6 @@ func chainRefs(c *Chain) []Ref {
 			out = append(out, ParseRef(ref))
 		}
 	}
-	return out
-}
-
-func sortedKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
 	return out
 }
 
@@ -1187,7 +1163,7 @@ func lintVars(c *Chain) []Issue {
 
 func VarRefProblems(vars map[string]any) []string {
 	out := []string{}
-	for _, name := range sortedVarNames(vars) {
+	for _, name := range sortedKeys(vars) {
 		for _, ref := range collectRefs(vars[name]) {
 			out = append(out, fmt.Sprintf(
 				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
@@ -1195,15 +1171,6 @@ func VarRefProblems(vars map[string]any) []string {
 		}
 	}
 	return out
-}
-
-func sortedVarNames(vars map[string]any) []string {
-	names := make([]string, 0, len(vars))
-	for name := range vars {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 func ruleNames(e Expectation) []string {
@@ -1293,12 +1260,7 @@ func LintCorpus(chains []*Chain) []Issue {
 		}
 		byName[c.Name] = append(byName[c.Name], c.SourcePath)
 	}
-	names := make([]string, 0, len(byName))
-	for name := range byName {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(byName) {
 		paths := byName[name]
 		if len(paths) < 2 {
 			continue
@@ -1375,12 +1337,7 @@ func lintLiteralIdempotency(s *Step) []Issue {
 	visit = func(v any, path, key string) {
 		switch t := v.(type) {
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				child := k
 				if path != "" {
 					child = path + "." + k
@@ -1398,12 +1355,7 @@ func lintLiteralIdempotency(s *Step) []Issue {
 		}
 	}
 	visit(s.Body, "", "")
-	names := make([]string, 0, len(s.Headers))
-	for k := range s.Headers {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	for _, k := range sortedKeys(s.Headers) {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)
 		}
@@ -1465,12 +1417,7 @@ func lintUnterminatedPrefix(s *Step) []Issue {
 		return nil
 	}
 	issues := []Issue{}
-	keys := make([]string, 0, len(s.Body))
-	for k := range s.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(s.Body) {
 		text, ok := s.Body[k].(string)
 		if !ok || !strings.Contains(namecase.Fold(k), "prefix") {
 			continue
@@ -1514,4 +1461,13 @@ func renamedFieldHint(path string, fields []*catalog.Field) string {
 		return ""
 	}
 	return fmt.Sprintf("; if it was renamed in the proto, assert the new name: %s declares %s", where, strings.Join(names, ", "))
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

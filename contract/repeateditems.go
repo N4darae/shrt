@@ -183,11 +183,7 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
-		names := []string{}
-		for name := range t.chains {
-			names = append(names, name)
-		}
-		sort.Strings(names)
+		names := sortedKeys(t.chains)
 		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
 		switch {
 		case noRepeat:

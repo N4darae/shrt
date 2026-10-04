@@ -203,12 +203,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		}
 		add(j, KeepAsked, KeepAsked)
 	}
-	checkpoints := make([]string, 0, len(opts.Checkpoints))
-	for id := range opts.Checkpoints {
-		checkpoints = append(checkpoints, id)
-	}
-	sort.Strings(checkpoints)
-	for _, id := range checkpoints {
+	for _, id := range sortedKeys(opts.Checkpoints) {
 		if j, ok := idx.byID[id]; ok {
 			add(j, KeepCheckpoint, opts.Checkpoints[id])
 		}
@@ -1271,12 +1266,7 @@ func filterVars(v any, path string, out map[string]string) {
 			}
 		}
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(t) {
 			next := k
 			if path != "" {
 				next = path + "." + k
@@ -1301,12 +1291,7 @@ func listFilterShared(writer, reader *Step) (string, string) {
 	}
 	sent := map[string]string{}
 	filterVars(writer.Body, "", sent)
-	names := make([]string, 0, len(sent))
-	for name := range sent {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(sent) {
 		if field, ok := filters[name]; ok {
 			return field, name
 		}

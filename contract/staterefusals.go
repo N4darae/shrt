@@ -23,7 +23,7 @@ type stateEntity struct {
 
 func (p *Plan) entityStates(lib *Library, st *chain.Step, c *RPCContract) []stateEntity {
 	out := []stateEntity{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" || strings.Contains(name, ".") {
 			continue

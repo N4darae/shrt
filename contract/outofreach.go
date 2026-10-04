@@ -21,7 +21,7 @@ func ReferencedOutsideLibrary(lib *Library, cat *catalog.Catalog, onlyDomain str
 		if onlyDomain != "" && o.Domain != onlyDomain {
 			continue
 		}
-		for _, rpc := range sortedRPCNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			for _, target := range referencedNodes(o.RPCs[rpc]) {
 				name, domain, ok := absentFromLibrary(target, lib, cat)
 				if !ok {
@@ -48,7 +48,7 @@ func ReferencedOutsideLibrary(lib *Library, cat *catalog.Catalog, onlyDomain str
 func referencedNodes(c *RPCContract) []string {
 	nodes := []string{}
 	collect := func(fields map[string]*FieldContract) {
-		for _, name := range sortedFieldNames(fields) {
+		for _, name := range sortedKeys(fields) {
 			f := fields[name]
 			for _, raw := range []string{f.From, f.SameAs} {
 				if raw == "" {
@@ -63,7 +63,7 @@ func referencedNodes(c *RPCContract) []string {
 		}
 	}
 	collect(c.Fields)
-	for _, alias := range sortedAliasNames(c.Aliases) {
+	for _, alias := range sortedKeys(c.Aliases) {
 		collect(c.Aliases[alias].Fields)
 	}
 	for _, node := range append(append([]string{}, c.Needs...), c.Before...) {

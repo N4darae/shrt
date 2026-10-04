@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -233,12 +232,7 @@ func walkTypedBody(v any, fields []*catalog.Field, prefix string, fn func(string
 	if !ok {
 		return
 	}
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(body) {
 		f, found := catalog.ResponseFieldAt(fields, []string{key})
 		if !found || f == nil || f.Truncated {
 			continue

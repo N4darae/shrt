@@ -79,7 +79,7 @@ func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		batch := p.perItemResults(lib, st.Call, c, m) != nil
 		lookups := []string{}
-		for _, name := range sortedFieldNames(c.Fields) {
+		for _, name := range sortedKeys(c.Fields) {
 			if batch && len(chain.SplitPath(name)) > 1 {
 				continue
 			}

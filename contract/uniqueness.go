@@ -3,7 +3,6 @@ package contract
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"unicode"
 
@@ -41,11 +40,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 			return f.Field
 		}
 	}
-	keys := make([]string, 0, len(step.Body))
-	for k := range step.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(step.Body)
 	if noun != "" {
 		want := namecase.Fold(noun)
 		for _, k := range keys {
@@ -60,7 +55,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 		}
 	}
 	marked := []string{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		note := strings.ToLower(c.Fields[name].Note)
 		if strings.Contains(note, "unique") || strings.Contains(note, "unused") {
 			if _, ok := bodyValue(step.Body, name); ok {

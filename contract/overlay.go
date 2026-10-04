@@ -207,7 +207,7 @@ func (c *RPCContract) Dependencies() []string {
 	for _, n := range c.Needs {
 		add(n)
 	}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		if ref, err := ParseRef(c.Fields[name].From); err == nil {
 			add(ref.Node())
 		}
@@ -215,8 +215,8 @@ func (c *RPCContract) Dependencies() []string {
 			add(ref.Node())
 		}
 	}
-	for _, alias := range sortedAliasNames(c.Aliases) {
-		for _, name := range sortedFieldNames(c.Aliases[alias].Fields) {
+	for _, alias := range sortedKeys(c.Aliases) {
+		for _, name := range sortedKeys(c.Aliases[alias].Fields) {
 			if ref, err := ParseRef(c.Aliases[alias].Fields[name].From); err == nil {
 				add(ref.Node())
 			}
@@ -243,7 +243,7 @@ func (c *RPCContract) DependenciesFor(alias string) []string {
 		add(n)
 	}
 	fields := c.FieldsFor(alias)
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		if ref, err := ParseRef(fields[name].From); err == nil {
 			add(ref.Node())
 		}
@@ -272,24 +272,6 @@ func (c *RPCContract) FieldsFor(alias string) map[string]*FieldContract {
 		merged[name] = &copied
 	}
 	return merged
-}
-
-func sortedFieldNames(m map[string]*FieldContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedAliasNames(m map[string]*AliasContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func LoadOverlay(path string) (*Overlay, error) {
@@ -425,7 +407,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		clash := false
-		for _, rpc := range sortedContractNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			key := rpc
 			if cat != nil {
 				if m, err := cat.Lookup(rpc); err == nil {
@@ -598,12 +580,7 @@ func (l *Library) Count() int {
 }
 
 func (l *Library) RPCs() []string {
-	out := make([]string, 0, len(l.byRPC))
-	for rpc := range l.byRPC {
-		out = append(out, rpc)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(l.byRPC)
 }
 
 func (o *Overlay) Marshal() ([]byte, error) { return yaml.Marshal(o) }

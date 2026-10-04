@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -114,12 +113,7 @@ func sharedProducers(first, second map[string]any, producer func(string) bool) [
 		switch t := b.(type) {
 		case map[string]any:
 			am, _ := a.(map[string]any)
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				walk(am[k], t[k])
 			}
 		case []any:

@@ -31,11 +31,11 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 					out[len(out)-1].Via = sameEffectRPCs(lib, out[len(out)-1].RPC)
 				}
 			}
-			for _, field := range sortedFieldNames(c.Fields) {
+			for _, field := range sortedKeys(c.Fields) {
 				addFieldPrereq(c.Fields[field], func(node, edge string) { addField(node, edge, "", field) })
 			}
 			for name, a := range c.Aliases {
-				for _, field := range sortedFieldNames(a.Fields) {
+				for _, field := range sortedKeys(a.Fields) {
 					addFieldPrereq(a.Fields[field], func(node, edge string) { addField(node, edge, name, field) })
 				}
 			}

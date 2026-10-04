@@ -2,7 +2,6 @@ package chain
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -10,7 +9,7 @@ import (
 
 func headerStructures(s *Step, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
 	out := []string{}
-	for _, name := range sortedHeaderNames(s.Headers) {
+	for _, name := range sortedKeys(s.Headers) {
 		value := s.Headers[name]
 		for _, ref := range collectRefs(value) {
 			src, where, collection, ok := refSourceField(ParseRef(ref), responses, exports)
@@ -76,12 +75,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 	walk = func(v any, path string) {
 		switch t := v.(type) {
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				p := k
 				if path != "" {
 					p = path + "." + k
@@ -97,7 +91,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 		}
 	}
 	walk(s.Body, "")
-	for _, name := range sortedHeaderNames(s.Headers) {
+	for _, name := range sortedKeys(s.Headers) {
 		check("header "+name, s.Headers[name], true)
 	}
 	return out

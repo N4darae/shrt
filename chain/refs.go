@@ -66,12 +66,7 @@ func (c *Chain) DeclaredVarNames() []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for name := range seen {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func IsGeneratorRef(s string) bool {

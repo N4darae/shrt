@@ -2,7 +2,6 @@ package contract
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
@@ -40,13 +39,13 @@ func (c *RPCContract) Text(lib *Library, rpc string) string {
 	}
 	if len(c.Fields) > 0 {
 		b.WriteString("  fields\n")
-		for _, n := range sortedNames(c.Fields) {
+		for _, n := range sortedKeys(c.Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Fields[n]))
 		}
 	}
-	for _, alias := range sortedAliases(c.Aliases) {
+	for _, alias := range sortedKeys(c.Aliases) {
 		fmt.Fprintf(&b, "  alias @%-12s %s\n", alias, c.Aliases[alias].Note)
-		for _, n := range sortedNames(c.Aliases[alias].Fields) {
+		for _, n := range sortedKeys(c.Aliases[alias].Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Aliases[alias].Fields[n]))
 		}
 	}
@@ -107,36 +106,9 @@ func writeMap(b *strings.Builder, label string, m map[string]string) {
 		return
 	}
 	fmt.Fprintf(b, "  %s\n", label)
-	for _, k := range sortedStringKeys(m) {
+	for _, k := range sortedKeys(m) {
 		fmt.Fprintf(b, "    %-24s %s\n", k, m[k])
 	}
-}
-
-func sortedNames(m map[string]*FieldContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedAliases(m map[string]*AliasContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedStringKeys(m map[string]string) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func fieldDetail(f *FieldContract) string {

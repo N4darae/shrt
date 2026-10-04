@@ -163,12 +163,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			readers[src][shortRPC(st.Call)] = true
 		}
 	}
-	rpcs := make([]string, 0, len(producers))
-	for rpc := range producers {
-		rpcs = append(rpcs, rpc)
-	}
-	sort.Strings(rpcs)
-	for _, rpc := range rpcs {
+	for _, rpc := range sortedKeys(producers) {
 		ids := producers[rpc]
 		if len(ids) < 2 {
 			continue

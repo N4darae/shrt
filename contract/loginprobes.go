@@ -3,7 +3,6 @@ package contract
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -58,12 +57,7 @@ func credentialFailure(lib *Library, rpc string) (Failure, bool) {
 }
 
 func secretKey(body map[string]any) string {
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(body) {
 		low := strings.ToLower(k)
 		if strings.Contains(low, "pass") || strings.Contains(low, "secret") {
 			return k
@@ -73,12 +67,7 @@ func secretKey(body map[string]any) string {
 }
 
 func userKey(body map[string]any) string {
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(body) {
 		low := strings.ToLower(k)
 		if strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name" {
 			return k
@@ -115,12 +104,7 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 }
 
 func (p *Plan) secretField(body map[string]any) string {
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(body) {
 		for _, pat := range p.opts.Redact {
 			if pathmask.Match(pat, k) {
 				return k

@@ -336,11 +336,7 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 		p.noteUnscopedList(t, len(members))
 		return
 	}
-	keys := make([]string, 0, len(ranks))
-	for k := range ranks {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
+	keys := sortedKeys(ranks)
 	orders := []string{}
 	for _, k := range keys {
 		orders = append(orders, fmt.Sprintf("%s: %s", k, orderOf(ids, ranks[k])))

@@ -240,7 +240,7 @@ func (p *Plan) statedTotal(rpc string, sp *effectSpec, r *effectRules) *totalRul
 
 func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 	out := map[string]Ref{}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" {
 			continue
@@ -305,7 +305,7 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 	if err != nil || m.Streaming() {
 		return nil
 	}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || strings.Contains(name, ".") {
 			continue
@@ -420,7 +420,7 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule
 		return nil
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedRuleKeys(c.Exports) {
+	for _, k := range sortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	priced := false
@@ -605,7 +605,7 @@ func (p *Plan) noteUnmetEffects(lib *Library) {
 		if !ok || !p.isTargetStep(st.ID) {
 			continue
 		}
-		for _, field := range sortedRuleKeys(c.Effects) {
+		for _, field := range sortedKeys(c.Effects) {
 			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
 				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(lib, st, c, field, e))
 			}
@@ -808,7 +808,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
 		adders := []string{}
-		for _, a := range sortedRuleKeys(r.increase) {
+		for _, a := range sortedKeys(r.increase) {
 			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
 				adders = append(adders, a)
 			}
@@ -1065,7 +1065,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 		return false
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedRuleKeys(c.Exports) {
+	for _, k := range sortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	stated := c.Effects.restoresAny()
@@ -1159,21 +1159,21 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 		called[canonicalCall(p.cat, st.Call)] = true
 	}
 	r = r.onlyCalled(called)
-	for _, rpc := range sortedRuleKeys(r.increase) {
+	for _, rpc := range sortedKeys(r.increase) {
 		s := r.increase[rpc]
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s %s (%q)", s.moved, shortRPC(rpc), plusMinus(s.sign), s.qtyField, s.sentence))
 	}
-	for _, rpc := range sortedRuleKeys(r.batch) {
+	for _, rpc := range sortedKeys(r.batch) {
 		b := r.batch[rpc]
 		said = append(said, fmt.Sprintf("each %s.N.%s after %s is its line applied as %s", b.results, b.stock.moved, shortRPC(rpc), shortRPC(b.stock.rpc)))
 	}
-	for _, rpc := range sortedRuleKeys(r.reserve) {
+	for _, rpc := range sortedKeys(r.reserve) {
 		v := r.reserve[rpc]
 		noun := strings.TrimPrefix(v.itemID, "id_")
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s the %s of every %s naming that %s, a %s on two lines counted twice (%q)",
 			v.stock.moved, shortRPC(rpc), plusMinus(v.sign), v.itemQty, strings.TrimSuffix(v.list, "s"), noun, noun, v.sentence))
 	}
-	for _, rpc := range sortedRuleKeys(r.total) {
+	for _, rpc := range sortedKeys(r.total) {
 		t := r.total[rpc]
 		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
 	}
@@ -1195,7 +1195,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
 			strings.Join(shown, ", "), more, strings.Join(said, "; "))
 	}
-	for _, rpc := range sortedRuleKeys(silent) {
+	for _, rpc := range sortedKeys(silent) {
 		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
 	}
 }
@@ -1210,7 +1210,7 @@ func plusMinus(sign int64) string {
 func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) string {
 	if p.lib != nil && st != nil {
 		if c, ok := p.lib.Get(canonicalCall(p.cat, st.Call)); ok {
-			for _, k := range sortedRuleKeys(c.Effects) {
+			for _, k := range sortedKeys(c.Effects) {
 				if c.Effects.is(k, word) {
 					return quoteEffect(k, c.Effects[k])
 				}
@@ -1232,7 +1232,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		return none
 	}
 	texts := []string{c.Summary, c.Note}
-	for _, name := range sortedFieldNames(c.Fields) {
+	for _, name := range sortedKeys(c.Fields) {
 		if f := c.Fields[name]; f != nil {
 			texts = append(texts, f.Note)
 		}
@@ -1254,7 +1254,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		}
 	}
 	from := topFrom(c, p.cat)
-	for _, name := range sortedRuleKeys(from) {
+	for _, name := range sortedKeys(from) {
 		oc, ok := p.lib.Get(from[name].RPC)
 		if moved != "" || !ok || strings.Contains(name, ".") {
 			continue
@@ -1285,15 +1285,6 @@ func (p *Plan) summaryOf(st *chain.Step) string {
 		return ""
 	}
 	return c.Summary
-}
-
-func sortedRuleKeys[T any](m map[string]T) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) bool) {

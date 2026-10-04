@@ -517,12 +517,7 @@ func isVersionSegment(s string) bool {
 
 func DomainNames(methods []*catalog.Method) []string {
 	seen := Domains(methods)
-	out := make([]string, 0, len(seen))
-	for d := range seen {
-		out = append(out, d)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func scalar(v string) *yaml.Node {

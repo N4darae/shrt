@@ -3,7 +3,6 @@ package chain
 import (
 	"fmt"
 	"os"
-	"sort"
 
 	"github.com/N4darae/shrt/catalog"
 )
@@ -22,7 +21,7 @@ func (c *Chain) PreflightProblems() []string {
 		for _, ref := range collectRefs(s.Body) {
 			uses = append(uses, use{ref, ""})
 		}
-		for _, name := range sortedHeaderNames(s.Headers) {
+		for _, name := range sortedKeys(s.Headers) {
 			for _, ref := range collectRefs([]any{s.Headers[name]}) {
 				uses = append(uses, use{ref, " header " + name})
 			}
@@ -45,15 +44,6 @@ func (c *Chain) PreflightProblems() []string {
 			knownExports[name] = true
 		}
 	}
-	return out
-}
-
-func sortedHeaderNames(h map[string]string) []string {
-	out := make([]string, 0, len(h))
-	for name := range h {
-		out = append(out, name)
-	}
-	sort.Strings(out)
 	return out
 }
 

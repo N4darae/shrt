@@ -257,7 +257,7 @@ func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *cat
 		return "", nil, fmt.Errorf("%s has no contract, so it has no alias %q to plan", m.FullName, alias)
 	}
 	if _, declared := c.Aliases[alias]; !declared {
-		names := sortedAliasNames(c.Aliases)
+		names := sortedKeys(c.Aliases)
 		have := "it declares none"
 		if len(names) > 0 {
 			have = "declared: " + strings.Join(names, ", ")
@@ -343,7 +343,7 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
 			"as %s@after", shortRPC(rpc), shortRPC(rpc))
 		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
-			names := sortedAliasNames(c.Aliases)
+			names := sortedKeys(c.Aliases)
 			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
 				shortRPC(rpc), names[0], strings.Join(names, ", "))
 		}
@@ -379,7 +379,7 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 	}
 	fields := c.FieldsFor(alias)
 	out := []string{}
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		f := fields[name]
 		if f.OneOf != "" && (f.Value != "" || f.From != "" || f.SameAs != "") {
 			out = append(out, name)
@@ -447,7 +447,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 
 	fields := c.FieldsFor(alias)
 	schema := catalog.DescribeMessage(m.Input())
-	names := byIndexDepth(sortedFieldNames(fields))
+	names := byIndexDepth(sortedKeys(fields))
 	for _, name := range names {
 		growLists(step.Body, name)
 	}
@@ -815,7 +815,7 @@ func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (strin
 		}
 	}
 	fields := c.FieldsFor(alias)
-	for _, name := range sortedFieldNames(fields) {
+	for _, name := range sortedKeys(fields) {
 		if ref, err := ParseRef(fields[name].From); err == nil {
 			if got, _, _ := canon(ref.Node()); got == dep {
 				kinds = append(kinds, name+" from:")
@@ -1204,12 +1204,7 @@ func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
 		return
 	}
 	filled := []string{}
-	keys := make([]string, 0, len(body))
-	for k := range body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(body) {
 		k, ok := namecase.LookupKey(step.Body, key)
 		if !ok {
 			k = key

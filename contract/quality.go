@@ -205,7 +205,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 		if domain != "" && o.Domain != domain {
 			continue
 		}
-		for _, rpc := range sortedContractNames(o.RPCs) {
+		for _, rpc := range sortedKeys(o.RPCs) {
 			c := o.RPCs[rpc]
 			if c == nil || shapes[rpc].Streaming {
 				continue
@@ -347,7 +347,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		RPC:                      rpc,
 		UndocumentedFields:       undocumented,
 		UnexplainedFailures:      unexplained,
-		UnfilledTodos:            sortedFlagKeys(c.Unfilled),
+		UnfilledTodos:            sortedKeys(c.Unfilled),
 		UnwiredIDs:               unwired,
 		UncheckedIDs:             unchecked,
 		UndeclaredResponseFields: undeclaredResponse,
@@ -428,7 +428,7 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 			keys[key] = true
 		}
 	}
-	for _, key := range sortedFlagKeys(keys) {
+	for _, key := range sortedKeys(keys) {
 		if sourced, checked := idKeyState(fields, key); sourced {
 			if !checked {
 				unchecked = append(unchecked, key)
@@ -546,24 +546,6 @@ func unexplainedLabel(f Failure) string {
 func headSegment(key string) string {
 	head, _, _ := strings.Cut(key, ".")
 	return head
-}
-
-func sortedFlagKeys(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedContractNames(m map[string]*RPCContract) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func clipList(items []string, max int) []string {

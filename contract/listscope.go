@@ -1,7 +1,6 @@
 package contract
 
 import (
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -63,12 +62,7 @@ func runPrefix(v string) string {
 }
 
 func (p *Plan) scopeListByPrefix(t *listTarget) (string, string, bool) {
-	keys := make([]string, 0, len(t.step.Body))
-	for k := range t.step.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(t.step.Body) {
 		if text, ok := t.step.Body[key].(string); !ok || text != "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue
 		}

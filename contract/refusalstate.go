@@ -325,12 +325,7 @@ func allStepRefs(v any) [][2]string {
 				out = append(out, [2]string{m[1], m[2]})
 			}
 		case map[string]any:
-			keys := make([]string, 0, len(t))
-			for k := range t {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			for _, k := range keys {
+			for _, k := range sortedKeys(t) {
 				walk(t[k])
 			}
 		case []any:
@@ -370,7 +365,7 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 		if err != nil || rm.Streaming() {
 			continue
 		}
-		for _, name := range sortedFieldNames(c.Fields) {
+		for _, name := range sortedKeys(c.Fields) {
 			ref, err := ParseRef(c.Fields[name].From)
 			if err != nil || canonicalCall(p.cat, ref.RPC) != pm.FullName || ref.Path != idPath {
 				continue

@@ -146,12 +146,7 @@ func CodePaths(chains []*Chain) []string {
 			}
 		}
 	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }
 
 func assertedCodes(s *Step) []CodeAssertion {
@@ -650,11 +645,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 func findCode(v any, code, prefix string) (string, bool) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := sortedKeys(t)
 		for _, k := range keys {
 			path := k
 			if prefix != "" {

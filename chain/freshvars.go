@@ -2,7 +2,6 @@ package chain
 
 import (
 	"regexp"
-	"sort"
 )
 
 var (
@@ -64,10 +63,5 @@ func FreshVars(steps []*Step, isLogin func(*Step) bool, existing []*Step) []stri
 			seen[m[1]] = true
 		}
 	}
-	out := []string{}
-	for name := range seen {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
+	return sortedKeys(seen)
 }

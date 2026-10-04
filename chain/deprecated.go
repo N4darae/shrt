@@ -2,7 +2,6 @@ package chain
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/N4darae/shrt/catalog"
 )
@@ -40,12 +39,7 @@ func deprecatedBodyPaths(v any, path string, fields []*catalog.Field) []string {
 	out := []string{}
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(t) {
 			next := k
 			if path != "" {
 				next = path + "." + k

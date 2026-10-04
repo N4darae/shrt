@@ -84,12 +84,7 @@ func hasExistsFalse(st *chain.Step, listPath string) bool {
 
 func (p *Plan) scopeOf(t *listTarget) listScope {
 	scope := listScope{}
-	keys := make([]string, 0, len(t.step.Body))
-	for k := range t.step.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(t.step.Body) {
 		text, ok := t.step.Body[key].(string)
 		if !ok || text == "" {
 			continue
@@ -570,7 +565,7 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 		}
 		c, _ := lib.Get(rpc)
 		field := ""
-		for _, name := range sortedFieldNames(c.Fields) {
+		for _, name := range sortedKeys(c.Fields) {
 			if ref, err := ParseRef(c.Fields[name].From); err == nil && canonicalCall(p.cat, ref.RPC) == pm.FullName && ref.Path == idPath {
 				field = name
 			}

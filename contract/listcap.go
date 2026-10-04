@@ -3,7 +3,6 @@ package contract
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -168,12 +167,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 
 func (p *Plan) listPrefixes(st, first *chain.Step) map[string]string {
 	out := map[string]string{}
-	keys := make([]string, 0, len(st.Body))
-	for k := range st.Body {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
+	for _, key := range sortedKeys(st.Body) {
 		text, ok := st.Body[key].(string)
 		if !ok || text == "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue
