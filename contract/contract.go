@@ -36,7 +36,8 @@ func ForCurated(m *catalog.Method, lib *Library, cat *catalog.Catalog) *Contract
 }
 
 func ForCuratedWithNotes(m *catalog.Method, lib *Library, cat *catalog.Catalog) (*Contract, []string) {
-	c := ForPreferring(m, ArmedOneofMembersOf(lib, m.FullName))
+	rc, _ := lib.Get(m.FullName)
+	c := ForPreferring(m, ArmedOneofMembers(rc, ""))
 	if lib == nil || cat == nil {
 		return c, nil
 	}

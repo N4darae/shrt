@@ -117,7 +117,11 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		Name:        name,
 		Description: fmt.Sprintf("reach %s, composed from the contract dependency graph", strings.Join(labels, ", ")),
 	}
-	if !anyContract(order, lib) {
+	if !slices.ContainsFunc(order, func(node string) bool {
+		rpc, _ := SplitNode(node)
+		_, ok := lib.Get(rpc)
+		return ok
+	}) {
 		c.Description = fmt.Sprintf("reach %s; no contract covers %s yet, so this is a bare scaffold with no "+
 			"dependency graph behind it", strings.Join(labels, ", "), pluralVerb(len(labels), "it", "them"))
 	}
@@ -341,17 +345,6 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 	}
 }
 
-func ArmedOneofMembersOf(lib *Library, rpc string) []string {
-	if lib == nil {
-		return nil
-	}
-	c, ok := lib.Get(rpc)
-	if !ok {
-		return nil
-	}
-	return ArmedOneofMembers(c, "")
-}
-
 func ArmedOneofMembers(c *RPCContract, alias string) []string {
 	if c == nil {
 		return nil
@@ -418,7 +411,8 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 
 	fields := c.FieldsFor(alias)
 	schema := catalog.DescribeMessage(m.Input())
-	names := byIndexDepth(sortedKeys(fields))
+	names := sortedKeys(fields)
+	sort.SliceStable(names, func(i, j int) bool { return indexDepth(names[i]) < indexDepth(names[j]) })
 	for _, name := range names {
 		growAt(step.Body, chain.SplitPath(name))
 	}
@@ -610,7 +604,12 @@ func setAt(cur any, segs []string, value any) bool {
 		m[seg] = value
 		return true
 	}
-	return setAt(childContainer(m, seg), segs[1:], value)
+	switch m[seg].(type) {
+	case map[string]any, []any:
+	default:
+		m[seg] = map[string]any{}
+	}
+	return setAt(m[seg], segs[1:], value)
 }
 
 const maxPlannedEntries = 100
@@ -683,24 +682,6 @@ func isIndexSegment(seg string) bool {
 		}
 	}
 	return true
-}
-
-func byIndexDepth(names []string) []string {
-	out := append([]string{}, names...)
-	sort.SliceStable(out, func(i, j int) bool { return indexDepth(out[i]) < indexDepth(out[j]) })
-	return out
-}
-
-func childContainer(m map[string]any, seg string) any {
-	switch next := m[seg].(type) {
-	case map[string]any:
-		return next
-	case []any:
-		return next
-	}
-	next := map[string]any{}
-	m[seg] = next
-	return next
 }
 
 func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
@@ -1139,16 +1120,6 @@ func stripIndexes(path string) string {
 		}
 	}
 	return strings.Join(kept, ".")
-}
-
-func anyContract(order []string, lib *Library) bool {
-	for _, node := range order {
-		rpc, _ := SplitNode(node)
-		if _, ok := lib.Get(rpc); ok {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
