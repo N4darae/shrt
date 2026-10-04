@@ -35,9 +35,6 @@ func IsPlaceholder(v any, how Strictness) bool {
 	case bool:
 		return false
 	case []any:
-		if len(t) == 0 {
-			return true
-		}
 		for _, item := range t {
 			if !IsPlaceholder(item, how) {
 				return false
@@ -45,9 +42,6 @@ func IsPlaceholder(v any, how Strictness) bool {
 		}
 		return true
 	case map[string]any:
-		if len(t) == 0 {
-			return true
-		}
 		for _, item := range t {
 			if !IsPlaceholder(item, how) {
 				return false
