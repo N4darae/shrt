@@ -13,7 +13,7 @@ import (
 
 func gapShop(t *testing.T, refuse func(state string, lines int) bool) {
 	t.Helper()
-	shop, names := newFakeShop(), map[string]any{}
+	shop, names, created := newFakeShop(), map[string]any{}, map[string]string{}
 	shop.stockInProduct = true
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body := map[string]any{}
@@ -43,8 +43,9 @@ func gapShop(t *testing.T, refuse func(state string, lines int) bool) {
 		if p, ok := out["product"].(map[string]any); ok {
 			if strings.HasSuffix(r.URL.Path, "/CreateProduct") {
 				names[fmt.Sprint(p["id_product"])] = body["name"]
+				created[fmt.Sprint(p["id_product"])] = fmt.Sprint(time.Now().Unix())
 			}
-			p["name"], p["created_at"] = names[fmt.Sprint(p["id_product"])], fmt.Sprint(time.Now().Unix())
+			p["name"], p["created_at"] = names[fmt.Sprint(p["id_product"])], created[fmt.Sprint(p["id_product"])]
 		}
 		if o, ok := out["order"].(map[string]any); ok {
 			o["status"] = "ORDER_STATUS_" + shop.states[fmt.Sprint(o["id_order"])]
