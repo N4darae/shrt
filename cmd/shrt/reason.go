@@ -202,7 +202,7 @@ func tellApart(e *env, r reason, path string) string {
 	if !ok {
 		return ""
 	}
-	msg, field := carrier[:strings.LastIndex(carrier, ".")], fieldOf(carrier)
+	msg, field := carrier[:strings.LastIndex(carrier, ".")], leafName(carrier)
 	var via []string
 	for _, o := range e.cat.Methods() {
 		if len(via) == 2 {

@@ -137,10 +137,7 @@ func builtOnlyFromGenerators(text string) bool {
 }
 
 func leafName(path string) string {
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		return path[i+1:]
-	}
-	return path
+	return path[strings.LastIndex(path, ".")+1:]
 }
 
 func suggestedVar(c *chain.Chain) string {

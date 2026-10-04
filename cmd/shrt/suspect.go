@@ -858,7 +858,7 @@ func (a attribution) earlier(step, path string) (int, string) {
 			if !ok || !sameEntity(body, path, wb, p) {
 				continue
 			}
-			if c == want || isWrite(w) && fieldOf(c) == fieldOf(want) && related(reach, at, i, w.ID) {
+			if c == want || isWrite(w) && leafName(c) == leafName(want) && related(reach, at, i, w.ID) {
 				return i, p
 			}
 		}
@@ -1011,10 +1011,6 @@ func overlaps(a, b map[string]bool) bool {
 	return false
 }
 
-func fieldOf(carrier string) string {
-	return carrier[strings.LastIndex(carrier, ".")+1:]
-}
-
 func related(reach func(int) map[string]bool, at, i int, id string) bool {
 	touched := reach(at)
 	return touched[id] || overlaps(reach(i), touched)
@@ -1079,7 +1075,7 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 			return
 		}
 		c, ok := carrierOf(wm, p)
-		if !ok || envelopeOnly(p) || c != want && !(agreed && fieldOf(c) == fieldOf(want) && compactValue(v) == before) {
+		if !ok || envelopeOnly(p) || c != want && !(agreed && leafName(c) == leafName(want) && compactValue(v) == before) {
 			return
 		}
 		if sameEntity(rb, path, wb, p) && a.unchanged(w.ID, p) && compactValue(v) != compactValue(rv) {

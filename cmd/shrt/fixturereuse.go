@@ -448,11 +448,7 @@ func conflictingFields(fields []fixtureField, why string) []fixtureField {
 		if f.sent != "" && strings.Contains(why, f.sent) {
 			byValue = append(byValue, f)
 		}
-		leaf := f.path
-		if i := strings.LastIndex(leaf, "."); i >= 0 {
-			leaf = leaf[i+1:]
-		}
-		if name := foldName(leaf); name != "" && strings.Contains(folded, name) {
+		if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
 			byName = append(byName, f)
 		}
 	}
