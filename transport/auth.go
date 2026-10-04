@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,9 +57,7 @@ type LoginTokenSource struct {
 }
 
 func NewLoginTokenSource(spec AuthSpec, invoke Handler) *LoginTokenSource {
-	if spec.Leeway == 0 {
-		spec.Leeway = 60 * time.Second
-	}
+	spec.Leeway = cmp.Or(spec.Leeway, 60*time.Second)
 	return &LoginTokenSource{spec: spec, invoke: invoke}
 }
 
@@ -233,14 +232,7 @@ type AuthProfile struct {
 }
 
 func (p *AuthProfile) HeaderScheme() (string, string) {
-	header, scheme := p.Spec.Header, p.Spec.Scheme
-	if header == "" {
-		header = "Authorization"
-	}
-	if scheme == "" {
-		scheme = "Bearer"
-	}
-	return header, scheme
+	return cmp.Or(p.Spec.Header, "Authorization"), cmp.Or(p.Spec.Scheme, "Bearer")
 }
 
 type AuthRouter struct {

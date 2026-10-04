@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -80,11 +81,7 @@ type Options struct {
 func New(opts Options) *Client {
 	hc := opts.HTTPClient
 	if hc == nil {
-		timeout := opts.Timeout
-		if timeout == 0 {
-			timeout = 30 * time.Second
-		}
-		hc = &http.Client{Timeout: timeout}
+		hc = &http.Client{Timeout: cmp.Or(opts.Timeout, 30*time.Second)}
 	}
 	if opts.HostOverride != "" {
 		switch t := hc.Transport.(type) {

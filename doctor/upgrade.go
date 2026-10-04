@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,8 +22,6 @@ import (
 const CheckUpgrade = "upgrade"
 
 type chainCounts map[string]int
-
-func (c chainCounts) add(chain string) { c[chain]++ }
 
 func (c chainCounts) total() int {
 	n := 0
@@ -153,18 +152,15 @@ func checkUpgrade(_ context.Context, cfg *config.Config, opts Options, r *Report
 			if rec.UnmarshalJSON(raw) != nil {
 				continue
 			}
-			name := rec.Chain
-			if name == "" {
-				name = d.Name()
-			}
+			name := cmp.Or(rec.Chain, d.Name())
 			switch err := store.SealState(rec); {
 			case errors.Is(err, store.ErrRunUnsealed):
-				unsealed.add(name)
+				unsealed[name]++
 			case errors.Is(err, store.ErrRunEdited):
-				edited.add(name)
+				edited[name]++
 			}
 			if !sameTarget(rec.Target, now) {
-				foreign.add(name)
+				foreign[name]++
 				foreignTargets[rec.Target] = true
 			}
 		}
@@ -255,8 +251,5 @@ func spotLacksPrincipal(spot *store.SafeSpot) bool {
 }
 
 func orUnset(s string) string {
-	if s == "" {
-		return "(no base_url)"
-	}
-	return s
+	return cmp.Or(s, "(no base_url)")
 }

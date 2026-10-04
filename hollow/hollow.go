@@ -1,6 +1,7 @@
 package hollow
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -63,10 +64,6 @@ type Report struct {
 
 func IsReadProcedure(procedure string) bool {
 	return chain.IsReadOnlyCall(procedure)
-}
-
-func MethodName(procedure string) string {
-	return procedure[strings.LastIndex(procedure, "/")+1:]
 }
 
 func IsEnvelopePath(path string) bool { return chain.IsEnvelopePath(path) }
@@ -350,10 +347,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			if step == nil || step.Status != "passed" || step.Transport != nil {
 				continue
 			}
-			procedure := step.Procedure
-			if procedure == "" {
-				procedure = step.Call
-			}
+			procedure := cmp.Or(step.Procedure, step.Call)
 			if !IsReadProcedure(procedure) {
 				continue
 			}
@@ -376,7 +370,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 				f = &Finding{
 					Chain:     rec.Chain,
 					Step:      step.ID,
-					RPC:       MethodName(procedure),
+					RPC:       procedure[strings.LastIndex(procedure, "/")+1:],
 					Procedure: procedure,
 				}
 				seen[k] = f

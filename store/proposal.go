@@ -1111,14 +1111,10 @@ func unstableLines(unstable []string) []string {
 				items[index] = true
 			}
 			if known && !grew {
-				shown, patterns := []string{}, []string{}
+				shown, patterns := []string{}, slices.Sorted(maps.Keys(fields))
 				for _, e := range es {
 					shown = append(shown, fmt.Sprintf("`%s` %s", e.path, e.delta))
 				}
-				for p := range fields {
-					patterns = append(patterns, p)
-				}
-				sort.Strings(patterns)
 				if len(shown) > 4 {
 					shown = append(shown[:4], fmt.Sprintf("and %d more", len(shown)-4))
 				}
