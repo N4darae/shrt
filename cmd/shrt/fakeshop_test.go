@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -30,6 +31,7 @@ type fakeShop struct {
 	addStockLostBug    bool
 	stockReadBug       bool
 	lastLineBug        bool
+	confirmTotalBug    bool
 
 	next      int
 	getCalls  int
@@ -196,6 +198,10 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			}
 		}
 		s.states[id] = "CONFIRMED"
+		if s.confirmTotalBug {
+			o = maps.Clone(o)
+			o["total_minor"] = "0"
+		}
 		return 200, map[string]any{"status": ok(), "order": o}
 	case "/shop.orders.v1.OrderService/CancelOrder":
 		id := fmt.Sprint(body["id_order"])

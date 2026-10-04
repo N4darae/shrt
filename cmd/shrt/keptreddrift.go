@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -11,6 +12,15 @@ import (
 )
 
 const pinnedReferenceScan = 50
+
+var reproducedOn = regexp.MustCompile(`reproduced on (\d{4}-\d{2}-\d{2})`)
+
+func pinnedOn(c *chain.Chain) string {
+	if m := reproducedOn.FindStringSubmatch(c.Description); m != nil {
+		return "; pinned " + m[1]
+	}
+	return ""
+}
 
 func pinnedReference(e *env, c *chain.Chain, rec *runner.Record) *runner.Record {
 	if c == nil || rec == nil || len(c.KeptRed) == 0 || rec.DryRun {

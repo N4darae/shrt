@@ -274,6 +274,10 @@ func (v *verification) sidecar() gateSidecar {
 func (v *verification) gateItems() []gateItem {
 	if v.items == nil {
 		v.items = verifyItems(v.e, v.rec, v.report)
+		a := runAttribution(v.e, v.rec)
+		for i, it := range v.items {
+			v.items[i].Effect, v.items[i].Times = effectOf(a, v.spot.Steps, it)
+		}
 	}
 	return v.items
 }
@@ -488,6 +492,13 @@ func (v *verification) writeReport(ctx context.Context, body *strings.Builder) {
 		report.FoldSteps(unjudgedSteps(rec, v.independent, v.driftAt), fmt.Sprintf("its response, or one it reads, does not "+
 			"match the descriptor (%s), so it is not judged; rebuild the descriptor (shrt catalog build) and re-run, "+
 			"or add -v to list them", driftWhy))
+	}
+	for _, it := range v.gateItems() {
+		for i, c := range report.Changes {
+			if it.Effect != "" && c.Step == it.Step && c.Path == it.Path && c.Detail == "" {
+				report.Changes[i].Detail = it.effect()
+			}
+		}
 	}
 	if v.quiet {
 		fmt.Fprintln(body, report.QuietText())

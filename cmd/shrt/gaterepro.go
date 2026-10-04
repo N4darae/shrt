@@ -176,8 +176,10 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	step := ref.it.Step
 	file := filepath.Join(scratchDir(e), strings.TrimSuffix(filepath.Base(ref.chain), ".yaml")+"-slice-"+step+".yaml")
 	args := []string{"chain", "slice", ref.chain, "-step", step, "-run", "latest", "-verify", "-write=" + file, "-json"}
+	var vars []string
 	if c, err := e.resolveChain(ref.chain); err == nil {
-		for _, v := range fresh(c, step) {
+		vars = fresh(c, step)
+		for _, v := range vars {
 			args = append(args, "-var", v+"="+chain.NewRunTag())
 		}
 	}
@@ -191,7 +193,9 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 	case v == nil:
 		return "repro: none: " + why
 	case v.Outcome == sliceReproduced || v.Outcome == sliceIntermittent:
-		return fmt.Sprintf("repro: shrt run %s  (%s%s)", shownPath(cmp.Or(written, file)), outcomeWord(v.Outcome), v.countLabel())
+		file = cmp.Or(written, file)
+		flag, note := readBack(ctx, e, ref, file, vars)
+		return fmt.Sprintf("repro: shrt run %s%s  (%s%s%s)", shownPath(file), flag, outcomeWord(v.Outcome), v.countLabel(), note)
 	}
 	if why = outcomeWord(v.Outcome); v.err() != nil {
 		why = v.err().Error()
@@ -202,6 +206,48 @@ func reproRow(ctx context.Context, e *env, ref gateRef, fresh func(*chain.Chain,
 		why += ": " + v.Differences[0]
 	}
 	return fmt.Sprintf("repro: none: %s (slice of %s)", why, ref.chain)
+}
+
+func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []string) (string, string) {
+	r, path := ref.it.Reason, ""
+	if r.Kind != reasonStored || r.Read == "" {
+		return "", ""
+	}
+	c, err := e.resolveChain(ref.chain)
+	slice, sErr := chain.LoadFile(file)
+	rec, rErr := e.store.LatestRun(ref.chain)
+	if err != nil || sErr != nil || rErr != nil {
+		return "", ""
+	}
+	read, ok := c.Step(r.Read)
+	if st, found := rec.Step(r.Read); ok && found && st != nil {
+		eachLeaf(decoded(st.Response), "", func(p string, v any) {
+			if path == "" && leafOf(p) == leafOf(r.Path) && compactValue(v) == r.Got {
+				path = p
+			}
+		})
+	}
+	if _, kept := slice.Step(r.Read); path == "" || kept {
+		return "", ""
+	}
+	field := gateIndex.ReplaceAllString(path, "[]$1")
+	orig, _ := os.ReadFile(file)
+	back := *read
+	back.Expect = []chain.Expectation{{Path: path, Equals: r.Want}}
+	slice.Steps = append(slice.Steps, &back)
+	slice.Description = strings.TrimSpace(slice.Description) + fmt.Sprintf("\nThen %s reads %s back and expects what %s answered, %s: run it with -keep-going to see the answer and the stored value side by side.", r.Read, field, r.Step, valueText(r.Want))
+	args := []string{"run", file, "-quiet", "-keep-going"}
+	for _, v := range vars {
+		args = append(args, "-var", v+"="+chain.NewRunTag())
+	}
+	if writeSliceFile(file, slice) == nil {
+		items := gateExec(ctx, args).side.Items
+		if slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path }) {
+			return " -keep-going", fmt.Sprintf("; the read-back %s (%s) reads %s=%s where the write answered %s", r.Read, methodName(read.Call), field, valueText(r.Got), valueText(r.Want))
+		}
+	}
+	_ = os.WriteFile(file, orig, 0o644)
+	return "", ""
 }
 
 func nextOf(v *sliceVerdict) string {

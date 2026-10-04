@@ -105,11 +105,14 @@ func TestComparisonRules(t *testing.T) {
 
 func TestFailureLines(t *testing.T) {
 	for r, want := range map[chain.ExpectResult]string{
-		{Path: "status.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS"}: "FAIL status.code want≠SUCCESS got=SUCCESS",
-		{Path: "n", Rule: "equals", Want: 3, Got: 1}:                              "FAIL n want=3 got=1",
-		{Path: "n", Rule: "gte", Want: "3", Got: 1}:                               "FAIL n want≥3 got=1",
-		{Path: "id", Rule: "exists", Want: true, Got: false}:                      "FAIL id want present got absent",
-		{Path: "msg", Rule: "contains", Want: "x", Got: "y"}:                      "FAIL msg want contains x got=y",
+		{Path: "status.code", Rule: "not_equal", Want: "SUCCESS", Got: "SUCCESS"}:                                                      "FAIL status.code want≠SUCCESS got=SUCCESS",
+		{Path: "n", Rule: "equals", Want: 3, Got: 1}:                                                                                   "FAIL n want=3 got=1",
+		{Path: "n", Rule: "gte", Want: "3", Got: 1}:                                                                                    "FAIL n want≥3 got=1",
+		{Path: "id", Rule: "exists", Want: true, Got: false}:                                                                           "FAIL id want present got absent",
+		{Path: "msg", Rule: "contains", Want: "x", Got: "y"}:                                                                           "FAIL msg want contains x got=y",
+		{Path: "status.code", Rule: "unevaluated", Want: "SUCCESS", Detail: "never ran: the call was refused with transport internal"}: "FAIL status.code unevaluated want=SUCCESS (never ran: the call was refused with transport internal)",
+		{Path: "n", Rule: "unevaluated", Want: float64(4750), Got: "4750"}:                                                             "FAIL n unevaluated want=4750",
+		{Path: "n", Rule: "unevaluated", Want: float64(4750), Got: "6250"}:                                                             "FAIL n unevaluated want=4750 got=6250",
 	} {
 		if got := r.String(); got != want {
 			t.Errorf("got %q, want %q", got, want)
@@ -123,6 +126,10 @@ func TestFailureLines(t *testing.T) {
 		if got := chain.DescribeFailure(r); !strings.Contains(got, want) {
 			t.Errorf("DescribeFailure = %q, want %q", got, want)
 		}
+	}
+	held := chain.ExpectResult{Path: "order.total_minor", Rule: "unevaluated", Want: float64(4750), Got: "4750", Detail: "not evaluated"}
+	if got := chain.DescribeFailure(held); got != "order.total_minor unevaluated want=4750 (not evaluated)" {
+		t.Errorf("an unevaluated result whose value matched prints no got: %q", got)
 	}
 }
 
