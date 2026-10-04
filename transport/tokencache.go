@@ -53,15 +53,13 @@ func (s *LoginTokenSource) loadCache() (string, map[string]cachedToken, bool) {
 	if key == "" {
 		return "", nil, false
 	}
+	entries := map[string]cachedToken{}
 	raw, err := os.ReadFile(s.cachePath)
 	if err != nil {
-		return "", nil, false
+		return key, entries, false
 	}
-	entries := map[string]cachedToken{}
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		return "", nil, false
-	}
-	return key, entries, true
+	err = json.Unmarshal(raw, &entries)
+	return key, entries, err == nil
 }
 
 func (s *LoginTokenSource) readCache() (cachedToken, bool) {
@@ -83,16 +81,9 @@ func (s *LoginTokenSource) dropCache() {
 }
 
 func (s *LoginTokenSource) writeCache(entry cachedToken) {
-	if s.cachePath == "" || entry.Token == "" {
-		return
-	}
-	key := s.cacheKey()
+	key, entries, _ := s.loadCache()
 	if key == "" {
 		return
-	}
-	entries := map[string]cachedToken{}
-	if raw, err := os.ReadFile(s.cachePath); err == nil {
-		_ = json.Unmarshal(raw, &entries)
 	}
 	cutoff := time.Now()
 	for k, e := range entries {
