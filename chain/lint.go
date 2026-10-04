@@ -121,19 +121,14 @@ func lintExpectRefs(s *Step, known, knownExports map[string]bool, responses map[
 		}
 		for _, ref := range collectRefs(e.Operands()) {
 			r := ParseRef(ref)
-			if why, own := ownStepProblem(s.ID, r, knownExports); own {
-				if why != "" {
-					issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
-						"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
-				}
-				continue
+			why, own := ownStepProblem(s.ID, r, knownExports)
+			if !own {
+				why = referenceProblem(r, known, knownExports, idx)
 			}
-			if why := referenceProblem(r, known, knownExports, idx); why != "" {
+			if why != "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"expect on %q carries ${%s}, which %s", e.Path, ref, why)})
-				continue
-			}
-			if r.Kind == RefStep {
+			} else if !own && r.Kind == RefStep {
 				if issue, bad := refPathIssue(s.ID, r, responses); bad {
 					issue.Message = fmt.Sprintf("expect on %q: %s", e.Path, issue.Message)
 					issues = append(issues, issue)
