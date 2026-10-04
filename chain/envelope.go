@@ -140,21 +140,26 @@ type ItemRefusal struct {
 
 func (r ItemRefusal) String() string { return r.Path + " = " + r.Code }
 
-func splitItemEnvelope() (listPath, field string, err error) {
-	list, field, ok := strings.Cut(ItemEnvelope(), "[].")
+func splitItemEnvelope(path string) (listPath, field string, err error) {
+	list, field, ok := strings.Cut(path, "[].")
 	if !ok {
 		return "", "", fmt.Errorf("conventions.item_envelope_path is %q, which is not of the form "+
 			"<list>[].<path> — the per-item verdict is not being checked at all, and a batch rpc that "+
-			"refuses every line still reports success", ItemEnvelope())
+			"refuses every line still reports success", path)
 	}
 	return strings.TrimSuffix(list, "."), field, nil
+}
+
+func listDeclares(fields []*catalog.Field, listPath, field string) bool {
+	list, found := catalog.FieldAt(fields, SplitPath(listPath))
+	return found && list != nil && list.Repeated && (list.Truncated || catalog.HasPath(list.Fields, SplitPath(field)))
 }
 
 func ItemRefusals(response any) ([]ItemRefusal, error) {
 	if ItemEnvelope() == "" {
 		return nil, nil
 	}
-	listPath, field, err := splitItemEnvelope()
+	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +231,7 @@ func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
 	if ItemEnvelope() == "" {
 		return nil
 	}
-	listPath, field, err := splitItemEnvelope()
+	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	if err != nil {
 		return nil
 	}
@@ -301,15 +306,8 @@ func ItemEnvelopeDeclared(fields []*catalog.Field) bool {
 	if ItemEnvelope() == "" {
 		return false
 	}
-	listPath, field, err := splitItemEnvelope()
-	if err != nil {
-		return false
-	}
-	list, found := catalog.FieldAt(fields, SplitPath(listPath))
-	if !found || list == nil || !list.Repeated {
-		return false
-	}
-	return list.Truncated || catalog.HasPath(list.Fields, SplitPath(field))
+	listPath, field, err := splitItemEnvelope(ItemEnvelope())
+	return err == nil && listDeclares(fields, listPath, field)
 }
 
 func ValidateItemEnvelope(cat *catalog.Catalog) error {
@@ -320,20 +318,12 @@ func ValidateItemEnvelopeIn(cat *catalog.Catalog, path string) error {
 	if path == "" {
 		return nil
 	}
-	listPath, field, ok := strings.Cut(path, "[].")
-	if !ok {
-		return fmt.Errorf("conventions.item_envelope_path is %q, which is not of the form "+
-			"<list>[].<path> — the per-item verdict is not being checked at all, and a batch rpc that "+
-			"refuses every line still reports success", path)
+	listPath, field, err := splitItemEnvelope(path)
+	if err != nil {
+		return err
 	}
-	listPath = strings.TrimSuffix(listPath, ".")
 	for _, m := range cat.Methods() {
-		fields := catalog.DescribeMessage(m.Output()).Fields
-		list, found := catalog.FieldAt(fields, SplitPath(listPath))
-		if !found || list == nil || !list.Repeated {
-			continue
-		}
-		if list.Truncated || catalog.HasPath(list.Fields, SplitPath(field)) {
+		if listDeclares(catalog.DescribeMessage(m.Output()).Fields, listPath, field) {
 			return nil
 		}
 	}
@@ -383,7 +373,7 @@ func IsVerdictPath(path string) bool {
 	if ItemEnvelope() == "" {
 		return false
 	}
-	listPath, field, err := splitItemEnvelope()
+	listPath, field, err := splitItemEnvelope(ItemEnvelope())
 	if err != nil {
 		return false
 	}
@@ -431,7 +421,7 @@ func DeclaresRefusal(expect []Expectation, r ItemRefusal) bool {
 		return true
 	}
 	line := r.Line
-	if _, field, err := splitItemEnvelope(); line == "" && err == nil && strings.HasSuffix(r.Path, "."+field) {
+	if _, field, err := splitItemEnvelope(ItemEnvelope()); line == "" && err == nil && strings.HasSuffix(r.Path, "."+field) {
 		line = strings.TrimSuffix(r.Path, "."+field)
 	}
 	line = strings.Join(SplitPath(line), ".")
