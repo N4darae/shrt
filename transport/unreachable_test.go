@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/N4darae/shrt/transport"
 )
 
-func TestUnreachableIsADialFailureNotAConnectError(t *testing.T) {
+func TestAnUnreachableTargetIsADialFailureNamedOnceAndNotBlamedOnTheBackend(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -26,5 +27,15 @@ func TestUnreachableIsADialFailureNotAConnectError(t *testing.T) {
 	}
 	if transport.Unreachable(errors.New("auth login rejected")) || transport.Unreachable(&transport.Error{Code: "unavailable"}) {
 		t.Fatal("a Connect error or other failure is not a dead target")
+	}
+	msg := err.Error()
+	if n := strings.Count(msg, "http://"+addr); n != 1 {
+		t.Errorf("the URL must be printed once, it appears %d times: %s", n, msg)
+	}
+	if !strings.Contains(msg, "could not be reached") || !strings.Contains(msg, "down or not started") {
+		t.Errorf("say the target could not be reached because it is down or not started: %s", msg)
+	}
+	if !strings.Contains(msg, "connection refused") {
+		t.Errorf("keep the cause: %s", msg)
 	}
 }
