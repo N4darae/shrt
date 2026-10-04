@@ -63,7 +63,11 @@ func chainWhich(args []string) error {
 	}
 	q.Aliases = whichCodeAliases(q.Code, chains, opts.Observations, lib)
 	hits := chain.Which(chains, q, opts)
-	preferClosureRepro(e, lib, chains, hits)
+	byName := map[string]*chain.Chain{}
+	for _, c := range chains {
+		byName[c.Name] = c
+	}
+	preferClosureRepro(e, lib, byName, hits)
 	if len(hits) == 0 {
 		seen := chain.WhichObservedUnasserted(chains, q, opts)
 		if len(seen) == 0 {
@@ -78,15 +82,11 @@ func chainWhich(args []string) error {
 	if *asJSON {
 		return emitJSON(hits)
 	}
-	printWhich(hits, q, e.targetURL(), *verbose, situationsOf(chains, lib, e))
+	printWhich(hits, q, e.targetURL(), *verbose, situationsOf(byName, lib, e))
 	return nil
 }
 
-func situationsOf(chains []*chain.Chain, lib *contract.Library, e *env) func(string, string) string {
-	byName := map[string]*chain.Chain{}
-	for _, c := range chains {
-		byName[c.Name] = c
-	}
+func situationsOf(byName map[string]*chain.Chain, lib *contract.Library, e *env) func(string, string) string {
 	known := map[string]map[string]contract.Situation{}
 	return func(name, step string) string {
 		if _, ok := known[name]; !ok {
@@ -194,11 +194,7 @@ func observedResponse(s *runner.StepRecord) any {
 	return merged
 }
 
-func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hits []chain.WhichChain) {
-	byName := map[string]*chain.Chain{}
-	for _, c := range chains {
-		byName[c.Name] = c
-	}
+func preferClosureRepro(e *env, lib *contract.Library, byName map[string]*chain.Chain, hits []chain.WhichChain) {
 	keepFlag := " -keep " + chain.SliceKeepWrites
 	for i := range hits {
 		h := &hits[i]

@@ -182,10 +182,7 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 				why = true
 			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step] && (valueChanged == nil || valueChanged(rd.Step, rd.Path)):
 				why = true
-			}
-		}
-		for _, rd := range reads[st.ID] {
-			if edits.touched[rd.Step] {
+			case edits.touched[rd.Step]:
 				why = true
 			}
 		}

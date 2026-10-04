@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -231,10 +232,8 @@ func replayedEarlier(rec *runner.Record, at int, call string, p primaryEntity) b
 		_, response := decodedRecordStep(prev)
 		seen := []string{}
 		objectsWithID(response, p.key, p.id, &seen)
-		for _, obj := range seen {
-			if obj == p.obj {
-				return true
-			}
+		if slices.Contains(seen, p.obj) {
+			return true
 		}
 	}
 	return false

@@ -65,9 +65,7 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 		if declared[namecase.Fold(listPath(path))] {
 			var from []int
 			g, from = permuted(g, pairItems(w, g, r))
-			if moves != nil {
-				moves[path] = from
-			}
+			moves[path] = from
 		}
 		out := make([]any, len(g))
 		for i := range g {
