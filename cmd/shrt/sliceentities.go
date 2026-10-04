@@ -169,13 +169,7 @@ func entityFactsOf(rec *runner.Record, id string) stepEntityFacts {
 
 func entityFactsWith(rec *runner.Record, id string, stateWriter bool) stepEntityFacts {
 	f := stepEntityFacts{mentions: map[string]bool{}, acts: map[string]bool{}}
-	at := -1
-	for i, sr := range rec.Steps {
-		if sr.ID == id {
-			at = i
-			break
-		}
-	}
+	at := recordIndex(rec, id)
 	if at < 0 {
 		return f
 	}

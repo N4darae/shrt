@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -450,11 +449,7 @@ func baselinedAt(e *env, s chain.WhichUnasserted) string {
 		if st.ID != s.Step || len(st.Response) == 0 {
 			continue
 		}
-		var body any
-		if json.Unmarshal(st.Response, &body) != nil {
-			return ""
-		}
-		v, ok := chain.Get(body, s.Path)
+		v, ok := chain.Get(decoded(st.Response), s.Path)
 		if !ok || !strings.EqualFold(fmt.Sprint(v), s.Code) {
 			return ""
 		}

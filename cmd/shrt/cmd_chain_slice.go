@@ -1,15 +1,15 @@
 package main
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -657,10 +657,7 @@ func (v *sliceVerdict) text() string {
 		head += ": reproduced"
 	}
 	head += v.countLabel()
-	slice := v.SliceRun
-	if slice == "" {
-		slice = "none"
-	}
+	slice := cmp.Or(v.SliceRun, "none")
 	source := v.SourceRun
 	if v.SourceReplay != "" {
 		source += " (a shrt verify replay)"
@@ -1229,19 +1226,11 @@ func sliceVerifyCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs,
 			}
 		}
 	}
-	supplied := map[string]bool{}
-	keys := make([]string, 0, len(a.vars)+len(interpolated))
+	named := maps.Clone(interpolated)
 	for k := range a.vars {
-		supplied[k] = true
-		keys = append(keys, k)
+		named[k] = true
 	}
-	for k := range interpolated {
-		if !supplied[k] {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(named) {
 		v := fmt.Sprint(a.vars[k])
 		if interpolated[k] {
 			v = "<fresh>"
@@ -1351,11 +1340,7 @@ func refusedIn(rec *runner.Record) func(string) (string, bool) {
 		if path == "" || len(sr.Response) == 0 {
 			return "", false
 		}
-		var response any
-		if err := json.Unmarshal(sr.Response, &response); err != nil {
-			return "", false
-		}
-		v, found := chain.Get(response, path)
+		v, found := chain.Get(decoded(sr.Response), path)
 		if !found {
 			return "", false
 		}
@@ -1478,14 +1463,10 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 }
 
 func failedCount(rec *runner.Record) string {
-	switch n := len(failedSteps(rec)); n {
-	case 0:
-		return "no step failed"
-	case 1:
-		return "1 step failed"
-	default:
-		return fmt.Sprintf("%d steps failed", n)
+	if n := len(failedSteps(rec)); n > 0 {
+		return plural(n, "step") + " failed"
 	}
+	return "no step failed"
 }
 
 func newerFailing(e *env, rec *runner.Record) *runner.Record {
