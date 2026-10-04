@@ -544,14 +544,8 @@ func assertNumber(st *chain.Step, path string, v int64) bool {
 }
 
 func stepRefIn(v any) string {
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
-	src, ok := refSource(s)
-	if !ok {
-		return ""
-	}
+	s, _ := v.(string)
+	src, _ := refSource(s)
 	return src
 }
 
@@ -741,9 +735,10 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 				o.reserved, o.took = out == outcomeSuccess, v.sign
 				o.held = p.heldState(lib, st)
 				md.watch(st, o)
-				md.unsettle(o)
 			} else if o == nil {
-				p.forgetReferenced(md, st)
+				for _, e := range p.stockTouched(md, st) {
+					md.known[e] = false
+				}
 			}
 		}
 		if handled {
@@ -816,6 +811,7 @@ func (md *effectModel) watch(st *chain.Step, o *modelOrder) {
 		if md.dirty[l.entity] && !slices.Contains(md.waiting, l.entity) {
 			md.waiting = append(md.waiting, l.entity)
 		}
+		md.known[l.entity] = false
 	}
 }
 
@@ -882,12 +878,6 @@ func (p *Plan) moveStock(md *effectModel, e string, by int64, ok bool) {
 	}
 	md.level[e] += by
 	md.dirty[e] = md.known[e]
-}
-
-func (md *effectModel) unsettle(o *modelOrder) {
-	for _, l := range o.lines {
-		md.known[l.entity] = false
-	}
 }
 
 func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
@@ -989,12 +979,6 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 	return false
 }
 
-func (p *Plan) forgetReferenced(md *effectModel, st *chain.Step) {
-	for _, e := range p.stockTouched(md, st) {
-		md.known[e] = false
-	}
-}
-
 func (p *Plan) stockTouched(md *effectModel, st *chain.Step) []string {
 	out := []string{}
 	for _, id := range referencedSteps(st.Body) {
@@ -1068,7 +1052,6 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 	}
 	o.reserved = out != outcomeSuccess
 	md.watch(st, o)
-	md.unsettle(o)
 	return true
 }
 
@@ -1127,22 +1110,21 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 	for _, st := range p.Chain.Steps {
 		called[canonicalCall(p.cat, st.Call)] = true
 	}
-	r = r.onlyCalled(called)
-	for _, rpc := range sortedKeys(r.increase) {
+	for _, rpc := range keysIn(r.increase, called) {
 		s := r.increase[rpc]
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s %s (%q)", s.moved, shortRPC(rpc), plusMinus(s.sign), s.qtyField, s.sentence))
 	}
-	for _, rpc := range sortedKeys(r.batch) {
+	for _, rpc := range keysIn(r.batch, called) {
 		b := r.batch[rpc]
 		said = append(said, fmt.Sprintf("each %s.N.%s after %s is its line applied as %s", b.results, b.stock.moved, shortRPC(rpc), shortRPC(b.stock.rpc)))
 	}
-	for _, rpc := range sortedKeys(r.reserve) {
+	for _, rpc := range keysIn(r.reserve, called) {
 		v := r.reserve[rpc]
 		noun := strings.TrimPrefix(v.itemID, "id_")
 		said = append(said, fmt.Sprintf("%s after %s is the level before %s the %s of every %s naming that %s, a %s on two lines counted twice (%q)",
 			v.stock.moved, shortRPC(rpc), plusMinus(v.sign), v.itemQty, strings.TrimSuffix(v.list, "s"), noun, noun, v.sentence))
 	}
-	for _, rpc := range sortedKeys(r.total) {
+	for _, rpc := range keysIn(r.total, called) {
 		t := r.total[rpc]
 		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
 	}
@@ -1177,16 +1159,19 @@ func plusMinus(sign int64) string {
 }
 
 func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) string {
-	if p.lib != nil && st != nil {
-		if c, ok := p.lib.Get(canonicalCall(p.cat, st.Call)); ok {
-			for _, k := range sortedKeys(c.Effects) {
-				if c.Effects.is(k, word) {
-					return quoteEffect(k, c.Effects[k])
-				}
-			}
+	if p.lib == nil || st == nil {
+		return ""
+	}
+	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
+	if !ok {
+		return ""
+	}
+	for _, k := range sortedKeys(c.Effects) {
+		if c.Effects.is(k, word) {
+			return quoteEffect(k, c.Effects[k])
 		}
 	}
-	return prose.FindString(p.summaryOf(st))
+	return prose.FindString(c.Summary)
 }
 
 var (
@@ -1243,17 +1228,6 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 	default:
 		return none + " or " + moved
 	}
-}
-
-func (p *Plan) summaryOf(st *chain.Step) string {
-	if p.lib == nil || st == nil {
-		return ""
-	}
-	c, ok := p.lib.Get(canonicalCall(p.cat, st.Call))
-	if !ok {
-		return ""
-	}
-	return c.Summary
 }
 
 func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) bool) {
@@ -1397,27 +1371,6 @@ func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectat
 	return out
 }
 
-func (r *effectRules) onlyCalled(called map[string]bool) *effectRules {
-	out := &effectRules{increase: map[string]*stockRule{}, batch: map[string]*batchRule{}, reserve: map[string]*reserveRule{}, total: map[string]*totalRule{}}
-	for k, v := range r.increase {
-		if called[k] {
-			out.increase[k] = v
-		}
-	}
-	for k, v := range r.batch {
-		if called[k] {
-			out.batch[k] = v
-		}
-	}
-	for k, v := range r.reserve {
-		if called[k] {
-			out.reserve[k] = v
-		}
-	}
-	for k, v := range r.total {
-		if called[k] {
-			out.total[k] = v
-		}
-	}
-	return out
+func keysIn[V any](m map[string]V, keep map[string]bool) []string {
+	return slices.DeleteFunc(sortedKeys(m), func(k string) bool { return !keep[k] })
 }
