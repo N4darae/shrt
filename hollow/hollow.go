@@ -205,33 +205,8 @@ func bindVars(e chain.Expectation, vars map[string]any) (chain.Expectation, bool
 }
 
 func BodyIsEmpty(response json.RawMessage) bool {
-	if len(response) == 0 {
-		return true
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(response, &fields); err != nil {
-		return false
-	}
-	for name, raw := range fields {
-		if chain.IsMetadataField(name) {
-			continue
-		}
-		var v any
-		if json.Unmarshal(raw, &v) != nil || !anyIsEmpty(v) {
-			return false
-		}
-	}
-	return true
-}
-
-func listIsEmpty(items []any) bool {
-	for _, item := range items {
-		m, isMessage := item.(map[string]any)
-		if item != nil && (!isMessage || !mapIsEmpty(m)) {
-			return false
-		}
-	}
-	return true
+	var fields map[string]any
+	return len(response) == 0 || json.Unmarshal(response, &fields) == nil && mapIsEmpty(fields)
 }
 
 func mapIsEmpty(m map[string]any) bool {
@@ -261,7 +236,13 @@ func anyIsEmpty(v any) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return listIsEmpty(t)
+		for _, item := range t {
+			m, isMessage := item.(map[string]any)
+			if item != nil && (!isMessage || !mapIsEmpty(m)) {
+				return false
+			}
+		}
+		return true
 	case map[string]any:
 		return mapIsEmpty(t)
 	}

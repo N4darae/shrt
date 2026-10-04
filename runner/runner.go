@@ -1056,7 +1056,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			key = "behind " + behindOn[i]
 		}
 		if at, ok := said[key]; ok {
-			repeats[at] = append(repeats[at], sr.ID)
+			repeats[at] = append(repeats[at], strconv.Quote(sr.ID))
 		} else {
 			said[key] = len(failures)
 			failures = append(failures, failure)
@@ -1069,11 +1069,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 	}
 	for at, ids := range repeats {
-		quoted := make([]string, 0, len(ids))
-		for _, id := range ids {
-			quoted = append(quoted, strconv.Quote(id))
-		}
-		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(ids, 10))
 	}
 	switch {
 	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && failedCount == 1 && unreached == 0:
@@ -1553,21 +1549,15 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 }
 
 func learnSecret(redactor *pathmask.Masker, v any) {
-	switch t := v.(type) {
-	case map[string]any:
-		for _, item := range t {
-			learnSecret(redactor, item)
+	eachLeaf(v, "", func(v any, _ string) {
+		switch t := v.(type) {
+		case string:
+			redactor.AddSecret(t)
+		case nil, bool:
+		default:
+			redactor.AddSecret(fmt.Sprint(t))
 		}
-	case []any:
-		for _, item := range t {
-			learnSecret(redactor, item)
-		}
-	case string:
-		redactor.AddSecret(t)
-	case nil, bool:
-	default:
-		redactor.AddSecret(fmt.Sprint(t))
-	}
+	})
 }
 
 func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
