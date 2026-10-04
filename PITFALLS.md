@@ -148,8 +148,10 @@ with the profile's credentials, or let shrt log in by itself.
 **Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared, so each run gets a
 fresh one; a declared `tag:` needs a fresh `-var tag=...` per run. `fixture reused` / `fixture
 collision` (exit 3): re-run with a fresh var. `CHAIN DEFECT: the chain collides with itself`
-(exit 1): rebuild the literal field it names from a var. An idempotency key must be `${uuid}`
-(lint: `literal-idempotency-key`).
+(exit 1): rebuild the literal field it names from a var. A conflict with a value an earlier step
+of the same run sent and got a server error for is neither: the backend stored a create it
+failed, and a fresh var collides the same way. An idempotency key must be `${uuid}` (lint:
+`literal-idempotency-key`).
 
 ## 24. A prefix list counts another run's fixtures
 

@@ -67,6 +67,29 @@ steps:
             equals: OK
 `
 
+const fixErredChain = `apiVersion: shrt/v1
+name: cli-erred
+vars:
+    tag: base
+steps:
+    - id: create
+      call: ThingService/Create
+      body:
+          name: widget ${vars.tag}
+          kind: KIND_A
+      expect:
+          - path: transport.code
+            equals: internal
+    - id: create_again
+      call: ThingService/Create
+      body:
+          name: widget ${vars.tag}
+          kind: KIND_A
+      expect:
+          - path: error.code
+            equals: OK
+`
+
 const fixTwoTagChain = `apiVersion: shrt/v1
 name: cli-two
 vars:
@@ -348,6 +371,12 @@ func TestFixtureCollisionReuseAndChainDefectVerdicts(t *testing.T) {
 		}},
 		{"a conflict on two uuid-built values in a row is a finding", uniq, []string{fixUUIDChain}, []fixStep{
 			fixApproveStep("cli-unique"), refuse, uv("fresh1").is("collision", 3), uv("fresh2").is("finding", 1),
+		}},
+		{"a conflict with what an earlier step of the run stored behind a server error is no fixture collision", func() *fixThing {
+			return &fixThing{unique: "name", failStored: true}
+		}, []string{fixErredChain}, []fixStep{
+			fixRun("cli-erred", "-quiet", "-var", "tag=e1").is("failed", 1, "step 1 create of this run sent that value and got a server error", "this run's own record").
+				not("fixture collision", "created by something else", "re-run with a fresh value"),
 		}},
 		{"a collision with another tag of the same chain names the run and step", uniq, []string{fixTwoTagChain}, []fixStep{
 			fixRun("cli-two", "-quiet", "-var", "tag=x").is("pass", 0),

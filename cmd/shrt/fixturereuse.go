@@ -31,6 +31,7 @@ type fixtureReuse struct {
 	unsure bool
 	sentAt string
 	sentBy []string
+	erred  *runner.StepRecord
 }
 
 func (f *fixtureReuse) finding() bool {
@@ -46,13 +47,21 @@ func (f *fixtureReuse) builtFrom() string {
 }
 
 func (f *fixtureReuse) verdict() string {
-	if f.run == "" {
+	switch {
+	case f.erred != nil:
+		return "collision with this run's own record"
+	case f.run == "":
 		return "fixture collision"
 	}
 	return "fixture reused"
 }
 
 func (f *fixtureReuse) line() string {
+	if f.erred != nil {
+		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s), and step %d %s of this run sent that value "+
+			"and got a server error (%s): the backend stored that create though it failed it, so the conflict is with this "+
+			"run's own record, not a fixture", f.step, f.why, f.erred.Index, f.erred.ID, errorText(f.erred))
+	}
 	if f.finding() {
 		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from %s, and the previous run "+
 			"%s of this chain was refused there the same way with %s: a value built from ${uuid} or a clock value is unique to "+
@@ -112,6 +121,9 @@ func (f *fixtureReuse) fresh() string {
 }
 
 func (f *fixtureReuse) rerun(command, name string) string {
+	if f.erred != nil {
+		return "a fresh value collides the same way while that step stores what it fails"
+	}
 	if len(f.vars) == 0 {
 		return fmt.Sprintf("a plain re-run generates a fresh value: shrt %s %s", command, name)
 	}
@@ -155,6 +167,9 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	}
 	fed := map[string]bool{}
 	conflicting := conflictingFields(fields, why)
+	if erred := erredBefore(rec, index, conflicting); erred != nil {
+		return &fixtureReuse{step: first.ID, index: index, why: why, erred: erred}
+	}
 	if inRunRepeatAcceptedBefore(e, rec, index, conflicting) {
 		return nil
 	}
@@ -408,6 +423,23 @@ func inRunRepeatAcceptedBefore(e *env, rec *runner.Record, index int, conflictin
 		}
 	}
 	return true
+}
+
+func erredBefore(rec *runner.Record, index int, conflicting []fixtureField) *runner.StepRecord {
+	var values []string
+	for _, f := range conflicting {
+		if f.sent == "" {
+			return nil
+		}
+		values = append(values, f.sent)
+	}
+	for _, st := range rec.Steps[:index] {
+		if st != nil && st.Call == rec.Steps[index].Call && st.Transport != nil && len(values) > 0 && sendsAll(st, values) &&
+			serverAttempt(&runner.Attempt{HTTPStatus: st.HTTPStatus, Code: st.Transport.Code}) {
+			return st
+		}
+	}
+	return nil
 }
 
 func fieldPaths(fields []fixtureField) string {
