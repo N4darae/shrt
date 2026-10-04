@@ -178,7 +178,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 
 func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, profiles []string) {
 	entities := p.entitiesOf(lib, st)
-	if idPath := p.createdIDPath(st, m); idPath != "" {
+	if idPath := p.createdIDPath(m); idPath != "" {
 		if e, ok := p.readerMatching(lib, st, idPath, true); ok {
 			entities = append(entities, e)
 		}
@@ -197,10 +197,10 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		}
 	}
 	if len(comparable) == 0 {
-		if idPath := p.createdIDPath(st, m); idPath != "" && p.createParity(lib, st, idPath, profiles) {
+		if idPath := p.createdIDPath(m); idPath != "" && p.createParity(lib, st, idPath, profiles) {
 			return
 		}
-		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(st, m)); len(readers) > 0 {
+		if readers := p.textOnlyReaders(lib, st, p.createdIDPath(m)); len(readers) > 0 {
 			p.note("step %s: its contract lets every role call it, and %s %s the id of what it changes, but %s answers "+
 				"no number or state, only text and ids that each profile's own fixture sends differently, so nothing "+
 				"compares its effect as another profile: call it as each profile and assert what each read returns",
@@ -365,7 +365,7 @@ func stepIndex(steps []*chain.Step, id string) int {
 	return slices.IndexFunc(steps, func(s *chain.Step) bool { return s.ID == id })
 }
 
-func (p *Plan) createdIDPath(st *chain.Step, m *catalog.Method) string {
+func (p *Plan) createdIDPath(m *catalog.Method) string {
 	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
 		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
 			continue

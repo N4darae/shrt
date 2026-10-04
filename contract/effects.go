@@ -173,7 +173,7 @@ func (p *Plan) buildEffectRules(lib *Library) *effectRules {
 		}
 	}
 	for _, rpc := range rpcs {
-		t := p.totalRuleFor(lib, rpc, r)
+		t := p.totalRuleFor(lib, rpc)
 		if sp := r.spec(rpc, "total"); sp != nil {
 			t = p.statedTotal(rpc, sp, r)
 		}
@@ -380,7 +380,7 @@ func (p *Plan) reserveRuleFor(lib *Library, rpc string, r *effectRules) *reserve
 	return nil
 }
 
-func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule {
+func (p *Plan) totalRuleFor(lib *Library, rpc string) *totalRule {
 	c, m, ok := p.contractOf(lib, rpc)
 	if !ok || chain.IsReadOnlyCall(rpc) {
 		return nil
@@ -563,14 +563,14 @@ func (p *Plan) noteUnmetEffects(lib *Library) {
 		}
 		for _, field := range sortedKeys(c.Effects) {
 			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
-				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(lib, st, c, field, e))
+				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(st, c, field, e))
 			}
 		}
 	}
 }
 
-func (p *Plan) effectWiring(lib *Library, st *chain.Step, c *RPCContract, field string, e *Effect) string {
-	for _, en := range p.entityStates(lib, st, c) {
+func (p *Plan) effectWiring(st *chain.Step, c *RPCContract, field string, e *Effect) string {
+	for _, en := range p.entityStates(st, c) {
 		if e.Restore != "" {
 			return fmt.Sprintf("no probe moves a fresh %s to %s before %s acts on it: take %s from: the rpc that creates the %s, with needs: [the rpc that moves it to %s]",
 				en.carrier, e.Restore, st.ID, en.field, en.carrier, e.Restore)
@@ -710,7 +710,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 		if handled {
 			continue
 		}
-		if p.restoreOrForget(lib, st, rpc, out, md, r) {
+		if p.restoreOrForget(lib, st, rpc, out, md) {
 			continue
 		}
 		if touched := p.stockTouched(md, st); len(touched) > 0 {
@@ -867,7 +867,7 @@ func (p *Plan) heldState(lib *Library, st *chain.Step) string {
 	if !ok {
 		return ""
 	}
-	for _, e := range p.entityStates(lib, st, c) {
+	for _, e := range p.entityStates(st, c) {
 		values := e.state.EnumValues[1:]
 		short := enumShort(e.state.EnumValues)
 		if v := stateIn([]string{c.Exports[e.carrier], c.Summary}, values, short); v != "" {
@@ -978,7 +978,7 @@ func (p *Plan) saysUntouched(c *RPCContract, touched []string, md *effectModel) 
 	return false
 }
 
-func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules) bool {
+func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int, md *effectModel) bool {
 	c, ok := lib.Get(rpc)
 	if !ok {
 		return false

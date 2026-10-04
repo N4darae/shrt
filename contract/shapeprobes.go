@@ -53,7 +53,7 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 					"planned for it: write one, or reword it (%s)", st.ID, f.Label(), shapeWording)
 				continue
 			}
-			p.addShapeProbes(lib, st, m, c, f, cases)
+			p.addShapeProbes(lib, st, m, f, cases)
 			if len(unread) > 0 {
 				p.gap("step %s: %s: %q names no field and value the plan can build, so no probe sends that case: "+
 					"write one, or reword it (%s)", st.ID, f.Label(), strings.Join(unread, `", "`), shapeWording)
@@ -202,7 +202,7 @@ func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 	return "", nil, false
 }
 
-func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, cases []shapeCase) {
+func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f Failure, cases []shapeCase) {
 	expect := refusalFor(m, f)
 	ids := []string{}
 	for _, sc := range cases {

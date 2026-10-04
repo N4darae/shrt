@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 )
 
@@ -35,7 +34,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 		if !ok {
 			continue
 		}
-		for _, e := range p.entityStates(lib, st, c) {
+		for _, e := range p.entityStates(st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
 			initial := ""
@@ -45,7 +44,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 			}
 			held := ""
 			if ok && initial != "" && c.Effects.restores(short[initial]) {
-				for _, b := range p.entityStates(lib, e.producer, pc) {
+				for _, b := range p.entityStates(e.producer, pc) {
 					if bc, known := lib.Get(b.producer.Call); known && held == "" && b.idPath == e.idPath && b.carrier == e.carrier {
 						b.field, b.via = e.field, e.producer.ID
 						held, e, initial = initial, b, stateIn([]string{bc.Exports[b.carrier], bc.Summary}, values, short)
@@ -69,7 +68,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 					continue
 				}
 				texts := []string{c.Summary, c.Exports[e.carrier], lib.DescriptionOf(lib.Domain(m.FullName))}
-				if p.addComposedTransition(lib, st, m, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
+				if p.addComposedTransition(lib, st, e, tr, result, short, restoresFrom(texts, short[tr.value]) || c.Effects.restores(short[tr.value])) {
 					for field, ef := range c.Effects {
 						if ef != nil && ef.Restore != "" && SameState(ef.Restore, short[tr.value]) {
 							p.met[[2]string{st.Call, field}] = true
@@ -81,7 +80,7 @@ func (p *Plan) probeComposedTransitions(lib *Library, isTarget func(*chain.Step)
 	}
 }
 
-func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Method, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
+func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
 	label := strings.ToLower(short[tr.value])
 	id := p.freeStepID(st.ID + "_after_" + label)
 	fid := p.freeStepID(e.producer.ID + "_for_" + id)

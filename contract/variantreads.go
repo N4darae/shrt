@@ -98,7 +98,7 @@ func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, ca
 			}
 		}
 	}
-	if idPath := p.createdIDPath(st, m); idPath != "" {
+	if idPath := p.createdIDPath(m); idPath != "" {
 		return p.readerMatching(lib, st, idPath, false)
 	}
 	return entityRead{}, false

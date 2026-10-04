@@ -21,7 +21,7 @@ type stateEntity struct {
 	via      string
 }
 
-func (p *Plan) entityStates(lib *Library, st *chain.Step, c *RPCContract) []stateEntity {
+func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 	out := []stateEntity{}
 	for _, name := range sortedKeys(c.Fields) {
 		f := c.Fields[name]
@@ -98,7 +98,7 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 		if !ok {
 			continue
 		}
-		for _, e := range p.entityStates(lib, st, c) {
+		for _, e := range p.entityStates(st, c) {
 			values := e.state.EnumValues[1:]
 			short := enumShort(e.state.EnumValues)
 			initial := ""

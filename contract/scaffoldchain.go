@@ -281,7 +281,7 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 		if !ok {
 			continue
 		}
-		for _, e := range p.entityStates(lib, st, c) {
+		for _, e := range p.entityStates(st, c) {
 			values, short := e.state.EnumValues[1:], enumShort(e.state.EnumValues)
 			cur := held[e.producer.ID]
 			if !isRefusalStep(st) && cur != "" && cur != p.createdState(lib, e.producer, e.carrier, e.state) {
@@ -324,7 +324,7 @@ func (p *Plan) assertHeldStates(lib *Library, before map[string]map[string]strin
 			return p.createdState(lib, prod, carrier, field)
 		}
 		if car := singleCarrier(m); car != nil {
-			for _, e := range p.entityStates(lib, st, c) {
+			for _, e := range p.entityStates(st, c) {
 				path := car.Name + "." + e.state.Name
 				if v := state(e.producer, e.carrier, e.state); car.Message == e.itemMsg && v != "" && !hasExpectOn(st, path) {
 					st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: v})

@@ -106,7 +106,7 @@ func (p *Plan) readProducer(r *chain.Step, carrier *catalog.Field) (*chain.Step,
 		if err != nil {
 			continue
 		}
-		idPath := p.createdIDPath(prod, pm)
+		idPath := p.createdIDPath(pm)
 		if idPath == "" || text != "${"+prod.ID+"."+idPath+"}" || p.replaysAnother(prod, idPath) {
 			continue
 		}
@@ -312,7 +312,7 @@ func (p *Plan) retypedTextProbe(lib *Library, st *chain.Step, tag string, pick f
 	if err != nil {
 		return nil
 	}
-	idPath := p.createdIDPath(st, m)
+	idPath := p.createdIDPath(m)
 	carrier := singleCarrier(m)
 	if idPath == "" || carrier == nil {
 		return nil
@@ -429,7 +429,7 @@ func (p *Plan) probeReadBack(lib *Library, isTarget func(*chain.Step) bool) {
 		if err != nil {
 			continue
 		}
-		if idPath := p.createdIDPath(st, m); idPath != "" && isTarget(st) && !p.readsCreated(st, idPath) {
+		if idPath := p.createdIDPath(m); idPath != "" && isTarget(st) && !p.readsCreated(st, idPath) {
 			if read := p.readBackStep(lib, st, idPath); read != nil {
 				p.insertAfter(st.ID, read)
 				added = append(added, read.ID)
