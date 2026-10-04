@@ -69,10 +69,7 @@ func IsReadProcedure(procedure string) bool {
 func IsEnvelopePath(path string) bool { return chain.IsEnvelopePath(path) }
 
 func IsMetadataAssertion(path, rule string) bool {
-	if IsEnvelopePath(path) || chain.IsTransportPath(path) {
-		return true
-	}
-	if rule == "unevaluated" {
+	if IsEnvelopePath(path) || chain.IsTransportPath(path) || rule == "unevaluated" {
 		return true
 	}
 	if head, _, _ := strings.Cut(path, "."); !chain.IsPagingFieldName(head) {
@@ -148,13 +145,7 @@ func pinsRefusal(path, rule string, want any) bool {
 		return false
 	}
 	isOK := fmt.Sprint(want) == chain.EnvelopeOK()
-	switch rule {
-	case "equals":
-		return !isOK
-	case "not_equal":
-		return isOK
-	}
-	return false
+	return rule == "equals" && !isOK || rule == "not_equal" && isOK
 }
 
 func DataAsserted(chains []*chain.Chain) map[string]bool {
