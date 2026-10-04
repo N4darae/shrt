@@ -70,7 +70,7 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 
 | command | does | exits other than 0 |
 |---|---|---|
-| `shrt gate -repro [-skip-waits]` | the gate, then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps. `-skip-waits` leaves out chains with `wait:` steps, each `SKIPPED` and never counted as passing; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
+| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -85,7 +85,7 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `shrt contract quality [-domain d]` | score contracts for what is missing; `-gate -baseline <file>` ratchets it | 1 off the baseline, or a contract error |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from the descriptor and contracts | |
 | `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only` | 1 a lint error |
-| `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red | |
+| `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red, `W` waits by design (its total wait at the end) | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command; under `-rpc`, the state and item count each write step acts on | 1 nothing matched |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
@@ -114,7 +114,7 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, judged against the pinned value, a pin that held counting as no change |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
-| `SKIPPED` | `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
+| `SKIPPED` | `-repro` or `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
 write, the field it changed; `at transport code <code>` when it was refused before a body existed), or
@@ -129,9 +129,10 @@ suspect's request and every change with its want and got as `verify` prints it (
 chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
 counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
-A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
-`-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts
-at once, beside the other chains, when it writes nothing (each step is the configured login or a
+A chain with `wait:` steps is marked `W` by `shrt chain ls`, with its total wait, and named on stderr
+as the gate starts. `-skip-waits` leaves it out, and so does `-repro` unless `-skip-waits=false` is
+given or chains are named (never in CI: the wrapper below passes neither). Sent, it starts at
+once, beside the other chains, when it writes nothing (each step is the configured login or a
 read) and each read's request carries `${vars.tag}`, the gate's fresh tag: it then changes nothing
 another chain reads, and no other chain can change what it reads. Otherwise it runs in its turn and
 the stderr line names the step that keeps it there. Every line still comes in its place. A gate with

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -136,8 +137,9 @@ func chainList(args []string) error {
 	fs := flag.NewFlagSet("chain ls", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "emit JSON")
 	long := fs.Bool("long", false, "print the full description of each chain, one block per chain")
-	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot and which are kept red",
-		"\nmarks: * has a safe spot, ? a proposal awaits approval, R kept red (fails on purpose, its kept_red pins name what the backend still gets wrong)\n"+
+	setUsage(fs, "usage: shrt chain ls [-long] [-json]   one line per chain under paths.chains, marking which have a safe spot, which are kept red and which wait",
+		"\nmarks: * has a safe spot, ? a proposal awaits approval, R kept red (fails on purpose, its kept_red pins name what the backend still gets wrong),\n"+
+			"W waits by design (its wait: steps, total at the end of its line; shrt gate -repro leaves it out, shrt gate <chain> runs it)\n"+
 			"\nexit codes:\n  0  listed, a chain that does not load included as such\n"+
 			"  1  a flag that cannot be parsed, or a setup that cannot load (no .shrt/config.yaml)\n")
 	if err := fs.Parse(args); err != nil {
@@ -157,6 +159,7 @@ func chainList(args []string) error {
 		SafeSpot    bool   `json:"safe_spot"`
 		Proposed    bool   `json:"proposed,omitempty"`
 		KeptRed     bool   `json:"kept_red,omitempty"`
+		Waits       string `json:"waits,omitempty"`
 		Description string `json:"description,omitempty"`
 		Path        string `json:"path"`
 		File        string `json:"file_differs,omitempty"`
@@ -164,11 +167,20 @@ func chainList(args []string) error {
 	sort.SliceStable(chains, func(i, j int) bool { return chains[i].Name < chains[j].Name })
 	rows := make([]row, 0, len(chains))
 	for _, c := range chains {
-		rows = append(rows, row{
+		var waits time.Duration
+		for _, s := range c.Steps {
+			d, _ := s.WaitFor()
+			waits += d
+		}
+		r := row{
 			Name: c.Name, Steps: len(c.Steps), SafeSpot: e.store.HasSafeSpot(c.Name), Proposed: e.store.HasProposal(c.Name),
 			KeptRed:     len(c.KeptRed) > 0,
 			Description: c.Description, Path: c.SourcePath, File: mismatchedFile(e, c),
-		})
+		}
+		if waits > 0 {
+			r.Waits = waitText(waits)
+		}
+		rows = append(rows, r)
 	}
 	if *asJSON {
 		return emitJSON(rows)
@@ -195,8 +207,14 @@ func chainList(args []string) error {
 		} else {
 			mark += " "
 		}
+		waits := ""
+		if r.Waits != "" {
+			mark, waits = mark+"W", "  waits "+r.Waits
+		} else {
+			mark += " "
+		}
 		if *long {
-			fmt.Printf("%s %s  %d step(s)  %s\n", mark, r.Name, r.Steps, r.Path)
+			fmt.Printf("%s %s  %d step(s)%s  %s\n", mark, r.Name, r.Steps, waits, r.Path)
 			for _, line := range descriptionLines(r.Description) {
 				if line == "" {
 					fmt.Println()
@@ -207,7 +225,7 @@ func chainList(args []string) error {
 			fmt.Println()
 			continue
 		}
-		fmt.Printf("%s %-*s %3d step(s)\n", mark, nameW, r.Name, r.Steps)
+		fmt.Printf("%s %-*s %3d step(s)%s\n", mark, nameW, r.Name, r.Steps, waits)
 		if r.File != "" {
 			fmt.Printf("  %-*s  (file %s: its name: differs from its file name; chain lint says how to make them agree)\n", nameW, "", r.File)
 		}
@@ -217,9 +235,11 @@ func chainList(args []string) error {
 		shown["*"] = shown["*"] || r.SafeSpot && !r.Proposed
 		shown["?"] = shown["?"] || r.Proposed
 		shown["R"] = shown["R"] || r.KeptRed
+		shown["W"] = shown["W"] || r.Waits != ""
 	}
 	legend := []string{}
-	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"}} {
+	for _, m := range []struct{ mark, means string }{{"*", "has a safe spot"}, {"?", "a proposal awaits approval"}, {"R", "kept red"},
+		{"W", "waits by design (shrt gate -repro leaves it out, shrt gate <chain> runs it)"}} {
 		if shown[m.mark] {
 			legend = append(legend, m.mark+" = "+m.means)
 		}

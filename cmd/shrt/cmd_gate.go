@@ -35,7 +35,7 @@ const gateExitCodes = "\nexit codes:\n" +
 	"  0  every chain passed (or failed exactly as its kept_red pins) and every safe spot verified\n" +
 	"  1  a chain failed, a FINDING, tokens of one auth profile refused early twice, or the hollow ratchet\n" +
 	"  3  no verdict: a run or verify exited 3 twice (backend down, restarting, refusing auth); re-run;\n" +
-	"     or nothing failed and -skip-waits left out a chain that waits\n"
+	"     or nothing failed and -repro or -skip-waits left out a chain that waits\n"
 
 type gateSidecar struct {
 	KeptRed      string              `json:"kept_red,omitempty"`
@@ -932,12 +932,19 @@ func runGate(ctx context.Context, args []string) error {
 	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every change with its want and got, as verify prints it; knock-on counts in the summary")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
-	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps")
-	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps, each named SKIPPED and never counted as passing; not for CI")
+	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps; "+
+		"leaves out the chains that wait, as -skip-waits does")
+	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps (W in shrt chain ls), each named SKIPPED and never counted as passing; on under -repro unless chains are named, -skip-waits=false keeps them; not for CI")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
 	if err != nil {
 		return err
+	}
+	skipBy := ""
+	if *skipWaits {
+		skipBy = "-skip-waits"
+	} else if *repro && len(only) == 0 && !flagGiven(fs, "skip-waits") {
+		skipBy = "-repro"
 	}
 	e, err := loadEnv(true)
 	if err != nil {
@@ -955,7 +962,7 @@ func runGate(ctx context.Context, args []string) error {
 		width = max(width, len(g.name))
 	}
 	began := time.Now()
-	outs := sendGate(ctx, e, chains, *wait, *skipWaits)
+	outs := sendGate(ctx, e, chains, *wait, skipBy)
 	early := map[string]int{}
 	earlyAt := map[string]gateEarly{}
 	reads := map[string]gateRead{}
@@ -1060,7 +1067,7 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	left := ""
 	if len(skipped) > 0 {
-		left = fmt.Sprintf("; -skip-waits left out %s: shrt gate %s runs it", strings.Join(skipped, ", "), strings.Join(skipped, " "))
+		left = fmt.Sprintf("; %s left out %s: shrt gate %s runs it", skipBy, strings.Join(skipped, ", "), strings.Join(skipped, " "))
 	}
 	switch {
 	case failed > 0 || len(findings) > 0:
@@ -1077,6 +1084,12 @@ func runGate(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("gate: PASS: %d chain(s)\n", len(chains))
 	return nil
+}
+
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == name })
+	return given
 }
 
 func gateAlso(unverified, findings int) string {
@@ -1133,7 +1146,7 @@ func gateChains(e *env, only []string) ([]*gateChain, error) {
 	return out, nil
 }
 
-func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration, skipWaits bool) []map[string]gateOutcome {
+func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Duration, skipBy string) []map[string]gateOutcome {
 	outs := make([]map[string]gateOutcome, len(chains))
 	resolved := make([]*chain.Chain, len(chains))
 	var mu sync.Mutex
@@ -1144,8 +1157,8 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 		if g.waits, g.queued = gateWaits(e, resolved[i]); g.waits == 0 {
 			continue
 		}
-		if g.skipped = skipWaits; g.skipped {
-			fmt.Fprintf(os.Stderr, "gate: -skip-waits leaves out %s, which waits %s by design (its wait: steps); shrt gate %s runs it\n", g.name, waitText(g.waits), g.name)
+		if g.skipped = skipBy != ""; g.skipped {
+			fmt.Fprintf(os.Stderr, "gate: %s leaves out %s, which waits %s by design (its wait: steps); shrt gate %s runs it\n", skipBy, g.name, waitText(g.waits), g.name)
 			continue
 		}
 		if g.queued != "" {
