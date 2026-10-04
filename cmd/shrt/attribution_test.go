@@ -668,6 +668,14 @@ func TestAttributionNamesTheSuspectByKind(t *testing.T) {
 		{name: "against a reference a read after a batch that answered the field as before names the batch and the later mover, not a changed write that leaves the field alone", env: "effects", moved: storedOtherMoved(),
 			rec: storedOtherBatch, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "stock_batch", check: orSteps("stock_batch", "confirm_fits")},
 		{name: "without a reference the same read names the same writes", env: "effects", rec: storedOtherBatch, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "stock_batch", check: orSteps("stock_batch", "confirm_fits")},
+		{name: "of the candidates the one whose own quantity gives the change is the suspect", env: "effects", moved: changed("a_after_two", "product.qty_on_hand", "2999999993", "2999999986"),
+			rec: restockedThenConfirmed, step: "a_after_two", path: "product.qty_on_hand", kind: reasonWrite, blamed: "confirm_two"},
+		{name: "candidates whose quantities both give the change stay unclear", env: "effects", moved: storedOtherMoved(), rec: func() *runner.Record {
+			rec := storedOtherBatch()
+			rec.Steps[1].Request = json.RawMessage(`{"lines":[{"id_product":"p1","qty":3},{"id_product":"p2","qty":0},{"id_product":"p2","qty":1}]}`)
+			rec.Steps[4].Request = json.RawMessage(`{"id_order":"o1"}`)
+			return rec
+		}, step: "get_b", path: "product.qty_on_hand", kind: reasonUnclear, blamed: "stock_batch", check: orSteps("stock_batch", "confirm_fits")},
 		{name: "a create that answered the record itself as before is no candidate", env: "effects", moved: storedOtherMoved(), rec: func() *runner.Record {
 			rec := storedOtherBatch()
 			rec.Steps = slices.Delete(rec.Steps, 1, 2)
@@ -939,6 +947,19 @@ func TestAHeldPinIsNoChangeWhenNamingAKeptRedSuspect(t *testing.T) {
 	if r := pinnedAttribution(effectsEnv(t), rec, nil).of("stock_b_after_refusal", "product.qty_on_hand"); r.blamed("stock_b_after_refusal") != "confirm_later_line_short" || len(r.Or) > 0 {
 		t.Errorf("with no pin held, the confirm answering otherwise than expected stays the suspect: %s", r)
 	}
+}
+
+func restockedThenConfirmed() *runner.Record {
+	order := `{"order":{"id_order":"o2","lines":[{"id_product":"p1","qty":"7"}]}}`
+	return shopRecord(
+		shopStep("create_a", shopCreate, `{"product":{"id_product":"p1","qty_on_hand":"0"}}`).held("product.qty_on_hand", "0"),
+		shopStep("restock", shopAdd, `{"qty_on_hand":"3000000000"}`, "create_a").held("qty_on_hand", "3000000000").with(func(st *runner.StepRecord) {
+			st.Request = json.RawMessage(`{"id_product":"p1","qty":"3000000000"}`)
+		}),
+		shopStep("order_two", shopOrder, order, "create_a"),
+		shopStep("confirm_two", shopConfirm, order, "order_two").with(func(st *runner.StepRecord) { st.Request = json.RawMessage(`{"id_order":"o2"}`) }),
+		shopStep("a_after_two", shopGet, `{"product":{"id_product":"p1","qty_on_hand":"2999999986"}}`, "create_a").failing("product.qty_on_hand", "2999999993", "2999999986"),
+	)
 }
 
 func storedOtherMoved() []diff.Change {
