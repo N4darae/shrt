@@ -166,8 +166,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
 		rep.compareRequests(sa, sb, masker, fx)
-		rep.compareResponses(sa, sb, masker)
-		if everyFieldMasked(masker, sa.Response) && everyFieldMasked(masker, sb.Response) {
+		if x, y := rep.compareResponses(sa, sb, masker); everyFieldMasked(masker, x) && everyFieldMasked(masker, y) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
 		}
 	}
@@ -249,14 +248,14 @@ func varChanges(a, b map[string]any) []VarChange {
 	return out
 }
 
-func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask.Masker) {
+func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask.Masker) (any, any) {
 	x, errA := decode(sa.Response)
 	y, errB := decode(sb.Response)
 	if errA != nil || errB != nil {
 		if string(sa.Response) != string(sb.Response) {
 			r.Changes = append(r.Changes, Change{Step: sa.ID, Path: "response", Kind: KindType, Want: string(sa.Response), Got: string(sb.Response)})
 		}
-		return
+		return x, y
 	}
 	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
 	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
@@ -290,6 +289,7 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		c.Step = sa.ID
 		r.Changes = append(r.Changes, c)
 	})
+	return x, y
 }
 
 func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.Masker, fx Fixtures) {
@@ -350,9 +350,8 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 	})
 }
 
-func everyFieldMasked(m *pathmask.Masker, raw []byte) bool {
-	body, err := decode(raw)
-	if err != nil || body == nil {
+func everyFieldMasked(m *pathmask.Masker, body any) bool {
+	if body == nil {
 		return false
 	}
 	masked, open := 0, 0

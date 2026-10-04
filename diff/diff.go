@@ -330,11 +330,11 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 		}
 		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
-		if everyFieldMasked(stepMask, want.Response) && everyFieldMasked(stepMask, got.Response) {
-			rep.FullyMasked = append(rep.FullyMasked, want.ID)
-		}
 		a, errA := decode(want.Response)
 		b, errB := decode(got.Response)
+		if everyFieldMasked(stepMask, a) && everyFieldMasked(stepMask, b) {
+			rep.FullyMasked = append(rep.FullyMasked, want.ID)
+		}
 		var stepChanges []Change
 		moves := map[string][]int{}
 		if errA != nil || errB != nil {
