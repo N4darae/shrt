@@ -132,17 +132,7 @@ func approvedThingFlowRun(t *testing.T) (context.Context, *env, *runner.Record) 
 	t.Cleanup(srv.Close)
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, []string{"cli-thing-flow", "-quiet"}); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-thing-flow", "-note", "baseline"}); err != nil {
-			t.Fatalf("propose: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
+	fixApprove(t, "cli-thing-flow")
 	e, err := loadEnv(false)
 	if err != nil {
 		t.Fatal(err)
@@ -424,17 +414,7 @@ func TestVerifyReportsATokenLifetimeFindingAndNeverCallsItARestart(t *testing.T)
 	b := &shortSessionBackend{uses: 1}
 	shortSessionWorkspace(t, b, lifetimeWrites)
 	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, []string{"cli-thing-flow", "-quiet"}); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-thing-flow", "-note", "baseline"}); err != nil {
-			t.Fatalf("propose: %v", err)
-		}
-		if err := runConfirm(ctx, []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
+	fixApprove(t, "cli-thing-flow")
 	b.mu.Lock()
 	b.short = true
 	b.mu.Unlock()

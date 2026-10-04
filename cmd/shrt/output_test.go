@@ -349,15 +349,7 @@ steps:
 `
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", flow)
 	ctx := context.Background()
-	captureStdout(t, func() {
-		if err := runRun(ctx, []string{"cli-three-flow", "-quiet"}); err != nil {
-			t.Fatalf("shrt run: %v", err)
-		}
-		_ = runConfirm(ctx, []string{"cli-three-flow", "-note", "baseline"})
-		if err := runConfirm(ctx, []string{"cli-three-flow", "-approve", "-by", "alice@example.test"}); err != nil {
-			t.Fatalf("approve: %v", err)
-		}
-	})
+	fixApprove(t, "cli-three-flow")
 	writeFile(t, ".shrt/chains/cli-three-flow.yaml", strings.Replace(flow, "not_empty: true", "equals: nope", 1))
 	var err error
 	out := captureStdout(t, func() { err = runVerify(ctx, []string{"cli-three-flow", "-quiet", "-save=false"}) })

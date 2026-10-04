@@ -672,11 +672,7 @@ func TestSliceCases(t *testing.T) {
 			srv := newTotallingBackend(&total)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
-			slcMustRun(t, "cli-thing-flow")
-			captureStdout(t, func() {
-				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "baseline"})
-				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"})
-			})
+			fixApprove(t, "cli-thing-flow")
 			total = 1
 			for range 2 {
 				captureStdout(t, func() { _ = runVerify(context.Background(), []string{"cli-thing-flow", "-quiet"}) })
@@ -694,11 +690,7 @@ func TestSliceCases(t *testing.T) {
 			srv := newTotallingBackend(&total)
 			t.Cleanup(srv.Close)
 			chdirToFreshCLIWorkspace(t, srv.URL)
-			slcMustRun(t, "cli-thing-flow")
-			captureStdout(t, func() {
-				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-note", "baseline"})
-				_ = runConfirm(context.Background(), []string{"cli-thing-flow", "-approve", "-by", "alice@example.test"})
-			})
+			fixApprove(t, "cli-thing-flow")
 			slcMustRun(t, "cli-thing-flow")
 			total = 1
 		}, args: []string{"cli-thing-flow", "-step", "fetch", "-run", "latest", "-verify"}, code: 1,

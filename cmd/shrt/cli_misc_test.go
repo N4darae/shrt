@@ -152,20 +152,6 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 	defer srv.Close()
 	chdirToFreshCLIWorkspace(t, srv.URL)
 	ctx := context.Background()
-	confirmAs := func(ref string) {
-		t.Helper()
-		captureStdout(t, func() {
-			for _, err := range []error{
-				runRun(ctx, []string{ref, "-quiet"}),
-				runConfirm(ctx, []string{ref, "-note", "baseline"}),
-				runConfirm(ctx, []string{ref, "-approve", "-by", "alice@example.test"}),
-			} {
-				if err != nil {
-					t.Fatalf("confirm %s: %v", ref, err)
-				}
-			}
-		})
-	}
 	verify := func(want string, wantErr bool) {
 		t.Helper()
 		for _, ref := range []string{"cli-thing-flow", "thing-new"} {
@@ -176,10 +162,10 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 			}
 		}
 	}
-	confirmAs("cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 	cliEdit(t, cliFlow, "name: cli-thing-flow\n", "name: thing-new\n")
 	verify("thing-new has no safe spot", true)
-	confirmAs("cli-thing-flow")
+	fixApprove(t, "cli-thing-flow")
 	if _, err := os.Stat(".shrt/safespots/thing-new.json"); err != nil {
 		t.Fatalf("confirming by the file name writes the safe spot of the chain's name: %v", err)
 	}
