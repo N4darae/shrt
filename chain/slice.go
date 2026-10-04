@@ -244,17 +244,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 			}
 		}
 		added := false
-		for _, w := range idx.sideEffectWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
-		}
-		for _, w := range idx.stateWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
-		}
-		for _, w := range idx.sameValueWrites(at, keeps, opts) {
-			add(w.index, KeepSideEffect, w.reason)
-			added = true
+		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
+			for _, w := range writes(at, keeps, opts) {
+				add(w.index, KeepSideEffect, w.reason)
+				added = true
+			}
 		}
 		if !added {
 			break
