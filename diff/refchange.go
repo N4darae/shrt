@@ -102,7 +102,7 @@ func wholeItems(changes []Change, recorded any, body map[string]any, wasRefs, no
 func goneItem(path string, recorded any, body map[string]any, removed bool) (string, bool) {
 	segs := chain.SplitPath(path)
 	for i := 1; i < len(segs); i++ {
-		if !isIndexSeg(segs[i]) {
+		if !digitsOnly(segs[i]) {
 			continue
 		}
 		prefix := strings.Join(segs[:i+1], ".")
@@ -113,18 +113,6 @@ func goneItem(path string, recorded any, body map[string]any, removed bool) (str
 		}
 	}
 	return "", false
-}
-
-func isIndexSeg(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func withTemplates(v any, prefix string, refs map[string]string) any {

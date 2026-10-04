@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -70,7 +71,7 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 	headers := map[string]string{}
 	for _, b := range r.Auth {
 		if b != nil {
-			headers[b.Profile] = firstNonEmpty(b.Header, "Authorization")
+			headers[b.Profile] = cmp.Or(b.Header, "Authorization")
 		}
 	}
 	for i, step := range c.Steps {

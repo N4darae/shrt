@@ -2,6 +2,7 @@ package runner
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -427,7 +428,7 @@ func UndeclaredFieldsLine(rec *Record) string {
 				order = append(order, sr.Call)
 			}
 			for _, f := range strings.Split(rest, ", ") {
-				if f != "" && !slicesContain(fields[sr.Call], f) {
+				if f != "" && !slices.Contains(fields[sr.Call], f) {
 					fields[sr.Call] = append(fields[sr.Call], f)
 				}
 			}
@@ -441,15 +442,6 @@ func UndeclaredFieldsLine(rec *Record) string {
 		parts = append(parts, call+" -> "+strings.Join(fields[call], ", "))
 	}
 	return UndeclaredFieldsAdvice + ": " + strings.Join(parts, "; ")
-}
-
-func slicesContain(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
 }
 
 func unavailableAnswer(status int, code string) bool {
@@ -628,7 +620,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, firstNonEmpty(sr.Error, firstFailedExpectation(sr)))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, firstFailedExpectation(sr)))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -835,7 +827,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
 			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
 	}
-	return "did not pass (" + firstLine(firstNonEmpty(sr.Error, sr.Status)) + "), so -keep-going does not " +
+	return "did not pass (" + firstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
 }
 
@@ -1396,7 +1388,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 	res = r.resendRead(ctx, step, call, resolvedHeaders, sr, res, err)
 	r.Auth.learnTokens(redactor)
 	if profile, routed := transport.CallAuthProfile(call); routed {
-		sr.AuthProfile = firstNonEmpty(profile, NoAuthProfile)
+		sr.AuthProfile = cmp.Or(profile, NoAuthProfile)
 		sr.AuthPrincipal = opts.principals[profile]
 	}
 	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
@@ -2355,15 +2347,6 @@ func mergeVars(base, override map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func firstNonEmpty(vals ...string) string {
-	for _, v := range vals {
-		if v != "" {
-			return v
-		}
-	}
-	return ""
 }
 
 func newRunID(t time.Time) string {
