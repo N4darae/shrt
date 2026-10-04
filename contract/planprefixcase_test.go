@@ -1,8 +1,6 @@
 package contract_test
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -49,16 +47,8 @@ func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembershi
 			t.Fatalf("the probe asserts only the verdict and the prefix's upper bound, not which items it lists: %+v\n%s", e, text)
 		}
 	}
-	path := filepath.Join(t.TempDir(), "case.yaml")
-	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	c, err := chain.LoadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	cat, lib := shopDemo(t)
-	for _, i := range contract.LintChain(c, cat, contract.ChainLintOptions{Strict: true, Library: lib}) {
+	for _, i := range strictLint(t, "case.yaml", text, cat, lib, chain.LintOptions{}) {
 		if i.Step == probe.ID && (i.IsError() || i.Kind == chain.KindEnvelopeOnly) {
 			t.Fatalf("the case probe fails strict lint: [%s] %s\n%s", i.Kind, i.Message, text)
 		}
