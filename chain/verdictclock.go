@@ -65,10 +65,7 @@ func boundAnchor(want any) (float64, bool) {
 	if n, ok := numberOf(want); ok {
 		return n, true
 	}
-	text, ok := want.(string)
-	if !ok {
-		return 0, false
-	}
+	text, _ := want.(string)
 	m := firstNumberPattern.FindString(text)
 	if m == "" {
 		return 0, false

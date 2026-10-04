@@ -74,19 +74,13 @@ func IsGeneratorRef(s string) bool {
 	if len(refs) != 1 || strings.TrimSpace(s) != "${"+refs[0]+"}" {
 		return false
 	}
-	switch ParseRef(refs[0]).Kind {
-	case RefUUID, RefClock:
-		return true
-	}
-	return false
+	kind := ParseRef(refs[0]).Kind
+	return kind == RefUUID || kind == RefClock
 }
 
 func IsStableRef(s string) bool {
 	refs := collectRefs(s)
-	if len(refs) != 1 || strings.TrimSpace(s) != "${"+refs[0]+"}" {
-		return false
-	}
-	return !IsGeneratorRef(s)
+	return len(refs) == 1 && strings.TrimSpace(s) == "${"+refs[0]+"}" && !IsGeneratorRef(s)
 }
 
 func HasReference(s string) bool { return refPattern.MatchString(s) }

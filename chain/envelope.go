@@ -210,10 +210,7 @@ func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
 		rows, _ := Get(sent, listPath)
 		items, _ := rows.([]any)
 		for i, item := range items {
-			parent := item
-			if depth > 0 {
-				parent, _ = Get(item, strings.Join(fieldSegs[:depth], "."))
-			}
+			parent, _ := Get(item, strings.Join(fieldSegs[:depth], "."))
 			obj, ok := parent.(map[string]any)
 			if !ok {
 				continue
@@ -343,10 +340,7 @@ func VacuousNotEqual(path string, want any) bool {
 }
 
 func VacuousNotEqualResult(path string, want, got any) bool {
-	if VacuousNotEqual(path, want) {
-		return true
-	}
-	return isScalarValue(want) && !isScalarValue(got)
+	return VacuousNotEqual(path, want) || isScalarValue(want) && !isScalarValue(got)
 }
 
 func (e Expectation) PinsValue() bool {

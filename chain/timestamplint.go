@@ -14,13 +14,9 @@ func IsTimestampName(name string) bool {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
-		strings.HasPrefix(lower, "expires"), strings.HasPrefix(lower, "expiry"):
+		strings.HasPrefix(lower, "expires"), strings.HasPrefix(lower, "expiry"),
+		name != "At" && strings.HasSuffix(name, "At"), name != "Time" && strings.HasSuffix(name, "Time"):
 		return true
-	}
-	for _, suffix := range []string{"At", "Time"} {
-		if len(name) > len(suffix) && strings.HasSuffix(name, suffix) {
-			return true
-		}
 	}
 	return false
 }

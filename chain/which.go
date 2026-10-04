@@ -117,14 +117,8 @@ type WhichChain struct {
 }
 
 func IsCodePath(path string) bool {
-	if path == TransportPrefix+".code" || path == TransportPrefix+".http_status" {
-		return true
-	}
 	segs := SplitPath(path)
-	if isCodeField(segs) {
-		return true
-	}
-	return len(segs) >= 2 && segs[len(segs)-1] == EnvelopeLeaf() && segs[len(segs)-2] == EnvelopeField()
+	return alwaysPresentTransportPath(path) || isCodeField(segs) || len(segs) >= 2 && segs[len(segs)-1] == EnvelopeLeaf() && segs[len(segs)-2] == EnvelopeField()
 }
 
 func CodePaths(chains []*Chain) []string {
@@ -303,14 +297,7 @@ func siblingCodeDiffers(response any, path, code string) bool {
 	if len(segs) == 0 {
 		return false
 	}
-	parent := response
-	if len(segs) > 1 {
-		v, ok := Get(response, strings.Join(segs[:len(segs)-1], "."))
-		if !ok {
-			return false
-		}
-		parent = v
-	}
+	parent, _ := Get(response, strings.Join(segs[:len(segs)-1], "."))
 	obj, ok := parent.(map[string]any)
 	if !ok {
 		return false
@@ -490,14 +477,8 @@ func assertsCode(asserts []CodeAssertion, want string) bool {
 }
 
 func stepCalls(s *Step, rpc string, rpcOf func(*Step) string) bool {
-	want := strings.TrimPrefix(strings.TrimSpace(rpc), "/")
-	if strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(s.Call), "/"), want) {
-		return true
-	}
-	if rpcOf == nil {
-		return false
-	}
-	return strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(rpcOf(s)), "/"), want)
+	bare := func(call string) string { return strings.TrimPrefix(strings.TrimSpace(call), "/") }
+	return strings.EqualFold(bare(s.Call), bare(rpc)) || rpcOf != nil && strings.EqualFold(bare(rpcOf(s)), bare(rpc))
 }
 
 func evidenceRank(m WhichStep, failingFirst bool) int {

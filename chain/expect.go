@@ -250,8 +250,6 @@ func WantText(rule, want string) string {
 		return "want<" + want
 	case "lte":
 		return "want≤" + want
-	case "contains", "includes", "within":
-		return "want " + rule + " " + want
 	case "between":
 		return "want in " + want
 	case "not_empty":
