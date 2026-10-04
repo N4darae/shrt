@@ -239,9 +239,7 @@ type AuthProfile struct {
 	Owns   func(procedure string) bool
 }
 
-func (p *AuthProfile) HeaderScheme() (string, string) { return p.headerScheme() }
-
-func (p *AuthProfile) headerScheme() (string, string) {
+func (p *AuthProfile) HeaderScheme() (string, string) {
 	header, scheme := p.Spec.Header, p.Spec.Scheme
 	if header == "" {
 		header = "Authorization"
@@ -319,7 +317,7 @@ func WithAuthRouter(router AuthRouter) Middleware {
 				return next(ctx, call)
 			}
 			noteProfile(call, profile.Name)
-			header, scheme := profile.headerScheme()
+			header, scheme := profile.HeaderScheme()
 			token, err := apply(ctx, profile.Source, call, header, scheme)
 			if err != nil {
 				return nil, err
@@ -441,11 +439,8 @@ func noteProfile(call *Call, name string) {
 
 func CallAuthProfile(call *Call) (string, bool) {
 	v, ok := call.Meta[MetaAuthProfile]
-	if !ok {
-		return "", false
-	}
 	s, _ := v.(string)
-	return s, true
+	return s, ok
 }
 
 const (
@@ -459,36 +454,18 @@ func sendInvalidToken(ctx context.Context, next Handler, call *Call, profile *Au
 			"covers %s (it is a login or listed in skip_calls), so there is no header to put it in",
 			InvalidTokenProfile, call.Procedure)
 	}
-	header, scheme := profile.headerScheme()
-	if call.Header == nil {
-		call.Header = map[string][]string{}
-	}
-	value := InvalidToken
-	if scheme != "" {
-		value = scheme + " " + InvalidToken
-	}
-	call.Header.Set(header, value)
+	header, scheme := profile.HeaderScheme()
+	setAuthHeader(call, header, scheme+" "+InvalidToken)
 	return next(ctx, call)
 }
 
 func callSkipsAuth(call *Call) bool {
-	v, ok := call.Meta["skip_auth"]
-	if !ok {
-		return false
-	}
-	b, ok := v.(bool)
-	return ok && b
+	b, _ := call.Meta["skip_auth"].(bool)
+	return b
 }
 
 func callAuthProfile(call *Call) string {
-	v, ok := call.Meta["auth"]
-	if !ok {
-		return ""
-	}
-	s, ok := v.(string)
-	if !ok {
-		return ""
-	}
+	s, _ := call.Meta["auth"].(string)
 	return strings.TrimSpace(s)
 }
 
@@ -497,35 +474,25 @@ func apply(ctx context.Context, src TokenSource, call *Call, header, scheme stri
 	if err != nil {
 		return "", err
 	}
-	if call.Header == nil {
-		call.Header = map[string][]string{}
-	}
-	value := token
-	if scheme != "" {
-		value = scheme + " " + token
-	}
-	call.Header.Set(header, value)
+	setAuthHeader(call, header, scheme+" "+token)
 	return token, nil
 }
 
-func isUnauthenticated(res *Result) bool {
-	if res == nil {
-		return false
+func setAuthHeader(call *Call, header, value string) {
+	if call.Header == nil {
+		call.Header = map[string][]string{}
 	}
-	if res.Status == 401 {
-		return true
-	}
-	return res.Error != nil && strings.EqualFold(res.Error.Code, "unauthenticated")
+	call.Header.Set(header, value)
 }
 
 func (r AuthRouter) unauthenticated(res *Result) bool {
-	if isUnauthenticated(res) {
-		return true
-	}
-	if r.Envelope == nil || res == nil || res.Status != http.StatusOK {
+	if res == nil {
 		return false
 	}
-	return strings.EqualFold(r.Envelope(res.Body), "unauthenticated")
+	if res.Status == http.StatusUnauthorized || res.Error != nil && strings.EqualFold(res.Error.Code, "unauthenticated") {
+		return true
+	}
+	return r.Envelope != nil && res.Status == http.StatusOK && strings.EqualFold(r.Envelope(res.Body), "unauthenticated")
 }
 
 func EnvelopeCodeReader(path string) func([]byte) string {
@@ -543,19 +510,13 @@ func EnvelopeCodeReader(path string) func([]byte) string {
 }
 
 func lookupString(root map[string]any, path string) (string, bool) {
-	v, ok := lookup(root, path)
-	if !ok {
-		return "", false
-	}
+	v, _ := lookup(root, path)
 	s, ok := v.(string)
 	return s, ok
 }
 
 func lookupInt(root map[string]any, path string) (int64, bool) {
-	v, ok := lookup(root, path)
-	if !ok {
-		return 0, false
-	}
+	v, _ := lookup(root, path)
 	switch t := v.(type) {
 	case float64:
 		return int64(t), true
