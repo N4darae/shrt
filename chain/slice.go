@@ -247,6 +247,11 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		added := false
 		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
 			for _, w := range writes(at, keeps, opts) {
+				if opts.Refused != nil {
+					if why, refused := opts.Refused(c.Steps[w.index].ID); refused {
+						w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
+					}
+				}
 				add(w.index, KeepSideEffect, w.reason)
 				added = true
 			}

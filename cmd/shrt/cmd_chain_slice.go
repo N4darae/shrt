@@ -415,14 +415,14 @@ func printSliceDetail(res *chain.SliceResult) {
 			fmt.Printf("  %s = %v  (from %s)\n", f.Var, f.Value, from)
 		}
 	}
-	if len(res.DroppedWrites) > 0 {
+	if len(res.DroppedWrites)+len(res.RefusedWrites) > 0 {
 		fmt.Println("\ndropped write steps:")
-		for _, d := range res.DroppedWrites {
-			fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortRPC(d.Call))
-		}
+	}
+	for _, d := range res.DroppedWrites {
+		fmt.Printf("  %4d  %s  %s\n", d.Index, d.ID, shortRPC(d.Call))
 	}
 	for _, d := range res.RefusedWrites {
-		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted\n", d.Index, d.ID, shortRPC(d.Call), d.Reason, res.Run)
+		fmt.Printf("  %4d  %s  %s  %s in run %s, not counted as possible under-inclusion\n", d.Index, d.ID, shortRPC(d.Call), d.Reason, res.Run)
 	}
 }
 

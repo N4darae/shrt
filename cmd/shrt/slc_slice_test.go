@@ -596,7 +596,7 @@ func TestSliceCases(t *testing.T) {
 
 		{name: "refused dropped writes are not counted and the verdict is recorded", setup: func(t *testing.T) { round2Workspace(t) },
 			args: []string{"cli-r2-flow", "-step", "fetch", "-run", "latest", "-keep", "other", "-var", "batch=T2", "-verify", "-v", "-write"},
-			want: []string{"verify reproduced", "refused: error.code = INTERNAL in run", "refused: transport invalid_argument in run"},
+			want: []string{"verify reproduced", "\ndropped write steps:\n", "refused: error.code = INTERNAL in run", "refused: transport invalid_argument in run", ", not counted as possible under-inclusion\n"},
 			not:  []string{"WARNING possible under-inclusion"},
 			check: func(t *testing.T, _ string) {
 				c, _ := slcSteps(t, ".shrt/scratch/cli-r2-flow-slice-fetch.yaml")

@@ -446,6 +446,16 @@ func TestSlice(t *testing.T) {
 					t.Errorf("price from the run, a fresh tag from the chain: %v", res.Chain.Vars)
 				}
 			}},
+		{name: "a refused write on what the target reads is kept and says why", c: steps("roles",
+			st("create_product", "ProductService/CreateProduct", nil),
+			st("clerk_stock", "StockService/AddStock", map[string]any{"id_product": "${create_product.product.id_product}"}),
+			st("get_product", "ProductService/GetProduct", map[string]any{"id_product": "${create_product.product.id_product}"})),
+			target: "get_product", opts: chain.SliceOptions{RunID: "r1", Refused: refusedIn(map[string]string{"clerk_stock": "refused: status.code = REJECTED"})},
+			kept: "create_product,clerk_stock,get_product", check: func(t *testing.T, res *chain.SliceResult) {
+				if k := keptByID(res)["clerk_stock"]; !strings.HasSuffix(k.Reason, "(refused: status.code = REJECTED in run r1, kept: a refused write can still change it)") {
+					t.Errorf("clerk_stock reason is %q", k.Reason)
+				}
+			}},
 		{name: "a dropped write the source run refused", c: refusedDrop, target: "cancel_order", opts: chain.SliceOptions{RunID: "r1",
 			Refused: refusedIn(map[string]string{"create_order_no_lines": "refused: transport invalid_argument", "confirm_twice": "refused: error.code = 1303"})},
 			check: func(t *testing.T, res *chain.SliceResult) {
