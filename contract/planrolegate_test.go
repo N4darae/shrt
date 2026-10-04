@@ -8,20 +8,6 @@ import (
 	"github.com/N4darae/shrt/contract"
 )
 
-func shopDemoPlanWith(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string, string) {
-	t.Helper()
-	cat, lib := shopDemo(t)
-	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := p.YAML()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p, string(raw), strings.Join(p.Notes, "\n")
-}
-
 func TestPlanForARoleGatedWriteCallsItAsTheLowerProfileAndProvesNoEffect(t *testing.T) {
 	p, text, notes := shopDemoPlanWith(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, "AddStock")
 	denied := planStep(t, p, "add_stock_as_clerk")

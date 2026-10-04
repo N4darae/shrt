@@ -82,8 +82,18 @@ func editedPlan(t *testing.T, edit func(name, body string) string, targets ...st
 
 func shopDemoPlan(t *testing.T, targets ...string) (*contract.Plan, string, string) {
 	t.Helper()
+	return shopDemoPlanWith(t, contract.PlanOptions{}, targets...)
+}
+
+func shopDemoPlanWith(t *testing.T, opts contract.PlanOptions, targets ...string) (*contract.Plan, string, string) {
+	t.Helper()
 	cat, lib := shopDemo(t)
-	p, err := contract.BuildPlanFor(targets, lib, cat, "shopdemo")
+	return planFrom(t, cat, lib, opts, targets...)
+}
+
+func planFrom(t *testing.T, cat *catalog.Catalog, lib *contract.Library, opts contract.PlanOptions, targets ...string) (*contract.Plan, string, string) {
+	t.Helper()
+	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,15 +17,8 @@ func confirmNeedsStockPlan(t *testing.T, opts contract.PlanOptions, targets ...s
 		body = strings.Replace(body, "        needs: [shop.catalog.v1.StockService/AddStock]\n", "", 1)
 		return strings.Replace(body, "    shop.orders.v1.OrderService/ConfirmOrder:\n", "    shop.orders.v1.OrderService/ConfirmOrder:\n        needs: [shop.catalog.v1.StockService/AddStock]\n", 1)
 	})
-	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := p.YAML()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p, string(raw) + "\n" + strings.Join(p.Notes, "\n")
+	p, text, notes := planFrom(t, cat, lib, opts, targets...)
+	return p, text + "\n" + notes
 }
 
 func TestAPrerequisiteWriteAddedToTheMainPathIsCopiedIntoTheRoleParityFixtures(t *testing.T) {

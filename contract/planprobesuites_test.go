@@ -13,16 +13,8 @@ func shopDemoMutated(t *testing.T, opts contract.PlanOptions, mutate func(rpcs m
 	for _, o := range lib.Overlays {
 		mutate(o.RPCs)
 	}
-	lib = contract.NewLibrary(lib.Overlays)
-	p, err := contract.BuildPlanWith(targets, lib, cat, "shopdemo", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := p.YAML()
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p, string(raw)
+	p, text, _ := planFrom(t, cat, contract.NewLibrary(lib.Overlays), opts, targets...)
+	return p, text
 }
 
 func failureWhen(rpc, reason, when string) func(map[string]*contract.RPCContract) {
