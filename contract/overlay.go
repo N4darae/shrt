@@ -371,9 +371,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 		for _, rpc := range sortedKeys(o.RPCs) {
 			key := rpc
 			if cat != nil {
-				if m, err := cat.Lookup(rpc); err == nil {
-					key = m.FullName
-				}
+				key = canonicalCall(cat, rpc)
 			}
 			if first, seen := definedIn[key]; seen {
 				named := rpc

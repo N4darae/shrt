@@ -713,13 +713,8 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 	edges := map[string][]string{}
 	canon := func(node string) (string, string, string) {
 		rpc, alias := SplitNode(node)
-		if m, err := cat.Lookup(rpc); err == nil {
-			rpc = m.FullName
-		}
-		if alias != "" {
-			return rpc + "@" + alias, rpc, alias
-		}
-		return rpc, rpc, alias
+		rpc = canonicalCall(cat, rpc)
+		return Ref{RPC: rpc, Alias: alias}.Node(), rpc, alias
 	}
 
 	var visit func(node, via string, trail []string) error
