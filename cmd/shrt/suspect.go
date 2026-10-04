@@ -16,6 +16,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -372,9 +373,9 @@ func (a attribution) of(step, path string) reason {
 		}
 		return a.own(reasonWrite, st)
 	}
-	if was, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
+	if was, by, ok := a.accepted(st); ok && !a.writeChangedBefore(step) {
 		r := a.own(reasonCode, st)
-		r.Want, r.Got = fmt.Sprint(was), a.verdict(st).ErrorCode
+		r.Want, r.Got, r.Other = was, a.verdict(st).ErrorCode, by
 		return r
 	}
 	if a.resized != nil && path != "" && !a.writeRefusedBefore(step) {
@@ -707,12 +708,26 @@ func (a attribution) flipped(st *runner.StepRecord) string {
 	return ""
 }
 
-func (a attribution) accepted(st *runner.StepRecord) (any, bool) {
+func (a attribution) accepted(st *runner.StepRecord) (string, string, bool) {
 	if a.was == nil || a.refusal(st) != "" || a.verdict(st).ErrorCode == "" {
-		return nil, false
+		return "", "", false
 	}
-	return a.was(st.ID, chain.EnvelopePath())
+	was, ok := a.was(st.ID, chain.EnvelopePath())
+	for _, ex := range st.Expect {
+		if a.ref || ex.Passed || !namecase.Equal(ex.Path, chain.EnvelopePath()) {
+			continue
+		}
+		switch {
+		case ex.Rule == "equals" && ok && compactValue(ex.Want) == compactValue(was):
+			return compactValue(was), expects, true
+		case ex.Rule == "not_equal" && !ok:
+			return compactValue(ex.Want), expects + " anything but", true
+		}
+	}
+	return compactValue(was), "", ok
 }
+
+const expects = "the chain expects"
 
 func refusalOf(st *runner.StepRecord) string {
 	return refusalBy(st, verdictOf)
