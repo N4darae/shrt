@@ -51,7 +51,8 @@ func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
 	for _, want := range []string{
 		"  OrderService/FetchOrder order.lines: 1 step(s) in 1 chain(s); e.g. orders fetch_order; answers another set of order.lines\n",
 		"  CustomerService/CreateCustomer or the read CustomerService/GetCustomer customer.name: 1 step(s) in 1 chain(s); e.g. customers get_customer\n",
-		"  OrderService/ConfirmOrder product.qty_on_hand, status.code, order.status: 3 step(s) in 2 chain(s); e.g. stock get_product; write confirm_order\n",
+		"  OrderService/ConfirmOrder product.qty_on_hand, status.code: 2 step(s) in 1 chain(s); e.g. stock get_product; write confirm_order\n",
+		"  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. confirms confirm_order; as clerk\n",
 		"  S/Confirm thing.state: 1 step(s) in 1 chain(s); e.g. stored get_thing; write w: answered thing.state=DONE, but Get read OPEN\n",
 	} {
 		if !strings.Contains(summary, want) {

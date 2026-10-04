@@ -1329,6 +1329,7 @@ var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 
 func settleGate(chains []*gateChain) []string {
 	foldFlaky(chains)
+	dropSharedRoles(chains)
 	seen, keyOf, byName := map[string]string{}, groupKeys(chains), map[string]*gateChain{}
 	for _, g := range chains {
 		byName[g.name] = g
@@ -1416,6 +1417,30 @@ func settleGate(chains []*gateChain) []string {
 	}
 	foldSlices(chains)
 	return settleFlaky(chains)
+}
+
+func dropSharedRoles(chains []*gateChain) {
+	roles := map[string]map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if k := it.Reason.Kind; !it.Passes && k != "" && k != reasonProfile {
+				if roles[it.root()] == nil {
+					roles[it.root()] = map[string]bool{}
+				}
+				roles[it.root()][it.Reason.Profile] = true
+			}
+		}
+	}
+	for _, g := range chains {
+		for i := range g.items {
+			if r := &g.items[i].Reason; r.Kind != reasonProfile && len(roles[g.items[i].root()]) > 1 {
+				r.Profile, r.Or = "", slices.Clone(r.Or)
+				for j := range r.Or {
+					r.Or[j].Profile = ""
+				}
+			}
+		}
+	}
 }
 
 func foldSlices(chains []*gateChain) {
@@ -1528,16 +1553,29 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 		in                         string
 		rank                       int
 	}
-	groups, order, label := map[string]*group{}, []*group{}, unclearLabel(chains)
+	groups, order, label, roles := map[string]*group{}, []*group{}, unclearLabel(chains), map[string]map[string]bool{}
+	for _, g := range chains {
+		for _, it := range g.items {
+			if !it.Passes && it.Reason.Kind != "" {
+				if roles[label(it)] == nil {
+					roles[label(it)] = map[string]bool{}
+				}
+				roles[label(it)][it.Reason.Profile] = true
+			}
+		}
+	}
 	for _, g := range chains {
 		for _, it := range g.items {
 			if it.Passes {
 				continue
 			}
 			key := label(it)
+			if len(roles[key]) > 1 && it.Reason.Kind != "" {
+				key += asText(it.Reason.Profile)
+			}
 			gr := groups[key]
 			if gr == nil {
-				gr = &group{rpc: key, seen: map[string]bool{}, steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
+				gr = &group{rpc: label(it), seen: map[string]bool{}, steps: map[string]bool{}, knock: map[string]bool{}, chains: map[string]bool{}, rank: -1}
 				groups[key] = gr
 				order = append(order, gr)
 			}

@@ -135,6 +135,16 @@ func gateCases() []gateCase {
 				{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abcdefghijklmnopqrstuvwxyz", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}},
 			}
 		}},
+		{name: "a role is named only when no other role fails the same way", chains: func() []*gateChain {
+			confirmAs := func(step, profile string) gateItem {
+				return gateItem{Step: step, Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: shopConfirm, Profile: profile}}
+			}
+			return []*gateChain{
+				{name: "clerk-vs-admin", failed: true, items: []gateItem{confirmAs("clerk_confirm", "clerk")}},
+				{name: "lifecycle", failed: true, items: []gateItem{confirmAs("confirm", "")}},
+				{name: "clerk-stock", failed: true, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "clerk_confirm_big", RPC: shopConfirm, Profile: "clerk"}, "")}},
+			}
+		}},
 		{name: "an unclear between two writes no row settles is grouped under both", chains: func() []*gateChain {
 			return []*gateChain{{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}}}
 		}},

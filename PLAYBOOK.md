@@ -387,7 +387,9 @@ A safe spot belongs to the chain name. For a pure rename, `shrt confirm <new> -r
 **How the gate names a suspect** (gate lines, the gate summary, `verify` and `run`). A gate line
 shortens a suspect that is its own step to `suspect the read` / `suspect the write` and the
 unclear read form to `or the read`; a summary line leaves out what its heading says; `verify` and
-`run` print every form in full.
+`run` print every form in full. The gate names a suspect's role (`as clerk`) only when no other
+role fails at the same rpc and field in that gate; such a role-only fault gets a summary line apart
+from the rpc's other faults.
 
 | verdict word | what it means | what to do |
 |---|---|---|

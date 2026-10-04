@@ -43,6 +43,14 @@ failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. clerk admin_read_back; write clerk_confirm as clerk
   CustomerService/CreateCustomer customer.name, code: 2 step(s) in 1 chain(s); e.g. customers create_long
 
+# a role is named only when no other role fails the same way
+FAIL       clerk-vs-admin  clerk_confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write
+FAIL       lifecycle  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; same fault as clerk-vs-admin (ConfirmOrder)
+FAIL       clerk-stock  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; suspect write clerk_confirm_big (OrderService/ConfirmOrder) as clerk
+failures by suspect rpc:
+  OrderService/ConfirmOrder order.status: 2 step(s) in 2 chain(s); e.g. clerk-vs-admin clerk_confirm
+  OrderService/ConfirmOrder product.qty_on_hand: 1 step(s) in 1 chain(s); e.g. clerk-stock get_b; write clerk_confirm_big as clerk
+
 # an unclear between two writes no row settles is grouped under both
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
 failures by suspect rpc:
