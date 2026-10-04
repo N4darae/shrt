@@ -127,8 +127,8 @@ func TestStateGapsNameTheStateAndItemCountsNoChainCovers(t *testing.T) {
 		t.Fatalf("a PENDING order is never cancelled: %+v", gaps)
 	}
 	if line := gaps[0].Line(); !strings.Contains(line, "CancelOrder on an order in PENDING: no chain calls it so; its plan sends lines of 1, 2 or 3 items, though needs: [ConfirmOrder]") ||
-		!strings.HasSuffix(line, ": shrt contract plan CancelOrder -write -force") {
-		t.Fatalf("the gap names the state, what the plan sends there, why and what to run: %s", line)
+		strings.Contains(line, "-force") {
+		t.Fatalf("the gap names the state, what the plan sends there and why, and no command that overwrites a chain: %s", line)
 	}
 	gaps = contract.StateGaps([]*chain.Chain{old, hand}, plans, lib, cat)
 	if len(gaps) != 1 || !strings.Contains(gaps[0].Line(), "no chain sends lines of 1 or 3 items (chains send 2 items: edge-flows)") {

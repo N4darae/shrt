@@ -20,9 +20,11 @@ or two of these together) and how got relates to what was sent: take it as the p
 working it out from the runs. One `masks:` line says whether a mask hid more than run tags, ids
 and timestamps; each `KEPT RED` line names what its slice pins. For what the chains
 cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
-`gaps:` block names each state no chain calls a gated write from, with the `shrt contract plan
-<rpc> -write -force` that plans it. Probe only what a gap line names, or a support ticket that no
-row explains.
+`gaps:` block names each state no chain calls a gated write from; the gate has planned and run
+each into `.shrt/scratch/` and says under it `passes:` or a row with its trigger and verified repro,
+no regression since no safe spot covers that state. Probe further only for a gap marked `not
+probed:`, or a support ticket that no row explains. Never re-plan over an approved chain:
+`contract plan <rpc> -write <name>.yaml` writes to `.shrt/scratch/`.
 
 ## Start here
 

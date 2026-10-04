@@ -26,6 +26,7 @@ shrt contract init -all                        # one overlay per domain under .s
 #   fill each overlay from the service's code: required, failures, effects, fields.<f>.value
 shrt contract lint && shrt contract status -gaps
 shrt contract plan -all -write                 # one chain per rpc; fix every fill:/gap: line, re-plan -force
+#   (-force keeps a chain with a safe spot or kept-red slice; -write <name>.yaml plans into .shrt/scratch/)
 shrt run <chain>                               # every chain; a red one on a correct backend is
 #   a real defect: shrt chain pin <chain> keeps it red in a slice, the rest green
 shrt confirm -all -note "..."                  # show the user the table; approve only on their yes
@@ -67,12 +68,12 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
 To check a release for bugs, run `shrt gate -repro` (first row): it does the work that otherwise
 follows the gate, a settled suspect, a verified repro per suspect rpc and a check of the masks, and
-names the states no chain covers. Its rows and repros are the answer for what the chains cover;
-probe only what its `gaps:` lines name, or a support ticket no row explains.
+plans and runs each state no chain covers into `.shrt/scratch/`. Its rows, repros and gap probes are
+the answer; probe further only for a gap it did not probe, or a support ticket no row explains.
 
 | command | does | exits other than 0 |
 |---|---|---|
-| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), each with its `shrt contract plan <rpc> -write -force`; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
+| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), plans and runs the first 4 into `.shrt/scratch/`, and under each says `passes:` or prints a row with its trigger and verified repro, no regression since no safe spot covers that state; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -167,9 +168,15 @@ the slice says so, or `repro: none:` and why. One `masks:` line closes it: `veri
 of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
 id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which
 holds whatever else the backend holds) are only counted. Then `gaps:` lists the state gaps `shrt
-contract status -gaps` reports for the writes the gated chains call, each ending with `shrt contract
-plan <rpc> -write -force`, or says there is none; the closing line says to probe only those, or a
-support ticket no row explains.
+contract status -gaps` reports for the writes the gated chains call, or says there is none. The first
+4 it plans (`.shrt/scratch/<service>-<rpc>-gaps.yaml`, never the chains directory) and runs once, and
+under each gap line says `passes:`, or prints a row shaped like those of `failures by suspect rpc:`
+for the calls from that state that failed: suspect rpc and fields, an example step, a `trigger:` line
+when the planned calls separate failing from passing, and a `repro:` slice verified 3 times, kept to
+the gap's own calls and what they need when that still reproduces. No safe spot covers those states,
+so such a row is no regression, only a miss against the contract or its plan; the header says how
+long the probes took. A gap past the cap, or one it could not run, says `not probed:` with the
+command; the closing line says to probe only those, or a support ticket no row explains.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

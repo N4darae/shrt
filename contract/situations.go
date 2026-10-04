@@ -201,7 +201,7 @@ func (g StateGap) Line() string {
 	if g.Why != "" {
 		why = g.Why
 	}
-	return fmt.Sprintf("%s on %s in %s: %s, though %s: shrt contract plan %s -write -force", shortRPC(g.RPC), withArticle(g.Carrier), g.State, what, why, shortRPC(g.RPC))
+	return fmt.Sprintf("%s on %s in %s: %s, though %s", shortRPC(g.RPC), withArticle(g.Carrier), g.State, what, why)
 }
 
 func itemCounts(ns []int) string {
