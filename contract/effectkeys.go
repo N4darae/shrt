@@ -162,10 +162,7 @@ func suggest(name string, candidates []string) string {
 			near = []string{c}
 		}
 	}
-	if len(near) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (did you mean %q?)", near[0])
+	return namecase.Suggest(near)
 }
 
 type effectSpec struct {
