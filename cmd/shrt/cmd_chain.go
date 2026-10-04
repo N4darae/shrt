@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -21,48 +20,20 @@ import (
 )
 
 func init() {
-	register(&command{name: "chain", summary: "scaffold, list, search, lint, slice and audit chain definitions", run: runChain})
+	register(&command{name: "chain", summary: "scaffold, list, search, lint, slice and audit chain definitions", run: chainGroup.run})
 }
 
 var chainGroup = group{
 	name: "chain",
 	subs: []subcommand{
-		{"new", "scaffold a chain from real proto fields"},
-		{"ls", "one line per chain, marking which have a safe spot"},
-		{"which", "which chains exercise an rpc or assert a failure code"},
-		{"lint", "static validation against the catalog"},
-		{"slice", "the minimal ordered sub-chain that reproduces one step"},
-		{"pin", "keep a red chain's failures red in a slice and run the rest green"},
-		{"hollow", "read steps that passed while the response carried nothing"},
+		{"new", "", "scaffold a chain from real proto fields", noCtx(chainNew)},
+		{"ls", "list", "one line per chain, marking which have a safe spot", noCtx(chainList)},
+		{"which", "", "which chains exercise an rpc or assert a failure code", noCtx(chainWhich)},
+		{"lint", "", "static validation against the catalog", noCtx(chainLint)},
+		{"slice", "", "the minimal ordered sub-chain that reproduces one step", chainSlice},
+		{"pin", "", "keep a red chain's failures red in a slice and run the rest green", chainPin},
+		{"hollow", "", "read steps that passed while the response carried nothing", noCtx(chainHollow)},
 	},
-}
-
-func runChain(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return chainGroup.missing()
-	}
-	if isHelpArg(args[0]) {
-		chainGroup.printHelp()
-		return nil
-	}
-	switch args[0] {
-	case "new":
-		return chainNew(args[1:])
-	case "ls", "list":
-		return chainList(args[1:])
-	case "which":
-		return chainWhich(args[1:])
-	case "lint":
-		return chainLint(args[1:])
-	case "slice":
-		return chainSlice(ctx, args[1:])
-	case "pin":
-		return chainPin(ctx, args[1:])
-	case "hollow":
-		return chainHollow(args[1:])
-	default:
-		return chainGroup.unknown(args[0])
-	}
 }
 
 func chainNew(args []string) error {

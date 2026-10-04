@@ -10,36 +10,16 @@ import (
 )
 
 func init() {
-	register(&command{name: "catalog", summary: "build, list and describe the RPC surface", run: runCatalog})
+	register(&command{name: "catalog", summary: "build, list and describe the RPC surface", run: catalogGroup.run})
 }
 
 var catalogGroup = group{
 	name: "catalog",
 	subs: []subcommand{
-		{"build", "rebuild the descriptor after a proto change"},
-		{"ls", "list the RPC surface"},
-		{"describe", "request and response schemas with proto doc comments"},
+		{"build", "", "rebuild the descriptor after a proto change", catalogBuild},
+		{"ls", "list", "list the RPC surface", noCtx(catalogList)},
+		{"describe", "show", "request and response schemas with proto doc comments", noCtx(catalogDescribe)},
 	},
-}
-
-func runCatalog(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return catalogGroup.missing()
-	}
-	if isHelpArg(args[0]) {
-		catalogGroup.printHelp()
-		return nil
-	}
-	switch args[0] {
-	case "build":
-		return catalogBuild(ctx, args[1:])
-	case "ls", "list":
-		return catalogList(args[1:])
-	case "describe", "show":
-		return catalogDescribe(args[1:])
-	default:
-		return catalogGroup.unknown(args[0])
-	}
 }
 
 func catalogBuild(ctx context.Context, args []string) error {

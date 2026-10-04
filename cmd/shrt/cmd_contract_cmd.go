@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -17,46 +16,20 @@ func init() {
 	register(&command{
 		name:    "contract",
 		summary: "author and use the curated RPC contracts agents write chains from",
-		run:     runContract,
+		run:     contractGroup.run,
 	})
 }
 
 var contractGroup = group{
 	name: "contract",
 	subs: []subcommand{
-		{"init", "scaffold the curated contract; re-running keeps what you wrote"},
-		{"lint", "validate contracts against the descriptor"},
-		{"show", "generated schema plus the curated semantics for one rpc"},
-		{"plan", "compose an ordered chain from the dependency graph"},
-		{"status", "contract coverage per domain"},
-		{"quality", "score each contract against the curation terms"},
+		{"init", "scaffold", "scaffold the curated contract; re-running keeps what you wrote", noCtx(contractInit)},
+		{"lint", "", "validate contracts against the descriptor", noCtx(contractLint)},
+		{"show", "", "generated schema plus the curated semantics for one rpc", noCtx(contractShow)},
+		{"plan", "", "compose an ordered chain from the dependency graph", noCtx(contractPlan)},
+		{"status", "coverage", "contract coverage per domain", noCtx(contractStatus)},
+		{"quality", "", "score each contract against the curation terms", noCtx(contractQuality)},
 	},
-}
-
-func runContract(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		return contractGroup.missing()
-	}
-	if isHelpArg(args[0]) {
-		contractGroup.printHelp()
-		return nil
-	}
-	switch args[0] {
-	case "init", "scaffold":
-		return contractInit(args[1:])
-	case "lint":
-		return contractLint(args[1:])
-	case "show":
-		return contractShow(args[1:])
-	case "plan":
-		return contractPlan(args[1:])
-	case "status", "coverage":
-		return contractStatus(args[1:])
-	case "quality":
-		return contractQuality(args[1:])
-	default:
-		return contractGroup.unknown(args[0])
-	}
 }
 
 func (e *env) contractsDir() string { return e.cfg.Abs(e.cfg.Paths.Contracts) }

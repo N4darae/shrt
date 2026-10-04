@@ -185,11 +185,11 @@ func TestAChainNamedOtherwiseThanItsFileIsVerifiedAgainstItsOwnName(t *testing.T
 	}
 	verify("thing-new: no drift", false)
 	var err error
-	out := captureStdout(t, func() { err = runChain(ctx, []string{"lint", "cli-thing-flow"}) })
+	out := captureStdout(t, func() { err = chainGroup.run(ctx, []string{"lint", "cli-thing-flow"}) })
 	if err != nil || !strings.Contains(out, "declares name: thing-new") || !strings.Contains(out, "rename the file to thing-new.yaml") {
 		t.Errorf("lint warns about the mismatch and passes: %v\n%s", err, out)
 	}
-	out = captureStdout(t, func() { err = runChain(ctx, []string{"ls"}) })
+	out = captureStdout(t, func() { err = chainGroup.run(ctx, []string{"ls"}) })
 	if err != nil || !regexp.MustCompile(`\*\s+thing-new`).MatchString(out) || !strings.Contains(out, "file cli-thing-flow.yaml") {
 		t.Errorf("chain ls lists thing-new with its safe spot and notes its file: %v\n%s", err, out)
 	}
@@ -235,7 +235,7 @@ func TestTwoChainFilesClaimingOneNameAreRefused(t *testing.T) {
 			t.Errorf("verify %s is refused the same way: %v\n%s", ref, err, out)
 		}
 	}
-	out := captureStdout(t, func() { _ = runChain(ctx, []string{"lint", "sw1"}) })
+	out := captureStdout(t, func() { _ = chainGroup.run(ctx, []string{"lint", "sw1"}) })
 	if strings.Contains(out, "verify the same chain") || !strings.Contains(out, "is another chain (name: sw1)") {
 		t.Errorf("lint does not call two different chains one chain:\n%s", out)
 	}
