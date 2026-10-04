@@ -3,6 +3,7 @@ package runner
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -204,14 +205,13 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 	if sr.Drift || !sr.AssertionFailed() {
 		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + firstLine(sr.Error)}, false
 	}
-	if refusal := pinnedRefusal(sr, want); refusal != "" {
-		return []string{fmt.Sprintf("step %q: the pinned step was refused at transport, so its pinned failure was not seen (%s)", id, inNewFailure)},
-			[]string{id + " refused at transport: " + refusal}, false
-	}
-	if sr.Transport != nil && len(want) == 0 {
-		refusal := firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
-		return []string{fmt.Sprintf("step %q was refused at transport where nothing is pinned (%s)", id, inNewFailure)},
-			[]string{id + " refused at transport: " + refusal}, false
+	if sr.Transport != nil && (len(want) == 0 || pinnedRefusal(sr, want)) {
+		what := "step %q was refused at transport where nothing is pinned (%s)"
+		if len(want) > 0 {
+			what = "step %q: the pinned step was refused at transport, so its pinned failure was not seen (%s)"
+		}
+		return []string{fmt.Sprintf(what, id, inNewFailure)},
+			[]string{id + " refused at transport: " + firstLine(strings.TrimSpace(sr.Transport.Code+": "+sr.Transport.Message))}, false
 	}
 	out, fresh := []string{}, []string{}
 	unpinned := false
@@ -277,21 +277,10 @@ func stepList(ids []string) string {
 
 const unevaluatedRule = "unevaluated"
 
-func pinnedRefusal(sr *StepRecord, want []chain.Pin) string {
-	if sr.Transport == nil {
-		return ""
-	}
-	for _, ex := range sr.Expect {
-		if ex.Rule != unevaluatedRule {
-			continue
-		}
-		for _, k := range want {
-			if namecase.Equal(k.Path, ex.Path) {
-				return firstLine(strings.TrimSpace(sr.Transport.Code + ": " + sr.Transport.Message))
-			}
-		}
-	}
-	return ""
+func pinnedRefusal(sr *StepRecord, want []chain.Pin) bool {
+	return slices.ContainsFunc(sr.Expect, func(ex chain.ExpectResult) bool {
+		return ex.Rule == unevaluatedRule && slices.ContainsFunc(want, func(k chain.Pin) bool { return namecase.Equal(k.Path, ex.Path) })
+	})
 }
 
 func gotText(v any) string {
