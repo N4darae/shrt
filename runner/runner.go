@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"reflect"
@@ -2032,10 +2033,7 @@ func (r *Runner) maskExports(exports map[string]any, steps []*chain.Step, redact
 	if len(exports) == 0 {
 		return exports
 	}
-	out := make(map[string]any, len(exports))
-	for name, v := range exports {
-		out[name] = v
-	}
+	out := maps.Clone(exports)
 	for _, s := range steps {
 		masker := redactor
 		if r.Catalog != nil {
@@ -2294,12 +2292,8 @@ func orEmpty(m map[string]any) map[string]any {
 
 func mergeVars(base, override map[string]any) map[string]any {
 	out := map[string]any{}
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
+	maps.Copy(out, base)
+	maps.Copy(out, override)
 	return out
 }
 
