@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
@@ -106,15 +107,11 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	if rec == nil || rec.DryRun {
 		return nil
 	}
-	var last *runner.Record
-	loaded := false
+	lastRun := sync.OnceValue(func() *runner.Record { return previousRun(e, rec, true, nil) })
 	out := &intermittentFailure{rec: rec}
 	for _, st := range rec.Steps {
 		if resentAnswered(st) {
-			f := flakyStep{step: st, resent: true}
-			if !loaded {
-				last, loaded = previousRun(e, rec, true, nil), true
-			}
+			f, last := flakyStep{step: st, resent: true}, lastRun()
 			if was, ok := stepOf(last, st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
 				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
 			}
@@ -131,10 +128,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 				f.sameRun = append(f.sameRun, fmt.Sprintf("step %d %s", o.Index, o.ID))
 			}
 		}
-		if !loaded {
-			last, loaded = previousRun(e, rec, true, nil), true
-		}
-		if last != nil {
+		if last := lastRun(); last != nil {
 			if was, ok := last.Step(st.ID); ok && serverError(was) == why {
 				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
 			}

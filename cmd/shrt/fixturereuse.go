@@ -209,7 +209,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 		if len(same) > 0 {
 			st, _ := prev.Step(first.ID)
-			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdStep(st)}
+			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !answeredCleanly(st)}
 		}
 	}
 	sentValues := []string{}
@@ -388,7 +388,7 @@ func inRunRepeatAcceptedBefore(e *env, rec *runner.Record, index int, conflictin
 		repeated := false
 		for j := 0; j < index && !repeated; j++ {
 			st := rec.Steps[j]
-			if st == nil || st.Call != first.Call || !createdStep(st) {
+			if st == nil || st.Call != first.Call || !answeredCleanly(st) {
 				continue
 			}
 			if got, ok := chain.Get(decoded(st.Request), f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
@@ -497,8 +497,8 @@ func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, st
 				continue
 			}
 			for _, st := range other.Steps {
-				if (createdStep(st) || sentUnknown(st)) && sendsAll(st, values) {
-					return other.Chain, other.RunID, !createdStep(st)
+				if (answeredCleanly(st) || sentUnknown(st)) && sendsAll(st, values) {
+					return other.Chain, other.RunID, !answeredCleanly(st)
 				}
 			}
 		}
@@ -513,10 +513,10 @@ func sentByThisChain(e *env, rec *runner.Record, names, values []string) (string
 	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
 		prev = namedAs(prev, rec)
 		for _, st := range prev.Steps {
-			if !(createdStep(st) || sentUnknown(st)) || !sendsAll(st, values) {
+			if !(answeredCleanly(st) || sentUnknown(st)) || !sendsAll(st, values) {
 				continue
 			}
-			return prev.RunID, st.ID, varValues(prev.Vars, names), !createdStep(st)
+			return prev.RunID, st.ID, varValues(prev.Vars, names), !answeredCleanly(st)
 		}
 	}
 	return "", "", nil, false
@@ -539,7 +539,7 @@ func sentUnknown(st *runner.StepRecord) bool {
 
 func usedBy(rec *runner.Record, step string) bool {
 	st, ok := rec.Step(step)
-	return ok && (createdStep(st) || sentUnknown(st))
+	return ok && (answeredCleanly(st) || sentUnknown(st))
 }
 
 func sendsAll(st *runner.StepRecord, values []string) bool {
@@ -559,10 +559,6 @@ func sendsAll(st *runner.StepRecord, values []string) bool {
 		}
 	}
 	return true
-}
-
-func createdStep(st *runner.StepRecord) bool {
-	return st != nil && st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
 }
 
 func stepRefusalText(st *runner.StepRecord) string {

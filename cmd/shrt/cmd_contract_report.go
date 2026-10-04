@@ -154,7 +154,7 @@ func contractStatus(args []string) error {
 			"lists them as 'no path to'; only you can say which kind each one is. A client- or bidi-streaming\n" +
 			"rpc is never REACHED: shrt cannot call it.\n" +
 			"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
-			phaseScope(*phase) + ":\n" +
+			phaseNote(*phase, " (scoring the %s phase only)") + ":\n" +
 			scoringTerms(*phase) +
 			"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
 	} else {
@@ -527,12 +527,12 @@ func contractQuality(args []string) error {
 		if *only != "" {
 			where = "domain " + *only
 		}
-		fmt.Printf("contract quality%s — score 0: no rpc in %s has a measurable gap\n", phaseLabel(*phase), where)
+		fmt.Printf("contract quality%s — score 0: no rpc in %s has a measurable gap\n", phaseNote(*phase, " (%s phase)"), where)
 		return nil
 	}
 
 	fmt.Printf("contract quality%s — %d rpc(s) with a measurable gap, total score %d\n\n",
-		phaseLabel(*phase), len(report.RPCs), report.TotalScore)
+		phaseNote(*phase, " (%s phase)"), len(report.RPCs), report.TotalScore)
 	fmt.Printf("%5s  %-70s gap\n", "score", "rpc")
 	shown := report.RPCs
 	if *limit > 0 && len(shown) > *limit {
@@ -547,18 +547,11 @@ func contractQuality(args []string) error {
 	return nil
 }
 
-func phaseLabel(phase string) string {
+func phaseNote(phase, format string) string {
 	if phase == "" || phase == contract.PhaseAll {
 		return ""
 	}
-	return " (" + phase + " phase)"
-}
-
-func phaseScope(phase string) string {
-	if phase == "" || phase == contract.PhaseAll {
-		return ""
-	}
-	return " (scoring the " + phase + " phase only)"
+	return fmt.Sprintf(format, phase)
 }
 
 func scoringTerms(phase string) string {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
@@ -96,8 +97,7 @@ func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *r
 			was[st.ID] = st
 		}
 	}
-	var recorded []*runner.Record
-	loaded := false
+	recorded := sync.OnceValue(func() []*runner.Record { return recordedRuns(e, rec, spot.RunID) })
 	for i, st := range rec.Steps {
 		if st == nil {
 			continue
@@ -112,10 +112,7 @@ func detectIdempotentReplay(e *env, c *chain.Chain, spot *store.SafeSpot, rec *r
 			}
 		}
 		if e != nil && sendsIdempotencyKey(st) {
-			if !loaded {
-				recorded, loaded = recordedRuns(e, rec, spot.RunID), true
-			}
-			if r := replayOfRecorded(keyed, st, rec.Chain, recorded); r != nil {
+			if r := replayOfRecorded(keyed, st, rec.Chain, recorded()); r != nil {
 				r.index = i
 				return r
 			}
@@ -179,7 +176,7 @@ func replayOfRecorded(keyed func(*runner.StepRecord) *idempotentReplay, st *runn
 				continue
 			}
 			r := keyed(prior)
-			if r == nil || !createdStep(prior) {
+			if r == nil || !answeredCleanly(prior) {
 				continue
 			}
 			if r.answered, r.id = sameIDAnswered(st, prior); r.answered != "" {
