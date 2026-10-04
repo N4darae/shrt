@@ -28,6 +28,14 @@ FAIL       cancels-slice-get_b  not as pinned: get_b (ProductService/GetProduct)
 failures by suspect rpc:
   OrderService/CancelOrder: 2 step(s) in 2 chain(s); e.g. cancels get_b; write cancel
 
+# an unclear row is labelled with the path its read changed, not its first write's own field
+FAIL       guard  order_short (OrderService/CreateOrder) order.total_minor want=160 got=130; suspect the write; also suspect write confirm (OrderService/ConfirmOrder)
+FAIL       guard-slice  not as pinned: get_b (ProductService/GetProduct) product.qty_on_hand pinned got=2, now got=1; suspect write confirm (OrderService/ConfirmOrder)
+failures by suspect rpc:
+  OrderService/ConfirmOrder product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. guard-slice get_b; write confirm
+  OrderService/CreateOrder: 1 step(s) in 1 chain(s); e.g. guard order_short
+  OrderService/ConfirmOrder order.status: 1 step(s) in 1 chain(s); e.g. guard confirm
+
 # an unclear between two writes no row settles is grouped under both
 FAIL       alone  get_b (ProductService/GetProduct) product.qty_on_hand want=2 got=1; unclear: write confirm (OrderService/ConfirmOrder) or cancel (OrderService/CancelOrder)
 failures by suspect rpc:

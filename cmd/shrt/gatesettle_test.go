@@ -109,6 +109,15 @@ func gateCases() []gateCase {
 				{name: "cancels-slice-get_b", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", either, "2")}},
 			}
 		}},
+		{name: "an unclear row is labelled with the path its read changed, not its first write's own field", chains: func() []*gateChain {
+			total := gateItem{Step: "order_short", Call: shopOrder, Path: "order.total_minor", Want: "160", Got: "130", Failed: true, Reason: reason{Kind: reasonWrite, Step: "order_short", RPC: shopOrder}}
+			status := gateItem{Step: "confirm", Call: shopConfirm, Path: "order.status", Want: "CONFIRMED", Got: "PENDING", Failed: true, Reason: reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}}
+			short := reason{Kind: reasonUnclear, Step: "order_short", RPC: shopOrder, Or: []reason{{Step: "order_short", RPC: shopOrder}, {Step: "confirm", RPC: shopConfirm}}}
+			return []*gateChain{
+				{name: "guard", failed: true, items: []gateItem{total, status, stock("get_b", short, "")}},
+				{name: "guard-slice", failed: true, keptRed: runner.KeptRedNotAsPinned, items: []gateItem{stock("get_b", reason{Kind: reasonWrite, Step: "confirm", RPC: shopConfirm}, "2")}},
+			}
+		}},
 		{name: "an unclear between two writes no row settles is grouped under both", chains: func() []*gateChain {
 			return []*gateChain{{name: "alone", failed: true, items: []gateItem{stock("get_b", either, "")}}}
 		}},

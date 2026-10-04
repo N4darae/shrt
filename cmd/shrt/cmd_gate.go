@@ -1443,10 +1443,7 @@ func foldSlices(chains []*gateChain) {
 func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	keys := map[string]string{}
 	keyOf := func(it gateItem, path string) string {
-		if chain.IsEnvelopePath(path) {
-			path = chain.EnvelopeField()
-		}
-		return it.rpc() + " " + listOf(path)
+		return rowKey(it.rpc(), path)
 	}
 	for _, g := range chains {
 		for _, it := range g.items {
@@ -1462,6 +1459,13 @@ func groupKeys(chains []*gateChain) func(string, gateItem) string {
 	return func(name string, it gateItem) string {
 		return cmp.Or(keys[name+" "+cmp.Or(it.suspect(), it.Step)], keyOf(it, it.Path))
 	}
+}
+
+func rowKey(rpc, path string) string {
+	if chain.IsEnvelopePath(path) {
+		path = chain.EnvelopeField()
+	}
+	return rpc + " " + listOf(path)
 }
 
 func unclearLabel(chains []*gateChain) func(gateItem) string {
@@ -1522,8 +1526,8 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 				continue
 			}
 			key, rpc := keyOf(g.name, it), it.rpc()
-			if l := label(it); l != rpc && strings.HasPrefix(key, rpc+" ") {
-				key, rpc = l+strings.TrimPrefix(key, rpc), l
+			if l := label(it); l != rpc {
+				key, rpc = rowKey(l, it.Path), l
 			}
 			gr := groups[key]
 			if gr == nil {
