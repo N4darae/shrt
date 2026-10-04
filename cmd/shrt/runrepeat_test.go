@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -151,6 +152,23 @@ func TestRunRepeatAgainstADeadTargetHasNoVerdict(t *testing.T) {
 	out, code := runOut(t, handReproPath, "-repeat", "3")
 	if code != 3 || !strings.Contains(out, "DID NOT RUN: run 1 (") || strings.Contains(out, "reproduced") || strings.Contains(out, "repeat 2 of 3") {
 		t.Fatalf("exit %d, want 3 and no second run:\n%s", code, out)
+	}
+}
+
+func TestRunRefusesAnExpectPathTheResponseHasNoFieldForAsAChainError(t *testing.T) {
+	shop := handReproShop(t, false, strings.Replace(handReproChain, "{path: qty_on_hand, equals: \"10\"}", "{path: product.qty_on_hand, equals: \"10\"}", 1))
+	for _, args := range [][]string{{handReproPath}, {handReproPath, "-dry-run"}, {handReproPath, "-repeat", "3"}} {
+		out, code := runOut(t, args...)
+		if code != 1 || !strings.Contains(out, "chain error in repro-confirm, not a backend fault, so nothing was sent: step add_stock: expect on \"product.qty_on_hand\" reads a path that is not a field of shop.catalog.v1.AddStockResponse") ||
+			!strings.Contains(out, "shrt chain lint "+handReproPath) || strings.Contains(out, "suspect") {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	if shop.next != 0 || shop.addCalls != 0 {
+		t.Fatalf("a refused chain sends nothing, the shop saw %d creates and %d stock calls", shop.next, shop.addCalls)
+	}
+	if _, err := os.Stat(".shrt/runs/repro-confirm"); err == nil {
+		t.Fatalf("a refused chain leaves no run record")
 	}
 }
 

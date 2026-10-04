@@ -89,6 +89,9 @@ func runRun(ctx context.Context, args []string) (err error) {
 	if err := refuseShadowingChainFile(e, rest[0], c); err != nil {
 		return err
 	}
+	if err := refuseUnreachableExpects(e, c, rest[0]); err != nil {
+		return err
+	}
 
 	supplied := c.CoerceVars(vars)
 	if err := checkUnusedVars(c, vars, supplied); err != nil {
@@ -268,6 +271,19 @@ const runExitCodes = "\nexit codes:\n" +
 	"  0  passed; a kept_red chain failed exactly as pinned; a -dry-run resolved every request; -repeat: reproduced\n" +
 	"  1  failed: an expectation, a FINDING, kept_red not as pinned or gone, or refused before sending\n" +
 	"  3  no verdict: unreachable, answered unavailable, a restart mid-run, login or auth refused; re-run\n"
+
+func refuseUnreachableExpects(e *env, c *chain.Chain, ref string) error {
+	issues := chain.UnreachableExpectations(c, e.cat)
+	if len(issues) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(issues))
+	for _, i := range issues {
+		lines = append(lines, "step "+i.Step+": "+i.Message)
+	}
+	return fmt.Errorf("chain error in %s, not a backend fault, so nothing was sent: %s\nshrt chain lint %s lists every lint error",
+		c.Name, strings.Join(lines, "\n"), ref)
+}
 
 func runVerdict(rec *runner.Record) error {
 	switch rec.KeptRed {

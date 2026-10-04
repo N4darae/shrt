@@ -112,7 +112,7 @@ func TestCLIWhichCitesTheRunsThatReachedTheStep(t *testing.T) {
 	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "fetch"); strings.Contains(line, "FAILED") || !strings.Contains(line, "passed") {
 		t.Errorf("a step that passed reads as passed: %q", line)
 	}
-	writeFile(t, ".shrt/chains/cli-app-code.yaml", `apiVersion: shrt/v1
+	appCode := `apiVersion: shrt/v1
 name: cli-app-code
 steps:
     - id: refused
@@ -122,11 +122,11 @@ steps:
       expect:
           - path: error.code
             equals: PERMISSION_DENIED
-          - path: error.details.0.app_code
-            equals: 1304
-`)
+`
+	writeFile(t, ".shrt/chains/cli-app-code.yaml", appCode)
 	f.set(func(f *fixThing) { f.fetchCode = "PERMISSION_DENIED" })
 	fixCmd(t, "run", "cli-app-code", "-quiet")
+	writeFile(t, ".shrt/chains/cli-app-code.yaml", appCode+"          - path: error.details.0.app_code\n            equals: 1304\n")
 	if line := whichLine(t, whichOut(t, "-rpc", "ThingService/Fetch"), "refused"); !strings.Contains(line, "asserts 1304") ||
 		strings.Contains(line, "got PERMISSION_DENIED,") || !strings.Contains(line, "nothing at error.details.0.app_code") {
 		t.Errorf("got is read from the path of the shown assertion: %q", line)

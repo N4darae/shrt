@@ -343,14 +343,15 @@ a reader of your backend's error constructor, so it is a script you write (PITFA
 ```bash
 shrt chain lint <name>          # fix every error before sending traffic
 shrt chain lint -strict <name>  # and every assertion-quality warning, before it is a gate
-shrt run <name> -dry-run        # resolve and validate, send nothing; does not lint
+shrt run <name> -dry-run        # resolve and validate, send nothing; lints only expect paths
 shrt run <name>
 ```
 
 Step status: `ok`, `FAIL` (an expectation did not hold, or the proto rejects the request), `ERROR`
 (never completed), `SKIP` (held back under `-keep-going`), `--` (dry run). `shrt run` refuses a
 chain before sending anything on a missing var, an unset env var, a reference to an undeclared
-field, or a body the proto rejects (`run -h` lists them). A step refused in-band fails unless an
+field, a body the proto rejects, or an expect path the response message has no field for (`chain
+error ..., not a backend fault`, the `unreachable-path` lint error, so no suspect is named). A step refused in-band fails unless an
 expectation pins the verdict (PITFALLS §17). Read `error` as a fixture problem first (PITFALLS §4).
 
 **Run the chain twice, then propose:**
