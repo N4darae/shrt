@@ -110,6 +110,7 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 | `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, judged against the pinned value, a pin that held counting as no change |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
+| `SKIPPED` | `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
 write, the field it changed), or `same fault as <chain>` when an earlier line named it and every other suspect of
@@ -122,7 +123,8 @@ failed expectations for a chain with no safe spot; a change repeated at more ste
 ...)`), and the knock-on counts: no separate `verify` is needed to see the values. How a suspect is chosen:
 `PLAYBOOK.md` §8.
 
-A chain with `wait:` steps is named on stderr as the gate starts, with its total wait. It starts
+A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
+`-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts
 at once, beside the other chains, when it writes nothing (each step is the configured login or a
 read) and each read's request carries `${vars.tag}`, the gate's fresh tag: it then changes nothing
 another chain reads, and no other chain can change what it reads. Otherwise it runs in its turn and

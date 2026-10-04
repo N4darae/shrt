@@ -115,3 +115,43 @@ func TestTheGateTimeLineNamesTheChainsThatTookMostOfIt(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+func TestSkipWaitsLeavesOutAWaitingChainAndNeverCountsItAsPassing(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		outcomes map[string][]gateOutcome
+		code     int
+		verdict  string
+	}{
+		{"the rest passed", nil, 3, "NO VERDICT: 2 of 3 chain(s) passed; -skip-waits left out a-hold: shrt gate a-hold runs it"},
+		{"another failed", map[string][]gateOutcome{"run cli-unique": {{code: 1, side: gateSidecar{Error: "boom"}}}}, 1, "; -skip-waits left out a-hold: shrt gate a-hold runs it"},
+	} {
+		f := gateWorkspace(t, c.outcomes)
+		appendFile(t, ".shrt/config.yaml", gateAuthConfig)
+		writeFile(t, ".shrt/chains/a-hold.yaml", waitingChain("a-hold", ""))
+		_, plain, _ := gateWithStderr(t)
+		if !strings.Contains(plain, "so this gate takes at least that long; -skip-waits leaves it out\n") {
+			t.Errorf("%s: the start line names the flag that leaves a waiting chain out:\n%s", c.name, plain)
+		}
+		f.calls = nil
+		var err error
+		var errOut string
+		out := captureStdout(t, func() {
+			errOut = captureStderr(t, func() { err = runGate(context.Background(), []string{"-hollow-baseline", "", "-skip-waits"}) })
+		})
+		if exitCodeOf(err) != c.code || err == nil || !strings.HasSuffix(err.Error(), c.verdict) {
+			t.Errorf("%s: a skipped chain never counts as passing, got %d %v", c.name, exitCodeOf(err), err)
+		}
+		if !strings.HasPrefix(out, "SKIPPED    a-hold          (waits 4m by design; shrt gate a-hold runs it)\n") || strings.Contains(out, "time:") {
+			t.Errorf("%s: the skipped chain keeps its place with its wait, and no time line counts it:\n%s", c.name, out)
+		}
+		if !strings.Contains(errOut, "gate: -skip-waits leaves out a-hold, which waits 4m by design (its wait: steps); shrt gate a-hold runs it\n") {
+			t.Errorf("%s: the gate says at once which chain it leaves out:\n%s", c.name, errOut)
+		}
+		for _, call := range f.calls {
+			if call[1] == "a-hold" {
+				t.Errorf("%s: a skipped chain is not sent: %v", c.name, call)
+			}
+		}
+	}
+}
