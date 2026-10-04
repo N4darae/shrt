@@ -211,18 +211,6 @@ func (spot *SafeSpot) DigestKind() string {
 }
 
 func (spot *SafeSpot) ComputeDigest() string {
-	if len(spot.Renamed) > 0 {
-		return hashJSON(struct {
-			Content     string
-			ConfirmedBy string
-			ConfirmedAt time.Time
-			Note        string
-			ProposedBy  string
-			ProposedAt  *time.Time
-			Supersedes  string
-			Renamed     []Rename
-		}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes, spot.Renamed})
-	}
 	return hashJSON(struct {
 		Content     string
 		ConfirmedBy string
@@ -231,23 +219,17 @@ func (spot *SafeSpot) ComputeDigest() string {
 		ProposedBy  string
 		ProposedAt  *time.Time
 		Supersedes  string
-	}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes})
+		Renamed     []Rename `json:",omitempty"`
+	}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes, spot.Renamed})
 }
 
 func (spot *SafeSpot) ContentDigest() string {
-	if spot.ChainDigest != "" {
-		return hashJSON(struct {
-			Chain, RunID, Target, Build string
-			Volatile                    []string
-			ChainDigest                 string
-			Steps                       []*runner.StepRecord
-		}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.ChainDigest, spot.Steps})
-	}
 	return hashJSON(struct {
 		Chain, RunID, Target, Build string
 		Volatile                    []string
+		ChainDigest                 string `json:",omitempty"`
 		Steps                       []*runner.StepRecord
-	}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.Steps})
+	}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.ChainDigest, spot.Steps})
 }
 
 func recordDigest(rec *runner.Record) string {
