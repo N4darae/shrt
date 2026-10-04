@@ -10,10 +10,7 @@ import (
 func scaffoldEntry(t *testing.T, domain, rpc string, existing *contract.Library) string {
 	t.Helper()
 	cat, _ := shopDemo(t)
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], existing, cat.Methods()))
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := renderScaffold(t, domain, contract.Domains(cat.Methods())[domain], existing, cat)
 	text := string(raw)
 	entry := text[strings.Index(text, rpc+":"):]
 	if next := strings.Index(entry[1:], "\n    shop."); next >= 0 {

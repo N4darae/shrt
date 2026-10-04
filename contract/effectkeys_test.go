@@ -188,10 +188,7 @@ func TestInitScaffoldsAnEffectsTodoOnlyWhereAnEffectCanBeStated(t *testing.T) {
 		"catalog": {"StockService/AddStock": "what this write does to qty_on_hand: none | {increase: qty} | {decrease: qty} |", "StockService/AddStockBatch": "what this write does to qty_on_hand: none | {increase: lines.qty} | {decrease: lines.qty} |", "ProductService/CreateProduct": ""},
 		"orders":  {"OrderService/CreateOrder": "what this write does to <number>: none | {increase: lines.qty} | {decrease: lines.qty} |", "OrderService/ConfirmOrder": ""},
 	} {
-		raw, err := contract.RenderOverlay(contract.ScaffoldOverlay(domain, contract.Domains(cat.Methods())[domain], nil, cat.Methods()))
-		if err != nil {
-			t.Fatal(err)
-		}
+		raw := renderScaffold(t, domain, contract.Domains(cat.Methods())[domain], nil, cat)
 		o, err := contract.LoadOverlayBytes(domain+".yaml", raw)
 		if err != nil {
 			t.Fatalf("a scaffold with an effects TODO loads: %v\n%s", err, raw)

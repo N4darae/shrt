@@ -276,10 +276,7 @@ func TestPlanYAMLKeepsProtoFieldOrder(t *testing.T) {
 
 func TestScaffoldOverlayProducesALoadableSkeleton(t *testing.T) {
 	cat := catalogtest.New()
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay("test", cat.Methods(), nil, cat.Methods()))
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
+	raw := renderScaffold(t, "test", cat.Methods(), nil, cat)
 	o := &contract.Overlay{}
 	if err := yaml.Unmarshal(raw, o); err != nil {
 		t.Fatalf("scaffold is not valid overlay YAML: %v\n%s", err, raw)
@@ -300,10 +297,7 @@ func TestScaffoldOverlayProducesALoadableSkeleton(t *testing.T) {
 func TestScaffoldCarriesExistingCurationForward(t *testing.T) {
 	cat := catalogtest.New()
 	lib := libraryFrom(t, thingOverlay)
-	raw, err := contract.RenderOverlay(contract.ScaffoldOverlay("test", cat.Methods(), lib, cat.Methods()))
-	if err != nil {
-		t.Fatalf("render: %v", err)
-	}
+	raw := renderScaffold(t, "test", cat.Methods(), lib, cat)
 	o := &contract.Overlay{}
 	if err := yaml.Unmarshal(raw, o); err != nil {
 		t.Fatal(err)
