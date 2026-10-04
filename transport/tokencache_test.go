@@ -28,25 +28,27 @@ func countingInvoke(n *int, token string, expiresAt time.Time) transport.Handler
 	}
 }
 
+func mint(spec transport.AuthSpec, path, profile, token string, expiresAt time.Time) (string, int, error) {
+	logins := 0
+	src := transport.NewLoginTokenSource(spec, countingInvoke(&logins, token, expiresAt))
+	src.UseCache(path, profile)
+	tok, err := src.Token(context.Background())
+	return tok, logins, err
+}
+
 func TestTokenCache_ASecondProcessReusesTheTokenInsteadOfLoggingInAgain(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token.json")
+	path := filepath.Join(t.TempDir(), "token.json")
 	expiry := time.Now().Add(30 * time.Minute)
 
-	firstLogins := 0
-	first := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&firstLogins, "tok-1", expiry))
-	first.UseCache(path, "default")
-	if _, err := first.Token(context.Background()); err != nil {
+	_, firstLogins, err := mint(cacheSpec(), path, "default", "tok-1", expiry)
+	if err != nil {
 		t.Fatalf("first token: %v", err)
 	}
 	if firstLogins != 1 {
 		t.Fatalf("first process logged in %d times, want 1", firstLogins)
 	}
 
-	secondLogins := 0
-	second := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&secondLogins, "tok-2", expiry))
-	second.UseCache(path, "default")
-	tok, err := second.Token(context.Background())
+	tok, secondLogins, err := mint(cacheSpec(), path, "default", "tok-2", expiry)
 	if err != nil {
 		t.Fatalf("second token: %v", err)
 	}
@@ -61,20 +63,13 @@ func TestTokenCache_ASecondProcessReusesTheTokenInsteadOfLoggingInAgain(t *testi
 }
 
 func TestTokenCache_AnExpiredEntryIsNotReused(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token.json")
+	path := filepath.Join(t.TempDir(), "token.json")
 
-	stale := 0
-	first := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&stale, "old", time.Now().Add(10*time.Second)))
-	first.UseCache(path, "default")
-	if _, err := first.Token(context.Background()); err != nil {
+	if _, _, err := mint(cacheSpec(), path, "default", "old", time.Now().Add(10*time.Second)); err != nil {
 		t.Fatalf("seed cache: %v", err)
 	}
 
-	fresh := 0
-	second := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&fresh, "new", time.Now().Add(time.Hour)))
-	second.UseCache(path, "default")
-	tok, err := second.Token(context.Background())
+	tok, fresh, err := mint(cacheSpec(), path, "default", "new", time.Now().Add(time.Hour))
 	if err != nil {
 		t.Fatalf("second token: %v", err)
 	}
@@ -87,21 +82,14 @@ func TestTokenCache_AnExpiredEntryIsNotReused(t *testing.T) {
 }
 
 func TestTokenCache_ProfilesDoNotShareAnEntry(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token.json")
+	path := filepath.Join(t.TempDir(), "token.json")
 	expiry := time.Now().Add(time.Hour)
 
-	staffLogins := 0
-	staff := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&staffLogins, "staff-tok", expiry))
-	staff.UseCache(path, "default")
-	if _, err := staff.Token(context.Background()); err != nil {
+	if _, _, err := mint(cacheSpec(), path, "default", "staff-tok", expiry); err != nil {
 		t.Fatal(err)
 	}
 
-	checkerLogins := 0
-	checker := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&checkerLogins, "checker-tok", expiry))
-	checker.UseCache(path, "checker")
-	tok, err := checker.Token(context.Background())
+	tok, checkerLogins, err := mint(cacheSpec(), path, "checker", "checker-tok", expiry)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,26 +104,16 @@ func TestTokenCache_ProfilesDoNotShareAnEntry(t *testing.T) {
 }
 
 func TestTokenCache_AnEntryWithNoExpiryIsNeverReused(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token.json")
+	path := filepath.Join(t.TempDir(), "token.json")
 
-	noExpiry := transport.AuthSpec{
-		Procedure: "/shrt.test.v1.AuthService/Login",
-		Body:      func() ([]byte, error) { return []byte(`{"username":"staff"}`), nil },
-		TokenPath: "access_token",
-	}
+	noExpiry := cacheSpec()
+	noExpiry.ExpiresPath = ""
 
-	firstLogins := 0
-	first := transport.NewLoginTokenSource(noExpiry, countingInvoke(&firstLogins, "no-exp", time.Time{}))
-	first.UseCache(path, "default")
-	if _, err := first.Token(context.Background()); err != nil {
+	if _, _, err := mint(noExpiry, path, "default", "no-exp", time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 
-	secondLogins := 0
-	second := transport.NewLoginTokenSource(noExpiry, countingInvoke(&secondLogins, "fresh", time.Time{}))
-	second.UseCache(path, "default")
-	tok, err := second.Token(context.Background())
+	tok, secondLogins, err := mint(noExpiry, path, "default", "fresh", time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,16 +129,13 @@ func TestTokenCache_AnEntryWithNoExpiryIsNeverReused(t *testing.T) {
 }
 
 func TestTokenCache_AnUnreadableCacheIsNotFatal(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "token.json")
+	path := filepath.Join(t.TempDir(), "token.json")
 	if err := os.WriteFile(path, []byte("{ this is not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	logins := 0
-	src := transport.NewLoginTokenSource(cacheSpec(), countingInvoke(&logins, "tok", time.Now().Add(time.Hour)))
-	src.UseCache(path, "default")
-	if _, err := src.Token(context.Background()); err != nil {
+	_, logins, err := mint(cacheSpec(), path, "default", "tok", time.Now().Add(time.Hour))
+	if err != nil {
 		t.Fatalf("a corrupt cache must degrade to a real login, got %v", err)
 	}
 	if logins != 1 {
