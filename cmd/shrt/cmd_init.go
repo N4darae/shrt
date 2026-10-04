@@ -84,12 +84,10 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	}
 
 	portFile := ""
-	if !baseURLGiven {
-		if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil {
-			if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
-				*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
-				portFile = *baseURL
-			}
+	if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil && !baseURLGiven {
+		if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
+			*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+			portFile = *baseURL
 		}
 	}
 

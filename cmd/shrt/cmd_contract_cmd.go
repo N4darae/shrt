@@ -132,21 +132,15 @@ func contractInit(args []string) error {
 			fmt.Printf("--- %s\n%s\n", domain, raw)
 			continue
 		}
+		verb, text := "wrote", raw
 		if current, err := os.ReadFile(path); err == nil && sameYAML(current, raw) {
-			n := strings.Count(string(current), contract.TodoMarker)
-			todos += n
-			fmt.Printf("unchanged %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			verb, text = "unchanged", current
+		} else if err := writePlanFile(path, raw); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
-			return err
-		}
-		n := strings.Count(string(raw), contract.TodoMarker)
+		n := strings.Count(string(text), contract.TodoMarker)
 		todos += n
-		fmt.Printf("wrote %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
+		fmt.Printf("%s %s (%d rpc(s), %d %s)\n", verb, rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
 	}
 	if !*stdout {
 		if todos == 0 {

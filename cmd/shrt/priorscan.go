@@ -80,8 +80,8 @@ func (g *listGroup) add(id string, body any) {
 			g.paths[name] = p
 		}
 		best := n
-		if len(p.upTo) > 0 && p.upTo[len(p.upTo)-1] > best {
-			best = p.upTo[len(p.upTo)-1]
+		if len(p.upTo) > 0 {
+			best = max(n, p.upTo[len(p.upTo)-1])
 		}
 		p.pos = append(p.pos, at)
 		p.upTo = append(p.upTo, best)
@@ -105,18 +105,14 @@ func walkLists(v any, keys []string, visit func([]string, int)) {
 
 func (p *listPath) firstLonger(after any) (int, bool) {
 	cur := after
-	for _, k := range p.keys[:len(p.keys)-1] {
+	for _, k := range p.keys {
 		m, ok := cur.(map[string]any)
 		if !ok {
 			return 0, false
 		}
 		cur = m[k]
 	}
-	m, ok := cur.(map[string]any)
-	if !ok {
-		return 0, false
-	}
-	other, _ := m[p.keys[len(p.keys)-1]].([]any)
+	other, _ := cur.([]any)
 	n := len(other)
 	i := sort.Search(len(p.upTo), func(i int) bool { return p.upTo[i] > n })
 	if i == len(p.upTo) {

@@ -62,49 +62,39 @@ func (f *fixtureReuse) line() string {
 			"and got a server error (%s): the backend stored that create though it failed it, so the conflict is with this "+
 			"run's own record, not a fixture", f.step, f.why, f.erred.Index, f.erred.ID, errorText(f.erred))
 	}
+	refused := fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from ", f.step, f.why)
+	again := fmt.Sprintf(", and the previous run %s of this chain was refused there the same way with %s", f.repeat, strings.Join(f.before, ", "))
 	if f.finding() {
-		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from %s, and the previous run "+
-			"%s of this chain was refused there the same way with %s: a value built from ${uuid} or a clock value is unique to "+
-			"its run, so neither can collide with leftover fixtures or another client, and the backend refuses the create itself. "+
-			"This is a finding about the backend, not a fixture collision",
-			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
+		return refused + f.builtFrom() + again + ": a value built from ${uuid} or a clock value is unique to its run, so neither can " +
+			"collide with leftover fixtures or another client, and the backend refuses the create itself. This is a finding about the " +
+			"backend, not a fixture collision"
 	}
 	if f.run == "" && f.repeat != "" {
-		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and the previous run %s of this chain was refused there the same way with %s, also a value no recorded run had "+
-			"created: a repeat with fresh values points at the backend unless another client uses the same values (two "+
-			"pipelines deriving the tag from one commit SHA do), and shrt cannot tell which, so this is not a finding. Build "+
-			"the field from ${uuid} to have a repeat reported as one",
-			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
+		return "fixture collision: " + refused + f.builtFrom() + again + ", also a value no recorded run had created: a repeat with " +
+			"fresh values points at the backend unless another client uses the same values (two pipelines deriving the tag from one " +
+			"commit SHA do), and shrt cannot tell which, so this is not a finding. Build the field from ${uuid} to have a repeat reported as one"
 	}
 	if f.run == "" {
-		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
-			"(another chain with the same value, another client, or a shared backend)",
-			f.step, f.why, f.builtFrom())
+		return "fixture collision: " + refused + f.builtFrom() + ", and no recorded run of this chain used that value, so the record " +
+			"it collides with was created by something else (another chain with the same value, another client, or a shared backend)"
 	}
 	held := "so the backend still holds what that run created"
 	if f.unsure {
 		held = "and whether the call took effect is unknown (it was sent and got no answer), so the backend most likely holds " +
 			"what that run created"
 	}
+	refused = "fixture reused: " + refused + strings.Join(f.vars, ", ") + ", and run " + f.run
 	if f.sentAt != "" {
 		by := ""
 		if len(f.sentBy) > 0 {
 			by = " with " + strings.Join(f.sentBy, ", ")
 		}
-		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and run %s of this chain already sent that value at step %q%s, %s: two tags of this chain built the same value",
-			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.sentAt, by, held)
+		return refused + fmt.Sprintf(" of this chain already sent that value at step %q%s, %s: two tags of this chain built the same value", f.sentAt, by, held)
 	}
 	if f.chain != "" {
-		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and run %s of chain %s already sent that value, %s",
-			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.chain, held)
+		return refused + " of chain " + f.chain + " already sent that value, " + held
 	}
-	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-		"and run %s of this chain already sent that value, %s",
-		f.step, f.why, strings.Join(f.vars, ", "), f.run, held)
+	return refused + " of this chain already sent that value, " + held
 }
 
 func (f *fixtureReuse) fresh() string {

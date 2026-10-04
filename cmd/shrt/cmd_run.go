@@ -297,20 +297,19 @@ func runVerdict(rec *runner.Record) error {
 		if strings.HasPrefix(rec.KeptRedNote, pinsHeldAlso) {
 			return fmt.Errorf("chain %s: kept red, %s", rec.Chain, rec.KeptRedNote)
 		}
+		why := ""
 		if rec.KeptRedNew != "" {
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, shortNewFailure(rec.KeptRedNew))
-		}
-		if head, rest, ok := strings.Cut(rec.KeptRedNote, ":\n"); ok {
+			why = ": " + shortNewFailure(rec.KeptRedNew)
+		} else if head, rest, ok := strings.Cut(rec.KeptRedNote, ":\n"); ok {
 			first, _, _ := strings.Cut(rest, "\n")
 			if strings.Contains(head, "now return something else") {
 				first = "a pinned step now returns something else: " + first
 			}
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, first)
+			why = ": " + first
+		} else if _, one, ok := strings.Cut(rec.KeptRedNote, ", but "); ok {
+			why = ": " + one
 		}
-		if _, one, ok := strings.Cut(rec.KeptRedNote, ", but "); ok {
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, one)
-		}
-		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
+		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned%s", rec.Chain, why)
 	case runner.KeptRedGone:
 		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
 	}

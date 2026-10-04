@@ -95,14 +95,10 @@ func contractPlan(args []string) error {
 	if held != "" {
 		rewrite = beside
 	}
-	order := strings.Join(shortNames(plan.Order), " -> ")
+	order, groups := planShape(plan)
 	if !write.set {
 		fmt.Printf("order: %s\n", order)
-		groups := []string{}
-		for _, g := range plan.StepGroups() {
-			groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
-		}
-		fmt.Printf("%d steps: %s\n", len(plan.Chain.Steps), strings.Join(groups, ", "))
+		fmt.Printf("%d steps: %s\n", len(plan.Chain.Steps), groups)
 		if *verbose {
 			ids := make([]string, 0, len(plan.Chain.Steps))
 			for _, st := range plan.Chain.Steps {
@@ -130,11 +126,11 @@ func contractPlan(args []string) error {
 	if write.value != "" {
 		chainName = rel(e.cfg.Root, path)
 	}
+	fill := ""
 	if plan.UnfilledCount() > 0 {
-		fmt.Printf("next: fill the test data, then shrt chain lint %s\n", chainName)
-		return nil
+		fill = "fill the test data, then "
 	}
-	fmt.Printf("next: shrt chain lint %s\n", chainName)
+	fmt.Printf("next: %sshrt chain lint %s\n", fill, chainName)
 	return nil
 }
 
@@ -185,11 +181,8 @@ func planAll(e *env, lib *contract.Library, write, force, forceApproved bool) er
 }
 
 func planAllOne(e *env, plan *contract.Plan, name string, write, force, forceApproved bool) (bool, error) {
-	groups := []string{}
-	for _, g := range plan.StepGroups() {
-		groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
-	}
-	line := fmt.Sprintf("%s: %s, %d steps (%s)", name, strings.Join(shortNames(plan.Order), " -> "), len(plan.Chain.Steps), strings.Join(groups, ", "))
+	order, groups := planShape(plan)
+	line := fmt.Sprintf("%s: %s, %d steps (%s)", name, order, len(plan.Chain.Steps), groups)
 	existed := false
 	if write {
 		path := filepath.Join(e.chainsDir(), name+".yaml")
@@ -313,12 +306,15 @@ func planChainName(targets []string, lib *contract.Library, e *env) (string, err
 	return domain + "-" + strings.Join(parts, "-"), nil
 }
 
-func shortNames(rpcs []string) []string {
-	out := make([]string, 0, len(rpcs))
-	for _, r := range rpcs {
-		out = append(out, methodName(r))
+func planShape(plan *contract.Plan) (string, string) {
+	order, groups := []string{}, []string{}
+	for _, r := range plan.Order {
+		order = append(order, methodName(r))
 	}
-	return out
+	for _, g := range plan.StepGroups() {
+		groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))
+	}
+	return strings.Join(order, " -> "), strings.Join(groups, ", ")
 }
 
 func planOptions(e *env) contract.PlanOptions {
