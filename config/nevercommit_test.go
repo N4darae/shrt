@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,10 +12,8 @@ func TestNeverCommitNamesTheTokenCache(t *testing.T) {
 	got := config.Default().NeverCommit()
 
 	want := ".shrt/" + config.TokensFile
-	for _, line := range got {
-		if line == want {
-			return
-		}
+	if slices.Contains(got, want) {
+		return
 	}
 	t.Fatalf("%q is missing from %v. It holds live bearer tokens, and docs/importing.md's commit "+
 		"checklist never named it, so the default path for a new adopter ended with credentials in "+
