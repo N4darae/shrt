@@ -580,7 +580,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, firstFailedExpectation(sr)))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, sr.FailedExpectation(), "expectation failed"))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -939,17 +939,10 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := checkVarsSupplied(c, opts.Vars); err != nil {
 		return nil, err
 	}
-	if err := r.checkAuthProfiles(c); err != nil {
-		return nil, err
-	}
-	if err := r.checkCalls(c); err != nil {
-		return nil, err
-	}
-	if err := r.checkAuthEnv(c); err != nil {
-		return nil, err
-	}
-	if err := r.checkHandWrittenAuth(c); err != nil {
-		return nil, err
+	for _, check := range []func(*chain.Chain) error{r.checkAuthProfiles, r.checkCalls, r.checkAuthEnv, r.checkHandWrittenAuth} {
+		if err := check(c); err != nil {
+			return nil, err
+		}
 	}
 	problems := chain.VarRefProblems(rec.Vars)
 	problems = append(problems, c.PreflightProblems()...)
@@ -1541,7 +1534,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			if !ok {
 				missing := fmt.Sprintf("export %q: path %q missing in response%s", name, path, chain.NearResponsePath(method, path))
 				if sr.AssertionFailed() {
-					missing = failedExpectations(sr) + "; " + missing
+					missing = "expectation failed: " + strings.Join(sr.failures(), "; ") + "; " + missing
 				}
 				sr.Status = StatusFailed
 				sr.Error = missing
@@ -2248,31 +2241,25 @@ func capIDs(ids []string, max int) string {
 	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
 }
 
-func firstFailedExpectation(sr *StepRecord) string {
-	failed := []chain.ExpectResult{}
-	for _, e := range sr.Expect {
-		if !e.Passed {
-			failed = append(failed, e)
-		}
-	}
-	if len(failed) == 0 {
-		return "expectation failed"
-	}
-	out := "expectation failed: " + chain.DescribeFailure(failed[0])
-	if len(failed) > 1 {
-		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
-	}
-	return out
-}
-
-func failedExpectations(sr *StepRecord) string {
+func (s *StepRecord) failures() []string {
 	parts := []string{}
-	for _, e := range sr.Expect {
+	for _, e := range s.Expect {
 		if !e.Passed {
 			parts = append(parts, chain.DescribeFailure(e))
 		}
 	}
-	return "expectation failed: " + strings.Join(parts, "; ")
+	return parts
+}
+
+func (s *StepRecord) FailedExpectation() string {
+	failed := s.failures()
+	if len(failed) == 0 {
+		return ""
+	}
+	if len(failed) > 1 {
+		return fmt.Sprintf("expectation failed: %s (and %d more)", failed[0], len(failed)-1)
+	}
+	return "expectation failed: " + failed[0]
 }
 
 func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
