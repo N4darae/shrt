@@ -47,10 +47,8 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 			m := pathmask.NewMasker(slices.Concat(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
-				a, okA := c.Want.(string)
-				b, okB := c.Got.(string)
-				if okA && okB && len(a) >= minFixtureEcho {
-					pairs = append(pairs, [2]string{a, b})
+				if p, ok := echoPair(c); ok {
+					pairs = append(pairs, p)
 				}
 				continue
 			}
@@ -378,25 +376,13 @@ func generatedPairs(was, now []*runner.StepRecord, generated func(step, path str
 	}
 	out := [][2]string{}
 	for _, a := range was {
-		b, ok := byID[a.ID]
-		if !ok || len(a.Request) == 0 || len(b.Request) == 0 {
-			continue
-		}
-		x, errA := decode(a.Request)
-		y, errB := decode(b.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(x, y, "", func(c Change) {
-			if c.Kind != KindChanged || !generated(a.ID, c.Path) {
-				return
-			}
-			if w, ok := c.Want.(string); ok && len(w) >= minFixtureEcho {
-				if g, ok := c.Got.(string); ok {
-					out = append(out, [2]string{w, g})
+		if b, ok := byID[a.ID]; ok {
+			walkRequests(a, b, func(c Change) {
+				if p, ok := echoPair(c); ok && c.Kind == KindChanged && generated(a.ID, c.Path) {
+					out = append(out, p)
 				}
-			}
-		})
+			})
+		}
 	}
 	return out
 }

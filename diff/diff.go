@@ -2,6 +2,7 @@ package diff
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -132,15 +133,7 @@ func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) 
 	masker := pathmask.NewMasker(r.UnapprovedRedact)
 	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
 		want, got := p[0], p[1]
-		if len(want.Request) == 0 || len(got.Request) == 0 {
-			continue
-		}
-		a, errA := decode(want.Request)
-		b, errB := decode(got.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(a, b, "", func(c Change) {
+		walkRequests(want, got, func(c Change) {
 			if (c.Kind == KindChanged || c.Kind == KindType) && c.Got == pathmask.MaskRedacted && c.Want != pathmask.MaskRedacted && maskedAt(masker, c) {
 				r.UnapprovedRedacted = append(r.UnapprovedRedacted, want.ID+" request "+c.Path)
 			}
@@ -778,15 +771,7 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 				Detail: fmt.Sprintf("auth profile %q logged in as another principal: its login body's non-secret fields differ", got.AuthProfile)})
 		}
 		out = append(out, headerChanges(want, got)...)
-		if len(want.Request) == 0 || len(got.Request) == 0 {
-			continue
-		}
-		a, errA := decode(want.Request)
-		b, errB := decode(got.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(a, b, "", func(c Change) {
+		walkRequests(want, got, func(c Change) {
 			if derived != nil && derived(want.ID, c.Path) {
 				return
 			}
@@ -1010,6 +995,23 @@ func decode(raw json.RawMessage) (any, error) {
 	return v, nil
 }
 
+func walkRequests(want, got *runner.StepRecord, emit func(Change)) {
+	if len(want.Request) == 0 || len(got.Request) == 0 {
+		return
+	}
+	a, errA := decode(want.Request)
+	b, errB := decode(got.Request)
+	if errA == nil && errB == nil {
+		walk(a, b, "", emit)
+	}
+}
+
+func echoPair(c Change) ([2]string, bool) {
+	w, okW := c.Want.(string)
+	g, okG := c.Got.(string)
+	return [2]string{w, g}, okW && okG && len(w) >= minFixtureEcho
+}
+
 func walk(want, got any, path string, emit func(Change)) {
 	switch w := want.(type) {
 	case map[string]any:
@@ -1222,13 +1224,6 @@ func sentOrNot(detail string) string {
 	return "not sent"
 }
 
-func orNotRecorded(s string) string {
-	if s == "" {
-		return "(not recorded)"
-	}
-	return s
-}
-
 func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
@@ -1239,7 +1234,7 @@ func withKind(v any) string {
 func (r *Report) MaskedList() string {
 	var b strings.Builder
 	if r.SafeSpotTarget != "" || r.RunTarget != "" {
-		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s\n", orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
+		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s\n", cmp.Or(r.SafeSpotTarget, "(not recorded)"), cmp.Or(r.RunTarget, "(not recorded)"))
 	}
 	section := func(title string, cs []Change) {
 		if len(cs) == 0 {

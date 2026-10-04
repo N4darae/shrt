@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -290,24 +291,12 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 		}
 		r.RequestChanges = append(r.RequestChanges, c)
 	}
-	if len(sa.Request) == 0 || len(sb.Request) == 0 {
-		return
-	}
-	a, errA := decode(sa.Request)
-	b, errB := decode(sb.Request)
-	if errA != nil || errB != nil {
-		return
-	}
 	r.fixturePairs = append(r.fixturePairs, generatedPairs([]*runner.StepRecord{sa}, []*runner.StepRecord{sb}, fx.Generated)...)
 	rn := renamer(r.fixturePairs)
-	walk(a, b, "", func(c Change) {
+	walkRequests(sa, sb, func(c Change) {
 		fixture := (fx.Named != nil && fx.Named(sa.ID, c.Path)) || (fx.Generated != nil && fx.Generated(sa.ID, c.Path))
-		if fixture {
-			if x, ok := c.Want.(string); ok && len(x) >= minFixtureEcho {
-				if y, ok := c.Got.(string); ok {
-					r.fixturePairs = append(r.fixturePairs, [2]string{x, y})
-				}
-			}
+		if p, ok := echoPair(c); fixture && ok {
+			r.fixturePairs = append(r.fixturePairs, p)
 		}
 		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
@@ -365,10 +354,8 @@ func everyFieldMasked(m *pathmask.Masker, body any) bool {
 }
 
 func firstFailure(rec *runner.Record) string {
-	for _, s := range rec.Steps {
-		if s.Status == runner.StatusFailed || s.Status == runner.StatusError {
-			return s.ID
-		}
+	if s := firstRed(rec); s != nil {
+		return s.ID
 	}
 	return ""
 }
@@ -556,7 +543,7 @@ func (r *RunReport) Text() string {
 		fmt.Fprintf(&b, "targets differ: A %s, B %s\n", r.TargetA, r.TargetB)
 	}
 	if r.BuildA != "" || r.BuildB != "" {
-		fmt.Fprintf(&b, "builds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
+		fmt.Fprintf(&b, "builds differ: A %s, B %s\n", cmp.Or(r.BuildA, "(no build recorded)"), cmp.Or(r.BuildB, "(no build recorded)"))
 	}
 	if r.KeepGoingA != r.KeepGoingB {
 		with, without, red, only := "B", "A", r.FirstFailureA, r.NewlyReached
@@ -583,7 +570,7 @@ func (r *RunReport) Text() string {
 		}
 	}
 	if r.FirstFailureA != r.FirstFailureB {
-		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
+		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", cmp.Or(r.FirstFailureA, "none"), cmp.Or(r.FirstFailureB, "none"))
 	} else if r.FirstFailureA != "" {
 		how := ""
 		switch {
@@ -656,7 +643,7 @@ func (r *RunReport) Text() string {
 	if len(r.RequestChanges) > 0 {
 		fmt.Fprintf(&b, "%d request difference(s), what the two runs SENT, in steps both reached:\n", len(r.RequestChanges))
 		for _, c := range r.RequestChanges {
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
+			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.DescribeRuns())
 		}
 	}
 	if len(r.Changes) > 0 {
@@ -712,7 +699,7 @@ func (s StepStatus) errors() string {
 	return out
 }
 
-func (c Change) describeRuns() string {
+func (c Change) DescribeRuns() string {
 	if c.Kind == KindLength {
 		return fmt.Sprintf("a=%v item(s) b=%v item(s)", c.Want, c.Got)
 	}
@@ -722,25 +709,11 @@ func (c Change) describeRuns() string {
 	return fmt.Sprintf("a=%s b=%s", withKind(c.Want), withKind(c.Got))
 }
 
-func orUnset(s string) string {
-	if s == "" {
-		return "(no build recorded)"
-	}
-	return s
-}
-
 func orAbsent(v any) any {
 	if v == nil {
 		return "(unset)"
 	}
 	return v
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "none"
-	}
-	return s
 }
 
 func sentWithoutAnswer(msg string) string {
@@ -792,7 +765,7 @@ func maskVarValues(vars map[string]any, text string) string {
 
 func (r *RunReport) describe(c Change) string {
 	if c.Kind == KindLength || c.Kind == KindType {
-		return c.describeRuns()
+		return c.DescribeRuns()
 	}
 	a, b := map[string]any{}, map[string]any{}
 	for name, v := range r.varsA {
@@ -811,8 +784,4 @@ func runValue(v any, vars map[string]any) string {
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	}
 	return fmt.Sprint(v)
-}
-
-func (c Change) DescribeRuns() string {
-	return c.describeRuns()
 }

@@ -158,19 +158,21 @@ type pairRow struct {
 	cands []pairCand
 }
 
-func (r *pairRow) before(a, b pairCand) bool {
+func pairBefore(ia int, a pairCand, ib int, b pairCand) bool {
 	if a.score != b.score {
 		return a.score > b.score
 	}
-	da, db := absInt(r.i-a.j), absInt(r.i-b.j)
-	if da != db {
+	if da, db := absInt(ia-a.j), absInt(ib-b.j); da != db {
 		return da < db
+	}
+	if ia != ib {
+		return ia < ib
 	}
 	return a.j < b.j
 }
 
 func (r *pairRow) Len() int           { return len(r.cands) }
-func (r *pairRow) Less(a, b int) bool { return r.before(r.cands[a], r.cands[b]) }
+func (r *pairRow) Less(a, b int) bool { return pairBefore(r.i, r.cands[a], r.i, r.cands[b]) }
 func (r *pairRow) Swap(a, b int)      { r.cands[a], r.cands[b] = r.cands[b], r.cands[a] }
 func (r *pairRow) Push(x any)         { r.cands = append(r.cands, x.(pairCand)) }
 func (r *pairRow) Pop() any {
@@ -184,18 +186,7 @@ type rowHeap struct{ items []*pairRow }
 func (h *rowHeap) Len() int { return len(h.items) }
 func (h *rowHeap) Less(a, b int) bool {
 	x, y := h.items[a], h.items[b]
-	cx, cy := x.cands[0], y.cands[0]
-	if cx.score != cy.score {
-		return cx.score > cy.score
-	}
-	dx, dy := absInt(x.i-cx.j), absInt(y.i-cy.j)
-	if dx != dy {
-		return dx < dy
-	}
-	if x.i != y.i {
-		return x.i < y.i
-	}
-	return cx.j < cy.j
+	return pairBefore(x.i, x.cands[0], y.i, y.cands[0])
 }
 func (h *rowHeap) Swap(a, b int) { h.items[a], h.items[b] = h.items[b], h.items[a] }
 func (h *rowHeap) Push(x any)    { h.items = append(h.items, x.(*pairRow)) }
