@@ -120,19 +120,10 @@ func IsCodePath(path string) bool {
 		return true
 	}
 	segs := SplitPath(path)
-	if len(segs) == 0 {
-		return false
+	if isCodeField(segs) {
+		return true
 	}
-	last := segs[len(segs)-1]
-	for _, name := range CodeFields() {
-		if last == name {
-			return true
-		}
-	}
-	if last != EnvelopeLeaf() {
-		return false
-	}
-	return len(segs) >= 2 && segs[len(segs)-2] == EnvelopeField()
+	return len(segs) >= 2 && segs[len(segs)-1] == EnvelopeLeaf() && segs[len(segs)-2] == EnvelopeField()
 }
 
 func CodePaths(chains []*Chain) []string {

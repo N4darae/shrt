@@ -2,6 +2,7 @@ package chain
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,10 +55,7 @@ func CodeFields() []string {
 func EnvelopeLeaf() string {
 	conventionsMu.RLock()
 	defer conventionsMu.RUnlock()
-	if i := strings.LastIndex(active.path, "."); i >= 0 {
-		return active.path[i+1:]
-	}
-	return active.path
+	return active.path[strings.LastIndex(active.path, ".")+1:]
 }
 
 func setCodeFieldsLocked(names []string) {
@@ -494,15 +492,7 @@ func namesCode(e Expectation) bool {
 }
 
 func isCodeField(segs []string) bool {
-	if len(segs) == 0 {
-		return false
-	}
-	for _, name := range CodeFields() {
-		if segs[len(segs)-1] == name {
-			return true
-		}
-	}
-	return false
+	return len(segs) > 0 && slices.Contains(CodeFields(), segs[len(segs)-1])
 }
 
 func PinsVerdictCode(e Expectation) bool {
