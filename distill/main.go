@@ -727,7 +727,7 @@ func exerciseCLI() (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("```\n" + strings.TrimSpace(root) + "\n```\n\n")
-	subs := []struct{ group, usage string }{}
+	b.WriteString("| group | subcommands |\n|---|---|\n")
 	for _, group := range []string{"catalog", "chain", "contract"} {
 		out, err := runShrt(group)
 		if err != nil {
@@ -739,15 +739,10 @@ func exerciseCLI() (string, error) {
 			if at < 0 {
 				continue
 			}
-			usage := strings.TrimSpace(line[at+len(marker):])
-			usage = strings.ReplaceAll(usage, "|", "\\|")
-			subs = append(subs, struct{ group, usage string }{group, usage})
+			usage := strings.ReplaceAll(strings.TrimSpace(line[at+len(marker):]), "|", "\\|")
+			fmt.Fprintf(&b, "| `shrt %s` | `%s` |\n", group, usage)
 			break
 		}
-	}
-	b.WriteString("| group | subcommands |\n|---|---|\n")
-	for _, s := range subs {
-		fmt.Fprintf(&b, "| `shrt %s` | `%s` |\n", s.group, s.usage)
 	}
 	b.WriteString("\nEvery command prints its flags and exit codes with `-h`. A run id is accepted with or without `.json`.\n")
 	return b.String(), nil
