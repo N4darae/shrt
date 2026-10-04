@@ -20,24 +20,18 @@ func TestScaffoldedBodyValidatesForEveryRPCInTheCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	methods := cat.Methods()
-	if len(methods) == 0 {
+	if len(cat.Methods()) == 0 {
 		t.Fatal("the corpus descriptor holds no rpc")
 	}
-	for _, m := range methods {
-		body, err := catalog.ScaffoldJSON(m.Input())
-		if err != nil {
-			t.Fatalf("%s: scaffold: %v", m.FullName, err)
-		}
-		if err := cat.ValidateInput(m, body); err != nil {
-			t.Errorf("%s: the scaffolded body does not validate against its own request message: %v\n%s",
-				m.FullName, err, body)
-		}
-	}
+	checkScaffoldsValidate(t, cat)
 }
 
 func TestScaffoldedBodyValidatesForEveryRPCInTheRichFixture(t *testing.T) {
-	cat := catalogtest.Rich()
+	checkScaffoldsValidate(t, catalogtest.Rich())
+}
+
+func checkScaffoldsValidate(t *testing.T, cat *catalog.Catalog) {
+	t.Helper()
 	for _, m := range cat.Methods() {
 		body, err := catalog.ScaffoldJSON(m.Input())
 		if err != nil {
