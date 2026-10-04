@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 	"strings"
@@ -151,11 +152,8 @@ func DetectEnvelope(cat *Catalog) []EnvelopeCandidate {
 		field, _, _ := strings.Cut(path, ".")
 		out = append(out, EnvelopeCandidate{Path: path, Field: field, Count: n, Of: total})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count != out[j].Count {
-			return out[i].Count > out[j].Count
-		}
-		return out[i].Path < out[j].Path
+	slices.SortFunc(out, func(a, b EnvelopeCandidate) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), cmp.Compare(a.Path, b.Path))
 	})
 	return out
 }
