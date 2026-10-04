@@ -906,7 +906,7 @@ func (g *gateChain) explainedBy(found map[string]bool) map[string]bool {
 func runGate(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("gate", flag.ContinueOnError)
 	wait := fs.Duration("retry-wait", 20*time.Second, "wait before re-running a run or verify that exited 3")
-	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every changed path; knock-on counts in the summary")
+	verbose := fs.Bool("v", false, "under each failing chain, the suspect's request and every change with its want and got, as verify prints it; knock-on counts in the summary")
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
