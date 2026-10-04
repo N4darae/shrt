@@ -1293,17 +1293,16 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.AuthPrincipal = opts.principals[profile]
 	}
 	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
+	fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
 		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
-		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached, fresh == transport.FreshTokenRelogin))
 		if early := EarlyRefusalText(sr.TokenRefused); early != "" && retry == AuthRetryResent {
 			sr.Warning = joinLines(sr.Warning, "the "+wasRefused(early))
 		}
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
-		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 		defer authRefusedIsNoVerdict(sr, fresh, sr.TokenRefused)
 	}
 	if err != nil {
@@ -2016,18 +2015,14 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 		if !routed || b == nil {
 			continue
 		}
-		unset := []string{}
+		unset, refs := []string{}, []string{}
 		for _, name := range b.EnvVars {
 			if _, set := os.LookupEnv(name); !set {
-				unset = append(unset, name)
+				unset, refs = append(unset, name), append(refs, "${env."+name+"}")
 			}
 		}
 		if len(unset) == 0 {
 			continue
-		}
-		refs := make([]string, 0, len(unset))
-		for _, name := range unset {
-			refs = append(refs, "${env."+name+"}")
 		}
 		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
 			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+

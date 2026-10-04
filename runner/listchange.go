@@ -188,10 +188,6 @@ func ReorderedPaths(sr *StepRecord) map[string]bool {
 			changedSet[pos.list] = true
 		}
 	}
-	listOf := func(path string) string {
-		pos, _ := listPositionOf(root, path)
-		return pos.list
-	}
 	setChanged := func(list string) bool {
 		for l := range changedSet {
 			if list == l || strings.HasPrefix(list, l+".") {
@@ -201,7 +197,7 @@ func ReorderedPaths(sr *StepRecord) map[string]bool {
 		return false
 	}
 	for i, k := range kinds {
-		if strings.HasPrefix(k, "reordered") && !setChanged(listOf(sr.Expect[i].Path)) {
+		if pos, _ := listPositionOf(root, sr.Expect[i].Path); strings.HasPrefix(k, "reordered") && !setChanged(pos.list) {
 			out[sr.Expect[i].Path] = true
 		}
 	}
