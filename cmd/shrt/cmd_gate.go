@@ -161,11 +161,12 @@ var gateSleep = func(ctx context.Context, d time.Duration) {
 	}
 }
 
-func writeGateSidecar(side gateSidecar, err error) {
+func writeGateSidecar(sidecar func() gateSidecar, err error) {
 	path := os.Getenv(gateReportEnv)
 	if path == "" {
 		return
 	}
+	side := sidecar()
 	if err != nil {
 		side.Error, _, _ = strings.Cut(err.Error(), "\n")
 	}

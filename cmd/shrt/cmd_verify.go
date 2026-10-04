@@ -65,7 +65,7 @@ type verification struct {
 
 func runVerify(ctx context.Context, args []string) (err error) {
 	v := &verification{vars: varFlags{}}
-	defer func() { writeGateSidecar(v.sidecar(), err) }()
+	defer func() { writeGateSidecar(v.sidecar, err) }()
 	if err := v.parse(args); err != nil {
 		return err
 	}
