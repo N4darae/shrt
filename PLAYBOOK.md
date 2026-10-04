@@ -157,6 +157,9 @@ not delete a probe that fails, pin a real defect with `kept_red`, §9):
 - a failure whose `when:` names a state, probed from that state; a not-found failure, probed with
   an id nothing created; `invalid_argument` clauses in `when:` (empty, zero, negative, missing `@`)
   turned into malformed requests;
+- the target after each other write moved the record to a state it does not refuse; when its
+  `needs:` only takes the record to the state its `restore:` names, also on a record left in the
+  state before it, with one, two and three items, the reads around it asserting nothing moved;
 - with auth configured: each target without a token and with `auth: invalid`; a role-gated rpc
   as each profile not holding the role; an rpc every role may call, repeated as each profile and
   compared;
@@ -307,7 +310,12 @@ has no term. Fill in this order; each step pays for the next:
    each row the handler reads whose identity comes from no request field (`from:` only wires the
    id you filter by); `before:`, the rpc in another domain consuming what yours writes. Then
    `shrt contract plan <read>` for every read: a one-step order has no producer, and one creating
-   the entity but never the row being read is the same bug, quieter.
+   the entity but never the row being read is the same bug, quieter. A `needs:` puts the rpc after
+   that write on the main path and in every probe. When the write only takes the record to the state
+   the rpc's `restore:` names (CancelOrder `needs: [ConfirmOrder]` with
+   `{qty_on_hand: {restore: CONFIRMED}}`), `plan` also calls the rpc on a record left in the state
+   before it (`cancel_order_from_pending`, `cancel_order_3_lines_from_pending`), unless a failure
+   refuses that state.
 4. **`failures`**, one per way the rpc refuses, `when:` written as a condition. `code` is optional
    for a shape error. `reason:` is the backend's string verbatim for a coded failure, and a label
    you invent for a shape or auth failure.

@@ -30,7 +30,7 @@ func (p *Plan) satisfyOneNeed(lib *Library) bool {
 			rpc, _ := SplitNode(need)
 			needRPC := canonicalCall(p.cat, rpc)
 			nc, ok := lib.Get(needRPC)
-			if !ok || chain.IsReadOnlyCall(needRPC) {
+			if !ok || chain.IsReadOnlyCall(needRPC) || p.unneeded[st] == needRPC {
 				continue
 			}
 			nm, err := p.cat.Lookup(needRPC)

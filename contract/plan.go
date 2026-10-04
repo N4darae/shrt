@@ -41,6 +41,7 @@ type Plan struct {
 	middles  map[*chain.Step]string
 	gaps     map[string]string
 	met      map[[2]string]bool
+	unneeded map[*chain.Step]string
 }
 
 type PlanOptions struct {
@@ -212,9 +213,9 @@ var probePasses = []probePass{
 	{"replay", "", "F5 F25", "the idempotency key replayed, with another body, and after each state change", (*Plan).probeIdempotency},
 	{"token/role", "denied", "F3 D4", "no token, a bad token, and each profile lacking the role", (*Plan).probeDenials},
 	{"other role", "", "F22 F28 F35 F52 F59", "the call repeated as each other profile, compared with the default's", (*Plan).probeRoleParity},
-	{"item count", "items", "F23 F56 F62", "one, three and twelve items where the target sends two", (*Plan).probeItemCounts},
+	{"item count", "items", "F23 F56 F62", "one, three and twelve items where the target sends two, again from the state a needs: skips", (*Plan).probeItemCounts},
 	{"state", "state", "F7 F49", "each declared state refusal, sent from that state", (*Plan).probeStateRefusals},
-	{"composed", "composed", "F12 D2", "the target after each other write moved the record", (*Plan).probeComposedTransitions},
+	{"composed", "composed", "F12 D2", "the target after each other write moved the record, and on one left in the state a needs: skips", (*Plan).probeComposedTransitions},
 	{"twice", "twice", "F45", "one resource on two lines, counted twice", (*Plan).probeSameEntityTwice},
 	{"unknown id", "unknown", "F38 F40 F42", "an id no record has, expecting the declared not-found failure", (*Plan).probeUnknownIDs},
 	{"malformed", "shape", "F54", "each invalid_argument clause as a malformed request", (*Plan).probeShapes},
