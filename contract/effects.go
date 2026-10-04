@@ -940,12 +940,8 @@ func (p *Plan) heldState(lib *Library, st *chain.Step) string {
 }
 
 func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md *effectModel, r *effectRules, mark func(string, string)) bool {
-	c, ok := lib.Get(rpc)
+	c, m, ok := p.contractOf(lib, rpc)
 	if !ok {
-		return false
-	}
-	m, err := p.cat.Lookup(rpc)
-	if err != nil {
 		return false
 	}
 	for _, f := range catalog.DescribeMessage(m.Input()).Fields {
@@ -1095,12 +1091,8 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 }
 
 func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, r *effectRules, mark func(string, string)) {
-	c, ok := lib.Get(canonicalCall(p.cat, st.Call))
+	c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
 	if !ok {
-		return
-	}
-	m, err := p.cat.Lookup(st.Call)
-	if err != nil {
 		return
 	}
 	for name, ref := range topFrom(c, p.cat) {

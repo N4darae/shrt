@@ -530,6 +530,12 @@ func orderOf(ids []string, ranks []int) string {
 	return strings.Join(ordered, " < ")
 }
 
+func (p *Plan) contractOf(lib *Library, call string) (*RPCContract, *catalog.Method, bool) {
+	c, ok := lib.Get(call)
+	m, err := p.cat.Lookup(call)
+	return c, m, ok && err == nil
+}
+
 func canonicalCall(cat *catalog.Catalog, call string) string {
 	if m, err := cat.Lookup(call); err == nil {
 		return m.FullName

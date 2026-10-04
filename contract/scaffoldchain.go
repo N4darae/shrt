@@ -295,9 +295,8 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 		if st.AllowFail || chain.IsReadOnlyCall(st.Call) {
 			continue
 		}
-		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		m, err := p.cat.Lookup(st.Call)
-		if !ok || err != nil {
+		c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
+		if !ok {
 			continue
 		}
 		for _, e := range p.entityStates(lib, st, c) {
@@ -332,9 +331,8 @@ func (p *Plan) assertHeldStates(lib *Library, before map[string]map[string]strin
 		if st.AllowFail || !chain.IsReadOnlyCall(st.Call) || p.streams(st) || effectOutcome(st) != outcomeSuccess {
 			continue
 		}
-		c, ok := lib.Get(canonicalCall(p.cat, st.Call))
-		m, err := p.cat.Lookup(st.Call)
-		if !ok || err != nil {
+		c, m, ok := p.contractOf(lib, canonicalCall(p.cat, st.Call))
+		if !ok {
 			continue
 		}
 		state := func(prod *chain.Step, carrier string, field *catalog.Field) string {

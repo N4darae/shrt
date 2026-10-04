@@ -73,12 +73,8 @@ func (p *Plan) probeRoleParity(lib *Library, isTarget func(*chain.Step) bool) {
 		if !isTarget(st) || p.isLogin(st.Call) || st.SkipAuth {
 			continue
 		}
-		c, ok := lib.Get(st.Call)
+		c, m, ok := p.contractOf(lib, st.Call)
 		if !ok || !openToEveryRole(c) || IsTodo(strings.Join(c.RequiresRole, " ")) {
-			continue
-		}
-		m, err := p.cat.Lookup(st.Call)
-		if err != nil {
 			continue
 		}
 		profiles := p.parityProfiles(st)
