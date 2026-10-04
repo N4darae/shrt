@@ -1,6 +1,7 @@
 package store
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -111,8 +112,8 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 
 func (s *Store) LoadSafeSpot(chainName string) (*SafeSpot, error) {
 	path := s.SafeSpotPath(chainName)
-	if err := mustExist(path, "safe spot"); err != nil {
-		return nil, fmt.Errorf("%w: %w", os.ErrNotExist, err)
+	if _, err := os.Stat(path); err != nil {
+		return nil, fmt.Errorf("%w: safe spot not found at %s", os.ErrNotExist, path)
 	}
 	spot := &SafeSpot{}
 	if err := readJSON(path, spot); err != nil {
@@ -173,10 +174,7 @@ func (s *Store) SafeSpotPath(chainName string) string {
 }
 
 func (s *Store) archive(chainName string, prev *SafeSpot) error {
-	base := prev.RunID
-	if base == "" {
-		base = prev.ConfirmedAt.UTC().Format("20060102T150405Z")
-	}
+	base := cmp.Or(prev.RunID, prev.ConfirmedAt.UTC().Format("20060102T150405Z"))
 	if strings.ContainsAny(base, `/\:*?"<>| `) || strings.HasPrefix(base, ".") {
 		base = slug(base)
 	}

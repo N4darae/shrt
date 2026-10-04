@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,11 +77,4 @@ func listJSONFiles(dir string) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
-}
-
-func mustExist(path, kind string) error {
-	if _, err := os.Stat(path); err != nil {
-		return fmt.Errorf("%s not found at %s", kind, path)
-	}
-	return nil
 }

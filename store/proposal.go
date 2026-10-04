@@ -2,12 +2,15 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -101,10 +104,7 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	if now.IsZero() {
 		now = time.Now()
 	}
-	by := strings.TrimSpace(in.By)
-	if by == "" {
-		by = "agent"
-	}
+	by := cmp.Or(strings.TrimSpace(in.By), "agent")
 	p := &Proposal{
 		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
 		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
@@ -186,9 +186,6 @@ func (s *Store) LoadProposal(chainName string) (*Proposal, error) {
 func (s *Store) ListProposals() ([]*Proposal, error) {
 	names, err := listJSONFiles(s.pendingDir())
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
 		return nil, err
 	}
 	out := []*Proposal{}
@@ -239,11 +236,7 @@ func ProposalReport(p *Proposal, rec *runner.Record) string {
 	}
 	fmt.Fprintf(&b, "| status | %s, %d step(s), %d ms |\n", rec.Status, len(rec.Steps), rec.DurationMS)
 	if len(rec.Vars) > 0 {
-		keys := make([]string, 0, len(rec.Vars))
-		for k := range rec.Vars {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
+		keys := slices.Sorted(maps.Keys(rec.Vars))
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
 			parts = append(parts, fmt.Sprintf("`%s=%v`", k, rec.Vars[k]))
@@ -668,7 +661,17 @@ func clip(s string, n int) string {
 }
 
 func shortValue(v any) string {
-	return clipMiddle(fullValue(v), summaryValue)
+	s, n := fullValue(v), summaryValue
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	if strings.Contains(s, " ") {
+		if out, ok := clipWords(strings.Split(s, " "), n); ok {
+			return out
+		}
+	}
+	return clipToken(r, n)
 }
 
 func fullValue(v any) string {
@@ -681,19 +684,6 @@ func fullValue(v any) string {
 		}
 	}
 	return flat(fmt.Sprint(v))
-}
-
-func clipMiddle(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	if strings.Contains(s, " ") {
-		if out, ok := clipWords(strings.Split(s, " "), n); ok {
-			return out
-		}
-	}
-	return clipToken(r, n)
 }
 
 func clipWords(words []string, n int) (string, bool) {
@@ -1030,21 +1020,17 @@ func itemsSummary(body any) string {
 	if !found || !isList || len(items) == 0 {
 		return ""
 	}
-	order := []string{}
-	counts := map[string]int{}
+	counts := counter{}
 	for _, item := range items {
 		text, ok := verdictText(item, field, "details.0.app_code", "details.0.reason")
 		if !ok {
 			text = "no verdict"
 		}
-		if counts[text] == 0 {
-			order = append(order, text)
-		}
-		counts[text]++
+		counts.add(text)
 	}
-	parts := make([]string, 0, len(order))
-	for _, text := range order {
-		parts = append(parts, fmt.Sprintf("%d %s", counts[text], text))
+	parts := make([]string, 0, len(counts.order))
+	for _, text := range counts.order {
+		parts = append(parts, fmt.Sprintf("%d %s", counts.n[text], text))
 	}
 	return strings.Join(parts, ", ")
 }
@@ -1246,15 +1232,8 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 	if len(scrubbed) > 0 {
 		check = append(check, "scrubbed "+clipList(scrubbed, 3))
 	}
-	stepVolatile, chainVolatile := []string{}, []string{}
-	for _, st := range rec.Steps {
-		for _, v := range st.Volatile {
-			stepVolatile = append(stepVolatile, fmt.Sprintf("`%s` (%s)", v, st.ID))
-		}
-	}
-	for _, v := range rec.Volatile {
-		chainVolatile = append(chainVolatile, "`"+v+"`")
-	}
+	volatile := volatileSummary(rec)
+	chainVolatile, stepVolatile := volatile[:len(rec.Volatile)], volatile[len(rec.Volatile):]
 	if len(stepVolatile) > 0 {
 		check = append(check, "volatile "+clipList(stepVolatile, 3))
 	}
