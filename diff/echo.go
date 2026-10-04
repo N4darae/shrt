@@ -112,10 +112,10 @@ func walkRenamedText(steps []comparedStep, r *strings.Replacer, visit func(step,
 				}
 			case string:
 				g, ok := got.(string)
-				if !ok || renameable(path, w, g) {
+				if !ok {
 					return
 				}
-				if renamed := r.Replace(w); renamed != w {
+				if renamed := r.Replace(w); renamed != w && !renameable(path, w, g) {
 					visit(st.id, pathOr(path), w, g, renamed)
 				}
 			}
