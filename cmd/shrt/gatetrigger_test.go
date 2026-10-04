@@ -100,7 +100,7 @@ func TestATriggerOnTheProfileSaysWhoseCallItIs(t *testing.T) {
 	}{
 		{"a clerk's confirm of an admin's order fails and an admin's confirm of a clerk's order passes",
 			[]rowCall{call("a", "clerk", "default"), call("b", "clerk", "clerk", "default")}, []rowCall{call("c", "default", "default"), call("d", "default", "clerk")},
-			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk); passes as default (2 calls; 1 of them acts on records created as clerk, so that alone does not fail it)"},
+			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls; 1 of them acts on records created as default, so the creator need not be clerk; 1 of them acts on records created as clerk too); passes as default (2 calls; 1 of them acts on records created as clerk, so that alone does not fail it)"},
 		{"only the passing side shows it, so only the passing side says it, and nothing of a clerk acting on its own records",
 			[]rowCall{call("a", "clerk", "clerk"), call("b", "clerk", "clerk")}, []rowCall{call("c", "default", "clerk"), call("d", "default", "clerk"), call("e", "default", "default")},
 			"trigger: fails when ConfirmOrder itself is sent as clerk (2 calls); passes as default (3 calls; 2 of them act on records created as clerk, so that alone does not fail it)"},

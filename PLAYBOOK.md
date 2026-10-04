@@ -420,8 +420,9 @@ requests show. The auth profile: `fails as clerk (3 calls); passes as default (1
 `fails when ConfirmOrder itself is sent as clerk` when some calls act on records another profile
 created, and says only what those calls show: `2 of them act on records created as default, so the
 creator need not be clerk`, or on the passing side `1 of them acts on records created as clerk, so
-that alone does not fail it`. It never speaks for a mix no call covered, such as a clerk acting on
-records a clerk created.
+that alone does not fail it`. It never speaks for a mix no call covered; when a failing call acts on
+records its own profile created (`-repro` sends one when none did), it adds `; 1 of them acts on
+records created as clerk too`.
 A list's length: `fails with lines of 2+ items (13 calls); passes with lines of 1 item (12
 calls)`. A list repeating an item key: `fails when lines repeat id_product (6 calls; lines of 2 and
 3 items); passes with distinct id_product (4 calls; lines of 1, 2, 3 and 12 items)`. A field set or
@@ -443,7 +444,11 @@ no passing call, `fails on every call (21 of 21; as clerk and default, lines of 
 what the failing calls span.
 No line means none of these splits them, so probe from the example. The example is the call that
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
-when another chain fails so, and `-repro` slices that step.
+when another chain fails so, and `-repro` slices that step. Where the line rests on thin evidence
+(one call on a side, a byte boundary the calls leave untried, a profile split no call tried on
+records its own profile created, a read answered for an unknown id), `-repro` sends that call again
+from the slice, at most twice, and prints the firmed line above the repro, or `trigger above does
+not hold:` and what was sent: take that line, do not probe it again by hand.
 
 **How far it moved.** When the example reads a counter a suspect write moved (the write's contract
 declares `increase:` or `decrease:` for the field), the row adds the move next to the approved run's:

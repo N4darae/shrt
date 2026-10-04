@@ -83,12 +83,13 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	}
 }
 
-func TestGateReproPrintsNoTriggerTheCallsAroundItsBoundaryContradict(t *testing.T) {
+func TestGateReproSaysTheCallAroundAGapsBoundaryContradictsItsSplit(t *testing.T) {
 	defer stateGapWorkspace(t)()
 	gapShop(t, func(state string, lines int) bool { return state == "PENDING" && lines == 3 })
 	out, _ := runGateOut(t, "-repro")
-	if !strings.Contains(out, "e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n    repro: ") || strings.Contains(out, "trigger:") {
-		t.Fatalf("a 4-line PENDING cancel that passes contradicts lines of 3+ items, so the row says no trigger:\n%s", out)
+	if !strings.Contains(out, "e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n"+
+		"    trigger: none: sent again with lines of 4 items, the call passed\n    repro: ") || strings.Count(out, "trigger:") != 1 {
+		t.Fatalf("a 4-line PENDING cancel that passes contradicts lines of 3+ items, so the row says so in place of a trigger:\n%s", out)
 	}
 }
 

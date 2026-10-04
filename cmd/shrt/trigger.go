@@ -408,6 +408,9 @@ func ownProfile(fails, passes []rowCall) (string, string) {
 			maps.Copy(used, c.before)
 		}
 		failNote = share(n, fails) + andList(sortedKeys(used)) + ", so the creator need not be " + strings.Join(bad, " or ")
+		if own := slices.DeleteFunc(slices.Clone(fails), func(c rowCall) bool { return !after(c) }); len(own) > 0 {
+			failNote += "; " + share(own, fails) + andList(bad) + " too"
+		}
 	}
 	if n := slices.DeleteFunc(slices.Clone(passes), func(c rowCall) bool { return !after(c) }); len(n) > 0 {
 		passNote = share(n, passes) + andList(bad) + ", so that alone does not fail it"

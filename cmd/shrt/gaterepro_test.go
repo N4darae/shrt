@@ -406,7 +406,7 @@ func TestGateReproFirmsUpARowsTriggerThatRestsOnOneCall(t *testing.T) {
 		want   string
 	}{
 		{func(n int) bool { return n >= 3 }, "    trigger: fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3 calls: 1, 2)\n    repro: "},
-		{func(n int) bool { return n == 3 }, "    trigger above does not hold: 2 more calls around its boundary did not fail and pass as it says\n    repro: "},
+		{func(n int) bool { return n == 3 }, "    trigger above does not hold: sent again with lines of 4 items, the call passed\n    repro: "},
 	} {
 		shop := newFakeShop()
 		chdirToFakeShop(t, shop)
