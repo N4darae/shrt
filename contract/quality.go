@@ -1,9 +1,9 @@
 package contract
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -118,10 +118,9 @@ func QualityTerms() []QualityTerm {
 func ScoreOfPhase(r QualityRPC, phase string) int {
 	total := 0
 	for _, t := range QualityTerms() {
-		if !t.InPhase(phase) {
-			continue
+		if t.InPhase(phase) {
+			total += t.Count(r) * t.Weight
 		}
-		total += t.Count(r) * t.Weight
 	}
 	return total
 }
@@ -231,15 +230,8 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 			}
 		}
 	}
-	sort.SliceStable(report.RPCs, func(i, j int) bool {
-		a, b := report.RPCs[i], report.RPCs[j]
-		if a.Score != b.Score {
-			return a.Score > b.Score
-		}
-		if a.Domain != b.Domain {
-			return a.Domain < b.Domain
-		}
-		return a.RPC < b.RPC
+	slices.SortStableFunc(report.RPCs, func(a, b QualityRPC) int {
+		return cmp.Or(cmp.Compare(b.Score, a.Score), strings.Compare(a.Domain, b.Domain), strings.Compare(a.RPC, b.RPC))
 	})
 	return report
 }
@@ -266,16 +258,14 @@ func requiredSaysSomething(c *RPCContract, shape MethodShape) bool {
 func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredBy []string) QualityRPC {
 	documented := map[string]bool{}
 	for key, f := range c.Fields {
-		if !saysAnything(f) {
-			continue
+		if saysAnything(f) {
+			documented[headSegment(key)] = true
 		}
-		documented[headSegment(key)] = true
 	}
 	for _, key := range c.Required {
-		if IsRequiredLiteral(key) {
-			continue
+		if !IsRequiredLiteral(key) {
+			documented[headSegment(key)] = true
 		}
-		documented[headSegment(key)] = true
 	}
 
 	undocumented := []string{}
@@ -288,10 +278,9 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 	declaredResponse := map[string]bool{}
 	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
 		for key, why := range section {
-			if IsTodo(why) {
-				continue
+			if !IsTodo(why) {
+				declaredResponse[headSegment(key)] = true
 			}
-			declaredResponse[headSegment(key)] = true
 		}
 	}
 	undeclaredResponse := []string{}
@@ -303,10 +292,9 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 
 	unexplained := []string{}
 	for _, f := range c.Failures {
-		if f.When != "" || f.Unreachable != "" || f.PendingDeploy != "" {
-			continue
+		if f.When == "" && f.Unreachable == "" && f.PendingDeploy == "" {
+			unexplained = append(unexplained, unexplainedLabel(f))
 		}
-		unexplained = append(unexplained, unexplainedLabel(f))
 	}
 
 	fields := effectiveFields(c)
@@ -353,21 +341,17 @@ func hasWriteProducer(c *RPCContract, fields map[string]*FieldContract, required
 		rpc, _ := SplitNode(node)
 		return rpc != "" && !chain.IsReadOnlyCall(rpc)
 	}
-	if slices.ContainsFunc(c.Needs, isWrite) {
+	if slices.ContainsFunc(c.Needs, isWrite) || slices.ContainsFunc(requiredBy, isWrite) {
 		return true
 	}
 	for _, f := range fields {
-		if f == nil {
-			continue
-		}
 		for _, raw := range []string{f.From, f.SameAs} {
-			ref, err := ParseRef(raw)
-			if err == nil && isWrite(ref.RPC) {
+			if ref, err := ParseRef(raw); err == nil && isWrite(ref.RPC) {
 				return true
 			}
 		}
 	}
-	return slices.ContainsFunc(requiredBy, isWrite)
+	return false
 }
 
 var placeholderText = map[string]bool{
@@ -409,27 +393,18 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 			}
 			continue
 		}
-		if !writePath {
-			continue
+		if writePath && (slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) || !explained(fields, key)) {
+			unwired = append(unwired, key)
 		}
-		if !slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) && explained(fields, key) {
-			continue
-		}
-		unwired = append(unwired, key)
 	}
 	return unwired, unchecked
 }
 
 func idKeyState(fields map[string]*FieldContract, key string) (sourced, checked bool) {
 	for name, f := range fields {
-		if f == nil || !relatedKey(name, key) {
-			continue
-		}
-		if hasValueSource(f) {
+		if relatedKey(name, key) && hasValueSource(f) {
 			sourced = true
-			if f.CheckedBy != "" && !IsTodo(f.CheckedBy) {
-				checked = true
-			}
+			checked = checked || f.CheckedBy != "" && !IsTodo(f.CheckedBy)
 		}
 	}
 	return sourced, checked
@@ -437,10 +412,7 @@ func idKeyState(fields map[string]*FieldContract, key string) (sourced, checked 
 
 func explained(fields map[string]*FieldContract, key string) bool {
 	for name, f := range fields {
-		if f == nil || !relatedKey(name, key) {
-			continue
-		}
-		if strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note) {
+		if relatedKey(name, key) && strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note) {
 			return true
 		}
 	}
@@ -459,13 +431,9 @@ func effectiveFields(c *RPCContract) map[string]*FieldContract {
 			continue
 		}
 		for name, f := range alias.Fields {
-			if f == nil {
-				continue
+			if f != nil && !hasValueSource(out[name]) {
+				out[name] = f
 			}
-			if prior, ok := out[name]; ok && hasValueSource(prior) {
-				continue
-			}
-			out[name] = f
 		}
 	}
 	return out
