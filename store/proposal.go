@@ -319,19 +319,17 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 	envelope := chain.EnvelopePath()
 	for _, st := range rec.Steps {
 		calls.add(shortCall(st.Call))
-		answers.add(answerKind(st, envelope))
+		answer := answerKind(st, envelope)
+		answers.add(answer)
 		asserted += len(st.Expect)
-		if len(st.Expect) == 0 {
+		beyond := beyondVerdict(st, envelope)
+		for _, path := range beyond {
+			fields.add(indexPattern.ReplaceAllString(path, ".N"))
+		}
+		switch {
+		case len(st.Expect) == 0:
 			bare = append(bare, "`"+st.ID+"`")
-		}
-		beyond := false
-		for _, e := range st.Expect {
-			if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
-				beyond = true
-				fields.add(indexPattern.ReplaceAllString(e.Path, ".N"))
-			}
-		}
-		if len(st.Expect) > 0 && !beyond && answerKind(st, envelope) == chain.EnvelopeOK() {
+		case len(beyond) == 0 && answer == chain.EnvelopeOK():
 			verdictOnly = append(verdictOnly, "`"+st.ID+"`")
 		}
 		if st.Warning != "" {
@@ -355,6 +353,16 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 }
 
 var indexPattern = regexp.MustCompile(`\.[0-9]+`)
+
+func beyondVerdict(st *runner.StepRecord, envelope string) []string {
+	var out []string
+	for _, e := range st.Expect {
+		if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
+			out = append(out, e.Path)
+		}
+	}
+	return out
+}
 
 type counter struct {
 	order []string
@@ -1050,40 +1058,37 @@ func carriedPaths(lines []string) []string {
 
 func unstableLines(unstable []string) []string {
 	type list struct{ step, path string }
-	type entry struct{ path, delta string }
-	lists := map[list]bool{}
+	type entry struct{ step, path, delta string }
+	parsed, lists := []entry{}, map[list]bool{}
 	for _, u := range unstable {
-		step, path, _ := strings.Cut(u, " ")
-		path, _, _ = strings.Cut(path, ": ")
+		step, rest, _ := strings.Cut(u, " ")
+		path, delta, _ := strings.Cut(rest, ": ")
+		parsed = append(parsed, entry{step, path, delta})
 		if root, indexed := listRoot(path); indexed {
 			lists[list{step, root}] = true
 		}
 	}
 	order := []any{}
 	entries := map[list][]entry{}
-	for _, u := range unstable {
-		step, rest, _ := strings.Cut(u, " ")
-		path, delta, _ := strings.Cut(rest, ": ")
-		root, _ := listRoot(path)
-		key := list{step, root}
+	for _, e := range parsed {
+		root, _ := listRoot(e.path)
+		key := list{e.step, root}
 		if !lists[key] {
-			order = append(order, u)
+			order = append(order, e)
 			continue
 		}
 		if _, seen := entries[key]; !seen {
 			order = append(order, key)
 		}
-		entries[key] = append(entries[key], entry{path, delta})
+		entries[key] = append(entries[key], e)
 	}
 	out := make([]string, 0, len(order))
 	for _, o := range order {
 		switch t := o.(type) {
-		case string:
-			step, rest, _ := strings.Cut(t, " ")
-			path, delta, _ := strings.Cut(rest, ": ")
-			line := "`" + step + " " + path + "`"
-			if delta != "" {
-				line += " " + delta
+		case entry:
+			line := "`" + t.step + " " + t.path + "`"
+			if t.delta != "" {
+				line += " " + t.delta
 			}
 			out = append(out, line)
 		case list:
@@ -1171,14 +1176,10 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		for _, text := range itemRefusals(st) {
 			refusals.add(text)
 		}
-		beyond := false
-		for _, e := range st.Expect {
-			beyond = beyond || !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path)
-		}
 		switch {
 		case len(st.Expect) == 0:
 			bare++
-		case !beyond && answer == chain.EnvelopeOK():
+		case len(beyondVerdict(st, envelope)) == 0 && answer == chain.EnvelopeOK():
 			verdictOnly++
 		}
 		if st.Warning != "" {
