@@ -364,10 +364,7 @@ func shortNewFailure(line string) string {
 	if len(found) == 1 && len(line) <= 200 {
 		return line
 	}
-	first := found[0]
-	if len(first) > 160 {
-		first = first[:157] + "..."
-	}
+	first := capText(found[0], 160)
 	if len(found) > 1 {
 		return fmt.Sprintf("%s%s, and %d more (listed above)", runner.NewFailurePrefix, first, len(found)-1)
 	}

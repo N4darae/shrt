@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
 	"strings"
 
@@ -28,19 +29,8 @@ func (u *unansweredRepeat) line() string {
 		"backend answered %d later step(s) in this run and %d in that one, and answered %s at %s: the backend fails this step's "+
 		"request every time while answering other calls, so it is not an outage or a restart. This is a finding about the "+
 		"backend at step %s (%s with this request)",
-		u.how, u.step.Index, u.step.ID, u.step.Call, requestSummary(u.step), u.repeat, u.later, u.before, u.step.Call,
+		u.how, u.step.Index, u.step.ID, u.step.Call, cmp.Or(capText(strings.TrimSpace(string(u.step.Request)), 160), "{}"), u.repeat, u.later, u.before, u.step.Call,
 		strings.Join(u.others, ", "), u.step.ID, u.step.Call)
-}
-
-func requestSummary(st *runner.StepRecord) string {
-	text := strings.TrimSpace(string(st.Request))
-	if text == "" {
-		return "{}"
-	}
-	if len(text) > 160 {
-		text = text[:157] + "..."
-	}
-	return text
 }
 
 func answeredIn(rec *runner.Record, at *runner.StepRecord) (string, bool) {

@@ -211,25 +211,24 @@ func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error
 		}
 		profiles.Content = append(profiles.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name}, &value)
 	}
+	if err := writeYAML(cfgPath, &doc); err != nil {
+		return nil, err
+	}
+	cfg.Auth.Profiles = probe.Auth.Profiles
+	return added, nil
+}
+
+func writeYAML(path string, doc *yaml.Node) error {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
-		return nil, err
+	if err := enc.Encode(doc); err != nil {
+		return err
 	}
 	if err := enc.Close(); err != nil {
-		return nil, err
+		return err
 	}
-	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
-		return nil, err
-	}
-	if cfg.Auth.Profiles == nil {
-		cfg.Auth.Profiles = map[string]*config.Auth{}
-	}
-	for _, name := range names {
-		cfg.Auth.Profiles[name] = probe.Auth.Profiles[name]
-	}
-	return added, nil
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }
 
 func mappingValue(m *yaml.Node, key string) *yaml.Node {

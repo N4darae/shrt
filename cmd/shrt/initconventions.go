@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -65,16 +64,7 @@ func declareConventions(ctx context.Context, cfg *config.Config, cfgPath string)
 		}
 	}
 	top.Content = append(top.Content[:at], append([]*yaml.Node{key, &value}, top.Content[at:]...)...)
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
-		return "", err
-	}
-	if err := enc.Close(); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
+	if err := writeYAML(cfgPath, &doc); err != nil {
 		return "", err
 	}
 	cfg.Conventions.EnvelopePath = block.EnvelopePath
