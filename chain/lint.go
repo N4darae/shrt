@@ -1238,6 +1238,32 @@ const (
 	KindAuthEnvUnset         = "auth-env-unset"
 )
 
+func FoldEnvelopeOnly(issues []Issue) []Issue {
+	folded := func(i Issue) bool { return i.Kind == KindEnvelopeOnly && i.Severity == SeverityWarn && i.Step != "" }
+	steps := []string{}
+	for _, i := range issues {
+		if folded(i) {
+			steps = append(steps, i.Step)
+		}
+	}
+	if len(steps) < 2 {
+		return issues
+	}
+	out := make([]Issue, 0, len(issues)-len(steps)+1)
+	for _, i := range issues {
+		if !folded(i) {
+			out = append(out, i)
+			continue
+		}
+		if len(steps) > 0 {
+			i.Step, i.Message = strings.Join(steps, ", "), fmt.Sprintf("%d steps assert only the verdict, though the "+
+				"contracts for their rpcs declare what each response carries ('chain lint -v' names the fields per step)", len(steps))
+			out, steps = append(out, i), nil
+		}
+	}
+	return out
+}
+
 func IsAssertionQualityIssue(i Issue) bool {
 	switch i.Kind {
 	case KindUnfailable, KindAssertsNone, KindUnreachable, KindDeadRef, KindBadExport, KindInertAllowFail,

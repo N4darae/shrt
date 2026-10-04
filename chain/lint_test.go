@@ -905,3 +905,21 @@ func TestUnreachableExpectationsAreTheLintErrorsRunRefuses(t *testing.T) {
 		t.Fatalf("a clean chain: %+v", got)
 	}
 }
+
+func TestEnvelopeOnlyWarningsFoldIntoOneLinePerChain(t *testing.T) {
+	warn := func(step string) chain.Issue {
+		return chain.Issue{Step: step, Severity: chain.SeverityWarn, Kind: chain.KindEnvelopeOnly, Message: "asserts only the verdict at " + step, Why: "why"}
+	}
+	other := chain.Issue{Step: "b", Severity: chain.SeverityWarn, Message: "something else"}
+	got := chain.FoldEnvelopeOnly([]chain.Issue{warn("a"), other, warn("c")})
+	if len(got) != 2 || got[0].Step != "a, c" || !strings.HasPrefix(got[0].Message, "2 steps assert only the verdict") || got[0].Why != "why" || got[1] != other {
+		t.Fatalf("one line at the first, naming both steps: %+v", got)
+	}
+	strict := warn("c")
+	strict.Severity = chain.SeverityError
+	for _, issues := range [][]chain.Issue{{warn("a"), other}, {warn("a"), strict}} {
+		if got := chain.FoldEnvelopeOnly(issues); !slices.Equal(got, issues) {
+			t.Fatalf("a lone warning, or one -strict made an error, stays as it was: %+v", got)
+		}
+	}
+}
