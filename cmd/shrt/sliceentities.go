@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -117,12 +116,7 @@ func primaryEntities(resp any) []primaryEntity {
 		return nil
 	}
 	out := []primaryEntity{}
-	keys := make([]string, 0, len(top))
-	for k := range top {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(top) {
 		switch t := top[k].(type) {
 		case string:
 			if isIDKey(k) && t != "" {

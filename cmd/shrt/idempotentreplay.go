@@ -224,12 +224,7 @@ func replayedKey(c *chain.Chain, now, was *runner.StepRecord) *idempotentReplay 
 			}
 		}
 	}
-	names := make([]string, 0, len(now.Headers))
-	for k := range now.Headers {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	for _, k := range sortedKeys(now.Headers) {
 		if !chain.IdempotencyKeyName(k) {
 			continue
 		}

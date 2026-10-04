@@ -7,7 +7,6 @@ import (
 	"os"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"testing"
 
@@ -62,12 +61,7 @@ func helpOf(t *testing.T, command string, args ...string) string {
 var cliGroups = []group{catalogGroup, chainGroup, contractGroup}
 
 func TestEveryCommandAnswersHelpAndEveryGroupListsItsSubcommands(t *testing.T) {
-	names := make([]string, 0, len(commands))
-	for n := range commands {
-		names = append(names, n)
-	}
-	sort.Strings(names)
-	for _, name := range names {
+	for _, name := range sortedKeys(commands) {
 		for _, arg := range []string{"-h", "--help"} {
 			if err := commands[name].run(context.Background(), []string{arg}); err != nil && !errors.Is(err, flag.ErrHelp) {
 				t.Errorf("shrt %s %s: %v", name, arg, err)

@@ -722,13 +722,8 @@ func varsConfirmedOtherwise(e *env, spotRun string, rec *runner.Record, supplied
 	if err != nil {
 		return nil
 	}
-	names := make([]string, 0, len(fed))
-	for k := range fed {
-		names = append(names, k)
-	}
-	sort.Strings(names)
 	out := []string{}
-	for _, k := range names {
+	for _, k := range sortedKeys(fed) {
 		if _, set := supplied[k]; set {
 			continue
 		}
@@ -1291,13 +1286,8 @@ func alsoClasses(report *diff.Report, first *diff.Change, classOf func(diff.Chan
 			counts[cl]++
 		}
 	}
-	names := make([]string, 0, len(counts))
-	for cl := range counts {
-		names = append(names, cl)
-	}
-	sort.Strings(names)
 	out := ""
-	for _, cl := range names {
+	for _, cl := range sortedKeys(counts) {
 		out += fmt.Sprintf("; also %s at %d step(s)", cl, counts[cl])
 	}
 	return out

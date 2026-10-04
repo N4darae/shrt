@@ -926,12 +926,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 
 func varsDifferBetween(source, replay *runner.Record, fresh map[string]bool) string {
 	out := []string{}
-	names := make([]string, 0, len(replay.Vars))
-	for k := range replay.Vars {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	for _, k := range names {
+	for _, k := range sortedKeys(replay.Vars) {
 		was, ok := source.Vars[k]
 		if !ok || fresh[k] || fmt.Sprint(was) == pathmask.MaskRedacted {
 			continue

@@ -355,13 +355,8 @@ func chainLint(args []string) error {
 		reports = append(reports, lintReport{Chain: c.Name, Issues: issues})
 	}
 	if len(shellUnset) > 0 {
-		profiles := make([]string, 0, len(shellUnset))
-		for p := range shellUnset {
-			profiles = append(profiles, p)
-		}
-		sort.Strings(profiles)
 		named := []string{}
-		for _, p := range profiles {
+		for _, p := range sortedKeys(shellUnset) {
 			named = append(named, fmt.Sprintf("%s (auth profile %q)", strings.Join(shellUnset[p], ", "), p))
 		}
 		reports = append([]lintReport{{Chain: "<shell>", Issues: []chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindAuthEnvUnset, Message: fmt.Sprintf(

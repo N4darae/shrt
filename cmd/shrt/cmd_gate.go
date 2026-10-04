@@ -759,12 +759,7 @@ func (g *gateChain) findingOnly() bool {
 }
 
 func (g *gateChain) flakyCalls() []string {
-	calls := make([]string, 0, len(g.flaky))
-	for c := range g.flaky {
-		calls = append(calls, c)
-	}
-	sort.Strings(calls)
-	return calls
+	return sortedKeys(g.flaky)
 }
 
 func (g *gateChain) flakyKindOf(call string) string {
@@ -1005,11 +1000,7 @@ func runGate(ctx context.Context, args []string) error {
 			findings = append(findings, f)
 		}
 	}
-	profiles := []string{}
-	for p := range early {
-		profiles = append(profiles, p)
-	}
-	sort.Strings(profiles)
+	profiles := sortedKeys(early)
 	once, check := []string{}, []string{}
 	for _, p := range profiles {
 		if early[p] <= 1 && !*noSessionCheck {

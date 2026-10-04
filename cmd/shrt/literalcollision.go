@@ -161,11 +161,7 @@ func leafName(path string) string {
 }
 
 func suggestedVar(c *chain.Chain) string {
-	names := []string{}
-	for n := range isolationVars(c) {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := sortedKeys(isolationVars(c))
 	for _, n := range names {
 		if n == "tag" {
 			return n

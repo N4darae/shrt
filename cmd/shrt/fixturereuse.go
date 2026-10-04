@@ -201,11 +201,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	ids, _ := e.store.ListRuns(rec.Chain)
-	names := make([]string, 0, len(fed))
-	for n := range fed {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+	names := sortedKeys(fed)
 	for i := len(ids) - 1; i >= 0; i-- {
 		if ids[i] == rec.RunID {
 			continue
@@ -625,12 +621,7 @@ func stepRefusalText(st *runner.StepRecord) string {
 func visitStrings(v any, visit func(string)) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(t) {
 			visitStrings(t[k], visit)
 		}
 	case []any:

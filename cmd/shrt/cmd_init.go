@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -358,11 +357,7 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 	}
 	fmt.Printf("write %s/%s auth: %s, GUESSED from the descriptor: check it and the credential variables it names\n",
 		config.DirName, config.FileName, best.Method.FullName)
-	names := make([]string, 0, len(cfg.Auth.Profiles))
-	for name := range cfg.Auth.Profiles {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := sortedKeys(cfg.Auth.Profiles)
 	role := map[string]bool{}
 	for _, r := range roles {
 		name, _, _ := strings.Cut(r, " ")

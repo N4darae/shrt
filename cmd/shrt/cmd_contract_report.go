@@ -86,11 +86,7 @@ func contractStatus(args []string) error {
 	for _, g := range contract.EmptyFilterGaps(chains, lib, e.cat) {
 		emptyGaps[g.RPC] = append(emptyGaps[g.RPC], g)
 	}
-	loginNames := []string{}
-	for name := range logins {
-		loginNames = append(loginNames, name)
-	}
-	sort.Strings(loginNames)
+	loginNames := sortedKeys(logins)
 	loginGaps := map[string][]contract.LoginFailureGap{}
 	for _, g := range contract.LoginFailureGaps(chains, lib, e.cat, loginNames) {
 		loginGaps[g.RPC] = append(loginGaps[g.RPC], g)

@@ -618,11 +618,7 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 		fmt.Fprintf(&b, "\n  %s", line)
 	}
 	if len(rec.Exports) > 0 {
-		names := make([]string, 0, len(rec.Exports))
-		for k := range rec.Exports {
-			names = append(names, k)
-		}
-		sort.Strings(names)
+		names := sortedKeys(rec.Exports)
 		if dry {
 			fmt.Fprintf(&b, "\n  exports not produced in a dry run (nothing was sent, so no response exists to read them from): %s",
 				strings.Join(names, ", "))
