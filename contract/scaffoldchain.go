@@ -121,27 +121,13 @@ func leastUsed(choices []string, used map[string]int) string {
 
 func distinguishFixtures(step *chain.Step, id, first string) {
 	suffix := strings.TrimPrefix(id, first+"_")
-	var walk func(v any) any
-	walk = func(v any) any {
-		switch t := v.(type) {
-		case map[string]any:
-			for k, x := range t {
-				t[k] = walk(x)
-			}
-		case []any:
-			for i, x := range t {
-				t[i] = walk(x)
-			}
-		case string:
-			loc := planVarRef.FindStringIndex(t)
-			if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
-				return t
-			}
-			return markAfterVar(t, loc, suffix)
+	step.Body, _ = mapStrings(step.Body, func(t string) string {
+		loc := planVarRef.FindStringIndex(t)
+		if loc == nil || (loc[0] == 0 && loc[1] == len(t)) {
+			return t
 		}
-		return v
-	}
-	step.Body, _ = walk(step.Body).(map[string]any)
+		return markAfterVar(t, loc, suffix)
+	}).(map[string]any)
 }
 
 func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[string]string) {

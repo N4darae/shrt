@@ -931,32 +931,20 @@ var planVarRef = regexp.MustCompile(`\$\{vars\.([A-Za-z0-9_]+)\}`)
 
 func (p *Plan) declareInterpolatedVars(missing []string) {
 	interpolated, whole := map[string]bool{}, map[string]bool{}
-	var walk func(any)
-	walk = func(v any) {
-		switch t := v.(type) {
-		case string:
+	for _, st := range p.Chain.Steps {
+		if st == nil {
+			continue
+		}
+		mapStrings(st.Body, func(t string) string {
 			for _, m := range planVarRef.FindAllStringSubmatchIndex(t, -1) {
-				name := t[m[2]:m[3]]
-				if m[0] == 0 && m[1] == len(t) {
+				if name := t[m[2]:m[3]]; m[0] == 0 && m[1] == len(t) {
 					whole[name] = true
 				} else {
 					interpolated[name] = true
 				}
 			}
-		case map[string]any:
-			for _, item := range t {
-				walk(item)
-			}
-		case []any:
-			for _, item := range t {
-				walk(item)
-			}
-		}
-	}
-	for _, st := range p.Chain.Steps {
-		if st != nil {
-			walk(st.Body)
-		}
+			return t
+		})
 	}
 	value := p.Chain.Name
 	if value == "" {

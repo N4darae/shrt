@@ -147,8 +147,7 @@ func (p *Plan) indexSuffix(subject, named string) string {
 }
 
 func renameStepsIn(v any, to map[string]string) any {
-	switch t := v.(type) {
-	case string:
+	return mapStrings(v, func(t string) string {
 		return stepRefHead.ReplaceAllStringFunc(t, func(ref string) string {
 			sub := stepRefHead.FindStringSubmatch(ref)
 			if id, ok := to[sub[3]]; ok {
@@ -156,16 +155,5 @@ func renameStepsIn(v any, to map[string]string) any {
 			}
 			return ref
 		})
-	case map[string]any:
-		for k, x := range t {
-			t[k] = renameStepsIn(x, to)
-		}
-		return t
-	case []any:
-		for i, x := range t {
-			t[i] = renameStepsIn(x, to)
-		}
-		return t
-	}
-	return v
+	})
 }

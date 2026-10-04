@@ -140,26 +140,30 @@ func sharedProducers(first, second map[string]any, producer func(string) bool) [
 	return out
 }
 
-func rewriteRefs(v any, to map[string]string) any {
+func mapStrings(v any, f func(string) string) any {
 	switch t := v.(type) {
+	case string:
+		return f(t)
 	case map[string]any:
 		for k, x := range t {
-			t[k] = rewriteRefs(x, to)
+			t[k] = mapStrings(x, f)
 		}
-		return t
 	case []any:
 		for i, x := range t {
-			t[i] = rewriteRefs(x, to)
+			t[i] = mapStrings(x, f)
 		}
-		return t
-	case string:
+	}
+	return v
+}
+
+func rewriteRefs(v any, to map[string]string) any {
+	return mapStrings(v, func(t string) string {
 		for from, id := range to {
 			t = strings.ReplaceAll(t, "${"+from+".", "${"+id+".")
 			t = strings.ReplaceAll(t, "${steps."+from+".", "${steps."+id+".")
 		}
 		return t
-	}
-	return v
+	})
 }
 
 func (p *Plan) freeStepID(base string) string {

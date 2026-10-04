@@ -7,19 +7,10 @@ import (
 )
 
 func bodyText(v any, out *strings.Builder) {
-	switch t := v.(type) {
-	case string:
-		out.WriteString(t)
-		out.WriteByte('\n')
-	case map[string]any:
-		for _, item := range t {
-			bodyText(item, out)
-		}
-	case []any:
-		for _, item := range t {
-			bodyText(item, out)
-		}
-	}
+	mapStrings(v, func(t string) string {
+		out.WriteString(t + "\n")
+		return t
+	})
 }
 
 func (p *Plan) statesBefore(lib *Library, t *listTarget, values []string, short map[string]string) map[string]string {
