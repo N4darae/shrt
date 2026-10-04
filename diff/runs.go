@@ -82,10 +82,6 @@ func (r *RunReport) Same() bool {
 		len(r.NewlyReached) == 0 && len(r.ErrorChanges) == 0 && len(r.Changes) == 0 && len(r.RequestChanges) == 0
 }
 
-func reached(rec *runner.Record, s *runner.StepRecord) bool {
-	return StepReached(rec, s)
-}
-
 func stepError(s *runner.StepRecord) string {
 	if s == nil || (s.Status != runner.StatusError && s.Status != runner.StatusSkipped && s.Transport == nil) {
 		return ""
@@ -136,7 +132,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	allB := map[string]*runner.StepRecord{}
 	for _, s := range b.Steps {
 		allB[s.ID] = s
-		if reached(b, s) {
+		if StepReached(b, s) {
 			byID[s.ID] = s
 		}
 	}
@@ -147,7 +143,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	inA := map[string]bool{}
 	base := mergePatterns(a.Volatile, b.Volatile, extra)
 	for _, sa := range a.Steps {
-		if !reached(a, sa) {
+		if !StepReached(a, sa) {
 			continue
 		}
 		inA[sa.ID] = true
@@ -179,7 +175,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		}
 	}
 	var renamed, echoed []Change
-	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, renames)
+	rep.Changes, renamed, _ = splitStaleEchoes(rep.Changes, rep.compared, renames)
 	rep.Masked += len(renamed)
 	rep.MaskedChanges = append(rep.MaskedChanges, withMask(renamed, renamedMask)...)
 	var stale []Change
@@ -189,7 +185,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	rep.Changes = append(rep.Changes, stale...)
 	for _, sa := range a.Steps {
 		sb := allB[sa.ID]
-		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || reached(a, sa) || reached(b, sb) {
+		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || StepReached(a, sa) || StepReached(b, sb) {
 			continue
 		}
 		if ea, eb := firstLineOf(sa.Error), firstLineOf(sb.Error); ea != eb {
@@ -206,13 +202,13 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 			otherSteps[s.ID] = s
 		}
 		for _, s := range kept.Steps {
-			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !reached(other, o)) {
+			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !StepReached(other, o)) {
 				rep.SkippedKeepGoing = append(rep.SkippedKeepGoing, s.ID)
 			}
 		}
 	}
 	for _, sb := range b.Steps {
-		if reached(b, sb) && !inA[sb.ID] {
+		if StepReached(b, sb) && !inA[sb.ID] {
 			rep.NewlyReached = append(rep.NewlyReached, sb.ID)
 			if why := stepError(allA[sb.ID]); why != "" {
 				rep.WhyNotReached = append(rep.WhyNotReached, StepStatus{Step: sb.ID, A: allA[sb.ID].Status, B: sb.Status, ErrorA: why})
@@ -324,7 +320,7 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 				}
 			}
 		}
-		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got)) {
+		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
 			hidden := c
 			hidden.Step, hidden.Path, hidden.Mask = sa.ID, "request."+c.Path, shapeMask
@@ -456,10 +452,6 @@ func runShape(s string) string {
 }
 
 func LooksVolatile(path string, a, b any) bool {
-	return looksVolatile(path, a, b)
-}
-
-func looksVolatile(path string, a, b any) bool {
 	if timeMismatch(path, a, b, nil, nil) != "" {
 		return false
 	}

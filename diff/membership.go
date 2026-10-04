@@ -120,7 +120,7 @@ func (r *Report) pairedChanges(cs comparedStep, list string) []Change {
 		aligned[i] = w
 		walk(w, it, list+"."+strconv.Itoa(i), func(c Change) {
 			c.Step = cs.id
-			if cs.mask != nil && maskedValue(cs.mask, c) || c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+			if cs.mask != nil && maskedValue(cs.mask, c) || c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got) {
 				return
 			}
 			out = append(out, c)

@@ -198,16 +198,6 @@ func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
 
 func (r *Report) Clean() bool { return len(r.Changes) == 0 }
 
-func (r *Report) NotReachedCount() int {
-	n := 0
-	for _, c := range r.Changes {
-		if c.Kind == KindNotReached {
-			n++
-		}
-	}
-	return n
-}
-
 func (r *Report) Counted() int {
 	changedAt := r.valueChangedSteps()
 	n := 0
@@ -374,7 +364,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				rep.VolatilePaths = append(rep.VolatilePaths, c.Step+" "+c.Path)
 				c.Mask = maskOf(stepMask, c)
 				rep.VolatileValues = append(rep.VolatileValues, c)
-				if !maskedValue(approved, c) && (c.Kind != KindChanged || !looksVolatile(c.Path, c.Want, c.Got)) {
+				if !maskedValue(approved, c) && (c.Kind != KindChanged || !LooksVolatile(c.Path, c.Want, c.Got)) {
 					rep.UnapprovedMasked = append(rep.UnapprovedMasked, c.Step+" "+c.Path)
 				}
 			case shaped && !valueVanished(c):
@@ -401,7 +391,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	rep.renames = idRenames(idPairs)
 	rep.collapseMembership(rec)
 	var renamed []Change
-	rep.Changes, renamed = splitEchoes(rep.Changes, rep.compared, rep.renames)
+	rep.Changes, renamed, _ = splitStaleEchoes(rep.Changes, rep.compared, rep.renames)
 	rep.Masked += len(renamed)
 	rep.ShapeMasked = append(rep.ShapeMasked, renamed...)
 	rep.dropEchoedUnapproved(rep.renames)
@@ -798,7 +788,7 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 			if derived != nil && derived(want.ID, c.Path) {
 				return
 			}
-			if derived == nil && c.Kind == KindChanged && looksVolatile(c.Path, c.Want, c.Got) {
+			if derived == nil && c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got) {
 				return
 			}
 			if (c.Kind == KindChanged || c.Kind == KindType) && (c.Want == pathmask.MaskRedacted || c.Got == pathmask.MaskRedacted) {

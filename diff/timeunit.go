@@ -172,7 +172,7 @@ func volatileIn(path string, a, b any, wa, wb *runWindow) (bool, string) {
 	if why := timeMismatch(path, a, b, wa, wb); why != "" {
 		return false, why
 	}
-	return looksVolatile(path, a, b), ""
+	return LooksVolatile(path, a, b), ""
 }
 
 func noteTimeUnit(c *Change) {

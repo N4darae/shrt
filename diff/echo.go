@@ -124,11 +124,6 @@ func walkRenamedText(steps []comparedStep, r *strings.Replacer, visit func(step,
 	}
 }
 
-func splitEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed []Change) {
-	kept, echoed, _ = splitStaleEchoes(changes, steps, pairs)
-	return kept, echoed
-}
-
 func splitStaleEchoes(changes []Change, steps []comparedStep, pairs [][2]string) (kept, echoed, stale []Change) {
 	echo := map[string]bool{}
 	walkRenamedText(steps, renamer(pairs), func(step, path, want, got, renamed string) {
