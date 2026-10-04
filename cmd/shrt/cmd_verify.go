@@ -237,7 +237,8 @@ func (v *verification) compare() {
 	spot, renamedSteps := diff.RenameSpotSteps(v.spot, rec.Steps)
 	v.spot = spot
 	v.latency = latencyFlags(e, spot, rec, latencyPolicy(e))
-	report := diff.CompareMasking(spot, rec, currentVolatile(e, name))
+	volatile := currentVolatile(e, name)
+	report := diff.CompareMasking(spot, rec, volatile)
 	v.report = report
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
@@ -249,7 +250,7 @@ func (v *verification) compare() {
 		edited := diff.ChainChangesIn(spot, c, rec)
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
-		report.SeparateInput(spot, rec, currentVolatile(e, name), requestFixtures(c))
+		report.SeparateInput(spot, rec, volatile, requestFixtures(c))
 	}
 }
 
