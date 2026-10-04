@@ -325,26 +325,11 @@ func ExplainLaterRef(c *Chain, stepIndex int, err error) error {
 	r := ParseRef(u.Expr)
 	idx := newRefIndex(c)
 	here := stepIndex + 1
-	name := r.Head
-	if r.Kind == RefExports {
-		name, _, _ = strings.Cut(r.Rest, ".")
-	}
 	why := ""
-	switch r.Kind {
-	case RefExports:
-		if idx.exportedBy[name] > here {
-			why = idx.laterExport(name)
-		}
-	case RefBare:
-		if idx.exportedBy[name] > here {
-			why = idx.laterExport(name)
-		} else if idx.stepAt[name] > here {
-			why = idx.laterStep(name)
-		}
-	case RefStep:
-		if idx.stepAt[r.Head] > here {
-			why = idx.laterStep(r.Head)
-		}
+	if name, ok := r.ExportName(); ok && idx.exportedBy[name] > here {
+		why = idx.laterExport(name)
+	} else if id, ok := r.StepID(); ok && idx.stepAt[id] > here {
+		why = idx.laterStep(id)
 	}
 	if why == "" {
 		return err

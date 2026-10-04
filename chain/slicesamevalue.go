@@ -21,12 +21,8 @@ func (x *stepIndex) sameValueWrites(at int, keeps map[int]*Keep, opts SliceOptio
 	}
 	sort.Strings(fields)
 	out := []sideEffectWrite{}
-	for w := 0; w < at; w++ {
-		if _, kept := keeps[w]; kept {
-			continue
-		}
-		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || notSent(s, opts) || producesNothing(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+	for w, s := range x.c.Steps[:at] {
+		if _, kept := keeps[w]; kept || !opts.write(s) || notSent(s, opts) || producesNothing(s, opts) {
 			continue
 		}
 		theirs := map[string]string{}

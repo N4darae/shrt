@@ -174,10 +174,9 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		j, ok := idx.byID[id]
 		if !ok && id == SliceKeepWrites {
 			for w, s := range c.Steps[:at] {
-				if !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
-					continue
+				if opts.write(s) {
+					add(w, KeepAsked, "kept by -keep writes")
 				}
-				add(w, KeepAsked, "kept by -keep writes")
 			}
 			continue
 		}
@@ -249,10 +248,8 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		added := false
 		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
 			for _, w := range writes(at, keeps, opts) {
-				if opts.Refused != nil {
-					if why, refused := opts.Refused(c.Steps[w.index].ID); refused {
-						w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
-					}
+				if why, refused := opts.refused(c.Steps[w.index].ID); refused {
+					w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
 				}
 				add(w.index, KeepSideEffect, w.reason)
 				added = true
@@ -294,16 +291,14 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	for i, s := range c.Steps[:at] {
-		if _, seen := keeps[i]; seen || !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+		if _, seen := keeps[i]; seen || !opts.write(s) {
 			continue
 		}
 		d := Dropped{Index: i + 1, ID: s.ID, Call: s.Call}
-		if opts.Refused != nil {
-			if why, refused := opts.Refused(s.ID); refused {
-				d.Reason = why
-				res.RefusedWrites = append(res.RefusedWrites, d)
-				continue
-			}
+		if why, refused := opts.refused(s.ID); refused {
+			d.Reason = why
+			res.RefusedWrites = append(res.RefusedWrites, d)
+			continue
 		}
 		res.DroppedWrites = append(res.DroppedWrites, d)
 	}
@@ -332,7 +327,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		st := copyStep(c.Steps[i])
 		if st.ID != target && opts.Relax != nil {
 			results := slices.Clone(opts.Relax(st.ID))
-			if isWriteCall(st.Call) && (opts.IsLogin == nil || !opts.IsLogin(st)) {
+			if opts.write(st) {
 				for j, r := range results {
 					if !r.Passed && targetFailed[PathLeaf(r.Path)] {
 						res.KeptFailing = append(res.KeptFailing, Relaxed{Step: st.ID, Path: r.Path, Rule: r.Rule, Want: r.Want, Got: r.Got})
@@ -831,12 +826,8 @@ func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, opts SliceOpti
 		return states[a].rpc < states[b].rpc
 	})
 	out := []sideEffectWrite{}
-	for w := 0; w < at; w++ {
-		if _, kept := keeps[w]; kept {
-			continue
-		}
-		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+	for w, s := range x.c.Steps[:at] {
+		if _, kept := keeps[w]; kept || !opts.write(s) || notSent(s, opts) {
 			continue
 		}
 		rpc := x.rpcOf(w, opts)
@@ -906,12 +897,8 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 	}
 	sort.Ints(readers)
 	out := []sideEffectWrite{}
-	for w := 0; w < at; w++ {
-		if _, kept := keeps[w]; kept {
-			continue
-		}
-		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+	for w, s := range x.c.Steps[:at] {
+		if _, kept := keeps[w]; kept || !opts.write(s) || notSent(s, opts) {
 			continue
 		}
 		reach := x.entitiesReached(w, true, map[int]bool{})
@@ -966,20 +953,24 @@ func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
 	return !slices.ContainsFunc(collectRefs(v), func(ref string) bool { _, kind := x.producerOf(ref, at); return kind == refStep })
 }
 
-func producesNothing(s *Step, opts SliceOptions) bool {
-	if opts.Refused != nil {
-		if _, refused := opts.Refused(s.ID); refused {
-			return true
-		}
+func (o SliceOptions) refused(id string) (string, bool) {
+	if o.Refused == nil {
+		return "", false
 	}
-	return ExpectsRefusal(s)
+	return o.Refused(id)
+}
+
+func (o SliceOptions) write(s *Step) bool {
+	return isWriteCall(s.Call) && (o.IsLogin == nil || !o.IsLogin(s))
+}
+
+func producesNothing(s *Step, opts SliceOptions) bool {
+	_, refused := opts.refused(s.ID)
+	return refused || ExpectsRefusal(s)
 }
 
 func notSent(s *Step, opts SliceOptions) bool {
-	if opts.Refused == nil {
-		return false
-	}
-	why, refused := opts.Refused(s.ID)
+	why, refused := opts.refused(s.ID)
 	return refused && why == RefusedNotSent
 }
 
