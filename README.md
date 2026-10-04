@@ -96,7 +96,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 | `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, each run past a failed step (`-keep-going=false` stops at the first), 0 when every run failed the same way (`reproduced n/n`); its last line, `exit <code>: <outcome>`, says which | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot: a short summary to show the user, the full report in `.shrt/safespots/pending/`; `-all` proposes every chain whose latest run passed and whose safe spot is missing or differs | 1 refused |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes (`-all` for each pending one); `-reject`, `-pending`; `<new> -rename-from <old>` carries one across a pure rename | 1 refused |
-| `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
+| `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline; a value a refused call left null or absent shows the approved one by its shape only (`want=object (as the approved run answered) got=null: refused <code>`) | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs; no safe spot needed, not a verdict | 1 they differ; 2 could not compare |
 | `shrt gate` | the CI gate, below | 1 a failure, a `FINDING` or the ratchet; 3 |
 

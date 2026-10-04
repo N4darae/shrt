@@ -233,3 +233,30 @@ func TestVerifyTellsAWriteFromTheReadThroughAnotherRead(t *testing.T) {
 		t.Errorf("got:\n%s", line)
 	}
 }
+
+func TestARefusedReadsWantIsItsShapeNotTheApprovedValues(t *testing.T) {
+	step := func(response string) *runner.StepRecord {
+		return &runner.StepRecord{ID: "fetch", Call: "shrt.test.v1.ThingService/Fetch", Status: runner.StatusPassed, Response: json.RawMessage(response)}
+	}
+	spot := &store.SafeSpot{Chain: "c", RunID: "spot", Steps: []*runner.StepRecord{step(`{"error":{"code":"OK"},"order":{"id_order":"ord-d475"},"note":"n"}`)}}
+	rec := &runner.Record{Chain: "c", RunID: "run", Status: runner.StatusFailed, Steps: []*runner.StepRecord{step(`{"error":{"code":"NOT_FOUND"},"order":null}`)}}
+	rec.Steps[0].Status = runner.StatusFailed
+	report := diff.Compare(spot, rec)
+	noteRefused(report, rec)
+	text := report.Text()
+	for _, want := range []string{"[fetch] type       order want=object (as the approved run answered) got=null: refused NOT_FOUND",
+		"[fetch] missing    note want=string (as the approved run answered) got=absent: refused NOT_FOUND"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("want %q in:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "ord-d475") {
+		t.Errorf("the approved run's ids are not shown for a refused read:\n%s", text)
+	}
+	rec.Steps[0].Response = json.RawMessage(`{"error":{"code":"OK"},"order":null}`)
+	report = diff.Compare(spot, rec)
+	noteRefused(report, rec)
+	if !strings.Contains(report.Text(), "ord-d475") {
+		t.Errorf("an answered read that lost its object shows what the approved run had:\n%s", report.Text())
+	}
+}

@@ -42,6 +42,7 @@ type Change struct {
 	WithInput  bool   `json:"with_different_input,omitempty"`
 	ReplayPath string `json:"replay_path,omitempty"`
 	Mask       string `json:"mask,omitempty"`
+	Refused    string `json:"refused,omitempty"`
 }
 
 type Report struct {
@@ -1152,6 +1153,13 @@ func (c Change) describe() string {
 }
 
 func (c Change) describeValues() string {
+	if c.Refused != "" {
+		got := "null"
+		if c.Kind == KindMissing {
+			got = "absent"
+		}
+		return fmt.Sprintf("want=%s (as the approved run answered) got=%s: refused %s", jsonKind(c.Want), got, c.Refused)
+	}
 	if c.Kind == KindNotReached {
 		if c.Got == nil {
 			return fmt.Sprintf("want=%s got=not recorded", show(c.Want))
