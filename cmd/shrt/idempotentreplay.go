@@ -146,20 +146,14 @@ func sendsIdempotencyKey(st *runner.StepRecord) bool {
 
 func recordedRuns(e *env, rec *runner.Record, spot string) []*runner.Record {
 	out := []*runner.Record{}
-	add := func(name string) {
-		ids, _ := e.store.ListRuns(name)
-		for i := len(ids) - 1; i >= 0; i-- {
-			if name == rec.Chain && (ids[i] == rec.RunID || ids[i] == spot) {
-				continue
+	add := func(name string, skip ...string) {
+		for prev := range newestRuns(e, name, skip...) {
+			if prev.RunID != rec.RunID {
+				out = append(out, prev)
 			}
-			prev, err := e.store.LoadRun(name, ids[i])
-			if err != nil || prev.DryRun || prev.RunID == rec.RunID {
-				continue
-			}
-			out = append(out, prev)
 		}
 	}
-	add(rec.Chain)
+	add(rec.Chain, rec.RunID, spot)
 	entries, err := os.ReadDir(e.store.RunsDir)
 	if err != nil {
 		return out

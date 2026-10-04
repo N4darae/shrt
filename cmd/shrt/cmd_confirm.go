@@ -234,20 +234,12 @@ func listProposals(e *env) error {
 }
 
 func unstableFields(e *env, rec *runner.Record) (string, []string, []string) {
-	ids, err := e.store.ListRuns(rec.Chain)
-	if err != nil {
-		return "", nil, nil
-	}
 	spot, err := e.store.LoadSafeSpot(rec.Chain)
 	if err != nil {
 		spot = nil
 	}
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || !prev.Passed() || prev.DryRun || !config.SameTarget(prev.Target, rec.Target) {
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		if !prev.Passed() || !config.SameTarget(prev.Target, rec.Target) {
 			continue
 		}
 		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)

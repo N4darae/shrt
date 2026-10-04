@@ -166,7 +166,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	fed := map[string]bool{}
-	conflicting := conflictingFields(fields, why)
+	conflicting, cited := conflictingFields(fields, why)
 	if erred := erredBefore(rec, index, conflicting); erred != nil {
 		return &fixtureReuse{step: first.ID, index: index, why: why, erred: erred}
 	}
@@ -185,7 +185,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(unique) != len(conflicting) {
 		unique = nil
 	}
-	if len(unique) > 0 && !namesAField(fields, why) {
+	if len(unique) > 0 && !cited {
 		return nil
 	}
 	if len(unique) > 0 {
@@ -194,14 +194,9 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(fed) == 0 {
 		return nil
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
 	names := sortedKeys(fed)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !usedBy(prev, first.ID) {
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		if prev = namedAs(prev, rec); !usedBy(prev, first.ID) {
 			continue
 		}
 		same := []string{}
@@ -223,12 +218,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			sentValues = append(sentValues, f.sent)
 		}
 	}
-	current := []string{}
-	for _, n := range names {
-		if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-			current = append(current, fmt.Sprintf("%s=%v", n, v))
-		}
-	}
+	current := varValues(rec.Vars, names)
 	if len(current) == 0 {
 		return nil
 	}
@@ -273,11 +263,7 @@ func uniquenessRefusal(c *chain.Chain, rec *runner.Record) (*runner.StepRecord, 
 func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, all, fields []fixtureField, unique []string) *fixtureReuse {
 	f := &fixtureReuse{step: first.ID, index: index, why: why, unique: unique}
 	for _, field := range fields {
-		for _, n := range field.vars {
-			if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-				f.vars = append(f.vars, fmt.Sprintf("%s=%v", n, v))
-			}
-		}
+		f.vars = append(f.vars, varValues(rec.Vars, field.vars)...)
 	}
 	prev := previousRunSending(e, rec, first.ID)
 	if prev == nil {
@@ -357,7 +343,8 @@ func refusedSameWay(why string, all, conflicting []fixtureField, prev *runner.St
 		}
 		then = append(then, f)
 	}
-	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(conflictingFields(then, was)) == fieldPaths(conflicting)
+	now, _ := conflictingFields(then, was)
+	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(now) == fieldPaths(conflicting)
 }
 
 func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool {
@@ -473,7 +460,7 @@ type fixtureField struct {
 	unique bool
 }
 
-func conflictingFields(fields []fixtureField, why string) []fixtureField {
+func conflictingFields(fields []fixtureField, why string) ([]fixtureField, bool) {
 	byValue, byName := []fixtureField{}, []fixtureField{}
 	folded := foldName(why)
 	for _, f := range fields {
@@ -485,25 +472,12 @@ func conflictingFields(fields []fixtureField, why string) []fixtureField {
 		}
 	}
 	if len(byValue) > 0 {
-		return byValue
+		return byValue, true
 	}
 	if len(byName) > 0 {
-		return byName
+		return byName, true
 	}
-	return fields
-}
-
-func namesAField(fields []fixtureField, why string) bool {
-	folded := foldName(why)
-	for _, f := range fields {
-		if f.sent != "" && strings.Contains(why, f.sent) {
-			return true
-		}
-		if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
-			return true
-		}
-	}
-	return false
+	return fields, false
 }
 
 func foldName(s string) string {
@@ -528,10 +502,8 @@ func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, st
 		if !entry.IsDir() {
 			continue
 		}
-		ids, _ := e.store.ListRuns(entry.Name())
-		for i := len(ids) - 1; i >= 0; i-- {
-			other, err := e.store.LoadRun(entry.Name(), ids[i])
-			if err != nil || other.DryRun || other.Chain == rec.Chain {
+		for other := range newestRuns(e, entry.Name()) {
+			if other.Chain == rec.Chain {
 				continue
 			}
 			for _, st := range other.Steps {
@@ -548,29 +520,26 @@ func sentByThisChain(e *env, rec *runner.Record, names, values []string) (string
 	if len(values) == 0 {
 		return "", "", nil, false
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun {
-			continue
-		}
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		prev = namedAs(prev, rec)
 		for _, st := range prev.Steps {
 			if !(createdStep(st) || sentUnknown(st)) || !sendsAll(st, values) {
 				continue
 			}
-			by := []string{}
-			for _, n := range names {
-				if v, ok := prev.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-					by = append(by, fmt.Sprintf("%s=%v", n, v))
-				}
-			}
-			return prev.RunID, st.ID, by, !createdStep(st)
+			return prev.RunID, st.ID, varValues(prev.Vars, names), !createdStep(st)
 		}
 	}
 	return "", "", nil, false
+}
+
+func varValues(vars map[string]any, names []string) []string {
+	var out []string
+	for _, n := range names {
+		if v, ok := vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+			out = append(out, fmt.Sprintf("%s=%v", n, v))
+		}
+	}
+	return out
 }
 
 func sentUnknown(st *runner.StepRecord) bool {
