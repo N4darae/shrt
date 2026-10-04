@@ -96,16 +96,8 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, m *catalog.Me
 	p.assertEcho(fixture)
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
-	body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, tr.field, fixtureID)
-	moved := &chain.Step{
-		ID:          p.freeStepID(defaultID(tr.method.Name) + "_before_" + id),
-		Description: fmt.Sprintf("moves %s to %s, the state %s then starts from.", fixture.ID, short[tr.value], id),
-		Call:        tr.method.FullName,
-		Auth:        tr.contract.Auth,
-		Body:        body,
-		Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: e.carrier + "." + e.state.Name, Equals: tr.value}),
-	}
+	moved := tr.step(p.freeStepID(defaultID(tr.method.Name)+"_before_"+id),
+		fmt.Sprintf("moves %s to %s, the state %s then starts from.", fixture.ID, short[tr.value], id), fixtureID, e.carrier+"."+e.state.Name)
 
 	act := copyStep(st, id)
 	act.Export = nil

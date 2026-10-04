@@ -150,16 +150,8 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 	p.assertEcho(fixture)
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
-	body := catalog.ScaffoldWith(move.method.Input(), catalog.ScaffoldOptions{})
-	setBodyPath(body, move.field, fixtureID)
-	moved := &chain.Step{
-		ID:          p.freeStepID(defaultID(move.method.Name) + "_to_" + label + "_for_" + st.ID),
-		Description: fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID),
-		Call:        move.method.FullName,
-		Auth:        move.contract.Auth,
-		Body:        body,
-		Expect:      append(SuccessExpectation(move.method), chain.Expectation{Path: e.carrier + "." + e.state.Name, Equals: move.value}),
-	}
+	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
+		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
 	refused := copyStep(st, p.freeStepID(st.ID+"_when_"+label))
 	refused.Export = nil

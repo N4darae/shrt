@@ -298,6 +298,13 @@ type transition struct {
 	value    string
 }
 
+func (tr *transition) step(id, description, ref, statePath string) *chain.Step {
+	body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
+	setBodyPath(body, tr.field, ref)
+	return &chain.Step{ID: id, Description: description, Call: tr.method.FullName, Auth: tr.contract.Auth, Body: body,
+		Expect: append(SuccessExpectation(tr.method), chain.Expectation{Path: statePath, Equals: tr.value})}
+}
+
 func enumShort(values []string) map[string]string {
 	out := map[string]string{}
 	prefix := ""
@@ -409,17 +416,9 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			continue
 		}
 		suffix := strings.TrimPrefix(prod.ID, first.ID)
-		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, tr.field, "${"+prod.ID+"."+t.carrier+"."+t.itemID+"}")
-		step := &chain.Step{
-			ID:          p.freeStepID(defaultID(tr.method.Name) + suffix),
-			Description: fmt.Sprintf("moves %s to %s, so the fixtures sit in different states for the filtered lists.", prod.ID, short[tr.value]),
-			Call:        tr.method.FullName,
-			Auth:        tr.contract.Auth,
-			Body:        body,
-			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: t.carrier + "." + stateField.Name, Equals: tr.value}),
-		}
-		added = append(added, step)
+		added = append(added, tr.step(p.freeStepID(defaultID(tr.method.Name)+suffix),
+			fmt.Sprintf("moves %s to %s, so the fixtures sit in different states for the filtered lists.", prod.ID, short[tr.value]),
+			"${"+prod.ID+"."+t.carrier+"."+t.itemID+"}", t.carrier+"."+stateField.Name))
 	}
 	creation := false
 	if c, ok := lib.Get(canonicalCall(p.cat, t.step.Call)); ok {

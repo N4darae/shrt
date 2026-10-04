@@ -154,16 +154,8 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		p.assertEcho(fixture)
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
 
-		body := catalog.ScaffoldWith(tr.method.Input(), catalog.ScaffoldOptions{})
-		setBodyPath(body, tr.field, fixtureID)
-		move := &chain.Step{
-			ID:          p.freeStepID(label + "_for_replay"),
-			Description: fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]),
-			Call:        tr.method.FullName,
-			Auth:        tr.contract.Auth,
-			Body:        body,
-			Expect:      append(SuccessExpectation(tr.method), chain.Expectation{Path: carrier + "." + stateField.Name, Equals: tr.value}),
-		}
+		move := tr.step(p.freeStepID(label+"_for_replay"),
+			fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]), fixtureID, carrier+"."+stateField.Name)
 
 		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
 		fetch := read.readStep(readID, fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID), fixtureID)
