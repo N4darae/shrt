@@ -668,15 +668,7 @@ func clip(s string, n int) string {
 }
 
 func shortValue(v any) string {
-	if s, isString := v.(string); isString && (s == "" || strings.TrimSpace(s) != s) {
-		return clipMiddle(strconv.Quote(s), summaryValue)
-	}
-	if b, err := json.Marshal(v); err == nil {
-		if _, isString := v.(string); !isString {
-			return clipMiddle(flat(string(b)), summaryValue)
-		}
-	}
-	return clipMiddle(flat(fmt.Sprint(v)), summaryValue)
+	return clipMiddle(fullValue(v), summaryValue)
 }
 
 func fullValue(v any) string {
@@ -798,14 +790,14 @@ func sentSummary(st *runner.StepRecord) string {
 			}
 			sort.Strings(keys)
 			for _, k := range keys {
-				walk(joinKey(prefix, k), t[k])
+				walk(pathmask.Join(prefix, k), t[k])
 			}
 		case []any:
 			if len(t) == 0 {
 				leaves = append(leaves, prefix+"=[]")
 			}
 			for i, e := range t {
-				walk(joinKey(prefix, fmt.Sprint(i)), e)
+				walk(pathmask.Join(prefix, fmt.Sprint(i)), e)
 			}
 		default:
 			if referenceLike(prefix, t) {
@@ -842,13 +834,6 @@ func referenceLike(path string, v any) bool {
 	}
 	text, ok := v.(string)
 	return ok && uuidShape.MatchString(text)
-}
-
-func joinKey(prefix, k string) string {
-	if prefix == "" {
-		return k
-	}
-	return prefix + "." + k
 }
 
 func assertedSummary(st *runner.StepRecord) string {
@@ -935,7 +920,7 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 		switch t := v.(type) {
 		case map[string]any:
 			for k, x := range t {
-				walk(joinKey(path, k), depth+1, x)
+				walk(pathmask.Join(path, k), depth+1, x)
 			}
 		case []any:
 			if unordered[listKey(path)] && len(t) > 0 {
@@ -943,7 +928,7 @@ func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
 				return
 			}
 			for i, x := range t {
-				walk(joinKey(path, fmt.Sprint(i)), depth+1, x)
+				walk(pathmask.Join(path, fmt.Sprint(i)), depth+1, x)
 			}
 		case nil:
 		default:
