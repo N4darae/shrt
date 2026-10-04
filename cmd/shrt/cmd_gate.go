@@ -187,6 +187,14 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 		}
 	}
 	a := pinnedAttribution(e, rec, heldPins)
+	if was := a.was; len(changedPins) > 0 {
+		a.was = func(step, path string) (any, bool) {
+			if v, ok := changedPins[step+" "+path]; ok {
+				return v, true
+			}
+			return was(step, path)
+		}
+	}
 	var since []diff.Change
 	if ref != nil && !rec.Passed() {
 		since = diff.CompareRunsSkipping(ref, rec, currentVolatile(e, rec.Chain), requestFixtures(c)).Changes

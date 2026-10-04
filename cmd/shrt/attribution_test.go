@@ -928,17 +928,42 @@ func storedOtherBatch() *runner.Record {
 	)
 }
 
+func keptRedStockRecord() *runner.Record {
+	order := `{"order":{"id_order":"o1","total_minor":"130","lines":[{"id_product":"p1","qty":"1"},{"id_product":"p2","qty":"2"}]},` + shopOK + `}`
+	return shopRecord(
+		shopStep("create_product_b", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"0"}}`).held("product.qty_on_hand", "0"),
+		shopStep("stock_batch", shopBatch, `{"results":[{"id_product":"p1","qty_on_hand":"3"},{"id_product":"p2","qty_on_hand":"1"}]}`, "create_product_b").held("results.1.qty_on_hand", "1").with(func(st *runner.StepRecord) {
+			st.Request = json.RawMessage(`{"lines":[{"id_product":"p1","qty":3},{"id_product":"p2","qty":0},{"id_product":"p2","qty":1}]}`)
+		}),
+		shopStep("order_later_line_short", shopOrder, order, "create_product_b").failing("order.total_minor", "160", "130"),
+		shopStep("confirm_later_line_short", shopConfirm, order, "order_later_line_short").failing("status.code", "REJECTED", "SUCCESS").with(func(st *runner.StepRecord) {
+			st.Request = json.RawMessage(`{"id_order":"o1"}`)
+		}),
+		shopStep("stock_b_after_refusal", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"-2"}}`, "create_product_b").failing("product.qty_on_hand", "1", "-2"),
+	)
+}
+
+func TestAMovedPinIsJudgedAgainstItsPinnedValue(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	rec := keptRedStockRecord()
+	rec.KeptRed = runner.KeptRedNotAsPinned
+	success, stock := "SUCCESS", "-1"
+	c := &chain.Chain{Name: "guard-slice", KeptRed: []chain.Pin{{Step: "confirm_later_line_short", Path: "status.code", Got: &success}, {Step: "stock_b_after_refusal", Path: "product.qty_on_hand", Got: &stock}}}
+	for _, st := range rec.Steps {
+		c.Steps = append(c.Steps, &chain.Step{ID: st.ID, Call: st.Call})
+	}
+	for _, it := range runSidecar(effectsEnv(t), c, rec, nil, nil, nil).Items {
+		if it.Step == "stock_b_after_refusal" && (it.Pinned != "-1" || it.Reason.Kind != reasonWrite || it.suspect() != "stock_batch") {
+			t.Errorf("the stock moved 1 from its pin, the batch's quantity for the product and not the confirm's 2: %+v", it)
+		}
+	}
+}
+
 func TestAHeldPinIsNoChangeWhenNamingAKeptRedSuspect(t *testing.T) {
 	chain.SetEnvelope("status.code", "SUCCESS")
 	defer chain.SetEnvelope("", "")
-	order := `{"order":{"id_order":"o1","total_minor":"130","lines":[{"id_product":"p1","qty":"1"},{"id_product":"p2","qty":"2"}]},` + shopOK + `}`
-	rec := shopRecord(
-		shopStep("create_product_b", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"0"}}`).held("product.qty_on_hand", "0"),
-		shopStep("stock_batch", shopBatch, `{"results":[{"id_product":"p1","qty_on_hand":"3"},{"id_product":"p2","qty_on_hand":"1"}]}`, "create_product_b").held("results.1.qty_on_hand", "1"),
-		shopStep("order_later_line_short", shopOrder, order, "create_product_b").failing("order.total_minor", "160", "130"),
-		shopStep("confirm_later_line_short", shopConfirm, order, "order_later_line_short").failing("status.code", "REJECTED", "SUCCESS"),
-		shopStep("stock_b_after_refusal", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"-2"}}`, "create_product_b").failing("product.qty_on_hand", "1", "-2"),
-	)
+	rec := keptRedStockRecord()
 	held := map[string]bool{"confirm_later_line_short status.code": true}
 	r := pinnedAttribution(effectsEnv(t), rec, held).of("stock_b_after_refusal", "product.qty_on_hand")
 	if !orSteps("stock_batch", "confirm_later_line_short")(r) {
