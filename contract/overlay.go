@@ -194,41 +194,16 @@ func SplitNode(node string) (rpc, alias string) {
 }
 
 func (c *RPCContract) Dependencies() []string {
-	seen := map[string]bool{}
-	out := []string{}
-	add := func(node string) {
-		node = strings.TrimSpace(node)
-		if node == "" || seen[node] {
-			return
-		}
-		seen[node] = true
-		out = append(out, node)
-	}
-	for _, n := range c.Needs {
-		add(n)
-	}
-	for _, name := range sortedKeys(c.Fields) {
-		if ref, err := ParseRef(c.Fields[name].From); err == nil {
-			add(ref.Node())
-		}
-		if ref, err := ParseRef(c.Fields[name].SameAs); err == nil {
-			add(ref.Node())
-		}
-	}
+	sets := []map[string]*FieldContract{c.Fields}
 	for _, alias := range sortedKeys(c.Aliases) {
-		for _, name := range sortedKeys(c.Aliases[alias].Fields) {
-			if ref, err := ParseRef(c.Aliases[alias].Fields[name].From); err == nil {
-				add(ref.Node())
-			}
-			if ref, err := ParseRef(c.Aliases[alias].Fields[name].SameAs); err == nil {
-				add(ref.Node())
-			}
-		}
+		sets = append(sets, c.Aliases[alias].Fields)
 	}
-	return out
+	return c.dependsOn(sets...)
 }
 
-func (c *RPCContract) DependenciesFor(alias string) []string {
+func (c *RPCContract) DependenciesFor(alias string) []string { return c.dependsOn(c.FieldsFor(alias)) }
+
+func (c *RPCContract) dependsOn(sets ...map[string]*FieldContract) []string {
 	seen := map[string]bool{}
 	out := []string{}
 	add := func(node string) {
@@ -242,34 +217,29 @@ func (c *RPCContract) DependenciesFor(alias string) []string {
 	for _, n := range c.Needs {
 		add(n)
 	}
-	fields := c.FieldsFor(alias)
-	for _, name := range sortedKeys(fields) {
-		if ref, err := ParseRef(fields[name].From); err == nil {
-			add(ref.Node())
-		}
-		if ref, err := ParseRef(fields[name].SameAs); err == nil {
-			add(ref.Node())
+	for _, fields := range sets {
+		for _, name := range sortedKeys(fields) {
+			for _, raw := range []string{fields[name].From, fields[name].SameAs} {
+				if ref, err := ParseRef(raw); err == nil {
+					add(ref.Node())
+				}
+			}
 		}
 	}
 	return out
 }
 
 func (c *RPCContract) FieldsFor(alias string) map[string]*FieldContract {
+	sets := []map[string]*FieldContract{c.Fields}
+	if override, ok := c.Aliases[alias]; alias != "" && ok {
+		sets = append(sets, override.Fields)
+	}
 	merged := map[string]*FieldContract{}
-	for name, f := range c.Fields {
-		copied := *f
-		merged[name] = &copied
-	}
-	if alias == "" {
-		return merged
-	}
-	override, ok := c.Aliases[alias]
-	if !ok {
-		return merged
-	}
-	for name, f := range override.Fields {
-		copied := *f
-		merged[name] = &copied
+	for _, fields := range sets {
+		for name, f := range fields {
+			copied := *f
+			merged[name] = &copied
+		}
 	}
 	return merged
 }

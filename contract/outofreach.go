@@ -51,14 +51,9 @@ func referencedNodes(c *RPCContract) []string {
 		for _, name := range sortedKeys(fields) {
 			f := fields[name]
 			for _, raw := range []string{f.From, f.SameAs} {
-				if raw == "" {
-					continue
+				if ref, err := ParseRef(raw); err == nil {
+					nodes = append(nodes, ref.RPC)
 				}
-				ref, err := ParseRef(raw)
-				if err != nil {
-					continue
-				}
-				nodes = append(nodes, ref.RPC)
 			}
 		}
 	}
