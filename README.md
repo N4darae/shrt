@@ -73,7 +73,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 
 | command | does | exits other than 0 |
 |---|---|---|
-| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (5 of 119 steps, reproduced 3/3)`, a slice in `.shrt/scratch/` shrunk by `-minimize` and verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), plans and runs the first 4 into `.shrt/scratch/`, and under each says `passes:` or prints a row with its trigger and verified repro, no regression since no safe spot covers that state; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
+| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (5 of 119 steps, reproduced 3/3)`, a slice in `.shrt/scratch/` shrunk by `-minimize` and verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), plans and runs the first 4 into `.shrt/scratch/`, and under each says `passes:` or prints a row with its trigger and verified repro, a fault unless the contract is wrong (no safe spot covers that state, so it is not compared to an approved run); not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -210,13 +210,14 @@ under each gap line says `passes:`, or prints a row shaped like those of `failur
 for the calls from that state that failed: suspect rpc and fields, an example step, a `trigger:` line
 when the planned calls separate failing from passing, and a `repro:` slice verified 3 times, kept to
 the gap's own calls and what they need when that still reproduces. No safe spot covers those states,
-so such a row is no regression, only a miss against the contract or its plan; the header says how
+so such a row is not compared to an approved run: it fails what the contract and its plan expect, a fault unless the
+contract is wrong; the header says how
 long the probes took. A gap past the cap, or one it could not run, says `not probed:` with the
 command. A gap line says the state, the item counts no chain sends and what the chains do send
 (`CancelOrder on a PENDING order: no chain sends 1 or 3 lines (edge-flows sends 2)`); why the plan
 calls it there is in `shrt contract status -gaps`. The closing line comes last, after the block: it
-counts the gap probes that failed (`FAIL: 4 of 31 chain(s) failed and 1 gap probe failed, no
-regression; ...`) and says to probe only the gaps not probed, or a support ticket no row explains.
+counts the gap probes that failed apart from the chains (`FAIL: 4 of 31 chain(s) failed; 1 gap probe also failed (a
+state no safe spot covers, so not comparable to an approved run); ...`) and says to probe only the gaps not probed, or a support ticket no row explains.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

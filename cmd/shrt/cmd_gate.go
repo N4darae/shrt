@@ -1077,7 +1077,7 @@ func runGate(ctx context.Context, args []string) error {
 	if line := gateTime(chains, time.Since(began)); line != "" {
 		fmt.Println(line)
 	}
-	answer, probe, gapNote := "the rows and repro lines above are the answer for what the chains cover", "a support ticket no row explains", ""
+	answer, probe, gapsFailed := "the rows and repro lines above are the answer for what the chains cover", "a support ticket no row explains", 0
 	if *repro {
 		gateRepro(ctx, e, chains, groups, *wait)
 		block, gaps := gateGaps(ctx, e, chains, *wait)
@@ -1090,14 +1090,9 @@ func runGate(ctx context.Context, args []string) error {
 		if gaps.left > 0 {
 			probe = fmt.Sprintf("the %d gap(s) -repro did not probe, or for %s", gaps.left, probe)
 		}
-		if gaps.failed > 0 {
-			gapNote = fmt.Sprintf("%d gap %s failed, no regression", gaps.failed, pluralWord(gaps.failed, "probe", "probes"))
-		}
+		gapsFailed = gaps.failed
 	}
-	left, passNote := "", ""
-	if gapNote != "" {
-		passNote = "; " + gapNote
-	}
+	left := ""
 	if len(skipped) > 0 {
 		left = fmt.Sprintf("; %s left out %s: shrt gate %s runs it", skipBy, strings.Join(skipped, ", "), strings.Join(skipped, " "))
 	}
@@ -1110,14 +1105,14 @@ func runGate(ctx context.Context, args []string) error {
 		case *verbose:
 			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
 		}
-		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings), gapNote), next, left)
+		return exitWith(1, "FAIL: %d of %d chain(s) failed%s%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings)), gapsFailedNote(gapsFailed, "also "), next, left)
 	case unverified > 0:
 		return exitWith(3, "NO VERDICT: %d of %d chain(s) could not be verified (exit 3 twice: backend down, restarting or refusing auth); re-run once it is up%s",
 			unverified, len(chains), left)
 	case len(skipped) > 0:
-		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), passNote, left)
+		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), gapsFailedNote(gapsFailed, ""), left)
 	}
-	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), passNote)
+	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), gapsFailedNote(gapsFailed, ""))
 	return nil
 }
 
@@ -1127,7 +1122,7 @@ func flagGiven(fs *flag.FlagSet, name string) bool {
 	return given
 }
 
-func gateAlso(unverified, findings int, gaps string) string {
+func gateAlso(unverified, findings int) string {
 	out := ""
 	if unverified > 0 {
 		out += fmt.Sprintf(", %d no verdict", unverified)
@@ -1135,10 +1130,14 @@ func gateAlso(unverified, findings int, gaps string) string {
 	if findings > 0 {
 		out += fmt.Sprintf(", %d finding(s) listed above", findings)
 	}
-	if gaps != "" {
-		out += " and " + gaps
-	}
 	return out
+}
+
+func gapsFailedNote(n int, also string) string {
+	if n == 0 {
+		return ""
+	}
+	return fmt.Sprintf("; %d gap %s %sfailed (%s no safe spot covers, so not comparable to an approved run)", n, pluralWord(n, "probe", "probes"), also, pluralWord(n, "a state", "states"))
 }
 
 func gateChains(e *env, only []string) ([]*gateChain, error) {

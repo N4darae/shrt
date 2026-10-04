@@ -528,7 +528,7 @@ func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duratio
 		lines = append(lines, fmt.Sprintf("  and %d more: shrt contract status -gaps", len(gaps)-8))
 	}
 	return fmt.Sprintf("gaps: %d state(s) no chain calls a gated write from, so no row above can show a fault there; -repro planned and ran %d of them "+
-		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is no regression, only a miss against what the contract and its plan expect:\n%s",
+		"in .shrt/scratch/ (%s). No safe spot covers these states, so a failure here is not comparable to an approved run; it fails what the contract and its plan expect, so treat it as a fault unless the contract is wrong:\n%s",
 		len(gaps), min(len(gaps), gapProbes), time.Since(began).Round(time.Second), strings.Join(lines, "\n")), tally
 }
 

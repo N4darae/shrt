@@ -305,11 +305,14 @@ func TestTheGateRunsAChainWithoutASafeSpotPastItsFirstFailure(t *testing.T) {
 	}
 }
 
-func TestTheFailLineCountsTheGapProbesThatFailed(t *testing.T) {
-	if got := gateAlso(1, 0, "1 gap probe failed, no regression"); got != ", 1 no verdict and 1 gap probe failed, no regression" {
+func TestTheFailLineCountsTheGapProbesThatFailedApartFromTheChainsVerdict(t *testing.T) {
+	if got := gateAlso(1, 0) + gapsFailedNote(1, "also "); got != ", 1 no verdict; 1 gap probe also failed (a state no safe spot covers, so not comparable to an approved run)" {
 		t.Errorf("got %q", got)
 	}
-	if got := gateAlso(0, 2, ""); got != ", 2 finding(s) listed above" {
+	if got := gapsFailedNote(2, ""); got != "; 2 gap probes failed (states no safe spot covers, so not comparable to an approved run)" {
 		t.Errorf("got %q", got)
+	}
+	if got := gateAlso(0, 2) + gapsFailedNote(0, "also "); got != ", 2 finding(s) listed above" {
+		t.Errorf("no failed gap probe says nothing of gaps: %q", got)
 	}
 }

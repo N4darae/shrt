@@ -31,8 +31,9 @@ a,b` shows those steps as recorded. For what the chains
 cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
 `gaps:` block names each state no chain calls a gated write from; the gate has planned and run
 each into `.shrt/scratch/` and says under it `passes:` or a row with its trigger and verified repro,
-no regression since no safe spot covers that state; the closing line, printed last, counts the gap
-probes that failed. Probe further only for a gap marked `not
+a fault unless the contract is wrong (no safe spot covers that state, so it is not compared to an
+approved run); the closing line, printed last, counts the gap probes that failed apart from the
+chains. Probe further only for a gap marked `not
 probed:`, or a support ticket that no row explains. Never re-plan over an approved chain:
 `contract plan <rpc> -write <name>.yaml` writes to `.shrt/scratch/`.
 
