@@ -525,15 +525,13 @@ func stepRefIn(v any) string {
 	return src
 }
 
-func carrierHolding(m *catalog.Method, field string) string {
+func carriedPath(m *catalog.Method, field string, numeric bool) string {
 	for _, out := range catalog.DescribeMessage(m.Output()).Fields {
 		if out.Kind != "message" || out.Repeated || out.Name == chain.EnvelopeField() {
 			continue
 		}
-		for _, sf := range out.Fields {
-			if sf.Name == field && !sf.Repeated {
-				return out.Name
-			}
+		if sf := fieldByName(out.Fields, field); sf != nil && !sf.Repeated && (!numeric || chain.IsNumericKind(sf.Kind)) {
+			return out.Name + "." + sf.Name
 		}
 	}
 	return ""
@@ -638,7 +636,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 			if md.known[st.ID] && p.isTargetStep(st.ID) {
 				md.dirty[st.ID] = true
 				if m, err := p.cat.Lookup(st.Call); err == nil {
-					if carrier := carrierHolding(m, s.moved); carrier != "" && md.set(st, carrier+"."+s.moved, 0) {
+					if path := carriedPath(m, s.moved, false); path != "" && md.set(st, path, 0) {
 						mark("zero", st.ID)
 					}
 				}
@@ -1033,13 +1031,13 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 		id := stepRefIn(st.Body[key])
 		md.waiting = slices.DeleteFunc(slices.Clone(md.waiting), func(s string) bool { return s == id })
 		if s := md.stockOf[id]; s != nil && ref.RPC == s.entityRPC && md.dirty[id] {
-			if carrier := carrierHolding(m, s.moved); carrier != "" && (md.replaceEcho(st, carrier+"."+s.moved, md.level[id]) || md.set(st, carrier+"."+s.moved, md.level[id])) {
+			if path := carriedPath(m, s.moved, false); path != "" && (md.replaceEcho(st, path, md.level[id]) || md.set(st, path, md.level[id])) {
 				mark("read", st.ID)
 			}
 		}
 		if o := md.order(id); o != nil && o.hasTotal {
 			if t := r.total[ref.RPC]; t != nil {
-				if carrier := carrierHolding(m, t.field); carrier != "" && md.set(st, carrier+"."+t.field, o.total) {
+				if path := carriedPath(m, t.field, false); path != "" && md.set(st, path, o.total) {
 					mark("total", st.ID)
 				}
 			}

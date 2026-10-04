@@ -52,66 +52,50 @@ func ValidPhase(phase string) bool {
 }
 
 func QualityTerms() []QualityTerm {
-	flag := func(b bool) int {
-		if b {
-			return 1
-		}
-		return 0
+	flagged := func(weight int, phase, label string, on func(QualityRPC) bool, detail string) QualityTerm {
+		return QualityTerm{weight, phase, label, func(r QualityRPC) int {
+			if on(r) {
+				return 1
+			}
+			return 0
+		}, func(QualityRPC) string { return detail }}
+	}
+	listed := func(weight int, phase, label string, of func(QualityRPC) []string, clip int, noun string) QualityTerm {
+		return QualityTerm{weight, phase, label, func(r QualityRPC) int { return len(of(r)) }, func(r QualityRPC) string {
+			names := of(r)
+			if clip > 0 {
+				names = clipList(names, clip)
+			}
+			return fmt.Sprintf("%d %s: %s", len(of(r)), noun, strings.Join(names, ", "))
+		}}
 	}
 	return []QualityTerm{
-		{WeightNoContract, PhaseHappy, "rpc in the catalog that no overlay covers, on top of what an empty entry for it scores",
-			func(r QualityRPC) int { return flag(r.NoContract) },
-			func(QualityRPC) string {
-				return "no contract in any overlay: scored as an empty entry plus this charge — shrt contract init <domain> writes one"
-			}},
-		{WeightUndocumentedField, PhaseHappy, "undocumented request field",
-			func(r QualityRPC) int { return len(r.UndocumentedFields) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d undocumented field(s): %s", len(r.UndocumentedFields), strings.Join(r.UndocumentedFields, ", "))
-			}},
-		{WeightUnwiredID, PhaseHappy, "required-or-unexplained id field with no from/same_as/value",
-			func(r QualityRPC) int { return len(r.UnwiredIDs) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d id(s) with no from/same_as/value: %s", len(r.UnwiredIDs), strings.Join(r.UnwiredIDs, ", "))
-			}},
-		{WeightNoFailuresDeclared, PhaseFailure, "write rpc declaring no failures at all",
-			func(r QualityRPC) int { return flag(r.NoFailuresDeclared) },
-			func(QualityRPC) string { return "no failures declared at all" }},
-		{WeightMissingSummary, PhaseHappy, "missing summary",
-			func(r QualityRPC) int { return flag(!r.HasSummary) },
-			func(QualityRPC) string { return "no summary" }},
-		{WeightMissingRequiresRole, PhaseHappy, "rpc with no requires_role at all — the literal NONE declares no role gate",
-			func(r QualityRPC) int { return flag(r.MissingRequiresRole) },
-			func(QualityRPC) string {
-				return "no requires_role: declare the roles, or the literal NONE if the rpc reaches no role gate"
-			}},
-		{WeightReadWithNoProducer, PhaseHappy, "read rpc no write rpc can reach, with no no_producer saying why",
-			func(r QualityRPC) int { return flag(r.ReadWithNoProducer) },
-			func(QualityRPC) string {
-				return "read rpc with no producer: no needs/from/same_as edge to any write rpc, and no no_producer: saying why the rows are already there"
-			}},
-		{WeightEmptyRequired, PhaseHappy, "rpc with request fields and an empty required — the literal NONE declares that the server rejects nothing",
-			func(r QualityRPC) int { return flag(r.EmptyRequired) },
-			func(QualityRPC) string {
-				return "empty required: list the fields the server rejects without, or the literal NONE if it rejects nothing — a chain built from an empty required lints clean while sending zero values"
-			}},
-		{WeightUncheckedID, PhaseFailure, "wired id with no checked_by",
-			func(r QualityRPC) int { return len(r.UncheckedIDs) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d wired id(s) with no checked_by: %s", len(r.UncheckedIDs), strings.Join(r.UncheckedIDs, ", "))
-			}},
-		{WeightUndeclaredResponseField, PhaseHappy, "response field in no exports/terminal/soft_signals",
-			func(r QualityRPC) int { return len(r.UndeclaredResponseFields) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d response field(s) in no exports/terminal/soft_signals: %s",
-					len(r.UndeclaredResponseFields), strings.Join(clipList(r.UndeclaredResponseFields, 6), ", "))
-			}},
-		{WeightUnexplainedFailure, PhaseFailure, "failure declared with no when/unreachable/pending_deploy",
-			func(r QualityRPC) int { return len(r.UnexplainedFailures) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d failure(s) with no when/unreachable: %s",
-					len(r.UnexplainedFailures), strings.Join(clipList(r.UnexplainedFailures, 6), ", "))
-			}},
+		flagged(WeightNoContract, PhaseHappy, "rpc in the catalog that no overlay covers, on top of what an empty entry for it scores",
+			func(r QualityRPC) bool { return r.NoContract },
+			"no contract in any overlay: scored as an empty entry plus this charge — shrt contract init <domain> writes one"),
+		listed(WeightUndocumentedField, PhaseHappy, "undocumented request field",
+			func(r QualityRPC) []string { return r.UndocumentedFields }, 0, "undocumented field(s)"),
+		listed(WeightUnwiredID, PhaseHappy, "required-or-unexplained id field with no from/same_as/value",
+			func(r QualityRPC) []string { return r.UnwiredIDs }, 0, "id(s) with no from/same_as/value"),
+		flagged(WeightNoFailuresDeclared, PhaseFailure, "write rpc declaring no failures at all",
+			func(r QualityRPC) bool { return r.NoFailuresDeclared }, "no failures declared at all"),
+		flagged(WeightMissingSummary, PhaseHappy, "missing summary",
+			func(r QualityRPC) bool { return !r.HasSummary }, "no summary"),
+		flagged(WeightMissingRequiresRole, PhaseHappy, "rpc with no requires_role at all — the literal NONE declares no role gate",
+			func(r QualityRPC) bool { return r.MissingRequiresRole },
+			"no requires_role: declare the roles, or the literal NONE if the rpc reaches no role gate"),
+		flagged(WeightReadWithNoProducer, PhaseHappy, "read rpc no write rpc can reach, with no no_producer saying why",
+			func(r QualityRPC) bool { return r.ReadWithNoProducer },
+			"read rpc with no producer: no needs/from/same_as edge to any write rpc, and no no_producer: saying why the rows are already there"),
+		flagged(WeightEmptyRequired, PhaseHappy, "rpc with request fields and an empty required — the literal NONE declares that the server rejects nothing",
+			func(r QualityRPC) bool { return r.EmptyRequired },
+			"empty required: list the fields the server rejects without, or the literal NONE if it rejects nothing — a chain built from an empty required lints clean while sending zero values"),
+		listed(WeightUncheckedID, PhaseFailure, "wired id with no checked_by",
+			func(r QualityRPC) []string { return r.UncheckedIDs }, 0, "wired id(s) with no checked_by"),
+		listed(WeightUndeclaredResponseField, PhaseHappy, "response field in no exports/terminal/soft_signals",
+			func(r QualityRPC) []string { return r.UndeclaredResponseFields }, 6, "response field(s) in no exports/terminal/soft_signals"),
+		listed(WeightUnexplainedFailure, PhaseFailure, "failure declared with no when/unreachable/pending_deploy",
+			func(r QualityRPC) []string { return r.UnexplainedFailures }, 6, "failure(s) with no when/unreachable"),
 	}
 }
 

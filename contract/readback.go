@@ -27,14 +27,26 @@ func singleCarrier(m *catalog.Method) *catalog.Field {
 	return nil
 }
 
-func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, caseToo bool) bool {
-	c, ok := lib.Get(canonicalCall(p.cat, rpc))
-	if !ok {
-		return false
+func (p *Plan) uniqueOnField(lib *Library, rpc, field string) (c *RPCContract, note string, unique []Failure, ok bool) {
+	rpc = canonicalCall(p.cat, rpc)
+	if c, ok = lib.Get(rpc); !ok {
+		return nil, "", nil, false
 	}
-	note := ""
 	if fc := c.Fields[field]; fc != nil {
 		note = fc.Note
+	}
+	for _, f := range lib.AllFailures(rpc) {
+		if _, isUnique := uniquenessNoun(f); isUnique && (f.Field == field || mentionsField(f.When, field)) {
+			unique = append(unique, f)
+		}
+	}
+	return c, note, unique, true
+}
+
+func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, caseToo bool) bool {
+	c, note, unique, ok := p.uniqueOnField(lib, rpc, field)
+	if !ok {
+		return false
 	}
 	if yes, no := claims(note, word, nil); yes && !no {
 		return true
@@ -42,16 +54,10 @@ func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, 
 	if yes, no := claims(note, trimClaimed(), trimDenied()); yes && !no {
 		return true
 	}
-	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
-			continue
-		}
+	return slices.ContainsFunc(unique, func(f Failure) bool {
 		text := strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")
-		if (caseToo && ignoresCase(f, text)) || trimsSpace(f, text) {
-			return true
-		}
-	}
-	return false
+		return (caseToo && ignoresCase(f, text)) || trimsSpace(f, text)
+	})
 }
 
 func meaningfulValue(v any) bool {
@@ -340,24 +346,14 @@ func (p *Plan) retypedTextProbe(lib *Library, st *chain.Step, tag string, pick f
 var normalisedWord = lazyRegexp(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
 
 func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
-	c, ok := lib.Get(canonicalCall(p.cat, rpc))
+	_, note, unique, ok := p.uniqueOnField(lib, rpc, field)
 	if !ok {
 		return false
 	}
-	if fc := c.Fields[field]; fc != nil {
-		if _, no := claims(fc.Note, trimClaimed(), trimDenied()); no {
-			return true
-		}
+	if _, no := claims(note, trimClaimed(), trimDenied()); no {
+		return true
 	}
-	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
-			continue
-		}
-		if f.Unique != nil && f.Unique.Trim != nil && !*f.Unique.Trim {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(unique, func(f Failure) bool { return f.Unique != nil && f.Unique.Trim != nil && !*f.Unique.Trim })
 }
 
 func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
