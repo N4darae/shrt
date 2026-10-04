@@ -11,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/transport"
@@ -413,13 +414,7 @@ func LooksVolatile(path string, a, b any) bool {
 		return false
 	}
 	key := lastKey(path)
-	lower := strings.ToLower(key)
-	switch {
-	case lower == "id", lower == "ids", lower == "token", lower == "access_token", lower == "idempotency_key",
-		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"), strings.HasPrefix(lower, "id_"),
-		strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
-		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelSuffix(key, "At"), camelSuffix(key, "Time"),
-		camelIDPrefix(key):
+	if lower := strings.ToLower(key); namecase.IDNamed(key) || lower == "token" || lower == "access_token" || timeNamed(path) {
 		return sameShape(a, b)
 	}
 	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape)
@@ -480,18 +475,6 @@ func lastKey(path string) string {
 		}
 		path = path[:i]
 	}
-}
-
-func camelIDPrefix(key string) bool {
-	return len(key) > 2 && key[:2] == "id" && key[2] >= 'A' && key[2] <= 'Z'
-}
-
-func camelSuffix(key, suffix string) bool {
-	if len(key) <= len(suffix) || !strings.HasSuffix(key, suffix) {
-		return false
-	}
-	prev := key[len(key)-len(suffix)-1]
-	return prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
 }
 
 func bothAre(a, b any, pred func(string) bool) bool {

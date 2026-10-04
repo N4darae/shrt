@@ -7,13 +7,13 @@ func IDNamed(key string) bool {
 	switch {
 	case lower == "id", lower == "ids", lower == "idempotency_key",
 		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"), strings.HasPrefix(lower, "id_"),
-		camelTail(key, "Id"), camelTail(key, "Ids"), len(key) > 2 && key[:2] == "id" && key[2] >= 'A' && key[2] <= 'Z':
+		CamelTail(key, "Id"), CamelTail(key, "Ids"), len(key) > 2 && key[:2] == "id" && key[2] >= 'A' && key[2] <= 'Z':
 		return true
 	}
 	return false
 }
 
-func camelTail(key, suffix string) bool {
+func CamelTail(key, suffix string) bool {
 	if len(key) <= len(suffix) || !strings.HasSuffix(key, suffix) {
 		return false
 	}

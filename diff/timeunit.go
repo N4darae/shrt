@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -123,7 +124,7 @@ func timeNamed(path string) bool {
 	key := lastKey(path)
 	lower := strings.ToLower(key)
 	return strings.HasSuffix(lower, "_at") || strings.HasSuffix(lower, "_time") || strings.Contains(lower, "timestamp") ||
-		camelSuffix(key, "At") || camelSuffix(key, "Time")
+		namecase.CamelTail(key, "At") || namecase.CamelTail(key, "Time")
 }
 
 func unitName(v any, named bool) string {
