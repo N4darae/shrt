@@ -95,6 +95,47 @@ func TestANeedThatIsAPreconditionKeepsEveryCallAfterIt(t *testing.T) {
 	}
 }
 
+func TestStateGapsNameTheStateAndItemCountsNoChainCovers(t *testing.T) {
+	cat, lib := shopDemoEdited(t, cancelNeedsConfirm(restoreConfirmed, ""))
+	p, err := contract.BuildPlanFor([]string{"CancelOrder"}, lib, cat, "orders-cancelorder")
+	if err != nil {
+		t.Fatal(err)
+	}
+	plans := map[string]*contract.Plan{"shop.orders.v1.OrderService/CancelOrder": p}
+	if gaps := contract.StateGaps([]*chain.Chain{p.Chain}, plans, lib, cat); len(gaps) != 0 {
+		t.Fatalf("the plan's own chain leaves no state gap: %+v", gaps)
+	}
+	old := &chain.Chain{Name: "orders-cancelorder"}
+	hand := &chain.Chain{Name: "edge-flows"}
+	for _, st := range p.Chain.Steps {
+		if !strings.Contains(st.ID, "from_pending") {
+			old.Steps = append(old.Steps, st)
+		}
+		if st.ID == "create_order_for_cancel_order_from_pending" || st.ID == "cancel_order_from_pending" {
+			hand.Steps = append(hand.Steps, st)
+		}
+	}
+	sits := contract.Situations(hand, lib, cat)
+	if got := sits["cancel_order_from_pending"].String(); got != "on an order in PENDING, lines of 2 items" {
+		t.Fatalf("the hand chain cancels a PENDING order of 2 lines, got %q", got)
+	}
+	if got := contract.Situations(old, lib, cat)["cancel_order_3_lines"].String(); got != "on an order in CONFIRMED, lines of 3 items" {
+		t.Fatalf("the planned 3-line cancel runs on a CONFIRMED order, got %q", got)
+	}
+	gaps := contract.StateGaps([]*chain.Chain{old}, plans, lib, cat)
+	if len(gaps) != 1 || gaps[0].State != "PENDING" || len(gaps[0].Missing) != 3 || len(gaps[0].Sent) != 0 {
+		t.Fatalf("a PENDING order is never cancelled: %+v", gaps)
+	}
+	if line := gaps[0].Line(); !strings.Contains(line, "CancelOrder on an order in PENDING: no chain calls it so; its plan sends lines of 1, 2 or 3 items, though needs: [ConfirmOrder]") ||
+		!strings.HasSuffix(line, ": shrt contract plan CancelOrder -write -force") {
+		t.Fatalf("the gap names the state, what the plan sends there, why and what to run: %s", line)
+	}
+	gaps = contract.StateGaps([]*chain.Chain{old, hand}, plans, lib, cat)
+	if len(gaps) != 1 || !strings.Contains(gaps[0].Line(), "no chain sends lines of 1 or 3 items (chains send 2 items: edge-flows)") {
+		t.Fatalf("a hand chain cancelling a 2-line PENDING order leaves 1 and 3 lines: %+v", gaps)
+	}
+}
+
 func hasExpect(st *chain.Step, path string, want any) bool {
 	for _, e := range st.Expect {
 		if e.Path == path && e.Equals == want {
