@@ -117,20 +117,8 @@ func sessionRestartEvidence(rec *runner.Record, index int) string {
 		if unansweredCall(st) {
 			return fmt.Sprintf("Step %s after it got no answer from the service", st.ID)
 		}
-		if prior := scan.shrunkList(st); prior != "" {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s lists fewer items than step %s did before the refusal)", st.ID, prior)
-		}
-		if scan.conflictVanished(st) {
-			return fmt.Sprintf("Data created before it was gone after the re-login (step %s expected a refusal over a value created before it and was accepted)", st.ID)
-		}
-		why := stepRefusalText(st)
-		if why == "" || st.Status == runner.StatusPassed || st.Transport != nil && strings.EqualFold(st.Transport.Code, "unauthenticated") {
-			continue
-		}
-		for _, value := range scan.createdValues(st) {
-			if strings.Contains(why, value) || notFound(why) {
-				return fmt.Sprintf("Data created before it was gone after the re-login (step %s: %s)", st.ID, why)
-			}
+		if gone := scan.goneAt(st); gone != "" {
+			return gone
 		}
 	}
 	return ""
