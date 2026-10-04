@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/N4darae/shrt/chain"
 )
 
 func rowChains() []*gateChain {
@@ -64,5 +66,30 @@ func TestASummaryLineSaysOnlyWhatItsRpcDoesNot(t *testing.T) {
 		if rpc, _, _ := strings.Cut(head, " "); strings.Count(line, rpc) != 1 || strings.Contains(line, "suspect") {
 			t.Errorf("a group line names its rpc once and does not restate it as the suspect: %q", line)
 		}
+	}
+}
+
+func TestATransportCodeIsNamedSoInTheGate(t *testing.T) {
+	const create = "x.v1.CustomerService/CreateCustomer"
+	own := func(step, path, want, got string) gateItem {
+		return gateItem{Step: step, Call: create, Path: path, Want: want, Got: got, Failed: true, Reason: reason{Kind: reasonWrite, Step: step, RPC: create}}
+	}
+	chains := []*gateChain{{name: "customers", failed: true, items: []gateItem{own("create_long", "customer.name", "Customer t1-abc", "Customer t1-a"), own("create_unicode", "code", "<none>", "internal")}}}
+	settleGate(chains)
+	if want := "; also suspect write create_unicode (CustomerService/CreateCustomer) at transport code internal"; !strings.HasSuffix(chains[0].first, want) {
+		t.Errorf("want the line to end %q, got %q", want, chains[0].first)
+	}
+	if summary := captureStdout(t, func() { printGateGroups(chains, false) }); !strings.Contains(summary, "  CustomerService/CreateCustomer customer.name, transport code: 2 step(s)") {
+		t.Errorf("the row head names the transport code so:\n%s", summary)
+	}
+	for path, want := range map[string]string{"transport.code": transportCode, "code": transportCode, "status.code": "status.code"} {
+		if got, _ := (gateItem{Path: path}).shown(); got != want {
+			t.Errorf("%s shows as %q, want %q", path, got, want)
+		}
+	}
+	chain.SetEnvelope("code", "OK")
+	defer chain.SetEnvelope("", "")
+	if got, _ := (gateItem{Path: "code"}).shown(); got != "code" {
+		t.Errorf("an envelope at code is the envelope, not the transport code: %q", got)
 	}
 }

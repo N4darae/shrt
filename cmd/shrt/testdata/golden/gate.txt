@@ -49,10 +49,10 @@ failures by suspect rpc:
 # one suspect rpc is one row naming each field it changed, wherever a read shows it
 FAIL       clerk  admin_read_back (ProductService/GetProduct) product.qty_on_hand want=0 got=-3; suspect write clerk_confirm (OrderService/ConfirmOrder) as clerk
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; same fault as clerk (ConfirmOrder)
-FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer) at code
+FAIL       customers  create_long (CustomerService/CreateCustomer) customer.name want=Customer t1-abcdefghijklmnopqrstuvwxyz got=Customer t1-a; suspect the write; also suspect write create_unicode (CustomerService/CreateCustomer) at transport code internal
 failures by suspect rpc:
   OrderService/ConfirmOrder product.qty_on_hand: 3 step(s) in 2 chain(s); e.g. clerk admin_read_back; write clerk_confirm as clerk
-  CustomerService/CreateCustomer customer.name, code: 2 step(s) in 1 chain(s); e.g. customers create_long
+  CustomerService/CreateCustomer customer.name, transport code: 2 step(s) in 1 chain(s); e.g. customers create_long
 
 # two reads of one write's field in other shapes name that write once
 FAIL       explore  a_after_two (ProductService/GetProduct) product.qty_on_hand want=7 got=4; suspect write confirm_two (OrderService/ConfirmOrder) as clerk
@@ -196,6 +196,6 @@ FAIL       one  later status want=passed got=failed; knock-on of write make (S/M
     [put] (error) unavailable: busy (and 1 more at put_2)
     [put] code want=<none> got=unavailable (and 1 more at put_2)
 failures by suspect rpc:
-  (no rpc) thing.n, code: 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
+  (no rpc) thing.n, transport code: 5 step(s) in 1 chain(s); e.g. one make thing.n want=1 got=2
   S/Make: 1 step(s) in 1 chain(s); e.g. one later; knock-on of write make
 

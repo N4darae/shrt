@@ -112,15 +112,15 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
-write, the field it changed), or `same fault as <chain>` when an earlier line named it and every other suspect of
-this chain; a slice failing at its parent's first change has no line of its own, the parent's says `(+N slice(s) fail
-the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way it does (by suspect
-rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one line per suspect rpc
-(or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read shows it. `-v` adds,
-under each failing chain, the suspect's request and every change with its want and got as `verify` prints it (`run`'s
-failed expectations for a chain with no safe spot; a change repeated at more steps or list items once, `(and N more at
-...)`), and the knock-on counts: no separate `verify` is needed to see the values. How a suspect is chosen:
-`PLAYBOOK.md` §8.
+write, the field it changed; `at transport code <code>` when it was refused before a body existed), or
+`same fault as <chain>` when an earlier line named it and every other suspect of this chain; a slice failing at its
+parent's first change has no line of its own, the parent's says `(+N slice(s) fail the same: ...)`; a kept-red slice
+folds so only when its pins held and its parent fails every way it does (by suspect rpc and field), and one failing
+not as pinned keeps its line. Then `failures by suspect rpc:`, one line per suspect rpc (or per `unclear` set of
+rpcs), headed by the field each failing step changed, wherever a read shows it. `-v` adds, under each failing chain,
+the suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a
+chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
+counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
 A chain with `wait:` steps is named on stderr as the gate starts, with its total wait. It starts
 at once, beside the other chains, when it writes nothing (each step is the configured login or a

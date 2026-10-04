@@ -586,11 +586,16 @@ func profileAs(e *env, w *runner.StepRecord) string {
 }
 
 func (it gateItem) shown() (string, string) {
-	if it.Kind == "order" {
+	switch {
+	case it.Kind == "order":
 		return listOf(it.Path), "same items in another order"
+	case it.Path == chain.TransportPrefix+".code" || it.Path == "code" && !chain.IsEnvelopePath(it.Path):
+		return transportCode, it.wantGot()
 	}
 	return gateIndex.ReplaceAllString(it.Path, "[]$1"), it.wantGot()
 }
+
+const transportCode = "transport code"
 
 func listOf(path string) string {
 	segs := chain.SplitPath(path)
@@ -1550,6 +1555,9 @@ func settleGate(chains []*gateChain) []string {
 		if more {
 			also, path := other.Reason.in(said{row: true}), ""
 			if path, _ = other.shown(); other.Reason.Kind == reasonWrite || len(other.Reason.Or) > 0 {
+				if path == transportCode {
+					path += " " + other.Got
+				}
 				also += " at " + path
 			}
 			g.first += "; also " + also
@@ -1660,7 +1668,8 @@ func (it gateItem) field() (string, string) {
 	case it.Kind != "" || it.Reason.Kind == reasonSet || it.Reason.Kind == reasonOrder || it.Reason.Kind == reasonStoredOrder:
 		return listOf(it.Path), listOf(it.Path)
 	}
-	return gateIndex.ReplaceAllString(it.Path, "[]$1"), leafOf(it.Path)
+	shown, _ := it.shown()
+	return shown, leafOf(it.Path)
 }
 
 func unclearLabel(chains []*gateChain) func(gateItem) string {
