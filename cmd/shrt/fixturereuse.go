@@ -125,29 +125,11 @@ func capitalized(s string) string {
 }
 
 func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReuse {
-	if c == nil || rec == nil || rec.DryRun {
-		return nil
-	}
-	var first *runner.StepRecord
-	index := -1
-	for i, st := range rec.Steps {
-		if st.Status == runner.StatusFailed || st.Status == runner.StatusError {
-			first, index = st, i
-			break
-		}
-	}
+	first, index, why, req := uniquenessRefusal(c, rec)
 	if first == nil {
 		return nil
 	}
-	why := stepRefusalText(first)
-	if why == "" || !uniquenessConflict.MatchString(why) {
-		return nil
-	}
 	named := fixtureRequestPath(c)
-	var req any
-	if err := json.Unmarshal(first.Request, &req); err != nil {
-		return nil
-	}
 	fields := []fixtureField{}
 	generated := generatedRequestPath(c)
 	eachLeaf(req, "", func(path string, _ any) {
@@ -252,6 +234,24 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 	}
 	return f
+}
+
+func uniquenessRefusal(c *chain.Chain, rec *runner.Record) (*runner.StepRecord, int, string, any) {
+	if c == nil || rec == nil || rec.DryRun {
+		return nil, -1, "", nil
+	}
+	for i, st := range rec.Steps {
+		if !failing(st) {
+			continue
+		}
+		why := stepRefusalText(st)
+		var req any
+		if why == "" || !uniquenessConflict.MatchString(why) || json.Unmarshal(st.Request, &req) != nil {
+			return nil, -1, "", nil
+		}
+		return st, i, why, req
+	}
+	return nil, -1, "", nil
 }
 
 func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, all, fields []fixtureField, unique []string) *fixtureReuse {

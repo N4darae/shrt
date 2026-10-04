@@ -49,26 +49,8 @@ func (l *literalCollision) line() string {
 }
 
 func detectLiteralCollision(e *env, c *chain.Chain, rec *runner.Record) *literalCollision {
-	if c == nil || rec == nil || rec.DryRun {
-		return nil
-	}
-	var first *runner.StepRecord
-	index := -1
-	for i, st := range rec.Steps {
-		if st.Status == runner.StatusFailed || st.Status == runner.StatusError {
-			first, index = st, i
-			break
-		}
-	}
+	first, index, why, req := uniquenessRefusal(c, rec)
 	if first == nil {
-		return nil
-	}
-	why := stepRefusalText(first)
-	if why == "" || !uniquenessConflict.MatchString(why) {
-		return nil
-	}
-	var req any
-	if err := json.Unmarshal(first.Request, &req); err != nil {
 		return nil
 	}
 	if l := collisionWithinRun(e, c, rec, first, index, why, req); l != nil {
