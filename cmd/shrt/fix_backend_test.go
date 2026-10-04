@@ -319,21 +319,3 @@ func (b *resettableUniqueBackend) server() *httptest.Server {
 		_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"code": "OK"}, "id": "thing-1", "name": name})
 	}))
 }
-
-func shortLiteralChain(name string) string {
-	return `apiVersion: shrt/v1
-name: cli-unique
-vars:
-    tag: first
-steps:
-    - id: create
-      call: ThingService/Create
-      body:
-          name: '` + name + `'
-          idempotency_key: key ${vars.tag}
-          kind: KIND_A
-      expect:
-          - path: error.code
-            equals: OK
-`
-}

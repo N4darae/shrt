@@ -119,8 +119,8 @@ func planAll(e *env, lib *contract.Library, write, force bool) error {
 	for _, rpc := range lib.RPCs() {
 		m, err := e.cat.Lookup(rpc)
 		if err != nil {
-			fmt.Printf("%s: %v\n", rpcTail(rpc), err)
-			failed = append(failed, rpcTail(rpc))
+			fmt.Printf("%s: %v\n", methodName(rpc), err)
+			failed = append(failed, methodName(rpc))
 			continue
 		}
 		if m.StreamRefusal() != "" {
@@ -260,16 +260,9 @@ func planChainName(targets []string, lib *contract.Library, e *env) (string, err
 func shortNames(rpcs []string) []string {
 	out := make([]string, 0, len(rpcs))
 	for _, r := range rpcs {
-		out = append(out, rpcTail(r))
+		out = append(out, methodName(r))
 	}
 	return out
-}
-
-func rpcTail(rpc string) string {
-	if i := strings.LastIndex(rpc, "/"); i >= 0 {
-		return rpc[i+1:]
-	}
-	return rpc
 }
 
 func planOptions(e *env) contract.PlanOptions {
