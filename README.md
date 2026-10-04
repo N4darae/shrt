@@ -66,11 +66,13 @@ Any command exits 2 for an unknown command, 1 for a bad flag or a setup it canno
 and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
 To check a release for bugs, run `shrt gate -repro` (first row): it does the work that otherwise
-follows the gate, a settled suspect, a verified repro per suspect rpc and a check of the masks.
+follows the gate, a settled suspect, a verified repro per suspect rpc and a check of the masks, and
+names the states no chain covers. Its rows and repros are the answer for what the chains cover;
+probe only what its `gaps:` lines name, or a support ticket no row explains.
 
 | command | does | exits other than 0 |
 |---|---|---|
-| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
+| `shrt gate -repro` | the gate without the chains that wait by design (each `SKIPPED`, never counted as passing; `-skip-waits=false` keeps them), then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps; `gaps:` lists the states no chain calls a gated write from (`contract status -gaps`), each with its `shrt contract plan <rpc> -write -force`; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -147,7 +149,10 @@ the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with
 the slice says so, or `repro: none:` and why. One `masks:` line closes it: `verify -run latest -json`
 of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
 id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which
-holds whatever else the backend holds) are only counted.
+holds whatever else the backend holds) are only counted. Then `gaps:` lists the state gaps `shrt
+contract status -gaps` reports for the writes the gated chains call, each ending with `shrt contract
+plan <rpc> -write -force`, or says there is none; the closing line says to probe only those, or a
+support ticket no row explains.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

@@ -10,7 +10,7 @@ repro, for each row of failures by suspect rpc:
     repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)
 masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
-shrt gate: FAIL: 1 of 1 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
 
 # GetProduct reads one short: ListProducts reads the 5 AddStock answered, so the read
 $ shrt gate -repro  [exit 1]
@@ -24,5 +24,5 @@ repro, for each row of failures by suspect rpc:
     repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)
 masks: none of the 5 masked or volatile value(s) in 1 chain(s) differed beyond run tags, ids and timestamps; shrt verify <chain> -run latest -masked lists them
 gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
-shrt gate: FAIL: 1 of 1 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+shrt gate: FAIL: 1 of 1 chain(s) failed; the rows and repro lines above are the answer for what the chains cover; probe further only for a support ticket no row explains
 

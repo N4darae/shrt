@@ -933,7 +933,7 @@ func runGate(ctx context.Context, args []string) error {
 	noSessionCheck := fs.Bool("no-session-check", false, "after a token refused early once, do not hold a fresh one to tell a restart from sessions that end early")
 	hollowBaseline := fs.String("hollow-baseline", ".shrt/hollow-baseline", "`file` for the chain hollow ratchet; empty skips it")
 	repro := fs.Bool("repro", false, "after the summary, for each suspect rpc: settle an unclear write or read with the read that tells them apart, write and verify a minimal repro in .shrt/scratch/, and say whether a mask hid more than run tags, ids and timestamps; "+
-		"leaves out the chains that wait, as -skip-waits does")
+		"then the states no chain calls a gated write from (contract status -gaps), the only ones left to probe; leaves out the chains that wait, as -skip-waits does")
 	skipWaits := fs.Bool("skip-waits", false, "leave out the chains with wait: steps (W in shrt chain ls), each named SKIPPED and never counted as passing; on under -repro unless chains are named, -skip-waits=false keeps them; not for CI")
 	setUsage(fs, "usage: shrt gate [<chain>...] [flags]   verify each chain with a safe spot, run the rest (a fresh -var tag each), group what failed", gateExitCodes)
 	only, err := parseArgs(fs, args)
@@ -1062,8 +1062,16 @@ func runGate(ctx context.Context, args []string) error {
 	if line := gateTime(chains, time.Since(began)); line != "" {
 		fmt.Println(line)
 	}
+	probe := "a support ticket no row explains"
 	if *repro {
 		gateRepro(ctx, e, chains, groups, *wait)
+		block, gaps := gateGaps(e, chains)
+		if block != "" {
+			fmt.Println(block)
+		}
+		if gaps > 0 {
+			probe = "what the gaps: lines name, or for " + probe
+		}
 	}
 	left := ""
 	if len(skipped) > 0 {
@@ -1072,7 +1080,10 @@ func runGate(ctx context.Context, args []string) error {
 	switch {
 	case failed > 0 || len(findings) > 0:
 		next := "every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)"
-		if *verbose {
+		switch {
+		case *repro:
+			next = "the rows and repro lines above are the answer for what the chains cover; probe further only for " + probe
+		case *verbose:
 			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
 		}
 		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings)), next, left)
