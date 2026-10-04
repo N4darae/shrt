@@ -402,14 +402,14 @@ func checkpointReads(c *chain.Chain, res *chain.SliceResult, rec *runner.Record,
 }
 
 func checkpointFor(c *chain.Chain, rec *runner.Record, kept map[string]bool, at int, records map[string]bool, path string) (string, string) {
-	field := lastSegment(path)
+	field := chain.PathLeaf(path)
 	for j := at - 1; j >= 0; j-- {
 		s := c.Steps[j]
 		sr, ok := rec.Step(s.ID)
 		if !ok || !chain.IsReadOnlyCall(s.Call) || !maps.Equal(requestIDs(sr), records) {
 			continue
 		}
-		if sr.Status != runner.StatusPassed || !slices.ContainsFunc(sr.Expect, func(x chain.ExpectResult) bool { return lastSegment(x.Path) == field }) {
+		if sr.Status != runner.StatusPassed || !slices.ContainsFunc(sr.Expect, func(x chain.ExpectResult) bool { return chain.PathLeaf(x.Path) == field }) {
 			continue
 		}
 		writes := []string{}
@@ -434,12 +434,4 @@ func requestIDs(sr *runner.StepRecord) map[string]bool {
 	out := map[string]bool{}
 	collectIDs(request, out)
 	return out
-}
-
-func lastSegment(path string) string {
-	segs := chain.SplitPath(path)
-	if len(segs) == 0 {
-		return path
-	}
-	return segs[len(segs)-1]
 }

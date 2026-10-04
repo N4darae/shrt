@@ -498,7 +498,10 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
 1. **Read the reason on every kept step.** It keeps the producers of what kept steps reference,
    the contracts' prerequisites, earlier writes on an entity the kept steps use, and earlier writes
    sending a unique value (id, unique or idempotency field; any field without a contract) the target
-   sends again, ignoring case.
+   sends again, ignoring case. A kept step that failed in the source run after an answer loses those
+   expectations (`relaxed:`), except a kept write failing on a field the target also fails: that is
+   the bug, so it stays (`kept failing:`), and `-verify` runs past it as the source run did (`shrt
+   run` of the slice stops there, `-keep-going` reaches the target).
 2. **Read `WARNING possible under-inclusion`** before trusting the size: a dropped earlier write
    can be state the target needed, and the slice can go green without it. A contract prerequisite
    no earlier step of the source calls (`-v`) was unmet in the source run too; the slice does not add it.

@@ -137,6 +137,7 @@ type SliceResult struct {
 	CarriedPins   []Pin           `json:"carried_kept_red,omitempty"`
 	DroppedPins   []Pin           `json:"dropped_kept_red,omitempty"`
 	Relaxed       []Relaxed       `json:"relaxed,omitempty"`
+	KeptFailing   []Relaxed       `json:"kept_failing,omitempty"`
 	Verified      string          `json:"verified,omitempty"`
 	NotReproduced string          `json:"not_reproduced,omitempty"`
 	Inconclusive  string          `json:"inconclusive,omitempty"`
@@ -312,10 +313,27 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		Redact:     append([]string{}, c.Redact...),
 	}
 	kept := map[string]bool{}
+	targetFailed := map[string]bool{}
+	if opts.Relax != nil {
+		for _, r := range opts.Relax(target) {
+			if !r.Passed && strings.Join(SplitPath(r.Path), ".") != EnvelopePath() {
+				targetFailed[PathLeaf(r.Path)] = true
+			}
+		}
+	}
 	for _, i := range order {
 		st := copyStep(c.Steps[i])
 		if st.ID != target && opts.Relax != nil {
-			res.Relaxed = append(res.Relaxed, relaxStep(st, opts.Relax(st.ID))...)
+			results := slices.Clone(opts.Relax(st.ID))
+			if isWriteCall(st.Call) && (opts.IsLogin == nil || !opts.IsLogin(st)) {
+				for j, r := range results {
+					if !r.Passed && targetFailed[PathLeaf(r.Path)] {
+						res.KeptFailing = append(res.KeptFailing, Relaxed{Step: st.ID, Path: r.Path, Rule: r.Rule, Want: r.Want, Got: r.Got})
+						results[j].Passed = true
+					}
+				}
+			}
+			res.Relaxed = append(res.Relaxed, relaxStep(st, results)...)
 		}
 		out.Steps = append(out.Steps, st)
 		kept[c.Steps[i].ID] = true
@@ -557,6 +575,9 @@ func sliceDescription(res *SliceResult) string {
 	}
 	if len(res.Relaxed) > 0 {
 		fmt.Fprintf(&b, "Relaxed, failed in run %s after an answer: %s.\n", res.Run, RelaxedList(res.Relaxed))
+	}
+	if len(res.KeptFailing) > 0 {
+		fmt.Fprintf(&b, "Kept as failed in run %s, on a field %s also fails: %s; shrt run stops there, -keep-going runs on to %s.\n", res.Run, res.Target, RelaxedList(res.KeptFailing), res.Target)
 	}
 	for _, f := range res.FilledVars {
 		switch {
@@ -962,6 +983,14 @@ func varNameOf(ref string) string {
 	_, rest, _ := strings.Cut(strings.TrimSpace(ref), ".")
 	name, _, _ := strings.Cut(rest, ".")
 	return name
+}
+
+func PathLeaf(path string) string {
+	segs := SplitPath(path)
+	if len(segs) == 0 {
+		return path
+	}
+	return segs[len(segs)-1]
 }
 
 func stepRefs(s *Step) []string {

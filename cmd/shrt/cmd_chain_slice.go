@@ -365,6 +365,12 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, v
 			fmt.Printf("  %s\n", r.String())
 		}
 	}
+	if len(res.KeptFailing) > 0 {
+		fmt.Printf("\nkept failing: kept writes failed in run %s on a field %s also fails, part of the bug, so the slice asserts them; shrt run stops at the first, -keep-going runs on to %s:\n", res.Run, res.Target, res.Target)
+		for _, r := range res.KeptFailing {
+			fmt.Printf("  %s\n", r.String())
+		}
+	}
 	printSlicePins(res)
 	fmt.Printf("\n%s\n", sliceCountLine(res, verdict))
 	if !verdict.settled() {
@@ -778,7 +784,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		return v, v.err()
 	}
 	replayRec, err := executeChain(ctx, e, res.Chain, runner.Options{
-		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact,
+		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: len(res.KeptFailing) > 0,
 	}, a.quiet)
 	if err != nil {
 		return didNotRun("could not run the slice: " + err.Error())

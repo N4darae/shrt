@@ -700,6 +700,32 @@ steps:
           equals: SUCCESS
 `
 
+const priceReadChain = `apiVersion: shrt/v1
+name: price-read
+vars:
+    tag: pr
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: sku-${vars.tag}
+        price_minor: "1250"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+        - path: product.price_minor
+          equals: 1250
+    - id: get_product
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create_product.product.id_product}
+      expect:
+        - path: status.code
+          equals: SUCCESS
+        - path: product.price_minor
+          equals: 1250
+`
+
 type sliceBackend struct {
 	fetch func(id string) (int, map[string]any)
 	next  int

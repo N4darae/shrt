@@ -441,13 +441,23 @@ func TestSliceCases(t *testing.T) {
 			args: []string{"sku-echo", "-step", "get", "-run", "latest", "-verify", "-var", "tag=sl1"}, want: []string{"verify reproduced 3/3"}},
 		{name: "kept steps that failed an unrelated expectation are relaxed, not a stop", setup: slcShop(func(s *fakeShop) { s.priceBug = true }, ".shrt/scratch/order-happy.yaml", pricedOrderChain, "-keep-going", "-var", "tag=src"),
 			args: []string{".shrt/scratch/order-happy.yaml", "-step", "confirm_order", "-run", "latest", "-verify", "-var", "tag=s1"}, code: 1,
-			want: []string{"create_product product.price_minor equals", "create_order order.total_minor equals"}, not: []string{"DID NOT RUN"},
+			want: []string{"relaxed: ", "create_product product.price_minor equals", "create_order order.total_minor equals"}, not: []string{"DID NOT RUN", "kept failing"},
 			check: func(t *testing.T, out string) {
 				if next := strings.Join(slcNext(out), " "); !strings.Contains(next, "-keep add_stock ") && !strings.Contains(next, "-keep writes ") {
 					t.Fatalf("next must keep add_stock:\n%s", out)
 				}
 				if again, code := slcRunNext(t, out, "-var", "tag=s2"); code != 0 || !strings.Contains(again, "verify reproduced") {
 					t.Fatalf("exit %d:\n%s", code, again)
+				}
+			}},
+		{name: "a kept write failing on the field the target fails keeps that expectation", setup: slcShop(func(s *fakeShop) { s.priceBug = true }, ".shrt/scratch/price-read.yaml", priceReadChain, "-keep-going", "-var", "tag=src"),
+			args: []string{".shrt/scratch/price-read.yaml", "-step", "get_product", "-run", "latest", "-verify", "-var", "tag=s1", "-write", ".shrt/scratch/price-repro.yaml"},
+			want: []string{"kept failing: kept writes failed in run ", "  create_product product.price_minor equals (want 1250, got 1249)\n", "verify reproduced 3/3"},
+			not:  []string{"relaxed:"},
+			check: func(t *testing.T, _ string) {
+				c, _ := slcSteps(t, ".shrt/scratch/price-repro.yaml")
+				if st, _ := c.Step("create_product"); len(st.Expect) != 2 || !strings.Contains(c.Description, "Kept as failed in run ") {
+					t.Fatalf("the write's own failing expectation must stay:\n%+v\n%s", st.Expect, c.Description)
 				}
 			}},
 		{name: "a kept step that passed in the source and fails in the slice is inconclusive", setup: func(t *testing.T) {

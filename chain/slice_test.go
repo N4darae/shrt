@@ -656,3 +656,28 @@ func TestAppendDescriptionLineKeepsTheRestOfTheFile(t *testing.T) {
 		}
 	}
 }
+
+func TestASliceKeepsAWriteFailingOnTheTargetsFieldAndRelaxesTheRest(t *testing.T) {
+	c := steps("customers",
+		st("create", "CustomerService/CreateCustomer", map[string]any{"name": "abc"},
+			chain.Expectation{Path: "customer.name", Equals: "abc"}, chain.Expectation{Path: "customer.email", Equals: "a@b"}),
+		st("get", "CustomerService/GetCustomer", map[string]any{"id_customer": "${create.customer.id_customer}"},
+			chain.Expectation{Path: "status.code", Equals: "SUCCESS"}, chain.Expectation{Path: "customer.name", Equals: "abc"}))
+	failed := map[string][]chain.ExpectResult{
+		"create": {{Path: "customer.name", Rule: "equals", Want: "abc", Got: "ab"}, {Path: "customer.email", Rule: "equals", Want: "a@b", Got: ""}},
+		"get":    {{Path: "status.code", Rule: "equals", Want: "SUCCESS", Got: "REJECTED"}, {Path: "customer.name", Rule: "equals", Want: "abc", Got: "ab"}},
+	}
+	res, err := chain.Slice(c, "get", chain.SliceOptions{RunID: "r1", Relax: func(id string) []chain.ExpectResult { return failed[id] }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.KeptFailing) != 1 || res.KeptFailing[0].Path != "customer.name" || len(res.Relaxed) != 1 || res.Relaxed[0].Path != "customer.email" {
+		t.Fatalf("kept failing %+v, relaxed %+v", res.KeptFailing, res.Relaxed)
+	}
+	if create, _ := res.Chain.Step("create"); len(create.Expect) != 1 || create.Expect[0].Path != "customer.name" {
+		t.Fatalf("create keeps its name expectation only: %+v", create.Expect)
+	}
+	if !strings.Contains(res.Chain.Description, "Kept as failed in run r1, on a field get also fails: create customer.name equals (want abc, got ab)") {
+		t.Fatalf("%s", res.Chain.Description)
+	}
+}
