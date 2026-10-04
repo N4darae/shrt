@@ -1482,18 +1482,12 @@ var gateIndex = regexp.MustCompile(`\.\d+(\.|$)`)
 func settleGate(chains []*gateChain) []string {
 	foldFlaky(chains)
 	dropSharedRoles(chains)
-	seen, keyOf, byName := map[string]string{}, groupKeys(chains), map[string]*gateChain{}
+	seen, anchor, keyOf, byName := map[string]string{}, map[string]string{}, groupKeys(chains), map[string]*gateChain{}
+	leads, firsts := map[*gateChain]gateItem{}, map[*gateChain]string{}
 	for _, g := range chains {
 		byName[g.name] = g
 	}
-	lacks := func(x string, g *gateChain, lead gateItem) (gateItem, bool) {
-		has := map[string]bool{keyOf(g.name, lead): true}
-		if byName[x] != nil && x != g.name {
-			has = map[string]bool{}
-			for _, it := range byName[x].items {
-				has[keyOf(x, it)] = true
-			}
-		}
+	lacks := func(g *gateChain, has map[string]bool) (gateItem, bool) {
 		for _, it := range g.items {
 			if !it.Passes && it.Reason.Kind != "" && !has[keyOf(g.name, it)] {
 				return it, true
@@ -1540,9 +1534,32 @@ func settleGate(chains []*gateChain) []string {
 			g.items = nil
 			continue
 		}
+		leads[g], firsts[g] = it, seen[it.root()]
+		if it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
+			seen[it.root()] = cmp.Or(seen[it.root()], g.name)
+			if g.spot {
+				anchor[it.root()] = cmp.Or(anchor[it.root()], g.name)
+			}
+		}
+	}
+	for _, g := range chains {
+		it, ok := leads[g]
+		if !ok {
+			continue
+		}
 		g.first, g.firstAt = fmt.Sprintf("%s%s %s", it.Step, it.callNote(), it.headline()), it.Step+" "+it.Path
-		other, more := lacks(seen[it.root()], g, it)
-		switch first := seen[it.root()]; {
+		first, has := firsts[g], map[string]bool{keyOf(g.name, it): true}
+		if a := anchor[it.root()]; a != "" && (first != "" || it.Reason.Kind != "" && len(it.Reason.Or) == 0) {
+			first = a
+		}
+		if x := byName[first]; x != nil && x != g {
+			has = map[string]bool{}
+			for _, o := range x.items {
+				has[keyOf(x.name, o)] = true
+			}
+		}
+		other, more := lacks(g, has)
+		switch {
 		case first != "" && first != g.name && !more:
 			named := methodName(it.rpc())
 			if r := it.Reason; r.Kind == reasonUnclear && len(r.Or) == 0 && r.ReadRPC != "" {
@@ -1561,9 +1578,6 @@ func settleGate(chains []*gateChain) []string {
 				also += " at " + path
 			}
 			g.first += "; also " + also
-		}
-		if seen[it.root()] == "" && it.Reason.Kind != "" && len(it.Reason.Or) == 0 {
-			seen[it.root()] = g.name
 		}
 		switch {
 		case it.Pinned != "":
@@ -1766,11 +1780,14 @@ func printGateGroups(chains []*gateChain, verbose bool) {
 			switch {
 			case it.Reason.Kind == "" || it.Reason.Kind == reasonKnockOn:
 			case it.Reason.Kind == reasonUnclear:
-				rank += 4
-			case it.Reason.Kind == reasonWrite:
 				rank += 8
-			default:
+			case it.Reason.Kind == reasonWrite:
 				rank += 16
+			default:
+				rank += 32
+			}
+			if g.spot {
+				rank += 4
 			}
 			if it.Failed {
 				rank += 2

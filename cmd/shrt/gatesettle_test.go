@@ -198,6 +198,13 @@ func gateCases() []gateCase {
 				{name: "lists", failed: true, items: []gateItem{total}},
 			}
 		}},
+		{name: "a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first", chains: func() []*gateChain {
+			return []*gateChain{
+				{name: "explore", failed: true, items: []gateItem{total}},
+				{name: "orders", failed: true, spot: true, items: []gateItem{total}},
+				{name: "lists", failed: true, spot: true, items: []gateItem{total}},
+			}
+		}},
 		{name: "a slice failing as its parent folds into the parent's line", chains: func() []*gateChain {
 			return []*gateChain{
 				{name: "orders", failed: true, items: []gateItem{confirmed}},
@@ -295,6 +302,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		{"-v shows the suspect's request and the same fault in a later chain", []string{"get thing.state", "get thing.state"}, []string{"", "one"}},
 		{"a read unclear between two writes names both and is grouped once, under the earlier", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "", "flow"}},
 		{"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "cancels"}},
+		{"a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first", []string{"create order.total_minor", "create order.total_minor", "create order.total_minor"}, []string{"orders", "", "orders"}},
 	} {
 		chains := settled(c.name)
 		for i, g := range chains {
@@ -305,6 +313,9 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	}
 	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor") {
 		t.Errorf("%s: got %q", b, chains[1].first)
+	}
+	if out := renderGateCase(t, cases["a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first"]); !strings.Contains(out, "  OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. orders create\n") {
+		t.Errorf("the row's example is a chain with a safe spot:\n%s", out)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")
 	if got := []string{chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf, chains[5].echoOf}; strings.Join(got, ",") != "orders,orders,,," {
