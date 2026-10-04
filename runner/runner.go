@@ -2023,7 +2023,7 @@ func fieldKind(fields []*catalog.Field, path string) string {
 	if !ok || f == nil || f.MapKey != "" || len(segs) == 0 {
 		return ""
 	}
-	if f.Repeated && !isIndexSegment(segs[len(segs)-1]) {
+	if f.Repeated && !chain.IsDigits(segs[len(segs)-1]) {
 		return ""
 	}
 	return f.Kind
@@ -2031,18 +2031,6 @@ func fieldKind(fields []*catalog.Field, path string) string {
 
 func numericPaths(fields []*catalog.Field) func(string) bool {
 	return func(path string) bool { return chain.IsNumericKind(fieldKind(fields, path)) }
-}
-
-func isIndexSegment(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func transportOutcome(res *transport.Result) map[string]any {

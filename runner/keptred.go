@@ -85,7 +85,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	case 1:
 		problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", unsentOther[0]))
 	default:
-		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capSteps(unsentOther, 5)))
+		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capIDs(unsentOther, 5)))
 	}
 	if len(problems) == 0 {
 		return KeptRedAsPinned, "failed exactly as kept_red pins: " + pinSummary(c.KeptRed), ""
@@ -274,13 +274,6 @@ func stepList(ids []string) string {
 		return "step " + quoted[0]
 	}
 	return "steps " + strings.Join(quoted, ", ")
-}
-
-func capSteps(ids []string, max int) string {
-	if len(ids) <= max {
-		return strings.Join(ids, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
 }
 
 const unevaluatedRule = "unevaluated"

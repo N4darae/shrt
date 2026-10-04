@@ -29,13 +29,8 @@ var resendCodes = map[string]bool{
 }
 
 func resendable(step *chain.Step, res *transport.Result, err error) bool {
-	if err != nil || res == nil || res.Error == nil || !chain.IsReadOnlyCall(step.Call) {
+	if err != nil || res == nil || res.Error == nil || !chain.IsReadOnlyCall(step.Call) || chain.HasTransportExpectation(step.Expect) {
 		return false
-	}
-	for _, e := range step.Expect {
-		if chain.IsTransportPath(e.Path) {
-			return false
-		}
 	}
 	switch res.Error.Code {
 	case "http_502", "http_503", "http_504":
