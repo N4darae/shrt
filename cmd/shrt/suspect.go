@@ -1374,31 +1374,20 @@ func sameEntity(a any, pa string, b any, pb string) bool {
 	}
 	x, xl := parent(a, pa)
 	y, yl := parent(b, pb)
-	matched := false
+	same, differ := false, []string(nil)
 	for k, v := range x {
-		w, ok := y[k]
-		if !idKey(k) || !ok || xl == nil && yl == nil || !distinct(xl, k) || !distinct(yl, k) {
-			continue
-		}
-		if compactValue(v) != compactValue(w) {
-			return false
-		}
-		matched = true
-	}
-	if matched {
-		return true
-	}
-	sawID := false
-	for k, v := range x {
-		if !idKey(k) {
-			continue
-		}
-		if w, ok := y[k]; ok {
+		if w, ok := y[k]; ok && idKey(k) {
 			if compactValue(v) == compactValue(w) {
-				return true
+				same = true
+			} else {
+				differ = append(differ, k)
 			}
-			sawID = true
 		}
 	}
-	return !sawID
+	if !same {
+		return len(differ) == 0
+	}
+	return !slices.ContainsFunc(differ, func(k string) bool {
+		return (xl != nil || yl != nil) && distinct(xl, k) && distinct(yl, k)
+	})
 }
