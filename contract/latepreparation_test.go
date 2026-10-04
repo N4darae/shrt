@@ -67,11 +67,7 @@ func TestPlanStocksTheSecondProductWhenStockIsNeededAfterTheOrder(t *testing.T) 
 	c := plan.Chain
 	stock2, ok := c.Step("add_stock_2")
 	if !ok {
-		ids := []string{}
-		for _, s := range c.Steps {
-			ids = append(ids, s.ID)
-		}
-		t.Fatalf("create_product is stocked for the confirm, so create_product_2 must be too: %v", ids)
+		t.Fatalf("create_product is stocked for the confirm, so create_product_2 must be too: %v", stepIDs(plan))
 	}
 	if stock2.Body["id_product"] != "${create_product_2.product.id_product}" {
 		t.Fatalf("add_stock_2 must stock the second product, got %v", stock2.Body["id_product"])

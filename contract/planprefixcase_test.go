@@ -22,18 +22,9 @@ func planPrefixNote(t *testing.T, note string) (*contract.Plan, string) {
 	}, "ListProducts")
 }
 
-func findStep(p *contract.Plan, id string) *chain.Step {
-	for _, s := range p.Chain.Steps {
-		if s.ID == id {
-			return s
-		}
-	}
-	return nil
-}
-
 func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembership(t *testing.T) {
 	p, text := planPrefixNote(t, "a prefix filter; empty lists all")
-	if findStep(p, "create_product_prefix_case") != nil {
+	if _, ok := p.Chain.Step("create_product_prefix_case"); ok {
 		t.Fatalf("no case rule is stated, so no fixture may be asserted absent for its case\n%s", text)
 	}
 	probe := planStep(t, p, "list_products_prefix_case")
@@ -58,7 +49,7 @@ func TestAPrefixWhoseCaseRuleIsUnstatedIsListedInAnotherCaseAssertingNoMembershi
 func TestAPrefixStatedCaseSensitiveKeepsTheAssertedCaseFixture(t *testing.T) {
 	p, text := planPrefixNote(t, "a prefix filter, case-sensitive; empty lists all")
 	planStep(t, p, "create_product_prefix_case")
-	if findStep(p, "list_products_prefix_case") != nil {
+	if _, ok := p.Chain.Step("list_products_prefix_case"); ok {
 		t.Fatalf("a stated case rule is asserted by the fixture, not left to the safe spot\n%s", text)
 	}
 }

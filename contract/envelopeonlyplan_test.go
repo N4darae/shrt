@@ -57,17 +57,14 @@ func TestAPlannedStepAssertingOnlyTheVerdictFailsStrictLint(t *testing.T) {
 	if len(planned) > 0 {
 		t.Fatalf("the plan asserts what AddStock declares under terminal, so strict lint passes it: %+v", planned)
 	}
-	for _, s := range plan.Chain.Steps {
-		if s.ID == "add_stock" {
-			kept := []chain.Expectation{}
-			for _, e := range s.Expect {
-				if e.Path == "status.code" {
-					kept = append(kept, e)
-				}
-			}
-			s.Expect = kept
+	stock, _ := plan.Chain.Step("add_stock")
+	kept := []chain.Expectation{}
+	for _, e := range stock.Expect {
+		if e.Path == "status.code" {
+			kept = append(kept, e)
 		}
 	}
+	stock.Expect = kept
 	loose := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib}))
 	strict := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib, Strict: true}))
 	if _, flagged := loose["create_product"]; flagged {
@@ -85,11 +82,7 @@ func TestAPlannedStepAssertingOnlyTheVerdictFailsStrictLint(t *testing.T) {
 		t.Fatalf("the issue must name the declared fact to assert: %s", strict["add_stock"].Message)
 	}
 
-	for _, s := range plan.Chain.Steps {
-		if s.ID == "add_stock" {
-			s.Expect = append(s.Expect, chain.Expectation{Path: "qty_on_hand", Equals: 5})
-		}
-	}
+	stock.Expect = append(stock.Expect, chain.Expectation{Path: "qty_on_hand", Equals: 5})
 	after := envelopeOnlyIssues(contract.LintChain(plan.Chain, cat, contract.ChainLintOptions{Library: lib, Strict: true}))
 	if _, still := after["add_stock"]; still {
 		t.Fatalf("a data assertion clears the issue, got %+v", after["add_stock"])
