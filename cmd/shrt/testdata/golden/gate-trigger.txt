@@ -1,0 +1,28 @@
+# CreateOrder prices the last line of a two-line order as qty 1: a one-line order passes, so the row says the trigger
+$ shrt gate -repro  [exit 1]
+FAIL       orders  order_1_2 (OrderService/CreateOrder) order.total_minor want=750 got=500; suspect the write
+failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor: 1 step(s) in 1 chain(s); e.g. orders order_1_2
+    trigger: fails with lines of 2+ items (1 call); passes with lines of 1 item (1 call)
+coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
+repro, for each row of failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor
+    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (reproduced 3/3)
+masks: no chain here has a safe spot, so verify masked nothing
+gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
+shrt gate: FAIL: 1 of 1 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+
+# a two-line order ending in qty 1 passes as well, so nothing separates the calls and the row says no trigger
+$ shrt gate -repro  [exit 1]
+PASS       ends-in-one
+FAIL       orders       order_1_2 (OrderService/CreateOrder) order.total_minor want=750 got=500; suspect the write
+failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor: 1 step(s) in 1 chain(s); e.g. orders order_1_2
+coverage: 11 rpc(s) have no contract, so no planned probes (boundaries, other roles, missing tokens, read-backs); shrt contract init -all, then shrt contract plan -all -write
+repro, for each row of failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor
+    repro: shrt run .shrt/scratch/orders-slice-order_1_2.yaml  (reproduced 3/3)
+masks: no chain here has a safe spot, so verify masked nothing
+gate: -repro: writing and verifying a repro for each of 1 suspect rpc(s), each slice sent 3 times
+shrt gate: FAIL: 1 of 2 chain(s) failed; every changed value: shrt gate -v <chain>... (re-sends only those), or shrt verify <chain> -run latest (offline)
+

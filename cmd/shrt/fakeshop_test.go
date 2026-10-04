@@ -29,6 +29,7 @@ type fakeShop struct {
 	confirmExtraUnit   bool
 	addStockLostBug    bool
 	stockReadBug       bool
+	lastLineBug        bool
 
 	next      int
 	getCalls  int
@@ -157,13 +158,17 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		}
 		lines, _ := body["lines"].([]any)
 		total := int64(0)
-		for _, l := range lines {
+		for i, l := range lines {
 			line, _ := l.(map[string]any)
 			p := s.products[fmt.Sprint(line["id_product"])]
 			if p == nil {
 				return 200, map[string]any{"status": rejected("ProductNotFound")}
 			}
-			total += num64(line["qty"]) * num64(p["price_minor"])
+			qty := num64(line["qty"])
+			if s.lastLineBug && i > 0 && i == len(lines)-1 {
+				qty = 1
+			}
+			total += qty * num64(p["price_minor"])
 		}
 		o := map[string]any{"id_order": s.id("ord"), "id_customer": body["id_customer"], "lines": lines, "total_minor": strconv.FormatInt(total, 10)}
 		s.orders[o["id_order"].(string)] = o

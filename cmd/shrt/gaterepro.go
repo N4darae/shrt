@@ -43,7 +43,7 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 		if line := settleRow(ctx, e, gr, spot, wait); line != "" {
 			fmt.Println("    " + line)
 		}
-		at := gr.reproAt(spot)
+		at := gateRef{chain: gr.in, it: gr.example}
 		key := at.chain + " " + at.it.Step
 		if done[key] == "" {
 			done[key] = reproRow(ctx, e, at, fresh)
@@ -51,19 +51,6 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 		fmt.Println("    " + done[key])
 	}
 	fmt.Println(gateMasks(ctx, chains))
-}
-
-func (gr *gateGroup) reproAt(spot map[string]bool) gateRef {
-	at, rank := gateRef{chain: gr.in, it: gr.example}, -1
-	if spot[gr.in] {
-		return at
-	}
-	for _, r := range gr.refs {
-		if spot[r.chain] && r.it.groupRank(true) > rank {
-			at, rank = r, r.it.groupRank(true)
-		}
-	}
-	return at
 }
 
 func scratchDir(e *env) string {
