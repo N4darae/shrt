@@ -1,6 +1,9 @@
 package namecase
 
-import "sort"
+import (
+	"cmp"
+	"slices"
+)
 
 func Closest(name string, candidates []string, limit int) []string {
 	target := Fold(name)
@@ -20,11 +23,8 @@ func Closest(name string, candidates []string, limit int) []string {
 			found = append(found, scored{c, d})
 		}
 	}
-	sort.SliceStable(found, func(i, j int) bool {
-		if found[i].dist != found[j].dist {
-			return found[i].dist < found[j].dist
-		}
-		return found[i].name < found[j].name
+	slices.SortFunc(found, func(a, b scored) int {
+		return cmp.Or(cmp.Compare(a.dist, b.dist), cmp.Compare(a.name, b.name))
 	})
 	out := []string{}
 	for _, s := range found {

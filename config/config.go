@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -125,11 +126,7 @@ func ConventionsGuideFor(envelopePath string) string {
 		envelopePath = "error.code"
 	}
 	row := func(setting, why string) string {
-		pad := 46 - len(setting)
-		if pad < 2 {
-			pad = 2
-		}
-		return "    " + setting + strings.Repeat(" ", pad) + why + "\n"
+		return "    " + setting + strings.Repeat(" ", max(46-len(setting), 2)) + why + "\n"
 	}
 	okRow := row("envelope_ok: OK", "the value at that path meaning success")
 	head := "no conventions: block declared, so shrt assumes the defaults. Declare only what\n" +
@@ -354,21 +351,9 @@ func decodeStrict(raw []byte, into any) error {
 		return yamlkey.Explain(err, into, raw)
 	}
 	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && carriesContent(&extra) {
+	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
 		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
 			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
-}
-
-func carriesContent(n *yaml.Node) bool {
-	if n == nil {
-		return false
-	}
-	for _, c := range n.Content {
-		if c.Tag != "!!null" {
-			return true
-		}
-	}
-	return false
 }
