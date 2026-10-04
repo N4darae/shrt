@@ -490,7 +490,9 @@ shrt chain which -rpc PayInvoice -code 1204 -json
    `app_code` and a `reason` seen together in a run record or declared together in a failure count
    as one refusal.
 2. **`asserted` is a chain's claim; `OBSERVED` means a local run record reached the step**, with
-   what the newest such run got, even against the assertion. Run records are machine-local.
+   what the newest such run got, even against the assertion. Run records are machine-local. Under
+   `-rpc`, a write step acting on a record whose state the chain shows says so:
+   `called on an order in PENDING, lines of 3 items`.
 3. **Paste the `reproduce:` line**, replacing `<fresh>` in `-var <name>=<fresh>`.
 4. **No match exits 1.** Under `-code`, steps whose run record carried an unasserted code are listed
    with a reproduce command instead.

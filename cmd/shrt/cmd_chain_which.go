@@ -79,8 +79,25 @@ func chainWhich(args []string) error {
 	if *asJSON {
 		return emitJSON(hits)
 	}
-	printWhich(hits, q, e.targetURL(), *verbose)
+	printWhich(hits, q, e.targetURL(), *verbose, situationsOf(chains, lib, e))
 	return nil
+}
+
+func situationsOf(chains []*chain.Chain, lib *contract.Library, e *env) func(string, string) string {
+	byName := map[string]*chain.Chain{}
+	for _, c := range chains {
+		byName[c.Name] = c
+	}
+	known := map[string]map[string]contract.Situation{}
+	return func(name, step string) string {
+		if _, ok := known[name]; !ok {
+			known[name] = contract.Situations(byName[name], lib, e.cat)
+		}
+		if sit, ok := known[name][step]; ok {
+			return sit.String()
+		}
+		return ""
+	}
 }
 
 func describeWhichQuery(q chain.WhichQuery) string {
@@ -255,7 +272,7 @@ const (
 	whichMarkClaim = "asserted"
 )
 
-func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verbose bool) {
+func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verbose bool, situation func(string, string) string) {
 	steps, observed := 0, 0
 	for _, h := range hits {
 		steps += len(h.Matches)
@@ -287,6 +304,9 @@ func printWhich(hits []chain.WhichChain, q chain.WhichQuery, target string, verb
 				line += "  auth probe"
 			}
 			fmt.Println(line)
+			if sit := situation(h.Chain, m.Step); sit != "" && q.RPC != "" {
+				fmt.Printf("    called %s\n", sit)
+			}
 			if m.ByReason != "" {
 				fmt.Printf("    %s\n", byReasonNote(m, q))
 			}
