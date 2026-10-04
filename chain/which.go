@@ -1,6 +1,7 @@
 package chain
 
 import (
+	"cmp"
 	"encoding/json"
 	"slices"
 	"sort"
@@ -181,7 +182,7 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 				}
 			}
 		}
-		sortMatches(matches, q.Code == "")
+		slices.SortStableFunc(matches, func(a, b WhichStep) int { return cmp.Or(matchOrder(a, b, q.Code == ""), cmp.Compare(a.Index, b.Index)) })
 		hit.Matches = matches
 		best := matches[0]
 		for _, m := range matches {
@@ -194,7 +195,9 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		hit.Command = reproCommand(c, best, opts)
 		out = append(out, hit)
 	}
-	sortWhich(out, q.Code == "")
+	slices.SortStableFunc(out, func(a, b WhichChain) int {
+		return cmp.Or(matchOrder(a.Matches[0], b.Matches[0], q.Code == ""), cmp.Compare(a.Steps, b.Steps), cmp.Compare(a.Chain, b.Chain))
+	})
 	return out
 }
 
@@ -477,34 +480,8 @@ func evidenceRank(m WhichStep, failingFirst bool) int {
 	}
 }
 
-func sortMatches(m []WhichStep, failingFirst bool) {
-	sort.SliceStable(m, func(i, j int) bool {
-		a, b := m[i], m[j]
-		if ra, rb := evidenceRank(a, failingFirst), evidenceRank(b, failingFirst); ra != rb {
-			return ra < rb
-		}
-		if a.SliceSteps != b.SliceSteps {
-			return sliceRank(a.SliceSteps) < sliceRank(b.SliceSteps)
-		}
-		return a.Index < b.Index
-	})
-}
-
-func sortWhich(h []WhichChain, failingFirst bool) {
-	sort.SliceStable(h, func(i, j int) bool {
-		a, b := h[i], h[j]
-		if ra, rb := evidenceRank(a.Matches[0], failingFirst), evidenceRank(b.Matches[0], failingFirst); ra != rb {
-			return ra < rb
-		}
-		as, bs := sliceRank(a.Matches[0].SliceSteps), sliceRank(b.Matches[0].SliceSteps)
-		if as != bs {
-			return as < bs
-		}
-		if a.Steps != b.Steps {
-			return a.Steps < b.Steps
-		}
-		return a.Chain < b.Chain
-	})
+func matchOrder(a, b WhichStep, failingFirst bool) int {
+	return cmp.Or(cmp.Compare(evidenceRank(a, failingFirst), evidenceRank(b, failingFirst)), cmp.Compare(sliceRank(a.SliceSteps), sliceRank(b.SliceSteps)))
 }
 
 func sliceRank(n int) int {

@@ -42,13 +42,10 @@ func KnownTransportPath(path string) bool {
 }
 
 func TransportOutcome(status int, code, message string) map[string]any {
-	inner := map[string]any{"http_status": float64(status)}
-	if code == "" {
-		inner["code"] = TransportOK
-		return map[string]any{TransportPrefix: inner}
+	inner := map[string]any{"http_status": float64(status), "code": TransportOK}
+	if code != "" {
+		inner["code"], inner["message"] = code, message
 	}
-	inner["code"] = code
-	inner["message"] = message
 	return map[string]any{TransportPrefix: inner}
 }
 

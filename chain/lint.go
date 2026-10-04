@@ -800,20 +800,17 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 
 func UnreachableExpectations(c *Chain, cat *catalog.Catalog) []Issue {
 	out := []Issue{}
-	for _, s := range c.Steps {
-		if s == nil {
-			continue
-		}
-		m, err := cat.Lookup(s.Call)
-		if err != nil {
-			continue
+	c.eachTyped(cat, func(_ int, s *Step, m *catalog.Method, _ map[string]*catalog.Method, _ map[string]exportOrigin) bool {
+		if m == nil {
+			return true
 		}
 		for _, i := range lintExpectPaths(s, m) {
 			if i.IsError() && i.Kind == KindUnreachable {
 				out = append(out, i)
 			}
 		}
-	}
+		return true
+	})
 	return out
 }
 
@@ -1152,24 +1149,8 @@ func lintExpectRules(s *Step) []Issue {
 }
 
 func enumValuesAt(fields []*catalog.Field, segs []string) []string {
-	for len(segs) > 0 && IsDigits(segs[0]) {
-		segs = segs[1:]
-	}
-	if len(segs) == 0 {
-		return nil
-	}
-	for _, f := range fields {
-		if !namecase.Equal(f.Name, segs[0]) {
-			continue
-		}
-		rest := segs[1:]
-		for len(rest) > 0 && IsDigits(rest[0]) {
-			rest = rest[1:]
-		}
-		if len(rest) == 0 {
-			return f.EnumValues
-		}
-		return enumValuesAt(f.Fields, rest)
+	if f, ok := catalog.ResponseFieldAt(fields, segs); ok && f != nil {
+		return f.EnumValues
 	}
 	return nil
 }
