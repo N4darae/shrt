@@ -30,22 +30,13 @@ func DefaultReadOnlyPrefixes() []string {
 	}
 }
 
-func IsReadOnlyCall(call string) bool {
-	name := call[strings.LastIndex(call, "/")+1:]
-	for _, p := range ReadOnlyPrefixes() {
-		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
-			return true
-		}
-	}
-	return false
-}
+func IsReadOnlyCall(call string) bool { return callHasPrefix(call, ReadOnlyPrefixes()) }
 
-func wordBoundaryAt(name string, at int) bool {
-	if at >= len(name) {
-		return true
-	}
-	c := name[at]
-	return c < 'a' || c > 'z'
+func callHasPrefix(call string, prefixes []string) bool {
+	name := call[strings.LastIndex(call, "/")+1:]
+	return slices.ContainsFunc(prefixes, func(p string) bool {
+		return strings.HasPrefix(name, p) && (len(name) == len(p) || name[len(p)] < 'a' || name[len(p)] > 'z')
+	})
 }
 
 type Prereq struct {
@@ -869,7 +860,7 @@ func (x *stepIndex) entitiesSent(i int) []int {
 	return out
 }
 
-func (x *stepIndex) readEntities(i int, seen map[int]bool) map[int]bool {
+func (x *stepIndex) entitiesReached(i int, throughWrites bool, seen map[int]bool) map[int]bool {
 	out := map[int]bool{}
 	if seen[i] {
 		return out
@@ -877,25 +868,10 @@ func (x *stepIndex) readEntities(i int, seen map[int]bool) map[int]bool {
 	seen[i] = true
 	for _, j := range x.entitiesSent(i) {
 		out[j] = true
-		if IsReadOnlyCall(x.c.Steps[j].Call) {
-			for k := range x.readEntities(j, seen) {
+		if throughWrites || IsReadOnlyCall(x.c.Steps[j].Call) {
+			for k := range x.entitiesReached(j, throughWrites, seen) {
 				out[k] = true
 			}
-		}
-	}
-	return out
-}
-
-func (x *stepIndex) actsOn(i int, seen map[int]bool) map[int]bool {
-	out := map[int]bool{}
-	if seen[i] {
-		return out
-	}
-	seen[i] = true
-	for _, j := range x.entitiesSent(i) {
-		out[j] = true
-		for k := range x.actsOn(j, seen) {
-			out[k] = true
 		}
 	}
 	return out
@@ -922,7 +898,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
-		reach := x.actsOn(w, map[int]bool{})
+		reach := x.entitiesReached(w, true, map[int]bool{})
 		for _, r := range readers {
 			if w >= r {
 				continue
@@ -931,7 +907,7 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 				continue
 			}
 			shared := ""
-			for e := range x.readEntities(r, map[int]bool{}) {
+			for e := range x.entitiesReached(r, false, map[int]bool{}) {
 				if _, fresh := keeps[e]; !fresh {
 					continue
 				}
@@ -1220,15 +1196,7 @@ func verdictText(v any) string {
 
 var listingPrefixes = []string{"List", "Search", "Query", "Find"}
 
-func isListingCall(call string) bool {
-	name := call[strings.LastIndex(call, "/")+1:]
-	for _, p := range listingPrefixes {
-		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
-			return true
-		}
-	}
-	return false
-}
+func isListingCall(call string) bool { return callHasPrefix(call, listingPrefixes) }
 
 func filterVars(v any, out map[string]string) {
 	walkLeaves(v, "", "", func(path, _, t string) {
