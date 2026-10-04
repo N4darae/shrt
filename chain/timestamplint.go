@@ -105,7 +105,7 @@ func expectsRefusal(s *Step) bool {
 			if e.Equals != nil && stringify(e.Equals) != TransportOK {
 				return true
 			}
-		case path == EnvelopePath() && EnvelopeOK() != "":
+		case path == EnvelopePath():
 			if e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
 				return true
 			}

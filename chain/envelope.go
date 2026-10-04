@@ -506,7 +506,7 @@ func isCodeField(segs []string) bool {
 }
 
 func PinsVerdictCode(e Expectation) bool {
-	if !namesCode(e) || EnvelopePath() == "" {
+	if !namesCode(e) {
 		return false
 	}
 	segs := SplitPath(e.Path)

@@ -24,8 +24,6 @@ type Expectation struct {
 	vacuous string
 }
 
-func (e Expectation) VacuousRule() string { return e.vacuous }
-
 func (e Expectation) vacuousWhy() string {
 	switch e.vacuous {
 	case `contains: ""`:

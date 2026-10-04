@@ -1009,10 +1009,7 @@ func ExpectsRefusal(s *Step) bool {
 		if ExpectsTransportRefusal(e) {
 			return true
 		}
-		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.Equals != nil && stringify(e.Equals) != EnvelopeOK() {
-			return true
-		}
-		if env := EnvelopePath(); env != "" && strings.Join(SplitPath(e.Path), ".") == env && e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK() {
+		if strings.Join(SplitPath(e.Path), ".") == EnvelopePath() && (e.Equals != nil && stringify(e.Equals) != EnvelopeOK() || e.NotEqual != nil && stringify(e.NotEqual) == EnvelopeOK()) {
 			return true
 		}
 	}

@@ -728,12 +728,9 @@ func lintInertAllowFail(s *Step) []Issue {
 	if !s.AllowFail || len(s.Expect) == 0 {
 		return nil
 	}
-	say := fmt.Sprintf("%s.code equals: permission_denied for a Connect error", TransportPrefix)
-	inBand := ""
-	if p := EnvelopePath(); p != "" {
-		say += fmt.Sprintf(", or %s equals: <the refusal code> for an in-band refusal", p)
-		inBand = fmt.Sprintf(", and an in-band refusal on %s is never covered by allow_fail", p)
-	}
+	p := EnvelopePath()
+	say := fmt.Sprintf("%s.code equals: permission_denied for a Connect error, or %s equals: <the refusal code> for an in-band refusal", TransportPrefix, p)
+	inBand := fmt.Sprintf(", and an in-band refusal on %s is never covered by allow_fail", p)
 	return []Issue{{
 		Step:     s.ID,
 		Severity: SeverityWarn,
@@ -787,7 +784,7 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 					"expect on %q %s, so it passes whatever the server answers. Assert the value this step should have produced",
 					e.Path, why), Why: unfailableWhy})
 			}
-			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" && EnvelopeOK() != "" {
+			if e.NotEqual != nil && IsVerdictPath(e.Path) && stringify(e.NotEqual) == "" {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnfailable, Message: fmt.Sprintf(
 					"expect on %q says not_equal \"\", which holds on the ok value %s and on every refusal alike: "+
 						"no answer that carries a verdict can fail it, so it declares neither success nor a refusal, "+
@@ -864,7 +861,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 }
 
 func objectNotEqualRemedy(path string) string {
-	if env := EnvelopePath(); env != "" && EnvelopeOK() != "" && strings.HasPrefix(strings.ToLower(env), strings.ToLower(path)+".") {
+	if env := EnvelopePath(); strings.HasPrefix(strings.ToLower(env), strings.ToLower(path)+".") {
 		return fmt.Sprintf("It contains the verdict: write %s equals: %s for a call that must succeed, or the refusal "+
 			"code for one that must be refused", env, EnvelopeOK())
 	}
