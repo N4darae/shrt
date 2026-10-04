@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -21,7 +24,6 @@ import (
 	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"gopkg.in/yaml.v3"
 )
 
 type gateRef struct {
@@ -54,8 +56,11 @@ func gateRepro(ctx context.Context, e *env, chains []*gateChain, groups []*gateG
 			done[key], files[key] = reproRow(ctx, e, at, fresh)
 		}
 		fails, passes := gr.rowCalls(byName)
-		if line, sent := firmTrigger(ctx, e, files[key], at, fails, passes); sent > 0 {
-			fmt.Println("    " + cmp.Or(line, fmt.Sprintf("trigger above does not hold: %s around its boundary did not fail and pass as it says", plural(sent, "more call"))))
+		switch line, against := firmTrigger(ctx, e, files[key], at, fails, passes); {
+		case against != "":
+			fmt.Println("    trigger above does not hold: " + against)
+		case line != gr.trigger:
+			fmt.Println("    " + line)
 		}
 		fmt.Println("    " + done[key])
 	}
@@ -654,7 +659,9 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 		out = append(out, line)
 		repro, file := r.repro(ctx, e, lib, g.RPC, calls, ex)
 		if rpc == shortRPC(g.RPC) {
-			if trigger, _ := firmTrigger(ctx, e, file, gateRef{chain: r.c.Name, it: ex}, fails, passes); trigger != "" {
+			if trigger, against := firmTrigger(ctx, e, file, gateRef{chain: r.c.Name, it: ex}, fails, passes); against != "" {
+				out = append(out, "trigger: none: "+against)
+			} else if trigger != "" {
 				out = append(out, trigger)
 			}
 		}
@@ -663,126 +670,305 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 	return out
 }
 
-func firmTrigger(ctx context.Context, e *env, file string, at gateRef, fails, passes []rowCall) (string, int) {
+type triggerProbe struct {
+	label   string
+	steps   []*chain.Step
+	dims    map[string]string
+	fail    bool
+	changed []string
+}
+
+func firmTrigger(ctx context.Context, e *env, file string, at gateRef, fails, passes []rowCall) (string, string) {
 	line, apart := triggerOf(fails, passes)
-	i := slices.IndexFunc(fails, func(f rowCall) bool { return f.at == at.chain+" "+at.it.Step })
 	c, err := chain.LoadFile(file)
-	if len(apart) != 1 || i < 0 || err != nil || !verdictCode(at.it.Path) || callCount(fails) != plural(1, "call") && callCount(passes) != plural(1, "call") {
-		return line, 0
+	rec, rErr := e.store.LatestRun(at.chain)
+	if err != nil || rErr != nil {
+		return line, ""
 	}
-	kind, list, _ := strings.Cut(apart[0], " ")
+	base, _ := rec.Step(at.it.Step)
 	t := slices.IndexFunc(c.Steps, func(s *chain.Step) bool { return s.ID == at.it.Step })
-	if kind != "len" && kind != "repeat" || t < 0 {
-		return line, 0
+	i := slices.IndexFunc(fails, func(f rowCall) bool { return f.at == at.chain+" "+at.it.Step })
+	if base == nil || t < 0 || fails != nil && (i < 0 || len(apart) != 1) {
+		return line, ""
 	}
-	target, src, key, items := c.Steps[t], (*chain.Step)(nil), "", []any{}
-	carriers := []*chain.Step{target}
-	for _, ref := range target.SendReferences() {
-		if id, ok := chain.ParseRef(ref).StepID(); ok {
-			if s, found := c.Step(id); found {
-				carriers = append(carriers, s)
+	send := func(p triggerProbe, leaf string) (*runner.Record, *runner.StepRecord, bool, bool) {
+		sc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name, Vars: c.Vars, Volatile: c.Volatile, Redact: c.Redact, Steps: p.steps}
+		vars := map[string]any{}
+		for _, name := range chain.FreshVars(sc.Steps, isLoginStep(e), nil) {
+			vars[name] = chain.NewRunTag()
+		}
+		got, err := executeChain(ctx, e, sc, runner.Options{Vars: vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: true}, true)
+		if err != nil {
+			return nil, nil, false, false
+		}
+		for _, id := range p.changed {
+			if cp, _ := got.Step(id); id != at.it.Step && (cp == nil || refusalOf(cp) != "") {
+				return nil, nil, false, false
+			}
+		}
+		st, _ := got.Step(at.it.Step)
+		fail, known := failsLike(at.it, base, st, leaf)
+		return got, st, fail, known
+	}
+	if fails == nil {
+		p, key, sent := unknownIDProbe(c.Steps[:t+1], at.it, rec, base)
+		if p == nil {
+			return line, ""
+		}
+		if _, _, fail, known := send(*p, ""); known && fail {
+			return fmt.Sprintf("trigger: fails for every unknown %s sent (2 calls: %s, %s)", key, sent, p.label), ""
+		} else if known {
+			return fmt.Sprintf("trigger: fails for the unknown %s sent (1 call: %s), not for another of its shape no record has (1 call: %s)", key, sent, p.label), ""
+		}
+		return line, ""
+	}
+	tag, _ := rec.Vars[chain.RunTagVar].(string)
+	probes, leaf := triggerProbes(c.Steps[:t+1], at.it, fails[i], fails, passes, apart[0], tag), fails[i].leaf
+	fails, passes = slices.Clone(fails), slices.Clone(passes)
+	for _, p := range probes {
+		got, st, fail, known := send(p, leaf)
+		if !known {
+			continue
+		}
+		if fail != p.fail {
+			return "", "sent again " + p.label + ", the call " + map[bool]string{true: "failed", false: "passed"}[fail]
+		}
+		call := rowCall{at: c.Name + " " + p.label, call: fails[i].call, dims: p.dims, before: earlierProfiles(got, slices.Index(got.Steps, st), map[int]bool{})}
+		if !fail {
+			passes = append(passes, call)
+			continue
+		}
+		if leaf != "" {
+			g, _ := chain.Get(decoded(st.Response), at.it.Path)
+			call.leaf, call.sent = leaf, sentOf(st, leaf)
+			call.got, _ = g.(string)
+		}
+		fails = append(fails, call)
+	}
+	if firm, now := triggerOf(fails, passes); slices.Equal(now, apart) {
+		return firm, ""
+	}
+	return line, ""
+}
+
+func failsLike(it gateItem, base, st *runner.StepRecord, leaf string) (bool, bool) {
+	if st == nil || len(st.Response) == 0 && st.Transport == nil {
+		return false, false
+	}
+	r, was := refusalOf(st), refusalOf(base)
+	if verdictCode(it.Path) {
+		return r == was, r == was || r == "" || was == ""
+	}
+	got, _ := chain.Get(decoded(st.Response), it.Path)
+	if old, _ := chain.Get(decoded(base.Response), it.Path); r != "" || leaf == "" && !chain.IsZeroOf("", old) {
+		return false, false
+	}
+	if leaf != "" {
+		g, ok := got.(string)
+		return g != sentOf(st, leaf), ok
+	}
+	return chain.IsZeroOf("", got), true
+}
+
+func triggerProbes(steps []*chain.Step, it gateItem, call rowCall, fails, passes []rowCall, split, tag string) []triggerProbe {
+	kind, name, _ := strings.Cut(split, " ")
+	t, thin := len(steps)-1, numCalls(fails) == 1 || numCalls(passes) == 1
+	own := maps.Clone(call.dims)
+	maps.DeleteFunc(own, func(k, _ string) bool {
+		return k != split && (strings.HasPrefix(k, "num ") || strings.HasPrefix(k, "bytes "))
+	})
+	dims := func(k, v string) map[string]string {
+		d := maps.Clone(own)
+		if d[k] = v; v == "" && kind == "set" {
+			delete(d, k)
+		}
+		return d
+	}
+	key, found := namecase.LookupKey(steps[t].Body, name)
+	var out []triggerProbe
+	switch kind {
+	case "len", "repeat":
+		j, items := -1, []any(nil)
+		for _, id := range append([]string{steps[t].ID}, sentRefs(steps[t], steps)...) {
+			if s := slices.IndexFunc(steps, func(s *chain.Step) bool { return s.ID == id }); s >= 0 && j < 0 {
+				if k, ok := namecase.LookupKey(steps[s].Body, name); ok {
+					j, key = s, k
+					items, _ = steps[s].Body[k].([]any)
+				}
+			}
+		}
+		n := len(items)
+		if !thin || !verdictCode(it.Path) || n == 0 || strconv.Itoa(n) != call.dims["len "+name] {
+			return nil
+		}
+		lists := [][]any{append(slices.Clone(items), items[n-1])}
+		fv, pv := numbers(dimValues(fails, "len "+name)), numbers(dimValues(passes, "len "+name))
+		if n > 1 && (kind == "repeat" && repeatedKey(items[:n-1]) == "" || kind == "len" && fv[0] > slices.Max(pv) && float64(n-1) < fv[0]) {
+			lists = append(lists, items[:n-1])
+		}
+		for x, l := range lists {
+			d := dims("len "+name, strconv.Itoa(len(l)))
+			if _, ok := d["repeat "+name]; ok {
+				d["repeat "+name] = repeatedKey(l)
+			}
+			out = append(out, triggerProbe{label: "with " + name + " of " + plural(len(l), "item"), fail: x == 0, dims: d, changed: []string{steps[j].ID},
+				steps: withStep(steps, j, func(s *chain.Step) { s.Body[key] = l })})
+		}
+	case "bytes":
+		k, s := keptBytes(fails, name), call.sent
+		if fresh := chain.NewRunTag(); tag != "" && len(fresh) == len(tag) {
+			s = strings.ReplaceAll(s, tag, fresh)
+		}
+		fv, pv := numbers(dimValues(fails, split)), numbers(dimValues(passes, split))
+		for _, n := range []int{k, k + 1} {
+			if k < 0 || !found || call.leaf != name || len(s) < n || !utf8.ValidString(s[:n]) || n > k && fv[0] <= float64(n) || n == k && slices.Max(pv) >= float64(n) {
+				continue
+			}
+			v := s[:n]
+			out = append(out, triggerProbe{label: fmt.Sprintf("with %s of %d bytes", name, n), fail: n > k, dims: dims(split, strconv.Itoa(n)),
+				steps: withStep(steps, t, func(st *chain.Step) { st.Body[key] = v })})
+		}
+	case "set":
+		was, _ := steps[t].Body[key].(string)
+		empty, wide := call.dims[split] == "", widePrefix(steps, name)
+		switch {
+		case !thin || strings.ContainsAny(name, ".["):
+			return nil
+		case empty && found && was == "":
+			out = append(out, triggerProbe{label: "with " + name + " absent", fail: true, dims: dims(split, ""), steps: withStep(steps, t, func(s *chain.Step) { delete(s.Body, key) })})
+		case empty != found:
+			out = append(out, triggerProbe{label: "with " + name + ` ""`, fail: empty, dims: dims(split, ""), steps: withStep(steps, t, func(s *chain.Step) { s.Body[cmp.Or(key, name)] = "" })})
+		default:
+			return nil
+		}
+		if wide != "" {
+			out = append(out, triggerProbe{label: fmt.Sprintf("with %s %q", name, wide), fail: !empty, dims: dims(split, "set"), steps: withStep(steps, t, func(s *chain.Step) { s.Body[cmp.Or(key, name)] = wide })})
+		}
+	case "as":
+		bad, as := dimValues(fails, "as"), call.dims["as"]
+		p := triggerProbe{label: "as " + as + " on what " + as + " created", fail: true, dims: own, steps: steps}
+		for _, id := range sentRefs(steps[t], steps) {
+			j := slices.IndexFunc(steps, func(s *chain.Step) bool { return s.ID == id })
+			if j >= 0 && !chain.IsReadOnlyCall(steps[j].Call) && (steps[j].SkipAuth || cmp.Or(steps[j].Auth, config.DefaultAuthProfile) != as) {
+				p.steps, p.changed = withStep(p.steps, j, func(s *chain.Step) {
+					if s.Auth, s.SkipAuth = as, false; as == config.DefaultAuthProfile {
+						s.Auth = ""
+					}
+				}), append(p.changed, id)
+			}
+		}
+		if len(p.changed) > 0 && as != runner.NoAuthProfile && as != chain.InvalidTokenAuth && !slices.ContainsFunc(fails, func(f rowCall) bool {
+			return len(f.before) == 0 || slices.ContainsFunc(bad, func(p string) bool { return f.before[p] })
+		}) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func unknownIDProbe(steps []*chain.Step, it gateItem, rec *runner.Record, base *runner.StepRecord) (*triggerProbe, string, string) {
+	t, keys := len(steps)-1, []string{}
+	for k := range steps[t].Body {
+		if namecase.IDNamed(k) {
+			keys = append(keys, k)
+		}
+	}
+	if !verdictCode(it.Path) || refusalOf(base) != "" || !chain.IsReadOnlyCall(steps[t].Call) || len(keys) != 1 {
+		return nil, "", ""
+	}
+	sent, known := sentOf(base, keys[0]), false
+	for _, st := range rec.Steps[:max(slices.Index(rec.Steps, base), 0)] {
+		if st != nil {
+			eachLeaf(decoded(st.Response), "", func(_ string, v any) { known = known || compactValue(v) == sent })
+		}
+	}
+	v := freshOfShape(sent)
+	if sent == "" || v == sent || known {
+		return nil, "", ""
+	}
+	return &triggerProbe{label: v, steps: withStep(steps, t, func(s *chain.Step) { s.Body[keys[0]] = v }), fail: true}, keys[0], sent
+}
+
+func withStep(steps []*chain.Step, j int, change func(*chain.Step)) []*chain.Step {
+	out := slices.Clone(steps)
+	cp := *out[j]
+	if cp.Body = maps.Clone(cp.Body); cp.Body == nil {
+		cp.Body = map[string]any{}
+	}
+	change(&cp)
+	out[j] = &cp
+	return out
+}
+
+var digitToken = regexp.MustCompile(`[0-9A-Za-z]*[0-9][0-9A-Za-z]*`)
+
+func freshOfShape(s string) string {
+	return digitToken.ReplaceAllStringFunc(s, func(tok string) string {
+		return strings.Map(func(r rune) rune {
+			for _, set := range []string{"0123456789", "abcdef", "ABCDEF"} {
+				if strings.ContainsRune(set, r) {
+					return rune(set[rand.IntN(len(set))])
+				}
+			}
+			return r
+		}, tok)
+	})
+}
+
+func widePrefix(steps []*chain.Step, field string) string {
+	lower := strings.ToLower(field)
+	of := strings.Trim(strings.ReplaceAll(lower, "prefix", ""), "_")
+	for _, s := range steps {
+		if k, ok := namecase.LookupKey(s.Body, of); ok && of != lower {
+			if v, _ := s.Body[k].(string); v != "" && v[0] != '$' {
+				return string([]rune(v)[:1])
 			}
 		}
 	}
-	for _, s := range carriers {
-		if k, ok := namecase.LookupKey(s.Body, list); ok && src == nil {
-			src, key = s, k
-			items, _ = s.Body[k].([]any)
-		}
-	}
-	n := len(items)
-	if n == 0 || strconv.Itoa(n) != fails[i].dims["len "+list] {
-		return line, 0
-	}
-	vary, fewer := [][]any{append(slices.Clone(items), items[n-1])}, items[:n-1]
-	fv, pv := numbers(dimValues(fails, "len "+list)), numbers(dimValues(passes, "len "+list))
-	if n > 1 && (kind == "repeat" && repeatedKey(fewer) == "" || kind == "len" && fv[0] > slices.Max(pv) && float64(n-1) < fv[0]) {
-		vary = append(vary, fewer)
-	}
-	sc := &chain.Chain{APIVersion: c.APIVersion, Name: c.Name, Vars: c.Vars, Volatile: c.Volatile, Redact: c.Redact, Steps: slices.Clone(c.Steps[:t+1])}
-	for _, l := range vary {
-		suffix := fmt.Sprintf("_%d_items", len(l))
-		swap := strings.NewReplacer("${"+src.ID+".", "${"+src.ID+suffix+".", "${steps."+src.ID+".", "${steps."+src.ID+suffix+".",
-			"${steps."+target.ID+".", "${steps."+target.ID+suffix+".")
-		if src != target {
-			cp := variedStep(src, suffix, key, l, swap)
-			cp.Expect = slices.DeleteFunc(cp.Expect, func(x chain.Expectation) bool { return !verdictField(x.Path) })
-			sc.Steps, l = append(sc.Steps, cp), nil
-		}
-		sc.Steps = append(sc.Steps, variedStep(target, suffix, key, l, swap))
-	}
-	vars := map[string]any{}
-	for _, name := range chain.FreshVars(sc.Steps, isLoginStep(e), nil) {
-		vars[name] = chain.NewRunTag()
-	}
-	rec, err := executeChain(ctx, e, sc, runner.Options{Vars: vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: true}, true)
-	var base *runner.StepRecord
-	if err == nil {
-		base, _ = rec.Step(target.ID)
-	}
-	if base == nil || refusalOf(base) == "" {
-		return line, 0
-	}
-	fails, passes, sent := slices.Clone(fails), slices.Clone(passes), 0
-	for _, l := range vary {
-		suffix := fmt.Sprintf("_%d_items", len(l))
-		st, _ := rec.Step(target.ID + suffix)
-		if cp, _ := rec.Step(src.ID + suffix); st == nil || len(st.Response) == 0 && st.Transport == nil || src != target && (cp == nil || refusalOf(cp) != "") {
-			continue
-		}
-		d := maps.Clone(fails[i].dims)
-		d["len "+list] = strconv.Itoa(len(l))
-		if _, ok := d["repeat "+list]; ok {
-			d["repeat "+list] = repeatedKey(l)
-		}
-		call := rowCall{at: sc.Name + " " + st.ID, call: fails[i].call, dims: d}
-		switch refusalOf(st) {
-		case refusalOf(base):
-			fails = append(fails, call)
-		case "":
-			passes = append(passes, call)
-		default:
-			return "", sent + 1
-		}
-		sent++
-	}
-	if firm, now := triggerOf(fails, passes); sent == 0 || slices.Equal(now, apart) {
-		return cmp.Or(firm, line), sent
-	}
-	return "", sent
+	return ""
 }
 
-func variedStep(st *chain.Step, suffix, key string, list []any, swap *strings.Replacer) *chain.Step {
-	cp := *st
-	cp.ID, cp.Export, cp.Body = st.ID+suffix, nil, maps.Clone(st.Body)
-	if list != nil {
-		cp.Body[key] = list
+func keptBytes(fails []rowCall, leaf string) int {
+	k := -1
+	for _, f := range fails {
+		if f.leaf != leaf {
+			continue
+		}
+		if k >= 0 && len(f.got) != k || !strings.HasPrefix(f.sent, f.got) && !strings.HasSuffix(f.sent, f.got) {
+			return -1
+		}
+		k = len(f.got)
 	}
-	raw, _ := yaml.Marshal(&cp)
-	out := &chain.Step{}
-	_ = yaml.Unmarshal([]byte(swap.Replace(string(raw))), out)
+	return k
+}
+
+func sentOf(st *runner.StepRecord, field string) string {
+	m, _ := decoded(st.Request).(map[string]any)
+	k, _ := namecase.LookupKey(m, field)
+	s, _ := m[k].(string)
+	return s
+}
+
+func sentRefs(st *chain.Step, in []*chain.Step) []string {
+	var out []string
+	for _, ref := range st.SendReferences() {
+		if id, ok := chain.ParseRef(ref).StepID(); ok && slices.ContainsFunc(in, func(s *chain.Step) bool { return s.ID == id }) {
+			out = append(out, id)
+		}
+	}
 	return out
 }
 
 func (r *gapRun) repro(ctx context.Context, e *env, lib *contract.Library, rpc string, own []string, ex gateItem) (string, string) {
-	refs := func(st *chain.Step) []string {
-		var out []string
-		for _, ref := range st.SendReferences() {
-			if id, ok := chain.ParseRef(ref).StepID(); ok && slices.ContainsFunc(r.c.Steps, func(s *chain.Step) bool { return s.ID == id }) {
-				out = append(out, id)
-			}
-		}
-		return out
-	}
 	need, drop := map[string]bool{}, []string{}
 	for queue := slices.Clone(own); len(queue) > 0; queue = queue[1:] {
 		if st, found := r.c.Step(queue[0]); found && !need[st.ID] {
-			need[st.ID], queue = true, append(queue, refs(st)...)
+			need[st.ID], queue = true, append(queue, sentRefs(st, r.c.Steps)...)
 		}
 	}
 	for _, st := range r.c.Steps {
 		if m, err := e.cat.Lookup(st.Call); err == nil && m.FullName == rpc && !need[st.ID] {
-			by := slices.DeleteFunc(refs(st), func(id string) bool { return need[id] })
+			by := slices.DeleteFunc(sentRefs(st, r.c.Steps), func(id string) bool { return need[id] })
 			if len(by) == 0 {
 				by = []string{st.ID}
 			}

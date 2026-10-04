@@ -34,6 +34,11 @@ type fakeShop struct {
 	confirmTotalBug    bool
 	batchFirstLineBug  bool
 	refuseOrder        func(lines int) bool
+	cutSku             func(sku string) string
+	refuseProduct      func(body map[string]any) bool
+	listNothing        func(prefix any, matches int) bool
+	unknownOK          func(id string) bool
+	listed             []any
 
 	next      int
 	getCalls  int
@@ -91,13 +96,16 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		return 200, map[string]any{"status": ok(), "customer": c}
 	case "/shop.catalog.v1.ProductService/CreateProduct":
 		price := num64(body["price_minor"])
-		if price <= 0 {
+		if price <= 0 || s.refuseProduct != nil && s.refuseProduct(body) {
 			return 200, map[string]any{"status": rejected("InvalidPrice")}
 		}
 		if s.priceBug && price >= 1000 {
 			price -= price / 1000
 		}
 		p := map[string]any{"id_product": s.id("prd"), "sku": body["sku"], "price_minor": strconv.FormatInt(price, 10)}
+		if sku, _ := body["sku"].(string); s.cutSku != nil {
+			p["sku"] = s.cutSku(sku)
+		}
 		s.products[p["id_product"].(string)] = p
 		return 200, map[string]any{"status": ok(), "product": p}
 	case "/shop.catalog.v1.ProductService/GetProduct":
@@ -106,6 +114,9 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			return 500, map[string]any{"code": "internal", "message": "boom"}
 		}
 		p, found := s.products[fmt.Sprint(body["id_product"])]
+		if !found && s.unknownOK != nil && s.unknownOK(fmt.Sprint(body["id_product"])) {
+			return 200, map[string]any{"status": ok(), "product": map[string]any{}}
+		}
 		if !found {
 			return 200, map[string]any{"status": rejected("ProductNotFound")}
 		}
@@ -134,6 +145,9 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			}
 		}
 		sort.Strings(ids)
+		if s.listed = append(s.listed, body["sku_prefix"]); s.listNothing != nil && s.listNothing(body["sku_prefix"], len(ids)) {
+			ids = nil
+		}
 		list := []any{}
 		for _, id := range ids {
 			list = append(list, s.stocked(s.products[id], s.stock[id]))

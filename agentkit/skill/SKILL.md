@@ -19,7 +19,8 @@ re-run shows it can be, with the read-back that contradicts a write's answer kep
 `trigger:` line names the requests that fail against those that pass (profile, a list's length or
 repeated key, a field's value or byte length, or two of these together), or says every call fails,
 and how got relates to what was sent: take it as the pattern instead of working it out from the
-runs. A row of a
+runs. Where it rests on few calls, the gate has sent the contrasting calls itself and prints the
+firmed line, or `trigger above does not hold:`, above the row's repro. A row of a
 number a write moved says how far against the approved run (`fell 4 from 10 to 6 where the approved
 run fell 2 from 10 to 8: 2x`). One `masks:` line says whether a mask hid more than run tags, ids and
 timestamps; each `KEPT RED` line names every pin of its slice and the day it was pinned, and a

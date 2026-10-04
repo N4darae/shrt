@@ -442,7 +442,11 @@ no passing call, `fails on every call (21 of 21; as clerk and default, lines of 
 what the failing calls span.
 No line means none of these splits them, so probe from the example. The example is the call that
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
-when another chain fails so, and `-repro` slices that step.
+when another chain fails so, and `-repro` slices that step. Where the line rests on thin evidence
+(one call on a side, a byte boundary the calls leave untried, a profile split no call tried on
+records its own profile created, a read answered for an unknown id), `-repro` sends that call again
+from the slice, at most twice, and prints the firmed line above the repro, or `trigger above does
+not hold:` and what was sent: take that line, do not probe it again by hand.
 
 **How far it moved.** When the example reads a number a suspect write moved, the row adds the move
 next to the approved run's: `qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10

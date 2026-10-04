@@ -189,11 +189,24 @@ the slice says so, or `repro: none:` and why. `-minimize` re-runs the slice once
 reads, earliest writes first, at most 8 runs, and drops it when the step fails the same way (same fields, same got);
 a write refused in that run and in the approved run goes without a run; the slice's description names what it dropped,
 and a minimized slice that does not reproduce gives way to the unminimized one.
-A `trigger:` resting on one call on a side, split on a list's length or a repeated item key, for a call refused, is
-firmed up from that slice: the call sent once more with one item more, and once with one fewer when that crosses the
-boundary, folded into the counts (`fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2 items (3
-calls: 1, 2)`), in place of a gap's trigger or above a row's repro; extra calls that contradict it leave a gap's row
-no trigger and a row's repro `trigger above does not hold:`. When the row's write answered other than a later read returns
+A `trigger:` resting on thin evidence is firmed up from that slice: the row's failing call sent again at most twice,
+each a single run of a copy of the slice, nothing verified, and what it answered folded into the counts. Split on a
+list's length or a repeated item key, for a call refused, one side on one call: one item more (the last repeated), and
+one fewer when that crosses the boundary (`fails with lines of 3+ items (2 calls: 3, 4); passes with lines of up to 2
+items (3 calls: 1, 2)`). Split on the byte length of a field got keeps the first or last N bytes of, the calls leaving
+N or N+1 bytes untried: that field cut to N and to N+1 bytes, whichever is missing (`fails with name longer than 20
+bytes (4 calls); passes with name of up to 20 bytes (10 calls)`). Split on a field set or empty, one side on one call:
+the other empty form (absent for `""`, `""` for absent) and, for a prefix field, a one-byte prefix of a record the slice
+creates (`fails with sku_prefix empty or absent (2 calls); passes with sku_prefix set (6 calls)`). Split on the profile,
+every failing call acting only on records other profiles created: the writes that created what it acts on sent as its
+profile. A read that answered where it should have been refused, with one id field: a fresh id of the same shape that
+no record has (`trigger: fails for every unknown id_customer sent (2 calls: cus-98b742ddb922-unknown,
+cus-20f172fdb285-unknown)`, or `not for another of its shape` when that one is refused). A call fails when it is
+refused as the failing call was (answers, for a read that should be refused), answers the echoed field other than
+sent, or answers nothing where the failing call answered nothing; it passes when it succeeds (is refused, for such a
+read), echoes the field as sent or answers something; any other answer, or a changed write refused, leaves it out. The firmed line goes in place of a
+gap's trigger or above a row's repro; a call landing on the other side says so instead: `trigger above does not hold:
+sent again with lines of 4 items, the call passed` (a gap's row: `trigger: none: ...`). When the row's write answered other than a later read returns
 (`answered <x>, but <rpc> read <y>`), that read is appended to the slice expecting what the write answered and run once
 more: `repro: shrt run <path> -keep-going  (6 of 119 steps, reproduced 3/3; the read-back <step> (<rpc>) reads <field>=<y> where the
 write answered <x>)`, both sides in one run. One `masks:` line closes it: `verify -run latest -json`
