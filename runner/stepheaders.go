@@ -54,13 +54,9 @@ func secretHeader(name string) bool {
 			}
 			return true
 		}
-		if secretHeaderWords[word] || secondFactorHeaderWords[word] {
+		if secretHeaderWords[word] || secondFactorHeaderWords[word] ||
+			slices.ContainsFunc(secretHeaderWordEndings, func(ending string) bool { return strings.HasSuffix(word, ending) }) {
 			return true
-		}
-		for _, ending := range secretHeaderWordEndings {
-			if strings.HasSuffix(word, ending) {
-				return true
-			}
 		}
 	}
 	return false

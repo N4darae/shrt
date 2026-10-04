@@ -132,7 +132,15 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 		if b == nil {
 			continue
 		}
-		learnMaskedTemplate(redactor, b.BodyFields, "")
+		eachLeaf(b.BodyFields, "", func(v any, path string) {
+			if !redactor.Masks(path) {
+				return
+			}
+			resolved, err := chain.AuthBodyScope().ResolveValue(v)
+			if err == nil && redactor.MasksValue(path, resolved) {
+				learnSecret(redactor, resolved)
+			}
+		})
 	}
 }
 
@@ -223,8 +231,8 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
-func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
-	eachLeaf(v, path, func(v any, path string) {
+func learnMaskedInputs(redactor *pathmask.Masker, v any, scope *chain.Scope, open map[string]bool) {
+	eachLeaf(v, "", func(v any, path string) {
 		t, ok := v.(string)
 		if !ok || !redactor.Masks(path) {
 			return
@@ -252,18 +260,6 @@ func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *cha
 			if value, err := scope.ResolveValue(t); err == nil && redactor.MasksValue(path, value) {
 				redactor.AddWholeSecret(fmt.Sprint(value))
 			}
-		}
-	})
-}
-
-func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
-	eachLeaf(v, path, func(v any, path string) {
-		if !redactor.Masks(path) {
-			return
-		}
-		resolved, err := chain.AuthBodyScope().ResolveValue(v)
-		if err == nil && redactor.MasksValue(path, resolved) {
-			learnSecret(redactor, resolved)
 		}
 	})
 }
@@ -604,14 +600,6 @@ type exportSource struct {
 
 type exportSources map[string]exportSource
 
-func (x exportSources) steps() map[string]string {
-	out := make(map[string]string, len(x))
-	for name, src := range x {
-		out[name] = src.step
-	}
-	return out
-}
-
 func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
 	held := map[int]string{}
 	for i, e := range step.Expect {
@@ -623,9 +611,8 @@ func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, expor
 }
 
 func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
-	steps := exporter.steps()
 	for _, ref := range refs {
-		producer := producerOf(ref, steps)
+		producer := producerOf(ref, exporter)
 		sr, isBroken := broken[producer]
 		if producer == "" || !isBroken {
 			continue
@@ -703,7 +690,7 @@ func readsRequest(ref string) bool {
 	return section == "request"
 }
 
-func producerOf(ref string, exporter map[string]string) string {
+func producerOf(ref string, exporter exportSources) string {
 	head, rest, hasRest := strings.Cut(strings.TrimSpace(ref), ".")
 	next, _, _ := strings.Cut(rest, ".")
 	switch head {
@@ -712,10 +699,10 @@ func producerOf(ref string, exporter map[string]string) string {
 	case "steps":
 		return next
 	case "exports":
-		return exporter[next]
+		return exporter[next].step
 	}
 	if !hasRest {
-		return exporter[head]
+		return exporter[head].step
 	}
 	return head
 }
@@ -965,7 +952,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	open := varsUsedInTheOpen(c, redactor)
 	for _, step := range c.Steps {
 		if step != nil {
-			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope, open)
+			learnMaskedInputs(redactor, orEmpty(step.Body), scope, open)
 			learnHeaderSecrets(redactor, step.Headers, scope)
 		}
 	}
@@ -2051,20 +2038,16 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 }
 
 func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
-	known := map[string]bool{}
-	for _, name := range r.Auth.profiles() {
-		known[name] = true
-	}
+	have := r.Auth.profiles()
 	for _, step := range c.Steps {
-		if step.Auth == transport.InvalidTokenProfile && len(known) == 0 {
+		if step.Auth == transport.InvalidTokenProfile && len(have) == 0 {
 			return fmt.Errorf("step %q asks for auth: %s, but the config declares no auth at all, so there is "+
 				"no header to carry a token in and the probe would silently send none. Use skip_auth: true "+
 				"for a no-token probe", step.ID, transport.InvalidTokenProfile)
 		}
-		if step.Auth == "" || known[step.Auth] || step.Auth == transport.InvalidTokenProfile {
+		if step.Auth == "" || slices.Contains(have, step.Auth) || step.Auth == transport.InvalidTokenProfile {
 			continue
 		}
-		have := r.Auth.profiles()
 		if len(have) == 0 {
 			return fmt.Errorf("step %q asks for auth profile %q, but the config declares no auth at all", step.ID, step.Auth)
 		}
