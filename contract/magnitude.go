@@ -243,7 +243,7 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 			msg := fmt.Sprintf("step %s: boundary and magnitude probes %s.", st.ID, strings.Join(said, "; "))
 			if len(quantities) > 0 {
 				msg += fmt.Sprintf(" %s %s not probed large, since a large quantity runs into stock rules rather than arithmetic.",
-					strings.Join(quantities, ", "), pluralIs(len(quantities)))
+					strings.Join(quantities, ", "), pluralVerb(len(quantities), "is", "are"))
 			}
 			if len(unbounded) > 0 {
 				msg += fmt.Sprintf(" %s %s no stated minimum; declare one in a failure's when: (\"qty is zero or negative\") or "+

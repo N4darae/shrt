@@ -169,10 +169,10 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 		msg += "; every fixture the list must include, by id"
 	}
 	if len(exempt) > 0 {
-		msg += fmt.Sprintf("; %s %s documented as role-specific in terminal:/soft_signals:, so not compared", strings.Join(exempt, ", "), pluralIs(len(exempt)))
+		msg += fmt.Sprintf("; %s %s documented as role-specific in terminal:/soft_signals:, so not compared", strings.Join(exempt, ", "), pluralVerb(len(exempt), "is", "are"))
 	}
 	if len(skipped) > 0 {
-		msg += fmt.Sprintf("; the repeated %s %s not compared item by item: assert what each profile must see", strings.Join(skipped, ", "), pluralIs(len(skipped)))
+		msg += fmt.Sprintf("; the repeated %s %s not compared item by item: assert what each profile must see", strings.Join(skipped, ", "), pluralVerb(len(skipped), "is", "are"))
 	}
 	p.note("%s", msg)
 }

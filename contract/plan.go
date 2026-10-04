@@ -1017,7 +1017,7 @@ func (p *Plan) noteRequirements() {
 				"test data you mean, set it — in the contract (value:) or in the chain; if 0 IS what you mean, say so "+
 				"with value: \"0\", because a note: describes the field and does not silence this. This line is the only "+
 				"warning you get: chain lint cannot tell the scaffold's 0 from a deliberate one",
-				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralIs(len(zeros)))
+				id, strings.Join(zeros, ", "), pluralVerb(len(zeros), "carries", "carry"), pluralVerb(len(zeros), "is", "are"))
 		}
 		if facts := DeclaredFacts(pc.contract); len(facts) > 0 && AssertsOnlyVerdict(pc.step) {
 			if p.noun == "" {

@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -374,13 +375,8 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 	var visit func(node string, trail []string) bool
 	visit = func(node string, trail []string) bool {
 		rpc, alias := SplitNode(node)
-		if m, err := cat.Lookup(rpc); err == nil {
-			rpc = m.FullName
-		}
-		canonical := rpc
-		if alias != "" {
-			canonical = rpc + "@" + alias
-		}
+		rpc = canonicalCall(cat, rpc)
+		canonical := Ref{RPC: rpc, Alias: alias}.Node()
 		switch state[canonical] {
 		case 1:
 			issues = append(issues, Issue{
@@ -435,11 +431,7 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 				if err != nil {
 					continue
 				}
-				producer := ref.RPC
-				if m, err := cat.Lookup(producer); err == nil {
-					producer = m.FullName
-				}
-				key := producer + "\x00" + ref.Path + "\x00" + name
+				key := canonicalCall(cat, ref.RPC) + "\x00" + ref.Path + "\x00" + name
 				bySource[key] = append(bySource[key], consumerSite{rpc: rpc, alias: ref.Alias})
 			}
 		}
@@ -488,26 +480,11 @@ func directlyDepends(consumer, producer string, lib *Library, cat *catalog.Catal
 	if !ok {
 		return false
 	}
-	canonical := func(rpc string) string {
-		if m, err := cat.Lookup(rpc); err == nil {
-			return m.FullName
-		}
-		return rpc
-	}
-	want := canonical(producer)
-	for _, node := range c.Dependencies() {
+	want := canonicalCall(cat, producer)
+	return slices.ContainsFunc(append(c.Dependencies(), lib.RequiredBy(consumer)...), func(node string) bool {
 		rpc, _ := SplitNode(node)
-		if canonical(rpc) == want {
-			return true
-		}
-	}
-	for _, node := range lib.RequiredBy(consumer) {
-		rpc, _ := SplitNode(node)
-		if canonical(rpc) == want {
-			return true
-		}
-	}
-	return false
+		return canonicalCall(cat, rpc) == want
+	})
 }
 
 func describeInstance(alias string) string {
@@ -560,13 +537,7 @@ func indexProblem(in []*catalog.Field, name string) string {
 			continue
 		}
 		prevIndex = false
-		var next *catalog.Field
-		for _, f := range fields {
-			if f.Name == seg {
-				next = f
-				break
-			}
-		}
+		next := fieldByName(fields, seg)
 		if next == nil || next.Truncated || next.MapKey != "" {
 			return ""
 		}
@@ -594,13 +565,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			if isIndexSegment(seg) {
 				continue
 			}
-			var f *catalog.Field
-			for _, c := range cur {
-				if c.Name == seg {
-					f = c
-					break
-				}
-			}
+			f := fieldByName(cur, seg)
 			if f == nil || f.MapKey != "" || f.Truncated {
 				break
 			}
@@ -642,17 +607,10 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			"%s.%d is declared but %s %s not, so a plan builds %d entries of %s and sends %s as the scaffold "+
 				"left it, zeros and empty strings included. Declare every entry up to the highest index, or "+
 				"write the shared part without an index (%s.<field> applies to every entry)",
-			list, top, strings.Join(missing, ", "), pluralIs(len(missing)), top+1, list,
+			list, top, strings.Join(missing, ", "), pluralVerb(len(missing), "is", "are"), top+1, list,
 			strings.Join(missing, ", "), list)})
 	}
 	return out
-}
-
-func pluralIs(n int) string {
-	if n == 1 {
-		return "is"
-	}
-	return "are"
 }
 
 func sortedKeys[V any](m map[string]V) []string {

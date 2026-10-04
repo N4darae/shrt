@@ -71,7 +71,7 @@ func (p *Plan) probeShapes(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		if len(required) > 0 {
 			p.gap("step %s: %s %s required, but no invalid_argument failure has field: naming %s, so no probe sends a "+
-				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralIs(len(required)),
+				"request without %s: declare that failure", st.ID, strings.Join(required, ", "), pluralVerb(len(required), "is", "are"),
 				pluralVerb(len(required), "it", "them"), pluralVerb(len(required), "it", "them"))
 		}
 		if !declared && !c.IsUnfilled("required") && len(c.Required) == 0 {

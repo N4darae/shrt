@@ -426,7 +426,7 @@ func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
 	fields, skipped := p.paddedFields(lib, st, m)
 	if len(skipped) > 0 {
 		p.note("step %s: %s %s not padded with spaces, since the contract says the backend trims or normalises %s", st.ID,
-			strings.Join(skipped, ", "), pluralIs(len(skipped)), pluralVerb(len(skipped), "it", "them"))
+			strings.Join(skipped, ", "), pluralVerb(len(skipped), "is", "are"), pluralVerb(len(skipped), "it", "them"))
 	}
 	if len(fields) == 0 {
 		return nil
