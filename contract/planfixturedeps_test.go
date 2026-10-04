@@ -1,6 +1,7 @@
 package contract_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -74,11 +75,7 @@ func TestTheReadBackOfAnOrderAssertsEachLineAsSentAndTheTotal(t *testing.T) {
 		wantExpect(t, read, "order.lines."+i+".qty", "${steps.create_order.request.lines."+i+".qty}")
 	}
 	wantExists(t, read, "order.lines.2", false)
-	found := false
-	for _, e := range read.Expect {
-		found = found || e.Path == "order.total_minor"
-	}
-	if !found {
+	if !slices.ContainsFunc(read.Expect, func(e chain.Expectation) bool { return e.Path == "order.total_minor" }) {
 		t.Fatalf("the read-back asserts the total:\n%s", text)
 	}
 }

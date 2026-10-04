@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,11 +106,7 @@ func runLintCases(t *testing.T, cases []lintCase) {
 			t.Errorf("%s: want %d issue(s), got %+v", tc.name, tc.n, picked)
 		}
 		for _, w := range tc.want {
-			found := false
-			for _, i := range picked {
-				found = found || w.matches(i)
-			}
-			if !found {
+			if !slices.ContainsFunc(picked, w.matches) {
 				t.Errorf("%s: want %+v among %+v", tc.name, w, picked)
 			}
 		}
