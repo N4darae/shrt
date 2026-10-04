@@ -292,13 +292,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	for i, s := range c.Steps[:at] {
-		if _, seen := keeps[i]; seen {
-			continue
-		}
-		if !isWriteCall(s.Call) {
-			continue
-		}
-		if opts.IsLogin != nil && opts.IsLogin(s) {
+		if _, seen := keeps[i]; seen || !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
 			continue
 		}
 		d := Dropped{Index: i + 1, ID: s.ID, Call: s.Call}
@@ -318,11 +312,10 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		name = DefaultSliceName(c.Name, target)
 	}
 	out := &Chain{
-		APIVersion:  APIVersion,
-		Name:        name,
-		Description: "",
-		Volatile:    append([]string{}, c.Volatile...),
-		Redact:      append([]string{}, c.Redact...),
+		APIVersion: APIVersion,
+		Name:       name,
+		Volatile:   append([]string{}, c.Volatile...),
+		Redact:     append([]string{}, c.Redact...),
 	}
 	kept := map[string]bool{}
 	for _, i := range order {

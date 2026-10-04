@@ -33,10 +33,7 @@ func interpolatingStrings(steps []*Step) map[string]bool {
 func FreshVars(steps []*Step, isLogin func(*Step) bool, existing []*Step) []string {
 	writes := []*Step{}
 	for _, st := range steps {
-		if st == nil || !isWriteCall(st.Call) {
-			continue
-		}
-		if isLogin != nil && isLogin(st) {
+		if st == nil || !isWriteCall(st.Call) || (isLogin != nil && isLogin(st)) {
 			continue
 		}
 		writes = append(writes, st)
