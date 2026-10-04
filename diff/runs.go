@@ -552,6 +552,9 @@ func bothAre(a, b any, pred func(string) bool) bool {
 }
 
 func isTimestamp(s string) bool {
+	if len(s) < len("2006-01-02T1:04:05Z") || s[4] != '-' {
+		return false
+	}
 	_, err := time.Parse(time.RFC3339Nano, s)
 	return err == nil
 }
