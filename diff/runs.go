@@ -252,7 +252,7 @@ func (r *RunReport) compareResponses(sa, sb *runner.StepRecord, masker *pathmask
 		}
 		return x, y
 	}
-	collectIDPairs(sa.ID, x, y, "", masker, &r.idPairs)
+	collectIDPairs(sa.ID, x, y, masker, &r.idPairs)
 	r.compared = append(r.compared, comparedStep{id: sa.ID, want: x, got: y, mask: masker})
 	walk(x, y, "", func(c Change) {
 		shaped, why := false, ""

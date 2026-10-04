@@ -17,8 +17,16 @@ type idPair struct {
 	got  any
 }
 
-func collectIDPairs(step string, want, got any, path string, mask *pathmask.Masker, out *[]idPair) {
-	if path != "" && mask.Masks(path) {
+func collectIDPairs(step string, want, got any, mask *pathmask.Masker, out *[]idPair) {
+	walkShared(want, got, "", mask.Masks, func(path string, want, got any) {
+		if renameable(path, want, got) {
+			*out = append(*out, idPair{step: step, path: path, want: want, got: got})
+		}
+	})
+}
+
+func walkShared(want, got any, path string, prune func(path string) bool, leaf func(path string, want, got any)) {
+	if path != "" && prune(path) {
 		return
 	}
 	switch w := want.(type) {
@@ -28,10 +36,10 @@ func collectIDPairs(step string, want, got any, path string, mask *pathmask.Mask
 			return
 		}
 		for _, k := range sortedKeys(w, g) {
-			wv, wok := w[k]
-			gv, gok := g[k]
-			if wok && gok {
-				collectIDPairs(step, wv, gv, pathmask.Join(path, k), mask, out)
+			wv, inW := w[k]
+			gv, inG := g[k]
+			if inW && inG {
+				walkShared(wv, gv, pathmask.Join(path, k), prune, leaf)
 			}
 		}
 	case []any:
@@ -40,12 +48,10 @@ func collectIDPairs(step string, want, got any, path string, mask *pathmask.Mask
 			return
 		}
 		for i := range min(len(w), len(g)) {
-			collectIDPairs(step, w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)), mask, out)
+			walkShared(w[i], g[i], pathmask.Join(path, pathmask.IndexKey(i)), prune, leaf)
 		}
 	default:
-		if renameable(path, want, got) {
-			*out = append(*out, idPair{step: step, path: path, want: want, got: got})
-		}
+		leaf(path, want, got)
 	}
 }
 

@@ -382,7 +382,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 			}
 		}
 		if errA == nil && errB == nil {
-			collectIDPairs(want.ID, a, b, "", stepMask, &idPairs)
+			collectIDPairs(want.ID, a, b, stepMask, &idPairs)
 			sent, _ := decode(got.Request)
 			rep.compared = append(rep.compared, comparedStep{id: want.ID, want: a, got: b, sent: sent, mask: stepMask})
 		}
