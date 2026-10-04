@@ -217,12 +217,10 @@ func readsValue(v any, id string) bool {
 }
 
 func (p *Plan) reserveStepID(base string) string {
-	id := p.freeStepID(base)
 	if p.reserved == nil {
 		p.reserved = map[string]bool{}
 	}
-	p.reserved[id] = true
-	return id
+	return p.freeProbeID(base, p.reserved)
 }
 
 func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {

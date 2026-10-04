@@ -166,15 +166,7 @@ func rewriteRefs(v any, to map[string]string) any {
 	})
 }
 
-func (p *Plan) freeStepID(base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := p.Chain.Step(id); !exists && !p.reserved[id] {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
-}
+func (p *Plan) freeStepID(base string) string { return p.freeProbeID(base, map[string]bool{}) }
 
 func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producerClone) {
 	orig := p.stepByID(src)
