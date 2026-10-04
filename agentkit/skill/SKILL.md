@@ -20,9 +20,10 @@ re-run shows it can be, with the read-back that contradicts a write's answer kep
 repeated key, a field's value or byte length, or two of these together), or says every call fails,
 and how got relates to what was sent: take it as the pattern instead of working it out from the
 runs. A row of a
-number a write moved says how far against the approved run (`fell 4 from 10 to 6 where the approved
-run fell 2 from 10 to 8: 2x`). One `masks:` line says whether a mask hid more than run tags, ids and
-timestamps; each `KEPT RED` line names every pin of its slice and the day it was pinned, and a
+counter a write moved (`increase:`/`decrease:` in its contract) says how far against the approved run
+(`fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`), measured only on that record.
+One `masks:` line says whether a mask hid more than run tags, ids and timestamps; each `KEPT RED`
+line names every pin of its slice and the day it was pinned, and a
 fold `(+N kept-red slice(s), every pin held, ...)` under a failing parent says those pins held, so
 no `shrt run` of the slices is needed. `shrt verify
 <chain> -run latest` shows every changed value of the gate's run offline; `shrt diff <chain> -step

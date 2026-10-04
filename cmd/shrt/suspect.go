@@ -905,12 +905,16 @@ func (a attribution) inputsBefore(at int) map[string]map[string]input {
 }
 
 func idsOf(v any) []string {
+	return slices.Collect(maps.Values(idMap(v)))
+}
+
+func idMap(v any) map[string]string {
 	m, _ := v.(map[string]any)
-	var out []string
+	out := map[string]string{}
 	for k, x := range m {
 		lower := strings.ToLower(k)
 		if s, ok := x.(string); ok && s != "" && (lower == "id" || strings.HasPrefix(lower, "id_") || strings.HasSuffix(lower, "_id")) {
-			out = append(out, s)
+			out[k] = s
 		}
 	}
 	return out

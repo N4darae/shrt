@@ -148,14 +148,17 @@ the row's field on it (its own expectation, or a later read of the same record; 
 succeeded). When no call passes and two or more fail, `trigger: fails on every call (21 of 21; as clerk and default, lines of 1 to 6
 items)`, the profiles and list lengths the failing calls span. No line when nothing splits them, when a single split
 and a pair (or two pairs) both do, or when the failing calls should have been refused. A row whose example reads a
-number a suspect write moved says by how much against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where
-the approved run fell 3 from 3 to 0: 2x on every failing step`, from the last earlier value of that field of that
-record before the write (a read, or the answer of another write the suspect search weighed; never a refused call or
-a refused line of a batch, and the last applied line when one call answers several for the record), in both runs;
-said only when one suspect write moved it and each other write in between declares `none` for the field or was
-refused in both; the ratio only when it is a whole number or a fraction over 2, 3 or 4; `on every failing step` (of
-that field) only when each has that ratio, else `on N of M failing steps; list_prefix follows cancel_two, which may
-move it too (+1 more)`, the first step without a measure and why. `verify` adds the same after each such change.
+counter a suspect write moved (its contract declares `increase:` or `decrease:` for the field) says by how much
+against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where the approved run fell 3 from 3 to 0: 2x on every
+failing step`, from the last earlier value of that field of the same record (by its ids: never another record that
+shares one of them, such as an earlier order of the same customer) before the write (a read, or the answer of another
+write the suspect search weighed; never a refused call or a refused line of a batch, and the last applied line when
+one call answers several for the record), in both runs; said only when one suspect write moved it and each other
+write in between declares `none` for the field or was refused in both; nothing for a field no suspect write counts,
+such as the total of an order its own write created; the ratio only when it is a whole number or a fraction over 2,
+3 or 4; `on every failing step` (of that field) only when each has that ratio, else `on N of M failing steps;
+list_prefix not measured (cancel_two acts on that record between) (+1 more)`, the first step without a measure and
+why. `verify` adds the same after each such change.
 Below the rows, `offline: shrt verify <chain> -run latest ...`:
 that diff of the run the gate just made prints every changed value without re-sending. `-v` adds, under each failing chain, the
 suspect's request and every change with its want and got as `verify` prints it (`run`'s failed expectations for a

@@ -444,17 +444,19 @@ No line means none of these splits them, so probe from the example. The example 
 differs from a passing one only in the trigger, in a chain with a safe spot, never a kept-red slice
 when another chain fails so, and `-repro` slices that step.
 
-**How far it moved.** When the example reads a number a suspect write moved, the row adds the move
-next to the approved run's: `qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10
-to 8: 2x`, measured from the last value of that field of that record before the suspect (a read, or
-the answer of another write the suspect search weighed; never a refused call or a refused line of a
-batch; the last applied line when one call answers several for the record) in the run and in the
-safe spot's run. Nothing is said when no such value exists, when more than one suspect write moved
-it (an `unclear` pair), or another write in between may move the field (no `effects:` of `none`, not
-refused both times): a wrong number is worse than none. `on every failing step` means each failing
-step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix follows
-cancel_two, which may move it too` names the first step without one and why. `verify` and `gate -v`
-print it after each such change.
+**How far it moved.** When the example reads a counter a suspect write moved (the write's contract
+declares `increase:` or `decrease:` for the field), the row adds the move next to the approved run's:
+`qty_on_hand fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`, measured from the
+last value of that field of the same record (matched by its ids, never another record sharing one of
+them) before the suspect (a read, or the answer of another write the suspect search weighed; never a
+refused call or a refused line of a batch; the last applied line when one call answers several for
+the record) in the run and in the safe spot's run. Nothing is said for a field the write does not
+count (a total its own create set), when no such value exists, when more than one suspect write
+moved it (an `unclear` pair), or another write in between may move the field (no `effects:` of
+`none`, not refused both times): a wrong number is worse than none. `on every failing step` means
+each failing step of the row's field has the same ratio; else `on 4 of 5 failing steps; list_prefix
+not measured (cancel_two acts on that record between)` names the first step without one and why.
+`verify` and `gate -v` print it after each such change.
 
 A suspect is a lead, not a proof. Test a suspect write with `shrt chain slice <chain> -without
 <step> -verify` (§11). It compares how each failing step fails, envelope code and each
