@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
 )
@@ -305,12 +306,12 @@ func (i *intermittentFailure) line(explain bool) string {
 		resent.add(f.step.FirstAttempt.Text(), at)
 	}
 	for _, why := range resent.keys {
-		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent.of[why], 3), why))
+		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", chain.ListSome(resent.of[why], 3), why))
 	}
 	each = each[:min(len(each), 4)]
 	hidden := ""
 	if len(i.hidden) > 0 {
-		hidden = "; the errors hid the checks of " + capList(i.hidden, 6)
+		hidden = "; the errors hid the checks of " + chain.ListSome(i.hidden, 6)
 	}
 	if i.repeated() {
 		why := ""
@@ -434,7 +435,7 @@ func (i *intermittentFailure) notes() []string {
 		if len(f.alongside) > 0 {
 			out = append(out, fmt.Sprintf("step %d %s failed with a server error (%s) and %s, and %s also failed in this run "+
 				"at %s, without a server error: a backend change at that rpc, not an intermittent failure",
-				f.step.Index, f.step.ID, errorText(f.step), f.answered, shortRPC(f.step.Call), capList(f.alongside, 3)))
+				f.step.Index, f.step.ID, errorText(f.step), f.answered, shortRPC(f.step.Call), chain.ListSome(f.alongside, 3)))
 			continue
 		}
 		out = append(out, fmt.Sprintf("step %d %s failed with a server error (%s) and %s: this looks intermittent, "+

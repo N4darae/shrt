@@ -40,7 +40,7 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 		Vars: a.vars, Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: true,
 	}, quiet, false)
 	if err != nil {
-		return nil, exitWith(3, "DID NOT RUN: could not run %s without %s: %v", res.Source, capList(named, 3), err)
+		return nil, exitWith(3, "DID NOT RUN: could not run %s without %s: %v", res.Source, chain.ListSome(named, 3), err)
 	}
 	a.sent = true
 	v := &withoutVerdict{Without: named, SourceRun: rec.RunID, Cleared: []string{}, StillFail: []string{}}
@@ -198,7 +198,7 @@ func failing(sr *runner.StepRecord) bool {
 
 func (v *withoutVerdict) text() string {
 	var b strings.Builder
-	without := capList(v.Without, 3)
+	without := chain.ListSome(v.Without, 3)
 	counted := len(v.Cleared) + len(v.Changed) + len(v.StillFail)
 	verb := "is"
 	if len(v.Without) > 1 {
@@ -213,18 +213,18 @@ func (v *withoutVerdict) text() string {
 			some = fmt.Sprintf("%d of the %d", len(v.Changed), counted)
 		}
 		fmt.Fprintf(&b, "verify FAILS DIFFERENTLY without %s: %s step(s) that failed in source run %s still fail, but not as they did (%s), so %s %s involved: leaving it out changes their answer\n",
-			without, some, v.SourceRun, capList(v.Changed, 5), without, verb)
+			without, some, v.SourceRun, chain.ListSome(v.Changed, 5), without, verb)
 	case len(v.Cleared) == 0 && v.readsOut:
 		fmt.Fprintf(&b, "verify INCONCLUSIVE without %s: the %d step(s) that failed in source run %s still fail, but they read what the left-out steps write: %s\n",
-			without, counted, v.SourceRun, capList(v.StillFail, 5))
+			without, counted, v.SourceRun, chain.ListSome(v.StillFail, 5))
 	case len(v.Cleared) == 0:
 		fmt.Fprintf(&b, "verify STILL FAILS without %s: the %d step(s) that failed in source run %s still fail exactly as they did (%s), so %s %s not their cause\n",
-			without, counted, v.SourceRun, capList(v.StillFail, 5), without, verb)
+			without, counted, v.SourceRun, chain.ListSome(v.StillFail, 5), without, verb)
 	default:
 		fmt.Fprintf(&b, "verify without %s: %d of %d step(s) that failed in source run %s pass without it: %s%s\n",
-			without, len(v.Cleared), counted, v.SourceRun, capList(v.Cleared, 5), v.stateNote())
+			without, len(v.Cleared), counted, v.SourceRun, chain.ListSome(v.Cleared, 5), v.stateNote())
 		if len(v.Changed) > 0 {
-			fmt.Fprintf(&b, "  fail differently without it, so it changes them too: %s\n", capList(v.Changed, 5))
+			fmt.Fprintf(&b, "  fail differently without it, so it changes them too: %s\n", chain.ListSome(v.Changed, 5))
 		}
 	}
 	for _, c := range v.Changes {
@@ -234,10 +234,10 @@ func (v *withoutVerdict) text() string {
 		if v.readsOut {
 			why = "they read what the left-out steps write"
 		}
-		fmt.Fprintf(&b, "  still fail as they did, %s: %s\n", why, capList(v.StillFail, 5))
+		fmt.Fprintf(&b, "  still fail as they did, %s: %s\n", why, chain.ListSome(v.StillFail, 5))
 	}
 	if len(v.NewFail) > 0 {
-		fmt.Fprintf(&b, "  fail only without it: %s, they need what the left-out steps did\n", capList(v.NewFail, 5))
+		fmt.Fprintf(&b, "  fail only without it: %s, they need what the left-out steps did\n", chain.ListSome(v.NewFail, 5))
 	}
 	if len(v.Changed) > 0 {
 		fmt.Fprintf(&b, "  a step that expects what %s does cannot pass without it: this neither clears it nor proves it the cause\n", without)
@@ -252,10 +252,10 @@ func (v *withoutVerdict) stateNote() string {
 	if len(v.state) == 0 {
 		return ""
 	}
-	without := capList(v.Without, 3)
+	without := chain.ListSome(v.Without, 3)
 	who, act, is := "they", "act", "is"
 	if len(v.state) < len(v.Cleared) {
-		who = capList(v.state, 3)
+		who = chain.ListSome(v.state, 3)
 	}
 	if len(v.state) == 1 {
 		act = "acts"
@@ -273,7 +273,7 @@ func (v *withoutVerdict) err() error {
 	if v == nil {
 		return nil
 	}
-	without := capList(v.Without, 3)
+	without := chain.ListSome(v.Without, 3)
 	switch {
 	case len(v.Changed) > 0:
 		return exitWith(3, "FAILS DIFFERENTLY without %s: %d failing step(s) fail otherwise than in source run %s", without, len(v.Changed), v.SourceRun)

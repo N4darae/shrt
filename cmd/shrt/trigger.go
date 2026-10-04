@@ -195,7 +195,7 @@ func (gr *gateGroup) rowCalls(byName map[string]*gateChain) (fails, passes []row
 		key, rec := ref.chain+" "+st.ID, byName[ref.chain].runOf(ref.it.from)
 		if _, ok := failing[key]; !ok {
 			failing[key] = len(fails)
-			fails = append(fails, rowCall{at: key, call: methodName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, slices.Index(rec.Steps, st), map[int]bool{})})
+			fails = append(fails, rowCall{at: key, call: chain.RPCName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, slices.Index(rec.Steps, st), map[int]bool{})})
 		}
 		if f := &fails[failing[key]]; f.leaf == "" {
 			f.leaf, f.sent, f.got = echoOf(st, rec, ref.it)
@@ -257,7 +257,7 @@ func (gr *gateGroup) rowCalls(byName map[string]*gateChain) (fails, passes []row
 					}
 				}
 				if checked {
-					passes = append(passes, rowCall{at: g.name + " " + st.ID, call: methodName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, i, map[int]bool{})})
+					passes = append(passes, rowCall{at: g.name + " " + st.ID, call: chain.RPCName(st.Call), dims: requestDims(st), before: earlierProfiles(rec, i, map[int]bool{})})
 				}
 			}
 		}

@@ -223,7 +223,7 @@ func keptFailureWhy(replay *runner.Record, broke []string) string {
 	}
 	out := fmt.Sprintf("kept step %s failed, %s", broke[0], kind)
 	if len(broke) > 1 {
-		out += ", and after it " + capList(broke[1:], 2)
+		out += ", and after it " + chain.ListSome(broke[1:], 2)
 	}
 	return out
 }

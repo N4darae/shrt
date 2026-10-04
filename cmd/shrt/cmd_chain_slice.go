@@ -314,7 +314,7 @@ func sourceRewriteRefusal(c *chain.Chain, res *chain.SliceResult, path, beside, 
 	}
 	changes := []string{}
 	if len(dropped) > 0 {
-		changes = append(changes, fmt.Sprintf("drop %d of its %d steps (%s)", len(dropped), res.Total, capList(dropped, 4)))
+		changes = append(changes, fmt.Sprintf("drop %d of its %d steps (%s)", len(dropped), res.Total, chain.ListSome(dropped, 4)))
 	}
 	if len(res.Relaxed) > 0 {
 		changes = append(changes, "drop the expectations a kept step failed: "+chain.RelaxedList(res.Relaxed))
@@ -463,13 +463,13 @@ func printSliceDetail(res *chain.SliceResult) {
 func sliceCountLine(res *chain.SliceResult, verdict *sliceVerdict) string {
 	line := fmt.Sprintf("kept %d of %d steps, dropped %d", len(res.Kept), res.Total, res.Total-len(res.Kept))
 	if len(res.Minimized) > 0 {
-		line += fmt.Sprintf(" (%s by -minimize)", capList(chain.DroppedIDs(res.Minimized), 3))
+		line += fmt.Sprintf(" (%s by -minimize)", chain.ListSome(chain.DroppedIDs(res.Minimized), 3))
 	}
 	named := verdict != nil && verdict.Outcome == sliceReproduced && len(verdict.OtherDropped) == len(res.DroppedWrites)
 	if len(res.DroppedWrites) == 0 || named {
 		return line
 	}
-	line += fmt.Sprintf(", writes among them %s", capList(chain.DroppedIDs(res.DroppedWrites), 3))
+	line += fmt.Sprintf(", writes among them %s", chain.ListSome(chain.DroppedIDs(res.DroppedWrites), 3))
 	if res.UnderIncluded && (verdict == nil || verdict.Outcome != sliceReproduced) {
 		line += ": WARNING possible under-inclusion, a kept step may depend on state they left"
 	}
@@ -842,7 +842,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		}
 		if at := stoppedWhereSourcePassed(replayRec, rec); at != "" {
 			if related, other := relatedDroppedWrites(res, rec); len(related) > 0 {
-				v.Reason += fmt.Sprintf("\n%s passed in source run %s and fails here; dropped writes on its entities: %s", at, rec.RunID, capList(related, 5))
+				v.Reason += fmt.Sprintf("\n%s passed in source run %s and fails here; dropped writes on its entities: %s", at, rec.RunID, chain.ListSome(related, 5))
 				v.OtherDropped = other
 				v.suggestKeep(res, rec, a, related)
 			}
@@ -903,7 +903,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Outcome = sliceInconclusive
 		v.Reason = fmt.Sprintf("kept step(s) %s passed in source run %s and fail in the slice, so it lacks something they need", strings.Join(broke, ", "), rec.RunID)
 		if len(entityRelated) > 0 {
-			v.Reason += fmt.Sprintf("; dropped writes on their entities: %s", capList(entityRelated, 5))
+			v.Reason += fmt.Sprintf("; dropped writes on their entities: %s", chain.ListSome(entityRelated, 5))
 			v.OtherDropped = slices.DeleteFunc(other, func(id string) bool { return slices.Contains(entityRelated, id) })
 			v.suggestKeep(res, rec, a, entityRelated)
 		} else if res.UnderIncluded {
@@ -924,12 +924,12 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 			v.Reason = fmt.Sprintf("in source run %s step %s was refused at authentication (%s); the slice's younger token was accepted: "+
 				"reproduce it with the source chain, shrt run %s", rec.RunID, res.Target, runner.TokenRefusalPhrase(*early), res.SourceCommandRef())
 		case len(related) > 0:
-			v.Reason = fmt.Sprintf("the slice dropped write step(s) on entities the kept steps use: %s", capList(related, 5))
+			v.Reason = fmt.Sprintf("the slice dropped write step(s) on entities the kept steps use: %s", chain.ListSome(related, 5))
 			v.OtherDropped = other
 			v.suggestKeep(res, rec, a, related)
 		case res.UnderIncluded:
 			names := chain.DroppedIDs(res.DroppedWrites)
-			v.Reason = fmt.Sprintf("the slice dropped write step(s): %s", capList(names, 5))
+			v.Reason = fmt.Sprintf("the slice dropped write step(s): %s", chain.ListSome(names, 5))
 			v.suggestKeep(res, rec, a, names)
 		}
 		if differ := varsDifferBetween(rec, replayRec, freshSet(res)); differ != "" {
@@ -943,7 +943,7 @@ func runSliceVerify(ctx context.Context, e *env, res *chain.SliceResult, rec *ru
 		v.Reproduced = true
 		v.OtherDropped = other
 		if len(related) > 0 {
-			v.Reason = fmt.Sprintf("note: the slice dropped write step(s) on entities the kept steps use and gave the step its verdict without them: %s", capList(related, 5))
+			v.Reason = fmt.Sprintf("note: the slice dropped write step(s) on entities the kept steps use and gave the step its verdict without them: %s", chain.ListSome(related, 5))
 		}
 		if a.otherTarget != "" {
 			v.Reason = strings.TrimPrefix(v.Reason+"\n"+a.otherTarget+": the slice gave step "+res.Target+" the verdict it had there", "\n")

@@ -1281,17 +1281,17 @@ func (a attribution) echoed(wi int, r *runner.StepRecord, path string) (reason, 
 			case wv:
 				confirm = true
 			case compactValue(rv):
-				agree = agree || methodName(o.Call) != methodName(r.Call)
+				agree = agree || chain.RPCName(o.Call) != chain.RPCName(r.Call)
 			}
 		})
 	}
 	if confirm {
 		out := a.own(reasonDiffers, r)
-		out.Path, out.Other = path, methodName(w.Call)
+		out.Path, out.Other = path, chain.RPCName(w.Call)
 		return out, true
 	}
 	out := a.write(wi)
-	out.Kind, out.Path, out.Want, out.Got, out.ReadRPC = reasonStored, wp, wv, compactValue(rv), methodName(r.Call)
+	out.Kind, out.Path, out.Want, out.Got, out.ReadRPC = reasonStored, wp, wv, compactValue(rv), chain.RPCName(r.Call)
 	if !agree && agreed && before == wv {
 		out.Kind, out.Read, out.ReadRPC, out.Profile = reasonUnclear, r.ID, r.Call, profileAs(a.e, r)
 		if sentAs(w, wp, wv) {
@@ -1359,7 +1359,7 @@ func (a attribution) unstored(w *runner.StepRecord, path string) reason {
 		}
 		if list, ok := reorderedList(wb, ob, path); ok && sameEntity(wb, list, ob, list) && a.unchanged(o.ID, path) {
 			r := a.own(reasonStoredOrder, w)
-			r.Path, r.ReadRPC = list, methodName(o.Call)
+			r.Path, r.ReadRPC = list, chain.RPCName(o.Call)
 			return r
 		}
 		read, found := "", false
@@ -1370,7 +1370,7 @@ func (a attribution) unstored(w *runner.StepRecord, path string) reason {
 		})
 		if found {
 			r := a.own(reasonStored, w)
-			r.Path, r.Want, r.Got, r.Read, r.ReadRPC = path, compactValue(wv), read, o.ID, methodName(o.Call)
+			r.Path, r.Want, r.Got, r.Read, r.ReadRPC = path, compactValue(wv), read, o.ID, chain.RPCName(o.Call)
 			return r
 		}
 	}

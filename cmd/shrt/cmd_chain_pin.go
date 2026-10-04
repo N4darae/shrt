@@ -390,7 +390,7 @@ func pinnedText(c *chain.Chain) string {
 		}
 		if i == 0 || pins[i-1].Step != p.Step {
 			if ok {
-				field = methodName(s.Call) + " " + field
+				field = chain.RPCName(s.Call) + " " + field
 			}
 			field = p.Step + " " + field
 		}

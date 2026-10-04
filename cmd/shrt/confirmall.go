@@ -48,7 +48,7 @@ func proposeAll(e *env, note, by string) error {
 		rows = append(rows, store.ProposalRowOf(p, rec))
 	}
 	for _, r := range skipped.keys {
-		fmt.Printf("skip     %s: %s\n", r, capList(skipped.of[r], 3))
+		fmt.Printf("skip     %s: %s\n", r, chain.ListSome(skipped.of[r], 3))
 	}
 	if len(rows) == 0 {
 		fmt.Println("nothing proposed")

@@ -132,7 +132,7 @@ func parentFailure(e *env, c *chain.Chain, rec *runner.Record) string {
 	if len(at) == 0 {
 		return ""
 	}
-	return pinsHeldAlso + capList(at, 3) + ", which the parent chain " + parent + " fails too"
+	return pinsHeldAlso + chain.ListSome(at, 3) + ", which the parent chain " + parent + " fails too"
 }
 
 func keptRedLatencyFailure(name string, flags []diff.LatencyFlag, p diff.LatencyPolicy) error {

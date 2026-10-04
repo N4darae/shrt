@@ -139,8 +139,8 @@ func planAll(e *env, lib *contract.Library, write, force, forceApproved bool) er
 	for _, rpc := range lib.RPCs() {
 		m, err := e.cat.Lookup(rpc)
 		if err != nil {
-			fmt.Printf("%s: %v\n", methodName(rpc), err)
-			failed = append(failed, methodName(rpc))
+			fmt.Printf("%s: %v\n", chain.RPCName(rpc), err)
+			failed = append(failed, chain.RPCName(rpc))
 			continue
 		}
 		if m.StreamRefusal() != "" {
@@ -309,7 +309,7 @@ func planChainName(targets []string, lib *contract.Library, e *env) (string, err
 func planShape(plan *contract.Plan) (string, string) {
 	order, groups := []string{}, []string{}
 	for _, r := range plan.Order {
-		order = append(order, methodName(r))
+		order = append(order, chain.RPCName(r))
 	}
 	for _, g := range plan.StepGroups() {
 		groups = append(groups, fmt.Sprintf("%d %s", g.Steps, g.Label))

@@ -277,7 +277,7 @@ func showStep(e *env, rest []string, ids string) error {
 					known = append(known, s.ID)
 				}
 			}
-			return fmt.Errorf("run %s of %s has no step %q; its steps: %s", rec.RunID, rec.Chain, id, capList(known, 12))
+			return fmt.Errorf("run %s of %s has no step %q; its steps: %s", rec.RunID, rec.Chain, id, chain.ListSome(known, 12))
 		}
 		as := ""
 		if st.AuthProfile != "" && st.AuthProfile != "default" {

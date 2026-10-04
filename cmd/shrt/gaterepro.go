@@ -152,10 +152,10 @@ func settle(ctx context.Context, e *env, ref gateRef, via tellRead, wait time.Du
 		switch x.Reason.Kind {
 		case reasonStored:
 			return fmt.Sprintf("settled on the write %s (%s): %s read %s=%s, as %s did, where the write answered %s  (%s)",
-				x.Reason.Step, shortRPC(x.Reason.RPC), viaName, field, valueText(x.Got), methodName(r.ReadRPC), valueText(x.Want), shown)
+				x.Reason.Step, shortRPC(x.Reason.RPC), viaName, field, valueText(x.Got), chain.RPCName(r.ReadRPC), valueText(x.Want), shown)
 		case reasonDiffers:
 			return fmt.Sprintf("settled on the read %s (%s): %s read %s=%s, as the write %s answered, where %s read %s  (%s)",
-				r.Read, shortRPC(r.ReadRPC), viaName, field, valueText(x.Want), r.Step, methodName(r.ReadRPC), valueText(x.Got), shown)
+				r.Read, shortRPC(r.ReadRPC), viaName, field, valueText(x.Want), r.Step, chain.RPCName(r.ReadRPC), valueText(x.Got), shown)
 		}
 		return fmt.Sprintf("not settled: %s did not read %s of the same item  (%s)", viaName, field, shown)
 	}
@@ -398,7 +398,7 @@ func readBack(ctx context.Context, e *env, ref gateRef, file string, vars []stri
 	if writeSliceFile(file, slice) == nil {
 		items := gateExec(ctx, args).side.Items
 		if slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Step }) && slices.ContainsFunc(items, func(x gateItem) bool { return x.Step == r.Read && x.Path == path }) {
-			return " -keep-going", fmt.Sprintf("; the read-back %s (%s) reads %s=%s where the write answered %s", r.Read, methodName(read.Call), field, valueText(r.Got), valueText(r.Want))
+			return " -keep-going", fmt.Sprintf("; the read-back %s (%s) reads %s=%s where the write answered %s", r.Read, chain.RPCName(read.Call), field, valueText(r.Got), valueText(r.Want))
 		}
 	}
 	_ = os.WriteFile(file, orig, 0o644)
@@ -466,10 +466,10 @@ func gateMasks(ctx context.Context, chains []*gateChain) string {
 	}
 	more := ""
 	if inLists > 0 {
-		more = fmt.Sprintf(", leaving out %d inside whole lists a step marks volatile, which hold whatever else the backend holds (%s)", inLists, capList(lists, 3))
+		more = fmt.Sprintf(", leaving out %d inside whole lists a step marks volatile, which hold whatever else the backend holds (%s)", inLists, chain.ListSome(lists, 3))
 	}
 	if len(unread) > 0 {
-		more += "; no record to read for " + capList(unread, 5)
+		more += "; no record to read for " + chain.ListSome(unread, 5)
 	}
 	switch {
 	case read == 0 && len(unread) == 0:
@@ -535,7 +535,7 @@ func gateGaps(ctx context.Context, e *env, gated []*gateChain, wait time.Duratio
 			continue
 		}
 		if runs[g.RPC] == nil {
-			fmt.Fprintf(os.Stderr, "gate: -repro: planning %s into .shrt/scratch/ and running it once, for the state(s) no chain calls it from\n", methodName(g.RPC))
+			fmt.Fprintf(os.Stderr, "gate: -repro: planning %s into .shrt/scratch/ and running it once, for the state(s) no chain calls it from\n", chain.RPCName(g.RPC))
 			runs[g.RPC] = runGap(ctx, e, lib, g.RPC, wait)
 		}
 		probe := runs[g.RPC].probe(ctx, e, lib, g)
@@ -564,7 +564,7 @@ func gapFile(rpc string) string {
 }
 
 func gapPlan(rpc string) string {
-	return fmt.Sprintf("shrt contract plan %s -write %s (into .shrt/scratch/)", methodName(rpc), gapFile(rpc))
+	return fmt.Sprintf("shrt contract plan %s -write %s (into .shrt/scratch/)", chain.RPCName(rpc), gapFile(rpc))
 }
 
 type gapRun struct {
@@ -580,7 +580,7 @@ func runGap(ctx context.Context, e *env, lib *contract.Library, rpc string, wait
 	plan, err := contract.BuildPlanWith([]string{rpc}, lib, e.cat, name, planOptions(e))
 	var raw []byte
 	if err == nil && plan.UnfilledCount() > 0 {
-		err = fmt.Errorf("its plan leaves %d required field(s) without test data: shrt contract plan %s -notes", plan.UnfilledCount(), methodName(rpc))
+		err = fmt.Errorf("its plan leaves %d required field(s) without test data: shrt contract plan %s -notes", plan.UnfilledCount(), chain.RPCName(rpc))
 	}
 	if err == nil {
 		raw, err = plan.YAML()
@@ -653,7 +653,7 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 		if len(calls) == 0 || len(passes) < len(calls) {
 			return []string{fmt.Sprintf("not probed: %d of its plan's %d call(s) from that state passed, and none failed  (shrt run %s)", len(passes), len(calls), shown)}
 		}
-		return []string{fmt.Sprintf("passes: %d call(s) from that state, %s  (shrt run %s)", len(calls), capList(calls, 3), shown)}
+		return []string{fmt.Sprintf("passes: %d call(s) from that state, %s  (shrt run %s)", len(calls), chain.ListSome(calls, 3), shown)}
 	}
 	var out []string
 	for _, rpc := range order {
@@ -668,7 +668,7 @@ func (r *gapRun) probe(ctx context.Context, e *env, lib *contract.Library, g con
 				ex = it
 			}
 		}
-		line := fmt.Sprintf("%s: %d step(s) in 1 chain(s); e.g. %s %s", strings.TrimSpace(rpc+" "+capList(fields, 3)), len(steps), r.c.Name, ex.Step)
+		line := fmt.Sprintf("%s: %d step(s) in 1 chain(s); e.g. %s %s", strings.TrimSpace(rpc+" "+chain.ListSome(fields, 3)), len(steps), r.c.Name, ex.Step)
 		if why := ex.Reason.in(said{step: ex.Step, rpc: rpc}); why != "" {
 			line += "; " + why
 		} else {

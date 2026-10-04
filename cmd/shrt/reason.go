@@ -112,14 +112,14 @@ func (r reason) in(s said) string {
 		}
 		return "unclear: write " + strings.Join(names, " or ")
 	case r.Kind == reasonUnclear && (group || s.row && len(r.Or) == 0):
-		read := " (" + methodName(r.ReadRPC) + asText(r.Profile) + ")"
+		read := " (" + chain.RPCName(r.ReadRPC) + asText(r.Profile) + ")"
 		if s.head != nil && r.Read == s.head.Step {
 			read = asText(r.Profile)
 		}
 		return "unclear: " + cmp.Or(name(r.Step, r.RPC, ""), "the write") + " or the read" + read
 	case r.Kind == reasonUnclear:
 		return fmt.Sprintf("unclear: %s or the read: answered %s=%s, but %s%s read %s", name(r.Step, r.RPC, ""),
-			gateIndex.ReplaceAllString(r.Path, "[]$1"), valueText(r.Want), methodName(r.ReadRPC), asText(r.Profile), valueText(r.Got))
+			gateIndex.ReplaceAllString(r.Path, "[]$1"), valueText(r.Want), chain.RPCName(r.ReadRPC), asText(r.Profile), valueText(r.Got))
 	case r.Kind == reasonKnockOn && r.Step == "":
 		return "knock-on of " + name(r.Read, r.ReadRPC, "")
 	case r.Kind == reasonKnockOn:
@@ -134,7 +134,7 @@ func (r reason) in(s said) string {
 		return who + detail
 	case group:
 		return who + ": " + detail
-	case h != nil && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && methodName(r.ReadRPC) == methodName(h.Call):
+	case h != nil && r.Kind == reasonStored && chain.EdgeQuoted(r.Want) == h.Want && chain.EdgeQuoted(r.Got) == h.Got && chain.RPCName(r.ReadRPC) == chain.RPCName(h.Call):
 		return "suspect " + who + ": stores other than it answered"
 	case h != nil && r.Step == h.Step:
 		return "suspect the " + rw(r.RPC) + asText(r.Profile) + rest
@@ -236,7 +236,7 @@ func tellApart(e *env, r reason, path string) string {
 		via = append(via, shortRPC(t.method.FullName)+" ("+t.path+")")
 	}
 	if len(via) == 0 && r.Other == asSent {
-		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, methodName(r.ReadRPC))
+		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, chain.RPCName(r.ReadRPC))
 	}
 	if len(via) == 0 {
 		return ""

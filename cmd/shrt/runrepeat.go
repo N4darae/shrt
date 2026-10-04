@@ -110,7 +110,7 @@ func repeatDifferences(c *chain.Chain, first, rec *runner.Record, label string) 
 	}
 	was, now := failedSteps(first), failedSteps(rec)
 	if !slices.Equal(was, now) {
-		return []string{fmt.Sprintf("failed steps: source %s, %s %s", cmp.Or(capList(was, 5), "none"), label, cmp.Or(capList(now, 5), "none"))}
+		return []string{fmt.Sprintf("failed steps: source %s, %s %s", cmp.Or(chain.ListSome(was, 5), "none"), label, cmp.Or(chain.ListSome(now, 5), "none"))}
 	}
 	same := sameUpToFixtures(first.Vars, rec.Vars)
 	out := []string{}
@@ -138,7 +138,7 @@ func noVerdictIn(rec *runner.Record) string {
 func repeatLine(i, n int, rec *runner.Record, diffs []string) string {
 	line := fmt.Sprintf("repeat %d of %d: run %s %s", i, n, rec.RunID, rec.Status)
 	if failed := failedSteps(rec); len(failed) > 0 {
-		line += " at " + capList(failed, 3)
+		line += " at " + chain.ListSome(failed, 3)
 	}
 	switch {
 	case i == 1:
@@ -154,7 +154,7 @@ func (v *repeatVerdict) text(e *env, c *chain.Chain, first *runner.Record) strin
 	var b strings.Builder
 	switch v.Outcome {
 	case sliceReproduced:
-		fmt.Fprintf(&b, "reproduced %d/%d: %s failed the same way in every run\n", v.Same, v.Repeat, capList(v.Failed, 3))
+		fmt.Fprintf(&b, "reproduced %d/%d: %s failed the same way in every run\n", v.Same, v.Repeat, chain.ListSome(v.Failed, 3))
 		for _, id := range v.Failed {
 			st, _ := first.Step(id)
 			fmt.Fprintf(&b, "  %s (%s): %s\n", id, shortRPC(st.Call), answeredText(st))

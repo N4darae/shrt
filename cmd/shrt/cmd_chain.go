@@ -476,7 +476,7 @@ func (s *stampSummary) print(explained map[string]bool) {
 		why = ": " + s.why
 	}
 	fmt.Printf("WARN   timestamps unasserted in %d chain(s), %s ('chain lint -v' names each step and its expect)%s\n",
-		len(s.chains), capList(s.paths, 4), why)
+		len(s.chains), chain.ListSome(s.paths, 4), why)
 }
 
 var noteSteps = regexp.MustCompile(`^steps? [a-z0-9_, ]+: `)

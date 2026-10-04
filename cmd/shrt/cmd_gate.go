@@ -881,7 +881,7 @@ func foldFlaky(chains []*gateChain) {
 		return explained[i][it.from+" "+it.Step] || explained[i][it.from+" "+it.suspect()]
 	}
 	listKey := func(it gateItem) string {
-		return methodName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1")
+		return chain.RPCName(it.Call) + " " + gateIndex.ReplaceAllString(it.Path, "[]$1")
 	}
 	elsewhere := map[string]bool{}
 	for i, g := range chains {
@@ -1590,7 +1590,7 @@ func (g *gateChain) line(width int) string {
 		days[0] = ", pinned " + days[0]
 	}
 	if len(held) > 0 {
-		line += fmt.Sprintf(" (+%d kept-red slice(s), every pin held%s: %s)", len(held), strings.Join(days, ", "), capList(held, pinsShown))
+		line += fmt.Sprintf(" (+%d kept-red slice(s), every pin held%s: %s)", len(held), strings.Join(days, ", "), chain.ListSome(held, pinsShown))
 	}
 	return strings.TrimRight(line, " ")
 }
@@ -1679,9 +1679,9 @@ func settleGate(chains []*gateChain) []string {
 		other, more := lacks(g, has)
 		switch {
 		case first != "" && first != g.name && !more:
-			named := methodName(it.rpc())
+			named := chain.RPCName(it.rpc())
 			if r := it.Reason; r.Kind == reasonUnclear && len(r.Or) == 0 && r.ReadRPC != "" {
-				named += " or " + methodName(r.ReadRPC)
+				named += " or " + chain.RPCName(r.ReadRPC)
 			}
 			g.first += "; " + sameFault + first + " (" + named + ")"
 		case it.Reason.Kind != "":
@@ -1947,7 +1947,7 @@ func printGateGroups(e *env, chains []*gateChain, verbose bool) []*gateGroup {
 		}
 		gr.head = gr.rpc
 		if len(gr.fields) > 0 {
-			gr.head += " " + capList(gr.fields, 3)
+			gr.head += " " + chain.ListSome(gr.fields, 3)
 		}
 		line := fmt.Sprintf("  %s: %d step(s) in %d chain(s); e.g. %s %s", gr.head, n, len(gr.chains), gr.in, it.Step)
 		if r := it.Reason.in(said{step: it.Step, rpc: gr.rpc}); r != "" {
@@ -1979,10 +1979,6 @@ func leafOf(path string) string {
 		}
 	}
 	return path
-}
-
-func methodName(call string) string {
-	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func gateHollow(ctx context.Context, baseline string) string {

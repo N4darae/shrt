@@ -697,7 +697,7 @@ func (v *verification) drift() error {
 	if report.OnlyReordered() {
 		next := ""
 		if list := report.ReorderedExpectations(); len(list) > 0 {
-			next = "\nThe expectation(s) reading it by position, which passed in the safe spot's run, failed: " + capList(list, 3) + "; a regression unless the order was never promised"
+			next = "\nThe expectation(s) reading it by position, which passed in the safe spot's run, failed: " + chain.ListSome(list, 3) + "; a regression unless the order was never promised"
 		}
 		return fmt.Errorf("order changed: %d change(s) vs safe spot, all in list(s) holding the safe spot's items in another order (%s)%s",
 			len(report.Changes), strings.Join(report.ReorderedLists(), "; "), next)
@@ -1181,7 +1181,7 @@ func unsentWritesNote(rec *runner.Record, at int) string {
 		return ""
 	}
 	return fmt.Sprintf("; the write(s) %s after it were not sent, so a later step's difference may be their missing side effect "+
-		"and is not independent evidence", capList(writes, 4))
+		"and is not independent evidence", chain.ListSome(writes, 4))
 }
 
 func regressionShape(report *diff.Report) string {
@@ -1198,7 +1198,7 @@ func regressionShape(report *diff.Report) string {
 	if len(added) == 0 {
 		return ""
 	}
-	return fmt.Sprintf(", all of them response field(s) the safe spot does not have: %s", capList(added, 4))
+	return fmt.Sprintf(", all of them response field(s) the safe spot does not have: %s", chain.ListSome(added, 4))
 }
 
 func intendedChangeNext(name string) string {
@@ -1408,7 +1408,7 @@ func describeChanges(changes []diff.Change) string {
 	for _, c := range changes {
 		out = append(out, fmt.Sprintf("%s %s %v -> %v", c.Step, c.Path, c.Want, c.Got))
 	}
-	return capList(out, 4)
+	return chain.ListSome(out, 4)
 }
 
 const timeoutRemedy = "the request was sent and no answer came before target.timeout, so raise target.timeout in .shrt/config.yaml " +
@@ -1562,5 +1562,5 @@ func affectedSteps(rec *runner.Record, report *diff.Report) string {
 		}
 		out = append(out, c.Step+" ("+st+")")
 	}
-	return capList(out, 6)
+	return chain.ListSome(out, 6)
 }

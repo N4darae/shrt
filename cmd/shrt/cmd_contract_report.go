@@ -533,7 +533,7 @@ func contractQuality(args []string) error {
 		shown = shown[:*limit]
 	}
 	for _, r := range shown {
-		fmt.Printf("%5d  %-70s %s\n", r.Score, methodName(r.RPC), strings.Join(qualityGap(r, *phase), " | "))
+		fmt.Printf("%5d  %-70s %s\n", r.Score, chain.RPCName(r.RPC), strings.Join(qualityGap(r, *phase), " | "))
 	}
 	if len(shown) < len(report.RPCs) {
 		fmt.Printf("  … %d more\n", len(report.RPCs)-len(shown))
@@ -594,7 +594,7 @@ func qualityGapsNow(report contract.QualityReport, withUncovered bool) string {
 		if r.NoContract {
 			gap = "no overlay covers it"
 		}
-		parts = append(parts, fmt.Sprintf("%s (%d): %s", methodName(r.RPC), r.Score, gap))
+		parts = append(parts, fmt.Sprintf("%s (%d): %s", chain.RPCName(r.RPC), r.Score, gap))
 	}
 	return strings.Join(parts, "; ")
 }
@@ -619,7 +619,7 @@ func qualityGate(report contract.QualityReport, baselinePath string) error {
 	uncovered, charged := []string{}, 0
 	for _, r := range report.RPCs {
 		if r.NoContract {
-			uncovered = append(uncovered, methodName(r.RPC))
+			uncovered = append(uncovered, chain.RPCName(r.RPC))
 			charged += r.Score
 		}
 	}

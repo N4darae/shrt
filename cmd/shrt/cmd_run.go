@@ -487,7 +487,7 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	for _, src := range behindOrder {
 		line := fmt.Sprintf("%d step(s) unevaluated behind %s", behind[src], src)
 		if len(answered[src]) > 0 {
-			line += ": " + capList(answered[src], 3)
+			line += ": " + chain.ListSome(answered[src], 3)
 		}
 		fmt.Println(line)
 	}
@@ -604,7 +604,7 @@ func neverRanLine(c *chain.Chain, rec *runner.Record) string {
 		return ""
 	}
 	return fmt.Sprintf("%d later step(s) were not run (%s): this failure may not be the only one; run with -keep-going to see them",
-		len(left), capList(left, 3))
+		len(left), chain.ListSome(left, 3))
 }
 
 func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, finding bool) string {
@@ -639,7 +639,7 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 		fmt.Fprintf(&b, "\n  build: %s at %s", rec.Build, rec.Target)
 	}
 	if len(rec.FailedSteps) > 0 {
-		fmt.Fprintf(&b, "\n  did not pass: %s", capList(rec.FailedSteps, 10))
+		fmt.Fprintf(&b, "\n  did not pass: %s", chain.ListSome(rec.FailedSteps, 10))
 	}
 	if failure := rec.Failure; failure != "" {
 		if stepsShown && rec.KeptRed != "" {
@@ -772,7 +772,7 @@ func warningLines(rec *runner.Record) []string {
 		}
 	}
 	for _, line := range warnings {
-		out = append(out, fmt.Sprintf("warning [%s]: %s", capList(stepsOf[line], 10), line))
+		out = append(out, fmt.Sprintf("warning [%s]: %s", chain.ListSome(stepsOf[line], 10), line))
 	}
 	if line := runner.UndeclaredFieldsLine(rec); line != "" {
 		out = append(out, "warning: "+line)
@@ -797,8 +797,6 @@ func shownWarnings(sr *runner.StepRecord) []string {
 	}
 	return out
 }
-
-func capList(items []string, max int) string { return chain.ListSome(items, max) }
 
 func exportJSON(v any) string {
 	var buf bytes.Buffer
