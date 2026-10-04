@@ -259,7 +259,9 @@ func chainLint(args []string) error {
 		"as text and never computed (interpolated-arithmetic), and a step expecting success that asserts only the verdict although "+
 		"its rpc's contract declares response facts (envelope-only). Other warnings are not promoted")
 	setUsage(fs, "usage: shrt chain lint [<chain>...] [flags]   every chain under paths.chains when none is named",
-		"\nexit codes:\n  0  no lint error\n  1  a lint error, or under -strict an assertion-quality warning\n")
+		"\na chain named by a path outside paths.chains (a .shrt/scratch/ slice, a repro) gets no unasserted-timestamp or envelope-only "+
+			"warning: they matter for the suite, not for a repro; -strict checks them there too\n"+
+			"\nexit codes:\n  0  no lint error\n  1  a lint error, or under -strict an assertion-quality warning\n")
 	rest, err := parseArgs(fs, args)
 	if err != nil {
 		return err
@@ -315,7 +317,10 @@ func chainLint(args []string) error {
 				shellUnset[g.Profile] = g.Unset
 			}
 		}
-		issues := slices.DeleteFunc(contract.LintChain(c, e.cat, opts), func(i chain.Issue) bool { return i.Kind == chain.KindAuthEnvUnset })
+		throwaway := !*strict && !inChainsDir(e, c)
+		issues := slices.DeleteFunc(contract.LintChain(c, e.cat, opts), func(i chain.Issue) bool {
+			return i.Kind == chain.KindAuthEnvUnset || throwaway && (i.Kind == chain.KindUnassertedTimestamp || i.Kind == chain.KindEnvelopeOnly)
+		})
 		if mm := nameMismatchIn(e, c); mm != nil {
 			issues = append([]chain.Issue{{Severity: chain.SeverityWarn, Kind: chain.KindNameMismatch, Message: mm.Error() + ": " + mm.Remedy()}}, issues...)
 		}

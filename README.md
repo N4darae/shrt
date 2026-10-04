@@ -84,7 +84,7 @@ follows the gate, a settled suspect, a verified repro per suspect rpc and a chec
 | `shrt contract status [-gaps]` | coverage per domain; `-gaps` lists what no chain exercises | |
 | `shrt contract quality [-domain d]` | score contracts for what is missing; `-gate -baseline <file>` ratchets it | 1 off the baseline, or a contract error |
 | `shrt chain new -name <c> <rpc>...` | scaffold a chain from the descriptor and contracts | |
-| `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only` | 1 a lint error |
+| `shrt chain lint [<c>]` | static checks; `-strict` also fails `unfailable-assertion`, `asserts-nothing`, `inert-allow-fail`, `export-overwritten`, `interpolated-arithmetic`, `envelope-only`; a chain named by a path outside `paths.chains` (a scratch slice, a repro) gets no unasserted-timestamp or `envelope-only` warning unless `-strict` | 1 a lint error |
 | `shrt chain ls` | one line per chain: `*` safe spot, `?` pending proposal, `R` kept red | |
 | `shrt chain which [-rpc r] [-code n]` | which chains exercise an rpc or assert a code, with a slice command; under `-rpc`, the state and item count each write step acts on | 1 nothing matched |
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |

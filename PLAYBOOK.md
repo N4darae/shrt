@@ -524,9 +524,11 @@ shrt chain slice billing -step pay_invoice_twice -write probe -verify -run lates
    with ids: `-keep writes,check_stock`.
 3. **`-write [name]`, then `chain lint` it by path.** Without a path it lands in `.shrt/scratch/`
    (`<chain>-slice-<step>.yaml` by default), which no gate, lint or hollow sweep reads: run it by
-   path. A value with a slash is a path. A slice of the same chain and step is replaced in place;
-   any other file is refused, the source chain's own file too when the slice drops a step or an
-   expectation of it (a slice keeping every step as written only records its verdict there).
+   path. Lint by path skips the unasserted-timestamp and `envelope-only` warnings for a chain
+   outside `paths.chains`: they matter for the suite, not for a repro (`-strict` keeps them). A
+   value with a slash is a path. A slice of the same chain and step is replaced in place; any other
+   file is refused, the source chain's own file too when the slice drops a step or an expectation
+   of it (a slice keeping every step as written only records its verdict there).
 4. **`-verify` turns the slice into a receipt** (against `-run <id>`, latest when omitted). It runs the slice 3 times and
    compares the target step's verdict with the source run's: envelope code, reason and app code,
    transport refusal, and each expectation's pass, want and got; when those match and the target
