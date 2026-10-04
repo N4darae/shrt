@@ -920,6 +920,27 @@ func storedOtherBatch() *runner.Record {
 	)
 }
 
+func TestAHeldPinIsNoChangeWhenNamingAKeptRedSuspect(t *testing.T) {
+	chain.SetEnvelope("status.code", "SUCCESS")
+	defer chain.SetEnvelope("", "")
+	order := `{"order":{"id_order":"o1","total_minor":"130","lines":[{"id_product":"p1","qty":"1"},{"id_product":"p2","qty":"2"}]},` + shopOK + `}`
+	rec := shopRecord(
+		shopStep("create_product_b", shopCreate, `{"product":{"id_product":"p2","qty_on_hand":"0"}}`).held("product.qty_on_hand", "0"),
+		shopStep("stock_batch", shopBatch, `{"results":[{"id_product":"p1","qty_on_hand":"3"},{"id_product":"p2","qty_on_hand":"1"}]}`, "create_product_b").held("results.1.qty_on_hand", "1"),
+		shopStep("order_later_line_short", shopOrder, order, "create_product_b").failing("order.total_minor", "160", "130"),
+		shopStep("confirm_later_line_short", shopConfirm, order, "order_later_line_short").failing("status.code", "REJECTED", "SUCCESS"),
+		shopStep("stock_b_after_refusal", shopGet, `{"product":{"id_product":"p2","qty_on_hand":"-2"}}`, "create_product_b").failing("product.qty_on_hand", "1", "-2"),
+	)
+	held := map[string]bool{"confirm_later_line_short status.code": true}
+	r := pinnedAttribution(effectsEnv(t), rec, held).of("stock_b_after_refusal", "product.qty_on_hand")
+	if !orSteps("stock_batch", "confirm_later_line_short")(r) {
+		t.Errorf("the confirm answering as pinned changed nothing new, so the moved stock pin is unclear between the batch and the confirm: %s", r)
+	}
+	if r := pinnedAttribution(effectsEnv(t), rec, nil).of("stock_b_after_refusal", "product.qty_on_hand"); r.blamed("stock_b_after_refusal") != "confirm_later_line_short" || len(r.Or) > 0 {
+		t.Errorf("with no pin held, the confirm answering otherwise than expected stays the suspect: %s", r)
+	}
+}
+
 func storedOtherMoved() []diff.Change {
 	return slices.Concat(changed("order_later_line_short", "order.total_minor", "160", "130"), changed("confirm_fits", "order.status", "CONFIRMED", "PENDING"),
 		changed("get_b", "product.qty_on_hand", "0", "-1"))

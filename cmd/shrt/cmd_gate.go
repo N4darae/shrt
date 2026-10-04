@@ -313,7 +313,16 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 		}
 		return &cp
 	}
-	return attribution{e: e, rec: rec, bad: badSteps(rec),
+	bad := badSteps(rec)
+	for _, st := range rec.Steps {
+		if st == nil || st.Error != "" || st.Transport != nil || len(moved(st).Expect) == len(st.Expect) {
+			continue
+		}
+		if !slices.ContainsFunc(moved(st).Expect, func(ex chain.ExpectResult) bool { return !ex.Passed }) {
+			delete(bad, st.ID)
+		}
+	}
+	return attribution{e: e, rec: rec, bad: bad,
 		bodies: map[*runner.StepRecord]stepBody{}, produced: map[int]map[string]string{},
 		unchanged: func(step, path string) bool {
 			st, ok := rec.Step(step)
@@ -322,7 +331,7 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 			}
 			for _, ex := range st.Expect {
 				if namecase.Equal(ex.Path, path) {
-					return ex.Passed
+					return ex.Passed || held[step+" "+ex.Path]
 				}
 			}
 			return false
@@ -337,7 +346,7 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 				return nil
 			}
 			var out []string
-			for _, ex := range st.Expect {
+			for _, ex := range moved(st).Expect {
 				if !ex.Passed && ex.Rule != "unevaluated" {
 					out = append(out, ex.Path)
 				}
@@ -356,7 +365,7 @@ func pinnedAttribution(e *env, rec *runner.Record, held map[string]bool) attribu
 			if !ok || st == nil {
 				return nil, false
 			}
-			for _, ex := range st.Expect {
+			for _, ex := range moved(st).Expect {
 				if !ex.Passed && ex.Rule == "equals" && namecase.Equal(ex.Path, path) {
 					return ex.Want, true
 				}
