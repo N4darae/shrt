@@ -5,21 +5,13 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/hollow"
-	"github.com/N4darae/shrt/runner"
 )
 
 const emptyRead = `{"error":{"code":"OK"},"assets":[],"pagination":{"current_page":"1","total":"0"}}`
 
 func recordWith(t *testing.T, expect []chain.ExpectResult) *hollow.Report {
 	t.Helper()
-	runs := t.TempDir()
-	writeRecord(t, runs, &runner.Record{
-		Chain: "sweep", RunID: "r1", Status: "passed",
-		Steps: []*runner.StepRecord{
-			step("fetch", "/acme.mdm.asset.v1.AssetService/FetchAsset", emptyRead, expect),
-		},
-	})
-	return scan(t, runs, emptyAllow(t), nil)
+	return scanSteps(t, step("fetch", "/acme.mdm.asset.v1.AssetService/FetchAsset", emptyRead, expect))
 }
 
 func TestAnAbsenceAssertionDoesNotBuyAnEmptyReadOutOfTheHollowGate(t *testing.T) {

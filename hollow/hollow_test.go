@@ -47,6 +47,13 @@ func scan(t *testing.T, runsDir string, allow *hollow.Allowlist, asserted map[st
 	return rep
 }
 
+func scanSteps(t *testing.T, steps ...*runner.StepRecord) *hollow.Report {
+	t.Helper()
+	runs := t.TempDir()
+	writeRecord(t, runs, &runner.Record{Chain: "sweep", RunID: "r1", Status: "passed", Steps: steps})
+	return scan(t, runs, emptyAllow(t), nil)
+}
+
 func emptyAllow(t *testing.T) *hollow.Allowlist {
 	t.Helper()
 	a, err := hollow.LoadAllowlist(filepath.Join(t.TempDir(), "absent.txt"), false)
