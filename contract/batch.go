@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -47,14 +48,10 @@ func (p *Plan) perItemResults(lib *Library, rpc string, c *RPCContract, m *catal
 	if results == nil {
 		return nil
 	}
-	stated := c.Effects.perItem() || perItemFailure().MatchString(c.Summary)
-	for _, f := range lib.AllFailures(rpc) {
-		stated = stated || perItemFailure().MatchString(f.When)
+	if c.Effects.perItem() || perItemFailure().MatchString(c.Summary) || slices.ContainsFunc(lib.AllFailures(rpc), func(f Failure) bool { return perItemFailure().MatchString(f.When) }) {
+		return results
 	}
-	if !stated {
-		return nil
-	}
-	return results
+	return nil
 }
 
 type batchLine struct {

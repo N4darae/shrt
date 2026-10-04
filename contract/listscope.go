@@ -58,13 +58,10 @@ func (p *Plan) scopeListByPrefix(t *listTarget) (string, string, bool) {
 		if prefix == "" {
 			continue
 		}
-		shared := true
-		for _, prod := range t.producers {
-			if v, _ := prod.Body[target].(string); !strings.HasPrefix(v, prefix) {
-				shared = false
-			}
-		}
-		if !shared {
+		if slices.ContainsFunc(t.producers, func(prod *chain.Step) bool {
+			v, _ := prod.Body[target].(string)
+			return !strings.HasPrefix(v, prefix)
+		}) {
 			continue
 		}
 		t.step.Body[key] = prefix
@@ -92,12 +89,9 @@ func assertLowerBound(st *chain.Step, listPath string) {
 		return
 	}
 	last := listPath + "." + itoa(n-1)
-	for _, e := range st.Expect {
-		if e.Path == last || strings.HasPrefix(e.Path, last+".") {
-			return
-		}
+	if !slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == last || strings.HasPrefix(e.Path, last+".") }) {
+		st.Expect = append(st.Expect, chain.Expectation{Path: last, Exists: boolPtr(true)})
 	}
-	st.Expect = append(st.Expect, chain.Expectation{Path: last, Exists: boolPtr(true)})
 }
 
 func (p *Plan) noteUnscopedList(t *listTarget, n int) {

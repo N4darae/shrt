@@ -83,12 +83,7 @@ func (e *Effect) decode(n *yaml.Node) error {
 		}
 		*[]*string{&e.Increase, &e.Decrease, &e.Of, &e.Restore, &e.Sum, &e.Times}[slices.Index(effectKeys, key)] = strings.TrimSpace(val.Value)
 	}
-	stated := 0
-	for _, v := range []string{e.Increase, e.Decrease, e.Restore, e.Sum} {
-		if v != "" {
-			stated++
-		}
-	}
+	stated := len(slices.DeleteFunc([]string{e.Increase, e.Decrease, e.Restore, e.Sum}, func(v string) bool { return v == "" }))
 	switch {
 	case stated != 1:
 		return fmt.Errorf("an effect states exactly one of increase, decrease, restore or sum")
@@ -395,15 +390,11 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 				fail("%q is not a number of the request%s", path, suggest(path, numericNames(in)))
 				continue
 			}
-			for _, name := range sortedKeys(c.Fields) {
-				if strings.Contains(name, ".") {
-					continue
-				}
-				if ref, ok := writeRef(c, name, cat); ok {
-					if em, err := cat.Lookup(ref.RPC); err == nil && carries(k)(em) {
-						s.idField, s.entity, s.idPath = name, ref.RPC, ref.Path
-						break
-					}
+			for _, name := range wiredWrites(c, cat) {
+				ref, _ := writeRef(c, name, cat)
+				if em, err := cat.Lookup(ref.RPC); err == nil && carries(k)(em) {
+					s.idField, s.entity, s.idPath = name, ref.RPC, ref.Path
+					break
 				}
 			}
 			if s.idField == "" {
@@ -555,13 +546,10 @@ func effectsTodo(m *catalog.Method, all []*catalog.Method) string {
 		if pm.FullName != producers[0].RPC {
 			continue
 		}
-		asked := map[string]bool{}
-		for _, name := range numericNames(catalog.DescribeMessage(pm.Input()).Fields) {
-			asked[name] = true
-		}
+		asked := numericNames(catalog.DescribeMessage(pm.Input()).Fields)
 		kept := []string{}
 		for _, name := range answeredNumbers(pm) {
-			if !asked[name] && !idLike(name) && !IsVerdictFieldName(name) && !slices.Contains(kept, name) {
+			if !slices.Contains(asked, name) && !idLike(name) && !IsVerdictFieldName(name) && !slices.Contains(kept, name) {
 				kept = append(kept, name)
 			}
 		}

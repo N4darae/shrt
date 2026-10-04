@@ -85,16 +85,9 @@ func (p *Plan) succeedsAsWrite(st *chain.Step) bool {
 }
 
 func (p *Plan) actedOnLater(st *chain.Step) bool {
-	at := stepIndex(p.Chain.Steps, st.ID)
-	for _, s := range p.Chain.Steps[at+1:] {
-		if chain.IsReadOnlyCall(s.Call) {
-			continue
-		}
-		if slices.Contains(referencedSteps(s.Body), st.ID) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Chain.Steps[stepIndex(p.Chain.Steps, st.ID)+1:], func(s *chain.Step) bool {
+		return !chain.IsReadOnlyCall(s.Call) && readsValue(s.Body, st.ID)
+	})
 }
 
 func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, car *catalog.Field) (entityRead, bool) {

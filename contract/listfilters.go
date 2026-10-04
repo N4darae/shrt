@@ -116,13 +116,7 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 		if parent == nil || chain.IsReadOnlyCall(parent.Call) || slices.Contains(t.producers, parent) {
 			continue
 		}
-		all := true
-		for _, prod := range t.producers {
-			if !slices.Contains(referencedSteps(prod.Body), src) {
-				all = false
-			}
-		}
-		if all {
+		if !slices.ContainsFunc(t.producers, func(prod *chain.Step) bool { return !readsValue(prod.Body, src) }) {
 			scope.parent, scope.parentKey = parent, key
 		}
 	}
@@ -572,12 +566,10 @@ func (p *Plan) missingDependencies(c *RPCContract) []string {
 }
 
 func (p *Plan) fixtureNeed(c *RPCContract, rpc string, called map[string]bool) bool {
-	declared := false
-	for _, n := range c.Needs {
+	if !slices.ContainsFunc(c.Needs, func(n string) bool {
 		need, _ := SplitNode(n)
-		declared = declared || canonicalCall(p.cat, need) == rpc
-	}
-	if !declared || chain.IsReadOnlyCall(rpc) || p.lib == nil {
+		return canonicalCall(p.cat, need) == rpc
+	}) || chain.IsReadOnlyCall(rpc) || p.lib == nil {
 		return false
 	}
 	nc, ok := p.lib.Get(rpc)

@@ -208,12 +208,7 @@ func itemCount(n int) string {
 }
 
 func readsValue(v any, id string) bool {
-	for _, ref := range allStepRefs(v) {
-		if ref[0] == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(allStepRefs(v), func(ref [2]string) bool { return ref[0] == id })
 }
 
 func (p *Plan) reserveStepID(base string) string {

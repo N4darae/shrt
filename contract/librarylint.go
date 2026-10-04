@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -49,13 +50,9 @@ func LintTodos(lib *Library) []Issue {
 
 func lintAuthProfiles(lib *Library, authProfiles []string) []Issue {
 	issues := []Issue{}
-	known := map[string]bool{}
-	for _, name := range authProfiles {
-		known[name] = true
-	}
 	for _, o := range lib.Overlays {
 		for rpc, c := range o.RPCs {
-			if c == nil || c.Auth == "" || known[c.Auth] {
+			if c == nil || c.Auth == "" || slices.Contains(authProfiles, c.Auth) {
 				continue
 			}
 			message := fmt.Sprintf("auth profile %q is not declared in the config", c.Auth)

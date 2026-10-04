@@ -115,14 +115,10 @@ func (p *Plan) statedStock(lib *Library, rpc string, sp *effectSpec) *stockRule 
 var effectStopWords = map[string]bool{"the": true, "its": true, "their": true, "and": true, "for": true, "with": true, "from": true, "into": true, "onto": true}
 
 func contentWords(text string, drop []string) []string {
-	skip := map[string]bool{}
-	for _, d := range drop {
-		skip[strings.ToLower(d)] = true
-	}
 	out := []string{}
 	for _, w := range plainWord().FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
 		w = strings.ToLower(w)
-		if len(w) < 3 || effectStopWords[w] || skip[w] || slices.Contains(out, w) {
+		if len(w) < 3 || effectStopWords[w] || slices.ContainsFunc(drop, func(d string) bool { return strings.ToLower(d) == w }) || slices.Contains(out, w) {
 			continue
 		}
 		out = append(out, w)
@@ -311,25 +307,13 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 		}
 		b := &batchRule{rpc: rpc, stock: stock}
 		for _, in := range catalog.DescribeMessage(m.Input()).Fields {
-			if in.Name != name || !in.Repeated || in.Kind != "message" {
-				continue
-			}
-			has := map[string]bool{}
-			for _, sub := range in.Fields {
-				has[sub.Name] = true
-			}
-			if has[stock.idField] && has[stock.qtyField] {
+			if in.Name == name && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
 				b.list = in.Name
 			}
 		}
 		for _, out := range catalog.DescribeMessage(m.Output()).Fields {
-			if !out.Repeated || out.Kind != "message" {
-				continue
-			}
-			for _, sub := range out.Fields {
-				if sub.Name == stock.moved {
-					b.results = out.Name
-				}
+			if out.Repeated && out.Kind == "message" && fieldByName(out.Fields, stock.moved) != nil {
+				b.results = out.Name
 			}
 		}
 		if b.list != "" && b.results != "" {
@@ -405,11 +389,7 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string, r *effectRules) *totalRule
 	for _, k := range sortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
-	priced := false
-	for _, t := range texts {
-		priced = priced || priceWord().MatchString(t)
-	}
-	if !priced {
+	if !slices.ContainsFunc(texts, priceWord().MatchString) {
 		return nil
 	}
 	list, itemID, itemQty, entity := p.lineItems(rpc, c, "")

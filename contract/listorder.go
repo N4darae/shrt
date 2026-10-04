@@ -120,11 +120,7 @@ func (p *Plan) listTargetFor(st *chain.Step, grow bool) *listTarget {
 			}
 			continue
 		}
-		producer := false
-		for _, prod := range t.producers {
-			producer = producer || prod.ID == src
-		}
-		if !producer {
+		if !slices.ContainsFunc(t.producers, func(prod *chain.Step) bool { return prod.ID == src }) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(key), "prefix") {
@@ -478,13 +474,10 @@ func memberOrder(members []*chain.Step, key string) ([]int, string) {
 func (p *Plan) assertMembers(t *listTarget) {
 	for _, prod := range append(append([]*chain.Step{}, t.producers...), t.extra...) {
 		want := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-		held := false
-		for _, e := range t.step.Expect {
-			if m, ok := e.Includes.(map[string]any); ok && e.Path == t.listPath && m[t.itemID] == want {
-				held = true
-			}
-		}
-		if !held {
+		if !slices.ContainsFunc(t.step.Expect, func(e chain.Expectation) bool {
+			m, ok := e.Includes.(map[string]any)
+			return ok && e.Path == t.listPath && m[t.itemID] == want
+		}) {
 			t.step.Expect = append(t.step.Expect, chain.Expectation{Path: t.listPath, Includes: map[string]any{t.itemID: want}})
 		}
 	}
