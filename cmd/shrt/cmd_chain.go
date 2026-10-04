@@ -93,10 +93,7 @@ func chainNew(args []string) error {
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already exists, pass -force to overwrite", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	if err := writePlanFile(path, raw); err != nil {
 		return err
 	}
 	n := len(c.Steps)

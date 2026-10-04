@@ -1283,10 +1283,7 @@ func writeSliceFile(path string, c *chain.Chain) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, raw, 0o644)
+	return writePlanFile(path, raw)
 }
 
 func mayOverwriteSlice(path string, res *chain.SliceResult, source, verify bool) error {
@@ -1601,18 +1598,13 @@ func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 }
 
 func sliceDir(e *env, c *chain.Chain) string {
-	chains := e.chainsDir()
-	if c.SourcePath == "" {
-		return chains
+	if c.SourcePath == "" || inChainsDir(e, c) {
+		return e.chainsDir()
 	}
-	dir, err := filepath.Abs(filepath.Dir(c.SourcePath))
-	if err != nil {
-		return chains
+	if dir, err := filepath.Abs(filepath.Dir(c.SourcePath)); err == nil {
+		return dir
 	}
-	if abs, err := filepath.Abs(chains); err == nil && abs == dir {
-		return chains
-	}
-	return dir
+	return e.chainsDir()
 }
 
 func slicePath(e *env, c *chain.Chain, file string, pinned bool) string {
