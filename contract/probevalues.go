@@ -56,10 +56,7 @@ func otherValue(v any, kind, marker string) (any, bool) {
 	if !ok || strings.TrimSpace(text) == "" || wholeReference(text) || refersToStep(text) {
 		return v, false
 	}
-	if at := strings.LastIndex(text, "@"); at > 0 && !strings.Contains(text[at:], "}") {
-		return text[:at] + "-" + marker + text[at:], true
-	}
-	return text + "-" + marker, true
+	return lengthen(text, marker), true
 }
 
 func numericValue(v any) (int64, bool) {

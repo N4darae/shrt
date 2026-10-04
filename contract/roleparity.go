@@ -213,10 +213,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			"and read back what it changed", st.ID)
 		return
 	}
-	index := map[string]int{}
-	for i, s := range p.Chain.Steps {
-		index[s.ID] = i
-	}
+	upto := stepIndex(p.Chain.Steps, st.ID)
 	owned := map[string]bool{}
 	for _, e := range comparable {
 		if e.producer != st {
@@ -228,7 +225,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			owned[src] = true
 		}
 	}
-	for _, s := range p.Chain.Steps[:index[st.ID]] {
+	for _, s := range p.Chain.Steps[:upto] {
 		if owned[s.ID] || chain.IsReadOnlyCall(s.Call) || s.SkipAuth || isRefusalStep(s) {
 			continue
 		}
@@ -261,13 +258,13 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	for _, prof := range profiles {
 		suffix := "_for_" + profileSuffix(prof)
 		rename := map[string]string{}
-		for _, s := range p.Chain.Steps[:index[st.ID]] {
+		for _, s := range p.Chain.Steps[:upto] {
 			if owned[s.ID] {
 				rename[s.ID] = p.freeStepID(s.ID + suffix)
 			}
 		}
 		added := []*chain.Step{}
-		for _, s := range p.Chain.Steps[:index[st.ID]] {
+		for _, s := range p.Chain.Steps[:upto] {
 			if !owned[s.ID] {
 				continue
 			}
@@ -378,16 +375,8 @@ func (p *Plan) createdIDPath(st *chain.Step, m *catalog.Method) string {
 			continue
 		}
 		for _, sf := range fd.Fields {
-			if IsEntityIDField(sf.Name) && sf.Kind == "string" {
-				in := false
-				for _, f := range catalog.DescribeMessage(m.Input()).Fields {
-					if f.Name == sf.Name {
-						in = true
-					}
-				}
-				if !in {
-					return fd.Name + "." + sf.Name
-				}
+			if IsEntityIDField(sf.Name) && sf.Kind == "string" && fieldByName(catalog.DescribeMessage(m.Input()).Fields, sf.Name) == nil {
+				return fd.Name + "." + sf.Name
 			}
 		}
 	}

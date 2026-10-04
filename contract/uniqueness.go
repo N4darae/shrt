@@ -228,14 +228,6 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	p.Chain.Steps = append(steps, p.Chain.Steps[at:]...)
 }
 
-func isNumericKind(kind string) bool {
-	switch kind {
-	case "int32", "int64", "uint32", "uint64", "sint32", "sint64", "fixed32", "fixed64", "sfixed32", "sfixed64":
-		return true
-	}
-	return false
-}
-
 func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
 	fields := catalog.DescribeMessage(m.Output()).Fields
@@ -297,7 +289,7 @@ func codeExpectations(fields []*catalog.Field, prefix string, f Failure) ([]chai
 			switch {
 			case fd.Kind == "string" && f.Reason != "":
 				out = append(out, chain.Expectation{Path: path, Equals: f.Reason})
-			case isNumericKind(fd.Kind) && f.Code != 0:
+			case chain.IsNumericKind(fd.Kind) && fd.Kind != "float" && fd.Kind != "double" && f.Code != 0:
 				out = append(out, chain.Expectation{Path: path, Equals: f.Code})
 			default:
 				continue

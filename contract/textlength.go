@@ -222,20 +222,17 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 			multi[tf.key] = v + " " + strings.TrimSuffix(strings.Repeat(multiBytePart, 3), "-")
 		}
 	}
-	added, said := []*chain.Step{}, []string{}
+	said := []string{}
 	if len(long) > 0 {
 		steps := p.textProbe(lib, st, m, carrier, "long_text", fmt.Sprintf("grown by %d characters", longTextPad+1), long)
-		added = append(added, steps...)
+		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		said = append(said, steps[0].ID+" (each lengthened by "+strconv.Itoa(longTextPad+1)+" characters)")
 	}
 	if len(multi) > 0 {
-		p.Chain.Steps = append(p.Chain.Steps, added...)
-		added = nil
 		steps := p.textProbe(lib, st, m, carrier, "unicode_text", "carrying multi-byte characters", multi)
-		added = append(added, steps...)
+		p.Chain.Steps = append(p.Chain.Steps, steps...)
 		said = append(said, steps[0].ID+" (free text with multi-byte characters)")
 	}
-	p.Chain.Steps = append(p.Chain.Steps, added...)
 	for _, tf := range fields {
 		if tf.max <= 0 {
 			continue

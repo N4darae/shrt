@@ -133,25 +133,14 @@ func (p *Plan) unknownAt(lib *Library, st *chain.Step, m *catalog.Method, probe 
 	if !isText {
 		return ""
 	}
-	unknown := "no-such-" + strings.ReplaceAll(leafName(path), "_", "-")
+	unknown, wording := "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"), "an id nothing created"
 	if wholeReference(text) {
-		unknown = text + unknownIDSuffix
+		unknown, wording = text+unknownIDSuffix, fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
 	}
 	setBodyPath(probe.Body, path, unknown)
 	probe.Expect = refusalOf(m, f)
 	probe.Description = fmt.Sprintf("%s names no existing record (%s), so the answer is the not-found failure %s (%s).",
-		path, unknownValueWording(text), f.Label(), strings.TrimSpace(f.When))
-	steps := []*chain.Step{probe}
-	if !chain.IsReadOnlyCall(st.Call) && len(referencedSteps(probe.Body)) > 0 {
-		steps = p.guardUnchanged(lib, steps, probe.ID)
-	}
-	p.Chain.Steps = append(p.Chain.Steps, steps...)
+		path, wording, f.Label(), strings.TrimSpace(f.When))
+	p.addShape(lib, st, probe)
 	return fmt.Sprintf("%s (%s, expecting %s)", probe.ID, path, f.Label())
-}
-
-func unknownValueWording(current string) string {
-	if wholeReference(current) {
-		return fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
-	}
-	return "an id nothing created"
 }
