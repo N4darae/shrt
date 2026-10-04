@@ -20,7 +20,7 @@ shrt gate: FAIL: 1 of 2 chain(s) failed; next: shrt diff <chain> -step <id> (a s
 
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
 FAIL       probe-orders                         chain change: cancel_confirmed (OrderService/CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
-KEPT RED   probe-orders-slice-cancel_confirmed  pins cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED; pinned DATE
+KEPT RED   probe-orders-slice-cancel_confirmed  pins cancel_confirmed CancelOrder status.code; pinned DATE
 PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
@@ -166,12 +166,12 @@ failures by suspect rpc:
 offline: shrt verify <chain> -run latest lists every changed value of the run this gate just made, as -v does, without re-sending
 
 # a slice failing as its parent folds into the parent's line
-FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+2 slice(s) fail the same: orders-slice-list, orders-slice-held)
+FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+1 slice(s) fail the same: orders-slice-list) (+2 kept-red slice(s), every pin held, pinned 2026-09-28, 2026-09-30: list ListOrders orders, stock GetProduct product.qty_on_hand)
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1
 FAIL       orders-slice-more  pins held, new change: confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor
 FAIL       orders-slice-pin  not as pinned: confirm (OrderService/ConfirmOrder) order.status pinned got=CONFIRMED, now got=PENDING; same fault as orders (ConfirmOrder)
 failures by suspect rpc:
-  OrderService/ConfirmOrder order.status: 5 step(s) in 5 chain(s); e.g. orders confirm
+  OrderService/ConfirmOrder order.status: 6 step(s) in 6 chain(s); e.g. orders confirm
   OrderService/ListOrders orders: 1 step(s) in 1 chain(s); e.g. orders-slice-other list orders want=2 got=1
   OrderService/CreateOrder order.total_minor: 1 step(s) in 1 chain(s); e.g. orders-slice-more create
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -310,7 +311,7 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 	}
 	for _, r := range rows {
 		for _, g := range r.StateGaps {
-			gap("no state", "no state     %s: %s\n", g.Line(), gapPlan(g.RPC))
+			gap("no state", "no state     %s, though %s: %s\n", g.Line(), cmp.Or(g.Why, "its plan calls it so"), gapPlan(g.RPC))
 		}
 	}
 	for _, r := range rows {

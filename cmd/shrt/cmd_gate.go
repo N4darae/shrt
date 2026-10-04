@@ -184,8 +184,8 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
-	if rec.KeptRed == runner.KeptRedAsPinned {
-		side.Pins = pinnedText(c, rec) + pinnedOn(c)
+	if rec.KeptRed == runner.KeptRedAsPinned || side.PinsHeld {
+		side.Pins = pinnedText(c) + pinnedOn(c)
 	}
 	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
@@ -775,7 +775,7 @@ type gateChain struct {
 	errored   map[string]string
 	slow      map[string]bool
 	echoOf    string
-	slices    []string
+	slices    []*gateChain
 	shown     []string
 	waits     time.Duration
 	took      time.Duration
@@ -1090,10 +1090,13 @@ func runGate(ctx context.Context, args []string) error {
 			probe = fmt.Sprintf("the %d gap(s) -repro did not probe, or for %s", gaps.left, probe)
 		}
 		if gaps.failed > 0 {
-			gapNote = fmt.Sprintf("; %d gap probe(s) failed above, which is no regression", gaps.failed)
+			gapNote = fmt.Sprintf("%d gap %s failed, no regression", gaps.failed, pluralWord(gaps.failed, "probe", "probes"))
 		}
 	}
-	left := ""
+	left, passNote := "", ""
+	if gapNote != "" {
+		passNote = "; " + gapNote
+	}
 	if len(skipped) > 0 {
 		left = fmt.Sprintf("; %s left out %s: shrt gate %s runs it", skipBy, strings.Join(skipped, ", "), strings.Join(skipped, " "))
 	}
@@ -1106,14 +1109,14 @@ func runGate(ctx context.Context, args []string) error {
 		case *verbose:
 			next = "next: shrt diff <chain> -step <id> (a step's request and response as recorded), shrt chain slice <chain> -without <step> -verify (is a suspect write the cause)"
 		}
-		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings)), next, left)
+		return exitWith(1, "FAIL: %d of %d chain(s) failed%s; %s%s", failed, len(chains), gateAlso(unverified, len(findings), gapNote), next, left)
 	case unverified > 0:
 		return exitWith(3, "NO VERDICT: %d of %d chain(s) could not be verified (exit 3 twice: backend down, restarting or refusing auth); re-run once it is up%s",
 			unverified, len(chains), left)
 	case len(skipped) > 0:
-		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), gapNote, left)
+		return exitWith(3, "NO VERDICT: %d of %d chain(s) passed%s%s", len(chains)-len(skipped), len(chains), passNote, left)
 	}
-	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), gapNote)
+	fmt.Printf("gate: PASS: %d chain(s)%s\n", len(chains), passNote)
 	return nil
 }
 
@@ -1123,13 +1126,16 @@ func flagGiven(fs *flag.FlagSet, name string) bool {
 	return given
 }
 
-func gateAlso(unverified, findings int) string {
+func gateAlso(unverified, findings int, gaps string) string {
 	out := ""
 	if unverified > 0 {
 		out += fmt.Sprintf(", %d no verdict", unverified)
 	}
 	if findings > 0 {
 		out += fmt.Sprintf(", %d finding(s) listed above", findings)
+	}
+	if gaps != "" {
+		out += " and " + gaps
 	}
 	return out
 }
@@ -1196,7 +1202,7 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 			fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it runs in turn (%s), so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits, g.queued)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now, beside the other chains, so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits)
+		fmt.Fprintf(os.Stderr, "gate: %s waits %s by design (its wait: steps); it starts now%s, so this gate takes at least that long; -skip-waits leaves it out\n", g.name, g.waits, besideOthers(chains))
 		beside.Add(1)
 		go func() {
 			defer beside.Done()
@@ -1218,12 +1224,23 @@ func sendGate(ctx context.Context, e *env, chains []*gateChain, wait time.Durati
 			if d := g.waits - time.Since(started); d > 0 {
 				left = fmt.Sprintf(", about %s left", d.Round(time.Second))
 			}
-			fmt.Fprintf(os.Stderr, "gate: the other chains are done; waiting for %s, which waits %s by design%s\n", g.name, g.waits, left)
+			done := ""
+			if besideOthers(chains) != "" {
+				done = "the other chains are done; "
+			}
+			fmt.Fprintf(os.Stderr, "gate: %swaiting for %s, which waits %s by design%s\n", done, g.name, g.waits, left)
 		}
 	}
 	mu.Unlock()
 	beside.Wait()
 	return outs
+}
+
+func besideOthers(chains []*gateChain) string {
+	if slices.ContainsFunc(chains, func(o *gateChain) bool { return !o.beside() && !o.skipped }) {
+		return ", beside the other chains"
+	}
+	return ""
 }
 
 func (g *gateChain) beside() bool {
@@ -1295,7 +1312,7 @@ func gateTime(chains []*gateChain, total time.Duration) string {
 		part := g.name + " " + g.took.Round(time.Second).String()
 		switch {
 		case g.beside():
-			part += fmt.Sprintf(" (waits %s by design, beside the other chains)", g.waits)
+			part += fmt.Sprintf(" (waits %s by design%s)", g.waits, besideOthers(chains))
 		case g.waits > 0:
 			part += fmt.Sprintf(" (waits %s by design, in turn: %s)", g.waits, g.queued)
 		}
@@ -1354,13 +1371,16 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 	}
 	why := strings.TrimPrefix(out.side.Error, "chain "+g.name+": ")
+	if what == "run" && out.side.Pins != "" {
+		g.pins = out.side.Pins
+	}
 	switch {
 	case out.code == 0:
 		if what == "run" && out.side.KeptRed != "" {
 			g.keptRed = out.side.KeptRed
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
-			g.verdict, g.pins = "KEPT RED", out.side.Pins
+			g.verdict = "KEPT RED"
 		}
 	case out.code == 3:
 		g.noVerdict = true
@@ -1551,8 +1571,26 @@ func (g *gateChain) line(width int) string {
 		}
 		line += g.first
 	}
-	if len(g.slices) > 0 {
-		line += fmt.Sprintf(" (+%d slice(s) fail the same: %s)", len(g.slices), strings.Join(g.slices, ", "))
+	var same, held, days []string
+	for _, s := range g.slices {
+		if !s.pinsHeld {
+			same = append(same, s.name)
+			continue
+		}
+		pins, day, _ := strings.Cut(s.pins, "; pinned ")
+		first, _, _ := strings.Cut(pins, ", ")
+		if held = append(held, first); day != "" && !slices.Contains(days, day) {
+			days = append(days, day)
+		}
+	}
+	if len(same) > 0 {
+		line += fmt.Sprintf(" (+%d slice(s) fail the same: %s)", len(same), strings.Join(same, ", "))
+	}
+	if len(days) > 0 {
+		days[0] = ", pinned " + days[0]
+	}
+	if len(held) > 0 {
+		line += fmt.Sprintf(" (+%d kept-red slice(s), every pin held%s: %s)", len(held), strings.Join(days, ", "), capList(held, pinsShown))
 	}
 	return strings.TrimRight(line, " ")
 }
@@ -1713,7 +1751,7 @@ func foldSlices(chains []*gateChain) {
 		a, okA := g.firstItem()
 		b, okB := p.firstItem()
 		if okA && okB && a.Call == b.Call && a.Path == b.Path {
-			g.echoOf, p.slices = p.name, append(p.slices, g.name)
+			g.echoOf, p.slices = p.name, append(p.slices, g)
 		}
 	}
 }

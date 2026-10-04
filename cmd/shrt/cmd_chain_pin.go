@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -11,11 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
-	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -186,7 +183,7 @@ func pinRound(ctx context.Context, e *env, c *chain.Chain, ref string, round int
 		fmt.Print(sliceOut)
 		return "", "", fmt.Errorf("not pinned, %s left as it was: %v", c.Name, err)
 	}
-	if err := noteMovedSteps(slicePath, "Pins "+pinnedText(pinned, rec)+"."); err != nil {
+	if err := noteMovedSteps(slicePath, "Pins "+pinnedText(pinned)+"."); err != nil {
 		return "", "", fmt.Errorf("%s is written kept red, but its description was not updated: %v", shownPath(slicePath), err)
 	}
 	withoutOut, err := quietly(func() error {
@@ -368,10 +365,7 @@ func unappliedFilter(st *runner.StepRecord) string {
 	return ""
 }
 
-func pinnedText(c *chain.Chain, rec *runner.Record) string {
-	if len(c.KeptRed) == 0 {
-		return ""
-	}
+func pinnedText(c *chain.Chain) string {
 	order := map[string]int{}
 	for i, s := range c.Steps {
 		order[s.ID] = 2 * i
@@ -384,53 +378,23 @@ func pinnedText(c *chain.Chain, rec *runner.Record) string {
 	}
 	pins := slices.Clone(c.KeptRed)
 	slices.SortStableFunc(pins, func(a, b chain.Pin) int { return rank(a) - rank(b) })
-	p := pins[0]
-	text := p.Step
-	if s, ok := c.Step(p.Step); ok {
-		text += " (" + methodName(s.Call) + ")"
+	var parts []string
+	for i, p := range pins[:min(len(pins), pinsShown)] {
+		field, _ := gateItem{Path: p.Path}.shown()
+		field = strings.TrimSuffix(field, "[]")
+		if s, ok := c.Step(p.Step); i == 0 || pins[i-1].Step != p.Step {
+			if ok {
+				field = methodName(s.Call) + " " + field
+			}
+			field = p.Step + " " + field
+		}
+		parts = append(parts, field)
 	}
-	text += " " + pinnedExpect(p, rec)
-	if n := len(pins) - 1; n > 0 {
-		text += fmt.Sprintf(" (+%d more pin(s))", n)
+	text := strings.Join(parts, ", ")
+	if n := len(pins) - pinsShown; n > 0 {
+		text += fmt.Sprintf(" and %d more", n)
 	}
 	return text
 }
 
-func pinnedExpect(p chain.Pin, rec *runner.Record) string {
-	if rec != nil {
-		if st, ok := rec.Step(p.Step); ok && st != nil {
-			for _, ex := range st.Expect {
-				if namecase.Equal(ex.Path, p.Path) {
-					return expectText(st, ex)
-				}
-			}
-		}
-	}
-	if p.Got != nil {
-		return p.Path + " got=" + *p.Got
-	}
-	return p.Path
-}
-
-func expectText(st *runner.StepRecord, ex chain.ExpectResult) string {
-	segs := chain.SplitPath(ex.Path)
-	n, err := strconv.Atoi(segs[len(segs)-1])
-	list := strings.Join(segs[:len(segs)-1], ".")
-	var body any
-	if err == nil && list != "" && ex.Rule == "exists" && ex.Want == false && json.Unmarshal(st.Response, &body) == nil {
-		v, _ := chain.Get(body, list)
-		if items, ok := v.([]any); ok {
-			want, prev := fmt.Sprintf("≤%d", n), fmt.Sprintf("%s.%d.", list, n-1)
-			if n == 0 || slices.ContainsFunc(st.Expect, func(x chain.ExpectResult) bool { return strings.HasPrefix(x.Path+".", prev) }) {
-				want = fmt.Sprintf("=%d", n)
-			}
-			return fmt.Sprintf("%s want%s item(s) got=%d", list, want, len(items))
-		}
-	}
-	if short := pastEnd(st, ex.Path); short != "" {
-		return short
-	}
-	want, got := gatePair(ex.Want, ex.Got)
-	path, wantGot := gateItem{Path: ex.Path, Rule: ex.Rule, Want: want, Got: got}.shown()
-	return path + " " + wantGot
-}
+const pinsShown = 4

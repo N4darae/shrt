@@ -192,6 +192,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 	}
 	if lead != "" && rec.KeptRed == runner.KeptRedNotAsPinned {
 		rec.KeptRedNote = keptRedNotJudged(rec.KeptRedNote)
+	} else if also := parentFailure(e, c, rec); also != "" {
+		rec.KeptRedNew, rec.KeptRedNote = "", also
 	}
 	var life *tokenLifetime
 	var loss *sessionLoss
@@ -260,7 +262,7 @@ func runRun(ctx context.Context, args []string) (err error) {
 			return fmt.Errorf("chain %s: %s", rec.Chain, flaky.short())
 		}
 	}
-	if line := pinItLine(sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
+	if line := pinItLine(e, sliceChainRef(rest[0], c), c, rec); line != "" && !*dry && lead == "" && flaky == nil && life == nil && loss == nil {
 		fmt.Println(line)
 	}
 	if err := runVerdict(rec); err != nil {
@@ -298,6 +300,9 @@ func runVerdict(rec *runner.Record) error {
 	case runner.KeptRedAsPinned:
 		return nil
 	case runner.KeptRedNotAsPinned:
+		if strings.HasPrefix(rec.KeptRedNote, pinsHeldAlso) {
+			return fmt.Errorf("chain %s: kept red, %s", rec.Chain, rec.KeptRedNote)
+		}
 		if rec.KeptRedNew != "" {
 			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, shortNewFailure(rec.KeptRedNew))
 		}
@@ -568,8 +573,8 @@ func statusMark(s string, dry bool) string {
 	}
 }
 
-func pinItLine(ref string, c *chain.Chain, rec *runner.Record) string {
-	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 {
+func pinItLine(e *env, ref string, c *chain.Chain, rec *runner.Record) string {
+	if rec.Status != runner.StatusFailed || rec.KeptRed != "" || len(c.KeptRed) > 0 || !inChainsDir(e, c) {
 		return ""
 	}
 	if len(expectationFailures(rec)) == 0 {
@@ -615,6 +620,9 @@ func runSummary(e *env, rec *runner.Record, dry, stepsShown bool, lead string, f
 	}
 	if rec.KeptRed == runner.KeptRedNotAsPinned {
 		verdict = "FAILED, NOT AS PINNED (kept red)"
+		if strings.HasPrefix(rec.KeptRedNote, pinsHeldAlso) {
+			verdict = "FAILED, PINS HELD (kept red)"
+		}
 	}
 	if rec.KeptRed == runner.KeptRedGone {
 		verdict = "PINNED DEFECT GONE (kept red, every step passed; exit 1 until kept_red is removed)"

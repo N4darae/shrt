@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/diff"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 )
 
@@ -91,6 +93,46 @@ func judgePinnedDrift(e *env, c *chain.Chain, rec *runner.Record, ref *runner.Re
 		"compare: shrt diff %s %s %s; the pins held, so this is a new change outside them, not a reason to re-pin",
 		runner.PinCount(len(c.KeptRed)), ref.RunID, strings.Join(shown, "\n"), rec.Chain, ref.RunID, rec.RunID)
 	return changes, report
+}
+
+const pinsHeldAlso = "pins held; also fails at "
+
+func parentFailure(e *env, c *chain.Chain, rec *runner.Record) string {
+	i := strings.LastIndex(c.Name, "-slice-")
+	if i < 0 || rec.KeptRedNew == "" || !runner.PinsHeld(c, rec) {
+		return ""
+	}
+	parent := c.Name[:i]
+	ids, _ := e.store.ListRuns(parent)
+	if len(ids) == 0 {
+		return ""
+	}
+	prev, err := e.store.LoadRun(parent, ids[len(ids)-1])
+	if err != nil {
+		return ""
+	}
+	var at []string
+	for _, st := range rec.Steps {
+		if st == nil || st.Status == runner.StatusPassed || st.Status == runner.StatusSkipped {
+			continue
+		}
+		if !st.AssertionFailed() || st.Drift || st.Transport != nil {
+			return ""
+		}
+		for _, ex := range st.Expect {
+			if ex.Passed || slices.ContainsFunc(c.KeptRed, func(p chain.Pin) bool { return p.Step == st.ID && namecase.Equal(p.Path, ex.Path) }) {
+				continue
+			}
+			if was, ok := prev.Step(st.ID); !ok || !slices.ContainsFunc(was.Expect, func(w chain.ExpectResult) bool { return !w.Passed && namecase.Equal(w.Path, ex.Path) }) {
+				return ""
+			}
+			at = append(at, st.ID+" "+ex.Path)
+		}
+	}
+	if len(at) == 0 {
+		return ""
+	}
+	return pinsHeldAlso + capList(at, 3) + ", which the parent chain " + parent + " fails too"
 }
 
 func keptRedLatencyFailure(name string, flags []diff.LatencyFlag, p diff.LatencyPolicy) error {

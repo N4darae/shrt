@@ -20,13 +20,16 @@ list's length or repeated key, a field's value or byte length, or two of these t
 relates to what was sent: take it as the pattern instead of working it out from the runs. A row of a
 number a write moved says how far against the approved run (`fell 4 from 10 to 6 where the approved
 run fell 2 from 10 to 8: 2x`). One `masks:` line says whether a mask hid more than run tags, ids and
-timestamps; each `KEPT RED` line names what its slice pins and the day it was pinned. `shrt verify
+timestamps; each `KEPT RED` line names every pin of its slice and the day it was pinned, and a
+fold `(+N kept-red slice(s), every pin held, ...)` under a failing parent says those pins held, so
+no `shrt run` of the slices is needed. `shrt verify
 <chain> -run latest` shows every changed value of the gate's run offline; `shrt diff <chain> -step
 a,b` shows those steps as recorded. For what the chains
 cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
 `gaps:` block names each state no chain calls a gated write from; the gate has planned and run
 each into `.shrt/scratch/` and says under it `passes:` or a row with its trigger and verified repro,
-no regression since no safe spot covers that state. Probe further only for a gap marked `not
+no regression since no safe spot covers that state; the closing line, printed last, counts the gap
+probes that failed. Probe further only for a gap marked `not
 probed:`, or a support ticket that no row explains. Never re-plan over an approved chain:
 `contract plan <rpc> -write <name>.yaml` writes to `.shrt/scratch/`.
 

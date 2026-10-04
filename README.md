@@ -93,10 +93,10 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 | `shrt chain slice <c> -step <id>` | the minimal sub-chain reproducing one step (`-keep writes,<id>`); `-verify` proves it against the latest run or `-run <id>`; a chain you wrote by hand is proven with `run -repeat 3` | 1 refused, NOT REPRODUCED, intermittent, STILL FAILS without; 3 `-run latest` did not evaluate the step, DID NOT RUN, INCONCLUSIVE, FAILS DIFFERENTLY without |
 | `shrt chain pin <c>` | pin a red chain: each defect kept red in a verified slice of its own, the chain rewritten without it until it runs green | 1 refused, or a slice did not reproduce |
 | `shrt chain hollow` | read steps that passed with an empty response, from run records | 1 hollow reads, or `-gate` off baseline; 2 no run records |
-| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; `-repeat n` runs it n times unchanged, each run past a failed step (`-keep-going=false` stops at the first), 0 when every run failed the same way (`reproduced n/n`); its last line, `exit <code>: <outcome>`, says which | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
+| `shrt run <c>` | execute in order and record (`-dry-run`, `-keep-going`, `-var k=v`, `-quiet`); 0 when kept red as pinned; a red chain in the chains directory ends `pin it: shrt chain pin <c>` (not one in `.shrt/scratch/` or `.scratch/`); a kept-red slice whose pins held and whose parent's latest run fails where it fails too says `pins held; also fails at <step> <field>, which the parent chain <name> fails too`, `NEW FAILURE` only for what is new to the parent; `-repeat n` runs it n times unchanged, each run past a failed step (`-keep-going=false` stops at the first), 0 when every run failed the same way (`reproduced n/n`), and its last line, `exit <code>: <outcome>`, says which | 1 failed, or refused before sending (a chain error such as an expect path not in the response); `-repeat`: the runs differ, or none failed; 3 |
 | `shrt confirm <c> -note "..."` | propose a passing run as the safe spot: a short summary to show the user, the full report in `.shrt/safespots/pending/`; `-all` proposes every chain whose latest run passed and whose safe spot is missing or differs | 1 refused |
 | `shrt confirm <c> -approve -by <email>` | write the safe spot after the user's yes (`-all` for each pending one); `-reject`, `-pending`; `<new> -rename-from <old>` carries one across a pure rename | 1 refused |
-| `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
+| `shrt verify <c>` | replay and diff against the safe spot; `-run <id>` re-diffs a record offline; a value a refused call left null or absent shows the approved one by its shape only (`want=object (as the approved run answered) got=null: refused <code>`) | 1 drift, replay failed, no safe spot, a `FINDING`; 3 |
 | `shrt diff [<c>] <run-a> <run-b>` | compare two recorded runs; no safe spot needed, not a verdict | 1 they differ; 2 could not compare |
 | `shrt gate` | the CI gate, below | 1 a failure, a `FINDING` or the ratchet; 3 |
 
@@ -110,7 +110,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 | line | means |
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
-| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> (<rpc>) <expectation>` names the first pin (`(+N more pin(s))`); `; pinned <date>`, the day its slice reproduced, tells a red older than this build at a glance |
+| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> <rpc> <field>, <field>, <step> <rpc> <field>` names every pin (the first 4, then `and N more`); `; pinned <date>`, the day its slice reproduced, tells a red older than this build at a glance |
 | `FAIL pins held, new change:` | every pin held; a change outside them is a regression, not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
 | `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain and says once what that means |
@@ -126,7 +126,8 @@ the error's last clause, `field Customer.name contains invalid UTF-8`), or
 safe spot that fails so, which may be below; else the first above); a suspect that line leaves out keeps this line's
 own suspect and `also` for it; a slice failing at its parent's first change has no line of its own, the parent's says
 `(+N slice(s) fail the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way
-it does (by suspect rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
+it does (by suspect rpc and field), as `(+N kept-red slice(s), every pin held, pinned <date>: <step> <rpc> <field>, ...)`,
+each slice by its first pin, so no `shrt run` of it is needed; one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
 line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
 shows it. Its example is from a chain with a safe spot when one fails so, else not from a kept-red slice; then a call
 whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then
@@ -187,7 +188,11 @@ when the planned calls separate failing from passing, and a `repro:` slice verif
 the gap's own calls and what they need when that still reproduces. No safe spot covers those states,
 so such a row is no regression, only a miss against the contract or its plan; the header says how
 long the probes took. A gap past the cap, or one it could not run, says `not probed:` with the
-command; the closing line says to probe only those, or a support ticket no row explains.
+command. A gap line says the state, the item counts no chain sends and what the chains do send
+(`CancelOrder on a PENDING order: no chain sends 1 or 3 lines (edge-flows sends 2)`); why the plan
+calls it there is in `shrt contract status -gaps`. The closing line comes last, after the block: it
+counts the gap probes that failed (`FAIL: 4 of 31 chain(s) failed and 1 gap probe failed, no
+regression; ...`) and says to probe only the gaps not probed, or a support ticket no row explains.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

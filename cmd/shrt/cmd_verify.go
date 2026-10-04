@@ -240,6 +240,7 @@ func (v *verification) compare() {
 	volatile := currentVolatile(e, name)
 	report := diff.CompareMasking(spot, rec, volatile)
 	v.report = report
+	noteRefused(report, rec)
 	report.DropUnsentDefaults(spot, rec, unsentDefault(e))
 	report.NoteRenamedSteps(renamedSteps)
 	if spotRun, err := e.store.LoadRun(name, spot.RunID); err == nil && spotRun.Redacted != nil {
@@ -251,6 +252,14 @@ func (v *verification) compare() {
 		report.RequestChanges = append(edited, diff.DropRefEdited(diff.CompareRequests(spot, rec, derivedRequestPath(c)), edited)...)
 		report.RequestChanges = append(report.RequestChanges, diff.ExpectValueChanges(spot, rec, c, fixtureTemplate(c))...)
 		report.SeparateInput(spot, rec, volatile, requestFixtures(c))
+	}
+}
+
+func noteRefused(report *diff.Report, rec *runner.Record) {
+	for i, c := range report.Changes {
+		if st, ok := rec.Step(c.Step); ok && st != nil && c.Got == nil && (c.Kind == diff.KindType || c.Kind == diff.KindMissing) {
+			report.Changes[i].Refused = refusalOf(st)
+		}
 	}
 }
 

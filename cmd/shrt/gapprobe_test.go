@@ -63,13 +63,13 @@ func TestGateReproPlansEachGapIntoScratchAndRowsWhatFailsThere(t *testing.T) {
 	defer stateGapWorkspace(t)()
 	gapShop(t, func(state string, lines int) bool { return state == "PENDING" && lines >= 3 })
 	out, code := runGateOut(t, "-repro")
-	pending := ", so it acts on a PENDING order too\n" +
+	pending := "  CancelOrder on a PENDING order: no chain calls it so; its plan sends 1, 2 or 3 lines\n" +
 		"    OrderService/CancelOrder status.code, order.status: 2 step(s) in 1 chain(s); e.g. orderservice-cancelorder-gaps cancel_order_3_lines_from_pending status.code want=SUCCESS got=REJECTED\n" +
 		"    trigger: fails with lines of 3+ items (1 call); passes with lines of up to 2 items (2 calls)\n" +
 		"    repro: shrt run .shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml  (reproduced 3/3)\n"
 	if code != 0 || !strings.Contains(out, "No safe spot covers these states, so a failure here is no regression") || !strings.Contains(out, pending) ||
-		!strings.Contains(out, "though its plan calls it so\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
-		!strings.HasSuffix(out, "gate: PASS: 1 chain(s); 1 gap probe(s) failed above, which is no regression\n") {
+		!strings.Contains(out, "  CancelOrder on a CONFIRMED order: no chain sends 2 or 3 lines (cancel-confirmed sends 1)\n    passes: ") || strings.Count(out, "\n    passes: ") != 2 ||
+		!strings.HasSuffix(out, "gate: PASS: 1 chain(s); 1 gap probe failed, no regression\n") {
 		t.Fatalf("the gate plans each gap into .shrt/scratch/, runs it, and rows the 3-line PENDING cancel it refuses with a trigger and a verified repro, got %d:\n%s", code, out)
 	}
 	slice, err := os.ReadFile(".shrt/scratch/orderservice-cancelorder-gaps-slice-cancel_order_3_lines_from_pending.yaml")
@@ -89,8 +89,8 @@ func TestGateReproSaysAGapPassesAndProbesOnlyAsManyAsItsCap(t *testing.T) {
 	gapProbes = 1
 	out, code := runGateOut(t, "-repro")
 	if code != 0 || !strings.Contains(out, "; -repro planned and ran 1 of them in .shrt/scratch/ (") ||
-		!strings.Contains(out, "though its plan calls it so\n    passes: 5 call(s) from that state, cancel_order, cancel_order_1_lines, cancel_order_3_lines and 2 more  (shrt run .shrt/scratch/orderservice-cancelorder-gaps.yaml)\n") ||
-		!strings.Contains(out, ", so it acts on a PENDING order too: not probed: shrt contract plan CancelOrder -write orderservice-cancelorder-gaps.yaml (into .shrt/scratch/)\n") ||
+		!strings.Contains(out, "(cancel-confirmed sends 1)\n    passes: 5 call(s) from that state, cancel_order, cancel_order_1_lines, cancel_order_3_lines and 2 more  (shrt run .shrt/scratch/orderservice-cancelorder-gaps.yaml)\n") ||
+		!strings.Contains(out, "its plan sends 1, 2 or 3 lines: not probed: shrt contract plan CancelOrder -write orderservice-cancelorder-gaps.yaml (into .shrt/scratch/)\n") ||
 		strings.Count(out, ": not probed: ") != 2 || !strings.HasSuffix(out, "gate: PASS: 1 chain(s)\n") {
 		t.Fatalf("a gap whose calls pass says so, and the gaps past the cap name the command that plans them into .shrt/scratch/, got %d:\n%s", code, out)
 	}

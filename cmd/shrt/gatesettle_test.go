@@ -217,7 +217,8 @@ func gateCases() []gateCase {
 			return []*gateChain{
 				{name: "orders", failed: true, items: []gateItem{confirmed}},
 				{name: "orders-slice-list", failed: true, items: []gateItem{confirmed}},
-				{name: "orders-slice-held", failed: true, pinsHeld: true, items: []gateItem{confirmed}},
+				{name: "orders-slice-held", failed: true, pinsHeld: true, pins: "list ListOrders orders, get GetProduct product.qty_on_hand; pinned 2026-09-28", items: []gateItem{confirmed}},
+				{name: "orders-slice-stock", failed: true, pinsHeld: true, pins: "stock GetProduct product.qty_on_hand; pinned 2026-09-30", items: []gateItem{confirmed}},
 				{name: "orders-slice-other", failed: true, pinsHeld: true, items: []gateItem{{Step: "list", Call: "x.v1.OrderService/ListOrders", Path: "orders", Want: "2", Got: "1", Failed: true}}},
 				{name: "orders-slice-more", failed: true, pinsHeld: true, items: []gateItem{confirmed, total}},
 				{name: "orders-slice-pin", failed: true, items: []gateItem{{Step: "confirm", Call: confirm, Path: "order.status", Want: "PENDING", Got: "PENDING", Pinned: "CONFIRMED"}}},
@@ -330,8 +331,11 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		t.Errorf("the row's example is a chain with a safe spot:\n%s", out)
 	}
 	chains := settled("a slice failing as its parent folds into the parent's line")
-	if got := []string{chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf, chains[5].echoOf}; strings.Join(got, ",") != "orders,orders,,," {
+	if got := []string{chains[1].echoOf, chains[2].echoOf, chains[3].echoOf, chains[4].echoOf, chains[5].echoOf, chains[6].echoOf}; strings.Join(got, ",") != "orders,orders,orders,,," {
 		t.Errorf("a slice whose first change is its parent's folds, a kept-red one only when its pins held and its parent fails every way it does: %q", got)
+	}
+	if line := chains[0].line(6); !strings.HasSuffix(line, " (+1 slice(s) fail the same: orders-slice-list) (+2 kept-red slice(s), every pin held, pinned 2026-09-28, 2026-09-30: list ListOrders orders, stock GetProduct product.qty_on_hand)") {
+		t.Errorf("a kept-red slice folds as its first pin, saying every pin held and when it was pinned: %s", line)
 	}
 	chains = settled("a moved pin with no suspect does not point above")
 	if chains[1].class != "not as pinned" || sameAs(chains[1]) != "" {

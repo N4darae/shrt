@@ -16,6 +16,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/store"
 )
 
 func TestChainLsMarksAChainKeptRed(t *testing.T) {
@@ -112,7 +113,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 		t.Fatalf("the description says where the pinned steps went:\n%q", rest.Description)
 	}
 	if slice, err := chain.LoadFile(".shrt/chains/probe-orders-slice-cancel_confirmed.yaml"); err != nil ||
-		!strings.Contains(slice.Description, "\nPins cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED.\n") {
+		!strings.Contains(slice.Description, "\nPins cancel_confirmed CancelOrder status.code.\n") {
 		t.Fatalf("the slice's description says what it pins (%v):\n%q", err, slice.Description)
 	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
@@ -951,34 +952,66 @@ func TestPinPutsListReadsThatIgnoreTheSameFilterInOneSlice(t *testing.T) {
 	}
 }
 
-func TestAKeptRedLineSaysWhatItPins(t *testing.T) {
+func TestAKeptRedLineNamesEveryPin(t *testing.T) {
 	c := &chain.Chain{Steps: []*chain.Step{{ID: "list", Call: "shop.orders.v1.OrderService/ListOrders"}, {ID: "watch", Call: "shop.orders.v1.OrderService/WatchOrder"},
-		{ID: "none", Call: "shop.orders.v1.OrderService/ListOrders"}}}
-	rec := &runner.Record{Steps: []*runner.StepRecord{
-		{ID: "list", Response: json.RawMessage(`{"orders":[{"id_order":"o-2","status":"PENDING"},{"id_order":"o-1"}]}`), Expect: []chain.ExpectResult{
-			{Path: "orders.0.id_order", Rule: "equals", Want: "o-1", Got: "o-2"},
-			{Path: "orders.0.status", Rule: "equals", Want: "CANCELLED", Got: "PENDING"},
-			{Path: "orders.1", Rule: "exists", Want: false, Got: true},
-		}},
-		{ID: "watch", Expect: []chain.ExpectResult{{Path: "transport.code", Rule: "equals", Want: "unauthenticated", Got: "ok"}}},
-		{ID: "none", Response: json.RawMessage(`{"orders":[]}`), Expect: []chain.ExpectResult{{Path: "orders.0.status", Rule: "equals", Want: "PENDING"}}},
-	}}
-	present := "true"
+		{ID: "confirm", Call: "shop.orders.v1.OrderService/ConfirmOrder"}}}
 	for _, k := range []struct {
 		pins []chain.Pin
-		rec  *runner.Record
 		want string
 	}{
-		{[]chain.Pin{{Step: "list", Path: "orders.1"}}, rec, "list (ListOrders) orders want=1 item(s) got=2"},
-		{[]chain.Pin{{Step: "watch", Path: "transport.code"}, {Step: "list", Path: "orders.0.id_order"}, {Step: "list", Path: "orders.0.status"}}, rec,
-			"list (ListOrders) orders[].status want=CANCELLED got=PENDING (+2 more pin(s))"},
-		{[]chain.Pin{{Step: "watch", Path: "transport.code"}}, rec, "watch (WatchOrder) transport code want=unauthenticated got=ok"},
-		{[]chain.Pin{{Step: "list", Path: "orders.1", Got: &present}}, nil, "list (ListOrders) orders.1 got=true"},
-		{[]chain.Pin{{Step: "none", Path: "orders.0.status"}}, rec, "none (ListOrders) orders length want=1 got=0"},
+		{[]chain.Pin{{Step: "list", Path: "orders.1"}}, "list ListOrders orders"},
+		{[]chain.Pin{{Step: "watch", Path: "transport.code"}, {Step: "list", Path: "orders.0.id_order"}, {Step: "list", Path: "orders.0.status"}},
+			"list ListOrders orders[].status, orders[].id_order, watch WatchOrder transport code"},
+		{[]chain.Pin{{Step: "confirm", Path: "status.code"}, {Step: "confirm", Path: "status.details.0.reason"}, {Step: "list", Path: "orders.1"},
+			{Step: "watch", Path: "transport.code"}, {Step: "confirm", Path: "order.status"}},
+			"list ListOrders orders, watch WatchOrder transport code, confirm ConfirmOrder status.code, status.details[].reason and 1 more"},
+		{[]chain.Pin{{Step: "gone", Path: "thing.n"}}, "gone thing.n"},
 	} {
 		c.KeptRed = k.pins
-		if got := pinnedText(c, k.rec); got != k.want {
+		if got := pinnedText(c); got != k.want {
 			t.Errorf("pins %v: got %q, want %q", k.pins, got, k.want)
 		}
+	}
+}
+
+func TestAKeptRedSliceWhosePinsHeldNamesTheFailureItsParentHasToo(t *testing.T) {
+	dir := t.TempDir()
+	e := &env{store: store.New(filepath.Join(dir, "runs"), filepath.Join(dir, "spots"))}
+	c := &chain.Chain{Name: "orders-slice-get", Steps: []*chain.Step{{ID: "confirm", Call: shopConfirm}, {ID: "get", Call: shopGet}},
+		KeptRed: []chain.Pin{{Step: "get", Path: "product.qty_on_hand"}}}
+	failing := func(id, call, path string) *runner.StepRecord {
+		return &runner.StepRecord{ID: id, Call: call, Status: runner.StatusFailed, Expect: []chain.ExpectResult{{Path: path, Rule: "equals", Want: "a", Got: "b"}}}
+	}
+	slice := func() *runner.Record {
+		return &runner.Record{Chain: c.Name, Status: runner.StatusFailed, KeptRed: runner.KeptRedNotAsPinned,
+			KeptRedNew: runner.NewFailurePrefix + "confirm order.status want=a got=b", KeptRedNote: "kept_red pins 1 path, but step \"confirm\" failed where nothing is pinned",
+			Steps: []*runner.StepRecord{failing("confirm", shopConfirm, "order.status"), failing("get", shopGet, "product.qty_on_hand")}}
+	}
+	if got := parentFailure(e, c, slice()); got != "" {
+		t.Fatalf("with no run of the parent the failure stays new: %q", got)
+	}
+	parent := &runner.Record{Chain: "orders", RunID: "20261004T000000Z-aaaaaaaa", Status: runner.StatusFailed,
+		Steps: []*runner.StepRecord{failing("confirm", shopConfirm, "order.status")}}
+	if _, err := e.store.SaveRun(parent); err != nil {
+		t.Fatal(err)
+	}
+	rec := slice()
+	want := "pins held; also fails at confirm order.status, which the parent chain orders fails too"
+	if got := parentFailure(e, c, rec); got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	rec.KeptRedNew, rec.KeptRedNote = "", want
+	if err := runVerdict(rec); err == nil || err.Error() != "chain orders-slice-get: kept red, "+want {
+		t.Errorf("the verdict says the pins held first: %v", err)
+	}
+	if out := runSummary(e, rec, false, true, "", false); !strings.HasPrefix(out, "orders-slice-get: FAILED, PINS HELD (kept red)") || strings.Contains(out, "NEW FAILURE") {
+		t.Errorf("the summary says the pins held and names no new failure:\n%s", out)
+	}
+	parent.RunID, parent.Steps = "20261004T000001Z-bbbbbbbb", []*runner.StepRecord{{ID: "confirm", Call: shopConfirm, Status: runner.StatusPassed}}
+	if _, err := e.store.SaveRun(parent); err != nil {
+		t.Fatal(err)
+	}
+	if got := parentFailure(e, c, slice()); got != "" {
+		t.Errorf("a failure the parent's latest run does not have stays new: %q", got)
 	}
 }
