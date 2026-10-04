@@ -1553,9 +1553,9 @@ func settleGate(chains []*gateChain) []string {
 			first = a
 		}
 		if x := byName[first]; x != nil && x != g {
-			has = map[string]bool{}
-			for _, o := range x.items {
-				has[keyOf(x.name, o)] = true
+			has[keyOf(x.name, leads[x])] = true
+			if named, also := lacks(x, map[string]bool{keyOf(x.name, leads[x]): true}); also {
+				has[keyOf(x.name, named)] = true
 			}
 		}
 		other, more := lacks(g, has)

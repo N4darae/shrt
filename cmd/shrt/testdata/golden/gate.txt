@@ -152,6 +152,15 @@ FAIL       lists  create (OrderService/CreateOrder) order.total_minor want=600 g
 failures by suspect rpc:
   OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. orders create
 
+# a chain with a fault the anchor's line does not name names it, though the anchor has it too
+FAIL       explore  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write confirm (OrderService/ConfirmOrder) at order.status
+FAIL       guard  create (OrderService/CreateOrder) order.total_minor want=600 got=400; suspect the write; also suspect write stock_batch (StockService/AddStockBatch) at product.qty_on_hand
+FAIL       orders  create (OrderService/CreateOrder) order.total_minor want=600 got=400; same fault as explore (CreateOrder)
+failures by suspect rpc:
+  OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. explore create
+  OrderService/ConfirmOrder order.status: 2 step(s) in 2 chain(s); e.g. explore confirm
+  StockService/AddStockBatch product.qty_on_hand: 2 step(s) in 2 chain(s); e.g. explore stock_b; write stock_batch
+
 # a slice failing as its parent folds into the parent's line
 FAIL       orders  confirm (OrderService/ConfirmOrder) order.status want=CONFIRMED got=PENDING; suspect the write (+2 slice(s) fail the same: orders-slice-list, orders-slice-held)
 FAIL       orders-slice-other  pins held, new change: list (OrderService/ListOrders) orders want=2 got=1

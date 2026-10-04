@@ -205,6 +205,14 @@ func gateCases() []gateCase {
 				{name: "lists", failed: true, spot: true, items: []gateItem{total}},
 			}
 		}},
+		{name: "a chain with a fault the anchor's line does not name names it, though the anchor has it too", chains: func() []*gateChain {
+			batch := stock("stock_b", reason{Kind: reasonWrite, Step: "stock_batch", RPC: shopBatch}, "")
+			return []*gateChain{
+				{name: "explore", failed: true, spot: true, items: []gateItem{total, confirmed, batch}},
+				{name: "guard", failed: true, spot: true, items: []gateItem{total, batch}},
+				{name: "orders", failed: true, spot: true, items: []gateItem{total, confirmed}},
+			}
+		}},
 		{name: "a slice failing as its parent folds into the parent's line", chains: func() []*gateChain {
 			return []*gateChain{
 				{name: "orders", failed: true, items: []gateItem{confirmed}},
@@ -303,6 +311,7 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 		{"a read unclear between two writes names both and is grouped once, under the earlier", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "", "flow"}},
 		{"an unclear row whose writes include an earlier row's suspect for the field is that fault, named with its rpc", []string{"get_b product.qty_on_hand", "get_b product.qty_on_hand"}, []string{"", "cancels"}},
 		{"a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first", []string{"create order.total_minor", "create order.total_minor", "create order.total_minor"}, []string{"orders", "", "orders"}},
+		{"a chain with a fault the anchor's line does not name names it, though the anchor has it too", []string{"create order.total_minor", "create order.total_minor", "create order.total_minor"}, []string{"", "", "explore"}},
 	} {
 		chains := settled(c.name)
 		for i, g := range chains {
@@ -313,6 +322,9 @@ func TestTheGateSettlesEachChainsLead(t *testing.T) {
 	}
 	if chains := settled(b); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write create (OrderService/CreateOrder) at order.total_minor") {
 		t.Errorf("%s: got %q", b, chains[1].first)
+	}
+	if chains := settled("a chain with a fault the anchor's line does not name names it, though the anchor has it too"); !strings.HasSuffix(chains[1].first, "; suspect the write; also suspect write stock_batch (StockService/AddStockBatch) at product.qty_on_hand") {
+		t.Errorf("a fault the anchor's line leaves out is named on the line: got %q", chains[1].first)
 	}
 	if out := renderGateCase(t, cases["a fault a chain with a safe spot shows is anchored there, though a chain without one shows it first"]); !strings.Contains(out, "  OrderService/CreateOrder order.total_minor: 3 step(s) in 3 chain(s); e.g. orders create\n") {
 		t.Errorf("the row's example is a chain with a safe spot:\n%s", out)
