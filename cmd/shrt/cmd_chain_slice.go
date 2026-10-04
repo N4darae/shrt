@@ -204,10 +204,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 
 	path := ""
 	if write.set {
-		path = slicePath(e, c, res.Chain.Name+".yaml", keptRed.on)
-		if writePath != "" {
-			path = writePath
-		}
+		path = cmp.Or(writePath, slicePath(e, c, res.Chain.Name+".yaml", keptRed.on))
 	}
 	source := path != "" && sameFile(path, c.SourcePath)
 	whole := write.set && (name == "" || source) && len(res.Kept) == res.Total && c.SourcePath != "" && !keptRed.on
@@ -1072,10 +1069,7 @@ func verdictIn(sr *runner.StepRecord, response any) chain.Verdict {
 	if v, ok := chain.Get(response, path); ok {
 		code = fmt.Sprintf("%v", v)
 	}
-	parent := ""
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		parent = path[:i+1]
-	}
+	parent := path[:strings.LastIndex(path, ".")+1]
 	refusal := map[string]string{}
 	for field, paths := range map[string][]string{
 		"message":  {parent + "message"},
