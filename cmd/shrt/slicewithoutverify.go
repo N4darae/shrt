@@ -56,24 +56,25 @@ func verifyWithout(ctx context.Context, e *env, res *chain.WithoutResult, rec *r
 	for _, st := range res.Chain.Steps {
 		src, reached := rec.Step(st.ID)
 		now, ran := run.Step(st.ID)
-		var changes []string
-		if reached && ran {
-			changes = compareVerdictsAt(st, verdictOf(src), verdictOf(now), same, "without it")
-		}
 		switch {
 		case !reached || !failing(src):
 			if ran && failing(now) {
 				v.NewFail = append(v.NewFail, st.ID)
 			}
-		case ran && now.Status == runner.StatusPassed:
+		case !ran:
+			v.StillFail = append(v.StillFail, st.ID)
+		case now.Status == runner.StatusPassed:
 			v.Cleared = append(v.Cleared, st.ID)
-		case len(changes) > 0:
+		default:
+			changes := compareVerdictsAt(st, verdictOf(src), verdictOf(now), same, "without it")
+			if len(changes) == 0 {
+				v.StillFail = append(v.StillFail, st.ID)
+				continue
+			}
 			v.Changed = append(v.Changed, st.ID)
 			for _, c := range changes {
 				v.Changes = append(v.Changes, st.ID+" "+c)
 			}
-		default:
-			v.StillFail = append(v.StillFail, st.ID)
 		}
 	}
 	if len(v.Changed) > 0 && a.ref != "" {
