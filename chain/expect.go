@@ -230,29 +230,19 @@ func ruleShown(rule string) bool {
 	return false
 }
 
+var wantSigns = map[string]string{"not_equal": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "between": " in ", "": "=", "equals": "=", "item_envelope": "="}
+
 func WantText(rule, want string) string {
-	switch rule {
-	case "not_equal":
-		return "want≠" + want
-	case "gt":
-		return "want>" + want
-	case "gte":
-		return "want≥" + want
-	case "lt":
-		return "want<" + want
-	case "lte":
-		return "want≤" + want
-	case "between":
-		return "want in " + want
-	case "not_empty":
+	switch {
+	case rule == "not_empty":
 		return "want non-empty"
-	case "exists":
-		if want == "false" {
-			return "want absent"
-		}
+	case rule == "exists" && want == "false":
+		return "want absent"
+	case rule == "exists":
 		return "want present"
-	case "", "equals", "item_envelope":
-		return "want=" + want
+	}
+	if sign, ok := wantSigns[rule]; ok {
+		return "want" + sign + want
 	}
 	return "want " + rule + " " + want
 }

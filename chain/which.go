@@ -166,12 +166,12 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 			continue
 		}
 		hit := WhichChain{Chain: c.Name, Source: c.SourcePath, Steps: len(c.Steps)}
-		byStep, order := observationsFor(c.Name, opts.Observations)
+		byStep, order, last := observationsFor(c.Name, opts.Observations)
 		hit.Runs = len(order)
 		for i := range matches {
 			assert, _ := PrimaryAssertionFor(matches[i].Asserts, q)
 			matches[i].Observed = evidenceFor(byStep[matches[i].Step], order, paths, assert, q.Code != "")
-			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, lastStepOf(c.Name, opts.Observations))
+			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, last)
 			if matches[i].Observed != nil {
 				hit.Observed = true
 			}
@@ -219,21 +219,20 @@ func freshFlags(c *Chain, step string, fresh func(*Chain, string) []string) stri
 	return out
 }
 
-func observationsFor(chainName string, load func(string) []Observation) (map[string][]Observation, []string) {
-	byStep := map[string][]Observation{}
+func observationsFor(chainName string, load func(string) []Observation) (map[string][]Observation, []string, map[string]Observation) {
+	byStep, last := map[string][]Observation{}, map[string]Observation{}
 	if load == nil {
-		return byStep, nil
+		return byStep, nil, last
 	}
 	order := []string{}
-	seen := map[string]bool{}
 	for _, o := range load(chainName) {
 		byStep[o.Step] = append(byStep[o.Step], o)
-		if !seen[o.Run] {
-			seen[o.Run] = true
+		if _, seen := last[o.Run]; !seen {
 			order = append(order, o.Run)
 		}
+		last[o.Run] = o
 	}
-	return byStep, order
+	return byStep, order, last
 }
 
 func (q WhichQuery) IsNumericCode() bool {
@@ -365,17 +364,6 @@ func evidenceFor(list []Observation, order []string, paths []string, assert Code
 }
 
 const statusPassed = "passed"
-
-func lastStepOf(chainName string, load func(string) []Observation) map[string]Observation {
-	last := map[string]Observation{}
-	if load == nil {
-		return last
-	}
-	for _, o := range load(chainName) {
-		last[o.Run] = o
-	}
-	return last
-}
 
 func newestUnreached(list []Observation, order []string, last map[string]Observation) *WhichNewest {
 	if len(order) == 0 {
@@ -544,7 +532,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 		return out
 	}
 	for _, c := range chains {
-		byStep, _ := observationsFor(c.Name, opts.Observations)
+		byStep, _, _ := observationsFor(c.Name, opts.Observations)
 		for i, s := range c.Steps {
 			if q.RPC != "" && !stepCalls(s, q.RPC, opts.RPCOf) {
 				continue

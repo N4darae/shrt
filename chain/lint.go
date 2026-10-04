@@ -167,6 +167,9 @@ type refIndex struct {
 func newRefIndex(c *Chain) *refIndex {
 	idx := &refIndex{stepAt: map[string]int{}, exportedBy: map[string]int{}, exporter: map[string]string{}}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		idx.steps = append(idx.steps, s.ID)
 		if _, seen := idx.stepAt[s.ID]; !seen {
 			idx.stepAt[s.ID] = i + 1
@@ -919,15 +922,7 @@ func (c *Chain) ExportStepClashes() []string {
 
 func lintExportNames(c *Chain) []Issue {
 	issues := []Issue{}
-	stepAt := map[string]int{}
-	for i, s := range c.Steps {
-		if s == nil {
-			continue
-		}
-		if _, seen := stepAt[s.ID]; !seen {
-			stepAt[s.ID] = i + 1
-		}
-	}
+	stepAt := newRefIndex(c).stepAt
 	writer := map[string]int{}
 	for i, s := range c.Steps {
 		if s == nil {

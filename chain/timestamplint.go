@@ -67,14 +67,9 @@ func TimestampFields(m *catalog.Method) []string {
 
 func assertsPath(s *Step, path string) bool {
 	want := namecase.Fold(path)
-	return slices.ContainsFunc(s.Expect, func(e Expectation) bool { return namecase.Fold(strings.Join(SplitPath(e.Path), ".")) == want })
-}
-
-func assertsAbsent(s *Step, path string) bool {
-	want := namecase.Fold(path)
 	return slices.ContainsFunc(s.Expect, func(e Expectation) bool {
 		got := namecase.Fold(strings.Join(SplitPath(e.Path), "."))
-		return e.Exists != nil && !*e.Exists && (got == want || strings.HasPrefix(want, got+"."))
+		return got == want || e.Exists != nil && !*e.Exists && strings.HasPrefix(want, got+".")
 	})
 }
 
@@ -130,7 +125,7 @@ func lintUnassertedTimestamps(c *Chain, methods map[string]*catalog.Method) []Is
 		m := methods[s.ID]
 		if m != nil && !expectsRefusal(s) {
 			for _, path := range TimestampFields(m) {
-				if assertsPath(s, path) || assertsAbsent(s, path) {
+				if assertsPath(s, path) {
 					continue
 				}
 				fix := timestampHint(s, path, earlier)
