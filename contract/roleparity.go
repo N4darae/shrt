@@ -277,10 +277,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 			}
 			c := copyStep(s, rename[s.ID])
 			c.Export = nil
-			c.Body, _ = rewriteRefs(c.Body, rename).(map[string]any)
-			for i := range c.Expect {
-				c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, rename) })
-			}
+			retarget(c, rename)
 			p.freshen(lib, c)
 			c.Description = fmt.Sprintf("as %s, for %s to act on as %s.", s.ID, st.ID, prof)
 			p.assertEcho(c)
@@ -289,10 +286,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 		w := copyStep(st, p.freeStepID(st.ID+"_as_"+profileSuffix(prof)))
 		w.Export = nil
 		w.Auth = prof
-		w.Body, _ = rewriteRefs(w.Body, rename).(map[string]any)
-		for i := range w.Expect {
-			w.Expect[i] = w.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, rename) })
-		}
+		retarget(w, rename)
 		p.freshen(lib, w)
 		renameStepRefs(w, st.ID, w.ID)
 		w.Description = fmt.Sprintf("%s as profile %s, on fixtures of its own prepared as %s's were: the same effect.", st.ID, prof, st.ID)

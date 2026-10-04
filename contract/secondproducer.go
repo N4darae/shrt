@@ -188,10 +188,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 		}
 		cid := p.freeStepID(s.ID)
 		c := copyStep(s, cid)
-		c.Body, _ = rewriteRefs(c.Body, map[string]string{src: id}).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, map[string]string{src: id}) })
-		}
+		renameStepRefs(c, src, id)
 		p.distinctPreparation(c, cid, s.ID)
 		p.insertAfter(s.ID, c)
 		extra = append(extra, producerClone{id: cid, call: s.Call, original: s.ID})
@@ -376,11 +373,7 @@ func (p *Plan) prepareSecondProducers(step *chain.Step) {
 		}
 		cid := p.freeStepID(step.ID)
 		c := copyStep(step, cid)
-		to := map[string]string{sec.src: sec.clone}
-		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, to) })
-		}
+		renameStepRefs(c, sec.src, sec.clone)
 		p.distinctPreparation(c, cid, step.ID)
 		p.insertAfter(step.ID, c)
 		p.recordPreparation(sec.clone, step.ID)

@@ -253,31 +253,7 @@ func referencedSteps(v any) []string {
 	return out
 }
 
-func renameStepRefs(st *chain.Step, from, to string) {
-	var swap func(any) any
-	swap = func(v any) any {
-		switch t := v.(type) {
-		case string:
-			t = strings.ReplaceAll(t, "${"+from+".", "${"+to+".")
-			return strings.ReplaceAll(t, "${steps."+from+".", "${steps."+to+".")
-		case map[string]any:
-			for k, item := range t {
-				t[k] = swap(item)
-			}
-			return t
-		case []any:
-			for i, item := range t {
-				t[i] = swap(item)
-			}
-			return t
-		}
-		return v
-	}
-	st.Body, _ = swap(st.Body).(map[string]any)
-	for i := range st.Expect {
-		st.Expect[i] = st.Expect[i].MapOperands(swap)
-	}
-}
+func renameStepRefs(st *chain.Step, from, to string) { retarget(st, map[string]string{from: to}) }
 
 type entityRead struct {
 	producer *chain.Step

@@ -256,11 +256,7 @@ func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 		}
 		cid := p.reserveStepID(prep)
 		c := copyStep(src, cid)
-		to := map[string]string{sec.src: id}
-		c.Body, _ = rewriteRefs(c.Body, to).(map[string]any)
-		for i := range c.Expect {
-			c.Expect[i] = c.Expect[i].MapOperands(func(v any) any { return rewriteRefs(v, to) })
-		}
+		renameStepRefs(c, sec.src, id)
 		renameStepRefs(c, prep, cid)
 		p.distinctPreparation(c, cid, prep)
 		made = append(made, c)
