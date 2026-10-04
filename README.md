@@ -110,7 +110,7 @@ the answer; probe further only for a gap it did not probe, or a support ticket n
 | line | means |
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
-| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> (<rpc>) <expectation>` names the first pin (`(+N more pin(s))`); `; pinned <date>`, the day its slice reproduced, tells a red older than this build at a glance |
+| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> <rpc> <field>, <field>, <step> <rpc> <field>` names every pin (the first 4, then `and N more`); `; pinned <date>`, the day its slice reproduced, tells a red older than this build at a glance |
 | `FAIL pins held, new change:` | every pin held; a change outside them is a regression, not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
 | `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain and says once what that means |
@@ -126,7 +126,8 @@ the error's last clause, `field Customer.name contains invalid UTF-8`), or
 safe spot that fails so, which may be below; else the first above); a suspect that line leaves out keeps this line's
 own suspect and `also` for it; a slice failing at its parent's first change has no line of its own, the parent's says
 `(+N slice(s) fail the same: ...)`; a kept-red slice folds so only when its pins held and its parent fails every way
-it does (by suspect rpc and field), and one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
+it does (by suspect rpc and field), as `(+N kept-red slice(s), every pin held, pinned <date>: <step> <rpc> <field>, ...)`,
+each slice by its first pin, so no `shrt run` of it is needed; one failing not as pinned keeps its line. Then `failures by suspect rpc:`, one
 line per suspect rpc (or per `unclear` set of rpcs), headed by the field each failing step changed, wherever a read
 shows it. Its example is from a chain with a safe spot when one fails so, else not from a kept-red slice; then a call
 whose request differs from a passing one only in the trigger (with no trigger, the commonest failing request); then

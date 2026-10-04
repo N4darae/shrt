@@ -489,7 +489,10 @@ Reading the report:
 **A chain kept red on purpose is never confirmed.** It asserts the correct behaviour and pins the
 known defect with `kept_red` (step, path, and the `got` when stable). `shrt run` of it goes past
 every failure, exits 0 while it fails exactly as pinned, and 1 when anything else fails, a pinned
-step returns something else than in the last run that failed as pinned, or the defect is gone.
+step returns something else than in the last run that failed as pinned, or the defect is gone. A
+slice whose pins held but which fails where its parent's latest run fails too says `pins held; also
+fails at <step> <field>, which the parent chain <name> fails too`: the parent's regression, not a
+new defect of the slice.
 
 **One real defect in a long chain: keep it red in a slice, confirm the rest:**
 
@@ -502,7 +505,7 @@ shrt run billing                     # green: propose and approve it
 slices the first failing step (with the failing steps that read it, fail the same call the same way
 or with list items ignoring the same request filter, or are failing reads with no write between),
 cuts them from the chain, adds `Kept red in <slice>: <steps>.` to its description and `Pins <step>
-(<rpc>) <expectation>.` to the slice's (the line the gate's `KEPT RED` shows), and re-runs
+<rpc> <field>, ...` to the slice's (the pins the gate's `KEPT RED` line names), and re-runs
 until it passes. A pinned read keeps the last earlier read of its field that passed, when kept
 writes lie between (`checkpoint:`), so a later defect in an earlier write fails there and is
 named. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the

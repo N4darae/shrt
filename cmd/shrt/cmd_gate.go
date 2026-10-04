@@ -184,8 +184,8 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
-	if rec.KeptRed == runner.KeptRedAsPinned {
-		side.Pins = pinnedText(c, rec) + pinnedOn(c)
+	if rec.KeptRed == runner.KeptRedAsPinned || side.PinsHeld {
+		side.Pins = pinnedText(c) + pinnedOn(c)
 	}
 	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
@@ -775,7 +775,7 @@ type gateChain struct {
 	errored   map[string]string
 	slow      map[string]bool
 	echoOf    string
-	slices    []string
+	slices    []*gateChain
 	shown     []string
 	waits     time.Duration
 	took      time.Duration
@@ -1354,13 +1354,16 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 		}
 	}
 	why := strings.TrimPrefix(out.side.Error, "chain "+g.name+": ")
+	if what == "run" && out.side.Pins != "" {
+		g.pins = out.side.Pins
+	}
 	switch {
 	case out.code == 0:
 		if what == "run" && out.side.KeptRed != "" {
 			g.keptRed = out.side.KeptRed
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
-			g.verdict, g.pins = "KEPT RED", out.side.Pins
+			g.verdict = "KEPT RED"
 		}
 	case out.code == 3:
 		g.noVerdict = true
@@ -1551,8 +1554,26 @@ func (g *gateChain) line(width int) string {
 		}
 		line += g.first
 	}
-	if len(g.slices) > 0 {
-		line += fmt.Sprintf(" (+%d slice(s) fail the same: %s)", len(g.slices), strings.Join(g.slices, ", "))
+	var same, held, days []string
+	for _, s := range g.slices {
+		if !s.pinsHeld {
+			same = append(same, s.name)
+			continue
+		}
+		pins, day, _ := strings.Cut(s.pins, "; pinned ")
+		first, _, _ := strings.Cut(pins, ", ")
+		if held = append(held, first); day != "" && !slices.Contains(days, day) {
+			days = append(days, day)
+		}
+	}
+	if len(same) > 0 {
+		line += fmt.Sprintf(" (+%d slice(s) fail the same: %s)", len(same), strings.Join(same, ", "))
+	}
+	if len(days) > 0 {
+		days[0] = ", pinned " + days[0]
+	}
+	if len(held) > 0 {
+		line += fmt.Sprintf(" (+%d kept-red slice(s), every pin held%s: %s)", len(held), strings.Join(days, ", "), capList(held, pinsShown))
 	}
 	return strings.TrimRight(line, " ")
 }
@@ -1713,7 +1734,7 @@ func foldSlices(chains []*gateChain) {
 		a, okA := g.firstItem()
 		b, okB := p.firstItem()
 		if okA && okB && a.Call == b.Call && a.Path == b.Path {
-			g.echoOf, p.slices = p.name, append(p.slices, g.name)
+			g.echoOf, p.slices = p.name, append(p.slices, g)
 		}
 	}
 }
