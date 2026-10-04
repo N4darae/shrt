@@ -1083,18 +1083,21 @@ func sameScalar(a, b any) bool {
 	if a == nil && b == nil {
 		return true
 	}
+	if x, ok := a.(string); ok {
+		if y, ok := b.(string); ok {
+			return x == y
+		}
+	}
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
 func sortedKeys(a, b map[string]any) []string {
-	seen := map[string]bool{}
-	keys := []string{}
+	keys := make([]string, 0, len(a)+len(b))
 	for k := range a {
-		seen[k] = true
 		keys = append(keys, k)
 	}
 	for k := range b {
-		if !seen[k] {
+		if _, inA := a[k]; !inA {
 			keys = append(keys, k)
 		}
 	}
