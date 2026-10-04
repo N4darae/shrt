@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -146,20 +145,12 @@ type Ref struct {
 }
 
 func ParseRef(raw string) (Ref, error) {
-	trimmed := strings.TrimSpace(raw)
-	head, path, ok := cutRef(trimmed)
-	if !ok || strings.TrimSpace(head) == "" || strings.TrimSpace(path) == "" {
+	head, path, ok := cutRef(strings.TrimSpace(raw))
+	rpc, alias := SplitNode(head)
+	if path = strings.TrimSpace(path); !ok || rpc == "" || path == "" {
 		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
 	}
-	rpc, alias, _ := strings.Cut(strings.TrimSpace(head), "@")
-	if strings.TrimSpace(rpc) == "" {
-		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
-	}
-	return Ref{
-		RPC:   strings.TrimSpace(rpc),
-		Alias: strings.TrimSpace(alias),
-		Path:  strings.TrimSpace(path),
-	}, nil
+	return Ref{RPC: rpc, Alias: alias, Path: path}, nil
 }
 
 func cutRef(raw string) (head, path string, ok bool) {
@@ -309,7 +300,7 @@ func normalizeEmptyEntries(o *Overlay) []string {
 			}
 		}
 	}
-	sort.Strings(empty)
+	slices.Sort(empty)
 	return empty
 }
 
@@ -350,7 +341,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 
 	overlays := []*Overlay{}
 	broken := []error{}
@@ -418,11 +409,8 @@ func IgnoredOverlayFiles(dir string) ([]string, error) {
 			}
 			return err
 		}
-		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) {
-			return nil
-		}
 		ext := strings.ToLower(filepath.Ext(d.Name()))
-		if ext != ".yaml" && ext != ".yml" {
+		if d.IsDir() || filepath.Dir(path) == filepath.Clean(dir) || ext != ".yaml" && ext != ".yml" {
 			return nil
 		}
 		rel, relErr := filepath.Rel(dir, path)
@@ -432,7 +420,7 @@ func IgnoredOverlayFiles(dir string) ([]string, error) {
 		out = append(out, rel)
 		return nil
 	})
-	sort.Strings(out)
+	slices.Sort(out)
 	return out, err
 }
 
@@ -474,7 +462,7 @@ func NewLibrary(overlays []*Overlay) *Library {
 		}
 	}
 	for k := range lib.before {
-		sort.Strings(lib.before[k])
+		slices.Sort(lib.before[k])
 	}
 	return lib
 }

@@ -1,10 +1,10 @@
 package contract
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -39,11 +39,8 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 	issues = append(issues, lintCycles(lib, cat)...)
 	issues = append(issues, lintAliasAgreement(lib, cat)...)
 	issues = append(issues, EffectProblems(lib, cat)...)
-	sort.SliceStable(issues, func(i, j int) bool {
-		if issues[i].RPC != issues[j].RPC {
-			return issues[i].RPC < issues[j].RPC
-		}
-		return issues[i].Field < issues[j].Field
+	slices.SortStableFunc(issues, func(a, b Issue) int {
+		return cmp.Or(strings.Compare(a.RPC, b.RPC), strings.Compare(a.Field, b.Field))
 	})
 	return issues
 }
@@ -159,15 +156,10 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		}
 	}
 
-	if len(c.RequiresRole) > 1 {
-		for _, role := range c.RequiresRole {
-			if strings.TrimSpace(role) == RoleNone {
-				add(SeverityError, "requires_role",
-					"requires_role lists %s alongside a real role — %s means this rpc reaches no role gate, so it stands alone or not at all",
-					RoleNone, RoleNone)
-				break
-			}
-		}
+	if len(c.RequiresRole) > 1 && slices.ContainsFunc(c.RequiresRole, func(role string) bool { return strings.TrimSpace(role) == RoleNone }) {
+		add(SeverityError, "requires_role",
+			"requires_role lists %s alongside a real role — %s means this rpc reaches no role gate, so it stands alone or not at all",
+			RoleNone, RoleNone)
 	}
 
 	for _, need := range c.Needs {
@@ -262,20 +254,13 @@ func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 		groups := map[string][]string{}
 		fields := c.FieldsFor(alias)
 		for _, name := range sortedKeys(fields) {
-			f := fields[name]
-			if f.OneOf == "" {
-				continue
-			}
-			if f.From != "" || f.Value != "" {
+			if f := fields[name]; f.OneOf != "" && (f.From != "" || f.Value != "") {
 				groups[f.OneOf] = append(groups[f.OneOf], name)
 			}
 		}
 		for _, group := range sortedKeys(groups) {
 			if len(groups[group]) > 1 {
-				label := rpc
-				if alias != "" {
-					label = rpc + "@" + alias
-				}
+				label := Ref{RPC: rpc, Alias: alias}.Node()
 				issues = append(issues, Issue{
 					Domain: domain, RPC: rpc, Field: "oneof." + group, Severity: SeverityError,
 					Message: fmt.Sprintf("%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
@@ -606,6 +591,6 @@ func sortedKeys[V any](m map[string]V) []string {
 	for k := range m {
 		out = append(out, k)
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }
