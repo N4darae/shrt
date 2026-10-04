@@ -39,6 +39,7 @@ const gateExitCodes = "\nexit codes:\n" +
 
 type gateSidecar struct {
 	KeptRed      string              `json:"kept_red,omitempty"`
+	Pins         string              `json:"pins,omitempty"`
 	PinsHeld     bool                `json:"pins_held,omitempty"`
 	EarlyProfile string              `json:"early_profile,omitempty"`
 	EarlyAge     time.Duration       `json:"early_age,omitempty"`
@@ -181,6 +182,9 @@ func runSidecar(e *env, c *chain.Chain, rec *runner.Record, drift []diff.Change,
 	side := earlySidecar(e, rec)
 	changedPins, held := runner.PinChanges(c, rec)
 	side.KeptRed, side.PinsHeld = rec.KeptRed, held || runner.PinsHeld(c, rec)
+	if rec.KeptRed == runner.KeptRedAsPinned {
+		side.Pins = pinnedText(c, rec)
+	}
 	pinned, heldPins := map[string]bool{}, map[string]bool{}
 	for _, p := range c.KeptRed {
 		pinned[p.Step+" "+p.Path] = true
@@ -755,6 +759,7 @@ type gateChain struct {
 	noVerdict bool
 	pinsHeld  bool
 	keptRed   string
+	pins      string
 	flaky     map[string]gateFlaky
 	flakyOnly bool
 	otherFail bool
@@ -1340,7 +1345,7 @@ func (g *gateChain) absorb(what string, out gateOutcome) {
 			g.keptRed = out.side.KeptRed
 		}
 		if what == "run" && out.side.KeptRed == runner.KeptRedAsPinned && g.verdict == "" {
-			g.verdict = "KEPT RED"
+			g.verdict, g.pins = "KEPT RED", out.side.Pins
 		}
 	case out.code == 3:
 		g.noVerdict = true
@@ -1517,6 +1522,9 @@ func (g *gateChain) line(width int) string {
 		verdict = g.verdict
 	}
 	line := fmt.Sprintf("%-10s %-*s", verdict, width, g.name)
+	if verdict == "KEPT RED" && g.pins != "" {
+		line += "  pins " + g.pins
+	}
 	if g.first != "" && verdict != "PASS" && verdict != "KEPT RED" {
 		line += "  "
 		switch {

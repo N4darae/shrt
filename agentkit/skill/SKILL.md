@@ -15,10 +15,11 @@ Run `shrt gate -repro`. It leaves out the chains that wait by design (marked `W`
 ls`, then `SKIPPED`; `shrt gate <chain>` runs one), so it takes seconds. Each row of `failures by
 suspect rpc:` gets the read that settles an unclear write or read and a verified one-line repro
 (`repro: shrt run <path>  (reproduced 3/3)`); one `masks:` line says whether a mask hid more than
-run tags, ids and timestamps. For what the chains cover, these lines are the answer: report them,
-no slice or `verify -masked` adds to them. The `gaps:` block names each state no chain calls a
-gated write from, with the `shrt contract plan <rpc> -write -force` that plans it. Probe only what
-a gap line names, or a support ticket that no row explains.
+run tags, ids and timestamps; each `KEPT RED` line names what its slice pins. For what the chains
+cover, these lines are the answer: report them, no slice or `verify -masked` adds to them. The
+`gaps:` block names each state no chain calls a gated write from, with the `shrt contract plan
+<rpc> -write -force` that plans it. Probe only what a gap line names, or a support ticket that no
+row explains.
 
 ## Start here
 

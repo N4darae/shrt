@@ -111,6 +111,10 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 	if want := "Cancelling a confirmed order gives its stock back.\nKept red in probe-orders-slice-cancel_confirmed: cancel_confirmed"; !strings.HasPrefix(rest.Description, want) {
 		t.Fatalf("the description says where the pinned steps went:\n%q", rest.Description)
 	}
+	if slice, err := chain.LoadFile(".shrt/chains/probe-orders-slice-cancel_confirmed.yaml"); err != nil ||
+		!strings.Contains(slice.Description, "\nPins cancel_confirmed (CancelOrder) status.code want=SUCCESS got=REJECTED.\n") {
+		t.Fatalf("the slice's description says what it pins (%v):\n%q", err, slice.Description)
+	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
 	if err != nil {
 		t.Fatalf("the rest runs green: %v", err)
@@ -944,5 +948,37 @@ func TestPinPutsListReadsThatIgnoreTheSameFilterInOneSlice(t *testing.T) {
 	}
 	if got := strings.Join(pinGroup(c, rec, []string{"list_pending", "list_cancelled", "list_totals"}), ","); got != "list_pending,list_cancelled" {
 		t.Fatalf("one slice for the filter the rpc ignores, another for the other defect: %s", got)
+	}
+}
+
+func TestAKeptRedLineSaysWhatItPins(t *testing.T) {
+	c := &chain.Chain{Steps: []*chain.Step{{ID: "list", Call: "shop.orders.v1.OrderService/ListOrders"}, {ID: "watch", Call: "shop.orders.v1.OrderService/WatchOrder"},
+		{ID: "none", Call: "shop.orders.v1.OrderService/ListOrders"}}}
+	rec := &runner.Record{Steps: []*runner.StepRecord{
+		{ID: "list", Response: json.RawMessage(`{"orders":[{"id_order":"o-2","status":"PENDING"},{"id_order":"o-1"}]}`), Expect: []chain.ExpectResult{
+			{Path: "orders.0.id_order", Rule: "equals", Want: "o-1", Got: "o-2"},
+			{Path: "orders.0.status", Rule: "equals", Want: "CANCELLED", Got: "PENDING"},
+			{Path: "orders.1", Rule: "exists", Want: false, Got: true},
+		}},
+		{ID: "watch", Expect: []chain.ExpectResult{{Path: "transport.code", Rule: "equals", Want: "unauthenticated", Got: "ok"}}},
+		{ID: "none", Response: json.RawMessage(`{"orders":[]}`), Expect: []chain.ExpectResult{{Path: "orders.0.status", Rule: "equals", Want: "PENDING"}}},
+	}}
+	present := "true"
+	for _, k := range []struct {
+		pins []chain.Pin
+		rec  *runner.Record
+		want string
+	}{
+		{[]chain.Pin{{Step: "list", Path: "orders.1"}}, rec, "list (ListOrders) orders want=1 item(s) got=2"},
+		{[]chain.Pin{{Step: "watch", Path: "transport.code"}, {Step: "list", Path: "orders.0.id_order"}, {Step: "list", Path: "orders.0.status"}}, rec,
+			"list (ListOrders) orders[].status want=CANCELLED got=PENDING (+2 more pin(s))"},
+		{[]chain.Pin{{Step: "watch", Path: "transport.code"}}, rec, "watch (WatchOrder) transport code want=unauthenticated got=ok"},
+		{[]chain.Pin{{Step: "list", Path: "orders.1", Got: &present}}, nil, "list (ListOrders) orders.1 got=true"},
+		{[]chain.Pin{{Step: "none", Path: "orders.0.status"}}, rec, "none (ListOrders) orders length want=1 got=0"},
+	} {
+		c.KeptRed = k.pins
+		if got := pinnedText(c, k.rec); got != k.want {
+			t.Errorf("pins %v: got %q, want %q", k.pins, got, k.want)
+		}
 	}
 }

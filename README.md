@@ -109,7 +109,7 @@ probe only what its `gaps:` lines name, or a support ticket no row explains.
 | line | means |
 |---|---|
 | `PASS` | ran green, no drift from its safe spot |
-| `KEPT RED` | failed exactly as its `kept_red` pins |
+| `KEPT RED` | failed exactly as its `kept_red` pins; `pins <step> (<rpc>) <expectation>` names the first pin (`(+N more pin(s))`) |
 | `FAIL pins held, new change:` | every pin held; a change outside them is a regression, not a reason to re-pin |
 | `FAIL regression:` / `order changed:` / `different input:` / `chain change:` | what verify calls the first new change |
 | `FINDING intermittent:` / `repeated:` | its only failures are calls of an rpc this gate found failing on some calls, and the steps they explain; one `FINDING:` line at the end counts them over every chain and says once what that means |
