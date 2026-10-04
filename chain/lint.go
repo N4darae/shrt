@@ -43,13 +43,12 @@ func Lint(c *Chain, cat *catalog.Catalog) []Issue {
 }
 
 func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
-	issues := []Issue{}
-	issues = append(issues, lintVars(c)...)
+	issues := issuesFrom("", SeverityError, "", VarRefProblems(c.Vars))
 	issues = append(issues, lintVolatileIDs(c)...)
 	issues = append(issues, lintExternalInputs(c, opts.Env)...)
 	issues = append(issues, lintExportNames(c)...)
 	issues = append(issues, lintAuthEnv(c, opts)...)
-	issues = append(issues, lintRedactedPins(c, opts.Redact)...)
+	issues = append(issues, issuesFrom("", SeverityError, "", c.RedactedPinProblems(append(append([]string{}, c.Redact...), opts.Redact...)))...)
 	known := map[string]bool{}
 	knownExports := map[string]bool{}
 	responses := map[string]*catalog.Method{}
@@ -70,15 +69,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintRefs(s, known, knownExports, responses, idx)...)
 		issues = append(issues, lintAbsentReads(c, s, known)...)
 		never, maybe := refTypeProblems(s, m, responses, exports)
-		for _, why := range never {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
-		}
-		for _, why := range maybe {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: why})
-		}
-		for _, why := range varStructures(s, c.Vars) {
-			issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Kind: KindDeadRef, Message: why})
-		}
+		issues = append(issues, issuesFrom(s.ID, SeverityError, KindDeadRef, never)...)
+		issues = append(issues, issuesFrom(s.ID, SeverityWarn, "", maybe)...)
+		issues = append(issues, issuesFrom(s.ID, SeverityError, KindDeadRef, varStructures(s, c.Vars))...)
 		issues = append(issues, lintExpectPaths(s, m)...)
 		issues = append(issues, lintUnorderedStep(s, m)...)
 		methods = append(methods, m)
@@ -1132,10 +1125,10 @@ func lintAuthEnv(c *Chain, opts LintOptions) []Issue {
 	return issues
 }
 
-func lintVars(c *Chain) []Issue {
+func issuesFrom(step, severity, kind string, messages []string) []Issue {
 	issues := []Issue{}
-	for _, why := range VarRefProblems(c.Vars) {
-		issues = append(issues, Issue{Severity: SeverityError, Message: why})
+	for _, m := range messages {
+		issues = append(issues, Issue{Step: step, Severity: severity, Kind: kind, Message: m})
 	}
 	return issues
 }
