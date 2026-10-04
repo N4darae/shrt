@@ -73,6 +73,67 @@ func TestGoldenGateRepro(t *testing.T) {
 	checkGolden(t, "gate-repro.txt", golden.String())
 }
 
+const tillChain = `apiVersion: shrt/v1
+name: till
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: till-${vars.tag}
+        price_minor: "250"
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "5"
+    - id: create_order
+      call: OrderService/CreateOrder
+      body:
+        idempotency_key: ${uuid}
+        lines:
+            - id_product: ${create_product.product.id_product}
+              qty: "2"
+    - id: confirm
+      call: OrderService/ConfirmOrder
+      body:
+        id_order: ${create_order.order.id_order}
+      expect:
+        - path: order.total_minor
+          equals: "500"
+    - id: fetch
+      call: OrderService/FetchOrder
+      body:
+        id_order: ${create_order.order.id_order}
+      expect:
+        - path: order.total_minor
+          equals: "500"
+`
+
+func TestAWriteAnsweredOtherThanStoredKeepsItsReadBackInTheRepro(t *testing.T) {
+	shop := newFakeShop()
+	chdirToFakeShop(t, shop)
+	inProcessGate(t)
+	writeFile(t, ".shrt/chains/till.yaml", tillChain)
+	for _, args := range [][]string{{"run", "till", "-var", "tag=tfirst001"}, {"confirm", "till", "-note", "till"}, {"confirm", "till", "-approve", "-by", "alice@example.test"}} {
+		if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	shop.confirmTotalBug = true
+	out, _ := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+	want := "repro: shrt run .shrt/scratch/till-slice-confirm.yaml -keep-going  (reproduced 3/3; the read-back fetch (FetchOrder) reads order.total_minor=500 where the write answered 0)"
+	if !strings.Contains(out, "answered order.total_minor=0, but FetchOrder read 500") || !strings.Contains(out, want) {
+		t.Fatalf("the repro of a write the read-back contradicts keeps that read:\n%s", out)
+	}
+	slice := string(mustRead(t, ".shrt/scratch/till-slice-confirm.yaml"))
+	if !strings.Contains(slice, "- id: fetch") || !strings.Contains(slice, "Then fetch reads order.total_minor back and expects what confirm answered, 0") {
+		t.Fatalf("the slice ends with the read-back expecting what the write answered:\n%s", slice)
+	}
+	if out, code := shrtOut(t, "run", ".shrt/scratch/till-slice-confirm.yaml", "-keep-going"); code != 1 || !strings.Contains(out, "FAIL order.total_minor want=0 got=500") {
+		t.Fatalf("run with -keep-going, the slice shows the stored value beside the answer, got %d:\n%s", code, out)
+	}
+}
+
 func TestTheGateListsAMaskedValueThatDifferedBeyondTagsIdsAndTimestamps(t *testing.T) {
 	report := func(changes ...diff.Change) gateOutcome {
 		raw, _ := json.Marshal(map[string]any{"run": map[string]any{"vars": map[string]any{"tag": "tnew00001"}}, "diff": diff.Report{VolatileValues: changes}})

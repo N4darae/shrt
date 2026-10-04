@@ -155,7 +155,10 @@ row whose field another read rpc also returns, `settled on the write` or `settle
 that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
 <path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
 the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
-the slice says so, or `repro: none:` and why. One `masks:` line closes it: `verify -run latest -json`
+the slice says so, or `repro: none:` and why. When the row's write answered other than a later read returns
+(`answered <x>, but <rpc> read <y>`), that read is appended to the slice expecting what the write answered and run once
+more: `repro: shrt run <path> -keep-going  (reproduced 3/3; the read-back <step> (<rpc>) reads <field>=<y> where the
+write answered <x>)`, both sides in one run. One `masks:` line closes it: `verify -run latest -json`
 of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
 id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which
 holds whatever else the backend holds) are only counted. Then `gaps:` lists the state gaps `shrt

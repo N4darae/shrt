@@ -1366,7 +1366,7 @@ func (a attribution) unstored(w *runner.StepRecord, path string) reason {
 		})
 		if found {
 			r := a.own(reasonStored, w)
-			r.Path, r.Want, r.Got, r.ReadRPC = path, compactValue(wv), read, methodName(o.Call)
+			r.Path, r.Want, r.Got, r.Read, r.ReadRPC = path, compactValue(wv), read, o.ID, methodName(o.Call)
 			return r
 		}
 	}
