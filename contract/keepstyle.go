@@ -1,7 +1,9 @@
 package contract
 
 import (
+	"cmp"
 	"gopkg.in/yaml.v3"
+	"slices"
 )
 
 func KeepWrittenStyle(fresh *yaml.Node, written []byte) {
@@ -60,11 +62,7 @@ func keepOrder(mapping *yaml.Node, at map[string]int) {
 			added = append(added, p)
 		}
 	}
-	for i := 1; i < len(known); i++ {
-		for j := i; j > 0 && at[known[j].k.Value] < at[known[j-1].k.Value]; j-- {
-			known[j], known[j-1] = known[j-1], known[j]
-		}
-	}
+	slices.SortStableFunc(known, func(a, b pair) int { return cmp.Compare(at[a.k.Value], at[b.k.Value]) })
 	mapping.Content = mapping.Content[:0]
 	for _, p := range append(known, added...) {
 		mapping.Content = append(mapping.Content, p.k, p.v)
