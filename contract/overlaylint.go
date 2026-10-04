@@ -492,7 +492,7 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 					Severity: SeverityWarn,
 					Message: fmt.Sprintf(
 						"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
-						field, describeInstance(consumer.alias), shortRPCName(producer.rpc), describeInstance(producer.alias)),
+						field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias)),
 				})
 			}
 		}
@@ -542,13 +542,6 @@ func describeInstance(alias string) string {
 		return "the un-aliased instance"
 	}
 	return "@" + alias
-}
-
-func shortRPCName(rpc string) string {
-	if i := strings.LastIndex(rpc, "."); i >= 0 {
-		return rpc[i+1:]
-	}
-	return rpc
 }
 
 func sortedKeysOf[V any](m map[string]V) []string {

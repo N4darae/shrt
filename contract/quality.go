@@ -331,7 +331,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		}
 	}
 
-	writePath := !isReadOnly(lastSegment(rpc))
+	writePath := !isReadOnly(shortRPC(rpc))
 	unwired, unchecked := measureIDKeys(c, fields, writePath)
 
 	noFailures := writePath && len(c.Failures) == 0
@@ -366,7 +366,7 @@ func hasWriteProducer(c *RPCContract, fields map[string]*FieldContract, required
 	isWrite := func(node string) bool {
 		rpc, _ := SplitNode(node)
 		rpc = strings.TrimSpace(rpc)
-		return rpc != "" && !isReadOnly(lastSegment(rpc))
+		return rpc != "" && !isReadOnly(shortRPC(rpc))
 	}
 	for _, n := range c.Needs {
 		if isWrite(n) {

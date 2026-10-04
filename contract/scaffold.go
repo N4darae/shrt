@@ -21,10 +21,7 @@ type Producer struct {
 func (p Producer) Ref() string { return p.RPC + RefSeparator + p.Path }
 
 func ProducersOf(field string, methods []*catalog.Method, exclude string) []Producer {
-	leaf := field
-	if i := strings.LastIndex(leaf, "."); i >= 0 {
-		leaf = leaf[i+1:]
-	}
+	leaf := field[strings.LastIndex(field, ".")+1:]
 	out := []Producer{}
 	for _, m := range methods {
 		if m.FullName == exclude || isReadOnly(m.Name) || m.Streaming() {

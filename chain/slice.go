@@ -30,10 +30,7 @@ func DefaultReadOnlyPrefixes() []string {
 }
 
 func IsReadOnlyCall(call string) bool {
-	name := call
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		name = call[i+1:]
-	}
+	name := call[strings.LastIndex(call, "/")+1:]
 	for _, p := range ReadOnlyPrefixes() {
 		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
 			return true
@@ -1246,10 +1243,7 @@ func verdictText(v any) string {
 var listingPrefixes = []string{"List", "Search", "Query", "Find"}
 
 func isListingCall(call string) bool {
-	name := call
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		name = call[i+1:]
-	}
+	name := call[strings.LastIndex(call, "/")+1:]
 	for _, p := range listingPrefixes {
 		if strings.HasPrefix(name, p) && wordBoundaryAt(name, len(p)) {
 			return true

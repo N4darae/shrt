@@ -54,7 +54,7 @@ func creatorOf(msg string, lib *Library, cat *catalog.Catalog) string {
 	}
 	creates := []string{}
 	for _, c := range cands {
-		if strings.HasPrefix(shortNode(c), "Create") {
+		if strings.HasPrefix(shortRPC(c), "Create") {
 			creates = append(creates, c)
 		}
 	}
@@ -74,12 +74,7 @@ func nodesReturn(nodes []string, msg string, cat *catalog.Catalog) bool {
 	return false
 }
 
-func shortMessage(msg string) string {
-	if i := strings.LastIndex(msg, "."); i >= 0 {
-		return msg[i+1:]
-	}
-	return msg
-}
+func shortMessage(msg string) string { return msg[strings.LastIndex(msg, ".")+1:] }
 
 type listProducer struct {
 	list    string
@@ -95,12 +90,12 @@ func (p *Plan) noteListProducers(found []listProducer) {
 			p.note("step %s: %s lists %s items, and its contract declares no needs: and nothing it depends on creates one, "+
 				"so the plan added %s (%s, whose response carries one) before it: a list of nothing passes whatever the backend "+
 				"lists. Declare needs: [%s] on %s to make it explicit",
-				id, shortNode(rpc), shortMessage(lp.msg), p.stepOf[lp.creator], shortNode(lp.creator), lp.creator, shortNode(rpc))
+				id, shortRPC(rpc), shortMessage(lp.msg), p.stepOf[lp.creator], shortRPC(lp.creator), lp.creator, shortRPC(rpc))
 			continue
 		}
 		p.note("step %s: nothing in this chain creates the %s items %s lists, and no rpc with a contract returns one, so the list "+
 			"comes back empty and an assertion on its items cannot fail for the right reason: add the step that creates one, "+
-			"or declare needs: on %s naming it", id, shortMessage(lp.msg), shortNode(rpc), shortNode(rpc))
+			"or declare needs: on %s naming it", id, shortMessage(lp.msg), shortRPC(rpc), shortRPC(rpc))
 	}
 }
 
@@ -114,6 +109,6 @@ func lintListNeeds(c *RPCContract, m *catalog.Method, lib *Library, cat *catalog
 		return "", false
 	}
 	return "lists " + shortMessage(msg) + " items and declares no needs: naming the rpc that creates one, so a chain may list " +
-		"nothing and pass; " + shortNode(creator) + " returns one: declare needs: [" + creator + "] " +
+		"nothing and pass; " + shortRPC(creator) + " returns one: declare needs: [" + creator + "] " +
 		"(contract plan adds it meanwhile, with a note)", true
 }

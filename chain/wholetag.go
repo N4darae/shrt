@@ -48,10 +48,7 @@ func lintWholeTag(c *Chain, s *Step, m *catalog.Method) []Issue {
 		if r.Kind != RefVars || r.Rest != RunTagVar {
 			return
 		}
-		leaf := path
-		if i := strings.LastIndex(path, "."); i >= 0 {
-			leaf = path[i+1:]
-		}
+		leaf := path[strings.LastIndex(path, ".")+1:]
 		if lower := strings.ToLower(leaf); lower == "id" || strings.HasSuffix(lower, "_id") || strings.HasPrefix(lower, "id_") {
 			return
 		}

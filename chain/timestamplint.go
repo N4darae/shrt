@@ -138,10 +138,7 @@ func StampSource(s *Step, path string, earlier map[string]*catalog.Method) strin
 }
 
 func timestampHint(s *Step, path string, earlier map[string]*catalog.Method) string {
-	last := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		last = path[i+1:]
-	}
+	last := path[strings.LastIndex(path, ".")+1:]
 	switch {
 	case IsExpiryName(last):
 		return `within: {of: "${nowunix+3600}", by: 5} for an hour-long expiry, or gte: "${nowunix}"`

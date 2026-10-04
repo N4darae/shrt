@@ -61,10 +61,7 @@ func isStampName(name string) bool {
 }
 
 func contractNote(c *RPCContract, path string) string {
-	last := path
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		last = path[i+1:]
-	}
+	last := path[strings.LastIndex(path, ".")+1:]
 	parts := []string{}
 	for _, m := range []map[string]string{c.Terminal, c.Exports, c.SoftSignals} {
 		for _, key := range []string{path, last} {
@@ -90,10 +87,7 @@ func (p *Plan) timestampExpectations(step *chain.Step, m *catalog.Method, c *RPC
 	id := step.ID
 	out := []chain.Expectation{}
 	for _, path := range chain.TimestampFields(m) {
-		last := path
-		if i := strings.LastIndex(path, "."); i >= 0 {
-			last = path[i+1:]
-		}
+		last := path[strings.LastIndex(path, ".")+1:]
 		note := contractNote(c, path)
 		if strings.Contains(strings.ToLower(note), "milli") {
 			p.note("step %s: %s is in milliseconds by its contract, and ${nowunix} is seconds, so no range was scaffolded for it; "+

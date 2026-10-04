@@ -54,10 +54,7 @@ func PrereqsFor(lib *Library) func(string) []chain.Prereq {
 }
 
 func sameEffectRPCs(lib *Library, rpc string) []string {
-	short := rpc
-	if i := strings.LastIndex(rpc, "/"); i >= 0 {
-		short = rpc[i+1:]
-	}
+	short := rpc[strings.LastIndex(rpc, "/")+1:]
 	increased := map[string]bool{}
 	if need, ok := lib.Get(rpc); ok {
 		for field, e := range need.Effects {

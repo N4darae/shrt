@@ -196,12 +196,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 	}
 }
 
-func shortRPC(full string) string {
-	if i := strings.LastIndex(full, "/"); i >= 0 {
-		return full[i+1:]
-	}
-	return full
-}
+func shortRPC(full string) string { return full[strings.LastIndex(full, "/")+1:] }
 
 func ScaffoldChain(name, description string, refs, ids []string, lib *Library, cat *catalog.Catalog) ([]byte, []string, error) {
 	p, err := scaffoldPlan(name, "the chain", refs, ids, lib, cat)

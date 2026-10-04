@@ -89,7 +89,7 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		}
 		seen[node] = true
 		nodes = append(nodes, node)
-		labels = append(labels, shortNode(node))
+		labels = append(labels, shortRPC(node))
 	}
 	order, edges, listed, err := resolveOrder(nodes, lib, cat)
 	if err != nil {
@@ -267,13 +267,6 @@ func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *cat
 	return m.FullName + "@" + alias, m, nil
 }
 
-func shortNode(node string) string {
-	if i := strings.LastIndex(node, "/"); i >= 0 {
-		return node[i+1:]
-	}
-	return node
-}
-
 func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 	byRPC := map[string][]string{}
 	rpcs := []string{}
@@ -303,15 +296,15 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 				first = node
 			}
 			ids = append(ids, p.stepOf[node])
-			aliased = append(aliased, fmt.Sprintf("%s (via %s)", shortNode(node), strings.Join(edges[node], "; ")))
+			aliased = append(aliased, fmt.Sprintf("%s (via %s)", shortRPC(node), strings.Join(edges[node], "; ")))
 		}
 		p.note("steps %s all call %s: the plain %s came in via %s, while %s came in through other edges. "+
 			"The plain step is built from the unaliased fields only, so it is likely a duplicate of an "+
 			"aliased one — if it is, point that edge at the alias (needs: [%s], or from:/same_as: naming it) or drop it. before: "+
 			"always names the plain rpc, so an ordering meant for an alias belongs in the later rpc's "+
 			"needs: instead",
-			strings.Join(ids, ", "), shortNode(rpc), shortNode(rpc), strings.Join(edges[rpc], "; "),
-			strings.Join(aliased, ", "), shortNode(first))
+			strings.Join(ids, ", "), shortRPC(rpc), shortRPC(rpc), strings.Join(edges[rpc], "; "),
+			strings.Join(aliased, ", "), shortRPC(first))
 	}
 }
 
@@ -348,15 +341,15 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 		}
 		rpc, _ := SplitNode(node)
 		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
-			"as %s@after", shortNode(rpc), shortNode(rpc))
+			"as %s@after", shortRPC(rpc), shortRPC(rpc))
 		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
 			names := sortedAliasNames(c.Aliases)
 			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
-				shortNode(rpc), names[0], strings.Join(names, ", "))
+				shortRPC(rpc), names[0], strings.Join(names, ", "))
 		}
 		p.note("%s is named %d times as a target, and a plan calls each target once, so the repeat(s) were "+
 			"merged into step %s. To call it again at another point in the chain, %s",
-			shortNode(node), n+1, p.stepOf[node], how)
+			shortRPC(node), n+1, p.stepOf[node], how)
 	}
 }
 
@@ -775,14 +768,14 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 		if c, ok := lib.Get(rpc); ok {
 			for _, dep := range c.DependenciesFor(alias) {
 				depCanonical, _, _ := canon(dep)
-				label := shortNode(canonical) + " " + dependencyKind(c, alias, depCanonical, canon)
+				label := shortRPC(canonical) + " " + dependencyKind(c, alias, depCanonical, canon)
 				if err := visit(dep, label, append(trail, canonical)); err != nil {
 					return err
 				}
 			}
 		}
 		for _, requires := range lib.RequiredBy(rpc) {
-			label := shortNode(requires) + " before: " + shortNode(rpc)
+			label := shortRPC(requires) + " before: " + shortRPC(rpc)
 			if err := visit(requires, label, append(trail, canonical)); err != nil {
 				return err
 			}
@@ -792,7 +785,7 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 			if msg := listedMessage(m); msg != "" && !nodesReturn(order, msg, cat) {
 				lp := listProducer{list: canonical, msg: msg}
 				if creator := creatorOf(msg, lib, cat); creator != "" && state[creator] == 0 {
-					label := shortNode(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
+					label := shortRPC(canonical) + " lists " + shortMessage(msg) + " (inferred: no needs:)"
 					if err := visit(creator, label, append(trail, canonical)); err != nil {
 						return err
 					}

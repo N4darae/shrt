@@ -181,14 +181,7 @@ func defaultID(name string) string {
 	return b.String()
 }
 
-func (c *Contract) StepID() string { return defaultID(lastSegment(c.RPC)) }
-
-func lastSegment(fqn string) string {
-	if i := strings.LastIndex(fqn, "/"); i >= 0 {
-		return fqn[i+1:]
-	}
-	return fqn
-}
+func (c *Contract) StepID() string { return defaultID(shortRPC(c.RPC)) }
 
 func (c *Contract) Text() string {
 	var b strings.Builder
