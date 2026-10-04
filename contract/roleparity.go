@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -24,7 +25,7 @@ func openToEveryRole(c *RPCContract) bool {
 func (p *Plan) parityProfiles(st *chain.Step) []string {
 	out := []string{}
 	for _, prof := range p.opts.Profiles {
-		if prof == st.Auth || prof == invalidProfile || prof == "default" || containsString(out, prof) {
+		if prof == st.Auth || prof == invalidProfile || prof == "default" || slices.Contains(out, prof) {
 			continue
 		}
 		out = append(out, prof)
@@ -368,12 +369,7 @@ func (p *Plan) copyIntoParities(lib *Library, added *chain.Step, producer string
 }
 
 func stepIndex(steps []*chain.Step, id string) int {
-	for i, s := range steps {
-		if s.ID == id {
-			return i
-		}
-	}
-	return -1
+	return slices.IndexFunc(steps, func(s *chain.Step) bool { return s.ID == id })
 }
 
 func (p *Plan) createdIDPath(st *chain.Step, m *catalog.Method) string {

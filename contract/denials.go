@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -56,22 +57,12 @@ func unauthFailure(lib *Library, rpc string) (Failure, bool) {
 }
 
 func holdsRole(profile string, roles []string) bool {
-	for _, r := range roles {
-		if namecase.Fold(profile) == namecase.Fold(r) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(roles, func(r string) bool { return namecase.Fold(profile) == namecase.Fold(r) })
 }
 
 func (p *Plan) isLogin(call string) bool {
 	full := canonicalCall(p.cat, call)
-	for _, l := range p.opts.Logins {
-		if canonicalCall(p.cat, l) == full {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.opts.Logins, func(l string) bool { return canonicalCall(p.cat, l) == full })
 }
 
 func (p *Plan) probeDenials(lib *Library, isTarget func(*chain.Step) bool) {

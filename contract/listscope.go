@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -141,7 +142,7 @@ func (p *Plan) maskUnscopedLists() {
 		if list == nil {
 			continue
 		}
-		if !containsString(st.Volatile, list.Name) {
+		if !slices.Contains(st.Volatile, list.Name) {
 			st.Volatile = append(st.Volatile, list.Name)
 		}
 		masked = append(masked, st.ID)

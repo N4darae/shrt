@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -122,7 +123,7 @@ func contentWords(text string, drop []string) []string {
 	out := []string{}
 	for _, w := range plainWord.FindAllString(strings.ReplaceAll(text, "'s", ""), -1) {
 		w = strings.ToLower(w)
-		if len(w) < 3 || effectStopWords[w] || skip[w] || containsString(out, w) {
+		if len(w) < 3 || effectStopWords[w] || skip[w] || slices.Contains(out, w) {
 			continue
 		}
 		out = append(out, w)
@@ -131,12 +132,7 @@ func contentWords(text string, drop []string) []string {
 }
 
 func sharesWord(a, b []string) bool {
-	for _, w := range a {
-		if containsString(b, w) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(a, func(w string) bool { return slices.Contains(b, w) })
 }
 
 func (p *Plan) effectRules(lib *Library) *effectRules {
@@ -672,7 +668,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 	asserted := map[string][]string{}
 	silent := map[string]string{}
 	mark := func(kind, id string) {
-		if !containsString(asserted[kind], id) {
+		if !slices.Contains(asserted[kind], id) {
 			asserted[kind] = append(asserted[kind], id)
 		}
 	}
@@ -831,7 +827,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 func (md *effectModel) watch(st *chain.Step, o *modelOrder) {
 	md.pending, md.waiting = st, nil
 	for _, l := range o.lines {
-		if md.dirty[l.entity] && !containsString(md.waiting, l.entity) {
+		if md.dirty[l.entity] && !slices.Contains(md.waiting, l.entity) {
 			md.waiting = append(md.waiting, l.entity)
 		}
 	}
@@ -917,7 +913,7 @@ func (p *Plan) startsEmpty(lib *Library, rpc string, s *stockRule) bool {
 		return true
 	}
 	for _, m := range startsAtZero.FindAllStringSubmatch(c.Summary, -1) {
-		if containsString(s.words, strings.ToLower(m[1])) {
+		if slices.Contains(s.words, strings.ToLower(m[1])) {
 			return true
 		}
 	}
@@ -1016,12 +1012,12 @@ func (p *Plan) forgetReferenced(md *effectModel, st *chain.Step) {
 func (p *Plan) stockTouched(md *effectModel, st *chain.Step) []string {
 	out := []string{}
 	for _, id := range referencedSteps(st.Body) {
-		if md.stockOf[id] != nil && !containsString(out, id) {
+		if md.stockOf[id] != nil && !slices.Contains(out, id) {
 			out = append(out, id)
 		}
 		if o := md.order(id); o != nil {
 			for _, l := range o.lines {
-				if md.stockOf[l.entity] != nil && !containsString(out, l.entity) {
+				if md.stockOf[l.entity] != nil && !slices.Contains(out, l.entity) {
 					out = append(out, l.entity)
 				}
 			}
@@ -1104,7 +1100,7 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 			continue
 		}
 		id := stepRefIn(st.Body[key])
-		md.waiting = removeString(md.waiting, id)
+		md.waiting = slices.DeleteFunc(slices.Clone(md.waiting), func(s string) bool { return s == id })
 		if s := md.stockOf[id]; s != nil && ref.RPC == s.entityRPC && md.dirty[id] {
 			if carrier := carrierHolding(m, s.moved); carrier != "" && (md.replaceEcho(st, carrier+"."+s.moved, md.level[id]) || md.set(st, carrier+"."+s.moved, md.level[id])) {
 				mark("read", st.ID)
@@ -1124,12 +1120,7 @@ func (p *Plan) isTargetStep(id string) bool {
 	if p.noun != "" {
 		return true
 	}
-	for _, node := range p.Targets {
-		if p.stepOf[node] == id {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(p.Targets, func(node string) bool { return p.stepOf[node] == id })
 }
 
 func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent map[string]string) {
@@ -1172,7 +1163,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 	ids := []string{}
 	for _, kind := range []string{"increase", "batch", "total", "read"} {
 		for _, id := range asserted[kind] {
-			if !containsString(ids, id) {
+			if !slices.Contains(ids, id) {
 				ids = append(ids, id)
 			}
 		}
@@ -1440,16 +1431,6 @@ func (r *effectRules) onlyCalled(called map[string]bool) *effectRules {
 	for k, v := range r.total {
 		if called[k] {
 			out.total[k] = v
-		}
-	}
-	return out
-}
-
-func removeString(list []string, drop string) []string {
-	out := list[:0:0]
-	for _, s := range list {
-		if s != drop {
-			out = append(out, s)
 		}
 	}
 	return out

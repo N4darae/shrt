@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -438,7 +439,7 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 		if !writePath {
 			continue
 		}
-		if !requiredCovers(c.Required, key) && explained(fields, key) {
+		if !slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) && explained(fields, key) {
 			continue
 		}
 		unwired = append(unwired, key)
@@ -467,15 +468,6 @@ func explained(fields map[string]*FieldContract, key string) bool {
 			continue
 		}
 		if strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note) {
-			return true
-		}
-	}
-	return false
-}
-
-func requiredCovers(required []string, key string) bool {
-	for _, r := range required {
-		if relatedKey(r, key) {
 			return true
 		}
 	}

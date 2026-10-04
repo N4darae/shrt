@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -53,7 +54,7 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 					if !ok {
 						continue
 					}
-					if got := walk(item, f.Fields, fmt.Sprintf("%s.%d", at, i)); len(got) > 0 && !containsString(paths, got[0]) {
+					if got := walk(item, f.Fields, fmt.Sprintf("%s.%d", at, i)); len(got) > 0 && !slices.Contains(paths, got[0]) {
 						paths = append(paths, got[0])
 					}
 				}

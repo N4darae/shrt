@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -227,8 +228,9 @@ func orderableFields(first *chain.Step, fields []*catalog.Field, anchor string) 
 func orderRanks(n int) [][]int {
 	used := map[string]bool{}
 	class := func(order []int) {
-		fwd, back := fmt.Sprint(order), fmt.Sprint(reversed(order))
-		used[fwd], used[back] = true, true
+		back := slices.Clone(order)
+		slices.Reverse(back)
+		used[fmt.Sprint(order)], used[fmt.Sprint(back)] = true, true
 	}
 	identity := make([]int, n)
 	for i := range identity {
@@ -251,14 +253,6 @@ func orderRanks(n int) [][]int {
 		}
 	}
 	walk(nil, identity)
-	return out
-}
-
-func reversed(order []int) []int {
-	out := make([]int, len(order))
-	for i, v := range order {
-		out[len(order)-1-i] = v
-	}
 	return out
 }
 

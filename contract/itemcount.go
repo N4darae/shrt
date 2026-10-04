@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,7 +17,7 @@ func (p *Plan) recordPreparation(clone, original string) {
 	if p.preps == nil {
 		p.preps = map[string][]string{}
 	}
-	if !containsString(p.preps[clone], original) {
+	if !slices.Contains(p.preps[clone], original) {
 		p.preps[clone] = append(p.preps[clone], original)
 	}
 }

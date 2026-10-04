@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -113,12 +114,12 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 			continue
 		}
 		parent := p.stepByID(src)
-		if parent == nil || chain.IsReadOnlyCall(parent.Call) || containsStep(t.producers, parent) {
+		if parent == nil || chain.IsReadOnlyCall(parent.Call) || slices.Contains(t.producers, parent) {
 			continue
 		}
 		all := true
 		for _, prod := range t.producers {
-			if !containsString(referencedSteps(prod.Body), src) {
+			if !slices.Contains(referencedSteps(prod.Body), src) {
 				all = false
 			}
 		}
@@ -152,15 +153,6 @@ func (p *Plan) sharedAnchorPrefix(t *listTarget) string {
 		}
 	}
 	return prefix
-}
-
-func containsStep(list []*chain.Step, st *chain.Step) bool {
-	for _, s := range list {
-		if s == st {
-			return true
-		}
-	}
-	return false
 }
 
 func (p *Plan) insertBefore(id string, steps ...*chain.Step) {
@@ -363,7 +355,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			continue
 		}
 		for _, item := range list.Fields {
-			if len(item.EnumValues) > 0 && !item.Repeated && sameValues(item.EnumValues, rf.EnumValues) {
+			if len(item.EnumValues) > 0 && !item.Repeated && slices.Equal(item.EnumValues, rf.EnumValues) {
 				filter, stateField = rf, item
 			}
 		}
@@ -395,7 +387,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		order = append(order, tr.value)
 	}
 	for _, prod := range t.producers {
-		if v := moved[prod.ID]; v != "" && !containsString(order, v) {
+		if v := moved[prod.ID]; v != "" && !slices.Contains(order, v) {
 			order = append(order, v)
 		}
 	}
@@ -518,18 +510,6 @@ func stepIDList(steps []*chain.Step) string {
 		ids = append(ids, s.ID)
 	}
 	return strings.Join(ids, ", ")
-}
-
-func sameValues(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step, values []string, short map[string]string, initial string) ([]transition, map[string]string) {

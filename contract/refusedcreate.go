@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -40,18 +41,13 @@ func (p *Plan) refusedCreate(st *chain.Step) bool {
 }
 
 func (p *Plan) allRefusedCreates(refused []*chain.Step) bool {
-	for _, st := range refused {
-		if !p.refusedCreate(st) {
-			return false
-		}
-	}
-	return len(refused) > 0
+	return len(refused) > 0 && !slices.ContainsFunc(refused, func(st *chain.Step) bool { return !p.refusedCreate(st) })
 }
 
 func (p *Plan) textOnlyReaders(lib *Library, st *chain.Step, createdPath string) []string {
 	out := []string{}
 	add := func(prod *chain.Step, idPath string) {
-		if e, ok := p.readerMatching(lib, prod, idPath, false); ok && !containsString(out, shortRPC(e.reader.FullName)) {
+		if e, ok := p.readerMatching(lib, prod, idPath, false); ok && !slices.Contains(out, shortRPC(e.reader.FullName)) {
 			out = append(out, shortRPC(e.reader.FullName))
 		}
 	}

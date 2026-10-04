@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -246,7 +247,7 @@ func (p *Plan) assertContracts(lib *Library) {
 	ids := []string{}
 	for _, st := range p.Chain.Steps {
 		for _, kind := range []string{"zero", "increase", "batch", "total", "read"} {
-			if containsString(asserted[kind], st.ID) && !containsString(ids, st.ID) {
+			if slices.Contains(asserted[kind], st.ID) && !slices.Contains(ids, st.ID) {
 				ids = append(ids, st.ID)
 			}
 		}
@@ -385,7 +386,7 @@ func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, s
 	}
 	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
 		key, sent := namecase.LookupKey(st.Body, rf.Name)
-		if sent && field != nil && sameValues(rf.EnumValues, field.EnumValues) && st.Body[key] != rf.EnumValues[0] {
+		if sent && field != nil && slices.Equal(rf.EnumValues, field.EnumValues) && st.Body[key] != rf.EnumValues[0] {
 			return
 		}
 	}

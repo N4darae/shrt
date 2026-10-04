@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -175,7 +176,7 @@ func (p *Plan) loginRoles(lib *Library, st *chain.Step, m *catalog.Method, c *RP
 	text := strings.Join([]string{c.Exports[field], c.Terminal[field], c.SoftSignals[field], c.Summary}, " ")
 	roles := []string{}
 	for _, w := range roleWord.FindAllString(text, -1) {
-		if !containsString(roles, w) {
+		if !slices.Contains(roles, w) {
 			roles = append(roles, w)
 		}
 	}
@@ -232,7 +233,7 @@ func defaultRole(lib *Library, roles []string) string {
 			continue
 		}
 		r := strings.TrimSpace(c.RequiresRole[0])
-		if !containsString(roles, r) {
+		if !slices.Contains(roles, r) {
 			continue
 		}
 		if found != "" && found != r {

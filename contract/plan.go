@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -279,7 +280,7 @@ func (p *Plan) noteAliasSiblings(edges map[string][]string) {
 	}
 	for _, rpc := range rpcs {
 		nodes := byRPC[rpc]
-		if len(nodes) < 2 || !containsString(nodes, rpc) || containsString(edges[rpc], "the plan target") {
+		if len(nodes) < 2 || !slices.Contains(nodes, rpc) || slices.Contains(edges[rpc], "the plan target") {
 			continue
 		}
 		if !p.plainLooksDuplicate(rpc, nodes, edges[rpc]) {
@@ -351,15 +352,6 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 			"merged into step %s. To call it again at another point in the chain, %s",
 			shortRPC(node), n+1, p.stepOf[node], how)
 	}
-}
-
-func containsString(list []string, want string) bool {
-	for _, s := range list {
-		if s == want {
-			return true
-		}
-	}
-	return false
 }
 
 func ArmedOneofMembersOf(lib *Library, rpc string) []string {
@@ -594,7 +586,7 @@ func (p *Plan) gapIn(note, gap string) {
 
 func (p *Plan) note(format string, args ...any) {
 	text := fmt.Sprintf(format, args...)
-	if containsString(p.Notes, text) {
+	if slices.Contains(p.Notes, text) {
 		return
 	}
 	p.Notes = append(p.Notes, text)
@@ -755,7 +747,7 @@ func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]strin
 	var visit func(node, via string, trail []string) error
 	visit = func(node, via string, trail []string) error {
 		canonical, rpc, alias := canon(node)
-		if via != "" && !containsString(edges[canonical], via) {
+		if via != "" && !slices.Contains(edges[canonical], via) {
 			edges[canonical] = append(edges[canonical], via)
 		}
 		switch state[canonical] {
@@ -1064,7 +1056,7 @@ func (p *Plan) noteRequirements() {
 				p.note("step %s %s", id, EnvelopeOnlyMessage(pc.step.Call, facts))
 			} else {
 				verdictOnly = append(verdictOnly, id)
-				if rpc := shortRPC(pc.step.Call); !containsString(rpcs, rpc) {
+				if rpc := shortRPC(pc.step.Call); !slices.Contains(rpcs, rpc) {
 					rpcs = append(rpcs, rpc)
 				}
 			}

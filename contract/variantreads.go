@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -89,7 +90,7 @@ func (p *Plan) actedOnLater(st *chain.Step) bool {
 		if chain.IsReadOnlyCall(s.Call) {
 			continue
 		}
-		if containsString(referencedSteps(s.Body), st.ID) {
+		if slices.Contains(referencedSteps(s.Body), st.ID) {
 			return true
 		}
 	}

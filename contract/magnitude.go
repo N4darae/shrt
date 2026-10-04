@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -303,12 +304,7 @@ func (p *Plan) echoNumbers() {
 }
 
 func hasExpectOn(st *chain.Step, path string) bool {
-	for _, e := range st.Expect {
-		if e.Path == path {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool { return e.Path == path })
 }
 
 func joinInts(ns []int64) string {

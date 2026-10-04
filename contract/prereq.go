@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"slices"
 	"sort"
 	"strings"
 
@@ -70,7 +71,7 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 			continue
 		}
 		for field, e := range c.Effects {
-			if e != nil && e.Increase != "" && increased[field] && !containsString(out, other) {
+			if e != nil && e.Increase != "" && increased[field] && !slices.Contains(out, other) {
 				out = append(out, other)
 			}
 		}
@@ -78,7 +79,7 @@ func sameEffectRPCs(lib *Library, rpc string) []string {
 			if f == nil || strings.Contains(name, ".") {
 				continue
 			}
-			if m := perItemClause.FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !containsString(out, other) {
+			if m := perItemClause.FindStringSubmatch(f.Note); m != nil && strings.EqualFold(m[1], short) && !slices.Contains(out, other) {
 				out = append(out, other)
 			}
 		}
