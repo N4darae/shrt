@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,7 @@ import (
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/transport"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,7 +33,7 @@ func declareConventions(ctx context.Context, cfg *config.Config, cfgPath string)
 	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return "", err
 	}
-	if mappingValue(doc.Content[0], "conventions") != nil {
+	if yamlkey.MappingValue(doc.Content[0], "conventions") != nil {
 		return "", nil
 	}
 	cat, err := catalog.Load(cfg.Abs(cfg.Descriptor.File))
@@ -65,16 +65,7 @@ func declareConventions(ctx context.Context, cfg *config.Config, cfgPath string)
 		}
 	}
 	top.Content = append(top.Content[:at], append([]*yaml.Node{key, &value}, top.Content[at:]...)...)
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
-		return "", err
-	}
-	if err := enc.Close(); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
+	if err := writeYAML(cfgPath, &doc); err != nil {
 		return "", err
 	}
 	cfg.Conventions.EnvelopePath = block.EnvelopePath

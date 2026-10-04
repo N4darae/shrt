@@ -2,6 +2,7 @@ package transport
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/binary"
@@ -80,11 +81,7 @@ type Options struct {
 func New(opts Options) *Client {
 	hc := opts.HTTPClient
 	if hc == nil {
-		timeout := opts.Timeout
-		if timeout == 0 {
-			timeout = 30 * time.Second
-		}
-		hc = &http.Client{Timeout: timeout}
+		hc = &http.Client{Timeout: cmp.Or(opts.Timeout, 30*time.Second)}
 	}
 	if opts.HostOverride != "" {
 		switch t := hc.Transport.(type) {
@@ -200,13 +197,7 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 			return nil, fmt.Errorf("POST %s: the target could not be reached (%w): the backend is down or not started, "+
 				"so nothing reached it and this is not a backend defect", url, err)
 		}
-		if ConnectionClosed(err) {
-			return nil, fmt.Errorf("POST %s: %w", url, closedError(err, wrote.Load()))
-		}
-		if TimedOut(err) && ctx.Err() == nil {
-			return nil, fmt.Errorf("POST %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)
-		}
-		return nil, fmt.Errorf("POST %s: %w", url, err)
+		return nil, c.failed(ctx, "POST "+url, err, wrote.Load())
 	}
 	defer resp.Body.Close()
 
@@ -222,13 +213,7 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 	}
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
 	if err != nil {
-		if ConnectionClosed(err) {
-			return nil, fmt.Errorf("read %s: %w", url, closedError(err, true))
-		}
-		if TimedOut(err) && ctx.Err() == nil {
-			return nil, fmt.Errorf("read %s: %s (%s): %w", url, NoAnswerBeforeTimeout, c.http.Timeout, err)
-		}
-		return nil, fmt.Errorf("read %s: %w", url, err)
+		return nil, c.failed(ctx, "read "+url, err, true)
 	}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		return nil, fmt.Errorf("POST %s: the target answered %d with Location %q; shrt never follows redirects, "+
@@ -245,6 +230,16 @@ func (c *Client) send(ctx context.Context, call *Call) (*Result, error) {
 		res.Error = decodeError(resp.StatusCode, raw)
 	}
 	return res, nil
+}
+
+func (c *Client) failed(ctx context.Context, what string, err error, sent bool) error {
+	switch {
+	case ConnectionClosed(err):
+		return fmt.Errorf("%s: %w", what, closedError(err, sent))
+	case TimedOut(err) && ctx.Err() == nil:
+		return fmt.Errorf("%s: %s (%s): %w", what, NoAnswerBeforeTimeout, c.http.Timeout, err)
+	}
+	return fmt.Errorf("%s: %w", what, err)
 }
 
 var errResendRefused = errors.New("the request had already been sent and shrt never re-sends one")

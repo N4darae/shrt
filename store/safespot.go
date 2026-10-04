@@ -64,24 +64,14 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 	if !rec.Passed() {
 		return nil, "", notPassed(rec)
 	}
-	path := s.SafeSpotPath(rec.Chain)
-	prev, err := s.LoadSafeSpot(rec.Chain)
-	switch {
-	case err == nil:
-		if !c.Supersede {
-			return nil, "", fmt.Errorf("%w at %s (confirmed by %s at %s)", ErrExists, path, prev.ConfirmedBy, prev.ConfirmedAt.Format(time.RFC3339))
-		}
+	prev, err := s.replaceable(rec.Chain, c.Supersede, "")
+	if err != nil {
+		return nil, "", err
+	}
+	if prev != nil {
 		if err := s.archive(rec.Chain, prev); err != nil {
 			return nil, "", err
 		}
-	case errors.Is(err, os.ErrNotExist):
-	default:
-		return nil, "", err
-	}
-
-	now := c.Now
-	if now.IsZero() {
-		now = time.Now()
 	}
 	spot := &SafeSpot{
 		Chain:       rec.Chain,
@@ -89,7 +79,7 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 		Target:      rec.Target,
 		Build:       rec.Build,
 		ConfirmedBy: c.By,
-		ConfirmedAt: now.UTC(),
+		ConfirmedAt: orNow(c.Now).UTC(),
 		Note:        c.Note,
 		Volatile:    rec.Volatile,
 		ChainDigest: rec.ChainDigest,
@@ -103,10 +93,31 @@ func (s *Store) Promote(rec *runner.Record, c Confirmation) (*SafeSpot, string, 
 		spot.ProposedBy, spot.ProposedAt = c.Proposal.ProposedBy, &at
 	}
 	spot.Digest = spot.ComputeDigest()
+	path := s.SafeSpotPath(rec.Chain)
 	if err := writeJSON(path, spot); err != nil {
 		return nil, "", err
 	}
 	return spot, path, nil
+}
+
+func (s *Store) replaceable(chainName string, supersede bool, hint string) (*SafeSpot, error) {
+	prev, err := s.LoadSafeSpot(chainName)
+	switch {
+	case err == nil && !supersede:
+		return nil, fmt.Errorf("%w at %s (confirmed by %s at %s)%s", ErrExists, s.SafeSpotPath(chainName), prev.ConfirmedBy, prev.ConfirmedAt.Format(time.RFC3339), hint)
+	case err == nil:
+		return prev, nil
+	case errors.Is(err, os.ErrNotExist):
+		return nil, nil
+	}
+	return nil, err
+}
+
+func orNow(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Now()
+	}
+	return t
 }
 
 func (s *Store) LoadSafeSpot(chainName string) (*SafeSpot, error) {
@@ -140,10 +151,7 @@ func (s *Store) RenameSafeSpot(from, to, by string, now time.Time) (*SafeSpot, s
 	if s.HasSafeSpot(to) {
 		return nil, "", fmt.Errorf("%w at %s: a rename cannot replace a safe spot; supersede it normally", ErrExists, s.SafeSpotPath(to))
 	}
-	if now.IsZero() {
-		now = time.Now()
-	}
-	spot.Renamed = append(spot.Renamed, Rename{From: from, To: to, At: now.UTC(), By: by, Digest: spot.Digest})
+	spot.Renamed = append(spot.Renamed, Rename{From: from, To: to, At: orNow(now).UTC(), By: by, Digest: spot.Digest})
 	spot.Chain = to
 	spot.Digest = spot.ComputeDigest()
 	path := s.SafeSpotPath(to)
@@ -211,18 +219,6 @@ func (spot *SafeSpot) DigestKind() string {
 }
 
 func (spot *SafeSpot) ComputeDigest() string {
-	if len(spot.Renamed) > 0 {
-		return hashJSON(struct {
-			Content     string
-			ConfirmedBy string
-			ConfirmedAt time.Time
-			Note        string
-			ProposedBy  string
-			ProposedAt  *time.Time
-			Supersedes  string
-			Renamed     []Rename
-		}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes, spot.Renamed})
-	}
 	return hashJSON(struct {
 		Content     string
 		ConfirmedBy string
@@ -231,23 +227,17 @@ func (spot *SafeSpot) ComputeDigest() string {
 		ProposedBy  string
 		ProposedAt  *time.Time
 		Supersedes  string
-	}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes})
+		Renamed     []Rename `json:",omitempty"`
+	}{spot.ContentDigest(), spot.ConfirmedBy, spot.ConfirmedAt, spot.Note, spot.ProposedBy, spot.ProposedAt, spot.Supersedes, spot.Renamed})
 }
 
 func (spot *SafeSpot) ContentDigest() string {
-	if spot.ChainDigest != "" {
-		return hashJSON(struct {
-			Chain, RunID, Target, Build string
-			Volatile                    []string
-			ChainDigest                 string
-			Steps                       []*runner.StepRecord
-		}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.ChainDigest, spot.Steps})
-	}
 	return hashJSON(struct {
 		Chain, RunID, Target, Build string
 		Volatile                    []string
+		ChainDigest                 string `json:",omitempty"`
 		Steps                       []*runner.StepRecord
-	}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.Steps})
+	}{spot.Chain, spot.RunID, spot.Target, spot.Build, spot.Volatile, spot.ChainDigest, spot.Steps})
 }
 
 func recordDigest(rec *runner.Record) string {

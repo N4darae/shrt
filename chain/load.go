@@ -1,13 +1,9 @@
 package chain
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/namecase"
@@ -25,12 +21,12 @@ func LoadFile(path string) (*Chain, error) {
 
 func loadBytes(raw []byte, path string) (*Chain, error) {
 	c := &Chain{}
-	if err := decodeStrict(raw, c); err != nil {
+	if err := yamlkey.DecodeStrict(raw, c); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	markVacuousRules(raw, c)
 	if c.Name == "" {
-		c.Name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		c.Name = FileStem(path)
 	}
 	if err := c.Normalize(); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -155,29 +151,11 @@ func Names(dir string) []string {
 }
 
 func DidYouMean(ref string, names []string) string {
-	near := namecase.Closest(ref, names, 1)
-	if len(near) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (did you mean %q?)", near[0])
+	return namecase.Suggest(namecase.Closest(ref, names, 1))
 }
 
 func (c *Chain) Marshal() ([]byte, error) {
 	return yaml.Marshal(c)
-}
-
-func decodeStrict(raw []byte, into any) error {
-	d := yaml.NewDecoder(bytes.NewReader(raw))
-	d.KnownFields(true)
-	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into, raw)
-	}
-	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
-		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
-			"everything after the '---' would be silently ignored. Split it into separate files")
-	}
-	return nil
 }
 
 func markVacuousRules(raw []byte, c *Chain) {
@@ -185,7 +163,7 @@ func markVacuousRules(raw []byte, c *Chain) {
 	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) == 0 {
 		return
 	}
-	steps := mappingValue(doc.Content[0], "steps")
+	steps := yamlkey.MappingValue(doc.Content[0], "steps")
 	if steps == nil || steps.Kind != yaml.SequenceNode {
 		return
 	}
@@ -193,7 +171,7 @@ func markVacuousRules(raw []byte, c *Chain) {
 		if i >= len(c.Steps) || c.Steps[i] == nil {
 			break
 		}
-		expect := mappingValue(sn, "expect")
+		expect := yamlkey.MappingValue(sn, "expect")
 		if expect == nil || expect.Kind != yaml.SequenceNode {
 			continue
 		}
@@ -201,24 +179,12 @@ func markVacuousRules(raw []byte, c *Chain) {
 			if j >= len(c.Steps[i].Expect) {
 				break
 			}
-			if v := mappingValue(en, "contains"); v != nil && v.Kind == yaml.ScalarNode && v.Value == "" && v.Tag != "!!null" {
+			if v := yamlkey.MappingValue(en, "contains"); v != nil && v.Kind == yaml.ScalarNode && v.Value == "" && v.Tag != "!!null" {
 				c.Steps[i].Expect[j].vacuous = `contains: ""`
 			}
-			if v := mappingValue(en, "not_empty"); v != nil && v.Kind == yaml.ScalarNode && v.Tag == "!!bool" && strings.EqualFold(v.Value, "false") {
+			if v := yamlkey.MappingValue(en, "not_empty"); v != nil && v.Kind == yaml.ScalarNode && v.Tag == "!!bool" && strings.EqualFold(v.Value, "false") {
 				c.Steps[i].Expect[j].vacuous = "not_empty: false"
 			}
 		}
 	}
-}
-
-func mappingValue(n *yaml.Node, key string) *yaml.Node {
-	if n == nil || n.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(n.Content); i += 2 {
-		if n.Content[i].Value == key {
-			return n.Content[i+1]
-		}
-	}
-	return nil
 }

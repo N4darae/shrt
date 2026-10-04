@@ -81,11 +81,9 @@ func LintWith(c *Chain, cat *catalog.Catalog, opts LintOptions) []Issue {
 		issues = append(issues, lintTransport(s, m)...)
 		issues = append(issues, lintDeprecated(s, m)...)
 		issues = append(issues, lintExpectRefs(s, known, knownExports, responses, idx)...)
-		issues = append(issues, lintExpectRules(s)...)
-		issues = append(issues, lintAssertsSomething(s)...)
-		issues = append(issues, lintInertAllowFail(s)...)
-		issues = append(issues, lintLiteralIdempotency(s)...)
-		issues = append(issues, lintUnterminatedPrefix(s)...)
+		for _, lint := range []func(*Step) []Issue{lintExpectRules, lintAssertsSomething, lintInertAllowFail, lintLiteralIdempotency, lintUnterminatedPrefix} {
+			issues = append(issues, lint(s)...)
+		}
 		issues = append(issues, lintUnscopedCount(s, m)...)
 		issues = append(issues, lintUnevaluableOnRefusal(s)...)
 		known[s.ID] = true
@@ -167,11 +165,14 @@ type refIndex struct {
 func newRefIndex(c *Chain) *refIndex {
 	idx := &refIndex{stepAt: map[string]int{}, exportedBy: map[string]int{}, exporter: map[string]string{}}
 	for i, s := range c.Steps {
+		if s == nil {
+			continue
+		}
 		idx.steps = append(idx.steps, s.ID)
 		if _, seen := idx.stepAt[s.ID]; !seen {
 			idx.stepAt[s.ID] = i + 1
 		}
-		for _, name := range sortedKeys(s.Export) {
+		for _, name := range SortedKeys(s.Export) {
 			if _, seen := idx.exportedBy[name]; !seen {
 				idx.exportedBy[name] = i + 1
 				idx.exporter[name] = s.ID
@@ -201,7 +202,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 	out := []string{}
 	var last *catalog.Field
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			if last == nil || last.Repeated {
 				out = append(out, seg)
 			}
@@ -225,7 +226,7 @@ func fitIndexes(fields []*catalog.Field, segs []string) []string {
 func nearPath(fields []*catalog.Field, segs []string) string {
 	top := fields
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			continue
 		}
 		var next *catalog.Field
@@ -251,15 +252,12 @@ func nearPath(fields []*catalog.Field, segs []string) string {
 			if len(near) == 0 {
 				near = namesWithWord(seg, names, 3)
 			}
-			quoted := make([]string, 0, len(near))
+			paths := make([]string, 0, len(near))
 			for _, n := range near {
 				path := append(append(append([]string{}, segs[:i]...), strings.Split(n, ".")...), segs[i+1:]...)
-				quoted = append(quoted, strconv.Quote(strings.Join(fitIndexes(top, path), ".")))
+				paths = append(paths, strings.Join(fitIndexes(top, path), "."))
 			}
-			if len(quoted) == 0 {
-				return ""
-			}
-			return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+			return namecase.Suggest(paths)
 		}
 		if next.Truncated || next.MapKey != "" {
 			return ""
@@ -305,14 +303,7 @@ func didYouMean(name string, candidates []string) string {
 	if len(near) == 0 {
 		near = namesSharingWords(name, candidates, 3)
 	}
-	if len(near) == 0 {
-		return ""
-	}
-	quoted := make([]string, 0, len(near))
-	for _, n := range near {
-		quoted = append(quoted, strconv.Quote(n))
-	}
-	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
+	return namecase.Suggest(near)
 }
 
 func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex) string {
@@ -352,7 +343,7 @@ func referenceProblem(r Ref, known, knownExports map[string]bool, idx *refIndex)
 
 func lintRefSyntax(s *Step) []Issue {
 	values := []any{s.Body}
-	for _, name := range sortedKeys(s.Headers) {
+	for _, name := range SortedKeys(s.Headers) {
 		values = append(values, s.Headers[name])
 	}
 	for _, e := range s.Expect {
@@ -380,7 +371,7 @@ func refSyntaxProblems(text string) []string {
 		if r.Err != nil || r.Rest == "" || (r.Kind != RefClock && r.Kind != RefUUID) {
 			continue
 		}
-		if r.Kind == RefClock && r.Offset != 0 && isDigits(r.Rest) {
+		if r.Kind == RefClock && r.Offset != 0 && IsDigits(r.Rest) {
 			out = append(out, fmt.Sprintf("%q: the offset in ${%s} is a whole number of seconds, so it "+
 				"resolves as ${%s} and the .%s is dropped. Write the offset in whole seconds", text, trimmed,
 				r.Expr[:len(r.Expr)-len(r.Rest)-1], r.Rest))
@@ -411,7 +402,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"skip_auth and auth: %q contradict each other — skip_auth sends no token at all, drop one", s.Auth)})
 	}
-	if name, ok := headerNamed(s.Headers, "Authorization"); ok && s.SkipAuth {
+	if name, ok := HeaderNamed(s.Headers, "Authorization"); ok && s.SkipAuth {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"skip_auth with a hand-written %q header is the workaround auth profiles replaced: it pins one "+
 				"principal into one step, with no refresh, so the chain fails tomorrow for a reason that is "+
@@ -420,7 +411,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 		return issues
 	}
 	if coverage == nil {
-		if name, ok := headerNamed(s.Headers, "Authorization"); ok {
+		if name, ok := HeaderNamed(s.Headers, "Authorization"); ok {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: fmt.Sprintf(
 				"%q is written by hand and the auth middleware overwrites it whenever a profile covers this "+
 					"call, so this value is discarded rather than sent. Keep it only if your config declares no "+
@@ -432,7 +423,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 	if !covered {
 		return issues
 	}
-	if name, ok := headerNamed(s.Headers, header); ok {
+	if name, ok := HeaderNamed(s.Headers, header); ok {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"%q is written by hand, and auth profile %q covers this call, so the auth middleware "+
 				"overwrites the header with that profile's token: the value written here is never sent and "+
@@ -452,14 +443,13 @@ func lintAuthProfile(s *Step, profiles []string) []Issue {
 			"asks for auth profile %q, but the config declares no auth at all, so shrt run refuses the chain "+
 				"before sending anything", s.Auth)}}
 	}
-	have := append([]string{}, profiles...)
-	sort.Strings(have)
+	have := slices.Sorted(slices.Values(profiles))
 	return []Issue{{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 		"asks for auth profile %q, which the config does not define (have: %s), so shrt run refuses the "+
 			"chain before sending anything%s", s.Auth, strings.Join(have, ", "), didYouMean(s.Auth, have))}}
 }
 
-func headerNamed(headers map[string]string, want string) (string, bool) {
+func HeaderNamed(headers map[string]string, want string) (string, bool) {
 	for name := range headers {
 		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(want)) {
 			return name, true
@@ -807,20 +797,17 @@ func lintExpectPaths(s *Step, m *catalog.Method) []Issue {
 
 func UnreachableExpectations(c *Chain, cat *catalog.Catalog) []Issue {
 	out := []Issue{}
-	for _, s := range c.Steps {
-		if s == nil {
-			continue
-		}
-		m, err := cat.Lookup(s.Call)
-		if err != nil {
-			continue
+	c.eachTyped(cat, func(_ int, s *Step, m *catalog.Method, _ map[string]*catalog.Method, _ map[string]exportOrigin) bool {
+		if m == nil {
+			return true
 		}
 		for _, i := range lintExpectPaths(s, m) {
 			if i.IsError() && i.Kind == KindUnreachable {
 				out = append(out, i)
 			}
 		}
-	}
+		return true
+	})
 	return out
 }
 
@@ -844,7 +831,7 @@ func scalarNotEqualOnObject(e Expectation, fields []*catalog.Field) (string, boo
 	switch {
 	case f.MapKey != "" && namecase.Equal(f.Name, last):
 		return "a map", true
-	case f.Repeated && !isDigits(last):
+	case f.Repeated && !IsDigits(last):
 		return "a list", true
 	case (f.Kind == "message" || f.Kind == "group") && f.MapKey == "" &&
 		(f.Message == "google.protobuf.Struct" || !strings.HasPrefix(f.Message, "google.protobuf.")):
@@ -899,7 +886,7 @@ func arithmeticIssue(stepID string, e Expectation, fields []*catalog.Field) (Iss
 func lintExports(s *Step, m *catalog.Method) []Issue {
 	issues := []Issue{}
 	schema := m.Response()
-	for _, name := range sortedKeys(s.Export) {
+	for _, name := range SortedKeys(s.Export) {
 		path := s.Export[name]
 		if exact, inexact := inexactPath(schema.Fields, path); inexact {
 			issues = append(issues, inexactPathIssue(s.ID, fmt.Sprintf("export %q reads %q", name, path), exact, m))
@@ -929,21 +916,13 @@ func (c *Chain) ExportStepClashes() []string {
 
 func lintExportNames(c *Chain) []Issue {
 	issues := []Issue{}
-	stepAt := map[string]int{}
-	for i, s := range c.Steps {
-		if s == nil {
-			continue
-		}
-		if _, seen := stepAt[s.ID]; !seen {
-			stepAt[s.ID] = i + 1
-		}
-	}
+	stepAt := newRefIndex(c).stepAt
 	writer := map[string]int{}
 	for i, s := range c.Steps {
 		if s == nil {
 			continue
 		}
-		for _, name := range sortedKeys(s.Export) {
+		for _, name := range SortedKeys(s.Export) {
 			if at, clash := stepAt[name]; clash {
 				issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 					"export %q has the same name as step %q (step %d), so ${%s} is ambiguous: the bare reference "+
@@ -966,7 +945,7 @@ func inexactPath(fields []*catalog.Field, path string) (string, bool) {
 	segs := SplitPath(path)
 	out := make([]string, 0, len(segs))
 	for i, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			out = append(out, seg)
 			continue
 		}
@@ -1014,7 +993,7 @@ func ExternalInputs(c *Chain) (vars []string, env []string) {
 			wantEnv[r.Rest] = true
 		}
 	}
-	return sortedKeys(wantVar), sortedKeys(wantEnv)
+	return SortedKeys(wantVar), SortedKeys(wantEnv)
 }
 
 func chainRefs(c *Chain) []Ref {
@@ -1118,7 +1097,7 @@ func issuesFrom(step, severity, kind string, messages []string) []Issue {
 
 func VarRefProblems(vars map[string]any) []string {
 	out := []string{}
-	for _, name := range sortedKeys(vars) {
+	for _, name := range SortedKeys(vars) {
 		for _, ref := range collectRefs(vars[name]) {
 			out = append(out, fmt.Sprintf(
 				"var %q carries ${%s}, and a var value is NOT resolved — it is stored and handed back verbatim, so the literal text would be sent to the server and every check would still pass. Put the reference in the body that uses it, or supply the value with -var at run time",
@@ -1167,24 +1146,8 @@ func lintExpectRules(s *Step) []Issue {
 }
 
 func enumValuesAt(fields []*catalog.Field, segs []string) []string {
-	for len(segs) > 0 && isDigits(segs[0]) {
-		segs = segs[1:]
-	}
-	if len(segs) == 0 {
-		return nil
-	}
-	for _, f := range fields {
-		if !namecase.Equal(f.Name, segs[0]) {
-			continue
-		}
-		rest := segs[1:]
-		for len(rest) > 0 && isDigits(rest[0]) {
-			rest = rest[1:]
-		}
-		if len(rest) == 0 {
-			return f.EnumValues
-		}
-		return enumValuesAt(f.Fields, rest)
+	if f, ok := catalog.ResponseFieldAt(fields, segs); ok && f != nil {
+		return f.EnumValues
 	}
 	return nil
 }
@@ -1198,7 +1161,7 @@ func LintCorpus(chains []*Chain) []Issue {
 		}
 		byName[c.Name] = append(byName[c.Name], c.SourcePath)
 	}
-	for _, name := range sortedKeys(byName) {
+	for _, name := range SortedKeys(byName) {
 		paths := byName[name]
 		if len(paths) < 2 {
 			continue
@@ -1302,7 +1265,7 @@ func lintLiteralIdempotency(s *Step) []Issue {
 			warn(path, t)
 		}
 	})
-	for _, k := range sortedKeys(s.Headers) {
+	for _, k := range SortedKeys(s.Headers) {
 		if v := s.Headers[k]; IdempotencyKeyName(k) && v != "" && !hasRef(v) {
 			warn("header "+k, v)
 		}
@@ -1358,7 +1321,7 @@ func lintUnterminatedPrefix(s *Step) []Issue {
 		return nil
 	}
 	issues := []Issue{}
-	for _, k := range sortedKeys(s.Body) {
+	for _, k := range SortedKeys(s.Body) {
 		text, ok := s.Body[k].(string)
 		if !ok || !strings.Contains(namecase.Fold(k), "prefix") {
 			continue
@@ -1420,7 +1383,7 @@ func fieldPathsNamed(fields []*catalog.Field, leaf, prefix string) []string {
 	return out
 }
 
-func sortedKeys[V any](m map[string]V) []string {
+func SortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

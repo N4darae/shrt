@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,16 +23,12 @@ var (
 )
 
 func uniquenessNoun(f Failure) (string, bool) {
-	if m := duplicateReason().FindStringSubmatch(f.Reason); m != nil {
-		return m[1], true
+	for _, re := range []*regexp.Regexp{duplicateReason(), takenReason()} {
+		if m := re.FindStringSubmatch(f.Reason); m != nil {
+			return m[1], true
+		}
 	}
-	if m := takenReason().FindStringSubmatch(f.Reason); m != nil {
-		return m[1], true
-	}
-	if uniqueWhen().MatchString(f.When) {
-		return "", true
-	}
-	return "", false
+	return "", uniqueWhen().MatchString(f.When)
 }
 
 func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun string) string {
@@ -40,7 +37,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 			return f.Field
 		}
 	}
-	keys := sortedKeys(step.Body)
+	keys := chain.SortedKeys(step.Body)
 	if noun != "" {
 		want := namecase.Fold(noun)
 		for _, k := range keys {
@@ -55,7 +52,7 @@ func (p *Plan) uniqueField(step *chain.Step, c *RPCContract, f Failure, noun str
 		}
 	}
 	marked := []string{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		note := strings.ToLower(c.Fields[name].Note)
 		if strings.Contains(note, "unique") || strings.Contains(note, "unused") {
 			if _, ok := bodyValue(step.Body, name); ok {
@@ -109,14 +106,6 @@ func stableAcrossSteps(v string) string {
 	return strings.Trim(out, "-_")
 }
 
-func leafName(path string) string {
-	segs := chain.SplitPath(path)
-	if len(segs) == 0 {
-		return path
-	}
-	return segs[len(segs)-1]
-}
-
 func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || chain.IsReadOnlyCall(st.Call) {
@@ -148,18 +137,18 @@ func (p *Plan) probeUniqueness(lib *Library, isTarget func(*chain.Step) bool) {
 }
 
 func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCContract, f Failure, field string) {
-	expect, pinned := refusalExpectations(m, f)
+	expect, pinned := refusalExpectations(m, f, true)
 	text := strings.Join([]string{f.When, f.Message, c.Summary}, " ")
 	if fc := c.Fields[field]; fc != nil {
 		text += " " + fc.Note
 	}
-	leaf := leafName(field)
+	leaf := chain.PathLeaf(field)
 	ref := "${steps." + st.ID + ".request." + field + "}"
 	attempt := func(suffix, description string, value any) *chain.Step {
 		body, _ := cloneBody(st.Body).(map[string]any)
 		setBodyPath(body, field, value)
 		return &chain.Step{
-			ID:          uniqueStepID(p.Chain, st.ID+"_same_"+leaf+suffix),
+			ID:          p.freeStepID(st.ID + "_same_" + leaf + suffix),
 			Description: description,
 			Call:        st.Call,
 			Auth:        st.Auth,
@@ -219,27 +208,21 @@ func (p *Plan) addDuplicateAttempts(st *chain.Step, m *catalog.Method, c *RPCCon
 	p.Chain.Steps = slices.Insert(slices.Clip(p.Chain.Steps), slices.Index(p.Chain.Steps, st)+1, added...)
 }
 
-func refusalExpectations(m *catalog.Method, f Failure) ([]chain.Expectation, bool) {
+func refusalExpectations(m *catalog.Method, f Failure, absentCarrier bool) ([]chain.Expectation, bool) {
 	out := []chain.Expectation{}
-	fields := catalog.DescribeMessage(m.Output()).Fields
 	root := ""
 	if CarriesEnvelope(m) {
 		out = append(out, chain.Expectation{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()})
 		root = chain.EnvelopeField()
 	}
-	selected := []*catalog.Field{}
-	for _, fd := range fields {
-		if root == "" || fd.Name == root {
-			selected = append(selected, fd)
-		}
-	}
+	selected := slices.DeleteFunc(catalog.DescribeMessage(m.Output()).Fields, func(fd *catalog.Field) bool { return root != "" && fd.Name != root })
 	codes, pinned := codeExpectations(selected, "", f)
 	out = append(out, codes...)
 	if !pinned && f.ConnectCode != "" && f.Code == 0 {
 		out = append(out, chain.Expectation{Path: "transport.code", Equals: f.ConnectCode})
 		pinned = true
 	}
-	if car := singleCarrier(m); car != nil {
+	if car := singleCarrier(m); absentCarrier && car != nil {
 		out = append(out, chain.Expectation{Path: car.Name, Exists: boolPtr(false)})
 	}
 	return out, pinned

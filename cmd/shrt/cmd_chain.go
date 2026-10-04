@@ -12,12 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/contract"
 	"github.com/N4darae/shrt/runner"
-	"gopkg.in/yaml.v3"
 )
 
 func init() {
@@ -74,7 +72,7 @@ func chainNew(args []string) error {
 		if refusal := m.StreamRefusal(); refusal != "" {
 			return fmt.Errorf("refusing to scaffold a step for %s: %s", m.FullName, refusal)
 		}
-		id := uniqueID(c, contractID(m))
+		id := c.FreeStepID(contract.For(m).StepID(), nil)
 		c.Steps = append(c.Steps, &chain.Step{ID: id, Call: m.FullName})
 		refs = append(refs, m.FullName)
 		ids = append(ids, id)
@@ -94,10 +92,7 @@ func chainNew(args []string) error {
 	if _, err := os.Stat(path); err == nil && !*force {
 		return fmt.Errorf("%s already exists, pass -force to overwrite", path)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	if err := os.WriteFile(path, raw, 0o644); err != nil {
+	if err := writePlanFile(path, raw); err != nil {
 		return err
 	}
 	n := len(c.Steps)
@@ -106,31 +101,6 @@ func chainNew(args []string) error {
 	}
 	fmt.Printf("wrote %s (%d step(s))\nedit the body, then: shrt chain lint %s\n", path, n, *name)
 	return nil
-}
-
-func setKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
-}
-
-func contractID(m *catalog.Method) string {
-	return contract.For(m).StepID()
-}
-
-func uniqueID(c *chain.Chain, base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := c.Step(id); !exists {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
 }
 
 func chainList(args []string) error {

@@ -114,7 +114,7 @@ func lintIndistinctOrder(c *Chain) []Issue {
 			}
 			byList[m[1]][idx] = src
 		}
-		for _, list := range sortedKeys(byList) {
+		for _, list := range SortedKeys(byList) {
 			if issue, ok := indistinctOrderIssue(c, s, list, byList[list], position); ok {
 				issues = append(issues, issue)
 			}
@@ -134,7 +134,7 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 	if len(idx) < 2 || mirrorsARequest(c, s, at, idx) {
 		return Issue{}, false
 	}
-	steps := []*Step{}
+	steps, ids := []*Step{}, []string{}
 	seen := map[string]bool{}
 	for _, i := range idx {
 		src := at[i]
@@ -146,9 +146,9 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 		if st == nil || (len(steps) > 0 && st.Call != steps[0].Call) {
 			return Issue{}, false
 		}
-		steps = append(steps, st)
+		steps, ids = append(steps, st), append(ids, st.ID)
 	}
-	fields := sortedKeys(steps[0].Body)
+	fields := SortedKeys(steps[0].Body)
 	agree := []string{}
 	for _, f := range fields {
 		ascending := true
@@ -175,10 +175,6 @@ func indistinctOrderIssue(c *Chain, s *Step, list string, at map[int]string, pos
 	}
 	if len(agree) < 2 {
 		return Issue{}, false
-	}
-	ids := make([]string, 0, len(steps))
-	for _, st := range steps {
-		ids = append(ids, st.ID)
 	}
 	return Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindIndistinctOrder, Message: fmt.Sprintf(
 		"asserts the order of %s (items from %s, in that order), but %s all put those items in the same order, so the "+

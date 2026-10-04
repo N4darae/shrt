@@ -120,10 +120,10 @@ func EmptyFilterGaps(chains []*chain.Chain, lib *Library, cat *catalog.Catalog) 
 		}
 	}
 	out := []EmptyFilterGap{}
-	for _, k := range sortedKeys(seen) {
+	for _, k := range chain.SortedKeys(seen) {
 		if !seen[k].empty {
 			rpc, field, _ := strings.Cut(k, "\x00")
-			out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: sortedKeys(seen[k].chains)})
+			out = append(out, EmptyFilterGap{RPC: rpc, Field: field, Chains: chain.SortedKeys(seen[k].chains)})
 		}
 	}
 	return out

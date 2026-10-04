@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const largeValue = 12345
@@ -130,18 +131,26 @@ func mentionsField(text, name string) bool {
 	return err == nil && re.MatchString(text)
 }
 
-func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
+func boundTexts(lib *Library, rpc string, c *RPCContract, name string) ([]string, []*Failure) {
+	texts, from := []string{}, []*Failure{}
 	for _, f := range lib.AllFailures(rpc) {
-		if f.Field != name && !mentionsField(f.When, name) {
-			continue
-		}
-		if n, ok := parse(f.When); ok {
-			return n, &f, true
+		if f.Field == name || mentionsField(f.When, name) {
+			texts, from = append(texts, f.When), append(from, &f)
 		}
 	}
-	if fc := c.Fields[name]; fc != nil {
-		if n, ok := parse(fc.Note); ok {
-			return n, nil, true
+	if c != nil {
+		if fc := c.Fields[name]; fc != nil {
+			texts, from = append(texts, fc.Note), append(from, nil)
+		}
+	}
+	return texts, from
+}
+
+func statedBound(lib *Library, rpc string, c *RPCContract, name string, parse func(string) (int64, bool)) (int64, *Failure, bool) {
+	texts, from := boundTexts(lib, rpc, c, name)
+	for i, text := range texts {
+		if n, ok := parse(text); ok {
+			return n, from[i], true
 		}
 	}
 	return 0, nil, false
@@ -194,13 +203,8 @@ func (p *Plan) probeBoundaries(lib *Library, isTarget func(*chain.Step) bool) {
 				p.Chain.Steps = append(p.Chain.Steps, probe)
 				below := p.probeCopy(lib, st, f.Name+"_below_min")
 				below.Body[key] = strconv.FormatInt(min-1, 10)
-				if failure != nil {
-					below.Expect = refusalFor(m, *failure)
-					below.Description = fmt.Sprintf("%s at %d, one below its minimum, is refused with %s.", f.Name, min-1, failure.Label())
-				} else {
-					below.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
-					below.Description = fmt.Sprintf("%s at %d, one below its minimum, is refused.", f.Name, min-1)
-				}
+				expect, with := refusedWith(m, failure)
+				below.Expect, below.Description = expect, fmt.Sprintf("%s at %d, one below its minimum, is refused%s.", f.Name, min-1, with)
 				p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{below}, below.ID)...)
 				from := "the field's note"
 				if failure != nil {
@@ -329,9 +333,8 @@ func (p *Plan) largeBatchQuantities(lib *Library, st *chain.Step, b *batchRule) 
 }
 
 func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, c *RPCContract, m *catalog.Method) string {
-	results := p.perItemResults(lib, st.Call, c, m)
-	listPath, verdict, ok := strings.Cut(chain.ItemEnvelope(), "[].")
-	if results == nil || !ok {
+	results, listPath, verdict := p.perItemResults(lib, st.Call, c, m)
+	if results == nil {
 		return ""
 	}
 	for _, rf := range catalog.DescribeMessage(m.Input()).Fields {
@@ -363,11 +366,9 @@ func (p *Plan) largeBatchLine(lib *Library, rules *effectRules, st *chain.Step, 
 			[]batchLine{{item: large}, {item: cloneBody(last)}})
 		grew := ""
 		if inc != nil {
-			for _, f := range results.Fields {
-				if f.Name == inc.moved && chain.IsNumericKind(f.Kind) && !f.Repeated {
-					probe.Expect = append(probe.Expect, chain.Expectation{Path: fmt.Sprintf("%s.0.%s", listPath, f.Name), Gte: strconv.Itoa(largeValue)})
-					grew = fmt.Sprintf(", %s.0.%s at least %d", listPath, f.Name, largeValue)
-				}
+			if f := fieldByName(results.Fields, inc.moved); f != nil && chain.IsNumericKind(f.Kind) && !f.Repeated {
+				probe.Expect = append(probe.Expect, chain.Expectation{Path: fmt.Sprintf("%s.0.%s", listPath, f.Name), Gte: strconv.Itoa(largeValue)})
+				grew = fmt.Sprintf(", %s.0.%s at least %d", listPath, f.Name, largeValue)
 			}
 		}
 		return fmt.Sprintf("%s (%s.0.%s = %d beside a normal line, as %s gets, each line applied%s, and %s read back what each line "+
@@ -500,17 +501,7 @@ var lengthUnit = lazyRegexp(`(?i)^\s*(?:characters|chars|char|letters|runes|code
 var aboveN = lazyRegexp(`(?i)(?:at most|no more than|up to|maximum(?: is| of)?|not exceed|exceeds?|more than|greater than|above|over)\s+(\d+)`)
 
 func statedNumericMaximum(lib *Library, rpc string, c *RPCContract, name string) (int64, bool) {
-	texts := []string{}
-	for _, f := range lib.AllFailures(rpc) {
-		if f.Field == name || mentionsField(f.When, name) {
-			texts = append(texts, f.When)
-		}
-	}
-	if c != nil {
-		if fc := c.Fields[name]; fc != nil {
-			texts = append(texts, fc.Note)
-		}
-	}
+	texts, _ := boundTexts(lib, rpc, c, name)
 	best, found := int64(0), false
 	for _, t := range texts {
 		for _, at := range aboveN().FindAllStringSubmatchIndex(t, -1) {
@@ -538,17 +529,11 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		if err != nil {
 			continue
 		}
-		kind := ""
 		fields := catalog.DescribeMessage(m.Output()).Fields
 		if t.carrier != "" {
 			fields = carrierFields(m, t.carrier)
 		}
-		for _, sf := range fields {
-			if sf.Name == t.field {
-				kind = sf.Kind
-			}
-		}
-		if !strings.Contains(kind, "64") {
+		if sf := fieldByName(fields, t.field); sf == nil || !strings.Contains(sf.Kind, "64") {
 			continue
 		}
 		key, first, ok := firstLine(st.Body, t.list)
@@ -578,7 +563,7 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		if price*qty <= wideLimit {
 			p.gap("step %s: %s is a 64-bit number, but the bounds its contract states on %s and %s keep %s × %s at or below 2^31, "+
-				"so no probe checks the sum past 32 bits", st.ID, join(t.carrier, t.field), t.price, t.itemQty, t.price, t.itemQty)
+				"so no probe checks the sum past 32 bits", st.ID, pathmask.Join(t.carrier, t.field), t.price, t.itemQty, t.price, t.itemQty)
 			continue
 		}
 		id := p.freeStepID(st.ID + "_wide_total")
@@ -601,10 +586,10 @@ func (p *Plan) probeWideTotals(lib *Library, isTarget func(*chain.Step) bool) {
 		probe.Expect = SuccessExpectation(m)
 		p.assertEcho(probe)
 		probe.Description = fmt.Sprintf("one %s of %d at %d: %s is %d, past 2^31 and 2^32, so a sum kept in 32 bits wraps and fails.",
-			strings.TrimSuffix(t.list, "s"), qty, price, join(t.carrier, t.field), price*qty)
+			strings.TrimSuffix(t.list, "s"), qty, price, pathmask.Join(t.carrier, t.field), price*qty)
 		p.Chain.Steps = append(p.Chain.Steps, prod, probe)
 		p.note("step %s: %s is a 64-bit number, so %s sends one %s of %d at %s %d (from %s) and asserts it is exactly %d: "+
 			"the fixtures' totals fit in 32 bits, and a backend that computes or stores the sum in 32 bits wraps there",
-			st.ID, join(t.carrier, t.field), id, strings.TrimSuffix(t.list, "s"), qty, t.price, price, prod.ID, price*qty)
+			st.ID, pathmask.Join(t.carrier, t.field), id, strings.TrimSuffix(t.list, "s"), qty, t.price, price, prod.ID, price*qty)
 	}
 }

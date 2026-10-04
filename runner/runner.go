@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -132,7 +133,15 @@ func (bs AuthBindings) learnSecrets(redactor *pathmask.Masker) {
 		if b == nil {
 			continue
 		}
-		learnMaskedTemplate(redactor, b.BodyFields, "")
+		eachLeaf(b.BodyFields, "", func(v any, path string) {
+			if !redactor.Masks(path) {
+				return
+			}
+			resolved, err := chain.AuthBodyScope().ResolveValue(v)
+			if err == nil && redactor.MasksValue(path, resolved) {
+				learnSecret(redactor, resolved)
+			}
+		})
 	}
 }
 
@@ -223,8 +232,8 @@ func learnMaskedValues(redactor *pathmask.Masker, v any, path string) {
 	}
 }
 
-func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *chain.Scope, open map[string]bool) {
-	eachLeaf(v, path, func(v any, path string) {
+func learnMaskedInputs(redactor *pathmask.Masker, v any, scope *chain.Scope, open map[string]bool) {
+	eachLeaf(v, "", func(v any, path string) {
 		t, ok := v.(string)
 		if !ok || !redactor.Masks(path) {
 			return
@@ -252,18 +261,6 @@ func learnMaskedInputs(redactor *pathmask.Masker, v any, path string, scope *cha
 			if value, err := scope.ResolveValue(t); err == nil && redactor.MasksValue(path, value) {
 				redactor.AddWholeSecret(fmt.Sprint(value))
 			}
-		}
-	})
-}
-
-func learnMaskedTemplate(redactor *pathmask.Masker, v any, path string) {
-	eachLeaf(v, path, func(v any, path string) {
-		if !redactor.Masks(path) {
-			return
-		}
-		resolved, err := chain.AuthBodyScope().ResolveValue(v)
-		if err == nil && redactor.MasksValue(path, resolved) {
-			learnSecret(redactor, resolved)
 		}
 	})
 }
@@ -478,42 +475,34 @@ func authRefusedIsNoVerdict(sr *StepRecord, fresh string, refusals []transport.T
 		return
 	}
 	sr.Status = StatusError
-	if fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil {
-		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run: the "+
-			wasRefused(EarlyRefusalText(refusals))+". Either it ends sessions long before the expiry its login states, or it restarted "+
-			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused "+
-			"early again, with nothing showing a restart, is reported as a finding")
-		return
-	}
-	if fresh == transport.FreshTokenAccepted {
-		sr.Error = joinLines(sr.Error, "the backend refused a token that it had accepted on an earlier call of this run (issued by a "+
-			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), "+
-			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is "+
-			"reported as a finding. Only a token refused on its first use "+
-			"suggests the backend refuses valid tokens")
-		return
-	}
-	evidence := ""
-	switch fresh {
-	case transport.FreshTokenRelogin:
-		evidence = "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
-			"was re-sent with the new token, and the backend refused that too"
-	case transport.FreshTokenMinted:
+	why := "the backend refused authentication for this call, so its answer is not a verdict about the rpc: " +
+		"check the credentials of the step's auth profile and re-run"
+	evidence := "the backend refused this call at authentication, then a fresh login in this run succeeded and the call " +
+		"was re-sent with the new token, and the backend refused that too"
+	confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
+	switch {
+	case fresh == transport.FreshTokenAccepted && EarlyRefusal(refusals) != nil:
+		why = "the backend refused a token that it had accepted on an earlier call of this run: the " +
+			wasRefused(EarlyRefusalText(refusals)) + ". Either it ends sessions long before the expiry its login states, or it restarted " +
+			"since that login, so this is not a verdict about the rpc. The step is error, not failed; re-run: a token refused " +
+			"early again, with nothing showing a restart, is reported as a finding"
+	case fresh == transport.FreshTokenAccepted:
+		why = "the backend refused a token that it had accepted on an earlier call of this run (issued by a " +
+			"login in this run or read from the on-disk cache): it likely restarted mid-run, losing its sessions (and whatever it kept only in memory), " +
+			"so this is not a verdict about the rpc. The step is error, not failed; re-run: a refusal at the same step again is " +
+			"reported as a finding. Only a token refused on its first use " +
+			"suggests the backend refuses valid tokens"
+	case fresh == transport.FreshTokenMinted:
 		evidence = "the backend refused a token that a login in this run had just issued"
+		confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
+			"re-sent after a fresh login and refused again is reported as a finding; re-run"
+		fallthrough
+	case fresh == transport.FreshTokenRelogin:
+		why = evidence + ": the credentials work and the token is current, so this " + freshTokenRefused +
+			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, " +
+			"because the rpc itself never answered; " + confirm
 	}
-	if evidence != "" {
-		confirm := "re-run to confirm: refused again at the same step, each time with a freshly issued token, run and verify report it as a finding"
-		if fresh == transport.FreshTokenMinted {
-			confirm = "it was not re-sent, so a restart between the login and this call explains it as well, and only a call " +
-				"re-sent after a fresh login and refused again is reported as a finding; re-run"
-		}
-		sr.Error = joinLines(sr.Error, evidence+": the credentials work and the token is current, so this "+freshTokenRefused+
-			" in the backend (this rpc refusing valid tokens), not a credentials problem. The step is error, not failed, "+
-			"because the rpc itself never answered; "+confirm)
-		return
-	}
-	sr.Error = joinLines(sr.Error, "the backend refused authentication for this call, so its answer is not a verdict about the rpc: "+
-		"check the credentials of the step's auth profile and re-run")
+	sr.Error = joinLines(sr.Error, why)
 }
 
 func EarlyRefusal(refusals []transport.TokenRefusal) *transport.TokenRefusal {
@@ -580,7 +569,7 @@ func joinLines(a, b string) string {
 }
 
 func failureOf(step *chain.Step, sr *StepRecord) string {
-	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, firstFailedExpectation(sr)))
+	failure := fmt.Sprintf("step %q: %s", sr.ID, cmp.Or(sr.Error, sr.FailedExpectation(), "expectation failed"))
 	if step.AllowFail && sr.Status == StatusError {
 		failure += "\nallow_fail does not cover this: the call never reached the backend, " +
 			"so there is no refusal to tolerate — this is a fixture defect, not a verdict"
@@ -604,14 +593,6 @@ type exportSource struct {
 
 type exportSources map[string]exportSource
 
-func (x exportSources) steps() map[string]string {
-	out := make(map[string]string, len(x))
-	for name, src := range x {
-		out[name] = src.step
-	}
-	return out
-}
-
 func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, exporter exportSources) map[int]string {
 	held := map[int]string{}
 	for i, e := range step.Expect {
@@ -623,9 +604,8 @@ func heldBackExpectations(step *chain.Step, broken map[string]*StepRecord, expor
 }
 
 func readsBrokenIn(refs []string, broken map[string]*StepRecord, exporter exportSources) (string, *StepRecord, bool) {
-	steps := exporter.steps()
 	for _, ref := range refs {
-		producer := producerOf(ref, steps)
+		producer := producerOf(ref, exporter)
 		sr, isBroken := broken[producer]
 		if producer == "" || !isBroken {
 			continue
@@ -703,7 +683,7 @@ func readsRequest(ref string) bool {
 	return section == "request"
 }
 
-func producerOf(ref string, exporter map[string]string) string {
+func producerOf(ref string, exporter exportSources) string {
 	head, rest, hasRest := strings.Cut(strings.TrimSpace(ref), ".")
 	next, _, _ := strings.Cut(rest, ".")
 	switch head {
@@ -712,10 +692,10 @@ func producerOf(ref string, exporter map[string]string) string {
 	case "steps":
 		return next
 	case "exports":
-		return exporter[next]
+		return exporter[next].step
 	}
 	if !hasRest {
-		return exporter[head]
+		return exporter[head].step
 	}
 	return head
 }
@@ -768,7 +748,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was refused before a response body existed (transport %s), so there is no "+
 			"response to read.", sr.Transport.Code)
 	case sr.Status == StatusError:
-		return "did not complete (" + firstLine(sr.Error) + "), so there is no response to read."
+		return "did not complete (" + FirstLine(sr.Error) + "), so there is no response to read."
 	case sr.Drift:
 		return "was answered with a body the descriptor could not decode, so no value read from it can be trusted."
 	}
@@ -780,7 +760,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
 			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
 	}
-	return "did not pass (" + firstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
+	return "did not pass (" + FirstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
 }
 
@@ -910,7 +890,7 @@ func groupProblems(problems []string) []string {
 	return out
 }
 
-func firstLine(s string) string {
+func FirstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return strings.TrimSpace(line)
 }
@@ -939,23 +919,13 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	if err := checkVarsSupplied(c, opts.Vars); err != nil {
 		return nil, err
 	}
-	if err := r.checkAuthProfiles(c); err != nil {
-		return nil, err
+	for _, check := range []func(*chain.Chain) error{r.checkAuthProfiles, r.checkCalls, r.checkAuthEnv, r.checkHandWrittenAuth} {
+		if err := check(c); err != nil {
+			return nil, err
+		}
 	}
-	if err := r.checkCalls(c); err != nil {
-		return nil, err
-	}
-	if err := r.checkAuthEnv(c); err != nil {
-		return nil, err
-	}
-	if err := r.checkHandWrittenAuth(c); err != nil {
-		return nil, err
-	}
-	problems := chain.VarRefProblems(rec.Vars)
-	problems = append(problems, c.PreflightProblems()...)
-	problems = append(problems, c.ExportStepClashes()...)
-	problems = append(problems, c.VarStructureProblems(rec.Vars)...)
-	problems = append(problems, c.RedactedPinProblems(rec.Redacted)...)
+	problems := slices.Concat(chain.VarRefProblems(rec.Vars), c.PreflightProblems(), c.ExportStepClashes(),
+		c.VarStructureProblems(rec.Vars), c.RedactedPinProblems(rec.Redacted))
 	if r.Catalog != nil {
 		problems = append(problems, c.ResponseRefProblems(r.Catalog)...)
 	}
@@ -972,7 +942,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 	open := varsUsedInTheOpen(c, redactor)
 	for _, step := range c.Steps {
 		if step != nil {
-			learnMaskedInputs(redactor, orEmpty(step.Body), "", scope, open)
+			learnMaskedInputs(redactor, orEmpty(step.Body), scope, open)
 			learnHeaderSecrets(redactor, step.Headers, scope)
 		}
 	}
@@ -1063,34 +1033,29 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 			key = "behind " + behindOn[i]
 		}
 		if at, ok := said[key]; ok {
-			repeats[at] = append(repeats[at], sr.ID)
+			repeats[at] = append(repeats[at], strconv.Quote(sr.ID))
 		} else {
 			said[key] = len(failures)
 			failures = append(failures, failure)
 		}
 	}
-	failedCount := len(failed)
 	for i, sr := range rec.Steps {
 		if i < len(c.Steps) && c.Steps[i] != nil && len(c.Unordered)+len(c.Steps[i].Unordered) > 0 {
 			sr.Unordered = append(append([]string{}, c.Unordered...), c.Steps[i].Unordered...)
 		}
 	}
 	for at, ids := range repeats {
-		quoted := make([]string, 0, len(ids))
-		for _, id := range ids {
-			quoted = append(quoted, strconv.Quote(id))
-		}
-		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(quoted, 10))
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), chain.ListSome(ids, 10))
 	}
 	switch {
-	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && failedCount == 1 && unreached == 0:
+	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && len(failed) == 1 && unreached == 0:
 		rec.Failure = failures[0]
-	case pastPins && len(failures) > 0:
-		rec.Failure = fmt.Sprintf("kept_red: ran every step, as -keep-going does; %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
-			strings.Join(failures, "\n")
 	case len(failures) > 0:
-		rec.Failure = fmt.Sprintf("-keep-going: %d of %d steps did not pass\n", failedCount+unreached, len(c.Steps)) +
-			strings.Join(failures, "\n")
+		how := "-keep-going:"
+		if pastPins {
+			how = "kept_red: ran every step, as -keep-going does;"
+		}
+		rec.Failure = fmt.Sprintf("%s %d of %d steps did not pass\n", how, len(failed)+unreached, len(c.Steps)) + strings.Join(failures, "\n")
 	}
 	if unreached > 0 {
 		rec.Failure += fmt.Sprintf("\n%d later step(s) not sent: %s", unreached, unreachableReason(r.Client.BaseURL(), dead))
@@ -1317,17 +1282,16 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 		sr.AuthPrincipal = opts.principals[profile]
 	}
 	sr.TokenRefused, _ = call.Meta[transport.MetaAuthTokenRefused].([]transport.TokenRefusal)
+	fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 	if retry, _ := call.Meta[transport.MetaAuthRetry].(string); retry != "" {
 		sr.AuthRetry = retry
 		cached, _ := call.Meta[transport.MetaAuthRetryCached].(bool)
-		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 		sr.Warning = joinLines(sr.Warning, authRetryWarning(retry, cached, fresh == transport.FreshTokenRelogin))
 		if early := EarlyRefusalText(sr.TokenRefused); early != "" && retry == AuthRetryResent {
 			sr.Warning = joinLines(sr.Warning, "the "+wasRefused(early))
 		}
 	}
 	if refused, _ := call.Meta[transport.MetaAuthRefused].(bool); refused && !step.AllowFail {
-		fresh, _ := call.Meta[transport.MetaAuthRefusedFresh].(string)
 		defer authRefusedIsNoVerdict(sr, fresh, sr.TokenRefused)
 	}
 	if err != nil {
@@ -1541,7 +1505,7 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 			if !ok {
 				missing := fmt.Sprintf("export %q: path %q missing in response%s", name, path, chain.NearResponsePath(method, path))
 				if sr.AssertionFailed() {
-					missing = failedExpectations(sr) + "; " + missing
+					missing = "expectation failed: " + strings.Join(sr.failures(), "; ") + "; " + missing
 				}
 				sr.Status = StatusFailed
 				sr.Error = missing
@@ -1560,21 +1524,15 @@ func (r *Runner) runStep(ctx context.Context, scope *chain.Scope, i int, step *c
 }
 
 func learnSecret(redactor *pathmask.Masker, v any) {
-	switch t := v.(type) {
-	case map[string]any:
-		for _, item := range t {
-			learnSecret(redactor, item)
+	eachLeaf(v, "", func(v any, _ string) {
+		switch t := v.(type) {
+		case string:
+			redactor.AddSecret(t)
+		case nil, bool:
+		default:
+			redactor.AddSecret(fmt.Sprint(t))
 		}
-	case []any:
-		for _, item := range t {
-			learnSecret(redactor, item)
-		}
-	case string:
-		redactor.AddSecret(t)
-	case nil, bool:
-	default:
-		redactor.AddSecret(fmt.Sprint(t))
-	}
+	})
 }
 
 func scrubStep(sr *StepRecord, redactor *pathmask.Masker) {
@@ -2046,18 +2004,14 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 		if !routed || b == nil {
 			continue
 		}
-		unset := []string{}
+		unset, refs := []string{}, []string{}
 		for _, name := range b.EnvVars {
 			if _, set := os.LookupEnv(name); !set {
-				unset = append(unset, name)
+				unset, refs = append(unset, name), append(refs, "${env."+name+"}")
 			}
 		}
 		if len(unset) == 0 {
 			continue
-		}
-		refs := make([]string, 0, len(unset))
-		for _, name := range unset {
-			refs = append(refs, "${env."+name+"}")
 		}
 		return fmt.Errorf("step %q (step %d) runs under auth profile %q, whose login body reads %s, and env %s "+
 			"is not set, so nothing was sent: the login would fail at that step, after every step before it "+
@@ -2068,20 +2022,16 @@ func (r *Runner) checkAuthEnv(c *chain.Chain) error {
 }
 
 func (r *Runner) checkAuthProfiles(c *chain.Chain) error {
-	known := map[string]bool{}
-	for _, name := range r.Auth.profiles() {
-		known[name] = true
-	}
+	have := r.Auth.profiles()
 	for _, step := range c.Steps {
-		if step.Auth == transport.InvalidTokenProfile && len(known) == 0 {
+		if step.Auth == transport.InvalidTokenProfile && len(have) == 0 {
 			return fmt.Errorf("step %q asks for auth: %s, but the config declares no auth at all, so there is "+
 				"no header to carry a token in and the probe would silently send none. Use skip_auth: true "+
 				"for a no-token probe", step.ID, transport.InvalidTokenProfile)
 		}
-		if step.Auth == "" || known[step.Auth] || step.Auth == transport.InvalidTokenProfile {
+		if step.Auth == "" || slices.Contains(have, step.Auth) || step.Auth == transport.InvalidTokenProfile {
 			continue
 		}
-		have := r.Auth.profiles()
 		if len(have) == 0 {
 			return fmt.Errorf("step %q asks for auth profile %q, but the config declares no auth at all", step.ID, step.Auth)
 		}
@@ -2238,41 +2188,30 @@ func mergeVars(base, override map[string]any) map[string]any {
 }
 
 func newRunID(t time.Time) string {
-	return t.UTC().Format("20060102T150405Z") + "-" + randSuffix()
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return t.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b)
 }
 
-func capIDs(ids []string, max int) string {
-	if len(ids) <= max {
-		return strings.Join(ids, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
-}
-
-func firstFailedExpectation(sr *StepRecord) string {
-	failed := []chain.ExpectResult{}
-	for _, e := range sr.Expect {
-		if !e.Passed {
-			failed = append(failed, e)
-		}
-	}
-	if len(failed) == 0 {
-		return "expectation failed"
-	}
-	out := "expectation failed: " + chain.DescribeFailure(failed[0])
-	if len(failed) > 1 {
-		out += fmt.Sprintf(" (and %d more)", len(failed)-1)
-	}
-	return out
-}
-
-func failedExpectations(sr *StepRecord) string {
+func (s *StepRecord) failures() []string {
 	parts := []string{}
-	for _, e := range sr.Expect {
+	for _, e := range s.Expect {
 		if !e.Passed {
 			parts = append(parts, chain.DescribeFailure(e))
 		}
 	}
-	return "expectation failed: " + strings.Join(parts, "; ")
+	return parts
+}
+
+func (s *StepRecord) FailedExpectation() string {
+	failed := s.failures()
+	if len(failed) == 0 {
+		return ""
+	}
+	if len(failed) > 1 {
+		return fmt.Sprintf("expectation failed: %s (and %d more)", failed[0], len(failed)-1)
+	}
+	return "expectation failed: " + failed[0]
 }
 
 func declaredWant(e chain.Expectation, redactor *pathmask.Masker) any {
@@ -2313,15 +2252,10 @@ func withMisspeltItemVerdicts(sr *StepRecord, refusals []chain.ItemRefusal, body
 			refusals = append(refusals, m.Refusal)
 		}
 	}
-	sort.SliceStable(refusals, func(a, b int) bool { return itemLine(refusals[a].Line) < itemLine(refusals[b].Line) })
+	sort.SliceStable(refusals, func(a, b int) bool { return chain.ItemIndex(refusals[a].Line) < chain.ItemIndex(refusals[b].Line) })
 	sr.Warning = joinLines(sr.Warning, strings.Join(lines, "; ")+": a key that differs from the item verdict only in case or "+
 		"separators is not read, so each such line is judged as carrying no verdict, never as a success")
 	return refusals
-}
-
-func itemLine(line string) int {
-	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
-	return n
 }
 
 func unknownHoldsAVerdict(unknown []string) bool {

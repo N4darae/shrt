@@ -8,6 +8,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 type SingleItemRepeat struct {
@@ -33,7 +34,7 @@ func secondItems(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || len(f.Fields) == 0 || f.MapKey != "" || f.JSONForm != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			list, isList := m[key].([]any)
 			if !isList {
 				walk(m[key], f.Fields, at)
@@ -65,14 +66,7 @@ func distinctItem(item map[string]any, fields []*catalog.Field) {
 	})
 }
 
-func idLike(name string) bool {
-	for _, w := range namecase.Words(name) {
-		if strings.EqualFold(w, "id") || strings.EqualFold(w, "uuid") || strings.EqualFold(w, "key") {
-			return true
-		}
-	}
-	return false
-}
+func idLike(name string) bool { return nameHasWord(name, "id", "uuid", "key") }
 
 func nextValue(v any, kind string) any {
 	if isNumericZero(v) {
@@ -164,14 +158,14 @@ func SingleItemRepeats(chains []*chain.Chain, cat *catalog.Catalog) []SingleItem
 		}
 	}
 	out := []SingleItemRepeat{}
-	for _, k := range sortedKeys(seen) {
+	for _, k := range chain.SortedKeys(seen) {
 		t := seen[k]
 		noRepeat := t.most >= 2 && t.distinct && t.sourced && !t.repeat
 		if t.unknown || (t.most >= 2 && (t.distinct || t.resource == "") && !noRepeat) {
 			continue
 		}
 		rpc, field, _ := strings.Cut(k, "\x00")
-		names := sortedKeys(t.chains)
+		names := chain.SortedKeys(t.chains)
 		r := SingleItemRepeat{RPC: rpc, Field: field, Most: t.most, Chains: names}
 		switch {
 		case noRepeat:
@@ -196,7 +190,7 @@ func repeatedResource(c *chain.Chain, at *chain.Step, list []any) (bool, bool) {
 			continue
 		}
 		parts := []string{}
-		for _, k := range sortedKeys(got) {
+		for _, k := range chain.SortedKeys(got) {
 			parts = append(parts, k+"="+got[k])
 		}
 		key := strings.Join(parts, "\x00")
@@ -216,7 +210,7 @@ func sharedResource(c *chain.Chain, at *chain.Step, list []any) (string, bool) {
 			return "", false
 		}
 		if want == nil {
-			want, first = got, got[sortedKeys(got)[0]]
+			want, first = got, got[chain.SortedKeys(got)[0]]
 		}
 	}
 	return first, true
@@ -226,11 +220,11 @@ func resourceLeaves(c *chain.Chain, at *chain.Step, v any, path, name string, ou
 	switch t := v.(type) {
 	case map[string]any:
 		for k, x := range t {
-			resourceLeaves(c, at, x, join(path, k), k, out)
+			resourceLeaves(c, at, x, pathmask.Join(path, k), k, out)
 		}
 	case []any:
 		for i, x := range t {
-			resourceLeaves(c, at, x, join(path, strconv.Itoa(i)), name, out)
+			resourceLeaves(c, at, x, pathmask.Join(path, strconv.Itoa(i)), name, out)
 		}
 	case string:
 		t = stepReference(c, at, t)
@@ -283,7 +277,7 @@ func countRepeats(v any, fields []*catalog.Field, path string, record func(path 
 		if !ok || len(f.Fields) == 0 || f.MapKey != "" || f.JSONForm != "" {
 			continue
 		}
-		at := join(path, f.Name)
+		at := pathmask.Join(path, f.Name)
 		if !f.Repeated {
 			countRepeats(m[key], f.Fields, at, record)
 			continue

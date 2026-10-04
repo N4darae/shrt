@@ -252,11 +252,7 @@ func (s *Scope) lookupStep(rest, expr string) (any, error) {
 	if tail == "" {
 		return root, nil
 	}
-	lookup := Get
-	if view.Synthetic {
-		lookup = GetSynthetic
-	}
-	v, ok := lookup(root, tail)
+	v, ok := get(root, tail, view.Synthetic)
 	if !ok {
 		if view.Synthetic {
 			return nil, fmt.Errorf("unresolved reference ${%s}: path %q missing in step %q", expr, tail, id)
@@ -329,26 +325,11 @@ func ExplainLaterRef(c *Chain, stepIndex int, err error) error {
 	r := ParseRef(u.Expr)
 	idx := newRefIndex(c)
 	here := stepIndex + 1
-	name := r.Head
-	if r.Kind == RefExports {
-		name, _, _ = strings.Cut(r.Rest, ".")
-	}
 	why := ""
-	switch r.Kind {
-	case RefExports:
-		if idx.exportedBy[name] > here {
-			why = idx.laterExport(name)
-		}
-	case RefBare:
-		if idx.exportedBy[name] > here {
-			why = idx.laterExport(name)
-		} else if idx.stepAt[name] > here {
-			why = idx.laterStep(name)
-		}
-	case RefStep:
-		if idx.stepAt[r.Head] > here {
-			why = idx.laterStep(r.Head)
-		}
+	if name, ok := r.ExportName(); ok && idx.exportedBy[name] > here {
+		why = idx.laterExport(name)
+	} else if id, ok := r.StepID(); ok && idx.stepAt[id] > here {
+		why = idx.laterStep(id)
 	}
 	if why == "" {
 		return err

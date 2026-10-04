@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -109,7 +110,7 @@ func repeatDifferences(c *chain.Chain, first, rec *runner.Record, label string) 
 	}
 	was, now := failedSteps(first), failedSteps(rec)
 	if !slices.Equal(was, now) {
-		return []string{fmt.Sprintf("failed steps: source %s, %s %s", stepsOrNone(was), label, stepsOrNone(now))}
+		return []string{fmt.Sprintf("failed steps: source %s, %s %s", cmp.Or(capList(was, 5), "none"), label, cmp.Or(capList(now, 5), "none"))}
 	}
 	same := sameUpToFixtures(first.Vars, rec.Vars)
 	out := []string{}
@@ -122,13 +123,6 @@ func repeatDifferences(c *chain.Chain, first, rec *runner.Record, label string) 
 		}
 	}
 	return out
-}
-
-func stepsOrNone(ids []string) string {
-	if len(ids) == 0 {
-		return "none"
-	}
-	return capList(ids, 5)
 }
 
 func noVerdictIn(rec *runner.Record) string {

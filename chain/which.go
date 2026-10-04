@@ -1,11 +1,14 @@
 package chain
 
 import (
+	"cmp"
 	"encoding/json"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const (
@@ -31,13 +34,6 @@ type WhichQuery struct {
 	RPC     string
 	Code    string
 	Aliases []string
-}
-
-func (q WhichQuery) Codes() []string {
-	if q.Code == "" {
-		return nil
-	}
-	return append([]string{q.Code}, q.Aliases...)
 }
 
 type WhichOptions struct {
@@ -122,7 +118,7 @@ func CodePaths(chains []*Chain) []string {
 			}
 		}
 	}
-	return sortedKeys(seen)
+	return SortedKeys(seen)
 }
 
 func assertedCodes(s *Step) []CodeAssertion {
@@ -171,12 +167,12 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 			continue
 		}
 		hit := WhichChain{Chain: c.Name, Source: c.SourcePath, Steps: len(c.Steps)}
-		byStep, order := observationsFor(c.Name, opts.Observations)
+		byStep, order, last := observationsFor(c.Name, opts.Observations)
 		hit.Runs = len(order)
 		for i := range matches {
 			assert, _ := PrimaryAssertionFor(matches[i].Asserts, q)
 			matches[i].Observed = evidenceFor(byStep[matches[i].Step], order, paths, assert, q.Code != "")
-			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, lastStepOf(c.Name, opts.Observations))
+			matches[i].Newest = newestUnreached(byStep[matches[i].Step], order, last)
 			if matches[i].Observed != nil {
 				hit.Observed = true
 			}
@@ -186,7 +182,7 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 				}
 			}
 		}
-		sortMatches(matches, q.Code == "")
+		slices.SortStableFunc(matches, func(a, b WhichStep) int { return cmp.Or(matchOrder(a, b, q.Code == ""), cmp.Compare(a.Index, b.Index)) })
 		hit.Matches = matches
 		best := matches[0]
 		for _, m := range matches {
@@ -199,7 +195,9 @@ func Which(chains []*Chain, q WhichQuery, opts WhichOptions) []WhichChain {
 		hit.Command = reproCommand(c, best, opts)
 		out = append(out, hit)
 	}
-	sortWhich(out, q.Code == "")
+	slices.SortStableFunc(out, func(a, b WhichChain) int {
+		return cmp.Or(matchOrder(a.Matches[0], b.Matches[0], q.Code == ""), cmp.Compare(a.Steps, b.Steps), cmp.Compare(a.Chain, b.Chain))
+	})
 	return out
 }
 
@@ -224,25 +222,24 @@ func freshFlags(c *Chain, step string, fresh func(*Chain, string) []string) stri
 	return out
 }
 
-func observationsFor(chainName string, load func(string) []Observation) (map[string][]Observation, []string) {
-	byStep := map[string][]Observation{}
+func observationsFor(chainName string, load func(string) []Observation) (map[string][]Observation, []string, map[string]Observation) {
+	byStep, last := map[string][]Observation{}, map[string]Observation{}
 	if load == nil {
-		return byStep, nil
+		return byStep, nil, last
 	}
 	order := []string{}
-	seen := map[string]bool{}
 	for _, o := range load(chainName) {
 		byStep[o.Step] = append(byStep[o.Step], o)
-		if !seen[o.Run] {
-			seen[o.Run] = true
+		if _, seen := last[o.Run]; !seen {
 			order = append(order, o.Run)
 		}
+		last[o.Run] = o
 	}
-	return byStep, order
+	return byStep, order, last
 }
 
 func (q WhichQuery) IsNumericCode() bool {
-	return isDigits(strings.TrimSpace(q.Code))
+	return IsDigits(strings.TrimSpace(q.Code))
 }
 
 func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
@@ -252,11 +249,11 @@ func (q WhichQuery) matchAsserts(asserts []CodeAssertion) (bool, string) {
 	if !q.IsNumericCode() {
 		return slices.ContainsFunc(q.Aliases, func(code string) bool { return assertsCode(asserts, code) }), ""
 	}
-	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return isDigits(a.Value) }) {
+	if slices.ContainsFunc(asserts, func(a CodeAssertion) bool { return IsDigits(a.Value) }) {
 		return false, ""
 	}
 	for _, alias := range q.Aliases {
-		if !isDigits(alias) && assertsCode(asserts, alias) {
+		if !IsDigits(alias) && assertsCode(asserts, alias) {
 			return true, alias
 		}
 	}
@@ -272,7 +269,7 @@ func (q WhichQuery) matchResponse(response any) (string, string, bool) {
 		if !ok {
 			continue
 		}
-		if q.IsNumericCode() && !isDigits(alias) && siblingCodeDiffers(response, path, q.Code) {
+		if q.IsNumericCode() && !IsDigits(alias) && siblingCodeDiffers(response, path, q.Code) {
 			continue
 		}
 		return path, alias, true
@@ -292,7 +289,7 @@ func siblingCodeDiffers(response any, path, code string) bool {
 	}
 	for _, name := range CodeFields() {
 		if v, ok := obj[name]; ok {
-			if text := stringify(v); isDigits(text) && !strings.EqualFold(text, code) {
+			if text := stringify(v); IsDigits(text) && !strings.EqualFold(text, code) {
 				return true
 			}
 		}
@@ -301,15 +298,15 @@ func siblingCodeDiffers(response any, path, code string) bool {
 }
 
 func PrimaryAssertionFor(asserts []CodeAssertion, q WhichQuery) (CodeAssertion, bool) {
-	for _, code := range q.Codes() {
+	if q.Code == "" {
+		return PrimaryAssertion(asserts, "")
+	}
+	for _, code := range append([]string{q.Code}, q.Aliases...) {
 		if a, ok := PrimaryAssertion(asserts, code); ok {
 			return a, true
 		}
 	}
-	if q.Code != "" {
-		return CodeAssertion{}, false
-	}
-	return PrimaryAssertion(asserts, "")
+	return CodeAssertion{}, false
 }
 
 func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool) {
@@ -322,7 +319,7 @@ func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool
 		return CodeAssertion{}, false
 	}
 	for _, a := range asserts {
-		if isDigits(a.Value) {
+		if IsDigits(a.Value) {
 			return a, true
 		}
 	}
@@ -332,11 +329,9 @@ func PrimaryAssertion(asserts []CodeAssertion, code string) (CodeAssertion, bool
 	return CodeAssertion{}, false
 }
 
-func isDigits(s string) bool {
+func IsDigits(s string) bool {
 	return s != "" && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) < 0
 }
-
-func IsDigits(s string) bool { return isDigits(s) }
 
 func evidenceFor(list []Observation, order []string, paths []string, assert CodeAssertion, byCode bool) *WhichEvidence {
 	var last *Observation
@@ -373,17 +368,6 @@ func evidenceFor(list []Observation, order []string, paths []string, assert Code
 
 const statusPassed = "passed"
 
-func lastStepOf(chainName string, load func(string) []Observation) map[string]Observation {
-	last := map[string]Observation{}
-	if load == nil {
-		return last
-	}
-	for _, o := range load(chainName) {
-		last[o.Run] = o
-	}
-	return last
-}
-
 func newestUnreached(list []Observation, order []string, last map[string]Observation) *WhichNewest {
 	if len(order) == 0 {
 		return nil
@@ -396,11 +380,7 @@ func newestUnreached(list []Observation, order []string, last map[string]Observa
 		if o.Reached {
 			return nil
 		}
-		status := o.Status
-		if status == "" {
-			status = "not reached"
-		}
-		return &WhichNewest{Run: newest, Status: status}
+		return &WhichNewest{Run: newest, Status: cmp.Or(o.Status, "not reached")}
 	}
 	out := &WhichNewest{Run: newest, Status: "not in run"}
 	if o, ok := last[newest]; ok {
@@ -496,34 +476,8 @@ func evidenceRank(m WhichStep, failingFirst bool) int {
 	}
 }
 
-func sortMatches(m []WhichStep, failingFirst bool) {
-	sort.SliceStable(m, func(i, j int) bool {
-		a, b := m[i], m[j]
-		if ra, rb := evidenceRank(a, failingFirst), evidenceRank(b, failingFirst); ra != rb {
-			return ra < rb
-		}
-		if a.SliceSteps != b.SliceSteps {
-			return sliceRank(a.SliceSteps) < sliceRank(b.SliceSteps)
-		}
-		return a.Index < b.Index
-	})
-}
-
-func sortWhich(h []WhichChain, failingFirst bool) {
-	sort.SliceStable(h, func(i, j int) bool {
-		a, b := h[i], h[j]
-		if ra, rb := evidenceRank(a.Matches[0], failingFirst), evidenceRank(b.Matches[0], failingFirst); ra != rb {
-			return ra < rb
-		}
-		as, bs := sliceRank(a.Matches[0].SliceSteps), sliceRank(b.Matches[0].SliceSteps)
-		if as != bs {
-			return as < bs
-		}
-		if a.Steps != b.Steps {
-			return a.Steps < b.Steps
-		}
-		return a.Chain < b.Chain
-	})
+func matchOrder(a, b WhichStep, failingFirst bool) int {
+	return cmp.Or(cmp.Compare(evidenceRank(a, failingFirst), evidenceRank(b, failingFirst)), cmp.Compare(sliceRank(a.SliceSteps), sliceRank(b.SliceSteps)))
 }
 
 func sliceRank(n int) int {
@@ -551,7 +505,7 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 		return out
 	}
 	for _, c := range chains {
-		byStep, _ := observationsFor(c.Name, opts.Observations)
+		byStep, _, _ := observationsFor(c.Name, opts.Observations)
 		for i, s := range c.Steps {
 			if q.RPC != "" && !stepCalls(s, q.RPC, opts.RPCOf) {
 				continue
@@ -581,21 +535,21 @@ func WhichObservedUnasserted(chains []*Chain, q WhichQuery, opts WhichOptions) [
 func findCode(v any, code, prefix string) (string, bool) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := sortedKeys(t)
+		keys := SortedKeys(t)
 		for _, k := range keys {
-			path := joinPath(prefix, k)
+			path := pathmask.Join(prefix, k)
 			if IsCodePath(path) && strings.EqualFold(stringify(t[k]), code) {
 				return path, true
 			}
 		}
 		for _, k := range keys {
-			if p, ok := findCode(t[k], code, joinPath(prefix, k)); ok {
+			if p, ok := findCode(t[k], code, pathmask.Join(prefix, k)); ok {
 				return p, true
 			}
 		}
 	case []any:
 		for i, item := range t {
-			if p, ok := findCode(item, code, joinPath(prefix, strconv.Itoa(i))); ok {
+			if p, ok := findCode(item, code, pathmask.Join(prefix, strconv.Itoa(i))); ok {
 				return p, true
 			}
 		}

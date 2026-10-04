@@ -174,8 +174,8 @@ func (p *Plan) addSkippedStart(lib *Library, st *chain.Step, e stateEntity, sk s
 func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, e stateEntity, tr transition, result string, short map[string]string, restores bool) bool {
 	label := strings.ToLower(short[tr.value])
 	id := p.freeStepID(st.ID + "_after_" + label)
-	fixture, act := p.actOnFixture(lib, st, e, id, fmt.Sprintf("for %s to move to %s and %s to act on", defaultID(tr.method.Name), short[tr.value], st.ID))
-	moved := tr.step(p.freeStepID(defaultID(tr.method.Name)+"_before_"+id),
+	fixture, act := p.actOnFixture(lib, st, e, id, fmt.Sprintf("for %s to move to %s and %s to act on", chain.SnakeCase(tr.method.Name), short[tr.value], st.ID))
+	moved := tr.step(p.freeStepID(chain.SnakeCase(tr.method.Name)+"_before_"+id),
 		fmt.Sprintf("moves %s to %s, the state %s then starts from.", fixture.ID, short[tr.value], id), "${"+fixture.ID+"."+e.idPath+"}", e.carrier+"."+e.state.Name)
 	act.Expect = retargetExpect(act.Expect, e.via, moved.ID)
 	act.Description = fmt.Sprintf("%s on %s that is %s: it must still reach %s.", st.ID, withArticle(e.carrier), short[tr.value], short[result])
@@ -187,7 +187,7 @@ func (p *Plan) addComposedTransition(lib *Library, st *chain.Step, e stateEntity
 	} else if read > 1 {
 		number := "<number>"
 		if r := p.effectRules(lib); len(r.byEntity) > 0 {
-			number = r.byEntity[sortedKeys(r.byEntity)[0]].moved
+			number = r.byEntity[chain.SortedKeys(r.byEntity)[0]].moved
 		}
 		gap = fmt.Sprintf("%s says nothing of what it gives back from %s (add effects: {%s: {restore: %s}} if it does), so the other reads assert only that they answer",
 			shortRPC(st.Call), short[tr.value], number, short[tr.value])

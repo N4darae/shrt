@@ -22,11 +22,7 @@ func contractShow(args []string) error {
 	if len(rest) == 0 && *filter == "" {
 		return fmt.Errorf("usage: shrt contract show <rpc>... | -filter <substring>")
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}
@@ -68,14 +64,12 @@ func contractShow(args []string) error {
 		generated, notes := contract.ForCuratedWithNotes(m, lib, e.cat)
 		fmt.Print(generated.Text())
 		curated, hasCurated := lib.Get(m.FullName)
-		if hasCurated {
-			for _, n := range notes {
-				fmt.Fprintf(os.Stderr, "note: %s\n", n)
-			}
-		}
 		if !hasCurated {
 			fmt.Printf("\nNO CURATED CONTRACT\n  add one with: shrt contract init %s\n", contract.DomainOf(m))
 			continue
+		}
+		for _, n := range notes {
+			fmt.Fprintf(os.Stderr, "note: %s\n", n)
 		}
 		fmt.Print("\n" + curated.Text(lib, m.FullName))
 	}

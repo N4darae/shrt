@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"iter"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/diff"
@@ -30,18 +32,26 @@ func latencyFlags(e *env, spot *store.SafeSpot, rec *runner.Record, p diff.Laten
 }
 
 func previousRunOf(e *env, rec *runner.Record) *runner.Record {
-	ids, _ := e.store.ListRuns(rec.Chain)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		if ranBefore(prev, rec) {
+			return namedAs(prev, rec)
 		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !ranBefore(prev, rec) {
-			continue
-		}
-		return prev
 	}
 	return nil
+}
+
+func newestRuns(e *env, chainName string, skip ...string) iter.Seq[*runner.Record] {
+	return func(yield func(*runner.Record) bool) {
+		ids, _ := e.store.ListRuns(chainName)
+		for i := len(ids) - 1; i >= 0; i-- {
+			if slices.Contains(skip, ids[i]) {
+				continue
+			}
+			if rec, err := e.store.LoadRun(chainName, ids[i]); err == nil && !rec.DryRun && !yield(rec) {
+				return
+			}
+		}
+	}
 }
 
 func confirmedLatency(flags []diff.LatencyFlag) []diff.LatencyFlag {

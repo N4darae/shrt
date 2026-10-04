@@ -89,7 +89,7 @@ func (p *Plan) touchedEntities(st *chain.Step) []*chain.Step {
 }
 
 func entityField(cat *catalog.Catalog, c *RPCContract, producer *chain.Step) (string, string) {
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		ref, err := ParseRef(c.Fields[name].From)
 		if err != nil || strings.Contains(name, ".") || canonicalCall(cat, ref.RPC) != canonicalCall(cat, producer.Call) {
 			continue
@@ -106,7 +106,7 @@ func (p *Plan) needMetBefore(upto int, rpc, producer string) bool {
 }
 
 func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, producer, reader *chain.Step) *chain.Step {
-	id := p.freeStepID(defaultID(m.Name) + "_for_" + producer.ID)
+	id := p.freeStepID(chain.SnakeCase(m.Name) + "_for_" + producer.ID)
 	var template *chain.Step
 	if src, ok := p.stepOf[m.FullName]; ok {
 		template = p.stepByID(src)
@@ -140,18 +140,11 @@ func (p *Plan) needStep(lib *Library, m *catalog.Method, field, path string, pro
 func (p *Plan) latestReference(st *chain.Step) int {
 	at := -1
 	for _, id := range referencedSteps(st.Body) {
-		found := false
-		for i, s := range p.Chain.Steps {
-			if s.ID == id {
-				found = true
-				if i > at {
-					at = i
-				}
-			}
-		}
-		if !found {
+		i := stepIndex(p.Chain.Steps, id)
+		if i < 0 {
 			return -1
 		}
+		at = max(at, i)
 	}
 	return at
 }

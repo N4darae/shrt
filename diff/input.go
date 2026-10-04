@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"github.com/N4darae/shrt/chain"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/pathmask"
@@ -34,7 +35,7 @@ func (r *Report) SeparateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra []string, fx Fixtures) {
 	r.inputSeparated = true
 	fixture := fx.Named
-	patterns := mergePatterns(spot.Volatile, rec.Volatile, extra)
+	patterns := slices.Concat(spot.Volatile, rec.Volatile, extra)
 	stepVolatile := map[string][]string{}
 	for _, st := range append(append([]*runner.StepRecord{}, spot.Steps...), rec.Steps...) {
 		stepVolatile[st.ID] = append(stepVolatile[st.ID], st.Volatile...)
@@ -43,13 +44,11 @@ func (r *Report) separateInput(spot *store.SafeSpot, rec *runner.Record, extra [
 	pairs := [][2]string{}
 	for _, c := range r.RequestChanges {
 		if c.Path != AuthProfilePath && !expectationChange(c) && !chainLevel(c) {
-			m := pathmask.NewMasker(mergePatterns(patterns, stepVolatile[c.Step]))
+			m := pathmask.NewMasker(slices.Concat(patterns, stepVolatile[c.Step]))
 			if maskedAt(m, c) || (fixture != nil && fixture(c.Step, c.Path)) {
 				r.FixtureInput = append(r.FixtureInput, c)
-				a, okA := c.Want.(string)
-				b, okB := c.Got.(string)
-				if okA && okB && len(a) >= minFixtureEcho {
-					pairs = append(pairs, [2]string{a, b})
+				if p, ok := echoPair(c); ok {
+					pairs = append(pairs, p)
 				}
 				continue
 			}
@@ -183,10 +182,7 @@ func explainedSteps(order []*runner.StepRecord, changes []Change, inputAt map[st
 				why = true
 			case !rd.Request && responseChanged[rd.Step] && explained[rd.Step] && (valueChanged == nil || valueChanged(rd.Step, rd.Path)):
 				why = true
-			}
-		}
-		for _, rd := range reads[st.ID] {
-			if edits.touched[rd.Step] {
+			case edits.touched[rd.Step]:
 				why = true
 			}
 		}
@@ -229,7 +225,13 @@ func readValueChanged(spot *store.SafeSpot, rec *runner.Record, rn *strings.Repl
 		if !inA {
 			return false
 		}
-		return !sameRenamed(x, y, rn)
+		return !SameTree(x, y, "", func(_ string, a, b any) bool {
+			if w, ok := a.(string); ok {
+				g, ok := b.(string)
+				return ok && (w == g || rn != nil && rn.Replace(w) == g)
+			}
+			return jsonKind(a) == jsonKind(b) && sameScalar(a, b)
+		})
 	}
 }
 
@@ -242,38 +244,32 @@ func spotStep(spot *store.SafeSpot, id string) *runner.StepRecord {
 	return nil
 }
 
-func sameRenamed(want, got any, rn *strings.Replacer) bool {
-	switch w := want.(type) {
+func SameTree(a, b any, path string, leaf func(path string, a, b any) bool) bool {
+	switch x := a.(type) {
 	case map[string]any:
-		g, ok := got.(map[string]any)
-		if !ok || len(w) != len(g) {
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
 			return false
 		}
-		for k, v := range w {
-			if x, ok := g[k]; !ok || !sameRenamed(v, x, rn) {
+		for k, v := range x {
+			if w, ok := y[k]; !ok || !SameTree(v, w, pathmask.Join(path, k), leaf) {
 				return false
 			}
 		}
 		return true
 	case []any:
-		g, ok := got.([]any)
-		if !ok || len(w) != len(g) {
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
 			return false
 		}
-		for i := range w {
-			if !sameRenamed(w[i], g[i], rn) {
+		for i := range x {
+			if !SameTree(x[i], y[i], path, leaf) {
 				return false
 			}
 		}
 		return true
-	case string:
-		g, ok := got.(string)
-		if !ok {
-			return false
-		}
-		return w == g || rn != nil && rn.Replace(w) == g
 	}
-	return jsonKind(want) == jsonKind(got) && sameScalar(want, got)
+	return leaf(path, a, b)
 }
 
 func renameWants(changes []Change, rn *strings.Replacer) {
@@ -377,25 +373,13 @@ func generatedPairs(was, now []*runner.StepRecord, generated func(step, path str
 	}
 	out := [][2]string{}
 	for _, a := range was {
-		b, ok := byID[a.ID]
-		if !ok || len(a.Request) == 0 || len(b.Request) == 0 {
-			continue
-		}
-		x, errA := decode(a.Request)
-		y, errB := decode(b.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(x, y, "", func(c Change) {
-			if c.Kind != KindChanged || !generated(a.ID, c.Path) {
-				return
-			}
-			if w, ok := c.Want.(string); ok && len(w) >= minFixtureEcho {
-				if g, ok := c.Got.(string); ok {
-					out = append(out, [2]string{w, g})
+		if b, ok := byID[a.ID]; ok {
+			walkRequests(a, b, func(c Change) {
+				if p, ok := echoPair(c); ok && c.Kind == KindChanged && generated(a.ID, c.Path) {
+					out = append(out, p)
 				}
-			}
-		})
+			})
+		}
 	}
 	return out
 }

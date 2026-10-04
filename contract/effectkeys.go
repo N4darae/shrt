@@ -162,10 +162,7 @@ func suggest(name string, candidates []string) string {
 			near = []string{c}
 		}
 	}
-	if len(near) == 0 {
-		return ""
-	}
-	return fmt.Sprintf(" (did you mean %q?)", near[0])
+	return namecase.Suggest(near)
 }
 
 type effectSpec struct {
@@ -185,22 +182,10 @@ type effectSpec struct {
 }
 
 func numericAt(m *catalog.Method, field string) string {
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-		if f.Name == field && !f.Repeated && chain.IsNumericKind(f.Kind) {
-			return f.Name
-		}
+	if f := fieldByName(catalog.DescribeMessage(m.Output()).Fields, field); f != nil && !f.Repeated && chain.IsNumericKind(f.Kind) {
+		return f.Name
 	}
-	for _, out := range catalog.DescribeMessage(m.Output()).Fields {
-		if out.Kind != "message" || out.Repeated || out.Name == chain.EnvelopeField() {
-			continue
-		}
-		for _, sf := range out.Fields {
-			if sf.Name == field && !sf.Repeated && chain.IsNumericKind(sf.Kind) {
-				return out.Name + "." + sf.Name
-			}
-		}
-	}
-	return ""
+	return carriedPath(m, field, true)
 }
 
 func numericNames(fields []*catalog.Field) []string {
@@ -280,7 +265,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
 	specs, problems := []effectSpec{}, []string{}
-	keys := sortedKeys(c.Effects)
+	keys := chain.SortedKeys(c.Effects)
 	carries := func(field string) func(*catalog.Method) bool {
 		return func(em *catalog.Method) bool { return numericAt(em, field) != "" }
 	}
@@ -307,7 +292,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			}
 			s.form = EffectZero
 		case e.Is == EffectNone || e.Restore != "":
-			if !numericInCatalog(cat, k) {
+			if !slices.Contains(catalogNumbers(cat), k) {
 				fail("%q is a number no rpc answers with%s", k, suggest(k, catalogNumbers(cat)))
 				continue
 			}
@@ -335,7 +320,8 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			}
 			id, entity, idPath := lineEntity(c, in, list, priced, cat)
 			if id == "" {
-				fail("times: %q is not a number in the request of %s%s", e.Times, lineSources(c, in, list, cat), suggest(e.Times, lineNumbers(c, in, list, cat)))
+				sources, numbers := lineSources(c, in, list, cat)
+				fail("times: %q is not a number in the request of %s%s", e.Times, sources, suggest(e.Times, numbers))
 				continue
 			}
 			s.form, s.list, s.qty, s.idField, s.entity, s.idPath, s.price = "total", list, qty, id, entity, idPath, e.Times
@@ -344,45 +330,35 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 			if e.Decrease != "" {
 				path, s.sign = e.Decrease, -1
 			}
-			if e.Of != "" {
-				ref, ok := writeRef(c, e.Of, cat)
-				if !ok || strings.Contains(e.Of, ".") {
-					fail("of: %q is not a request field wired with from: to another write%s", e.Of, suggest(e.Of, wiredWrites(c, cat)))
-					continue
+			if e.Of != "" || len(chain.SplitPath(path)) == 2 {
+				lc, lin, form, where, owner := c, in, "batch", "", ""
+				if e.Of != "" {
+					ref, ok := writeRef(c, e.Of, cat)
+					if !ok || strings.Contains(e.Of, ".") {
+						fail("of: %q is not a request field wired with from: to another write%s", e.Of, suggest(e.Of, wiredWrites(c, cat)))
+						continue
+					}
+					om, err := cat.Lookup(ref.RPC)
+					oc, ok := lib.Get(ref.RPC)
+					if err != nil || !ok {
+						fail("of: %s has no contract to read its lines from", shortRPC(ref.RPC))
+						continue
+					}
+					lc, lin, form = oc, catalog.DescribeMessage(om.Input()).Fields, "reserve"
+					where, owner = fmt.Sprintf("%s of %s: ", path, shortRPC(ref.RPC)), shortRPC(ref.RPC)+"."
+					s.of, s.ofRPC, s.ofPath = e.Of, ref.RPC, ref.Path
 				}
-				om, err := cat.Lookup(ref.RPC)
-				oc, ok := lib.Get(ref.RPC)
-				if err != nil || !ok {
-					fail("of: %s has no contract to read its lines from", shortRPC(ref.RPC))
-					continue
-				}
-				oin := catalog.DescribeMessage(om.Input()).Fields
-				list, qty, problem := linePath(oin, path)
+				list, qty, problem := linePath(lin, path)
 				if problem != "" {
-					fail("%s of %s: %s", path, shortRPC(ref.RPC), problem)
+					fail("%s%s", where, problem)
 					continue
 				}
-				id, entity, idPath := lineEntity(oc, oin, list, carries(k), cat)
+				id, entity, idPath := lineEntity(lc, lin, list, carries(k), cat)
 				if id == "" {
-					fail("no field of %s.%s is wired with from: to a record that answers %s", shortRPC(ref.RPC), list, k)
+					fail("no field of %s%s is wired with from: to a record that answers %s", owner, list, k)
 					continue
 				}
-				s.form, s.list, s.qty, s.idField, s.entity, s.idPath = "reserve", list, qty, id, entity, idPath
-				s.of, s.ofRPC, s.ofPath = e.Of, ref.RPC, ref.Path
-				break
-			}
-			if segs := chain.SplitPath(path); len(segs) == 2 {
-				list, qty, problem := linePath(in, path)
-				if problem != "" {
-					fail("%s", problem)
-					continue
-				}
-				id, entity, idPath := lineEntity(c, in, list, carries(k), cat)
-				if id == "" {
-					fail("no field of %s is wired with from: to a record that answers %s", list, k)
-					continue
-				}
-				s.form, s.list, s.qty, s.idField, s.entity, s.idPath = "batch", list, qty, id, entity, idPath
+				s.form, s.list, s.qty, s.idField, s.entity, s.idPath = form, list, qty, id, entity, idPath
 				break
 			}
 			f := fieldByName(in, path)
@@ -410,7 +386,7 @@ func resolveEffects(rpc string, c *RPCContract, lib *Library, cat *catalog.Catal
 
 func wiredWrites(c *RPCContract, cat *catalog.Catalog) []string {
 	out := []string{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		if _, ok := writeRef(c, name, cat); ok && !strings.Contains(name, ".") {
 			out = append(out, name)
 		}
@@ -418,35 +394,24 @@ func wiredWrites(c *RPCContract, cat *catalog.Catalog) []string {
 	return out
 }
 
-func lineNumbers(c *RPCContract, in []*catalog.Field, list string, cat *catalog.Catalog) []string {
-	out := []string{}
-	lf := fieldByName(in, list)
-	if lf == nil {
-		return out
-	}
-	for _, sub := range lf.Fields {
-		if ref, ok := writeRef(c, list+"."+sub.Name, cat); ok {
-			if em, err := cat.Lookup(ref.RPC); err == nil {
-				out = append(out, numericNames(catalog.DescribeMessage(em.Input()).Fields)...)
-			}
-		}
-	}
-	return out
-}
-
-func lineSources(c *RPCContract, in []*catalog.Field, list string, cat *catalog.Catalog) string {
-	names := []string{}
+func lineSources(c *RPCContract, in []*catalog.Field, list string, cat *catalog.Catalog) (string, []string) {
+	names, numbers := []string{}, []string{}
 	if lf := fieldByName(in, list); lf != nil {
 		for _, sub := range lf.Fields {
-			if ref, ok := writeRef(c, list+"."+sub.Name, cat); ok {
-				names = append(names, fmt.Sprintf("%s (which %s.%s is wired from:)", shortRPC(ref.RPC), list, sub.Name))
+			ref, ok := writeRef(c, list+"."+sub.Name, cat)
+			if !ok {
+				continue
+			}
+			names = append(names, fmt.Sprintf("%s (which %s.%s is wired from:)", shortRPC(ref.RPC), list, sub.Name))
+			if em, err := cat.Lookup(ref.RPC); err == nil {
+				numbers = append(numbers, numericNames(catalog.DescribeMessage(em.Input()).Fields)...)
 			}
 		}
 	}
 	if len(names) == 0 {
-		return "a record any field of " + list + " is wired from:"
+		return "a record any field of " + list + " is wired from:", numbers
 	}
-	return strings.Join(names, " or ")
+	return strings.Join(names, " or "), numbers
 }
 
 func catalogNumbers(cat *catalog.Catalog) []string {
@@ -455,10 +420,6 @@ func catalogNumbers(cat *catalog.Catalog) []string {
 		out = append(out, numericNames(catalog.DescribeMessage(m.Output()).Fields)...)
 	}
 	return out
-}
-
-func numericInCatalog(cat *catalog.Catalog, name string) bool {
-	return slices.Contains(catalogNumbers(cat), name)
 }
 
 func enumValues(fields []*catalog.Field) []string {
@@ -492,7 +453,7 @@ func EffectProblems(lib *Library, cat *catalog.Catalog) []Issue {
 		return issues
 	}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			m, err := cat.Lookup(rpc)
 			if err != nil {
 				continue

@@ -65,7 +65,7 @@ func (p *Plan) readBackVariants(lib *Library) {
 		if len(states) == 0 && (e.producer != st || mains[st.ID] || p.readsCreated(st, e.idPath)) {
 			continue
 		}
-		r := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+st.ID),
+		r := e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+st.ID),
 			fmt.Sprintf("the %s as %s left it, read back as its main step's is.", e.carrier, st.ID), ref)
 		p.assertEcho(r)
 		r.Expect = append(r.Expect, states...)
@@ -92,10 +92,8 @@ func (p *Plan) actedOnLater(st *chain.Step) bool {
 
 func (p *Plan) ownRecordRead(lib *Library, st *chain.Step, m *catalog.Method, car *catalog.Field) (entityRead, bool) {
 	for _, e := range p.entitiesOf(lib, st) {
-		for _, f := range catalog.DescribeMessage(e.reader.Output()).Fields {
-			if f.Name == e.carrier && f.Message == car.Message {
-				return e, true
-			}
+		if f := fieldByName(catalog.DescribeMessage(e.reader.Output()).Fields, e.carrier); f != nil && f.Message == car.Message {
+			return e, true
 		}
 	}
 	if idPath := p.createdIDPath(m); idPath != "" {

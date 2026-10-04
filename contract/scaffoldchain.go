@@ -138,7 +138,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			readers[src][shortRPC(st.Call)] = true
 		}
 	}
-	for _, rpc := range sortedKeys(producers) {
+	for _, rpc := range chain.SortedKeys(producers) {
 		ids := producers[rpc]
 		if len(ids) < 2 {
 			continue
@@ -148,7 +148,7 @@ func (p *Plan) noteUnevenPreparation(producers map[string][]string, rpcOf map[st
 			maps.Copy(all, readers[id])
 		}
 		for _, id := range ids {
-			missing := slices.DeleteFunc(sortedKeys(all), func(r string) bool { return readers[id][r] })
+			missing := slices.DeleteFunc(chain.SortedKeys(all), func(r string) bool { return readers[id][r] })
 			if len(missing) == 0 {
 				continue
 			}
@@ -264,7 +264,7 @@ func (p *Plan) refuseByState(lib *Library) map[string]map[string]string {
 			if !isRefusalStep(st) && cur != "" && cur != p.createdState(lib, e.producer, e.carrier, e.state) {
 				for _, f := range lib.AllFailures(m.FullName) {
 					if probeable(f) && failureState(f, values, short) == cur {
-						st.Expect = refusalOf(m, f)
+						st.Expect = refusalFor(m, f, false)
 						st.Description = fmt.Sprintf("refused with %s: %s left the %s %s.", f.Label(), by[e.producer.ID], e.carrier, short[cur])
 						break
 					}
@@ -349,25 +349,9 @@ func (p *Plan) assertListed(c *RPCContract, st *chain.Step, m *catalog.Method, s
 		}
 	}
 	key, desc, stated := stateOrder(c, t.listPath)
-	positional := stated && !desc && creationWord().MatchString(key)
-	for i, prod := range t.producers {
-		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-		v := ""
-		if field != nil {
-			v = state(prod, t.carrier, field)
-		}
-		if !positional {
-			want := map[string]any{t.itemID: id}
-			if v != "" {
-				want[field.Name] = v
-			}
-			st.Expect = append(st.Expect, chain.Expectation{Path: t.listPath, Includes: want})
-			continue
-		}
-		st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
-		if v != "" {
-			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, field.Name), Equals: v})
-		}
+	name, stateOf := "", func(*chain.Step) string { return "" }
+	if field != nil {
+		name, stateOf = field.Name, func(prod *chain.Step) string { return state(prod, t.carrier, field) }
 	}
-	st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+	st.Expect = append(st.Expect, t.listedAs(stated && !desc && creationWord().MatchString(key), name, stateOf)...)
 }

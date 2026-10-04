@@ -11,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -107,17 +108,10 @@ func addRoleProfiles(cfg *config.Config, best catalog.LoginCandidate, environ []
 		if _, exists := cfg.Auth.Profiles[name]; exists {
 			continue
 		}
-		body := map[string]any{}
-		if best.UserField != "" {
-			body[best.UserField] = "${env." + cs.user + "}"
-		}
-		if best.PasswordName != "" {
-			body[best.PasswordName] = "${env." + cs.password + "}"
-		}
 		if cfg.Auth.Profiles == nil {
 			cfg.Auth.Profiles = map[string]*config.Auth{}
 		}
-		cfg.Auth.Profiles[name] = &config.Auth{Call: best.Method.FullName, Body: body, TokenPath: best.TokenPath, ExpiresPath: best.ExpiresPath}
+		cfg.Auth.Profiles[name] = authFromCandidate(best, cs.user, cs.password)
 		added = append(added, fmt.Sprintf("%s (%s and %s are set, and README names %s)", name, cs.user, cs.password, name))
 	}
 	return added
@@ -188,11 +182,11 @@ func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error
 	if err := yaml.Unmarshal(raw, &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
 		return nil, err
 	}
-	auth := mappingValue(doc.Content[0], "auth")
+	auth := yamlkey.MappingValue(doc.Content[0], "auth")
 	if auth == nil || auth.Kind != yaml.MappingNode {
 		return nil, nil
 	}
-	profiles := mappingValue(auth, "profiles")
+	profiles := yamlkey.MappingValue(auth, "profiles")
 	if profiles == nil {
 		profiles = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		auth.Content = append(auth.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "profiles"}, profiles)
@@ -211,32 +205,22 @@ func addMissingRoleProfiles(cfg *config.Config, cfgPath string) ([]string, error
 		}
 		profiles.Content = append(profiles.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name}, &value)
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(4)
-	if err := enc.Encode(&doc); err != nil {
+	if err := writeYAML(cfgPath, &doc); err != nil {
 		return nil, err
 	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
-	if err := os.WriteFile(cfgPath, buf.Bytes(), 0o644); err != nil {
-		return nil, err
-	}
-	if cfg.Auth.Profiles == nil {
-		cfg.Auth.Profiles = map[string]*config.Auth{}
-	}
-	for _, name := range names {
-		cfg.Auth.Profiles[name] = probe.Auth.Profiles[name]
-	}
+	cfg.Auth.Profiles = probe.Auth.Profiles
 	return added, nil
 }
 
-func mappingValue(m *yaml.Node, key string) *yaml.Node {
-	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value == key {
-			return m.Content[i+1]
-		}
+func writeYAML(path string, doc *yaml.Node) error {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(4)
+	if err := enc.Encode(doc); err != nil {
+		return err
 	}
-	return nil
+	if err := enc.Close(); err != nil {
+		return err
+	}
+	return os.WriteFile(path, buf.Bytes(), 0o644)
 }

@@ -3,6 +3,7 @@ package contract
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
@@ -23,7 +24,7 @@ type stateEntity struct {
 
 func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 	out := []stateEntity{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" || strings.Contains(name, ".") {
 			continue
@@ -53,16 +54,12 @@ func (p *Plan) entityStates(st *chain.Step, c *RPCContract) []stateEntity {
 		if len(segs) != 2 {
 			continue
 		}
-		for _, fd := range catalog.DescribeMessage(pm.Output()).Fields {
-			if fd.Name != segs[0] || fd.Kind != "message" || fd.Repeated {
-				continue
-			}
-			for _, sf := range fd.Fields {
-				if len(sf.EnumValues) > 1 && !sf.Repeated {
-					out = append(out, stateEntity{field: key, producer: prod, idPath: ref.Path, carrier: fd.Name, itemMsg: fd.Message, idField: segs[1], state: sf})
-					break
-				}
-			}
+		fd := fieldByName(catalog.DescribeMessage(pm.Output()).Fields, segs[0])
+		if fd == nil || fd.Kind != "message" || fd.Repeated {
+			continue
+		}
+		if i := slices.IndexFunc(fd.Fields, func(sf *catalog.Field) bool { return len(sf.EnumValues) > 1 && !sf.Repeated }); i >= 0 {
+			out = append(out, stateEntity{field: key, producer: prod, idPath: ref.Path, carrier: fd.Name, itemMsg: fd.Message, idField: segs[1], state: fd.Fields[i]})
 		}
 	}
 	return out
@@ -117,19 +114,14 @@ func (p *Plan) probeStateRefusals(lib *Library, isTarget func(*chain.Step) bool)
 					t := &listTarget{step: st, itemMsg: e.itemMsg, itemID: e.idField, carrier: e.carrier}
 					transitions, _ = p.transitionsFor(lib, t, e.producer, values, short, initial)
 				}
-				var move *transition
-				for i := range transitions {
-					if transitions[i].value == state {
-						move = &transitions[i]
-					}
-				}
-				if move == nil {
+				at := slices.IndexFunc(transitions, func(tr transition) bool { return tr.value == state })
+				if at < 0 {
 					p.note("step %s: its contract declares %s for %s in %s, but no write rpc in the contracts says it moves "+
 						"%s there (a summary or export naming %s), so no fixture is put in that state to probe it",
 						st.ID, f.Label(), withArticle(e.carrier), short[state], withArticle(e.carrier), short[state])
 					continue
 				}
-				p.addStateRefusal(lib, st, m, e, f, *move, short)
+				p.addStateRefusal(lib, st, m, e, f, transitions[at], short)
 			}
 		}
 	}
@@ -141,15 +133,12 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 	fixture := p.fixtureCopy(lib, e.producer, fid, map[string]string{e.producer.ID: fid}, fmt.Sprintf("as %s, a %s of its own for %s to find %s.", e.producer.ID, e.carrier, st.ID, short[move.value]))
 	fixtureID := "${" + fixture.ID + "." + e.idPath + "}"
 
-	moved := move.step(p.freeStepID(defaultID(move.method.Name)+"_to_"+label+"_for_"+st.ID),
+	moved := move.step(p.freeStepID(chain.SnakeCase(move.method.Name)+"_to_"+label+"_for_"+st.ID),
 		fmt.Sprintf("moves %s to %s, the state in which %s must be refused.", fixture.ID, short[move.value], st.ID), fixtureID, e.carrier+"."+e.state.Name)
 
-	refused := probeStep(st, p.freeStepID(st.ID+"_when_"+label))
-	if !chain.IsReadOnlyCall(st.Call) {
-		p.freshen(lib, refused)
-	}
+	refused := p.probeCopy(lib, st, "when_"+label)
 	setBodyPath(refused.Body, e.field, fixtureID)
-	refused.Expect = refusalOf(m, f)
+	refused.Expect = refusalFor(m, f, false)
 	refused.Description = fmt.Sprintf("on %s already %s: refused with %s (%s), and nothing it would have changed moves.",
 		withArticle(e.carrier), short[move.value], f.Label(), strings.TrimSpace(f.When))
 	p.Chain.Steps = append(p.Chain.Steps, fixture, moved)
@@ -158,13 +147,6 @@ func (p *Plan) addStateRefusal(lib *Library, st *chain.Step, m *catalog.Method, 
 		"%s, the reads around it asserting the %s and what it holds unchanged: a backend that answers another code, or "+
 		"acts on the %s anyway, fails", st.ID, f.Label(), withArticle(e.carrier), short[move.value], fixture.ID, e.carrier, moved.ID,
 		refused.ID, f.Label(), e.carrier, e.carrier)
-}
-
-func refusalOf(m *catalog.Method, f Failure) []chain.Expectation {
-	if f.ConnectCode != "" && f.Code == 0 {
-		return refusalFor(m, f)
-	}
-	return withoutAbsentCarrier(refusalExpectations(m, f))
 }
 
 func withArticle(noun string) string {

@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -14,10 +15,7 @@ type fixtureRegion struct {
 }
 
 func (p *Plan) captureRegion(targetSteps map[string]bool) {
-	r := &fixtureRegion{ids: map[string]bool{}, targets: map[string]bool{}}
-	for id := range targetSteps {
-		r.targets[id] = true
-	}
+	r := &fixtureRegion{ids: map[string]bool{}, targets: maps.Clone(targetSteps)}
 	for _, st := range p.Chain.Steps {
 		if targetSteps[st.ID] {
 			continue

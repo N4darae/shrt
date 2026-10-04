@@ -1,15 +1,15 @@
 package main
 
 import (
+	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +21,7 @@ import (
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -204,10 +205,7 @@ func sliceChain(ctx context.Context, args []string, keptRed *sliceKeptRed) error
 
 	path := ""
 	if write.set {
-		path = slicePath(e, c, res.Chain.Name+".yaml", keptRed.on)
-		if writePath != "" {
-			path = writePath
-		}
+		path = cmp.Or(writePath, slicePath(e, c, res.Chain.Name+".yaml", keptRed.on))
 	}
 	source := path != "" && sameFile(path, c.SourcePath)
 	whole := write.set && (name == "" || source) && len(res.Kept) == res.Total && c.SourcePath != "" && !keptRed.on
@@ -657,10 +655,7 @@ func (v *sliceVerdict) text() string {
 		head += ": reproduced"
 	}
 	head += v.countLabel()
-	slice := v.SliceRun
-	if slice == "" {
-		slice = "none"
-	}
+	slice := cmp.Or(v.SliceRun, "none")
 	source := v.SourceRun
 	if v.SourceReplay != "" {
 		source += " (a shrt verify replay)"
@@ -1075,10 +1070,7 @@ func verdictIn(sr *runner.StepRecord, response any) chain.Verdict {
 	if v, ok := chain.Get(response, path); ok {
 		code = fmt.Sprintf("%v", v)
 	}
-	parent := ""
-	if i := strings.LastIndex(path, "."); i >= 0 {
-		parent = path[:i+1]
-	}
+	parent := path[:strings.LastIndex(path, ".")+1]
 	refusal := map[string]string{}
 	for field, paths := range map[string][]string{
 		"message":  {parent + "message"},
@@ -1163,50 +1155,7 @@ func clockDistanceLines(res *chain.SliceResult, source, replay chain.Verdict, sa
 }
 
 func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any) bool {
-	mask := func(vars map[string]any, text string) string {
-		values := []string{}
-		names := map[string]string{}
-		for name, v := range vars {
-			value := fmt.Sprint(v)
-			if len(value) < 3 || value == pathmask.MaskRedacted {
-				continue
-			}
-			values = append(values, value)
-			names[value] = name
-		}
-		sort.Slice(values, func(i, j int) bool { return len(values[i]) > len(values[j]) })
-		for _, value := range values {
-			text = strings.ReplaceAll(text, value, "${vars."+names[value]+"}")
-		}
-		return text
-	}
-	var alike func(path string, a, b any) bool
-	alike = func(path string, a, b any) bool {
-		switch x := a.(type) {
-		case map[string]any:
-			y, ok := b.(map[string]any)
-			if !ok || len(x) != len(y) {
-				return false
-			}
-			for k, v := range x {
-				w, ok := y[k]
-				if !ok || !alike(pathmask.Join(path, k), v, w) {
-					return false
-				}
-			}
-			return true
-		case []any:
-			y, ok := b.([]any)
-			if !ok || len(x) != len(y) {
-				return false
-			}
-			for i := range x {
-				if !alike(path, x[i], y[i]) {
-					return false
-				}
-			}
-			return true
-		}
+	leaf := func(path string, a, b any) bool {
 		if fmt.Sprint(a) == fmt.Sprint(b) || sameUpToIDs(path, a, b) {
 			return true
 		}
@@ -1215,10 +1164,10 @@ func sameUpToFixtures(source, replay map[string]any) func(path string, a, b any)
 		if !ok1 || !ok2 {
 			return false
 		}
-		mx, my := mask(source, x), mask(replay, y)
+		mx, my := diff.MaskVarValues(source, x), diff.MaskVarValues(replay, y)
 		return mx != x && mx == my
 	}
-	return alike
+	return func(path string, a, b any) bool { return diff.SameTree(a, b, path, leaf) }
 }
 
 func idToken(s string) bool {
@@ -1272,19 +1221,11 @@ func sliceVerifyCommand(res *chain.SliceResult, runID string, a sliceVerifyArgs,
 			}
 		}
 	}
-	supplied := map[string]bool{}
-	keys := make([]string, 0, len(a.vars)+len(interpolated))
+	named := maps.Clone(interpolated)
 	for k := range a.vars {
-		supplied[k] = true
-		keys = append(keys, k)
+		named[k] = true
 	}
-	for k := range interpolated {
-		if !supplied[k] {
-			keys = append(keys, k)
-		}
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(named) {
 		v := fmt.Sprint(a.vars[k])
 		if interpolated[k] {
 			v = "<fresh>"
@@ -1337,10 +1278,7 @@ func writeSliceFile(path string, c *chain.Chain) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, raw, 0o644)
+	return writePlanFile(path, raw)
 }
 
 func mayOverwriteSlice(path string, res *chain.SliceResult, source, verify bool) error {
@@ -1394,11 +1332,7 @@ func refusedIn(rec *runner.Record) func(string) (string, bool) {
 		if path == "" || len(sr.Response) == 0 {
 			return "", false
 		}
-		var response any
-		if err := json.Unmarshal(sr.Response, &response); err != nil {
-			return "", false
-		}
-		v, found := chain.Get(response, path)
+		v, found := chain.Get(decoded(sr.Response), path)
 		if !found {
 			return "", false
 		}
@@ -1521,14 +1455,10 @@ func latestRun(e *env, chainName, step string) (*runner.Record, error) {
 }
 
 func failedCount(rec *runner.Record) string {
-	switch n := len(failedSteps(rec)); n {
-	case 0:
-		return "no step failed"
-	case 1:
-		return "1 step failed"
-	default:
-		return fmt.Sprintf("%d steps failed", n)
+	if n := len(failedSteps(rec)); n > 0 {
+		return plural(n, "step") + " failed"
 	}
+	return "no step failed"
 }
 
 func newerFailing(e *env, rec *runner.Record) *runner.Record {
@@ -1640,7 +1570,7 @@ func recordVerdictIn(path string, record func(string) string) error {
 		}
 	}
 	value := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: record(current), Style: yaml.LiteralStyle}
-	setKey(top, "description", value)
+	yamlkey.Set(top, "description", value)
 	out, err := yaml.Marshal(doc)
 	if err != nil {
 		return err
@@ -1663,18 +1593,13 @@ func failedInSource(rec *runner.Record, ids []string) ([]string, []string) {
 }
 
 func sliceDir(e *env, c *chain.Chain) string {
-	chains := e.chainsDir()
-	if c.SourcePath == "" {
-		return chains
+	if c.SourcePath == "" || inChainsDir(e, c) {
+		return e.chainsDir()
 	}
-	dir, err := filepath.Abs(filepath.Dir(c.SourcePath))
-	if err != nil {
-		return chains
+	if dir, err := filepath.Abs(filepath.Dir(c.SourcePath)); err == nil {
+		return dir
 	}
-	if abs, err := filepath.Abs(chains); err == nil && abs == dir {
-		return chains
-	}
-	return dir
+	return e.chainsDir()
 }
 
 func slicePath(e *env, c *chain.Chain, file string, pinned bool) string {

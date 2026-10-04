@@ -7,6 +7,7 @@ import (
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var roleSpecific = lazyRegexp(`(?i)\b(?:roles?|caller|callers|profile|profiles|principal)\b|\bonly (?:to|for) (?:an? |the )?[A-Z]{2,}`)
@@ -40,7 +41,7 @@ func roleSpecificPath(c *RPCContract, path string) bool {
 	if c == nil {
 		return false
 	}
-	leaf := leafName(path)
+	leaf := chain.PathLeaf(path)
 	for _, m := range []map[string]string{c.Terminal, c.SoftSignals} {
 		for k, text := range m {
 			if (k == path || k == leaf) && roleSpecific().MatchString(text) {
@@ -56,7 +57,7 @@ func responseLeaves(fields []*catalog.Field, path string, out *[]string) {
 		if f.Repeated || f.MapKey != "" {
 			continue
 		}
-		at := join(path, f.Name)
+		at := pathmask.Join(path, f.Name)
 		if f.Kind == "message" && f.JSONForm == "" && len(f.Fields) > 0 {
 			responseLeaves(f.Fields, at, out)
 			continue
@@ -95,7 +96,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 	lists := []string{}
 	includes := []chain.Expectation{}
 	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
+		if IsVerdictFieldName(fd.Name) {
 			continue
 		}
 		if fd.Repeated && fd.MapKey == "" && fd.Kind == "message" && len(fd.Fields) > 0 {
@@ -121,11 +122,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 			skipped = append(skipped, fd.Name)
 			continue
 		}
-		if fd.Kind == "message" && fd.JSONForm == "" && len(fd.Fields) > 0 {
-			responseLeaves(fd.Fields, fd.Name, &leaves)
-			continue
-		}
-		leaves = append(leaves, fd.Name)
+		responseLeaves([]*catalog.Field{fd}, "", &leaves)
 	}
 	compared, exempt := []string{}, []string{}
 	for _, path := range leaves {
@@ -185,7 +182,7 @@ func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, prof
 	}
 	comparable := []entityRead{}
 	for _, e := range entities {
-		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || isExpiryName(name) })
+		kept := slices.DeleteFunc(slices.Clone(e.scalars), func(name string) bool { return isStampName(name) || chain.IsExpiryName(name) })
 		if len(kept) > 0 {
 			e.scalars = kept
 			comparable = append(comparable, e)
@@ -361,10 +358,7 @@ func stepIndex(steps []*chain.Step, id string) int {
 }
 
 func (p *Plan) createdIDPath(m *catalog.Method) string {
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
+	for _, fd := range carriersOf(m) {
 		for _, sf := range fd.Fields {
 			if IsEntityIDField(sf.Name) && sf.Kind == "string" && fieldByName(catalog.DescribeMessage(m.Input()).Fields, sf.Name) == nil {
 				return fd.Name + "." + sf.Name

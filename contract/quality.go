@@ -52,66 +52,50 @@ func ValidPhase(phase string) bool {
 }
 
 func QualityTerms() []QualityTerm {
-	flag := func(b bool) int {
-		if b {
-			return 1
-		}
-		return 0
+	flagged := func(weight int, phase, label string, on func(QualityRPC) bool, detail string) QualityTerm {
+		return QualityTerm{weight, phase, label, func(r QualityRPC) int {
+			if on(r) {
+				return 1
+			}
+			return 0
+		}, func(QualityRPC) string { return detail }}
+	}
+	listed := func(weight int, phase, label string, of func(QualityRPC) []string, clip int, noun string) QualityTerm {
+		return QualityTerm{weight, phase, label, func(r QualityRPC) int { return len(of(r)) }, func(r QualityRPC) string {
+			names := of(r)
+			if clip > 0 {
+				names = clipList(names, clip)
+			}
+			return fmt.Sprintf("%d %s: %s", len(of(r)), noun, strings.Join(names, ", "))
+		}}
 	}
 	return []QualityTerm{
-		{WeightNoContract, PhaseHappy, "rpc in the catalog that no overlay covers, on top of what an empty entry for it scores",
-			func(r QualityRPC) int { return flag(r.NoContract) },
-			func(QualityRPC) string {
-				return "no contract in any overlay: scored as an empty entry plus this charge — shrt contract init <domain> writes one"
-			}},
-		{WeightUndocumentedField, PhaseHappy, "undocumented request field",
-			func(r QualityRPC) int { return len(r.UndocumentedFields) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d undocumented field(s): %s", len(r.UndocumentedFields), strings.Join(r.UndocumentedFields, ", "))
-			}},
-		{WeightUnwiredID, PhaseHappy, "required-or-unexplained id field with no from/same_as/value",
-			func(r QualityRPC) int { return len(r.UnwiredIDs) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d id(s) with no from/same_as/value: %s", len(r.UnwiredIDs), strings.Join(r.UnwiredIDs, ", "))
-			}},
-		{WeightNoFailuresDeclared, PhaseFailure, "write rpc declaring no failures at all",
-			func(r QualityRPC) int { return flag(r.NoFailuresDeclared) },
-			func(QualityRPC) string { return "no failures declared at all" }},
-		{WeightMissingSummary, PhaseHappy, "missing summary",
-			func(r QualityRPC) int { return flag(!r.HasSummary) },
-			func(QualityRPC) string { return "no summary" }},
-		{WeightMissingRequiresRole, PhaseHappy, "rpc with no requires_role at all — the literal NONE declares no role gate",
-			func(r QualityRPC) int { return flag(r.MissingRequiresRole) },
-			func(QualityRPC) string {
-				return "no requires_role: declare the roles, or the literal NONE if the rpc reaches no role gate"
-			}},
-		{WeightReadWithNoProducer, PhaseHappy, "read rpc no write rpc can reach, with no no_producer saying why",
-			func(r QualityRPC) int { return flag(r.ReadWithNoProducer) },
-			func(QualityRPC) string {
-				return "read rpc with no producer: no needs/from/same_as edge to any write rpc, and no no_producer: saying why the rows are already there"
-			}},
-		{WeightEmptyRequired, PhaseHappy, "rpc with request fields and an empty required — the literal NONE declares that the server rejects nothing",
-			func(r QualityRPC) int { return flag(r.EmptyRequired) },
-			func(QualityRPC) string {
-				return "empty required: list the fields the server rejects without, or the literal NONE if it rejects nothing — a chain built from an empty required lints clean while sending zero values"
-			}},
-		{WeightUncheckedID, PhaseFailure, "wired id with no checked_by",
-			func(r QualityRPC) int { return len(r.UncheckedIDs) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d wired id(s) with no checked_by: %s", len(r.UncheckedIDs), strings.Join(r.UncheckedIDs, ", "))
-			}},
-		{WeightUndeclaredResponseField, PhaseHappy, "response field in no exports/terminal/soft_signals",
-			func(r QualityRPC) int { return len(r.UndeclaredResponseFields) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d response field(s) in no exports/terminal/soft_signals: %s",
-					len(r.UndeclaredResponseFields), strings.Join(clipList(r.UndeclaredResponseFields, 6), ", "))
-			}},
-		{WeightUnexplainedFailure, PhaseFailure, "failure declared with no when/unreachable/pending_deploy",
-			func(r QualityRPC) int { return len(r.UnexplainedFailures) },
-			func(r QualityRPC) string {
-				return fmt.Sprintf("%d failure(s) with no when/unreachable: %s",
-					len(r.UnexplainedFailures), strings.Join(clipList(r.UnexplainedFailures, 6), ", "))
-			}},
+		flagged(WeightNoContract, PhaseHappy, "rpc in the catalog that no overlay covers, on top of what an empty entry for it scores",
+			func(r QualityRPC) bool { return r.NoContract },
+			"no contract in any overlay: scored as an empty entry plus this charge — shrt contract init <domain> writes one"),
+		listed(WeightUndocumentedField, PhaseHappy, "undocumented request field",
+			func(r QualityRPC) []string { return r.UndocumentedFields }, 0, "undocumented field(s)"),
+		listed(WeightUnwiredID, PhaseHappy, "required-or-unexplained id field with no from/same_as/value",
+			func(r QualityRPC) []string { return r.UnwiredIDs }, 0, "id(s) with no from/same_as/value"),
+		flagged(WeightNoFailuresDeclared, PhaseFailure, "write rpc declaring no failures at all",
+			func(r QualityRPC) bool { return r.NoFailuresDeclared }, "no failures declared at all"),
+		flagged(WeightMissingSummary, PhaseHappy, "missing summary",
+			func(r QualityRPC) bool { return !r.HasSummary }, "no summary"),
+		flagged(WeightMissingRequiresRole, PhaseHappy, "rpc with no requires_role at all — the literal NONE declares no role gate",
+			func(r QualityRPC) bool { return r.MissingRequiresRole },
+			"no requires_role: declare the roles, or the literal NONE if the rpc reaches no role gate"),
+		flagged(WeightReadWithNoProducer, PhaseHappy, "read rpc no write rpc can reach, with no no_producer saying why",
+			func(r QualityRPC) bool { return r.ReadWithNoProducer },
+			"read rpc with no producer: no needs/from/same_as edge to any write rpc, and no no_producer: saying why the rows are already there"),
+		flagged(WeightEmptyRequired, PhaseHappy, "rpc with request fields and an empty required — the literal NONE declares that the server rejects nothing",
+			func(r QualityRPC) bool { return r.EmptyRequired },
+			"empty required: list the fields the server rejects without, or the literal NONE if it rejects nothing — a chain built from an empty required lints clean while sending zero values"),
+		listed(WeightUncheckedID, PhaseFailure, "wired id with no checked_by",
+			func(r QualityRPC) []string { return r.UncheckedIDs }, 0, "wired id(s) with no checked_by"),
+		listed(WeightUndeclaredResponseField, PhaseHappy, "response field in no exports/terminal/soft_signals",
+			func(r QualityRPC) []string { return r.UndeclaredResponseFields }, 6, "response field(s) in no exports/terminal/soft_signals"),
+		listed(WeightUnexplainedFailure, PhaseFailure, "failure declared with no when/unreachable/pending_deploy",
+			func(r QualityRPC) []string { return r.UnexplainedFailures }, 6, "failure(s) with no when/unreachable"),
 	}
 }
 
@@ -195,22 +179,23 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) QualityReport {
 	shapes := MethodShapes(cat)
 	report := QualityReport{RPCs: []QualityRPC{}, Phase: phase}
+	add := func(row QualityRPC) {
+		row.Score = ScoreOfPhase(row, phase)
+		report.TotalScore += row.Score
+		if row.Score > 0 {
+			report.RPCs = append(report.RPCs, row)
+		}
+	}
 	for _, o := range lib.Overlays {
 		if domain != "" && o.Domain != domain {
 			continue
 		}
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			c := o.RPCs[rpc]
 			if c == nil || shapes[rpc].Streaming {
 				continue
 			}
-			row := measureRPC(o.Domain, rpc, c, shapes[rpc], lib.RequiredBy(rpc))
-			row.Score = ScoreOfPhase(row, phase)
-			report.TotalScore += row.Score
-			if row.Score == 0 {
-				continue
-			}
-			report.RPCs = append(report.RPCs, row)
+			add(measureRPC(o.Domain, rpc, c, shapes[rpc], lib.RequiredBy(rpc)))
 		}
 	}
 	if cat != nil {
@@ -223,11 +208,7 @@ func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) Qual
 			}
 			row := measureRPC(DomainOf(m), m.FullName, &RPCContract{}, shapes[m.FullName], lib.RequiredBy(m.FullName))
 			row.NoContract = true
-			row.Score = ScoreOfPhase(row, phase)
-			report.TotalScore += row.Score
-			if row.Score > 0 {
-				report.RPCs = append(report.RPCs, row)
-			}
+			add(row)
 		}
 	}
 	slices.SortStableFunc(report.RPCs, func(a, b QualityRPC) int {
@@ -268,12 +249,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		}
 	}
 
-	undocumented := []string{}
-	for _, name := range shape.RequestFields {
-		if !documented[name] {
-			undocumented = append(undocumented, name)
-		}
-	}
+	undocumented := slices.DeleteFunc(append([]string{}, shape.RequestFields...), func(name string) bool { return documented[name] })
 
 	declaredResponse := map[string]bool{}
 	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
@@ -283,12 +259,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 			}
 		}
 	}
-	undeclaredResponse := []string{}
-	for _, name := range shape.ResponseFields {
-		if !declaredResponse[name] {
-			undeclaredResponse = append(undeclaredResponse, name)
-		}
-	}
+	undeclaredResponse := slices.DeleteFunc(append([]string{}, shape.ResponseFields...), func(name string) bool { return declaredResponse[name] })
 
 	unexplained := []string{}
 	for _, f := range c.Failures {
@@ -307,28 +278,19 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 
 	writePath := !chain.IsReadOnlyCall(rpc)
 	unwired, unchecked := measureIDKeys(c, fields, writePath)
-
-	noFailures := writePath && len(c.Failures) == 0
-
-	noProducer := !writePath && !hasWriteProducer(c, fields, requiredBy) && !Explains(c.NoProducer)
-
-	missingRole := len(c.RequiresRole) == 0
-
-	emptyRequired := len(shape.RequestFields) > 0 && !requiredSaysSomething(c, shape)
-
 	row := QualityRPC{
 		Domain:                   domain,
 		RPC:                      rpc,
 		UndocumentedFields:       undocumented,
 		UnexplainedFailures:      unexplained,
-		UnfilledTodos:            sortedKeys(c.Unfilled),
+		UnfilledTodos:            chain.SortedKeys(c.Unfilled),
 		UnwiredIDs:               unwired,
 		UncheckedIDs:             unchecked,
 		UndeclaredResponseFields: undeclaredResponse,
-		NoFailuresDeclared:       noFailures,
-		ReadWithNoProducer:       noProducer,
-		MissingRequiresRole:      missingRole,
-		EmptyRequired:            emptyRequired,
+		NoFailuresDeclared:       writePath && len(c.Failures) == 0,
+		ReadWithNoProducer:       !writePath && !hasWriteProducer(c, fields, requiredBy) && !Explains(c.NoProducer),
+		MissingRequiresRole:      len(c.RequiresRole) == 0,
+		EmptyRequired:            len(shape.RequestFields) > 0 && !requiredSaysSomething(c, shape),
 		WiredFields:              wired,
 		HasSummary:               Explains(c.Summary),
 	}
@@ -386,37 +348,26 @@ func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath b
 			keys[key] = true
 		}
 	}
-	for _, key := range sortedKeys(keys) {
-		if sourced, checked := idKeyState(fields, key); sourced {
+	for _, key := range chain.SortedKeys(keys) {
+		sourced, checked, noted := false, false, false
+		for name, f := range fields {
+			if relatedKey(name, key) {
+				sourced = sourced || hasValueSource(f)
+				checked = checked || hasValueSource(f) && f.CheckedBy != "" && !IsTodo(f.CheckedBy)
+				noted = noted || strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note)
+			}
+		}
+		if sourced {
 			if !checked {
 				unchecked = append(unchecked, key)
 			}
 			continue
 		}
-		if writePath && (slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) || !explained(fields, key)) {
+		if writePath && (slices.ContainsFunc(c.Required, func(r string) bool { return relatedKey(r, key) }) || !noted) {
 			unwired = append(unwired, key)
 		}
 	}
 	return unwired, unchecked
-}
-
-func idKeyState(fields map[string]*FieldContract, key string) (sourced, checked bool) {
-	for name, f := range fields {
-		if relatedKey(name, key) && hasValueSource(f) {
-			sourced = true
-			checked = checked || f.CheckedBy != "" && !IsTodo(f.CheckedBy)
-		}
-	}
-	return sourced, checked
-}
-
-func explained(fields map[string]*FieldContract, key string) bool {
-	for name, f := range fields {
-		if relatedKey(name, key) && strings.TrimSpace(f.Note) != "" && !IsTodo(f.Note) {
-			return true
-		}
-	}
-	return false
 }
 
 func effectiveFields(c *RPCContract) map[string]*FieldContract {
@@ -452,9 +403,9 @@ func relatedKey(a, b string) bool {
 		switch {
 		case x[0] == y[0]:
 			x, y = x[1:], y[1:]
-		case isIndexSegment(x[0]) && !isIndexSegment(y[0]):
+		case chain.IsDigits(x[0]) && !chain.IsDigits(y[0]):
 			x = x[1:]
-		case isIndexSegment(y[0]) && !isIndexSegment(x[0]):
+		case chain.IsDigits(y[0]) && !chain.IsDigits(x[0]):
 			y = y[1:]
 		default:
 			return false

@@ -234,20 +234,12 @@ func listProposals(e *env) error {
 }
 
 func unstableFields(e *env, rec *runner.Record) (string, []string, []string) {
-	ids, err := e.store.ListRuns(rec.Chain)
-	if err != nil {
-		return "", nil, nil
-	}
 	spot, err := e.store.LoadSafeSpot(rec.Chain)
 	if err != nil {
 		spot = nil
 	}
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := e.store.LoadRun(rec.Chain, ids[i])
-		if err != nil || !prev.Passed() || prev.DryRun || !config.SameTarget(prev.Target, rec.Target) {
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		if !prev.Passed() || !config.SameTarget(prev.Target, rec.Target) {
 			continue
 		}
 		c, _ := chain.Resolve(e.chainsDir(), rec.Chain)
@@ -402,6 +394,10 @@ func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.C
 			}
 		}
 	}
+	chainWide := map[string]bool{}
+	for _, p := range rec.Volatile {
+		chainWide[p] = true
+	}
 	for _, st := range rec.Steps {
 		own(st.ID, st.Volatile)
 	}
@@ -409,12 +405,6 @@ func unapprovedVolatileDiffers(patterns []string, rec *runner.Record, c *chain.C
 		for _, st := range c.Steps {
 			own(st.ID, st.Volatile)
 		}
-	}
-	chainWide := map[string]bool{}
-	for _, p := range rec.Volatile {
-		chainWide[p] = true
-	}
-	if c != nil {
 		for _, p := range c.Volatile {
 			chainWide[p] = true
 		}

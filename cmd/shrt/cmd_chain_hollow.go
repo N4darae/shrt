@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,12 +33,8 @@ func chainHollow(args []string) error {
 		return err
 	}
 
-	explicit := *allowPath != ""
-	path := *allowPath
-	if !explicit {
-		path = filepath.Join(e.cfg.Root, filepath.FromSlash(hollow.DefaultAllowFile))
-	}
-	allow, err := hollow.LoadAllowlist(path, explicit)
+	path := cmp.Or(*allowPath, filepath.Join(e.cfg.Root, filepath.FromSlash(hollow.DefaultAllowFile)))
+	allow, err := hollow.LoadAllowlist(path, *allowPath != "")
 	if err != nil {
 		return err
 	}
@@ -51,10 +48,7 @@ func chainHollow(args []string) error {
 			"gate and a hollow read in it cannot be reported: %v\n", b)
 	}
 
-	runsDir := e.cfg.Abs(e.cfg.Paths.Runs)
-	if *runsPath != "" {
-		runsDir = *runsPath
-	}
+	runsDir := cmp.Or(*runsPath, e.cfg.Abs(e.cfg.Paths.Runs))
 	known := map[string]bool{}
 	for _, c := range chains {
 		known[strings.ToLower(c.Name)] = true

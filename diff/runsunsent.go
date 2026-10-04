@@ -21,12 +21,9 @@ func (r *RunReport) DropUnsentDefaults(a, b *runner.Record, unsent func(procedur
 	for _, c := range backward.Changes {
 		r.Changes = append(r.Changes, flipSides(c))
 	}
-	r.UnsentDefaults = append(r.UnsentDefaults, forward.UnsentDefaults...)
-	r.UnsentDefaults = append(r.UnsentDefaults, backward.UnsentDefaults...)
-	r.UndeclaredSame = append(r.UndeclaredSame, forward.UndeclaredSame...)
-	r.UndeclaredSame = append(r.UndeclaredSame, backward.UndeclaredSame...)
-	r.UndeclaredUnknown = append(r.UndeclaredUnknown, forward.UndeclaredUnknown...)
-	r.UndeclaredUnknown = append(r.UndeclaredUnknown, backward.UndeclaredUnknown...)
+	r.UnsentDefaults = append(append(r.UnsentDefaults, forward.UnsentDefaults...), backward.UnsentDefaults...)
+	r.UndeclaredSame = append(append(r.UndeclaredSame, forward.UndeclaredSame...), backward.UndeclaredSame...)
+	r.UndeclaredUnknown = append(append(r.UndeclaredUnknown, forward.UndeclaredUnknown...), backward.UndeclaredUnknown...)
 }
 
 func flipSides(c Change) Change {

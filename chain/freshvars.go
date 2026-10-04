@@ -48,5 +48,5 @@ func FreshVars(steps []*Step, isLogin func(*Step) bool, existing []*Step) []stri
 			seen[m[1]] = true
 		}
 	}
-	return sortedKeys(seen)
+	return SortedKeys(seen)
 }

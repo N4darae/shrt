@@ -49,7 +49,7 @@ func (p *Plan) probeListFilters(lib *Library, isTarget func(*chain.Step) bool) {
 		if scope.prefixKey != "" {
 			p.probeEmptyFilter(lib, t, scope.prefixKey)
 		}
-		if !hasExistsFalse(st, t.listPath) {
+		if _, exact := assertedLength(st, t.listPath); !exact {
 			st.Expect = append(st.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
 		}
 		assertLowerBound(st, t.listPath)
@@ -73,18 +73,9 @@ func assertedLength(st *chain.Step, listPath string) (int, bool) {
 	return 0, false
 }
 
-func hasExistsFalse(st *chain.Step, listPath string) bool {
-	for _, e := range st.Expect {
-		if e.Exists != nil && !*e.Exists && strings.HasPrefix(e.Path, listPath+".") && isIndexSegment(strings.TrimPrefix(e.Path, listPath+".")) {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Plan) scopeOf(t *listTarget) listScope {
 	scope := listScope{}
-	for _, key := range sortedKeys(t.step.Body) {
+	for _, key := range chain.SortedKeys(t.step.Body) {
 		text, ok := t.step.Body[key].(string)
 		if !ok || text == "" {
 			continue
@@ -99,12 +90,7 @@ func (p *Plan) scopeOf(t *listTarget) listScope {
 					"below have letters to vary", t.step.ID, key, shared, t.anchor, t.producers[0].ID, t.anchor)
 			}
 			if scope.target == "" {
-				want := namecase.Fold(strings.TrimSuffix(strings.TrimPrefix(strings.ReplaceAll(strings.ToLower(key), "prefix", ""), "_"), "_"))
-				for k := range t.producers[0].Body {
-					if namecase.Fold(k) == want {
-						scope.target = k
-					}
-				}
+				scope.target = prefixTargetKey(key, t.producers[0])
 			}
 			continue
 		}
@@ -392,7 +378,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 			continue
 		}
 		suffix := strings.TrimPrefix(prod.ID, first.ID)
-		added = append(added, tr.step(p.freeStepID(defaultID(tr.method.Name)+suffix),
+		added = append(added, tr.step(p.freeStepID(chain.SnakeCase(tr.method.Name)+suffix),
 			fmt.Sprintf("moves %s to %s, so the fixtures sit in different states for the filtered lists.", prod.ID, short[tr.value]),
 			"${"+prod.ID+"."+t.carrier+"."+t.itemID+"}", t.carrier+"."+stateField.Name))
 	}
@@ -407,24 +393,7 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 		after = probeStep(t.step, p.freeStepID(t.step.ID+"_after_moves"))
 		after.Body[filterKey] = filter.EnumValues[0]
 		after.Description = fmt.Sprintf("the list as before, with no filter, after %s: every fixture is still listed, in the state it was left in.", strings.Join(moveIDs, ", "))
-		after.Expect = SuccessExpectation(lm)
-		for i, prod := range t.producers {
-			id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
-			v, known := assigned[prod]
-			if creation {
-				after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
-				if known {
-					after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField.Name), Equals: v})
-				}
-				continue
-			}
-			want := map[string]any{t.itemID: id}
-			if known {
-				want[stateField.Name] = v
-			}
-			after.Expect = append(after.Expect, chain.Expectation{Path: t.listPath, Includes: want})
-		}
-		after.Expect = append(after.Expect, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+		after.Expect = append(SuccessExpectation(lm), t.listedAs(creation, stateField.Name, func(prod *chain.Step) string { return assigned[prod] })...)
 		added = append(added, after)
 	}
 	ids := []string{}
@@ -490,6 +459,27 @@ func (p *Plan) filterByState(lib *Library, t *listTarget) {
 	p.note("%s", msg)
 }
 
+func (t *listTarget) listedAs(positional bool, stateField string, state func(*chain.Step) string) []chain.Expectation {
+	out := []chain.Expectation{}
+	for i, prod := range t.producers {
+		id := "${" + prod.ID + "." + t.carrier + "." + t.itemID + "}"
+		v := state(prod)
+		if !positional {
+			want := map[string]any{t.itemID: id}
+			if v != "" {
+				want[stateField] = v
+			}
+			out = append(out, chain.Expectation{Path: t.listPath, Includes: want})
+			continue
+		}
+		out = append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, t.itemID), Equals: id})
+		if v != "" {
+			out = append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d.%s", t.listPath, i, stateField), Equals: v})
+		}
+	}
+	return append(out, chain.Expectation{Path: fmt.Sprintf("%s.%d", t.listPath, len(t.producers)), Exists: boolPtr(false)})
+}
+
 func stepIDs(steps []*chain.Step) []string {
 	ids := []string{}
 	for _, s := range steps {
@@ -524,7 +514,7 @@ func (p *Plan) transitionsFor(lib *Library, t *listTarget, producer *chain.Step,
 		}
 		c, _ := lib.Get(rpc)
 		field := ""
-		for _, name := range sortedKeys(c.Fields) {
+		for _, name := range chain.SortedKeys(c.Fields) {
 			if ref, err := ParseRef(c.Fields[name].From); err == nil && canonicalCall(p.cat, ref.RPC) == pm.FullName && ref.Path == idPath {
 				field = name
 			}

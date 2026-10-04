@@ -10,6 +10,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var (
@@ -230,7 +231,7 @@ func (p *Plan) statedTotal(rpc string, sp *effectSpec, r *effectRules) *totalRul
 
 func topFrom(c *RPCContract, cat *catalog.Catalog) map[string]Ref {
 	out := map[string]Ref{}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || f.From == "" {
 			continue
@@ -287,7 +288,7 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 	if !ok || chain.IsReadOnlyCall(rpc) || m.Streaming() {
 		return nil
 	}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		f := c.Fields[name]
 		if f == nil || strings.Contains(name, ".") {
 			continue
@@ -306,10 +307,8 @@ func (p *Plan) batchRuleFor(lib *Library, rpc string, r *effectRules) *batchRule
 			continue
 		}
 		b := &batchRule{rpc: rpc, stock: stock}
-		for _, in := range catalog.DescribeMessage(m.Input()).Fields {
-			if in.Name == name && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
-				b.list = in.Name
-			}
+		if in := fieldByName(catalog.DescribeMessage(m.Input()).Fields, name); in != nil && in.Repeated && in.Kind == "message" && fieldByName(in.Fields, stock.idField) != nil && fieldByName(in.Fields, stock.qtyField) != nil {
+			b.list = in.Name
 		}
 		for _, out := range catalog.DescribeMessage(m.Output()).Fields {
 			if out.Repeated && out.Kind == "message" && fieldByName(out.Fields, stock.moved) != nil {
@@ -386,7 +385,7 @@ func (p *Plan) totalRuleFor(lib *Library, rpc string) *totalRule {
 		return nil
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedKeys(c.Exports) {
+	for _, k := range chain.SortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	if !slices.ContainsFunc(texts, priceWord().MatchString) {
@@ -524,15 +523,13 @@ func stepRefIn(v any) string {
 	return src
 }
 
-func carrierHolding(m *catalog.Method, field string) string {
+func carriedPath(m *catalog.Method, field string, numeric bool) string {
 	for _, out := range catalog.DescribeMessage(m.Output()).Fields {
 		if out.Kind != "message" || out.Repeated || out.Name == chain.EnvelopeField() {
 			continue
 		}
-		for _, sf := range out.Fields {
-			if sf.Name == field && !sf.Repeated {
-				return out.Name
-			}
+		if sf := fieldByName(out.Fields, field); sf != nil && !sf.Repeated && (!numeric || chain.IsNumericKind(sf.Kind)) {
+			return out.Name + "." + sf.Name
 		}
 	}
 	return ""
@@ -556,7 +553,7 @@ func (p *Plan) noteUnmetEffects(lib *Library) {
 		if !ok || !p.isTargetStep(st.ID) {
 			continue
 		}
-		for _, field := range sortedKeys(c.Effects) {
+		for _, field := range chain.SortedKeys(c.Effects) {
 			if e := c.Effects[field]; e != nil && !p.met[[2]string{st.Call, field}] {
 				p.gap("step %s: no step asserts %s, so a %s that breaks it passes; %s", st.ID, quoteEffect(field, e), shortRPC(st.Call), p.effectWiring(st, c, field, e))
 			}
@@ -588,9 +585,9 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 			if !ok {
 				continue
 			}
-			base := defaultID(en.reader.Name)
+			base := chain.SnakeCase(en.reader.Name)
 			if pm, err := p.cat.Lookup(prod.Call); err == nil {
-				suffix, _, _ := strings.Cut(strings.TrimPrefix(prod.ID, defaultID(pm.Name)), "_for_")
+				suffix, _, _ := strings.Cut(strings.TrimPrefix(prod.ID, chain.SnakeCase(pm.Name)), "_for_")
 				if isIndexSuffix(suffix) {
 					base += suffix
 				}
@@ -637,7 +634,7 @@ func (p *Plan) effectPass(lib *Library, r *effectRules, apply bool) (map[string]
 			if md.known[st.ID] && p.isTargetStep(st.ID) {
 				md.dirty[st.ID] = true
 				if m, err := p.cat.Lookup(st.Call); err == nil {
-					if carrier := carrierHolding(m, s.moved); carrier != "" && md.set(st, carrier+"."+s.moved, 0) {
+					if path := carriedPath(m, s.moved, false); path != "" && md.set(st, path, 0) {
 						mark("zero", st.ID)
 					}
 				}
@@ -746,7 +743,7 @@ func (p *Plan) noteBelowZero(r *effectRules, md *effectModel) {
 		rpc := canonicalCall(p.cat, st.Call)
 		s := md.stockOf[e]
 		adders := []string{}
-		for _, a := range sortedKeys(r.increase) {
+		for _, a := range chain.SortedKeys(r.increase) {
 			if r.increase[a].entityRPC == s.entityRPC && r.increase[a].sign > 0 {
 				adders = append(adders, a)
 			}
@@ -793,9 +790,9 @@ func (md *effectModel) replaceEcho(st *chain.Step, path string, v int64) bool {
 			continue
 		}
 		st.Expect[i] = chain.Expectation{Path: path, Equals: v}
-		md.met[[2]string{md.at.Call, leafName(path)}] = true
+		md.met[[2]string{md.at.Call, chain.PathLeaf(path)}] = true
 		if !md.echoes(st) {
-			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", leafName(path), md.at.ID, md.at.ID)
+			st.Description = fmt.Sprintf("the stored %s after %s is the level the plan works out, whatever %s answered.", chain.PathLeaf(path), md.at.ID, md.at.ID)
 		}
 		return true
 	}
@@ -813,7 +810,7 @@ func (md *effectModel) echoes(st *chain.Step) bool {
 
 func (md *effectModel) set(st *chain.Step, path string, v int64) bool {
 	if md.apply {
-		md.met[[2]string{md.at.Call, leafName(path)}] = true
+		md.met[[2]string{md.at.Call, chain.PathLeaf(path)}] = true
 	}
 	return md.apply && assertNumber(st, path, v)
 }
@@ -892,7 +889,7 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 			}
 			md.alias[st.ID] = src
 			if t := r.total[rpc]; t != nil {
-				if o := md.order(src); o != nil && o.hasTotal && md.set(st, join(t.carrier, t.field), o.total) {
+				if o := md.order(src); o != nil && o.hasTotal && md.set(st, pathmask.Join(t.carrier, t.field), o.total) {
 					mark("total", st.ID)
 				}
 			}
@@ -933,7 +930,7 @@ func (p *Plan) recordOrder(lib *Library, st *chain.Step, rpc string, out int, md
 	md.orders[st.ID] = o
 	if t != nil && priced && len(items) > 0 {
 		o.total, o.hasTotal = total, true
-		if md.set(st, join(t.carrier, t.field), total) {
+		if md.set(st, pathmask.Join(t.carrier, t.field), total) {
 			mark("total", st.ID)
 		}
 	}
@@ -988,7 +985,7 @@ func (p *Plan) restoreOrForget(lib *Library, st *chain.Step, rpc string, out int
 		return false
 	}
 	texts := []string{c.Summary}
-	for _, k := range sortedKeys(c.Exports) {
+	for _, k := range chain.SortedKeys(c.Exports) {
 		texts = append(texts, c.Exports[k])
 	}
 	stated := c.Effects.restoresAny()
@@ -1032,13 +1029,13 @@ func (p *Plan) assertReadEffects(lib *Library, st *chain.Step, md *effectModel, 
 		id := stepRefIn(st.Body[key])
 		md.waiting = slices.DeleteFunc(slices.Clone(md.waiting), func(s string) bool { return s == id })
 		if s := md.stockOf[id]; s != nil && ref.RPC == s.entityRPC && md.dirty[id] {
-			if carrier := carrierHolding(m, s.moved); carrier != "" && (md.replaceEcho(st, carrier+"."+s.moved, md.level[id]) || md.set(st, carrier+"."+s.moved, md.level[id])) {
+			if path := carriedPath(m, s.moved, false); path != "" && (md.replaceEcho(st, path, md.level[id]) || md.set(st, path, md.level[id])) {
 				mark("read", st.ID)
 			}
 		}
 		if o := md.order(id); o != nil && o.hasTotal {
 			if t := r.total[ref.RPC]; t != nil {
-				if carrier := carrierHolding(m, t.field); carrier != "" && md.set(st, carrier+"."+t.field, o.total) {
+				if path := carriedPath(m, t.field, false); path != "" && md.set(st, path, o.total) {
 					mark("total", st.ID)
 				}
 			}
@@ -1087,7 +1084,7 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 	}
 	for _, rpc := range keysIn(r.total, called) {
 		t := r.total[rpc]
-		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
+		said = append(said, fmt.Sprintf("%s after %s and on every read of it is the sum of %s × %s over %s (%q)", pathmask.Join(t.carrier, t.field), shortRPC(rpc), t.itemQty, t.price, t.list, t.sentence))
 	}
 	ids := []string{}
 	for _, kind := range []string{"increase", "batch", "total", "read"} {
@@ -1098,16 +1095,11 @@ func (p *Plan) noteEffects(r *effectRules, asserted map[string][]string, silent 
 		}
 	}
 	if len(ids) > 0 {
-		shown := ids
-		more := ""
-		if len(shown) > 8 {
-			shown, more = ids[:8], fmt.Sprintf(", … %d more", len(ids)-8)
-		}
-		p.note("steps %s%s assert numbers the plan works out from the literal values it sends, as the contracts state: %s. "+
+		p.note("steps %s assert numbers the plan works out from the literal values it sends, as the contracts state: %s. "+
 			"A read asserts the level only right after the write that moved it, so a defect in one write fails the reads of that write alone",
-			strings.Join(shown, ", "), more, strings.Join(said, "; "))
+			strings.Join(clipList(ids, 8), ", "), strings.Join(said, "; "))
 	}
-	for _, rpc := range sortedKeys(silent) {
+	for _, rpc := range chain.SortedKeys(silent) {
 		p.gap("%s says nothing of %s: add %s", shortRPC(rpc), silent[rpc], p.effectSnippet(rpc, silent[rpc]))
 	}
 }
@@ -1127,7 +1119,7 @@ func (p *Plan) statedQuote(st *chain.Step, word string, prose *regexp.Regexp) st
 	if !ok {
 		return ""
 	}
-	for _, k := range sortedKeys(c.Effects) {
+	for _, k := range chain.SortedKeys(c.Effects) {
 		if c.Effects.is(k, word) {
 			return quoteEffect(k, c.Effects[k])
 		}
@@ -1147,7 +1139,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		return none
 	}
 	texts := []string{c.Summary, c.Note}
-	for _, name := range sortedKeys(c.Fields) {
+	for _, name := range chain.SortedKeys(c.Fields) {
 		if f := c.Fields[name]; f != nil {
 			texts = append(texts, f.Note)
 		}
@@ -1169,7 +1161,7 @@ func (p *Plan) effectSnippet(rpc, field string) string {
 		}
 	}
 	from := topFrom(c, p.cat)
-	for _, name := range sortedKeys(from) {
+	for _, name := range chain.SortedKeys(from) {
 		oc, ok := p.lib.Get(from[name].RPC)
 		if moved != "" || !ok || strings.Contains(name, ".") {
 			continue
@@ -1240,7 +1232,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		act.Description = fmt.Sprintf("%s on an order naming one %s on two %s: the stock read after it is down by both quantities.", st.ID, noun, v.list)
 		steps := []*chain.Step{fixture, act}
 		if e, ok := p.readerMatching(lib, entity, v.stock.idPath, true); ok {
-			steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+			steps = append(steps, e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+id),
 				fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 		}
 		p.Chain.Steps = append(p.Chain.Steps, steps...)
@@ -1299,7 +1291,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 		} else {
 			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
 			if e, ok := p.readerMatching(lib, entity, stock.idPath, true); ok {
-				steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
+				steps = append(steps, e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+id),
 					fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 			}
 			p.note("step %s: %s names %s on both of its %s (%d and %d), so the second line's %s and the read after it "+
@@ -1310,17 +1302,12 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 }
 
 func withoutItemCounts(expect []chain.Expectation, list string) []chain.Expectation {
-	out := []chain.Expectation{}
-	for _, e := range expect {
+	return slices.DeleteFunc(append([]chain.Expectation{}, expect...), func(e chain.Expectation) bool {
 		segs := chain.SplitPath(e.Path)
-		if len(segs) >= 2 && segs[len(segs)-2] == list && isIndexSegment(segs[len(segs)-1]) {
-			continue
-		}
-		out = append(out, e)
-	}
-	return out
+		return len(segs) >= 2 && segs[len(segs)-2] == list && chain.IsDigits(segs[len(segs)-1])
+	})
 }
 
 func keysIn[V any](m map[string]V, keep map[string]bool) []string {
-	return slices.DeleteFunc(sortedKeys(m), func(k string) bool { return !keep[k] })
+	return slices.DeleteFunc(chain.SortedKeys(m), func(k string) bool { return !keep[k] })
 }

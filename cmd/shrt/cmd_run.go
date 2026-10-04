@@ -103,14 +103,8 @@ func runRun(ctx context.Context, args []string) (err error) {
 		if *repeat < 2 || *dry {
 			return fmt.Errorf("-repeat compares the verdicts of 2 or more real runs: give -repeat 2 or more, without -dry-run")
 		}
-		past := true
-		fs.Visit(func(f *flag.Flag) {
-			if f.Name == "keep-going" {
-				past = *keepGoing
-			}
-		})
 		return runRepeated(ctx, e, c, *repeat, supplied, runner.Options{
-			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: past, Build: *build,
+			Volatile: e.cfg.Volatile, Redact: e.cfg.Redact, KeepGoing: *keepGoing || !flagGiven(fs, "keep-going"), Build: *build,
 		}, *save, *quiet, *asJSON)
 	}
 
@@ -303,20 +297,19 @@ func runVerdict(rec *runner.Record) error {
 		if strings.HasPrefix(rec.KeptRedNote, pinsHeldAlso) {
 			return fmt.Errorf("chain %s: kept red, %s", rec.Chain, rec.KeptRedNote)
 		}
+		why := ""
 		if rec.KeptRedNew != "" {
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, shortNewFailure(rec.KeptRedNew))
-		}
-		if head, rest, ok := strings.Cut(rec.KeptRedNote, ":\n"); ok {
+			why = ": " + shortNewFailure(rec.KeptRedNew)
+		} else if head, rest, ok := strings.Cut(rec.KeptRedNote, ":\n"); ok {
 			first, _, _ := strings.Cut(rest, "\n")
 			if strings.Contains(head, "now return something else") {
 				first = "a pinned step now returns something else: " + first
 			}
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, first)
+			why = ": " + first
+		} else if _, one, ok := strings.Cut(rec.KeptRedNote, ", but "); ok {
+			why = ": " + one
 		}
-		if _, one, ok := strings.Cut(rec.KeptRedNote, ", but "); ok {
-			return fmt.Errorf("chain %s: kept red, but it did not fail as pinned: %s", rec.Chain, one)
-		}
-		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned", rec.Chain)
+		return fmt.Errorf("chain %s: kept red, but it did not fail as pinned%s", rec.Chain, why)
 	case runner.KeptRedGone:
 		return fmt.Errorf("chain %s: kept red, but it passed: the pinned defect is gone", rec.Chain)
 	}
@@ -370,10 +363,7 @@ func shortNewFailure(line string) string {
 	if len(found) == 1 && len(line) <= 200 {
 		return line
 	}
-	first := found[0]
-	if len(first) > 160 {
-		first = first[:157] + "..."
-	}
+	first := capText(found[0], 160)
 	if len(found) > 1 {
 		return fmt.Sprintf("%s%s, and %d more (listed above)", runner.NewFailurePrefix, first, len(found)-1)
 	}
@@ -430,7 +420,12 @@ func executeChain(ctx context.Context, e *env, c *chain.Chain, opts runner.Optio
 	condensed := len(everyStep) > 0 && !everyStep[0]
 	passed, behind, behindOrder, answered := 0, map[string]int{}, []string{}, map[string][]string{}
 	if !quiet {
-		idWidth := longestStepID(c)
+		idWidth := 0
+		for _, s := range c.Steps {
+			if s != nil {
+				idWidth = max(idWidth, len(s.ID))
+			}
+		}
 		unreachableShown := false
 		skips := runner.NewSkipCondenser()
 		warned := map[string]string{}
@@ -559,16 +554,6 @@ func progressLine(sr *runner.StepRecord, dry bool, idWidth ...int) string {
 		line += fmt.Sprintf("  (sent after waiting %s)", (time.Duration(sr.WaitedMS) * time.Millisecond).Round(time.Millisecond))
 	}
 	return line
-}
-
-func longestStepID(c *chain.Chain) int {
-	n := 0
-	for _, s := range c.Steps {
-		if s != nil && len(s.ID) > n {
-			n = len(s.ID)
-		}
-	}
-	return n
 }
 
 func statusMark(s string, dry bool) string {
@@ -813,12 +798,7 @@ func shownWarnings(sr *runner.StepRecord) []string {
 	return out
 }
 
-func capList(items []string, max int) string {
-	if len(items) <= max {
-		return strings.Join(items, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(items[:max], ", "), len(items)-max)
-}
+func capList(items []string, max int) string { return chain.ListSome(items, max) }
 
 func exportJSON(v any) string {
 	var buf bytes.Buffer

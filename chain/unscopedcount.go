@@ -53,7 +53,7 @@ func lintUnscopedCount(s *Step, m *catalog.Method) []Issue {
 		}
 	}
 	issues := []Issue{}
-	for _, list := range sortedKeys(counted) {
+	for _, list := range SortedKeys(counted) {
 		n := counted[list]
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Kind: KindUnscopedCount, Message: fmt.Sprintf(
 			"asserts %s holds at most %d item(s) (%s.%d exists: false), but nothing in the request scopes the list to what "+

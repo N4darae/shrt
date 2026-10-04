@@ -43,15 +43,10 @@ func walkNames(md protoreflect.MessageDescriptor, v any, at string) string {
 	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
 		return ""
 	}
-	fields := md.Fields()
 	for _, k := range slices.Sorted(maps.Keys(obj)) {
 		fd := fieldByJSONKey(md, k)
 		if fd == nil {
-			names := make([]string, 0, fields.Len())
-			for i := 0; i < fields.Len(); i++ {
-				names = append(names, string(fields.Get(i).Name()))
-			}
-			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.FullName(), namesHint(k, names, "fields"))
+			return fmt.Sprintf("%q is not a field of %s; %s", at+k, md.FullName(), namesHint(k, descNames[protoreflect.FieldDescriptor](md.Fields()), "fields"))
 		}
 		if hint := walkValue(fd, obj[k], at+k); hint != "" {
 			return hint
@@ -89,16 +84,11 @@ func walkSingle(fd protoreflect.FieldDescriptor, v any, at string) string {
 	case protoreflect.MessageKind, protoreflect.GroupKind:
 		return walkNames(fd.Message(), v, at+".")
 	case protoreflect.EnumKind:
-		text, ok := v.(string)
-		if !ok || fd.Enum().Values().ByName(protoreflect.Name(text)) != nil {
+		text, unknown := unknownEnumName(fd, v)
+		if !unknown {
 			return ""
 		}
-		values := fd.Enum().Values()
-		names := make([]string, 0, values.Len())
-		for i := 0; i < values.Len(); i++ {
-			names = append(names, string(values.Get(i).Name()))
-		}
-		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().FullName(), at, namesHint(text, names, "values"))
+		return fmt.Sprintf("%q is not a value of %s at %q; %s", text, fd.Enum().FullName(), at, namesHint(text, descNames[protoreflect.EnumValueDescriptor](fd.Enum().Values()), "values"))
 	}
 	return ""
 }
@@ -117,12 +107,8 @@ func namesHint(name string, valid []string, what string) string {
 }
 
 func (c *Catalog) Canonicalize(md protoreflect.MessageDescriptor, body []byte) ([]byte, error) {
-	full, _, err := c.CanonicalizeWithPresence(md, body)
+	full, _, err := c.canonicalize(md, body, false)
 	return full, err
-}
-
-func (c *Catalog) CanonicalizeWithPresence(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, err error) {
-	return c.canonicalize(md, body, false)
 }
 
 func (c *Catalog) CanonicalizeDiscardingUnknown(md protoreflect.MessageDescriptor, body []byte) (full, present []byte, unknown []string, err error) {
@@ -276,46 +262,14 @@ func UnknownFields(md protoreflect.MessageDescriptor, body []byte) []string {
 	}
 	seen := map[string]bool{}
 	var out []string
-	collectUnknown(md, v, "", seen, &out)
+	undeclaredIn(md, v, "", func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			out = append(out, path)
+		}
+	})
 	sort.Strings(out)
 	return out
-}
-
-func collectUnknown(md protoreflect.MessageDescriptor, v any, at string, seen map[string]bool, out *[]string) {
-	obj, ok := v.(map[string]any)
-	if !ok || strings.HasPrefix(string(md.FullName()), "google.protobuf.") {
-		return
-	}
-	for k, inner := range obj {
-		fd := fieldByJSONKey(md, k)
-		if fd == nil {
-			if !seen[at+k] {
-				seen[at+k] = true
-				*out = append(*out, at+k)
-			}
-			continue
-		}
-		if fd.Kind() != protoreflect.MessageKind && fd.Kind() != protoreflect.GroupKind {
-			continue
-		}
-		name := string(fd.Name())
-		switch {
-		case fd.IsMap():
-			if m, ok := inner.(map[string]any); ok && fd.MapValue().Message() != nil {
-				for _, x := range m {
-					collectUnknown(fd.MapValue().Message(), x, at+name+"[].", seen, out)
-				}
-			}
-		case fd.IsList():
-			if list, ok := inner.([]any); ok {
-				for _, x := range list {
-					collectUnknown(fd.Message(), x, at+name+"[].", seen, out)
-				}
-			}
-		default:
-			collectUnknown(fd.Message(), inner, at+name+".", seen, out)
-		}
-	}
 }
 
 func (c *Catalog) canonicalize(md protoreflect.MessageDescriptor, body []byte, discard bool) (full, present []byte, err error) {

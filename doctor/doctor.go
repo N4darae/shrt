@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -154,15 +155,10 @@ func (r *Report) Failed(strict bool) bool {
 
 func (r *Report) Checks() []string {
 	seen := map[string]bool{}
-	out := []string{}
 	for _, f := range r.Findings {
-		if !seen[f.Check] {
-			seen[f.Check] = true
-			out = append(out, f.Check)
-		}
+		seen[f.Check] = true
 	}
-	sort.Strings(out)
-	return out
+	return slices.Sorted(maps.Keys(seen))
 }
 
 const remedyIndent = "       "

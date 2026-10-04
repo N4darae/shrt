@@ -172,11 +172,7 @@ func ageText(d time.Duration) string {
 	if d < 10*time.Second {
 		return strconv.FormatFloat(d.Round(100*time.Millisecond).Seconds(), 'f', -1, 64) + "s"
 	}
-	return fmt.Sprintf("%ds", seconds(d))
-}
-
-func seconds(d time.Duration) int {
-	return int(d.Round(time.Second) / time.Second)
+	return fmt.Sprintf("%ds", int(d.Round(time.Second)/time.Second))
 }
 
 func gateCoverage(e *env) string {

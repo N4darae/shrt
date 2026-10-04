@@ -3,7 +3,6 @@ package doctor
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -16,7 +15,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -49,21 +47,16 @@ func checkDocs(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 		r.add(CheckDocs, LevelWarn, "this build carries no embedded docs, so the installed copy went unchecked", "")
 		return
 	}
-	missing, drifted := []string{}, []string{}
+	files := []KitFile{}
 	for _, name := range opts.DocNames {
 		want, err := fs.ReadFile(opts.Docs, name)
 		if err != nil {
 			r.add(CheckDocs, LevelError, fmt.Sprintf("%s is named by this build but not embedded in it: %v", name, err), "")
 			continue
 		}
-		got, readErr := os.ReadFile(cfg.Abs(filepath.Join(config.DocsDir, name)))
-		switch {
-		case readErr != nil:
-			missing = append(missing, name)
-		case !bytes.Equal(got, want):
-			drifted = append(drifted, name)
-		}
+		files = append(files, KitFile{Path: name, Want: want})
 	}
+	missing, drifted := installedDiff(cfg, config.DocsDir, files)
 	if len(missing) > 0 {
 		r.add(CheckDocs, LevelError,
 			fmt.Sprintf("%s/ is missing %s — the installed skill routes every question there",
@@ -89,16 +82,7 @@ func checkKit(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 	if len(opts.Kit) == 0 {
 		return
 	}
-	missing, drifted := []string{}, []string{}
-	for _, f := range opts.Kit {
-		got, err := os.ReadFile(cfg.Abs(filepath.FromSlash(f.Path)))
-		switch {
-		case err != nil:
-			missing = append(missing, f.Path)
-		case !bytes.Equal(got, f.Want):
-			drifted = append(drifted, f.Path)
-		}
-	}
+	missing, drifted := installedDiff(cfg, "", opts.Kit)
 	if len(missing) == len(opts.Kit) {
 		r.add(CheckKit, LevelOK, "no agent kit installed under .claude/ (init -agents=false), so there is none to drift", "")
 		return
@@ -118,6 +102,19 @@ func checkKit(_ context.Context, cfg *config.Config, opts Options, r *Report) {
 		r.add(CheckKit, LevelOK,
 			fmt.Sprintf("%d installed agent kit file(s) match the copy embedded in this binary", len(opts.Kit)), "")
 	}
+}
+
+func installedDiff(cfg *config.Config, dir string, files []KitFile) (missing, drifted []string) {
+	for _, f := range files {
+		got, err := os.ReadFile(cfg.Abs(filepath.Join(dir, f.Path)))
+		switch {
+		case err != nil:
+			missing = append(missing, f.Path)
+		case !bytes.Equal(got, f.Want):
+			drifted = append(drifted, f.Path)
+		}
+	}
+	return missing, drifted
 }
 
 const staleDescriptor = `shrt catalog build
@@ -274,10 +271,8 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 		r.add(CheckTokens, LevelWarn, fmt.Sprintf("cannot read the token cache: %v", err), "")
 		return
 	}
-	entries := map[string]struct {
-		ExpiresAt time.Time `json:"expires_at"`
-	}{}
-	if err := json.Unmarshal(raw, &entries); err != nil {
+	entries, err := parseTokenCache(raw)
+	if err != nil {
 		r.add(CheckTokens, LevelWarn,
 			fmt.Sprintf("the token cache is not readable JSON (%v), so every login will re-authenticate", err),
 			fmt.Sprintf("rm %s", config.DirName+"/"+config.TokensFile))
@@ -285,14 +280,14 @@ func checkTokenCache(_ context.Context, cfg *config.Config, opts Options, r *Rep
 	}
 	now := opts.Now()
 	expired := 0
-	for _, e := range entries {
-		if !e.ExpiresAt.IsZero() && e.ExpiresAt.Before(now) {
+	for _, at := range entries {
+		if !at.IsZero() && at.Before(now) {
 			expired++
 		}
 	}
 	counts := fmt.Sprintf("%d cached token(s), %d expired", len(entries), expired)
 	off := expired > 0
-	if split, ok := splitTokens(cfg, opts, readTokenCache(cfg)); ok {
+	if split, ok := splitTokens(cfg, opts, entries); ok {
 		off = split.expired > 0 || split.foreign.total() > 0 || split.other > 0
 		counts = fmt.Sprintf("%d cached token(s) for this target's logins, %d expired", split.mine, split.expired)
 		if off {

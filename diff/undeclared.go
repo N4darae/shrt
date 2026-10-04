@@ -64,13 +64,7 @@ func undeclaredInSpot(spot *store.SafeSpot, stepID, path string) (value any, kno
 	if spot == nil {
 		return nil, false, false
 	}
-	var st *runner.StepRecord
-	for _, s := range spot.Steps {
-		if s != nil && s.ID == stepID {
-			st = s
-			break
-		}
-	}
+	st := spotStep(spot, stepID)
 	if st == nil {
 		return nil, false, false
 	}

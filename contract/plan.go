@@ -12,6 +12,8 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -134,11 +136,11 @@ func BuildPlanWith(targets []string, lib *Library, cat *catalog.Catalog, name st
 		if err != nil {
 			return nil, err
 		}
-		base := defaultID(method.Name)
+		base := chain.SnakeCase(method.Name)
 		if alias != "" {
 			base += "_" + alias
 		}
-		id := uniqueStepID(c, base)
+		id := p.freeStepID(base)
 		p.stepOf[node] = id
 		step := p.buildStep(id, alias, method, lib)
 		p.fillLoginBody(step, method)
@@ -246,7 +248,7 @@ func ResolveTarget(raw string, lib *Library, cat *catalog.Catalog) (string, *cat
 		return "", nil, fmt.Errorf("%s has no contract, so it has no alias %q to plan", m.FullName, alias)
 	}
 	if _, declared := c.Aliases[alias]; !declared {
-		names := sortedKeys(c.Aliases)
+		names := chain.SortedKeys(c.Aliases)
 		have := "it declares none"
 		if len(names) > 0 {
 			have = "declared: " + strings.Join(names, ", ")
@@ -321,7 +323,7 @@ func (p *Plan) noteRepeatedTargets(nodes []string, repeats map[string]int, lib *
 		how := fmt.Sprintf("declare one under aliases: on %s's contract (aliases: {after: {note: ...}}) and name it "+
 			"as %s@after", shortRPC(rpc), shortRPC(rpc))
 		if c, ok := lib.Get(rpc); ok && len(c.Aliases) > 0 {
-			names := sortedKeys(c.Aliases)
+			names := chain.SortedKeys(c.Aliases)
 			how = fmt.Sprintf("name one of its aliases instead, such as %s@%s (declared: %s)",
 				shortRPC(rpc), names[0], strings.Join(names, ", "))
 		}
@@ -337,7 +339,7 @@ func ArmedOneofMembers(c *RPCContract, alias string) []string {
 	}
 	fields := c.FieldsFor(alias)
 	out := []string{}
-	for _, name := range sortedKeys(fields) {
+	for _, name := range chain.SortedKeys(fields) {
 		f := fields[name]
 		if f.OneOf != "" && (f.Value != "" || f.From != "" || f.SameAs != "") {
 			out = append(out, name)
@@ -397,7 +399,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 
 	fields := c.FieldsFor(alias)
 	schema := catalog.DescribeMessage(m.Input())
-	names := sortedKeys(fields)
+	names := chain.SortedKeys(fields)
 	sort.SliceStable(names, func(i, j int) bool { return indexDepth(names[i]) < indexDepth(names[j]) })
 	for _, name := range names {
 		growAt(step.Body, chain.SplitPath(name))
@@ -439,7 +441,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	p.pending = append(p.pending, pendingChecks{step: step, contract: c, schema: schema, fields: fields})
 	if len(c.Exports) > 0 {
 		step.Export = map[string]string{}
-		for _, path := range sortedKeys(c.Exports) {
+		for _, path := range chain.SortedKeys(c.Exports) {
 			step.Export[exportName(id, path)] = path
 		}
 	}
@@ -651,15 +653,11 @@ func cloneBody(v any) any {
 func indexDepth(path string) int {
 	n := 0
 	for _, seg := range chain.SplitPath(path) {
-		if isIndexSegment(seg) {
+		if chain.IsDigits(seg) {
 			n++
 		}
 	}
 	return n
-}
-
-func isIndexSegment(seg string) bool {
-	return seg != "" && strings.Trim(seg, "0123456789") == ""
 }
 
 func resolveOrder(targets []string, lib *Library, cat *catalog.Catalog) ([]string, map[string][]string, []listProducer, error) {
@@ -733,7 +731,7 @@ func dependencyKind(c *RPCContract, alias, dep string, canon func(string) (strin
 		kinds = append(kinds, "needs:")
 	}
 	fields := c.FieldsFor(alias)
-	for _, name := range sortedKeys(fields) {
+	for _, name := range chain.SortedKeys(fields) {
 		if ref, err := ParseRef(fields[name].From); err == nil {
 			if got, _, _ := canon(ref.Node()); got == dep {
 				kinds = append(kinds, name+" from:")
@@ -770,7 +768,7 @@ func (p *Plan) YAML() ([]byte, error) {
 		}
 		steps.Content = append(steps.Content, node)
 	}
-	setMappingKey(doc, "steps", steps)
+	yamlkey.Set(doc, "steps", steps)
 	return yaml.Marshal(doc)
 }
 
@@ -792,27 +790,6 @@ func (p *Plan) stepNode(step *chain.Step, read map[string]bool) (*yaml.Node, err
 	}
 	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, body))
 	return node, nil
-}
-
-func setMappingKey(mapping *yaml.Node, key string, value *yaml.Node) {
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == key {
-			mapping.Content[i+1] = value
-			return
-		}
-	}
-	mapping.Content = append(mapping.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
-}
-
-func uniqueStepID(c *chain.Chain, base string) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := c.Step(id); !exists {
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
 }
 
 func exportName(stepID, path string) string {
@@ -1016,7 +993,7 @@ func scaffoldZeros(body map[string]any, schema []*catalog.Field, c *RPCContract,
 			if !ok || IsPagingFieldName(f.Name) || f.MapKey != "" || f.JSONForm != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			list, isList := child.([]any)
 			if !isList {
 				list = []any{child}
@@ -1069,7 +1046,7 @@ func contractSpeaksFor(c *RPCContract, fields map[string]*FieldContract, path st
 }
 
 func stripIndexes(path string) string {
-	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), isIndexSegment), ".")
+	return strings.Join(slices.DeleteFunc(chain.SplitPath(path), chain.IsDigits), ".")
 }
 
 func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
@@ -1078,7 +1055,7 @@ func (p *Plan) fillLoginBody(step *chain.Step, m *catalog.Method) {
 		return
 	}
 	filled := []string{}
-	for _, key := range sortedKeys(body) {
+	for _, key := range chain.SortedKeys(body) {
 		k, ok := namecase.LookupKey(step.Body, key)
 		if !ok {
 			k = key

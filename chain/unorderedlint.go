@@ -14,7 +14,7 @@ func unorderedPathProblem(path string, m *catalog.Method) (why string, shapeOnly
 	}
 	segs := SplitPath(path)
 	for _, seg := range segs {
-		if isDigits(seg) {
+		if IsDigits(seg) {
 			return fmt.Sprintf("carries the index %s; an unordered path names the list itself, without indices (products, orders.lines)", seg), true
 		}
 	}

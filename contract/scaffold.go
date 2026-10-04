@@ -9,6 +9,8 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -43,7 +45,7 @@ func ProducersOf(field string, methods []*catalog.Method, exclude string) []Prod
 }
 
 func preferOwnID(candidates []Producer, leaf string) []Producer {
-	subject := idSubject(leaf)
+	subject := strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
 	if subject == "" || len(candidates) < 2 {
 		return candidates
 	}
@@ -60,17 +62,13 @@ func preferOwnID(candidates []Producer, leaf string) []Producer {
 	return own
 }
 
-func idSubject(leaf string) string {
-	return strings.Join(slices.DeleteFunc(namecase.Words(leaf), isIDWord), "_")
-}
-
 func responsePathsTo(fields []*catalog.Field, leaf, prefix string) []string {
 	out := []string{}
 	for _, f := range fields {
 		if prefix == "" && f.Name == chain.EnvelopeField() || f.Repeated || f.MapKey != "" {
 			continue
 		}
-		path := join(prefix, f.Name)
+		path := pathmask.Join(prefix, f.Name)
 		if f.Kind == "message" || f.Kind == "group" {
 			out = append(out, responsePathsTo(f.Fields, leaf, path)...)
 			continue
@@ -136,7 +134,9 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 	if prior != nil {
 		node := &yaml.Node{}
 		if err := node.Encode(prior); err == nil {
-			carryRequiredTodo(node, prior)
+			if i := yamlkey.Index(node, "required"); i >= 0 && prior.IsUnfilled("required") && len(prior.Required) == 0 {
+				node.Content[i+1] = requiredTodo()
+			}
 			if todo := effectsTodo(m, all); todo != "" && len(prior.Effects) == 0 && prior.IsUnfilled("effects") {
 				put(node, "effects", scalar(todo))
 			}
@@ -190,13 +190,11 @@ const RequiredTodoText = TodoMarker + ": which fields the server rejects without
 	RequiredNone + " if it rejects nothing"
 
 func requiredTodo() *yaml.Node {
-	n := &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle}
-	n.Content = append(n.Content, scalar(RequiredTodoText))
-	return n
+	return &yaml.Node{Kind: yaml.SequenceNode, Style: yaml.FlowStyle, Content: []*yaml.Node{scalar(RequiredTodoText)}}
 }
 
 func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []*catalog.Method) {
-	known := map[string]bool{}
+	known, aliased := map[string]bool{}, map[string]bool{}
 	for key := range prior.Fields {
 		known[headSegment(key)] = true
 	}
@@ -210,7 +208,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 			continue
 		}
 		for key := range alias.Fields {
-			known[headSegment(key)] = true
+			known[headSegment(key)], aliased[key] = true, true
 		}
 	}
 	hint := fieldHint
@@ -223,7 +221,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 			nested := &yaml.Node{Kind: yaml.MappingNode}
 			scaffoldNested(nested, f, f.Name, m, all, 1, false, hint)
 			for i := 0; i+1 < len(nested.Content); i += 2 {
-				if _, have := prior.Fields[nested.Content[i].Value]; !have && !priorAliasField(prior, nested.Content[i].Value) {
+				if _, have := prior.Fields[nested.Content[i].Value]; !have && !aliased[nested.Content[i].Value] {
 					added.Content = append(added.Content, nested.Content[i], nested.Content[i+1])
 				}
 			}
@@ -235,44 +233,15 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 	if len(added.Content) == 0 {
 		return
 	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "fields" && node.Content[i+1].Kind == yaml.MappingNode {
-			node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
-			return
-		}
-	}
-	at := len(node.Content)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "required" {
-			at = i + 2
-		}
-	}
-	rest := append([]*yaml.Node{scalar("fields"), added}, node.Content[at:]...)
-	node.Content = append(node.Content[:at:at], rest...)
-}
-
-func priorAliasField(prior *RPCContract, key string) bool {
-	for _, alias := range prior.Aliases {
-		if alias == nil {
-			continue
-		}
-		if _, ok := alias.Fields[key]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-func carryRequiredTodo(node *yaml.Node, prior *RPCContract) {
-	if !prior.IsUnfilled("required") || len(prior.Required) > 0 {
+	if i := yamlkey.Index(node, "fields"); i >= 0 && node.Content[i+1].Kind == yaml.MappingNode {
+		node.Content[i+1].Content = append(node.Content[i+1].Content, added.Content...)
 		return
 	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == "required" {
-			node.Content[i+1] = requiredTodo()
-			return
-		}
+	at := len(node.Content)
+	if i := yamlkey.Index(node, "required"); i >= 0 {
+		at = i + 2
 	}
+	node.Content = slices.Insert(node.Content, at, scalar("fields"), added)
 }
 
 func scaffoldFields(m *catalog.Method, all []*catalog.Method, hint func(*catalog.Field) string) *yaml.Node {
@@ -314,8 +283,8 @@ func inferredFroms(m *catalog.Method, all []*catalog.Method) map[string]string {
 	out := map[string]string{}
 	fields := scaffoldFields(m, all, fieldHint)
 	for i := 0; i+1 < len(fields.Content); i += 2 {
-		if from := mappingValue(fields.Content[i+1], "from"); from != nil {
-			out[fields.Content[i].Value] = from.Value
+		if entry := fields.Content[i+1]; entry.Kind == yaml.MappingNode && yamlkey.Index(entry, "from") >= 0 {
+			out[fields.Content[i].Value] = entry.Content[yamlkey.Index(entry, "from")+1].Value
 		}
 	}
 	return out
@@ -330,7 +299,7 @@ func (p *Plan) wireInferredIDs(step *chain.Step, m *catalog.Method, fields map[s
 		earlier[st.Call] = true
 	}
 	froms := inferredFroms(m, p.cat.Methods())
-	for _, path := range sortedKeys(froms) {
+	for _, path := range chain.SortedKeys(froms) {
 		ref, err := ParseRef(froms[path])
 		if hasValueSource(fields[path]) || err != nil || !earlier[ref.Node()] {
 			continue
@@ -465,8 +434,7 @@ func isVersionSegment(s string) bool {
 }
 
 func DomainNames(methods []*catalog.Method) []string {
-	seen := Domains(methods)
-	return sortedKeys(seen)
+	return chain.SortedKeys(Domains(methods))
 }
 
 func scalar(v string) *yaml.Node {
@@ -527,7 +495,7 @@ func collectTodos(domain, rpc, path string, node *yaml.Node, issues *[]Issue) {
 	case yaml.MappingNode:
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			key, value := node.Content[i], node.Content[i+1]
-			child := join(path, key.Value)
+			child := pathmask.Join(path, key.Value)
 			if text := todoText("", key.LineComment); text != "" {
 				report(child, text)
 			}
@@ -571,23 +539,4 @@ func IsTodo(text string) bool {
 func cleanTodo(raw string) string {
 	text := strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(raw), "#")), TodoMarker)
 	return FirstSentence(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(text), ":")))
-}
-
-func join(prefix, key string) string {
-	if prefix == "" {
-		return key
-	}
-	return prefix + "." + key
-}
-
-func mappingValue(node *yaml.Node, key string) *yaml.Node {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i+1]
-		}
-	}
-	return nil
 }

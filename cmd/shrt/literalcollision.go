@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"slices"
 	"sort"
@@ -182,11 +181,7 @@ func notAcceptedRepeatedly(e *env, rec *runner.Record, first *runner.StepRecord,
 		if !ok || st.Call != first.Call || st.Status == runner.StatusSkipped || len(st.Response) == 0 && st.HTTPStatus == 0 {
 			continue
 		}
-		var req any
-		if json.Unmarshal(st.Request, &req) != nil {
-			continue
-		}
-		created := createdStep(st)
+		req, created := decoded(st.Request), answeredCleanly(st)
 		for _, path := range paths {
 			got, ok := chain.Get(req, path)
 			if !ok || got == nil || fmt.Sprint(got) != sent[path] {
@@ -238,13 +233,10 @@ func collisionWithinRun(e *env, c *chain.Chain, rec *runner.Record, first *runne
 	sort.Strings(pick)
 	for j := 0; j < index && j < len(rec.Steps); j++ {
 		st := rec.Steps[j]
-		if st == nil || st.Call != first.Call || !createdStep(st) {
+		if st == nil || st.Call != first.Call || !answeredCleanly(st) {
 			continue
 		}
-		var before any
-		if json.Unmarshal(st.Request, &before) != nil {
-			continue
-		}
+		before := decoded(st.Request)
 		same := func(path string) bool {
 			got, ok := chain.Get(before, path)
 			return ok && fmt.Sprint(got) == sent[path]
@@ -298,15 +290,11 @@ func repeatAcceptedBefore(e *env, rec *runner.Record, step, earlier, path string
 				then = st
 			}
 		}
-		if !createdStep(now) || !createdStep(then) || now.Call != then.Call {
+		if !answeredCleanly(now) || !answeredCleanly(then) || now.Call != then.Call {
 			return false
 		}
-		var a, b any
-		if json.Unmarshal(now.Request, &a) != nil || json.Unmarshal(then.Request, &b) != nil {
-			return false
-		}
-		x, okA := chain.Get(a, path)
-		y, okB := chain.Get(b, path)
+		x, okA := chain.Get(decoded(now.Request), path)
+		y, okB := chain.Get(decoded(then.Request), path)
 		return okA && okB && x != nil && fmt.Sprint(x) == fmt.Sprint(y)
 	}
 	if spot, err := e.store.LoadSafeSpot(rec.Chain); err == nil && accepted(spot.Steps) {

@@ -129,17 +129,13 @@ func fieldWord(name string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)\b` + strings.Join(parts, `[_ ]`) + `\b`)
 }
 
-func singularWord(name string) *regexp.Regexp {
-	return regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(strings.TrimSuffix(name, "s")) + `s?\b`)
-}
-
 func mentionedField(clause string, fields []*catalog.Field, declared string) string {
 	top := ""
 	for _, fd := range fields {
 		if fd.MapKey != "" {
 			continue
 		}
-		hit := fieldWord(fd.Name).MatchString(clause) || (fd.Repeated && singularWord(fd.Name).MatchString(clause))
+		hit := fieldWord(fd.Name).MatchString(clause) || (fd.Repeated && regexp.MustCompile(`(?i)\b`+regexp.QuoteMeta(strings.TrimSuffix(fd.Name, "s"))+`s?\b`).MatchString(clause))
 		if fd.Repeated && fd.Kind == "message" && (hit || namecase.Fold(declared) == namecase.Fold(fd.Name)) {
 			for _, sub := range fd.Fields {
 				if !sub.Repeated && sub.Kind != "message" && fieldWord(sub.Name).MatchString(clause) {
@@ -203,13 +199,10 @@ func shapeValue(clause string, fd *catalog.Field, cur any) (string, any, bool) {
 }
 
 func (p *Plan) addShapeProbes(lib *Library, st *chain.Step, m *catalog.Method, f Failure, cases []shapeCase) {
-	expect := refusalFor(m, f)
+	expect := refusalFor(m, f, true)
 	ids := []string{}
 	for _, sc := range cases {
-		probe := probeStep(st, p.freeStepID(st.ID+"_"+leafName(sc.field)+"_"+sc.kind))
-		if !chain.IsReadOnlyCall(st.Call) {
-			p.freshen(lib, probe)
-		}
+		probe := p.probeCopy(lib, st, chain.PathLeaf(sc.field)+"_"+sc.kind)
 		setBodyPath(probe.Body, sc.path, sc.value)
 		probe.Expect = append([]chain.Expectation{}, expect...)
 		probe.Description = fmt.Sprintf("%s %s: a malformed request, answered %s before any business rule runs.", sc.path, shapeWords(sc.kind), f.Label())

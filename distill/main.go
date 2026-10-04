@@ -257,8 +257,6 @@ var notes = map[string]string{
 	"Paths.safespots": "Safe spot directory.",
 }
 
-type row struct{ key, typ, req, note string }
-
 func main() {
 	check := flag.Bool("check", false, "compare against the committed file and exit non-zero on drift")
 	flag.Parse()
@@ -300,11 +298,13 @@ func render() ([]byte, error) {
 	b.WriteString("A `+` in the `req` column means the key is always written out (no `omitempty`).\n\n")
 
 	b.WriteString("## 1. Chain file — `.shrt/chains/<name>.yaml`\n\n")
-	writeTable(&b, "Chain", reflect.TypeOf(chain.Chain{}))
-	b.WriteString("\n### Step\n\n")
-	writeTable(&b, "Step", reflect.TypeOf(chain.Step{}))
-	b.WriteString("\n### Expectation — exactly one rule per entry\n\n")
-	writeTable(&b, "Expectation", reflect.TypeOf(chain.Expectation{}))
+	table := func(heading string, v any) {
+		b.WriteString(heading)
+		writeTable(&b, v)
+	}
+	table("", chain.Chain{})
+	table("\n### Step\n\n", chain.Step{})
+	table("\n### Expectation — exactly one rule per entry\n\n", chain.Expectation{})
 
 	b.WriteString("\n### What each rule actually does\n\n")
 	b.WriteString("Produced by evaluating each rule against a fixture response:\n\n")
@@ -316,8 +316,7 @@ func render() ([]byte, error) {
 
 	b.WriteString("\n### Reserved `transport.*` paths — the call's transport outcome\n\n")
 	b.WriteString(exerciseTransport())
-	b.WriteString("\n### `kept_red[]` — a known defect the chain pins\n\n")
-	writeTable(&b, "Pin", reflect.TypeOf(chain.Pin{}))
+	table("\n### `kept_red[]` — a known defect the chain pins\n\n", chain.Pin{})
 
 	b.WriteString("\n## 2. References — `${...}`\n\n")
 	b.WriteString("Resolved in `body`, `headers`, and an expectation's `equals`, `not_equal`, `contains` and numeric\n")
@@ -334,48 +333,34 @@ func render() ([]byte, error) {
 	}
 	b.WriteString(refs)
 
-	b.WriteString("\n## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`\n\n")
-	writeTable(&b, "Overlay", reflect.TypeOf(contract.Overlay{}))
-	b.WriteString("\n### Per rpc\n\n")
-	writeTable(&b, "RPCContract", reflect.TypeOf(contract.RPCContract{}))
-	b.WriteString("\n### `fields.<name>`\n\n")
-	writeTable(&b, "FieldContract", reflect.TypeOf(contract.FieldContract{}))
-	b.WriteString("\n### `aliases.<name>`\n\n")
-	writeTable(&b, "AliasContract", reflect.TypeOf(contract.AliasContract{}))
-	b.WriteString("\n### `effects.<field>`\n\n")
-	writeTable(&b, "Effect", reflect.TypeOf(contract.Effect{}))
-	b.WriteString("\n### `failures[]`\n\n")
-	writeTable(&b, "Failure", reflect.TypeOf(contract.Failure{}))
-	b.WriteString("\n### `failures[].unique`\n\n")
-	writeTable(&b, "UniqueCompare", reflect.TypeOf(contract.UniqueCompare{}))
+	table("\n## 3. Contract overlay — `.shrt/contracts/<domain>.yaml`\n\n", contract.Overlay{})
+	table("\n### Per rpc\n\n", contract.RPCContract{})
+	table("\n### `fields.<name>`\n\n", contract.FieldContract{})
+	table("\n### `aliases.<name>`\n\n", contract.AliasContract{})
+	table("\n### `effects.<field>`\n\n", contract.Effect{})
+	table("\n### `failures[]`\n\n", contract.Failure{})
+	table("\n### `failures[].unique`\n\n", contract.UniqueCompare{})
 
-	b.WriteString("\n## 4. Config — `.shrt/config.yaml`\n\n")
-	writeTable(&b, "Config", reflect.TypeOf(config.Config{}))
-	b.WriteString("\n### `target`\n\n")
-	writeTable(&b, "Target", reflect.TypeOf(config.Target{}))
-	b.WriteString("\n### `descriptor`\n\n")
-	writeTable(&b, "Descriptor", reflect.TypeOf(config.Descriptor{}))
-	b.WriteString("\n### `auth`, and each entry of `auth.profiles`\n\n")
-	writeTable(&b, "Auth", reflect.TypeOf(config.Auth{}))
-	b.WriteString("\n### `paths`\n\n")
-	writeTable(&b, "Paths", reflect.TypeOf(config.Paths{}))
-	b.WriteString("\n### `conventions`\n\n")
-	writeTable(&b, "Conventions", reflect.TypeOf(config.Conventions{}))
-	b.WriteString("\n### `latency`\n\n")
-	writeTable(&b, "Latency", reflect.TypeOf(config.Latency{}))
+	table("\n## 4. Config — `.shrt/config.yaml`\n\n", config.Config{})
+	table("\n### `target`\n\n", config.Target{})
+	table("\n### `descriptor`\n\n", config.Descriptor{})
+	table("\n### `auth`, and each entry of `auth.profiles`\n\n", config.Auth{})
+	table("\n### `paths`\n\n", config.Paths{})
+	table("\n### `conventions`\n\n", config.Conventions{})
+	table("\n### `latency`\n\n", config.Latency{})
 
 	b.WriteString("\n## 5. Run record — `.shrt/runs/<chain>/<run-id>.json`\n\n")
 	b.WriteString("The evidence file; the JSON names below are the ones in the file.\n\n")
-	writeJSONTable(&b, "Record", reflect.TypeOf(runner.Record{}))
+	writeJSONTable(&b, runner.Record{})
 	b.WriteString("\n### Each entry of `steps`\n\n")
-	writeJSONTable(&b, "StepRecord", reflect.TypeOf(runner.StepRecord{}))
+	writeJSONTable(&b, runner.StepRecord{})
 	b.WriteString("\n### Each entry of a step's `expect`\n\n")
-	writeJSONTable(&b, "ExpectResult", reflect.TypeOf(chain.ExpectResult{}))
+	writeJSONTable(&b, chain.ExpectResult{})
 
 	b.WriteString("\n## 6. Safe spot — `.shrt/safespots/<chain>.json`\n\n")
 	b.WriteString("Written only by `shrt confirm <chain> -approve`. A proposal waits in\n")
 	b.WriteString("`.shrt/safespots/pending/<chain>.json` with its report beside it until approved or rejected.\n\n")
-	writeJSONTable(&b, "SafeSpot", reflect.TypeOf(store.SafeSpot{}))
+	writeJSONTable(&b, store.SafeSpot{})
 
 	b.WriteString("\n## 7. What `shrt verify` actually compares\n\n")
 	b.WriteString("Produced by running `diff.Compare` on a fabricated safe spot and replay:\n\n")
@@ -426,33 +411,39 @@ func render() ([]byte, error) {
 	return []byte(b.String()), nil
 }
 
-func writeTable(b *strings.Builder, name string, t reflect.Type) {
-	rows := []row{}
+func writeTable(b *strings.Builder, v any) {
+	t := reflect.TypeOf(v)
+	b.WriteString("| key | type | req | meaning |\n|---|---|---|---|\n")
 	for i := 0; i < t.NumField(); i++ {
 		f := t.Field(i)
 		tag := f.Tag.Get("yaml")
-		if tag == "" || tag == "-" {
-			continue
+		if key, _, _ := strings.Cut(tag, ","); key != "" && key != "-" {
+			req := "+"
+			if strings.Contains(tag, "omitempty") {
+				req = ""
+			}
+			fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n", key, yamlType(f.Type), req, noteFor(t.Name(), key))
 		}
-		parts := strings.Split(tag, ",")
-		key := parts[0]
-		if key == "" || key == "-" {
-			continue
-		}
-		req := ""
-		if !strings.Contains(tag, "omitempty") {
-			req = "+"
-		}
-		rows = append(rows, row{key, yamlType(f.Type), req, notes[name+"."+key]})
 	}
-	b.WriteString("| key | type | req | meaning |\n|---|---|---|---|\n")
-	for _, r := range rows {
-		note := r.note
-		if note == "" {
-			undocumented = append(undocumented, name+"."+r.key)
+}
+
+func writeJSONTable(b *strings.Builder, v any) {
+	t := reflect.TypeOf(v)
+	b.WriteString("| field | type | meaning |\n|---|---|---|\n")
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		if key, _, _ := strings.Cut(f.Tag.Get("json"), ","); key != "" && key != "-" {
+			fmt.Fprintf(b, "| `%s` | %s | %s |\n", key, yamlType(f.Type), noteFor(t.Name(), key))
 		}
-		fmt.Fprintf(b, "| `%s` | %s | %s | %s |\n", r.key, r.typ, r.req, note)
 	}
+}
+
+func noteFor(name, key string) string {
+	note := notes[name+"."+key]
+	if note == "" {
+		undocumented = append(undocumented, name+"."+key)
+	}
+	return note
 }
 
 func yamlType(t reflect.Type) string {
@@ -521,15 +512,11 @@ func exerciseRules() (string, error) {
 	b.WriteString("| expectation | rule fired | passes |\n|---|---|---|\n")
 	for _, c := range cases {
 		r := c.e.EvaluateTyped(resp, resp, c.kind)
-		verdict := "no"
-		if r.Passed {
-			verdict = "**yes**"
-		}
 		detail := r.Rule
 		if r.Detail != "" {
 			detail = r.Rule + " — " + r.Detail
 		}
-		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, detail, verdict)
+		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, detail, yesNo(r.Passed))
 	}
 	b.WriteString("\n`not_empty` is false for `0` and `[]`, so it cannot stand in for `exists`; an int64 `\"0\"` is zero. A\n")
 	b.WriteString("rule-less entry fails. Two rules on one entry are a lint error: write one rule per entry.\n\n")
@@ -565,11 +552,7 @@ func existsPresence() string {
 	b.WriteString("| expectation | rule fired | passes |\n|---|---|---|\n")
 	for _, c := range cases {
 		r := c.e.EvaluateIn(full, present)
-		verdict := "no"
-		if r.Passed {
-			verdict = "**yes**"
-		}
-		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, r.Rule, verdict)
+		fmt.Fprintf(&b, "| %s | `%s` | %s |\n", c.label, r.Rule, yesNo(r.Passed))
 	}
 	b.WriteString("\nA proto3 scalar without `optional` cannot tell unset from zero on the wire; assert the value. A field\n")
 	b.WriteString("inside a message the server did not send has no zero value: assert the message `exists: false`.\n")
@@ -670,33 +653,9 @@ func exerciseMasks() string {
 	var b strings.Builder
 	b.WriteString("| pattern | path | matches |\n|---|---|---|\n")
 	for _, c := range cases {
-		verdict := "no"
-		if pathmask.Match(c.pattern, c.path) {
-			verdict = "**yes**"
-		}
-		fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", c.pattern, c.path, verdict)
+		fmt.Fprintf(&b, "| `%s` | `%s` | %s |\n", c.pattern, c.path, yesNo(pathmask.Match(c.pattern, c.path)))
 	}
 	return b.String()
-}
-
-func writeJSONTable(b *strings.Builder, name string, t reflect.Type) {
-	b.WriteString("| field | type | meaning |\n|---|---|---|\n")
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		tag := f.Tag.Get("json")
-		if tag == "" || tag == "-" {
-			continue
-		}
-		key := strings.Split(tag, ",")[0]
-		if key == "" || key == "-" {
-			continue
-		}
-		note := notes[name+"."+key]
-		if note == "" {
-			undocumented = append(undocumented, name+"."+key)
-		}
-		fmt.Fprintf(b, "| `%s` | %s | %s |\n", key, yamlType(f.Type), note)
-	}
 }
 
 func exerciseDiff() (string, error) {
@@ -768,7 +727,7 @@ func exerciseCLI() (string, error) {
 	}
 	var b strings.Builder
 	b.WriteString("```\n" + strings.TrimSpace(root) + "\n```\n\n")
-	subs := []struct{ group, usage string }{}
+	b.WriteString("| group | subcommands |\n|---|---|\n")
 	for _, group := range []string{"catalog", "chain", "contract"} {
 		out, err := runShrt(group)
 		if err != nil {
@@ -780,15 +739,10 @@ func exerciseCLI() (string, error) {
 			if at < 0 {
 				continue
 			}
-			usage := strings.TrimSpace(line[at+len(marker):])
-			usage = strings.ReplaceAll(usage, "|", "\\|")
-			subs = append(subs, struct{ group, usage string }{group, usage})
+			usage := strings.ReplaceAll(strings.TrimSpace(line[at+len(marker):]), "|", "\\|")
+			fmt.Fprintf(&b, "| `shrt %s` | `%s` |\n", group, usage)
 			break
 		}
-	}
-	b.WriteString("| group | subcommands |\n|---|---|\n")
-	for _, s := range subs {
-		fmt.Fprintf(&b, "| `shrt %s` | `%s` |\n", s.group, s.usage)
 	}
 	b.WriteString("\nEvery command prints its flags and exit codes with `-h`. A run id is accepted with or without `.json`.\n")
 	return b.String(), nil

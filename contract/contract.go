@@ -2,10 +2,13 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
+	"github.com/N4darae/shrt/pathmask"
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -41,7 +44,7 @@ func ForCuratedWithNotes(m *catalog.Method, lib *Library, cat *catalog.Catalog) 
 	if lib == nil || cat == nil {
 		return c, nil
 	}
-	nodes, notes, err := ScaffoldSteps([]string{m.FullName}, []string{defaultID(m.Name)}, lib, cat)
+	nodes, notes, err := ScaffoldSteps([]string{m.FullName}, []string{chain.SnakeCase(m.Name)}, lib, cat)
 	if err != nil || len(nodes) == 0 {
 		return c, nil
 	}
@@ -71,10 +74,7 @@ func ForPreferring(m *catalog.Method, prefer []string) *Contract {
 func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 	out := []ExportHint{}
 	for _, f := range fields {
-		path := f.Name
-		if prefix != "" {
-			path = prefix + "." + f.Name
-		}
+		path := pathmask.Join(prefix, f.Name)
 		if len(f.Fields) > 0 {
 			next := path
 			if f.Repeated {
@@ -97,7 +97,7 @@ func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 
 func stepYAML(m *catalog.Method, prefer []string) string {
 	node := &yaml.Node{}
-	if err := node.Encode(&chain.Step{ID: defaultID(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
+	if err := node.Encode(&chain.Step{ID: chain.SnakeCase(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
 		return ""
 	}
 	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
@@ -113,15 +113,10 @@ func inject(mapping *yaml.Node, body *yaml.Node) {
 		return
 	}
 	at := len(mapping.Content)
-	for i := 0; i+1 < len(mapping.Content); i += 2 {
-		if mapping.Content[i].Value == "call" {
-			at = i + 2
-			break
-		}
+	if i := yamlkey.Index(mapping, "call"); i >= 0 {
+		at = i + 2
 	}
-	key := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "body"}
-	tail := append([]*yaml.Node{}, mapping.Content[at:]...)
-	mapping.Content = append(mapping.Content[:at], append([]*yaml.Node{key, body}, tail...)...)
+	mapping.Content = slices.Insert(mapping.Content, at, scalar("body"), body)
 }
 
 func bodyNode(fields []*catalog.Field, example map[string]any) *yaml.Node {
@@ -149,22 +144,7 @@ func bodyNode(fields []*catalog.Field, example map[string]any) *yaml.Node {
 	return out
 }
 
-func defaultID(name string) string {
-	var b strings.Builder
-	for i, r := range name {
-		if r >= 'A' && r <= 'Z' {
-			if i > 0 {
-				b.WriteByte('_')
-			}
-			b.WriteRune(r + 32)
-			continue
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
-}
-
-func (c *Contract) StepID() string { return defaultID(shortRPC(c.RPC)) }
+func (c *Contract) StepID() string { return chain.SnakeCase(shortRPC(c.RPC)) }
 
 func (c *Contract) Text() string {
 	var b strings.Builder

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/N4darae/shrt/diff"
 	"github.com/N4darae/shrt/runner"
@@ -60,13 +61,6 @@ func serverAttempt(a *runner.Attempt) bool {
 	return code == "unavailable" || serverErrorCodes[code] || a.HTTPStatus >= 500
 }
 
-func stepOf(rec *runner.Record, id string) (*runner.StepRecord, bool) {
-	if rec == nil {
-		return nil, false
-	}
-	return rec.Step(id)
-}
-
 func errorText(st *runner.StepRecord) string {
 	if st == nil || st.Transport == nil {
 		return ""
@@ -95,10 +89,6 @@ func sameRequest(a, b *runner.StepRecord) bool {
 	return bytes.Equal(ex, ey)
 }
 
-func latestRunBefore(e *env, rec *runner.Record) *runner.Record {
-	return previousRun(e, rec, true, nil)
-}
-
 func runKind(rec *runner.Record) string {
 	if rec.ReplayOf != "" {
 		return "verify"
@@ -110,17 +100,15 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 	if rec == nil || rec.DryRun {
 		return nil
 	}
-	var last *runner.Record
-	loaded := false
+	lastRun := sync.OnceValue(func() *runner.Record { return previousRun(e, rec, true, nil) })
 	out := &intermittentFailure{rec: rec}
 	for _, st := range rec.Steps {
 		if resentAnswered(st) {
-			f := flakyStep{step: st, resent: true}
-			if !loaded {
-				last, loaded = latestRunBefore(e, rec), true
-			}
-			if was, ok := stepOf(last, st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
-				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+			f, last := flakyStep{step: st, resent: true}, lastRun()
+			if last != nil {
+				if was, ok := last.Step(st.ID); ok && was.FirstAttempt != nil && was.FirstAttempt.Text() == st.FirstAttempt.Text() {
+					f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
+				}
 			}
 			out.steps = append(out.steps, f)
 			continue
@@ -135,10 +123,7 @@ func detectIntermittent(e *env, rec *runner.Record) *intermittentFailure {
 				f.sameRun = append(f.sameRun, fmt.Sprintf("step %d %s", o.Index, o.ID))
 			}
 		}
-		if !loaded {
-			last, loaded = latestRunBefore(e, rec), true
-		}
-		if last != nil {
+		if last := lastRun(); last != nil {
 			if was, ok := last.Step(st.ID); ok && serverError(was) == why {
 				f.repeated = fmt.Sprintf("run %s, the previous %s of this chain, failed at the same step(s) the same way", last.RunID, runKind(last))
 			}
@@ -309,21 +294,18 @@ func findingMeaning(repeated bool, where string) string {
 }
 
 func (i *intermittentFailure) line(explain bool) string {
-	resent, order, each := map[string][]string{}, []string{}, []string{}
+	var resent grouped[string]
+	each := []string{}
 	for _, f := range i.steps {
 		at := fmt.Sprintf("step %d %s", f.step.Index, f.step.ID)
 		if !f.resent {
 			each = append(each, fmt.Sprintf("%s got %s, but %s", at, errorText(f.step), f.evidence()))
 			continue
 		}
-		why := f.step.FirstAttempt.Text()
-		if resent[why] == nil {
-			order = append(order, why)
-		}
-		resent[why] = append(resent[why], at)
+		resent.add(f.step.FirstAttempt.Text(), at)
 	}
-	for _, why := range order {
-		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent[why], 3), why))
+	for _, why := range resent.keys {
+		each = append(each, fmt.Sprintf("%s got %s, each re-send answered and judged", capList(resent.of[why], 3), why))
 	}
 	each = each[:min(len(each), 4)]
 	hidden := ""
@@ -357,20 +339,16 @@ func serverErrors(rec *runner.Record) []gateFlaky {
 			answered[st.Call] = true
 		}
 	}
-	steps, order := map[string][]string{}, []string{}
+	var steps grouped[string]
 	for _, st := range rec.Steps {
-		if serverError(st) == "" && !(runner.NotAnsweredByService(st) && answered[st.Call]) {
-			continue
+		if serverError(st) != "" || runner.NotAnsweredByService(st) && answered[st.Call] {
+			steps.add(st.Call, st.ID)
 		}
-		if steps[st.Call] == nil {
-			order = append(order, st.Call)
-		}
-		steps[st.Call] = append(steps[st.Call], st.ID)
 	}
 	var out []gateFlaky
-	for _, call := range order {
+	for _, call := range steps.keys {
 		r := callCounts(rec, call)
-		r.Steps, r.Failed = steps[call], max(r.Failed, len(steps[call]))
+		r.Steps, r.Failed = steps.of[call], max(r.Failed, len(steps.of[call]))
 		out = append(out, r)
 	}
 	return out

@@ -3,6 +3,7 @@ package diff
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/runner"
@@ -94,17 +95,13 @@ func sameCallAlignment(was, now []*runner.StepRecord) [][2]int {
 
 func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 	wasAt, nowAt := map[string][]int{}, map[string][]int{}
+	wasCall, nowCall := map[string]string{}, map[string]string{}
 	for i, st := range was {
 		wasAt[callKey(st)] = append(wasAt[callKey(st)], i)
+		wasCall[st.ID] = callKey(st)
 	}
 	for i, st := range now {
 		nowAt[callKey(st)] = append(nowAt[callKey(st)], i)
-	}
-	wasCall, nowCall := map[string]string{}, map[string]string{}
-	for _, st := range was {
-		wasCall[st.ID] = callKey(st)
-	}
-	for _, st := range now {
 		nowCall[st.ID] = callKey(st)
 	}
 	out := []StepRename{}
@@ -114,7 +111,7 @@ func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 			continue
 		}
 		k := callKey(w)
-		if !samePositions(wasAt[k], nowAt[k]) {
+		if !slices.Equal(wasAt[k], nowAt[k]) {
 			continue
 		}
 		if c, ok := nowCall[w.ID]; ok && c != k {
@@ -129,18 +126,6 @@ func positionalRenames(was, now []*runner.StepRecord) []StepRename {
 		return nil
 	}
 	return out
-}
-
-func samePositions(a, b []int) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func callKey(st *runner.StepRecord) string {

@@ -30,7 +30,7 @@ func notFoundFailures(lib *Library, rpc string) []Failure {
 }
 
 func unknownIDFailure(failures []Failure, field string, ref Ref, only bool) (Failure, bool) {
-	leaf := leafName(field)
+	leaf := chain.PathLeaf(field)
 	for _, f := range failures {
 		if f.Field != "" && stripIndexes(f.Field) == stripIndexes(field) {
 			return f, true
@@ -72,10 +72,10 @@ func (p *Plan) probeUnknownIDs(lib *Library, isTarget func(*chain.Step) bool) {
 		if len(failures) == 0 {
 			continue
 		}
-		batch := p.perItemResults(lib, st.Call, c, m) != nil
+		results, _, _ := p.perItemResults(lib, st.Call, c, m)
 		lookups := []string{}
-		for _, name := range sortedKeys(c.Fields) {
-			if batch && len(chain.SplitPath(name)) > 1 {
+		for _, name := range chain.SortedKeys(c.Fields) {
+			if results != nil && len(chain.SplitPath(name)) > 1 {
 				continue
 			}
 			if f := c.Fields[name]; f != nil && f.From != "" && f.CheckedBy != CheckedByNone {
@@ -118,19 +118,19 @@ func (p *Plan) addUnknownID(lib *Library, st *chain.Step, m *catalog.Method, fie
 	} else if key, ok := namecase.LookupKey(st.Body, field); ok {
 		path = key
 	}
-	probe := p.probeCopy(lib, st, "unknown_"+leafName(field))
+	probe := p.probeCopy(lib, st, "unknown_"+chain.PathLeaf(field))
 	renameStepRefs(probe, st.ID, probe.ID)
 	cur, _ := bodyValue(st.Body, path)
 	text, isText := cur.(string)
 	if !isText {
 		return ""
 	}
-	unknown, wording := "no-such-"+strings.ReplaceAll(leafName(path), "_", "-"), "an id nothing created"
+	unknown, wording := "no-such-"+strings.ReplaceAll(chain.PathLeaf(path), "_", "-"), "an id nothing created"
 	if wholeReference(text) {
 		unknown, wording = text+unknownIDSuffix, fmt.Sprintf("a real id with %q appended", unknownIDSuffix)
 	}
 	setBodyPath(probe.Body, path, unknown)
-	probe.Expect = refusalOf(m, f)
+	probe.Expect = refusalFor(m, f, false)
 	probe.Description = fmt.Sprintf("%s names no existing record (%s), so the answer is the not-found failure %s (%s).",
 		path, wording, f.Label(), strings.TrimSpace(f.When))
 	p.addShape(lib, st, probe)

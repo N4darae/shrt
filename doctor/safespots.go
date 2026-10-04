@@ -120,7 +120,7 @@ func sameStepsAs(spotPath, spotsDir, chainsDir string, names []string) (string, 
 		steps, rules := true, true
 		for i, s := range c.Steps {
 			want := spot.Steps[i]
-			if s == nil || s.ID != want.ID || !strings.EqualFold(methodName(s.Call), methodName(want.Call)) {
+			if s == nil || s.ID != want.ID || !strings.EqualFold(chain.RPCName(s.Call), chain.RPCName(want.Call)) {
 				steps = false
 				break
 			}
@@ -155,13 +155,12 @@ func sameStepsAs(spotPath, spotsDir, chainsDir string, names []string) (string, 
 			unspotted = append(unspotted, n)
 		}
 	}
-	if len(unspotted) == 1 {
+	switch {
+	case len(unspotted) == 1:
 		return unspotted[0], nil
-	}
-	if len(unspotted) > 1 {
-		pool = unspotted
-	}
-	if len(pool) > 1 {
+	case len(unspotted) > 1:
+		return "", unspotted
+	case len(pool) > 1:
 		return "", pool
 	}
 	return "", nil
@@ -179,10 +178,6 @@ func declaredNames(chainsDir string) []string {
 		out = append(out, name)
 	}
 	return out
-}
-
-func methodName(call string) string {
-	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func checkSafeSpots(_ context.Context, cfg *config.Config, _ Options, r *Report) {

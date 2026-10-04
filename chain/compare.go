@@ -27,22 +27,24 @@ func (e Expectation) HasComparison() bool {
 }
 
 func (e Expectation) MapOperands(f func(any) any) Expectation {
+	return e.mapNamed(func(_ string, v any) any { return f(v) })
+}
+
+func (e Expectation) mapNamed(f func(name string, v any) any) Expectation {
 	out := e
-	out.Equals = f(e.Equals)
-	out.NotEqual = f(e.NotEqual)
-	out.Includes = f(e.Includes)
-	if text, ok := f(e.Contains).(string); ok {
-		out.Contains = text
+	out.Equals, out.Includes, out.NotEqual = f("equals", e.Equals), f("includes", e.Includes), f("not_equal", e.NotEqual)
+	if e.Contains != "" {
+		out.Contains = stringify(f("contains", e.Contains))
 	}
-	out.Gt, out.Gte, out.Lt, out.Lte = f(e.Gt), f(e.Gte), f(e.Lt), f(e.Lte)
+	out.Gt, out.Gte, out.Lt, out.Lte = f("gt", e.Gt), f("gte", e.Gte), f("lt", e.Lt), f("lte", e.Lte)
 	if e.Between != nil {
 		out.Between = make([]any, len(e.Between))
 		for i, v := range e.Between {
-			out.Between[i] = f(v)
+			out.Between[i] = f("between", v)
 		}
 	}
 	if e.Within != nil {
-		out.Within = &Within{Of: f(e.Within.Of), By: f(e.Within.By)}
+		out.Within = &Within{Of: f("within.of", e.Within.Of), By: f("within.by", e.Within.By)}
 	}
 	return out
 }

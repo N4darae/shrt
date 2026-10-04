@@ -75,6 +75,16 @@ func (c *Chain) Step(id string) (*Step, bool) {
 	return nil, false
 }
 
+func (c *Chain) FreeStepID(base string, taken func(string) bool) string {
+	id := base
+	for i := 2; ; i++ {
+		if _, exists := c.Step(id); !exists && (taken == nil || !taken(id)) {
+			return id
+		}
+		id = fmt.Sprintf("%s_%d", base, i)
+	}
+}
+
 func (c *Chain) Normalize() error {
 	if c.APIVersion == "" {
 		c.APIVersion = APIVersion
@@ -124,11 +134,12 @@ func (c *Chain) checkKeptRed() error {
 }
 
 func defaultStepID(call string, i int) string {
-	name := call[strings.LastIndex(call, "/")+1:]
-	return fmt.Sprintf("%s_%d", toSnake(name), i+1)
+	return fmt.Sprintf("%s_%d", SnakeCase(RPCName(call)), i+1)
 }
 
-func toSnake(s string) string {
+func RPCName(call string) string { return call[strings.LastIndex(call, "/")+1:] }
+
+func SnakeCase(s string) string {
 	var b strings.Builder
 	for i, r := range s {
 		if r >= 'A' && r <= 'Z' {

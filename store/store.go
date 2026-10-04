@@ -2,6 +2,7 @@ package store
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"io"
 	"os"
@@ -54,11 +55,7 @@ func slug(s string) string {
 			b.WriteByte('-')
 		}
 	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "unnamed"
-	}
-	return out
+	return cmp.Or(strings.Trim(b.String(), "-"), "unnamed")
 }
 
 func listJSONFiles(dir string) ([]string, error) {

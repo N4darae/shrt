@@ -8,6 +8,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 const overdrawValue = "100000"
@@ -19,13 +20,11 @@ var (
 )
 
 func isQuantityName(name string) bool {
-	for _, w := range namecase.Words(name) {
-		switch strings.ToLower(w) {
-		case "qty", "quantity", "count", "units", "amount":
-			return true
-		}
-	}
-	return false
+	return nameHasWord(name, "qty", "quantity", "count", "units", "amount")
+}
+
+func nameHasWord(name string, words ...string) bool {
+	return slices.ContainsFunc(namecase.Words(name), func(w string) bool { return slices.Contains(words, strings.ToLower(w)) })
 }
 
 func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
@@ -36,7 +35,7 @@ func quantityPaths(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || f.MapKey != "" {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			switch v := m[key].(type) {
 			case []any:
 				if len(f.Fields) == 0 || len(v) == 0 {
@@ -90,9 +89,9 @@ func (p *Plan) probeInsufficiency(lib *Library, isTarget func(*chain.Step) bool)
 func (p *Plan) addInsufficiencyProbe(lib *Library, st *chain.Step, m *catalog.Method, f Failure) {
 	name := "over_quantity"
 	if f.Reason != "" {
-		name = defaultID(f.Reason)
+		name = chain.SnakeCase(f.Reason)
 	}
-	expect := withoutAbsentCarrier(refusalExpectations(m, f))
+	expect, _ := refusalExpectations(m, f, false)
 	source, paths := p.shortagePaths(st, m)
 	if len(paths) == 0 {
 		p.gap("step %s: the contract declares %s, but no quantity field (qty, quantity, count, amount) was found in its "+
@@ -201,7 +200,7 @@ func (p *Plan) freshen(lib *Library, st *chain.Step) {
 		return
 	}
 	fields := catalog.DescribeMessage(m.Input()).Fields
-	marker := strings.TrimPrefix(st.ID, defaultID(m.Name)+"_")
+	marker := strings.TrimPrefix(st.ID, chain.SnakeCase(m.Name)+"_")
 	for path := range p.uniqueFields(lib, st) {
 		v, _ := bodyValue(st.Body, path)
 		kind := ""
@@ -295,7 +294,7 @@ func allStepRefs(v any) [][2]string {
 				out = append(out, [2]string{m[1], m[2]})
 			}
 		case map[string]any:
-			for _, k := range sortedKeys(t) {
+			for _, k := range chain.SortedKeys(t) {
 				walk(t[k])
 			}
 		case []any:
@@ -317,19 +316,17 @@ func (e entityRead) readStep(id, description, ref string) *chain.Step {
 func (e entityRead) echoingRead(id, description string) *chain.Step {
 	ref := "${" + e.producer.ID + "." + e.idPath + "}"
 	read := e.readStep(id, description, ref)
-	leaf := leafName(e.idPath)
-	for _, sf := range carrierFields(e.reader, e.carrier) {
-		if sf.Name == leaf {
-			read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
-		}
+	leaf := chain.PathLeaf(e.idPath)
+	if fieldByName(carrierFields(e.reader, e.carrier), leaf) != nil {
+		read.Expect = append(read.Expect, chain.Expectation{Path: e.carrier + "." + leaf, Equals: ref})
 	}
 	return read
 }
 
 func (p *Plan) readBase(e entityRead) string {
-	base := defaultID(e.reader.Name)
+	base := chain.SnakeCase(e.reader.Name)
 	if pm, err := p.cat.Lookup(e.producer.Call); err == nil {
-		if suffix := strings.TrimPrefix(e.producer.ID, defaultID(pm.Name)); isIndexSuffix(suffix) {
+		if suffix := strings.TrimPrefix(e.producer.ID, chain.SnakeCase(pm.Name)); isIndexSuffix(suffix) {
 			base += suffix
 		}
 	}
@@ -343,10 +340,8 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 	}
 	carrierMsg := ""
 	head := chain.SplitPath(idPath)[0]
-	for _, f := range catalog.DescribeMessage(pm.Output()).Fields {
-		if f.Name == head && f.Kind == "message" && !f.Repeated {
-			carrierMsg = f.Message
-		}
+	if f := fieldByName(catalog.DescribeMessage(pm.Output()).Fields, head); f != nil && f.Kind == "message" && !f.Repeated {
+		carrierMsg = f.Message
 	}
 	rpcs := lib.RPCs()
 	for _, rpc := range rpcs {
@@ -358,7 +353,7 @@ func (p *Plan) readerMatching(lib *Library, prod *chain.Step, idPath string, nee
 		if err != nil || rm.Streaming() {
 			continue
 		}
-		for _, name := range sortedKeys(c.Fields) {
+		for _, name := range chain.SortedKeys(c.Fields) {
 			ref, err := ParseRef(c.Fields[name].From)
 			if err != nil || canonicalCall(p.cat, ref.RPC) != pm.FullName || ref.Path != idPath {
 				continue
@@ -421,36 +416,22 @@ func (p *Plan) guardUnchanged(lib *Library, refused []*chain.Step, label string)
 		before = append(before, read)
 		after = append(after, check)
 	}
-	out := append(before, refused...)
-	return append(out, after...)
+	return append(append(before, refused...), after...)
 }
 
 func isIndexSuffix(s string) bool {
-	return s == "" || (strings.HasPrefix(s, "_") && isIndexSegment(s[1:]))
+	return s == "" || (strings.HasPrefix(s, "_") && chain.IsDigits(s[1:]))
 }
 
 func (p *Plan) freeProbeID(base string, reserved map[string]bool) string {
-	id := base
-	for i := 2; ; i++ {
-		if _, exists := p.Chain.Step(id); !exists && !p.reserved[id] && !reserved[id] {
-			reserved[id] = true
-			return id
-		}
-		id = fmt.Sprintf("%s_%d", base, i)
-	}
-}
-
-func withoutAbsentCarrier(expect []chain.Expectation, _ bool) []chain.Expectation {
-	return slices.DeleteFunc(slices.Clone(expect), func(e chain.Expectation) bool {
-		return e.Exists != nil && !*e.Exists && !strings.Contains(e.Path, ".")
-	})
+	id := p.Chain.FreeStepID(base, func(id string) bool { return p.reserved[id] || reserved[id] })
+	reserved[id] = true
+	return id
 }
 
 func carrierFields(m *catalog.Method, carrier string) []*catalog.Field {
-	for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-		if f.Name == carrier {
-			return f.Fields
-		}
+	if f := fieldByName(catalog.DescribeMessage(m.Output()).Fields, carrier); f != nil {
+		return f.Fields
 	}
 	return nil
 }

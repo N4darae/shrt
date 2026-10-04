@@ -100,8 +100,8 @@ func decodedSeal(rec *runner.Record) (string, error) {
 
 func (s *Store) checkSealed(rec *runner.Record) error {
 	path := s.runPath(rec.Chain, rec.RunID)
-	disk := &runner.Record{}
-	if err := readRecord(path, disk); err != nil {
+	disk, err := readRecord(path)
+	if err != nil {
 		return fmt.Errorf("%w: run %s is not saved under %s (%v), so there is no record of it to vouch for", ErrRunEdited, rec.RunID, path, err)
 	}
 	if why := disk.SealingBuildEvidence(); (disk.Seal == "" || disk.MalformedSeal()) && why != "" {
@@ -134,8 +134,8 @@ func (s *Store) LoadRun(chainName, runID string) (*runner.Record, error) {
 		return s.LatestRun(chainName)
 	}
 	path := s.runPath(chainName, runID)
-	rec := &runner.Record{}
-	if err := readRecord(path, rec); err != nil {
+	rec, err := readRecord(path)
+	if err != nil {
 		return nil, fmt.Errorf("load run %s/%s: %w", chainName, runID, err)
 	}
 	if slug(rec.Chain) != slug(chainName) {
@@ -245,8 +245,8 @@ func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
 		if _, err := os.Stat(path); err != nil {
 			continue
 		}
-		rec := &runner.Record{}
-		if err := readRecord(path, rec); err != nil {
+		rec, err := readRecord(path)
+		if err != nil {
 			return nil, fmt.Errorf("load run %s: %w", path, err)
 		}
 		if err := s.vouch(path, rec); err != nil {
@@ -257,12 +257,13 @@ func (s *Store) FindRun(runID string) ([]*runner.Record, error) {
 	return out, nil
 }
 
-func readRecord(path string, rec *runner.Record) error {
+func readRecord(path string) (*runner.Record, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return rec.UnmarshalJSON(raw)
+	rec := &runner.Record{}
+	return rec, rec.UnmarshalJSON(raw)
 }
 
 func runSecond(id string) string {

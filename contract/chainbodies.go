@@ -16,6 +16,9 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 		return nil
 	}
 	var issues []chain.Issue
+	add := func(s *chain.Step, severity, format string, args ...any) {
+		issues = append(issues, chain.Issue{Step: s.ID, Severity: severity, Message: fmt.Sprintf(format, args...)})
+	}
 	for _, s := range c.Steps {
 		if s == nil || !stepExpectsSuccess(s) {
 			continue
@@ -31,17 +34,12 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 				remedy = "scaffold a contract for this rpc with 'shrt contract init', and say there that the " +
 					"empty value is the point"
 			}
-			issues = append(issues, chain.Issue{
-				Step:     s.ID,
-				Severity: chain.SeverityWarn,
-				Message: fmt.Sprintf(
-					"sends an empty string or a placeholder enum for %s, and the contract does not say that is "+
-						"deliberate — a scaffolded or planned body carries those until someone fills the test data, "+
-						"so this step would exercise an empty request rather than the case you meant. Fill it, or %s. "+
-						"A numeric zero is NOT reported here: lint cannot tell the scaffold's filler from a deliberate "+
-						"0, which is what the plan header is for",
-					strings.Join(unfilled, ", "), remedy),
-			})
+			add(s, chain.SeverityWarn, "sends an empty string or a placeholder enum for %s, and the contract does not say that is "+
+				"deliberate — a scaffolded or planned body carries those until someone fills the test data, "+
+				"so this step would exercise an empty request rather than the case you meant. Fill it, or %s. "+
+				"A numeric zero is NOT reported here: lint cannot tell the scaffold's filler from a deliberate "+
+				"0, which is what the plan header is for",
+				strings.Join(unfilled, ", "), remedy)
 		}
 		if !ok {
 			continue
@@ -61,34 +59,24 @@ func LintChainBodies(c *chain.Chain, lib *Library, cat *catalog.Catalog) []chain
 			}
 			if v, ok := bodyValue(s.Body, name); ok {
 				if varName, empty := emptyDeclaredVar(c, v); empty {
-					issues = append(issues, chain.Issue{
-						Step:     s.ID,
-						Severity: chain.SeverityError,
-						Message: fmt.Sprintf(
-							"%s is required by the contract for %s and this step sends ${vars.%s}, which vars: "+
-								"declares as empty, so a run without -var %s=... sends no value for it. Give the var "+
-								"a value under vars:, or remove it from vars: so shrt run refuses the chain until "+
-								"-var %s=... supplies one",
-							name, s.Call, varName, varName, varName),
-					})
+					add(s, chain.SeverityError, "%s is required by the contract for %s and this step sends ${vars.%s}, which vars: "+
+						"declares as empty, so a run without -var %s=... sends no value for it. Give the var "+
+						"a value under vars:, or remove it from vars: so shrt run refuses the chain until "+
+						"-var %s=... supplies one",
+						name, s.Call, varName, varName, varName)
 					continue
 				}
 			}
 			if HasUsableValue(s.Body, name, AuthoredBody) {
 				continue
 			}
-			issues = append(issues, chain.Issue{
-				Step:     s.ID,
-				Severity: chain.SeverityError,
-				Message: fmt.Sprintf(
-					"%s is required by the contract for %s and this step sends no value for it. Lint reads "+
-						"this step as expecting success, because none of its expect entries states a refusal on "+
-						"%s (the envelope path) or on transport.code / transport.http_status; an assertion on "+
-						"another field, such as an app_code, does not make it a probe. Fill the field, or, if this "+
-						"step is meant to be refused for leaving it out, state that refusal: %s equals: <refusal "+
-						"code> (or not_equal: %s), or transport.code equals: <code>",
-					name, s.Call, chain.EnvelopePath(), chain.EnvelopePath(), chain.EnvelopeOK()),
-			})
+			add(s, chain.SeverityError, "%s is required by the contract for %s and this step sends no value for it. Lint reads "+
+				"this step as expecting success, because none of its expect entries states a refusal on "+
+				"%s (the envelope path) or on transport.code / transport.http_status; an assertion on "+
+				"another field, such as an app_code, does not make it a probe. Fill the field, or, if this "+
+				"step is meant to be refused for leaving it out, state that refusal: %s equals: <refusal "+
+				"code> (or not_equal: %s), or transport.code equals: <code>",
+				name, s.Call, chain.EnvelopePath(), chain.EnvelopePath(), chain.EnvelopeOK())
 		}
 	}
 	return issues
@@ -136,7 +124,7 @@ func DeclaredFacts(rc *RPCContract) []string {
 			seen[key] = true
 		}
 	}
-	return sortedKeys(seen)
+	return chain.SortedKeys(seen)
 }
 
 func AssertsOnlyVerdict(s *chain.Step) bool {

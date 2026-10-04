@@ -2,11 +2,13 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 var (
@@ -37,10 +39,7 @@ func (p *Plan) probeIdempotency(lib *Library, isTarget func(*chain.Step) bool) {
 			continue
 		}
 		carrier, idField, numbers := "", "", []string{}
-		for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-			if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-				continue
-			}
+		for _, fd := range carriersOf(m) {
 			for _, sf := range fd.Fields {
 				if idField == "" && IsEntityIDField(sf.Name) && sf.Kind == "string" {
 					carrier, idField = fd.Name, sf.Name
@@ -82,7 +81,7 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 	conflict := ""
 	for _, f := range lib.AllFailures(st.Call) {
 		if keyConflict().MatchString(f.Reason) || keyConflictWhen().MatchString(f.When) {
-			other.Expect = refusalFor(m, f)
+			other.Expect = refusalFor(m, f, true)
 			other.Description = fmt.Sprintf("the same %s with another body (%s changed) is refused with %s.", key, strings.Join(bumped, ", "), f.Label())
 			conflict = f.Label()
 			break
@@ -104,22 +103,12 @@ func (p *Plan) addIdempotencyProbes(lib *Library, st *chain.Step, m *catalog.Met
 }
 
 func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.Method, key, carrier, idField string) {
-	var carrierMsg string
-	var stateField *catalog.Field
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Name != carrier {
-			continue
-		}
-		carrierMsg = fd.Message
-		for _, sf := range fd.Fields {
-			if stateField == nil && len(sf.EnumValues) > 1 && !sf.Repeated {
-				stateField = sf
-			}
-		}
-	}
-	if stateField == nil {
+	fd := fieldByName(catalog.DescribeMessage(m.Output()).Fields, carrier)
+	at := slices.IndexFunc(fd.Fields, func(sf *catalog.Field) bool { return len(sf.EnumValues) > 1 && !sf.Repeated })
+	if at < 0 {
 		return
 	}
+	carrierMsg, stateField := fd.Message, fd.Fields[at]
 	idPath := carrier + "." + idField
 	read, ok := p.readerMatching(lib, st, idPath, true)
 	if !ok {
@@ -142,7 +131,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 	}
 	added, ids := []*chain.Step{}, []string{}
 	for _, tr := range transitions {
-		label := defaultID(tr.method.Name)
+		label := chain.SnakeCase(tr.method.Name)
 		fid := p.freeStepID(st.ID + "_for_replay_after_" + label)
 		fixture := p.fixtureCopy(lib, st, fid, map[string]string{st.ID: fid}, fmt.Sprintf("as %s, with its own %s, for %s to move and then replay.", st.ID, key, label))
 		fixtureID := "${" + fixture.ID + "." + idPath + "}"
@@ -150,7 +139,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		move := tr.step(p.freeStepID(label+"_for_replay"),
 			fmt.Sprintf("moves %s to %s before its key is replayed.", fixture.ID, short[tr.value]), fixtureID, carrier+"."+stateField.Name)
 
-		readID := p.freeStepID(defaultID(read.reader.Name) + "_after_" + move.ID)
+		readID := p.freeStepID(chain.SnakeCase(read.reader.Name) + "_after_" + move.ID)
 		fetch := read.readStep(readID, fmt.Sprintf("the %s as %s left it, which the replay must return.", read.carrier, move.ID), fixtureID)
 		fetch.Expect = append(fetch.Expect, chain.Expectation{Path: read.carrier + "." + stateField.Name, Equals: tr.value})
 
@@ -182,7 +171,7 @@ func bumpNumbers(body map[string]any, fields []*catalog.Field) []string {
 			if !ok || f.MapKey != "" || idLike(f.Name) {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			switch v := m[key].(type) {
 			case []any:
 				for i, item := range v {

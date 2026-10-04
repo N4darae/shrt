@@ -3,6 +3,7 @@ package diff
 import (
 	"container/heap"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -64,9 +65,7 @@ func reorderUnordered(want, got any, path string, declared map[string]bool, r *s
 		if declared[namecase.Fold(listPath(path))] {
 			var from []int
 			g, from = permuted(g, pairItems(w, g, r))
-			if moves != nil {
-				moves[path] = from
-			}
+			moves[path] = from
 		}
 		out := make([]any, len(g))
 		for i := range g {
@@ -158,19 +157,21 @@ type pairRow struct {
 	cands []pairCand
 }
 
-func (r *pairRow) before(a, b pairCand) bool {
+func pairBefore(ia int, a pairCand, ib int, b pairCand) bool {
 	if a.score != b.score {
 		return a.score > b.score
 	}
-	da, db := absInt(r.i-a.j), absInt(r.i-b.j)
-	if da != db {
+	if da, db := absInt(ia-a.j), absInt(ib-b.j); da != db {
 		return da < db
+	}
+	if ia != ib {
+		return ia < ib
 	}
 	return a.j < b.j
 }
 
 func (r *pairRow) Len() int           { return len(r.cands) }
-func (r *pairRow) Less(a, b int) bool { return r.before(r.cands[a], r.cands[b]) }
+func (r *pairRow) Less(a, b int) bool { return pairBefore(r.i, r.cands[a], r.i, r.cands[b]) }
 func (r *pairRow) Swap(a, b int)      { r.cands[a], r.cands[b] = r.cands[b], r.cands[a] }
 func (r *pairRow) Push(x any)         { r.cands = append(r.cands, x.(pairCand)) }
 func (r *pairRow) Pop() any {
@@ -184,18 +185,7 @@ type rowHeap struct{ items []*pairRow }
 func (h *rowHeap) Len() int { return len(h.items) }
 func (h *rowHeap) Less(a, b int) bool {
 	x, y := h.items[a], h.items[b]
-	cx, cy := x.cands[0], y.cands[0]
-	if cx.score != cy.score {
-		return cx.score > cy.score
-	}
-	dx, dy := absInt(x.i-cx.j), absInt(y.i-cy.j)
-	if dx != dy {
-		return dx < dy
-	}
-	if x.i != y.i {
-		return x.i < y.i
-	}
-	return cx.j < cy.j
+	return pairBefore(x.i, x.cands[0], y.i, y.cands[0])
 }
 func (h *rowHeap) Swap(a, b int) { h.items[a], h.items[b] = h.items[b], h.items[a] }
 func (h *rowHeap) Push(x any)    { h.items = append(h.items, x.(*pairRow)) }
@@ -369,7 +359,7 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 	}
 	r.reorderExpect = map[string][]string{}
 	for _, c := range r.reorderCandidates {
-		if changesUnder(r.Changes, c) > 0 && changesUnder(h.Changes, c) == 0 {
+		if slices.ContainsFunc(r.Changes, c.covers) && !slices.ContainsFunc(h.Changes, c.covers) {
 			r.Reordered = append(r.Reordered, c.step+" "+c.path)
 			r.reordered = append(r.reordered, c)
 			if st, ok := rec.Step(c.step); ok {
@@ -384,18 +374,13 @@ func (r *Report) noteReordered(spot *store.SafeSpot, rec *runner.Record, extra [
 }
 
 func (r *Report) underReordered(c Change) bool {
-	for _, at := range r.reordered {
-		if changesUnder([]Change{c}, at) > 0 {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(r.reordered, func(at stepPath) bool { return at.covers(c) })
 }
 
 func (r *Report) hiddenUnder(at stepPath) int {
 	n := 0
 	for _, c := range r.Changes {
-		if c.Kind != KindNotReached && changesUnder([]Change{c}, at) > 0 {
+		if c.Kind != KindNotReached && at.covers(c) {
 			n++
 		}
 	}
@@ -426,17 +411,9 @@ func (r *Report) ReorderedExpectations() []string {
 	return out
 }
 
-func changesUnder(changes []Change, at stepPath) int {
-	n := 0
-	for _, c := range changes {
-		if c.Step != at.step {
-			continue
-		}
-		if p := listPath(c.Path); p == at.path || strings.HasPrefix(p, at.path+".") {
-			n++
-		}
-	}
-	return n
+func (at stepPath) covers(c Change) bool {
+	p := listPath(c.Path)
+	return c.Step == at.step && (p == at.path || strings.HasPrefix(p, at.path+"."))
 }
 
 func (r *Report) OnlyReordered() bool {
@@ -478,14 +455,7 @@ func (r *Report) reorderedGroups() []reorderGroup {
 }
 
 func (g reorderGroup) String() string {
-	return stepsText(g.steps, 3) + " " + g.path
-}
-
-func stepsText(steps []string, max int) string {
-	if len(steps) <= max {
-		return strings.Join(steps, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(steps[:max], ", "), len(steps)-max)
+	return chain.ListSome(g.steps, 3) + " " + g.path
 }
 
 func (r *Report) ReorderedLists() []string {
@@ -516,7 +486,7 @@ func (r *Report) reorderedText() string {
 		}
 		b.WriteString("  " + g.String() + ": same items in another order than the safe spot")
 		if len(failed) > 0 {
-			b.WriteString("; the expectation(s) reading it by position, which passed there, failed: " + stepsText(failed, 3))
+			b.WriteString("; the expectation(s) reading it by position, which passed there, failed: " + chain.ListSome(failed, 3))
 		} else {
 			b.WriteString(". Only if the order also varies between runs of one release, declare `unordered: [" + g.path + "]` on " + on +
 				" (or at chain level) to compare it as a multiset")

@@ -83,13 +83,8 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 			if !ok {
 				continue
 			}
-			text, _ := st.Body[key].(string)
-			src, isRef := refSource(text)
-			if !isRef || src == "vars" || src == "env" || p.stepByID(src) == nil {
-				continue
-			}
-			if sub := fieldByName(car.Fields, f.Name); sub != nil && sub.Kind == f.Kind && !sub.Repeated {
-				out = append(out, chain.Expectation{Path: car.Name + "." + sub.Name, Equals: text})
+			if text, ok := p.stepRef(st.Body[key]); ok && sameScalar(car.Fields, f) {
+				out = append(out, chain.Expectation{Path: car.Name + "." + f.Name, Equals: text})
 			}
 		}
 		if !read {
@@ -165,6 +160,17 @@ func (p *Plan) assertStates(lib *Library) {
 	}
 }
 
+func (p *Plan) stepRef(v any) (string, bool) {
+	text, _ := v.(string)
+	src, isRef := refSource(text)
+	return text, isRef && src != "vars" && src != "env" && p.stepByID(src) != nil
+}
+
+func sameScalar(fields []*catalog.Field, f *catalog.Field) bool {
+	sub := fieldByName(fields, f.Name)
+	return sub != nil && sub.Kind == f.Kind && !sub.Repeated
+}
+
 func (p *Plan) assertStreamEcho() {
 	for _, st := range p.Chain.Steps {
 		if !p.streams(st) || st.AllowFail || isRefusalStep(st) {
@@ -183,13 +189,8 @@ func (p *Plan) assertStreamEcho() {
 			if !ok || f.Repeated || !IsEntityIDField(f.Name) {
 				continue
 			}
-			text, _ := st.Body[key].(string)
-			src, isRef := refSource(text)
-			if !isRef || src == "vars" || src == "env" || p.stepByID(src) == nil {
-				continue
-			}
 			path := catalog.StreamMessages + ".0." + car.Name + "." + f.Name
-			if sub := fieldByName(car.Fields, f.Name); sub != nil && sub.Kind == f.Kind && !sub.Repeated && !hasExpectOn(st, path) {
+			if text, ok := p.stepRef(st.Body[key]); ok && sameScalar(car.Fields, f) && !hasExpectOn(st, path) {
 				st.Expect = append(st.Expect, chain.Expectation{Path: path, Equals: text})
 			}
 		}
@@ -213,17 +214,13 @@ func (p *Plan) assertTimestamps(lib *Library) {
 		extra := p.timestampExpectations(st, m, c, lib.DescriptionOf(lib.Domain(m.FullName)))
 		p.Notes = p.Notes[:notes]
 		for _, e := range extra {
-			if !hasExpectOn(st, e.Path) && !assertsAbsentPrefix(st, e.Path) {
+			if !hasExpectOn(st, e.Path) && !slices.ContainsFunc(st.Expect, func(x chain.Expectation) bool {
+				return x.Exists != nil && !*x.Exists && (x.Path == e.Path || strings.HasPrefix(e.Path, x.Path+"."))
+			}) {
 				st.Expect = append(st.Expect, e)
 			}
 		}
 	}
-}
-
-func assertsAbsentPrefix(st *chain.Step, path string) bool {
-	return slices.ContainsFunc(st.Expect, func(e chain.Expectation) bool {
-		return e.Exists != nil && !*e.Exists && (e.Path == path || strings.HasPrefix(path, e.Path+"."))
-	})
 }
 
 func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) []chain.Expectation {
@@ -259,10 +256,9 @@ func (p *Plan) batchOutcomes(st *chain.Step, m *catalog.Method, c *RPCContract) 
 			if !ok || f.Repeated || f.Kind == "message" {
 				continue
 			}
-			text, _ := item[k].(string)
-			if src, isRef := refSource(text); isRef && src != "vars" && src != "env" && p.stepByID(src) != nil {
-				if sub := fieldByName(results.Fields, f.Name); sub != nil && sub.Kind == f.Kind && !sub.Repeated {
-					out = append(out, chain.Expectation{Path: prefix + sub.Name, Equals: text})
+			if text, ok := p.stepRef(item[k]); ok {
+				if sameScalar(results.Fields, f) {
+					out = append(out, chain.Expectation{Path: prefix + f.Name, Equals: text})
 				}
 				continue
 			}

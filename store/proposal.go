@@ -87,27 +87,17 @@ func (s *Store) Propose(rec *runner.Record, in ProposalInput) (*Proposal, error)
 	if err := s.checkSealed(rec); err != nil {
 		return nil, err
 	}
-	replaces := ""
-	prev, err := s.LoadSafeSpot(rec.Chain)
-	switch {
-	case err == nil:
-		if !in.Supersede {
-			return nil, fmt.Errorf("%w at %s (confirmed by %s at %s); pass -supersede to propose replacing it",
-				ErrExists, s.SafeSpotPath(rec.Chain), prev.ConfirmedBy, prev.ConfirmedAt.Format(time.RFC3339))
-		}
-		replaces = prev.RunID
-	case errors.Is(err, os.ErrNotExist):
-	default:
+	prev, err := s.replaceable(rec.Chain, in.Supersede, "; pass -supersede to propose replacing it")
+	if err != nil {
 		return nil, err
 	}
-	now := in.Now
-	if now.IsZero() {
-		now = time.Now()
+	replaces := ""
+	if prev != nil {
+		replaces = prev.RunID
 	}
-	by := cmp.Or(strings.TrimSpace(in.By), "agent")
 	p := &Proposal{
 		Chain: rec.Chain, RunID: rec.RunID, Target: rec.Target, Build: rec.Build,
-		ProposedBy: by, ProposedAt: now.UTC(), Checked: in.Checked,
+		ProposedBy: cmp.Or(strings.TrimSpace(in.By), "agent"), ProposedAt: orNow(in.Now).UTC(), Checked: in.Checked,
 		Supersede: in.Supersede, Replaces: replaces,
 		Digest: recordDigest(rec), Report: s.ReportPath(rec.Chain),
 		ComparedTo: in.ComparedTo, Unstable: in.Unstable,
@@ -328,20 +318,18 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 	asserted, bare, verdictOnly, warned := 0, []string{}, []string{}, []string{}
 	envelope := chain.EnvelopePath()
 	for _, st := range rec.Steps {
-		calls.add(shortCall(st.Call))
-		answers.add(answerKind(st, envelope))
+		calls.add(chain.RPCName(st.Call))
+		answer := answerKind(st, envelope)
+		answers.add(answer)
 		asserted += len(st.Expect)
-		if len(st.Expect) == 0 {
+		beyond := beyondVerdict(st, envelope)
+		for _, path := range beyond {
+			fields.add(indexPattern.ReplaceAllString(path, ".N"))
+		}
+		switch {
+		case len(st.Expect) == 0:
 			bare = append(bare, "`"+st.ID+"`")
-		}
-		beyond := false
-		for _, e := range st.Expect {
-			if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
-				beyond = true
-				fields.add(indexPattern.ReplaceAllString(e.Path, ".N"))
-			}
-		}
-		if len(st.Expect) > 0 && !beyond && answerKind(st, envelope) == chain.EnvelopeOK() {
+		case len(beyond) == 0 && answer == chain.EnvelopeOK():
 			verdictOnly = append(verdictOnly, "`"+st.ID+"`")
 		}
 		if st.Warning != "" {
@@ -365,6 +353,16 @@ func ProposalBrief(p *Proposal, rec *runner.Record, description string) string {
 }
 
 var indexPattern = regexp.MustCompile(`\.[0-9]+`)
+
+func beyondVerdict(st *runner.StepRecord, envelope string) []string {
+	var out []string
+	for _, e := range st.Expect {
+		if !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path) {
+			out = append(out, e.Path)
+		}
+	}
+	return out
+}
 
 type counter struct {
 	order []string
@@ -399,10 +397,6 @@ func clipList(items []string, max int) string {
 		return strings.Join(items[:max], ", ") + fmt.Sprintf(" and %d more", len(items)-max)
 	}
 	return strings.Join(items, ", ")
-}
-
-func shortCall(call string) string {
-	return call[strings.LastIndex(call, "/")+1:]
 }
 
 func answerKind(st *runner.StepRecord, envelope string) string {
@@ -831,9 +825,26 @@ func assertedSummary(st *runner.StepRecord) string {
 }
 
 func answeredSummary(st *runner.StepRecord) string {
-	head, pairs := answerParts(st)
-	out := flat(head)
-	for i, pair := range pairs {
+	if st.Transport != nil {
+		if st.HTTPStatus != 0 {
+			return flat(fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message))
+		}
+		return flat(st.Transport.Code + ": " + st.Transport.Message)
+	}
+	var body any
+	if json.Unmarshal(st.Response, &body) != nil {
+		return flat(st.Status)
+	}
+	path := chain.EnvelopePath()
+	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
+	if !ok {
+		return flat("answered, nothing at " + path)
+	}
+	if items := itemsSummary(body); items != "" {
+		out += "; items: " + items
+	}
+	out = flat(out)
+	for i, pair := range assertedValues(st, path) {
 		sep := " "
 		if i == 0 {
 			sep = "; "
@@ -841,28 +852,6 @@ func answeredSummary(st *runner.StepRecord) string {
 		out += sep + flat(pair)
 	}
 	return out
-}
-
-func answerParts(st *runner.StepRecord) (string, []string) {
-	if st.Transport != nil {
-		if st.HTTPStatus != 0 {
-			return fmt.Sprintf("HTTP %d %s: %s", st.HTTPStatus, st.Transport.Code, st.Transport.Message), nil
-		}
-		return st.Transport.Code + ": " + st.Transport.Message, nil
-	}
-	var body any
-	if json.Unmarshal(st.Response, &body) != nil {
-		return st.Status, nil
-	}
-	path := chain.EnvelopePath()
-	out, ok := verdictText(body, path, "details.0.app_code", "details.0.reason", "message")
-	if !ok {
-		return "answered, nothing at " + path, nil
-	}
-	if items := itemsSummary(body); items != "" {
-		out += "; items: " + items
-	}
-	return out, assertedValues(st, path)
 }
 
 func alsoBaselined(rec *runner.Record, st *runner.StepRecord) string {
@@ -1060,40 +1049,37 @@ func carriedPaths(lines []string) []string {
 
 func unstableLines(unstable []string) []string {
 	type list struct{ step, path string }
-	type entry struct{ path, delta string }
-	lists := map[list]bool{}
+	type entry struct{ step, path, delta string }
+	parsed, lists := []entry{}, map[list]bool{}
 	for _, u := range unstable {
-		step, path, _ := strings.Cut(u, " ")
-		path, _, _ = strings.Cut(path, ": ")
+		step, rest, _ := strings.Cut(u, " ")
+		path, delta, _ := strings.Cut(rest, ": ")
+		parsed = append(parsed, entry{step, path, delta})
 		if root, indexed := listRoot(path); indexed {
 			lists[list{step, root}] = true
 		}
 	}
 	order := []any{}
 	entries := map[list][]entry{}
-	for _, u := range unstable {
-		step, rest, _ := strings.Cut(u, " ")
-		path, delta, _ := strings.Cut(rest, ": ")
-		root, _ := listRoot(path)
-		key := list{step, root}
+	for _, e := range parsed {
+		root, _ := listRoot(e.path)
+		key := list{e.step, root}
 		if !lists[key] {
-			order = append(order, u)
+			order = append(order, e)
 			continue
 		}
 		if _, seen := entries[key]; !seen {
 			order = append(order, key)
 		}
-		entries[key] = append(entries[key], entry{path, delta})
+		entries[key] = append(entries[key], e)
 	}
 	out := make([]string, 0, len(order))
 	for _, o := range order {
 		switch t := o.(type) {
-		case string:
-			step, rest, _ := strings.Cut(t, " ")
-			path, delta, _ := strings.Cut(rest, ": ")
-			line := "`" + step + " " + path + "`"
-			if delta != "" {
-				line += " " + delta
+		case entry:
+			line := "`" + t.step + " " + t.path + "`"
+			if t.delta != "" {
+				line += " " + t.delta
 			}
 			out = append(out, line)
 		case list:
@@ -1111,14 +1097,10 @@ func unstableLines(unstable []string) []string {
 				items[index] = true
 			}
 			if known && !grew {
-				shown, patterns := []string{}, []string{}
+				shown, patterns := []string{}, slices.Sorted(maps.Keys(fields))
 				for _, e := range es {
 					shown = append(shown, fmt.Sprintf("`%s` %s", e.path, e.delta))
 				}
-				for p := range fields {
-					patterns = append(patterns, p)
-				}
-				sort.Strings(patterns)
 				if len(shown) > 4 {
 					shown = append(shown[:4], fmt.Sprintf("and %d more", len(shown)-4))
 				}
@@ -1185,14 +1167,10 @@ func ProposalRowOf(p *Proposal, rec *runner.Record) ProposalRow {
 		for _, text := range itemRefusals(st) {
 			refusals.add(text)
 		}
-		beyond := false
-		for _, e := range st.Expect {
-			beyond = beyond || !atEnvelope(e.Path, envelope) && !chain.IsTransportPath(e.Path)
-		}
 		switch {
 		case len(st.Expect) == 0:
 			bare++
-		case !beyond && answer == chain.EnvelopeOK():
+		case len(beyondVerdict(st, envelope)) == 0 && answer == chain.EnvelopeOK():
 			verdictOnly++
 		}
 		if st.Warning != "" {

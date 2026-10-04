@@ -34,7 +34,7 @@ func DefaultReadOnlyPrefixes() []string {
 func IsReadOnlyCall(call string) bool { return callHasPrefix(call, ReadOnlyPrefixes()) }
 
 func callHasPrefix(call string, prefixes []string) bool {
-	name := call[strings.LastIndex(call, "/")+1:]
+	name := RPCName(call)
 	return slices.ContainsFunc(prefixes, func(p string) bool {
 		return strings.HasPrefix(name, p) && (len(name) == len(p) || name[len(p)] < 'a' || name[len(p)] > 'z')
 	})
@@ -174,10 +174,9 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		j, ok := idx.byID[id]
 		if !ok && id == SliceKeepWrites {
 			for w, s := range c.Steps[:at] {
-				if !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
-					continue
+				if opts.write(s) {
+					add(w, KeepAsked, "kept by -keep writes")
 				}
-				add(w, KeepAsked, "kept by -keep writes")
 			}
 			continue
 		}
@@ -189,7 +188,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		}
 		add(j, KeepAsked, KeepAsked)
 	}
-	for _, id := range sortedKeys(opts.Checkpoints) {
+	for _, id := range SortedKeys(opts.Checkpoints) {
 		if j, ok := idx.byID[id]; ok {
 			add(j, KeepCheckpoint, opts.Checkpoints[id])
 		}
@@ -249,10 +248,8 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		added := false
 		for _, writes := range []func(int, map[int]*Keep, SliceOptions) []sideEffectWrite{idx.sideEffectWrites, idx.stateWrites, idx.sameValueWrites} {
 			for _, w := range writes(at, keeps, opts) {
-				if opts.Refused != nil {
-					if why, refused := opts.Refused(c.Steps[w.index].ID); refused {
-						w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
-					}
+				if why, refused := opts.refused(c.Steps[w.index].ID); refused {
+					w.reason += fmt.Sprintf(" (%s in run %s, kept: a refused write can still change it)", why, opts.RunID)
 				}
 				add(w.index, KeepSideEffect, w.reason)
 				added = true
@@ -294,16 +291,14 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 	}
 
 	for i, s := range c.Steps[:at] {
-		if _, seen := keeps[i]; seen || !isWriteCall(s.Call) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+		if _, seen := keeps[i]; seen || !opts.write(s) {
 			continue
 		}
 		d := Dropped{Index: i + 1, ID: s.ID, Call: s.Call}
-		if opts.Refused != nil {
-			if why, refused := opts.Refused(s.ID); refused {
-				d.Reason = why
-				res.RefusedWrites = append(res.RefusedWrites, d)
-				continue
-			}
+		if why, refused := opts.refused(s.ID); refused {
+			d.Reason = why
+			res.RefusedWrites = append(res.RefusedWrites, d)
+			continue
 		}
 		res.DroppedWrites = append(res.DroppedWrites, d)
 	}
@@ -332,7 +327,7 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		st := copyStep(c.Steps[i])
 		if st.ID != target && opts.Relax != nil {
 			results := slices.Clone(opts.Relax(st.ID))
-			if isWriteCall(st.Call) && (opts.IsLogin == nil || !opts.IsLogin(st)) {
+			if opts.write(st) {
 				for j, r := range results {
 					if !r.Passed && targetFailed[PathLeaf(r.Path)] {
 						res.KeptFailing = append(res.KeptFailing, Relaxed{Step: st.ID, Path: r.Path, Rule: r.Rule, Want: r.Want, Got: r.Got})
@@ -359,29 +354,23 @@ func Slice(c *Chain, target string, opts SliceOptions) (*SliceResult, error) {
 		fresh[name] = true
 	}
 	vars := map[string]any{}
-	for _, name := range sortedKeys(c.Vars) {
+	for _, name := range SortedKeys(c.Vars) {
 		if !usedVars[name] {
 			continue
 		}
 		vars[name] = c.Vars[name]
+		from, given := VarFromRun, opts.RunVars
 		if fresh[name] {
-			if v, ok := opts.Vars[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
-				vars[name] = v
-				res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromFlag, Declared: true, Default: c.Vars[name]})
-			}
+			from, given = VarFromFlag, opts.Vars
+		} else if !opts.RunVarsAsDefaults {
 			continue
 		}
-		if !opts.RunVarsAsDefaults {
-			continue
+		if v, ok := given[name]; ok && fmt.Sprint(v) != fmt.Sprint(c.Vars[name]) {
+			vars[name] = v
+			res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: from, Declared: true, Default: c.Vars[name]})
 		}
-		v, ok := opts.RunVars[name]
-		if !ok || fmt.Sprint(v) == fmt.Sprint(c.Vars[name]) {
-			continue
-		}
-		vars[name] = v
-		res.FilledVars = append(res.FilledVars, FilledVar{Var: name, Value: v, From: VarFromRun, Declared: true, Default: c.Vars[name]})
 	}
-	for _, name := range sortedKeys(usedVars) {
+	for _, name := range SortedKeys(usedVars) {
 		if _, declared := c.Vars[name]; declared {
 			continue
 		}
@@ -587,7 +576,7 @@ func replaceVerdict(description, line string, prefixes ...string) string {
 	return strings.TrimRight(description, "\n") + "\n"
 }
 
-func listSome(names []string, max int) string {
+func ListSome(names []string, max int) string {
 	if len(names) <= max {
 		return strings.Join(names, ", ")
 	}
@@ -633,7 +622,7 @@ func sliceDescription(res *SliceResult) string {
 		}
 	}
 	if len(asked) > 0 {
-		fmt.Fprintf(&b, "Kept on request: %s.\n", listSome(asked, 8))
+		fmt.Fprintf(&b, "Kept on request: %s.\n", ListSome(asked, 8))
 	}
 	for _, k := range res.Kept {
 		if k.Kind == KeepCheckpoint {
@@ -658,16 +647,16 @@ func sliceDescription(res *SliceResult) string {
 		fmt.Fprintf(&b, "Kept writes create with %s: run it with -var <name>=<fresh>.\n", strings.Join(res.FreshVars, ", "))
 	}
 	if len(res.DroppedWrites) > 0 {
-		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(res.DroppedWrites), listSome(DroppedIDs(res.DroppedWrites), 8))
+		fmt.Fprintf(&b, "%d dropped step(s) WRITE: %s.\n", len(res.DroppedWrites), ListSome(DroppedIDs(res.DroppedWrites), 8))
 	}
 	if len(res.RefusedWrites) > 0 {
-		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(res.RefusedWrites), res.Run, listSome(DroppedIDs(res.RefusedWrites), 8))
+		fmt.Fprintf(&b, "%d dropped write step(s) refused in run %s: %s.\n", len(res.RefusedWrites), res.Run, ListSome(DroppedIDs(res.RefusedWrites), 8))
 	}
 	if len(res.Minimized) > 0 {
-		fmt.Fprintf(&b, "Dropped by -minimize, as %s failed the same way in a run without each: %s.\n", res.Target, listSome(DroppedIDs(res.Minimized), 8))
+		fmt.Fprintf(&b, "Dropped by -minimize, as %s failed the same way in a run without each: %s.\n", res.Target, ListSome(DroppedIDs(res.Minimized), 8))
 	}
 	if len(res.Untried) > 0 {
-		fmt.Fprintf(&b, "Kept untried, past the -minimize cap of runs: %s.\n", listSome(res.Untried, 8))
+		fmt.Fprintf(&b, "Kept untried, past the -minimize cap of runs: %s.\n", ListSome(res.Untried, 8))
 	}
 	return b.String()
 }
@@ -831,12 +820,8 @@ func (x *stepIndex) sideEffectWrites(at int, keeps map[int]*Keep, opts SliceOpti
 		return states[a].rpc < states[b].rpc
 	})
 	out := []sideEffectWrite{}
-	for w := 0; w < at; w++ {
-		if _, kept := keeps[w]; kept {
-			continue
-		}
-		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+	for w, s := range x.c.Steps[:at] {
+		if _, kept := keeps[w]; kept || !opts.write(s) || notSent(s, opts) {
 			continue
 		}
 		rpc := x.rpcOf(w, opts)
@@ -906,12 +891,8 @@ func (x *stepIndex) stateWrites(at int, keeps map[int]*Keep, opts SliceOptions) 
 	}
 	sort.Ints(readers)
 	out := []sideEffectWrite{}
-	for w := 0; w < at; w++ {
-		if _, kept := keeps[w]; kept {
-			continue
-		}
-		s := x.c.Steps[w]
-		if !isWriteCall(s.Call) || notSent(s, opts) || (opts.IsLogin != nil && opts.IsLogin(s)) {
+	for w, s := range x.c.Steps[:at] {
+		if _, kept := keeps[w]; kept || !opts.write(s) || notSent(s, opts) {
 			continue
 		}
 		reach := x.entitiesReached(w, true, map[int]bool{})
@@ -966,20 +947,24 @@ func (x *stepIndex) fieldNeedsNoProducer(s *Step, at int, field string) bool {
 	return !slices.ContainsFunc(collectRefs(v), func(ref string) bool { _, kind := x.producerOf(ref, at); return kind == refStep })
 }
 
-func producesNothing(s *Step, opts SliceOptions) bool {
-	if opts.Refused != nil {
-		if _, refused := opts.Refused(s.ID); refused {
-			return true
-		}
+func (o SliceOptions) refused(id string) (string, bool) {
+	if o.Refused == nil {
+		return "", false
 	}
-	return ExpectsRefusal(s)
+	return o.Refused(id)
+}
+
+func (o SliceOptions) write(s *Step) bool {
+	return isWriteCall(s.Call) && (o.IsLogin == nil || !o.IsLogin(s))
+}
+
+func producesNothing(s *Step, opts SliceOptions) bool {
+	_, refused := opts.refused(s.ID)
+	return refused || ExpectsRefusal(s)
 }
 
 func notSent(s *Step, opts SliceOptions) bool {
-	if opts.Refused == nil {
-		return false
-	}
-	why, refused := opts.Refused(s.ID)
+	why, refused := opts.refused(s.ID)
 	return refused && why == RefusedNotSent
 }
 
@@ -1214,7 +1199,7 @@ func listFilterShared(writer, reader *Step) (string, string) {
 	}
 	sent := map[string]string{}
 	filterVars(writer.Body, sent)
-	for _, name := range sortedKeys(sent) {
+	for _, name := range SortedKeys(sent) {
 		if field, ok := filters[name]; ok {
 			return field, name
 		}

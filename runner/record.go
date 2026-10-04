@@ -79,7 +79,7 @@ func (r *Record) SealingBuildEvidence() string {
 		}
 	}
 	started, from := r.StartedAt, "it started at"
-	if at, ok := runIDTime(r.RunID); ok && at.After(started) {
+	if at, ok := RunIDTime(r.RunID); ok && at.After(started) {
 		started, from = at, fmt.Sprintf("its run id %s is dated", r.RunID)
 	}
 	if started.After(SealsIntroduced) {
@@ -89,7 +89,7 @@ func (r *Record) SealingBuildEvidence() string {
 	return ""
 }
 
-func runIDTime(id string) (time.Time, bool) {
+func RunIDTime(id string) (time.Time, bool) {
 	stamp, _, _ := strings.Cut(id, "-")
 	at, err := time.Parse("20060102T150405Z", stamp)
 	return at, err == nil

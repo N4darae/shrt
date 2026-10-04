@@ -7,6 +7,7 @@ import (
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
+	"github.com/N4darae/shrt/pathmask"
 )
 
 func varyScalars(body map[string]any, fields []*catalog.Field, marker string, skip func(path string) bool) []string {
@@ -18,7 +19,7 @@ func varyScalars(body map[string]any, fields []*catalog.Field, marker string, sk
 			if !ok {
 				continue
 			}
-			at := join(path, f.Name)
+			at := pathmask.Join(path, f.Name)
 			if skip != nil && skip(at) {
 				continue
 			}

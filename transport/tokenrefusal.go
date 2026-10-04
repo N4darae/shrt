@@ -22,11 +22,15 @@ func fingerprint(token string) string {
 	return hex.EncodeToString(sum[:])[:12]
 }
 
-func (r TokenRefusal) Age() (time.Duration, bool) {
-	if r.IssuedAt.IsZero() || r.RefusedAt.IsZero() {
+func (r TokenRefusal) Age() (time.Duration, bool) { return between(r.IssuedAt, r.RefusedAt) }
+
+func (r TokenRefusal) Left() (time.Duration, bool) { return between(r.RefusedAt, r.ExpiresAt) }
+
+func between(from, to time.Time) (time.Duration, bool) {
+	if from.IsZero() || to.IsZero() {
 		return 0, false
 	}
-	return r.RefusedAt.Sub(r.IssuedAt), true
+	return to.Sub(from), true
 }
 
 func (r TokenRefusal) Stated() (time.Duration, bool) {
@@ -44,13 +48,6 @@ func (r TokenRefusal) Stated() (time.Duration, bool) {
 		}
 	}
 	return lo, true
-}
-
-func (r TokenRefusal) Left() (time.Duration, bool) {
-	if r.ExpiresAt.IsZero() || r.RefusedAt.IsZero() {
-		return 0, false
-	}
-	return r.ExpiresAt.Sub(r.RefusedAt), true
 }
 
 const EarlyRefusalMargin = time.Minute

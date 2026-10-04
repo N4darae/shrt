@@ -54,11 +54,7 @@ func contractStatus(args []string) error {
 		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
 			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}
@@ -74,29 +70,13 @@ func contractStatus(args []string) error {
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	stateGaps := map[string][]contract.StateGap{}
-	for _, g := range contract.StateGaps(chains, plans, lib, e.cat) {
-		stateGaps[g.RPC] = append(stateGaps[g.RPC], g)
-	}
-	single := map[string][]contract.SingleItemRepeat{}
-	for _, r := range contract.SingleItemRepeats(chains, e.cat) {
-		single[r.RPC] = append(single[r.RPC], r)
-	}
+	stateGaps := byRPC(contract.StateGaps(chains, plans, lib, e.cat), func(g contract.StateGap) string { return g.RPC })
+	single := byRPC(contract.SingleItemRepeats(chains, e.cat), func(r contract.SingleItemRepeat) string { return r.RPC })
 	called := calledRPCs(e, chains)
 	logins := loginRPCs(e)
-	probeGaps := map[string][]contract.ProbeGap{}
-	for _, g := range contract.AuthProbeGaps(chains, lib, e.cat, planOptions(e)) {
-		probeGaps[g.RPC] = append(probeGaps[g.RPC], g)
-	}
-	emptyGaps := map[string][]contract.EmptyFilterGap{}
-	for _, g := range contract.EmptyFilterGaps(chains, lib, e.cat) {
-		emptyGaps[g.RPC] = append(emptyGaps[g.RPC], g)
-	}
-	loginNames := sortedKeys(logins)
-	loginGaps := map[string][]contract.LoginFailureGap{}
-	for _, g := range contract.LoginFailureGaps(chains, lib, e.cat, loginNames) {
-		loginGaps[g.RPC] = append(loginGaps[g.RPC], g)
-	}
+	probeGaps := byRPC(contract.AuthProbeGaps(chains, lib, e.cat, planOptions(e)), func(g contract.ProbeGap) string { return g.RPC })
+	emptyGaps := byRPC(contract.EmptyFilterGaps(chains, lib, e.cat), func(g contract.EmptyFilterGap) string { return g.RPC })
+	loginGaps := byRPC(contract.LoginFailureGaps(chains, lib, e.cat, sortedKeys(logins)), func(g contract.LoginFailureGap) string { return g.RPC })
 	byDomain := contract.Domains(e.cat.Methods())
 	rows := []statusRow{}
 	totals := statusRow{Domain: "TOTAL"}
@@ -174,7 +154,7 @@ func contractStatus(args []string) error {
 			"lists them as 'no path to'; only you can say which kind each one is. A client- or bidi-streaming\n" +
 			"rpc is never REACHED: shrt cannot call it.\n" +
 			"GAPS and SCORE measure the entries themselves, and score OMISSION as well as vagueness" +
-			phaseScope(*phase) + ":\n" +
+			phaseNote(*phase, " (scoring the %s phase only)") + ":\n" +
 			scoringTerms(*phase) +
 			"Per-rpc detail: shrt contract quality [-domain <domain>] [-phase happy]\n")
 	} else {
@@ -203,23 +183,10 @@ func contractStatus(args []string) error {
 		fmt.Printf("\n%d repeated request field(s) are never sent with one resource on two applied items, so logic that merges, "+
 			"deduplicates or counts once per resource goes untested: shrt contract status -gaps lists them as 'no repeat'\n", repeat)
 	}
-	unchained := 0
+	unchained, unstated, roleGaps, tokenGaps, parityGaps := 0, 0, 0, 0, 0
 	for _, r := range rows {
 		unchained += len(r.NoChain)
-	}
-	if unchained > 0 {
-		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
-	}
-	unstated := 0
-	for _, r := range rows {
 		unstated += len(r.StateGaps)
-	}
-	if unstated > 0 {
-		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
-			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
-	}
-	roleGaps, tokenGaps, parityGaps := 0, 0, 0
-	for _, r := range rows {
 		for _, g := range r.ProbeGaps {
 			switch g.Kind {
 			case "role":
@@ -231,6 +198,13 @@ func contractStatus(args []string) error {
 			}
 		}
 	}
+	if unchained > 0 {
+		fmt.Printf("\n%d rpc(s) are called by no chain, so no run or gate exercises them: shrt contract status -gaps lists them as 'no chain'\n", unchained)
+	}
+	if unstated > 0 {
+		fmt.Printf("\n%d write/state pair(s) are called by no chain from a state the write's plan calls it from, or not with every item count it sends there, "+
+			"so logic that depends on the state it starts from goes untested: shrt contract status -gaps lists them as 'no state'\n", unstated)
+	}
 	if parityGaps > 0 {
 		fmt.Printf("\n%d rpc/profile pair(s) whose contract lets every role call the rpc are never called as that profile, so a role check added by mistake passes every gate: shrt contract status -gaps lists them as 'no profile probe'\n", parityGaps)
 	}
@@ -241,6 +215,14 @@ func contractStatus(args []string) error {
 		fmt.Printf("\n%d chained rpc(s) are never called without a token or with auth: invalid: shrt contract status -gaps lists them as 'no token'\n", tokenGaps)
 	}
 	return nil
+}
+
+func byRPC[T any](items []T, rpc func(T) string) map[string][]T {
+	out := map[string][]T{}
+	for _, it := range items {
+		out[rpc(it)] = append(out[rpc(it)], it)
+	}
+	return out
 }
 
 var gapNext = []struct{ kind, next string }{
@@ -346,19 +328,15 @@ func printStatusGaps(rows []statusRow, verbose bool) {
 		fmt.Print(statusGapLegend)
 		return
 	}
-	order, kinds := []string{}, map[string][]string{}
+	var kinds grouped[string]
 	for _, m := range gapNext {
-		if !found[m.kind] {
-			continue
+		if found[m.kind] {
+			kinds.add(m.next, m.kind)
 		}
-		if kinds[m.next] == nil {
-			order = append(order, m.next)
-		}
-		kinds[m.next] = append(kinds[m.next], m.kind)
 	}
 	parts := []string{}
-	for _, next := range order {
-		parts = append(parts, next+" ("+strings.Join(kinds[next], ", ")+")")
+	for _, next := range kinds.keys {
+		parts = append(parts, next+" ("+strings.Join(kinds.of[next], ", ")+")")
 	}
 	if len(parts) > 0 {
 		fmt.Println("next: " + strings.Join(parts, "; "))
@@ -433,24 +411,17 @@ func loginRPCs(e *env) map[string]bool {
 }
 
 func calledRPCs(e *env, chains []*chain.Chain) map[string]bool {
-	out := map[string]bool{}
-	mark := func(call string) {
-		if m, err := e.cat.Lookup(call); err == nil {
-			out[m.FullName] = true
-		}
-	}
-	for _, p := range e.cfg.AuthProfiles() {
-		if p != nil && p.Call != "" {
-			mark(p.Call)
-		}
-	}
+	out := loginRPCs(e)
 	for _, c := range chains {
 		if c == nil {
 			continue
 		}
 		for _, s := range c.Steps {
-			if s != nil {
-				mark(s.Call)
+			if s == nil {
+				continue
+			}
+			if m, err := e.cat.Lookup(s.Call); err == nil {
+				out[m.FullName] = true
 			}
 		}
 	}
@@ -511,11 +482,7 @@ func contractQuality(args []string) error {
 		return fmt.Errorf("unknown -phase %q, want %s, %s or %s",
 			*phase, contract.PhaseHappy, contract.PhaseFailure, contract.PhaseAll)
 	}
-	e, err := loadEnv(true)
-	if err != nil {
-		return err
-	}
-	lib, err := e.library()
+	e, lib, err := loadLibrary()
 	if err != nil {
 		return err
 	}
@@ -554,12 +521,12 @@ func contractQuality(args []string) error {
 		if *only != "" {
 			where = "domain " + *only
 		}
-		fmt.Printf("contract quality%s — score 0: no rpc in %s has a measurable gap\n", phaseLabel(*phase), where)
+		fmt.Printf("contract quality%s — score 0: no rpc in %s has a measurable gap\n", phaseNote(*phase, " (%s phase)"), where)
 		return nil
 	}
 
 	fmt.Printf("contract quality%s — %d rpc(s) with a measurable gap, total score %d\n\n",
-		phaseLabel(*phase), len(report.RPCs), report.TotalScore)
+		phaseNote(*phase, " (%s phase)"), len(report.RPCs), report.TotalScore)
 	fmt.Printf("%5s  %-70s gap\n", "score", "rpc")
 	shown := report.RPCs
 	if *limit > 0 && len(shown) > *limit {
@@ -574,18 +541,11 @@ func contractQuality(args []string) error {
 	return nil
 }
 
-func phaseLabel(phase string) string {
+func phaseNote(phase, format string) string {
 	if phase == "" || phase == contract.PhaseAll {
 		return ""
 	}
-	return " (" + phase + " phase)"
-}
-
-func phaseScope(phase string) string {
-	if phase == "" || phase == contract.PhaseAll {
-		return ""
-	}
-	return " (scoring the " + phase + " phase only)"
+	return fmt.Sprintf(format, phase)
 }
 
 func scoringTerms(phase string) string {

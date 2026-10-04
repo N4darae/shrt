@@ -3,6 +3,8 @@ package namecase
 import (
 	"cmp"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 func Closest(name string, candidates []string, limit int) []string {
@@ -34,6 +36,17 @@ func Closest(name string, candidates []string, limit int) []string {
 		out = append(out, s.name)
 	}
 	return out
+}
+
+func Suggest(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(names))
+	for _, n := range names {
+		quoted = append(quoted, strconv.Quote(n))
+	}
+	return " (did you mean " + strings.Join(quoted, " or ") + "?)"
 }
 
 func distance(a, b string) int {

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/N4darae/shrt/catalog"
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
@@ -145,19 +146,15 @@ type Ref struct {
 }
 
 func ParseRef(raw string) (Ref, error) {
-	head, path, ok := cutRef(strings.TrimSpace(raw))
+	head, path, ok := strings.Cut(strings.TrimSpace(raw), RefSeparator)
+	if !ok {
+		head, path, ok = strings.Cut(strings.TrimSpace(raw), LegacyRefSeparator)
+	}
 	rpc, alias := SplitNode(head)
 	if path = strings.TrimSpace(path); !ok || rpc == "" || path == "" {
 		return Ref{}, fmt.Errorf("expected <rpc>[@alias]%s<response_path>, got %q", RefSeparator, raw)
 	}
 	return Ref{RPC: rpc, Alias: alias, Path: path}, nil
-}
-
-func cutRef(raw string) (head, path string, ok bool) {
-	if head, path, ok = strings.Cut(raw, RefSeparator); ok {
-		return head, path, true
-	}
-	return strings.Cut(raw, LegacyRefSeparator)
 }
 
 func UsesLegacySeparator(raw string) bool {
@@ -178,7 +175,7 @@ func SplitNode(node string) (rpc, alias string) {
 
 func (c *RPCContract) Dependencies() []string {
 	sets := []map[string]*FieldContract{c.Fields}
-	for _, alias := range sortedKeys(c.Aliases) {
+	for _, alias := range chain.SortedKeys(c.Aliases) {
 		sets = append(sets, c.Aliases[alias].Fields)
 	}
 	return c.dependsOn(sets...)
@@ -201,7 +198,7 @@ func (c *RPCContract) dependsOn(sets ...map[string]*FieldContract) []string {
 		add(n)
 	}
 	for _, fields := range sets {
-		for _, name := range sortedKeys(fields) {
+		for _, name := range chain.SortedKeys(fields) {
 			for _, raw := range []string{fields[name].From, fields[name].SameAs} {
 				if ref, err := ParseRef(raw); err == nil {
 					add(ref.Node())
@@ -252,24 +249,7 @@ func LoadOverlayBytes(path string, raw []byte) (*Overlay, error) {
 	o.SourcePath = path
 	o.EmptyEntries = normalizeEmptyEntries(o)
 	markUnfilled(o, raw)
-	dropTodoRequired(o)
 	return o, nil
-}
-
-func dropTodoRequired(o *Overlay) {
-	for _, c := range o.RPCs {
-		if c == nil || len(c.Required) == 0 {
-			continue
-		}
-		n := len(c.Required)
-		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) == n {
-			continue
-		}
-		if c.Unfilled == nil {
-			c.Unfilled = map[string]bool{}
-		}
-		c.Unfilled["required"] = true
-	}
 }
 
 func normalizeEmptyEntries(o *Overlay) []string {
@@ -305,15 +285,25 @@ func normalizeEmptyEntries(o *Overlay) []string {
 }
 
 func markUnfilled(o *Overlay, raw []byte) {
-	for _, issue := range ScanTodos(o.Domain, raw) {
-		c, ok := o.RPCs[issue.RPC]
-		if !ok || c == nil {
-			continue
-		}
+	mark := func(c *RPCContract, key string) {
 		if c.Unfilled == nil {
 			c.Unfilled = map[string]bool{}
 		}
-		c.Unfilled[issue.Field] = true
+		c.Unfilled[key] = true
+	}
+	for _, issue := range ScanTodos(o.Domain, raw) {
+		if c := o.RPCs[issue.RPC]; c != nil {
+			mark(c, issue.Field)
+		}
+	}
+	for _, c := range o.RPCs {
+		if c == nil {
+			continue
+		}
+		n := len(c.Required)
+		if c.Required = slices.DeleteFunc(c.Required, IsTodo); len(c.Required) < n {
+			mark(c, "required")
+		}
 	}
 }
 
@@ -353,7 +343,7 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		clash := false
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			key := rpc
 			if cat != nil {
 				key = canonicalCall(cat, rpc)
@@ -388,9 +378,6 @@ func LoadLibraryIn(dir string, cat *catalog.Catalog) (*Library, []error, error) 
 			continue
 		}
 		kept = append(kept, o)
-	}
-	if len(kept) == len(overlays) {
-		return lib, broken, nil
 	}
 	return NewLibrary(kept), broken, nil
 }
@@ -521,7 +508,7 @@ func (l *Library) Count() int {
 }
 
 func (l *Library) RPCs() []string {
-	return sortedKeys(l.byRPC)
+	return chain.SortedKeys(l.byRPC)
 }
 
 func (o *Overlay) Marshal() ([]byte, error) { return yaml.Marshal(o) }

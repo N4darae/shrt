@@ -20,10 +20,6 @@ type WithoutResult struct {
 	Chain       *Chain    `json:"-"`
 }
 
-func DefaultWithoutName(chainName string, drop []string) string {
-	return chainName + "-without-" + strings.Join(drop, "-")
-}
-
 func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 	if len(drop) == 0 {
 		return nil, fmt.Errorf("-without names no step")
@@ -37,7 +33,7 @@ func Without(c *Chain, drop []string, name string) (*WithoutResult, error) {
 		named[id] = true
 	}
 	if name == "" {
-		name = DefaultWithoutName(c.Name, drop)
+		name = c.Name + "-without-" + strings.Join(drop, "-")
 	}
 	res := &WithoutResult{Source: c.Name, Total: len(c.Steps)}
 	gone := map[int]bool{}

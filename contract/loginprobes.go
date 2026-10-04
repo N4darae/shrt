@@ -56,24 +56,17 @@ func credentialFailure(lib *Library, rpc string) (Failure, bool) {
 	return Failure{}, false
 }
 
-func secretKey(body map[string]any) string {
-	for _, k := range sortedKeys(body) {
-		low := strings.ToLower(k)
-		if strings.Contains(low, "pass") || strings.Contains(low, "secret") {
+func keyWhere(body map[string]any, match func(lower string) bool) string {
+	for _, k := range chain.SortedKeys(body) {
+		if match(strings.ToLower(k)) {
 			return k
 		}
 	}
 	return ""
 }
 
-func userKey(body map[string]any) string {
-	for _, k := range sortedKeys(body) {
-		low := strings.ToLower(k)
-		if strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name" {
-			return k
-		}
-	}
-	return ""
+func secretKey(body map[string]any) string {
+	return keyWhere(body, func(low string) bool { return strings.Contains(low, "pass") || strings.Contains(low, "secret") })
 }
 
 func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string {
@@ -81,7 +74,7 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 	add := func(suffix, key, value, what string) {
 		probe := probeStep(st, p.freeStepID(st.ID+"_"+suffix))
 		probe.Body[key] = value
-		probe.Expect = refusalFor(m, f)
+		probe.Expect = refusalFor(m, f, true)
 		probe.Description = fmt.Sprintf("%s: refused with %s, as the contract declares.", what, f.Label())
 		p.Chain.Steps = append(p.Chain.Steps, probe)
 		out = append(out, fmt.Sprintf("%s (%s) expects %s", probe.ID, what, f.Label()))
@@ -90,7 +83,9 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 		cur, _ := st.Body[key].(string)
 		add("bad_password", key, cur+"-not-it", "the right account with a password that is not its own")
 	}
-	if key := userKey(st.Body); key != "" {
+	if key := keyWhere(st.Body, func(low string) bool {
+		return strings.Contains(low, "user") || strings.Contains(low, "login") || strings.Contains(low, "email") || low == "name"
+	}); key != "" {
 		if uf, ok := p.unknownUserFailure(m.FullName, f); ok {
 			f = uf
 			add("unknown_user", key, "no-such-user-shrt", "an account name no one has")
@@ -103,7 +98,7 @@ func (p *Plan) badLogins(st *chain.Step, m *catalog.Method, f Failure) []string 
 }
 
 func (p *Plan) secretField(body map[string]any) string {
-	for _, k := range sortedKeys(body) {
+	for _, k := range chain.SortedKeys(body) {
 		for _, pat := range p.opts.Redact {
 			if pathmask.Match(pat, k) {
 				return k
@@ -123,7 +118,7 @@ func (p *Plan) paddedSecretLogin(st *chain.Step, m *catalog.Method, f Failure, d
 	probe.Body[key] = " " + cur + " "
 	refused := "refused with " + f.Label() + ", as a wrong one is"
 	if declared {
-		probe.Expect = refusalFor(m, f)
+		probe.Expect = refusalFor(m, f, true)
 	} else if CarriesEnvelope(m) {
 		probe.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
 		refused = "refused"

@@ -3,7 +3,6 @@ package diff
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -30,19 +29,9 @@ func refChanges(before []*runner.StepRecord, was *runner.StepRecord, now *chain.
 	if was.BodyRefs == nil {
 		return inferredRefChanges(before, was, current)
 	}
-	paths := []string{}
-	for p := range current {
-		paths = append(paths, p)
-	}
-	for p := range was.BodyRefs {
-		if _, ok := current[p]; !ok {
-			paths = append(paths, p)
-		}
-	}
-	sort.Strings(paths)
 	recorded, _ := decode(was.Request)
 	out := []Change{}
-	for _, p := range paths {
+	for _, p := range sortedKeys(current, was.BodyRefs) {
 		w, hadRef := was.BodyRefs[p]
 		g, hasRef := current[p]
 		if hadRef && hasRef && chain.FoldedRefs(w) == chain.FoldedRefs(g) {
@@ -148,13 +137,8 @@ func inferredRefChanges(before []*runner.StepRecord, was *runner.StepRecord, cur
 			scope.Exports[k] = v
 		}
 	}
-	paths := []string{}
-	for p := range current {
-		paths = append(paths, p)
-	}
-	sort.Strings(paths)
 	out := []Change{}
-	for _, p := range paths {
+	for _, p := range sortedKeys(current, nil) {
 		text := current[p]
 		if generated(text) {
 			continue
@@ -206,7 +190,7 @@ func sourceOf(before []*runner.StepRecord, value any, requestPath string) string
 			continue
 		}
 		visitScalars(resp, "", func(path string, v any) {
-			if fmt.Sprint(v) != want {
+			if v == nil || fmt.Sprint(v) != want {
 				return
 			}
 			score := 0
@@ -224,19 +208,13 @@ func sourceOf(before []*runner.StepRecord, value any, requestPath string) string
 func visitScalars(v any, path string, fn func(string, any)) {
 	switch t := v.(type) {
 	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
+		for _, k := range sortedKeys(t, nil) {
 			visitScalars(t[k], pathmask.Join(path, k), fn)
 		}
 	case []any:
 		for i, x := range t {
 			visitScalars(x, pathmask.Join(path, pathmask.IndexKey(i)), fn)
 		}
-	case nil:
 	default:
 		fn(path, v)
 	}

@@ -1,7 +1,9 @@
 package diff
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,6 +11,7 @@ import (
 
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/pathmask"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/transport"
@@ -86,7 +89,7 @@ func stepError(s *runner.StepRecord) string {
 	if s == nil || (s.Status != runner.StatusError && s.Status != runner.StatusSkipped && s.Transport == nil) {
 		return ""
 	}
-	return firstLineOf(s.Error)
+	return runner.FirstLine(s.Error)
 }
 
 func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
@@ -102,7 +105,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		rep.FailingA, rep.FailingB = failingLines(sa), failingLines(sb)
 		rep.FailingAlike = len(rep.FailingA) == len(rep.FailingB)
 		for i := range rep.FailingA {
-			if rep.FailingAlike && maskVarValues(a.Vars, rep.FailingA[i]) != maskVarValues(b.Vars, rep.FailingB[i]) {
+			if rep.FailingAlike && MaskVarValues(a.Vars, rep.FailingA[i]) != MaskVarValues(b.Vars, rep.FailingB[i]) {
 				rep.FailingAlike = false
 			}
 		}
@@ -141,7 +144,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		allA[s.ID] = s
 	}
 	inA := map[string]bool{}
-	base := mergePatterns(a.Volatile, b.Volatile, extra)
+	base := slices.Concat(a.Volatile, b.Volatile, extra)
 	for _, sa := range a.Steps {
 		if !StepReached(a, sa) {
 			continue
@@ -159,7 +162,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 			rep.StatusChanges = append(rep.StatusChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status,
 				ErrorA: stepError(sa), ErrorB: stepError(sb)})
 		}
-		masker := pathmask.NewMasker(mergePatterns(base, sa.Volatile, sb.Volatile))
+		masker := pathmask.NewMasker(slices.Concat(base, sa.Volatile, sb.Volatile))
 		rep.compareRequests(sa, sb, masker, fx)
 		if x, y := rep.compareResponses(sa, sb, masker); everyFieldMasked(masker, x) && everyFieldMasked(masker, y) {
 			rep.FullyMasked = append(rep.FullyMasked, sa.ID)
@@ -169,7 +172,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 	if rn := renamer(renames); rn != nil && !rep.FailingAlike && rep.FirstFailureA != "" && rep.FirstFailureA == rep.FirstFailureB && len(rep.FailingA) == len(rep.FailingB) {
 		rep.FailingAlike = true
 		for i := range rep.FailingA {
-			if maskVarValues(a.Vars, rn.Replace(rep.FailingA[i])) != maskVarValues(b.Vars, rep.FailingB[i]) {
+			if MaskVarValues(a.Vars, rn.Replace(rep.FailingA[i])) != MaskVarValues(b.Vars, rep.FailingB[i]) {
 				rep.FailingAlike = false
 			}
 		}
@@ -188,18 +191,14 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || StepReached(a, sa) || StepReached(b, sb) {
 			continue
 		}
-		if ea, eb := firstLineOf(sa.Error), firstLineOf(sb.Error); ea != eb {
+		if ea, eb := runner.FirstLine(sa.Error), runner.FirstLine(sb.Error); ea != eb {
 			rep.ErrorChanges = append(rep.ErrorChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status, ErrorA: ea, ErrorB: eb})
 		}
 	}
 	if a.KeepGoing != b.KeepGoing {
-		kept, other := a, b
+		kept, other, otherSteps := a, b, allB
 		if b.KeepGoing {
-			kept, other = b, a
-		}
-		otherSteps := map[string]*runner.StepRecord{}
-		for _, s := range other.Steps {
-			otherSteps[s.ID] = s
+			kept, other, otherSteps = b, a, allA
 		}
 		for _, s := range kept.Steps {
 			if o := otherSteps[s.ID]; s.Status == runner.StatusSkipped && (o == nil || !StepReached(other, o)) {
@@ -219,20 +218,8 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 }
 
 func varChanges(a, b map[string]any) []VarChange {
-	names := map[string]bool{}
-	for k := range a {
-		names[k] = true
-	}
-	for k := range b {
-		names[k] = true
-	}
-	sorted := make([]string, 0, len(names))
-	for k := range names {
-		sorted = append(sorted, k)
-	}
-	sort.Strings(sorted)
 	out := []VarChange{}
-	for _, k := range sorted {
+	for _, k := range sortedKeys(a, b) {
 		va, inA := a[k]
 		vb, inB := b[k]
 		if inA && inB && fmt.Sprint(va) == fmt.Sprint(vb) {
@@ -301,24 +288,12 @@ func (r *RunReport) compareRequests(sa, sb *runner.StepRecord, masker *pathmask.
 		}
 		r.RequestChanges = append(r.RequestChanges, c)
 	}
-	if len(sa.Request) == 0 || len(sb.Request) == 0 {
-		return
-	}
-	a, errA := decode(sa.Request)
-	b, errB := decode(sb.Request)
-	if errA != nil || errB != nil {
-		return
-	}
 	r.fixturePairs = append(r.fixturePairs, generatedPairs([]*runner.StepRecord{sa}, []*runner.StepRecord{sb}, fx.Generated)...)
 	rn := renamer(r.fixturePairs)
-	walk(a, b, "", func(c Change) {
+	walkRequests(sa, sb, func(c Change) {
 		fixture := (fx.Named != nil && fx.Named(sa.ID, c.Path)) || (fx.Generated != nil && fx.Generated(sa.ID, c.Path))
-		if fixture {
-			if x, ok := c.Want.(string); ok && len(x) >= minFixtureEcho {
-				if y, ok := c.Got.(string); ok {
-					r.fixturePairs = append(r.fixturePairs, [2]string{x, y})
-				}
-			}
+		if p, ok := echoPair(c); fixture && ok {
+			r.fixturePairs = append(r.fixturePairs, p)
 		}
 		if volatile := maskedAt(masker, c); volatile || (c.Kind == KindChanged && LooksVolatile(c.Path, c.Want, c.Got)) {
 			r.Masked++
@@ -350,36 +325,19 @@ func everyFieldMasked(m *pathmask.Masker, body any) bool {
 		return false
 	}
 	masked, open := 0, 0
-	var count func(v any)
-	count = func(v any) {
-		switch t := v.(type) {
-		case map[string]any:
-			for _, item := range t {
-				count(item)
-			}
-		case []any:
-			for _, item := range t {
-				count(item)
-			}
-		case string:
-			if t == pathmask.MaskVolatile {
-				masked++
-				return
-			}
-			open++
-		default:
+	visitScalars(m.Apply(body), "", func(_ string, v any) {
+		if v == pathmask.MaskVolatile {
+			masked++
+		} else {
 			open++
 		}
-	}
-	count(m.Apply(body))
+	})
 	return masked > 0 && open == 0
 }
 
 func firstFailure(rec *runner.Record) string {
-	for _, s := range rec.Steps {
-		if s.Status == runner.StatusFailed || s.Status == runner.StatusError {
-			return s.ID
-		}
+	if s := firstRed(rec); s != nil {
+		return s.ID
 	}
 	return ""
 }
@@ -456,13 +414,7 @@ func LooksVolatile(path string, a, b any) bool {
 		return false
 	}
 	key := lastKey(path)
-	lower := strings.ToLower(key)
-	switch {
-	case lower == "id", lower == "ids", lower == "token", lower == "access_token", lower == "idempotency_key",
-		strings.HasSuffix(lower, "_id"), strings.HasSuffix(lower, "_ids"), strings.HasPrefix(lower, "id_"),
-		strings.HasSuffix(lower, "_at"), strings.HasSuffix(lower, "_time"), strings.Contains(lower, "timestamp"),
-		camelSuffix(key, "Id"), camelSuffix(key, "Ids"), camelSuffix(key, "At"), camelSuffix(key, "Time"),
-		camelIDPrefix(key):
+	if lower := strings.ToLower(key); namecase.IDNamed(key) || lower == "token" || lower == "access_token" || timeNamed(path) {
 		return sameShape(a, b)
 	}
 	return bothAre(a, b, isTimestamp) || bothAre(a, b, uuidShape)
@@ -525,18 +477,6 @@ func lastKey(path string) string {
 	}
 }
 
-func camelIDPrefix(key string) bool {
-	return len(key) > 2 && key[:2] == "id" && key[2] >= 'A' && key[2] <= 'Z'
-}
-
-func camelSuffix(key, suffix string) bool {
-	if len(key) <= len(suffix) || !strings.HasSuffix(key, suffix) {
-		return false
-	}
-	prev := key[len(key)-len(suffix)-1]
-	return prev >= 'a' && prev <= 'z' || prev >= '0' && prev <= '9'
-}
-
 func bothAre(a, b any, pred func(string) bool) bool {
 	x, ok1 := a.(string)
 	y, ok2 := b.(string)
@@ -558,16 +498,14 @@ func (r *RunReport) Text() string {
 	if line := RenamedLine(r.RenamedSteps, "run A", "run B"); line != "" {
 		fmt.Fprintf(&b, "%s\n", line)
 	}
-	if len(r.FullyMasked) > 0 {
-		fmt.Fprintf(&b, "WARNING: every response field of step(s) %s is under a volatile pattern, so this diff compared nothing "+
-			"of those responses and \"no differences\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)\n",
-			strings.Join(r.FullyMasked, ", "))
+	if line := fullyMaskedLine(r.FullyMasked, "this diff", "no differences"); line != "" {
+		fmt.Fprintf(&b, "%s\n", line)
 	}
 	if r.TargetA != "" || r.TargetB != "" {
 		fmt.Fprintf(&b, "targets differ: A %s, B %s\n", r.TargetA, r.TargetB)
 	}
 	if r.BuildA != "" || r.BuildB != "" {
-		fmt.Fprintf(&b, "builds differ: A %s, B %s\n", orUnset(r.BuildA), orUnset(r.BuildB))
+		fmt.Fprintf(&b, "builds differ: A %s, B %s\n", cmp.Or(r.BuildA, "(no build recorded)"), cmp.Or(r.BuildB, "(no build recorded)"))
 	}
 	if r.KeepGoingA != r.KeepGoingB {
 		with, without, red, only := "B", "A", r.FirstFailureA, r.NewlyReached
@@ -588,13 +526,11 @@ func (r *RunReport) Text() string {
 			b.WriteString("\n")
 		}
 	}
-	if len(r.VarChanges) > 0 {
-		if parts := r.varChanges(false); len(parts) > 0 {
-			fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
-		}
+	if parts := r.varChanges(false); len(parts) > 0 {
+		fmt.Fprintf(&b, "the runs used different vars, so a difference may come from the input rather than the backend: %s\n", strings.Join(parts, "; "))
 	}
 	if r.FirstFailureA != r.FirstFailureB {
-		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", orNone(r.FirstFailureA), orNone(r.FirstFailureB))
+		fmt.Fprintf(&b, "first failing step moved: A %s, B %s\n", cmp.Or(r.FirstFailureA, "none"), cmp.Or(r.FirstFailureB, "none"))
 	} else if r.FirstFailureA != "" {
 		how := ""
 		switch {
@@ -667,7 +603,7 @@ func (r *RunReport) Text() string {
 	if len(r.RequestChanges) > 0 {
 		fmt.Fprintf(&b, "%d request difference(s), what the two runs SENT, in steps both reached:\n", len(r.RequestChanges))
 		for _, c := range r.RequestChanges {
-			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.describeRuns())
+			fmt.Fprintf(&b, "  [%s] %-10s %s %s\n", c.Step, c.Kind, c.Path, c.DescribeRuns())
 		}
 	}
 	if len(r.Changes) > 0 {
@@ -723,7 +659,7 @@ func (s StepStatus) errors() string {
 	return out
 }
 
-func (c Change) describeRuns() string {
+func (c Change) DescribeRuns() string {
 	if c.Kind == KindLength {
 		return fmt.Sprintf("a=%v item(s) b=%v item(s)", c.Want, c.Got)
 	}
@@ -733,25 +669,11 @@ func (c Change) describeRuns() string {
 	return fmt.Sprintf("a=%s b=%s", withKind(c.Want), withKind(c.Got))
 }
 
-func orUnset(s string) string {
-	if s == "" {
-		return "(no build recorded)"
-	}
-	return s
-}
-
 func orAbsent(v any) any {
 	if v == nil {
 		return "(unset)"
 	}
 	return v
-}
-
-func orNone(s string) string {
-	if s == "" {
-		return "none"
-	}
-	return s
 }
 
 func sentWithoutAnswer(msg string) string {
@@ -781,13 +703,13 @@ func failingLines(s *runner.StepRecord) []string {
 		if s.Transport != nil {
 			out = append(out, fmt.Sprintf("transport %s: %s", s.Transport.Code, s.Transport.Message))
 		} else if s.Error != "" {
-			out = append(out, firstLineOf(s.Error))
+			out = append(out, runner.FirstLine(s.Error))
 		}
 	}
 	return out
 }
 
-func maskVarValues(vars map[string]any, text string) string {
+func MaskVarValues(vars map[string]any, text string) string {
 	names := make([]string, 0, len(vars))
 	for name, v := range vars {
 		if value := fmt.Sprint(v); len(value) >= minFixtureEcho && value != pathmask.MaskRedacted {
@@ -803,7 +725,7 @@ func maskVarValues(vars map[string]any, text string) string {
 
 func (r *RunReport) describe(c Change) string {
 	if c.Kind == KindLength || c.Kind == KindType {
-		return c.describeRuns()
+		return c.DescribeRuns()
 	}
 	a, b := map[string]any{}, map[string]any{}
 	for name, v := range r.varsA {
@@ -817,13 +739,9 @@ func (r *RunReport) describe(c Change) string {
 func runValue(v any, vars map[string]any) string {
 	switch t := v.(type) {
 	case string:
-		return chain.EdgeQuoted(maskVarValues(vars, t))
+		return chain.EdgeQuoted(MaskVarValues(vars, t))
 	case float64:
 		return strconv.FormatFloat(t, 'f', -1, 64)
 	}
 	return fmt.Sprint(v)
-}
-
-func (c Change) DescribeRuns() string {
-	return c.describeRuns()
 }

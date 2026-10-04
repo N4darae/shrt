@@ -46,6 +46,15 @@ func (e *env) library() (*contract.Library, error) {
 	return lib, nil
 }
 
+func loadLibrary() (*env, *contract.Library, error) {
+	e, err := loadEnv(true)
+	if err != nil {
+		return nil, nil, err
+	}
+	lib, err := e.library()
+	return e, lib, err
+}
+
 func brokenOverlaysError(dir string, broken []error) error {
 	lines := make([]string, 0, len(broken))
 	for _, b := range broken {
@@ -123,21 +132,15 @@ func contractInit(args []string) error {
 			fmt.Printf("--- %s\n%s\n", domain, raw)
 			continue
 		}
+		verb, text := "wrote", raw
 		if current, err := os.ReadFile(path); err == nil && sameYAML(current, raw) {
-			n := strings.Count(string(current), contract.TodoMarker)
-			todos += n
-			fmt.Printf("unchanged %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			verb, text = "unchanged", current
+		} else if err := writePlanFile(path, raw); err != nil {
 			return err
 		}
-		if err := os.WriteFile(path, raw, 0o644); err != nil {
-			return err
-		}
-		n := strings.Count(string(raw), contract.TodoMarker)
+		n := strings.Count(string(text), contract.TodoMarker)
 		todos += n
-		fmt.Printf("wrote %s (%d rpc(s), %d %s)\n", rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
+		fmt.Printf("%s %s (%d rpc(s), %d %s)\n", verb, rel(e.cfg.Root, path), len(methods), n, contract.TodoMarker)
 	}
 	if !*stdout {
 		if todos == 0 {
@@ -183,7 +186,7 @@ func contractLint(args []string) error {
 				"scaffold it with 'shrt contract init %s'", *only, e.contractsDir(), *only)
 		}
 	}
-	issues := []contract.Issue{}
+	issues, errCount := []contract.Issue{}, len(broken)
 	for _, b := range broken {
 		issues = append(issues, contract.Issue{Severity: contract.SeverityError, Message: b.Error()})
 	}
@@ -193,6 +196,9 @@ func contractLint(args []string) error {
 		}
 		if *only != "" && i.Domain != *only && !(i.Domain == "" && strings.Contains(i.Message, *only)) {
 			continue
+		}
+		if i.Severity == contract.SeverityError {
+			errCount++
 		}
 		issues = append(issues, i)
 	}
@@ -212,7 +218,7 @@ func contractLint(args []string) error {
 				fmt.Printf("ok   %d contract(s) across %d overlay(s)\n", lib.Count(), len(lib.Overlays))
 			}
 		} else {
-			fmt.Printf("\n%s\n", tally(issues))
+			fmt.Printf("\n%d error(s), %d warning(s)\n", errCount, len(issues)-errCount)
 		}
 		if reach := contract.ReferencedOutsideLibrary(lib, e.cat, *only); len(broken) == 0 && !reach.Empty() {
 			fmt.Printf("note %d referenced rpc(s) live in domains not present in this library (%s) — alias and response-path checks could not run for them\n",
@@ -233,28 +239,10 @@ func contractLint(args []string) error {
 			}
 		}
 	}
-	errCount := 0
-	for _, i := range issues {
-		if i.Severity == contract.SeverityError {
-			errCount++
-		}
-	}
 	if errCount > 0 {
 		return fmt.Errorf("%d contract error(s)", errCount)
 	}
 	return nil
-}
-
-func tally(issues []contract.Issue) string {
-	errs, warns := 0, 0
-	for _, i := range issues {
-		if i.Severity == contract.SeverityError {
-			errs++
-			continue
-		}
-		warns++
-	}
-	return fmt.Sprintf("%d error(s), %d warning(s)", errs, warns)
 }
 
 func shortRPC(rpc string) string {

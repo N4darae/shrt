@@ -270,7 +270,7 @@ func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {
 		c := copyStep(src, cid)
 		renameStepRefs(c, sec.src, id)
 		renameStepRefs(c, prep, cid)
-		p.distinctPreparation(c, cid, prep)
+		p.distinctPreparation(c, prep)
 		made = append(made, c)
 	}
 	return id, made
@@ -285,10 +285,7 @@ func (p *Plan) assertEcho(st *chain.Step) {
 		return
 	}
 	in := catalog.DescribeMessage(m.Input()).Fields
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
+	for _, fd := range carriersOf(m) {
 		for _, sf := range fd.Fields {
 			key, ok := namecase.LookupKey(st.Body, sf.Name)
 			if !ok {

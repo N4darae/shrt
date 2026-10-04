@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/N4darae/shrt/namecase"
 	"github.com/N4darae/shrt/runner"
 	"github.com/N4darae/shrt/store"
 )
@@ -30,7 +31,7 @@ func recordWindow(rec *runner.Record) *runWindow {
 	}
 	from := rec.StartedAt
 	if from.IsZero() {
-		at, ok := runIDStamp(rec.RunID)
+		at, ok := runner.RunIDTime(rec.RunID)
 		if !ok {
 			return nil
 		}
@@ -43,7 +44,7 @@ func spotWindow(spot *store.SafeSpot) *runWindow {
 	if spot == nil {
 		return nil
 	}
-	at, ok := runIDStamp(spot.RunID)
+	at, ok := runner.RunIDTime(spot.RunID)
 	if !ok {
 		return nil
 	}
@@ -54,12 +55,6 @@ func spotWindow(spot *store.SafeSpot) *runWindow {
 		}
 	}
 	return &runWindow{from: at, to: to.Add(time.Second)}
-}
-
-func runIDStamp(id string) (time.Time, bool) {
-	stamp, _, _ := strings.Cut(id, "-")
-	at, err := time.Parse("20060102T150405Z", stamp)
-	return at, err == nil
 }
 
 type timeValue struct {
@@ -95,11 +90,6 @@ func epochDigits(v any) (string, bool) {
 	return "", false
 }
 
-func numberDigits(v any) (int, bool) {
-	s, ok := epochDigits(v)
-	return len(s), ok
-}
-
 func timeOf(v any, named bool) (timeValue, bool) {
 	if s, ok := v.(string); ok && isTimestamp(s) {
 		at, _ := time.Parse(time.RFC3339Nano, s)
@@ -128,15 +118,15 @@ func timeNamed(path string) bool {
 	key := lastKey(path)
 	lower := strings.ToLower(key)
 	return strings.HasSuffix(lower, "_at") || strings.HasSuffix(lower, "_time") || strings.Contains(lower, "timestamp") ||
-		camelSuffix(key, "At") || camelSuffix(key, "Time")
+		namecase.CamelTail(key, "At") || namecase.CamelTail(key, "Time")
 }
 
 func unitName(v any, named bool) string {
 	if t, ok := timeOf(v, named); ok {
 		return t.unit
 	}
-	if n, ok := numberDigits(v); ok && named {
-		return fmt.Sprintf("a %d-digit number", n)
+	if digits, ok := epochDigits(v); ok && named {
+		return fmt.Sprintf("a %d-digit number", len(digits))
 	}
 	return ""
 }

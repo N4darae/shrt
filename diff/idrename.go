@@ -168,7 +168,7 @@ func (r *Report) inconsistentIDGroups() (map[int]string, map[int]bool) {
 		}
 		c := r.Changes[idx[0]]
 		lines[idx[0]] = fmt.Sprintf("  [%s] %-10s %s at %d item(s): %s, so each now points at something else than it did%s; e.g. %s %s\n",
-			stepsText(steps, 3), c.Kind, k, len(idx), inconsistentID, r.oneValue(steps, c.Path), c.Path, c.describeValues())
+			chain.ListSome(steps, 3), c.Kind, k, len(idx), inconsistentID, r.oneValue(steps, c.Path), c.Path, c.describeValues())
 	}
 	return lines, folded
 }
@@ -203,7 +203,12 @@ func (r *Report) oneValue(steps []string, path string) string {
 				return ""
 			}
 		}
-		at := sentAt(cs.sent, "", first)
+		at := ""
+		visitScalars(cs.sent, "", func(path string, v any) {
+			if at == "" && path != "" && fmt.Sprint(v) == fmt.Sprint(first) {
+				at = path
+			}
+		})
 		if at == "" || from != "" && at != from {
 			from = "-"
 		} else if from == "" {
@@ -214,26 +219,4 @@ func (r *Report) oneValue(steps []string, path string) string {
 		return "; every item of " + list + " holds one value in each step"
 	}
 	return "; every item of " + list + " holds one value in each step, the request's " + from
-}
-
-func sentAt(v any, path string, want any) string {
-	switch t := v.(type) {
-	case map[string]any:
-		for _, k := range sortedKeys(t, nil) {
-			if p := sentAt(t[k], pathmask.Join(path, k), want); p != "" {
-				return p
-			}
-		}
-	case []any:
-		for i, it := range t {
-			if p := sentAt(it, pathmask.Join(path, pathmask.IndexKey(i)), want); p != "" {
-				return p
-			}
-		}
-	default:
-		if path != "" && fmt.Sprint(v) == fmt.Sprint(want) {
-			return path
-		}
-	}
-	return ""
 }

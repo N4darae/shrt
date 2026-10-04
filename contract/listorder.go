@@ -198,25 +198,20 @@ func (p *Plan) orderFixtures(t *listTarget, lib *Library) {
 }
 
 func orderableFields(first *chain.Step, fields []*catalog.Field, anchor string) []string {
-	names := []string{}
-	for _, f := range fields {
-		names = append(names, f.Name)
-	}
-	sort.Strings(names)
 	out := []string{}
-	for _, name := range names {
-		f := fieldByName(fields, name)
-		if f == nil || name == anchor || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.Kind == "bool" || f.Kind == "message" || f.Oneof != "" {
+	for _, f := range fields {
+		if f.Name == anchor || f.Repeated || f.MapKey != "" || len(f.EnumValues) > 0 || f.Kind == "bool" || f.Kind == "message" || f.Oneof != "" {
 			continue
 		}
-		key, ok := namecase.LookupKey(first.Body, name)
+		key, ok := namecase.LookupKey(first.Body, f.Name)
 		if !ok {
 			continue
 		}
 		if _, ok := orderedValue(first.Body[key], f.Name, f.Kind, 0); ok {
-			out = append(out, name)
+			out = append(out, f.Name)
 		}
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -322,10 +317,14 @@ func (p *Plan) noteOrder(t *listTarget, ranks map[string][]int, lib *Library) {
 		p.noteUnscopedList(t, len(members))
 		return
 	}
-	keys := sortedKeys(ranks)
+	keys := chain.SortedKeys(ranks)
 	orders := []string{}
 	for _, k := range keys {
-		orders = append(orders, fmt.Sprintf("%s: %s", k, orderOf(ids, ranks[k])))
+		ordered := make([]string, len(ids))
+		for i, r := range ranks[k] {
+			ordered[r] = ids[i]
+		}
+		orders = append(orders, k+": "+strings.Join(ordered, " < "))
 	}
 	orders = append(orders, "creation: "+strings.Join(ids, ", "))
 	listRPC := shortRPC(t.step.Call)
@@ -489,14 +488,6 @@ func inverse(ranks []int) []int {
 		out[r] = k
 	}
 	return out
-}
-
-func orderOf(ids []string, ranks []int) string {
-	ordered := make([]string, len(ids))
-	for k, r := range ranks {
-		ordered[r] = ids[k]
-	}
-	return strings.Join(ordered, " < ")
 }
 
 func (p *Plan) contractOf(lib *Library, call string) (*RPCContract, *catalog.Method, bool) {

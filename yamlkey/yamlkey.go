@@ -1,10 +1,13 @@
 package yamlkey
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,6 +18,47 @@ import (
 var unknownField = regexp.MustCompile(`^line (\d+): field (.+) not found in type (\S+)$`)
 
 var flowError = regexp.MustCompile(`^yaml: line (\d+): did not find expected ',' or '[}\]]'$`)
+
+func DecodeStrict(raw []byte, into any) error {
+	d := yaml.NewDecoder(bytes.NewReader(raw))
+	d.KnownFields(true)
+	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
+		return Explain(err, into, raw)
+	}
+	var extra yaml.Node
+	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
+		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
+			"everything after the '---' would be silently ignored. Split it into separate files")
+	}
+	return nil
+}
+
+func MappingValue(n *yaml.Node, key string) *yaml.Node {
+	if n == nil || n.Kind != yaml.MappingNode {
+		return nil
+	}
+	if i := Index(n, key); i >= 0 {
+		return n.Content[i+1]
+	}
+	return nil
+}
+
+func Index(mapping *yaml.Node, key string) int {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return i
+		}
+	}
+	return -1
+}
+
+func Set(mapping *yaml.Node, key string, value *yaml.Node) {
+	if i := Index(mapping, key); i >= 0 {
+		mapping.Content[i+1] = value
+		return
+	}
+	mapping.Content = append(mapping.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key}, value)
+}
 
 func Explain(err error, into any, raw []byte) error {
 	var typeErr *yaml.TypeError
@@ -30,11 +74,7 @@ func Explain(err error, into any, raw []byte) error {
 			said = append(said, e)
 			continue
 		}
-		line := fmt.Sprintf("unknown key %q at line %s", m[2], m[1])
-		if near := namecase.Closest(m[2], keys[m[3]], 1); len(near) > 0 {
-			line += fmt.Sprintf(" (did you mean %q?)", near[0])
-		}
-		said = append(said, line)
+		said = append(said, fmt.Sprintf("unknown key %q at line %s", m[2], m[1])+namecase.Suggest(namecase.Closest(m[2], keys[m[3]], 1)))
 	}
 	return errors.New(strings.Join(said, "; "))
 }

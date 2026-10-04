@@ -2,8 +2,10 @@ package diff
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/config"
 	"github.com/N4darae/shrt/runner"
 )
@@ -49,21 +51,16 @@ func (p LatencyPolicy) Describe() string {
 	return fmt.Sprintf("at least +%dms and %gx the safe spot's run", p.FloorMS, p.Ratio)
 }
 
-func LatencyBaseline(spot []*runner.StepRecord) map[string]int64 {
-	out := map[string]int64{}
-	for _, st := range spot {
-		if latencyMeasured(st) {
-			out[st.ID] = st.LatencyMS
-		}
-	}
-	return out
-}
-
 func (p LatencyPolicy) Suspect(spot []*runner.StepRecord) func(string, int64) bool {
 	if p.Off {
 		return nil
 	}
-	base := LatencyBaseline(spot)
+	base := map[string]int64{}
+	for _, st := range spot {
+		if latencyMeasured(st) {
+			base[st.ID] = st.LatencyMS
+		}
+	}
 	return func(id string, ms int64) bool {
 		before, ok := base[id]
 		return ok && p.Exceeds(before, ms)
@@ -85,16 +82,6 @@ func latencyMeasured(st *runner.StepRecord) bool {
 	return st != nil && st.Status != runner.StatusSkipped && st.HTTPStatus != 0
 }
 
-func minOf(xs []int64) int64 {
-	m := xs[0]
-	for _, x := range xs[1:] {
-		if x < m {
-			m = x
-		}
-	}
-	return m
-}
-
 func LatencyRegressions(spot []*runner.StepRecord, rec *runner.Record, prev *runner.Record, p LatencyPolicy) []LatencyFlag {
 	if p.Off || rec == nil {
 		return nil
@@ -112,7 +99,7 @@ func LatencyRegressions(spot []*runner.StepRecord, rec *runner.Record, prev *run
 			continue
 		}
 		samples := append([]int64{st.LatencyMS}, st.LatencyResent...)
-		after := minOf(samples)
+		after := slices.Min(samples)
 		if !p.Exceeds(was.LatencyMS, after) {
 			continue
 		}
@@ -153,13 +140,6 @@ func msList(xs []int64) string {
 	return strings.Join(parts, ", ")
 }
 
-func shortRPC(call string) string {
-	if i := strings.LastIndex(call, "/"); i >= 0 {
-		return call[i+1:]
-	}
-	return call
-}
-
 func (f LatencyFlag) Line() string {
 	ratio := float64(f.AfterMS)
 	if f.BeforeMS > 0 {
@@ -174,7 +154,7 @@ func (f LatencyFlag) Line() string {
 		against = "the safe spot's run"
 	}
 	return fmt.Sprintf("%s: %s at step %s took %dms, %s %dms (+%dms, %.1fx); %s",
-		head, shortRPC(f.Call), f.Step, f.AfterMS, against, f.BeforeMS, f.AfterMS-f.BeforeMS, ratio, f.How)
+		head, chain.RPCName(f.Call), f.Step, f.AfterMS, against, f.BeforeMS, f.AfterMS-f.BeforeMS, ratio, f.How)
 }
 
 func LatencyTable(spot []*runner.StepRecord, rec *runner.Record, p LatencyPolicy) string {
@@ -187,11 +167,11 @@ func LatencyTable(spot []*runner.StepRecord, rec *runner.Record, p LatencyPolicy
 	for _, st := range rec.Steps {
 		was, ok := base[st.ID]
 		if !ok || !latencyMeasured(was) || !latencyMeasured(st) {
-			fmt.Fprintf(&b, "  %-28s %-24s not compared (not answered in both runs)\n", st.ID, shortRPC(st.Call))
+			fmt.Fprintf(&b, "  %-28s %-24s not compared (not answered in both runs)\n", st.ID, chain.RPCName(st.Call))
 			continue
 		}
 		samples := append([]int64{st.LatencyMS}, st.LatencyResent...)
-		after := minOf(samples)
+		after := slices.Min(samples)
 		mark := ""
 		if p.Exceeds(was.LatencyMS, after) {
 			mark = "  slow"
@@ -200,7 +180,7 @@ func LatencyTable(spot []*runner.StepRecord, rec *runner.Record, p LatencyPolicy
 		if len(st.LatencyResent) > 0 {
 			extra = " (re-sent: " + msList(st.LatencyResent) + ")"
 		}
-		fmt.Fprintf(&b, "  %-28s %-24s %6dms -> %6dms%s%s\n", st.ID, shortRPC(st.Call), was.LatencyMS, after, extra, mark)
+		fmt.Fprintf(&b, "  %-28s %-24s %6dms -> %6dms%s%s\n", st.ID, chain.RPCName(st.Call), was.LatencyMS, after, extra, mark)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

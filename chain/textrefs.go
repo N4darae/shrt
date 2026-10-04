@@ -3,27 +3,7 @@ package chain
 import (
 	"fmt"
 	"strings"
-
-	"github.com/N4darae/shrt/catalog"
 )
-
-func headerStructures(s *Step, responses map[string]*catalog.Method, exports map[string]exportOrigin) []string {
-	out := []string{}
-	for _, name := range sortedKeys(s.Headers) {
-		value := s.Headers[name]
-		for _, ref := range collectRefs(value) {
-			kind, where, ok := structureOf(ref, responses, exports)
-			if !ok {
-				continue
-			}
-			out = append(out, fmt.Sprintf("${%s} fills header %s (%q), from %s, declared %s — a header carries text only, "+
-				"and a message, list or map has no text form, so it would be sent as Go syntax (map[...] or [...]) instead of "+
-				"anything the backend reads, and shrt run refuses the chain before sending anything. Reference one scalar "+
-				"field of it instead", ref, name, value, where, kind))
-		}
-	}
-	return out
-}
 
 func varStructures(s *Step, vars map[string]any) []string {
 	out := []string{}
@@ -60,7 +40,7 @@ func varStructures(s *Step, vars map[string]any) []string {
 		}
 	}
 	walkLeaves(s.Body, "", "", func(path, _, t string) { check(path, t, false) })
-	for _, name := range sortedKeys(s.Headers) {
+	for _, name := range SortedKeys(s.Headers) {
 		check("header "+name, s.Headers[name], true)
 	}
 	return out

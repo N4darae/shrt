@@ -77,24 +77,17 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	baseURLGiven := false
-	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "base-url" {
-			baseURLGiven = true
-		}
-	})
+	baseURLGiven := flagGiven(fs, "base-url")
 	root, err := os.Getwd()
 	if err != nil {
 		return err
 	}
 
 	portFile := ""
-	if !baseURLGiven {
-		if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil {
-			if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
-				*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
-				portFile = *baseURL
-			}
+	if raw, err := os.ReadFile(filepath.Join(root, ".port")); err == nil && !baseURLGiven {
+		if port, err := strconv.Atoi(strings.TrimSpace(string(raw))); err == nil && port > 0 && port < 65536 {
+			*baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
+			portFile = *baseURL
 		}
 	}
 
@@ -157,8 +150,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 	}
 	if len(docs) > 0 {
 		fmt.Printf("write %s\n", strings.Join(docs, ", "))
-	}
-	if len(docs) == 0 {
+	} else {
 		fmt.Printf("keep  %s/ (already present)\n", agentkit.DocsDir)
 	}
 	gateFiles := []string{}
@@ -192,8 +184,7 @@ func initRepo(ctx context.Context, args []string, loginUnsent *bool) error {
 		}
 		if len(written) > 0 {
 			fmt.Printf("write %s\n", strings.Join(written, ", "))
-		}
-		if len(written) == 0 {
+		} else {
 			fmt.Println("keep  .claude/ agent kit (already present)")
 		}
 	}
@@ -338,7 +329,7 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 		return nil
 	}
 	best := found[0]
-	cfg.Auth = authFromCandidate(best, "API")
+	cfg.Auth = authFromCandidate(best, "API_USER", "API_PASSWORD")
 	for _, c := range found[1:] {
 		if c.Score < loginConfidence || contract.DomainOf(c.Method) == contract.DomainOf(best.Method) {
 			continue
@@ -347,7 +338,7 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 		if cfg.Auth.Profiles == nil {
 			cfg.Auth.Profiles = map[string]*config.Auth{}
 		}
-		profile := authFromCandidate(c, strings.ToUpper(name))
+		profile := authFromCandidate(c, strings.ToUpper(name)+"_USER", strings.ToUpper(name)+"_PASSWORD")
 		profile.Calls = []string{contract.PackageRootOf(c.Method) + ".*"}
 		cfg.Auth.Profiles[name] = profile
 	}
@@ -379,13 +370,13 @@ func scaffoldAuth(cfg *config.Config, verbose bool) error {
 
 const loginConfidence = 6
 
-func authFromCandidate(c catalog.LoginCandidate, envPrefix string) *config.Auth {
+func authFromCandidate(c catalog.LoginCandidate, userVar, passwordVar string) *config.Auth {
 	body := map[string]any{}
 	if c.UserField != "" {
-		body[c.UserField] = "${env." + envPrefix + "_USER}"
+		body[c.UserField] = "${env." + userVar + "}"
 	}
 	if c.PasswordName != "" {
-		body[c.PasswordName] = "${env." + envPrefix + "_PASSWORD}"
+		body[c.PasswordName] = "${env." + passwordVar + "}"
 	}
 	return &config.Auth{
 		Call:        c.Method.FullName,
@@ -447,18 +438,17 @@ func writeExampleChain(root string, cfg *config.Config, force, verbose bool) err
 		return err
 	}
 	path, ok := exampleEnvelope(cfg)
-	if existing, err := os.ReadFile(example); err == nil && !force {
-		if ok == "" || !untouchedExample(existing, raw) {
-			return nil
-		}
-		if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+	existing, err := os.ReadFile(example)
+	kept := err == nil && !force
+	if kept && (ok == "" || !untouchedExample(existing, raw)) {
 		return nil
 	}
 	if err := os.WriteFile(example, renderExampleChain(raw, path, ok), 0o644); err != nil {
 		return err
+	}
+	if kept {
+		fmt.Printf("write %s (still the scaffold: its steps now assert %s equals %s)\n", rel(root, example), path, ok)
+		return nil
 	}
 	fmt.Printf("write %s\n", rel(root, example))
 	if verbose {

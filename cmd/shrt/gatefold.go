@@ -10,17 +10,29 @@ type foldedChange struct{ step, path, value string }
 
 const foldedValues = 6
 
-func printFold(line string, head foldedChange, more []foldedChange) {
-	var values []string
-	at := map[string][]foldedChange{}
-	for _, c := range more {
-		if at[c.value] == nil {
-			values = append(values, c.value)
-		}
-		at[c.value] = append(at[c.value], c)
+type grouped[V any] struct {
+	keys []string
+	of   map[string][]V
+}
+
+func (g *grouped[V]) add(k string, v V) {
+	if g.of == nil {
+		g.of = map[string][]V{}
 	}
+	if _, seen := g.of[k]; !seen {
+		g.keys = append(g.keys, k)
+	}
+	g.of[k] = append(g.of[k], v)
+}
+
+func printFold(line string, head foldedChange, more []foldedChange) {
+	var byValue grouped[foldedChange]
+	for _, c := range more {
+		byValue.add(c.value, c)
+	}
+	at := byValue.of
 	same := appendSteps(nil, at[head.value])
-	values = slices.DeleteFunc(values, func(v string) bool { return v == head.value })
+	values := slices.DeleteFunc(byValue.keys, func(v string) bool { return v == head.value })
 	if len(values) == 0 {
 		fmt.Println(wrapNames(fmt.Sprintf("    %s (and %d more at ", line, len(more)), same, ")"))
 		return

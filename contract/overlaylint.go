@@ -47,29 +47,29 @@ func LintLibrary(lib *Library, cat *catalog.Catalog) []Issue {
 
 func lintOverlay(o *Overlay, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
+	add := issueAdder(o.Domain, "", &issues)
 	for i, f := range o.Failures {
 		issues = append(issues, lintFailure(o.Domain, "", fmt.Sprintf("domain failure %d", i+1), f)...)
-	}
-	for i, f := range o.Failures {
 		if f.Scope != "" && f.Scope != FailureScopeAll {
-			issues = append(issues, Issue{Domain: o.Domain, Field: fmt.Sprintf("domain failure %d", i+1), Severity: SeverityError,
-				Message: fmt.Sprintf("scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
-					"write scope: all for one every rpc of every domain shares", f.Scope)})
+			add(SeverityError, fmt.Sprintf("domain failure %d", i+1), "scope %q is not a scope: leave it out for a failure every rpc of this domain shares, or "+
+				"write scope: all for one every rpc of every domain shares", f.Scope)
 		}
 	}
-	for _, rpc := range sortedKeys(o.RPCs) {
+	for _, rpc := range chain.SortedKeys(o.RPCs) {
 		issues = append(issues, lintRPC(o.Domain, rpc, o.RPCs[rpc], lib, cat)...)
 	}
 	return issues
 }
 
+func issueAdder(domain, rpc string, issues *[]Issue) func(sev, field, format string, args ...any) {
+	return func(sev, field, format string, args ...any) {
+		*issues = append(*issues, Issue{Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...)})
+	}
+}
+
 func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
-	add := func(sev, field, format string, args ...any) {
-		issues = append(issues, Issue{
-			Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...),
-		})
-	}
+	add := issueAdder(domain, rpc, &issues)
 	m, err := cat.Lookup(rpc)
 	if errors.Is(err, catalog.ErrNotFound) {
 		add(SeverityError, "", "rpc %q is not in the descriptor (removed from the proto?): delete this entry, or rebuild "+
@@ -126,7 +126,7 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 		baseGaps[gap.message] = true
 		add(SeverityWarn, "fields."+gap.list, "%s", gap.message)
 	}
-	for _, alias := range sortedKeys(c.Aliases) {
+	for _, alias := range chain.SortedKeys(c.Aliases) {
 		label := "aliases." + alias
 		issues = append(issues, lintFieldMap(domain, rpc, label, c.Aliases[alias].Fields, in, lib, cat)...)
 		for _, gap := range indexGaps(in, c.FieldsFor(alias)) {
@@ -137,22 +137,15 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	}
 	issues = append(issues, lintOneOf(domain, rpc, c)...)
 
-	for _, name := range sortedKeys(c.Exports) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) && !catalog.HasPath(m.Response().Fields, chain.SplitPath(name)) {
-			add(SeverityError, name, "exports names %q which is not a field of %s", name, m.Output().FullName())
-		}
-	}
-	for _, name := range sortedKeys(c.Terminal) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) {
-			add(SeverityError, name, "terminal names %q which is not a field of %s", name, m.Output().FullName())
-		}
-		if _, both := c.Exports[name]; both {
-			add(SeverityError, name, "%q is listed in both exports and terminal", name)
-		}
-	}
-	for _, name := range sortedKeys(c.SoftSignals) {
-		if !catalog.HasPath(out, chain.SplitPath(name)) {
-			add(SeverityError, name, "soft_signals names %q which is not a field of %s", name, m.Output().FullName())
+	sections := map[string]map[string]string{"exports": c.Exports, "terminal": c.Terminal, "soft_signals": c.SoftSignals}
+	for _, section := range []string{"exports", "terminal", "soft_signals"} {
+		for _, name := range chain.SortedKeys(sections[section]) {
+			if !catalog.HasPath(out, chain.SplitPath(name)) && (section != "exports" || !catalog.HasPath(m.Response().Fields, chain.SplitPath(name))) {
+				add(SeverityError, name, "%s names %q which is not a field of %s", section, name, m.Output().FullName())
+			}
+			if _, both := c.Exports[name]; both && section == "terminal" {
+				add(SeverityError, name, "%q is listed in both exports and terminal", name)
+			}
 		}
 	}
 
@@ -173,9 +166,8 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 	for i, f := range c.Failures {
 		issues = append(issues, lintFailure(domain, rpc, fmt.Sprintf("failure %d", i+1), f)...)
 		if f.Scope != "" {
-			issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: fmt.Sprintf("failure %d", i+1), Severity: SeverityError,
-				Message: "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every " +
-					"rpc of every domain; a failure under one rpc is that rpc's alone"})
+			add(SeverityError, fmt.Sprintf("failure %d", i+1), "scope: belongs on a failure in the domain-level failures: block, where scope: all shares it with every "+
+				"rpc of every domain; a failure under one rpc is that rpc's alone")
 		}
 		if f.Code != 0 {
 			key := f.Label() + "\x00" + f.Field
@@ -196,12 +188,8 @@ func lintRPC(domain, rpc string, c *RPCContract, lib *Library, cat *catalog.Cata
 
 func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, in []*catalog.Field, lib *Library, cat *catalog.Catalog) []Issue {
 	issues := []Issue{}
-	add := func(sev, field, format string, args ...any) {
-		issues = append(issues, Issue{
-			Domain: domain, RPC: rpc, Field: field, Severity: sev, Message: fmt.Sprintf(format, args...),
-		})
-	}
-	for _, name := range sortedKeys(fields) {
+	add := issueAdder(domain, rpc, &issues)
+	for _, name := range chain.SortedKeys(fields) {
 		f := fields[name]
 		qualified := label + "." + name
 		if !catalog.HasPath(in, chain.SplitPath(name)) {
@@ -250,22 +238,19 @@ func lintFieldMap(domain, rpc, label string, fields map[string]*FieldContract, i
 
 func lintOneOf(domain, rpc string, c *RPCContract) []Issue {
 	issues := []Issue{}
-	for _, alias := range append([]string{""}, sortedKeys(c.Aliases)...) {
+	add := issueAdder(domain, rpc, &issues)
+	for _, alias := range append([]string{""}, chain.SortedKeys(c.Aliases)...) {
 		groups := map[string][]string{}
 		fields := c.FieldsFor(alias)
-		for _, name := range sortedKeys(fields) {
+		for _, name := range chain.SortedKeys(fields) {
 			if f := fields[name]; f.OneOf != "" && (f.From != "" || f.Value != "") {
 				groups[f.OneOf] = append(groups[f.OneOf], name)
 			}
 		}
-		for _, group := range sortedKeys(groups) {
+		for _, group := range chain.SortedKeys(groups) {
 			if len(groups[group]) > 1 {
-				label := Ref{RPC: rpc, Alias: alias}.Node()
-				issues = append(issues, Issue{
-					Domain: domain, RPC: rpc, Field: "oneof." + group, Severity: SeverityError,
-					Message: fmt.Sprintf("%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
-						label, group, len(groups[group]), strings.Join(groups[group], ", ")),
-				})
+				add(SeverityError, "oneof."+group, "%s: oneof group %q has %d fields carrying a value (%s) — exactly one may",
+					Ref{RPC: rpc, Alias: alias}.Node(), group, len(groups[group]), strings.Join(groups[group], ", "))
 			}
 		}
 	}
@@ -305,40 +290,33 @@ func lintAliasDeclared(domain, rpc, label, target, alias string, lib *Library, c
 
 func lintFailure(domain, rpc, label string, f Failure) []Issue {
 	issues := []Issue{}
-	add := func(sev, format string, args ...any) {
-		issues = append(issues, Issue{Domain: domain, RPC: rpc, Field: label, Severity: sev,
-			Message: fmt.Sprintf(format, args...)})
-	}
+	add := issueAdder(domain, rpc, &issues)
 	if f.Code == 0 && f.ConnectCode == "" && f.Reason == "" {
-		add(SeverityError, "%s names nothing — give it a code, a connect_code or a reason", label)
+		add(SeverityError, label, "%s names nothing — give it a code, a connect_code or a reason", label)
 	}
 	if f.Code != 0 && f.Reason == "" {
-		add(SeverityWarn, "%s has code %d but no reason", label, f.Code)
+		add(SeverityWarn, label, "%s has code %d but no reason", label, f.Code)
 	}
 	if f.Unreachable != "" && f.When != "" {
-		add(SeverityWarn, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
+		add(SeverityWarn, label, "%s is marked unreachable, so when is misleading — fold it into unreachable", label)
 	}
 	if f.Unique != nil {
 		if f.Unique.Case != "" && f.Unique.Case != UniqueCaseIgnore && f.Unique.Case != UniqueCaseExact {
-			add(SeverityError, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
+			add(SeverityError, label, "%s unique.case is %q; it is %q (the backend compares the value ignoring letter case) or %q", label, f.Unique.Case, UniqueCaseIgnore, UniqueCaseExact)
 		}
 		if _, unique := uniquenessNoun(f); !unique {
-			add(SeverityWarn, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
+			add(SeverityWarn, label, "%s sets unique: but is not a uniqueness refusal (a reason ending Taken, Exists, Duplicate... or a when saying unique or duplicate), so contract plan never reads it", label)
 		}
 	}
 	if f.PendingDeploy != "" {
 		if f.Unreachable != "" {
-			add(SeverityError, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)
+			add(SeverityError, label, "%s sets both unreachable and pending_deploy — they make opposite claims: unreachable by construction versus reachable in source but absent from the running binary", label)
 		}
-		if !commitish(f.PendingDeploy) {
-			add(SeverityError, "%s pending_deploy must be a commit, not prose (%q) — the field earns its keep only because a gate can run git merge-base --is-ancestor against the deployed release", label, f.PendingDeploy)
+		if len(f.PendingDeploy) < 7 || len(f.PendingDeploy) > 40 || strings.Trim(f.PendingDeploy, "0123456789abcdefABCDEF") != "" {
+			add(SeverityError, label, "%s pending_deploy must be a commit, not prose (%q) — the field earns its keep only because a gate can run git merge-base --is-ancestor against the deployed release", label, f.PendingDeploy)
 		}
 	}
 	return issues
-}
-
-func commitish(s string) bool {
-	return len(s) >= 7 && len(s) <= 40 && strings.Trim(s, "0123456789abcdefABCDEF") == ""
 }
 
 func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
@@ -379,7 +357,7 @@ func lintCycles(lib *Library, cat *catalog.Catalog) []Issue {
 	for _, rpc := range lib.RPCs() {
 		visit(rpc, nil)
 		if c, ok := lib.Get(rpc); ok {
-			for _, alias := range sortedKeys(c.Aliases) {
+			for _, alias := range chain.SortedKeys(c.Aliases) {
 				visit(rpc+"@"+alias, nil)
 			}
 		}
@@ -396,10 +374,10 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 	bySource := map[string][]consumerSite{}
 	domainOf := map[string]string{}
 	for _, o := range lib.Overlays {
-		for _, rpc := range sortedKeys(o.RPCs) {
+		for _, rpc := range chain.SortedKeys(o.RPCs) {
 			domainOf[rpc] = o.Domain
 			c := o.RPCs[rpc]
-			for _, name := range sortedKeys(c.Fields) {
+			for _, name := range chain.SortedKeys(c.Fields) {
 				ref, err := ParseRef(c.Fields[name].From)
 				if err != nil {
 					continue
@@ -411,7 +389,7 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 	}
 
 	issues := []Issue{}
-	for _, key := range sortedKeys(bySource) {
+	for _, key := range chain.SortedKeys(bySource) {
 		sites := bySource[key]
 		field := strings.SplitN(key, "\x00", 3)[2]
 		for i, a := range sites {
@@ -423,15 +401,9 @@ func lintAliasAgreement(lib *Library, cat *catalog.Catalog) []Issue {
 				if !ok {
 					continue
 				}
-				issues = append(issues, Issue{
-					Domain:   domainOf[consumer.rpc],
-					RPC:      consumer.rpc,
-					Field:    field,
-					Severity: SeverityWarn,
-					Message: fmt.Sprintf(
-						"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
-						field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias)),
-				})
+				issues = append(issues, Issue{Domain: domainOf[consumer.rpc], RPC: consumer.rpc, Field: field, Severity: SeverityWarn, Message: fmt.Sprintf(
+					"%s reads %s but %s, which this rpc depends on, writes %s — one chain, two instances. A write and a read that disagree about which instance lint clean, run green, and return nothing",
+					field, describeInstance(consumer.alias), shortMessage(producer.rpc), describeInstance(producer.alias))})
 			}
 		}
 	}
@@ -494,7 +466,7 @@ func indexProblem(in []*catalog.Field, name string) string {
 	var prev *catalog.Field
 	prevIndex := false
 	for i, seg := range segs {
-		if isIndexSegment(seg) {
+		if chain.IsDigits(seg) {
 			switch {
 			case prev == nil || prevIndex:
 				return fmt.Sprintf("%q puts index %s where a field name belongs — an index follows a repeated field, as in lines.1.qty", name, seg)
@@ -535,7 +507,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 		segs := chain.SplitPath(name)
 		cur := in
 		for i, seg := range segs {
-			if isIndexSegment(seg) {
+			if chain.IsDigits(seg) {
 				continue
 			}
 			f := fieldByName(cur, seg)
@@ -547,7 +519,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 				continue
 			}
 			list := strings.Join(segs[:i+1], ".")
-			if isIndexSegment(segs[i+1]) {
+			if chain.IsDigits(segs[i+1]) {
 				n, _ := strconv.Atoi(segs[i+1])
 				if named[list] == nil {
 					named[list] = map[int]bool{}
@@ -559,7 +531,7 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 		}
 	}
 	out := []indexGap{}
-	for _, list := range sortedKeys(named) {
+	for _, list := range chain.SortedKeys(named) {
 		if broadcast[list] {
 			continue
 		}
@@ -583,14 +555,5 @@ func indexGaps(in []*catalog.Field, fields map[string]*FieldContract) []indexGap
 			list, top, strings.Join(missing, ", "), pluralVerb(len(missing), "is", "are"), top+1, list,
 			strings.Join(missing, ", "), list)})
 	}
-	return out
-}
-
-func sortedKeys[V any](m map[string]V) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	slices.Sort(out)
 	return out
 }

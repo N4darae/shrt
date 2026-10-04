@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -27,16 +28,6 @@ func listLimit(c *RPCContract, listPath string) (int, bool) {
 	return 0, false
 }
 
-func sizesPage(fields []*catalog.Field) bool {
-	for _, f := range fields {
-		words := strings.ToLower(strings.Join(namecase.Words(f.Name), " "))
-		if IsPagingFieldName(f.Name) || strings.Contains(words, "limit") || strings.Contains(words, "page") || strings.HasPrefix(words, "max") {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Plan) probeListCaps(lib *Library, isTarget func(*chain.Step) bool) {
 	for _, st := range append([]*chain.Step{}, p.Chain.Steps...) {
 		if !isTarget(st) || !chain.IsReadOnlyCall(st.Call) || effectOutcome(st) != outcomeSuccess {
@@ -60,7 +51,10 @@ func (p *Plan) probeListCaps(lib *Library, isTarget func(*chain.Step) bool) {
 		}
 		c, _ := lib.Get(canonicalCall(p.cat, st.Call))
 		limit, stated := listLimit(c, list.Name)
-		if !stated && sizesPage(catalog.DescribeMessage(m.Input()).Fields) {
+		if !stated && slices.ContainsFunc(catalog.DescribeMessage(m.Input()).Fields, func(f *catalog.Field) bool {
+			words := strings.ToLower(strings.Join(namecase.Words(f.Name), " "))
+			return IsPagingFieldName(f.Name) || strings.Contains(words, "limit") || strings.Contains(words, "page") || strings.HasPrefix(words, "max")
+		}) {
 			continue
 		}
 		want := lotsOfItems
@@ -94,7 +88,7 @@ func listedMembers(st *chain.Step, listPath string) ([][2]string, string) {
 			continue
 		}
 		index, field, nested := strings.Cut(strings.TrimPrefix(e.Path, listPath+"."), ".")
-		if nested && e.Equals != nil && isIndexSegment(index) && strings.HasPrefix(e.Path, listPath+".") && !strings.Contains(field, ".") {
+		if nested && e.Equals != nil && chain.IsDigits(index) && strings.HasPrefix(e.Path, listPath+".") && !strings.Contains(field, ".") {
 			add(field, e.Equals)
 		}
 	}
@@ -130,14 +124,8 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 		refs = append(refs, "${"+id+carrierRef)
 	}
 	v := probeStep(st, p.freeStepID(fmt.Sprintf("%s_%d_%s", st.ID, want, listPath)))
-	exact := hasExistsFalse(st, listPath)
-	kept := v.Expect[:0]
-	for _, e := range v.Expect {
-		if e.Path != listPath && !strings.HasPrefix(e.Path, listPath+".") {
-			kept = append(kept, e)
-		}
-	}
-	v.Expect = kept
+	_, exact := assertedLength(st, listPath)
+	v.Expect = slices.DeleteFunc(v.Expect, func(e chain.Expectation) bool { return e.Path == listPath || strings.HasPrefix(e.Path, listPath+".") })
 	listed := want
 	if stated {
 		listed = want - 1
@@ -164,7 +152,7 @@ func (p *Plan) addListCap(st *chain.Step, listPath, itemID string, first *chain.
 
 func (p *Plan) listPrefixes(st, first *chain.Step) map[string]string {
 	out := map[string]string{}
-	for _, key := range sortedKeys(st.Body) {
+	for _, key := range chain.SortedKeys(st.Body) {
 		text, ok := st.Body[key].(string)
 		if !ok || text == "" || !strings.Contains(namecase.Fold(key), "prefix") {
 			continue

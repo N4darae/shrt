@@ -3,6 +3,7 @@ package chain
 import (
 	"strings"
 
+	"github.com/N4darae/shrt/yamlkey"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,7 +62,7 @@ func (r *WithoutResult) EditSource(raw []byte, path string) ([]byte, bool) {
 }
 
 func fieldOf(n *yaml.Node, key string) string {
-	if v := mappingValue(n, key); v != nil {
+	if v := yamlkey.MappingValue(n, key); v != nil {
 		return v.Value
 	}
 	return ""

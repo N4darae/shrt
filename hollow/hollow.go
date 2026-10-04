@@ -1,6 +1,7 @@
 package hollow
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,17 +66,10 @@ func IsReadProcedure(procedure string) bool {
 	return chain.IsReadOnlyCall(procedure)
 }
 
-func MethodName(procedure string) string {
-	return procedure[strings.LastIndex(procedure, "/")+1:]
-}
-
 func IsEnvelopePath(path string) bool { return chain.IsEnvelopePath(path) }
 
 func IsMetadataAssertion(path, rule string) bool {
-	if IsEnvelopePath(path) || chain.IsTransportPath(path) {
-		return true
-	}
-	if rule == "unevaluated" {
+	if IsEnvelopePath(path) || chain.IsTransportPath(path) || rule == "unevaluated" {
 		return true
 	}
 	if head, _, _ := strings.Cut(path, "."); !chain.IsPagingFieldName(head) {
@@ -151,13 +145,7 @@ func pinsRefusal(path, rule string, want any) bool {
 		return false
 	}
 	isOK := fmt.Sprint(want) == chain.EnvelopeOK()
-	switch rule {
-	case "equals":
-		return !isOK
-	case "not_equal":
-		return isOK
-	}
-	return false
+	return rule == "equals" && !isOK || rule == "not_equal" && isOK
 }
 
 func DataAsserted(chains []*chain.Chain) map[string]bool {
@@ -169,14 +157,8 @@ func DataAsserted(chains []*chain.Chain) map[string]bool {
 				if envelopeRef {
 					continue
 				}
-				if declaresRefusalExpectation(e) {
-					out[stepKey(c.Name, s.ID)] = true
-					break
-				}
-				if chain.TautologyReason(e) != "" || AssertsAbsenceExpectation(e) || isVacuousExpectation(e) {
-					continue
-				}
-				if !IsMetadataAssertion(e.Path, expectationRule(e)) {
+				if declaresRefusalExpectation(e) || chain.TautologyReason(e) == "" && !AssertsAbsenceExpectation(e) &&
+					!isVacuousExpectation(e) && !IsMetadataAssertion(e.Path, expectationRule(e)) {
 					out[stepKey(c.Name, s.ID)] = true
 					break
 				}
@@ -208,33 +190,8 @@ func bindVars(e chain.Expectation, vars map[string]any) (chain.Expectation, bool
 }
 
 func BodyIsEmpty(response json.RawMessage) bool {
-	if len(response) == 0 {
-		return true
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(response, &fields); err != nil {
-		return false
-	}
-	for name, raw := range fields {
-		if chain.IsMetadataField(name) {
-			continue
-		}
-		var v any
-		if json.Unmarshal(raw, &v) != nil || !anyIsEmpty(v) {
-			return false
-		}
-	}
-	return true
-}
-
-func listIsEmpty(items []any) bool {
-	for _, item := range items {
-		m, isMessage := item.(map[string]any)
-		if item != nil && (!isMessage || !mapIsEmpty(m)) {
-			return false
-		}
-	}
-	return true
+	var fields map[string]any
+	return len(response) == 0 || json.Unmarshal(response, &fields) == nil && mapIsEmpty(fields)
 }
 
 func mapIsEmpty(m map[string]any) bool {
@@ -264,7 +221,13 @@ func anyIsEmpty(v any) bool {
 		n, err := strconv.ParseFloat(t, 64)
 		return err == nil && n == 0
 	case []any:
-		return listIsEmpty(t)
+		for _, item := range t {
+			m, isMessage := item.(map[string]any)
+			if item != nil && (!isMessage || !mapIsEmpty(m)) {
+				return false
+			}
+		}
+		return true
 	case map[string]any:
 		return mapIsEmpty(t)
 	}
@@ -350,10 +313,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			if step == nil || step.Status != "passed" || step.Transport != nil {
 				continue
 			}
-			procedure := step.Procedure
-			if procedure == "" {
-				procedure = step.Call
-			}
+			procedure := cmp.Or(step.Procedure, step.Call)
 			if !IsReadProcedure(procedure) {
 				continue
 			}
@@ -373,12 +333,7 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 			k := stepKey(rec.Chain, step.ID)
 			f, ok := seen[k]
 			if !ok {
-				f = &Finding{
-					Chain:     rec.Chain,
-					Step:      step.ID,
-					RPC:       MethodName(procedure),
-					Procedure: procedure,
-				}
+				f = &Finding{Chain: rec.Chain, Step: step.ID, RPC: chain.RPCName(procedure), Procedure: procedure}
 				seen[k] = f
 				order = append(order, k)
 			}
@@ -395,19 +350,17 @@ func ScanKnownScratch(runsDir string, allow *Allowlist, dataAsserted map[string]
 	rep.DistinctSteps = len(order)
 	for _, k := range order {
 		f := seen[k]
+		reason, allowed := allow.Reason(f.Chain, f.Step)
 		switch {
 		case dataAsserted[k]:
 			f.Status = StatusChainFixed
 			rep.ChainFixed++
+		case allowed:
+			f.Status, f.Reason = StatusAllowlisted, reason
+			rep.Allowed++
 		default:
-			if reason, allowed := allow.Reason(f.Chain, f.Step); allowed {
-				f.Status = StatusAllowlisted
-				f.Reason = reason
-				rep.Allowed++
-			} else {
-				f.Status = StatusReported
-				rep.Unallowed++
-			}
+			f.Status = StatusReported
+			rep.Unallowed++
 		}
 		rep.Findings = append(rep.Findings, *f)
 	}

@@ -32,18 +32,9 @@ func itemAt(body map[string]any, path string) map[string]any {
 }
 
 func (p *Plan) entityRefsBeside(body map[string]any, path string) []string {
-	item := itemAt(body, path)
 	out := []string{}
-	for _, v := range item {
-		text, ok := v.(string)
-		if !ok {
-			continue
-		}
-		src, isRef := refSource(text)
-		if !isRef || src == "vars" || src == "env" {
-			continue
-		}
-		if prod := p.stepByID(src); prod != nil && !chain.IsReadOnlyCall(prod.Call) {
+	for _, v := range itemAt(body, path) {
+		if text, ok := p.stepRef(v); ok && !chain.IsReadOnlyCall(p.stepByID(stepRefIn(text)).Call) {
 			out = append(out, text)
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
 	"github.com/N4darae/shrt/namecase"
 )
@@ -24,10 +23,7 @@ func (p *Plan) refusedCreate(st *chain.Step) bool {
 	if err != nil {
 		return false
 	}
-	for _, fd := range catalog.DescribeMessage(m.Output()).Fields {
-		if fd.Kind != "message" || fd.Repeated || fd.MapKey != "" || fd.Name == chain.EnvelopeField() || IsVerdictFieldName(fd.Name) {
-			continue
-		}
+	for _, fd := range carriersOf(m) {
 		for _, sf := range fd.Fields {
 			if !IsEntityIDField(sf.Name) || sf.Kind != "string" || sf.Repeated {
 				continue

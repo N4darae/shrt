@@ -2,9 +2,11 @@ package diff
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -113,12 +115,8 @@ func (r *Report) foldedCount(step string) int {
 func (r *Report) Widened() bool { return len(r.UnapprovedVolatile) > 0 || len(r.UnapprovedRedact) > 0 }
 
 func (r *Report) NoteApprovedRedact(approved []string, rec *runner.Record) {
-	had := map[string]bool{}
-	for _, p := range approved {
-		had[p] = true
-	}
 	for _, p := range rec.Redacted {
-		if !had[p] {
+		if !slices.Contains(approved, p) {
 			r.addUnapprovedRedact(p)
 		}
 	}
@@ -131,15 +129,7 @@ func (r *Report) NoteRedactedRequests(spot *store.SafeSpot, rec *runner.Record) 
 	masker := pathmask.NewMasker(r.UnapprovedRedact)
 	for _, p := range sameIDSteps(spot.Steps, rec.Steps) {
 		want, got := p[0], p[1]
-		if len(want.Request) == 0 || len(got.Request) == 0 {
-			continue
-		}
-		a, errA := decode(want.Request)
-		b, errB := decode(got.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(a, b, "", func(c Change) {
+		walkRequests(want, got, func(c Change) {
 			if (c.Kind == KindChanged || c.Kind == KindType) && c.Got == pathmask.MaskRedacted && c.Want != pathmask.MaskRedacted && maskedAt(masker, c) {
 				r.UnapprovedRedacted = append(r.UnapprovedRedacted, want.ID+" request "+c.Path)
 			}
@@ -164,12 +154,9 @@ func neverRedacted(v any) bool {
 }
 
 func (r *Report) addUnapprovedRedact(pattern string) {
-	for _, p := range r.UnapprovedRedact {
-		if p == pattern {
-			return
-		}
+	if !slices.Contains(r.UnapprovedRedact, pattern) {
+		r.UnapprovedRedact = append(r.UnapprovedRedact, pattern)
 	}
-	r.UnapprovedRedact = append(r.UnapprovedRedact, pattern)
 }
 
 func (r *Report) oneSidedRedaction(c Change, patterns []string) bool {
@@ -253,7 +240,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		rep.SafeSpotTarget, rep.RunTarget = spot.Target, rec.Target
 	}
 	rep.PrincipalUnchecked = uncheckedPrincipals(spot, rec)
-	masker := pathmask.NewMasker(mergePatterns(spot.Volatile, rec.Volatile, extra))
+	masker := pathmask.NewMasker(slices.Concat(spot.Volatile, rec.Volatile, extra))
 	approvedPatterns := append([]string{}, spot.Volatile...)
 	for _, st := range spot.Steps {
 		approvedPatterns = append(approvedPatterns, st.Volatile...)
@@ -264,7 +251,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	first := firstRed(rec)
 	if first != nil {
 		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
-		if why := firstLineOf(first.Error); why != "" {
+		if why := runner.FirstLine(first.Error); why != "" {
 			rep.FirstFailure += ": " + why
 		} else if failed := failedExpectation(first); failed != "" {
 			rep.FirstFailure += ": " + failed
@@ -289,14 +276,14 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		if StepReached(rec, want) && !StepReached(rec, got) && got != first && !sentUnanswered(got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached,
-				Want: want.Status, Got: got.Status, Detail: firstLineOf(got.Error),
+				Want: want.Status, Got: got.Status, Detail: runner.FirstLine(got.Error),
 			})
 			continue
 		}
 		if want.Status != got.Status {
 			change := Change{Step: want.ID, Path: "status", Kind: KindStatus, Want: want.Status, Got: got.Status}
 			if got.Status == runner.StatusError || got.Transport != nil {
-				change.Detail = firstLineOf(got.Error)
+				change.Detail = runner.FirstLine(got.Error)
 			}
 			if change.Detail == "" {
 				change.Detail = heldBackDetail(got)
@@ -306,13 +293,10 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		if !StepReached(rec, got) {
 			continue
 		}
-		gotRedacted := map[string]bool{}
-		for _, p := range pathmask.RedactedPaths(got.Response) {
-			gotRedacted[p] = true
-		}
+		gotRedacted := pathmask.RedactedPaths(got.Response)
 		for _, p := range pathmask.RedactedPaths(want.Response) {
 			switch {
-			case !gotRedacted[p]:
+			case !slices.Contains(gotRedacted, p):
 			case len(rec.Redacted) > 0 && !redactPaths.Masks(p):
 				rep.ScrubbedPaths = append(rep.ScrubbedPaths, want.ID+" "+p)
 			default:
@@ -320,7 +304,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 				rep.RedactedPaths = append(rep.RedactedPaths, want.ID+" "+p)
 			}
 		}
-		stepMask := pathmask.NewMasker(mergePatterns(masker.Patterns(), want.Volatile, got.Volatile))
+		stepMask := pathmask.NewMasker(slices.Concat(masker.Patterns(), want.Volatile, got.Volatile))
 		a, errA := decode(want.Response)
 		b, errB := decode(got.Response)
 		if everyFieldMasked(stepMask, a) && everyFieldMasked(stepMask, b) {
@@ -636,16 +620,10 @@ func expectChanges(was *runner.StepRecord, now *chain.Step, ran *runner.StepReco
 	pairs := pairExpectations(was.Expect, declared)
 	paths := []string{}
 	seen := map[string]bool{}
-	for _, r := range declared {
+	for _, r := range slices.Concat(declared, was.Expect) {
 		if !seen[namecase.Fold(r.Path)] {
 			seen[namecase.Fold(r.Path)] = true
 			paths = append(paths, r.Path)
-		}
-	}
-	for _, w := range was.Expect {
-		if !seen[namecase.Fold(w.Path)] {
-			seen[namecase.Fold(w.Path)] = true
-			paths = append(paths, w.Path)
 		}
 	}
 	matched := map[int]bool{}
@@ -777,15 +755,7 @@ func CompareRequests(spot *store.SafeSpot, rec *runner.Record, derived func(step
 				Detail: fmt.Sprintf("auth profile %q logged in as another principal: its login body's non-secret fields differ", got.AuthProfile)})
 		}
 		out = append(out, headerChanges(want, got)...)
-		if len(want.Request) == 0 || len(got.Request) == 0 {
-			continue
-		}
-		a, errA := decode(want.Request)
-		b, errB := decode(got.Request)
-		if errA != nil || errB != nil {
-			continue
-		}
-		walk(a, b, "", func(c Change) {
+		walkRequests(want, got, func(c Change) {
 			if derived != nil && derived(want.ID, c.Path) {
 				return
 			}
@@ -808,18 +778,8 @@ func headerChanges(want, got *runner.StepRecord) []Change {
 	if want.Headers == nil || got.Headers == nil {
 		return nil
 	}
-	names := []string{}
-	for k := range want.Headers {
-		names = append(names, k)
-	}
-	for k := range got.Headers {
-		if _, ok := want.Headers[k]; !ok {
-			names = append(names, k)
-		}
-	}
-	sort.Strings(names)
 	out := []Change{}
-	for _, k := range names {
+	for _, k := range sortedKeys(want.Headers, got.Headers) {
 		w, had := want.Headers[k]
 		g, has := got.Headers[k]
 		switch {
@@ -943,11 +903,6 @@ func firstRed(rec *runner.Record) *runner.StepRecord {
 	return nil
 }
 
-func firstLineOf(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return strings.TrimSpace(line)
-}
-
 func unapproved(approved []string, rec *runner.Record, extra []string) []string {
 	seen := map[string]bool{}
 	for _, p := range approved {
@@ -1017,6 +972,23 @@ func decode(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	return v, nil
+}
+
+func walkRequests(want, got *runner.StepRecord, emit func(Change)) {
+	if len(want.Request) == 0 || len(got.Request) == 0 {
+		return
+	}
+	a, errA := decode(want.Request)
+	b, errB := decode(got.Request)
+	if errA == nil && errB == nil {
+		walk(a, b, "", emit)
+	}
+}
+
+func echoPair(c Change) ([2]string, bool) {
+	w, okW := c.Want.(string)
+	g, okG := c.Got.(string)
+	return [2]string{w, g}, okW && okG && len(w) >= minFixtureEcho
 }
 
 func walk(want, got any, path string, emit func(Change)) {
@@ -1092,7 +1064,7 @@ func sameScalar(a, b any) bool {
 	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
 }
 
-func sortedKeys(a, b map[string]any) []string {
+func sortedKeys[V any](a, b map[string]V) []string {
 	keys := make([]string, 0, len(a)+len(b))
 	for k := range a {
 		keys = append(keys, k)
@@ -1104,14 +1076,6 @@ func sortedKeys(a, b map[string]any) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-func mergePatterns(sets ...[]string) []string {
-	out := []string{}
-	for _, s := range sets {
-		out = append(out, s...)
-	}
-	return out
 }
 
 func pathOr(p string) string {
@@ -1184,7 +1148,7 @@ func (c Change) describeValues() string {
 	return fmt.Sprintf("want=%s got=%s", withKind(c.Want), withKind(c.Got))
 }
 
-var heldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
+var HeldBackProducer = regexp.MustCompile(`reads step "([^"]+)", which did not pass`)
 
 func heldBackDetail(st *runner.StepRecord) string {
 	answered, held, producer := []string{}, []string{}, ""
@@ -1192,7 +1156,7 @@ func heldBackDetail(st *runner.StepRecord) string {
 		if ex.Rule != "unevaluated" {
 			continue
 		}
-		if m := heldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
+		if m := HeldBackProducer.FindStringSubmatch(ex.Detail); m != nil && producer == "" {
 			producer = m[1]
 		}
 		held = append(held, ex.Path)
@@ -1239,13 +1203,6 @@ func sentOrNot(detail string) string {
 	return "not sent"
 }
 
-func orNotRecorded(s string) string {
-	if s == "" {
-		return "(not recorded)"
-	}
-	return s
-}
-
 func withKind(v any) string {
 	if s, ok := v.(string); ok {
 		return fmt.Sprintf("string %q", s)
@@ -1256,7 +1213,7 @@ func withKind(v any) string {
 func (r *Report) MaskedList() string {
 	var b strings.Builder
 	if r.SafeSpotTarget != "" || r.RunTarget != "" {
-		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s\n", orNotRecorded(r.SafeSpotTarget), orNotRecorded(r.RunTarget))
+		fmt.Fprintf(&b, "targets differ: safe spot %s, this run %s\n", cmp.Or(r.SafeSpotTarget, "(not recorded)"), cmp.Or(r.RunTarget, "(not recorded)"))
 	}
 	section := func(title string, cs []Change) {
 		if len(cs) == 0 {
@@ -1297,21 +1254,27 @@ func (r *Report) QuietText() string {
 		len(r.UnapprovedRedact) > 0 || len(r.RequestChanges) > 0 || len(r.RenamedSteps) > 0 {
 		return r.Text()
 	}
-	var b strings.Builder
-	if r.Chain != "" {
-		fmt.Fprintf(&b, "%s: ", r.Chain)
+	return r.noDrift()
+}
+
+func (r *Report) noDrift() string {
+	if r.Chain == "" {
+		return "no drift vs safe spot " + r.SafeSpotID
 	}
-	fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
-	return b.String()
+	return r.Chain + ": no drift vs safe spot " + r.SafeSpotID
 }
 
 func (r *Report) FullyMaskedLine() string {
-	if len(r.FullyMasked) == 0 {
+	return fullyMaskedLine(r.FullyMasked, "verify", "no drift")
+}
+
+func fullyMaskedLine(steps []string, who, clean string) string {
+	if len(steps) == 0 {
 		return ""
 	}
-	return fmt.Sprintf("WARNING: every response field of step(s) %s is under a volatile pattern, so verify compared nothing "+
-		"of those responses and \"no drift\" says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)",
-		strings.Join(r.FullyMasked, ", "))
+	return fmt.Sprintf("WARNING: every response field of step(s) %s is under a volatile pattern, so %s compared nothing "+
+		"of those responses and %q says nothing about them. Narrow the volatile patterns (a bare \"**\" masks everything)",
+		strings.Join(steps, ", "), who, clean)
 }
 
 func (r *Report) Text() string {
@@ -1384,10 +1347,7 @@ func (r *Report) Text() string {
 		return b.String()
 	}
 	if r.Clean() {
-		if r.Chain != "" {
-			fmt.Fprintf(&b, "%s: ", r.Chain)
-		}
-		fmt.Fprintf(&b, "no drift vs safe spot %s", r.SafeSpotID)
+		b.WriteString(r.noDrift())
 		return strings.TrimRight(b.String()+"\n"+r.NotCountedLine(), "\n")
 	}
 	unexplained := len(r.Unexplained())
@@ -1427,10 +1387,7 @@ func (r *Report) Text() string {
 		if c.Kind == KindNotReached {
 			c.Detail = skips.Condense(c.Step, c.Detail)
 		}
-		step := c.Step
-		if step == "" {
-			step = "-"
-		}
+		step := cmp.Or(c.Step, "-")
 		if r.folded[c.Step] && c.Kind != KindNotReached {
 			if !foldSaid[c.Step] {
 				foldSaid[c.Step] = true

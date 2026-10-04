@@ -19,8 +19,6 @@ const (
 var (
 	atMostN    = lazyRegexp(`(?i)(?:at most|up to|maximum(?: of| is)?|max\.?|no (?:more|longer) than|longer than|more than|exceeds?|over)\s+(\d+)\s*(?:characters|chars|char|letters|runes|code points|bytes)\b`)
 	lengthWord = lazyRegexp(`(?i)\b(?:too long|longer than|length|characters|chars|exceeds?)\b`)
-	freeText   = map[string]bool{"name": true, "title": true, "description": true, "note": true, "notes": true, "comment": true,
-		"label": true, "display": true, "text": true, "message": true, "summary": true, "remark": true, "memo": true, "subject": true, "body": true}
 )
 
 type textField struct {
@@ -52,12 +50,8 @@ func statedMaximum(lib *Library, rpc string, c *RPCContract, name string) (int, 
 }
 
 func isFreeText(name string) bool {
-	for _, w := range namecase.Words(name) {
-		if freeText[strings.ToLower(w)] {
-			return true
-		}
-	}
-	return false
+	return nameHasWord(name, "name", "title", "description", "note", "notes", "comment",
+		"label", "display", "text", "message", "summary", "remark", "memo", "subject", "body")
 }
 
 func padding(n int) string {
@@ -148,7 +142,7 @@ func (p *Plan) textReadBack(lib *Library, st, probe *chain.Step, m *catalog.Meth
 		return nil
 	}
 	stored := carrierFields(e.reader, e.carrier)
-	read := e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+probe.ID),
+	read := e.readStep(p.freeStepID(chain.SnakeCase(e.reader.Name)+"_after_"+probe.ID),
 		fmt.Sprintf("the %s %s stored: the text exactly as sent.", e.carrier, probe.ID), "${"+probe.ID+"."+idPath+"}")
 	p.assertEcho(read)
 	for _, name := range names {
@@ -163,7 +157,7 @@ func (p *Plan) textProbe(lib *Library, st *chain.Step, m *catalog.Method, carrie
 	probe := p.probeCopy(lib, st, suffix)
 	renameStepRefs(probe, st.ID, probe.ID)
 	names := []string{}
-	for _, key := range sortedKeys(set) {
+	for _, key := range chain.SortedKeys(set) {
 		probe.Body[key] = set[key]
 		names = append(names, key)
 	}
@@ -218,13 +212,8 @@ func (p *Plan) addTextProbes(lib *Library, st *chain.Step, m *catalog.Method, ca
 		refused := p.probeCopy(lib, st, tf.name+"_over_max")
 		renameStepRefs(refused, st.ID, refused.ID)
 		refused.Body[tf.key] = over
-		if tf.fail != nil {
-			refused.Expect = refusalFor(m, *tf.fail)
-			refused.Description = fmt.Sprintf("%s at %d characters, one over its maximum, is refused with %s.", tf.name, tf.max+1, tf.fail.Label())
-		} else {
-			refused.Expect = []chain.Expectation{{Path: chain.EnvelopePath(), NotEqual: chain.EnvelopeOK()}}
-			refused.Description = fmt.Sprintf("%s at %d characters, one over its maximum, is refused.", tf.name, tf.max+1)
-		}
+		expect, with := refusedWith(m, tf.fail)
+		refused.Expect, refused.Description = expect, fmt.Sprintf("%s at %d characters, one over its maximum, is refused%s.", tf.name, tf.max+1, with)
 		p.Chain.Steps = append(p.Chain.Steps, p.guardUnchanged(lib, []*chain.Step{refused}, refused.ID)...)
 		said = append(said, fmt.Sprintf("%s (%s at its maximum, %d) and %s (%d, refused)", steps[0].ID, tf.name, tf.max, refused.ID, tf.max+1))
 	}

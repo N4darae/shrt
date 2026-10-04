@@ -1,13 +1,10 @@
 package config
 
 import (
-	"bytes"
-	"errors"
+	"cmp"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -68,38 +65,25 @@ type Auth struct {
 }
 
 func (a *Auth) HeaderScheme() (string, string) {
-	header, scheme := "Authorization", "Bearer"
 	if a == nil {
-		return header, scheme
+		return "Authorization", "Bearer"
 	}
-	if a.Header != "" {
-		header = a.Header
-	}
+	scheme := "Bearer"
 	if a.Scheme != "" {
 		scheme = strings.TrimSpace(a.Scheme)
 	}
-	return header, scheme
+	return cmp.Or(a.Header, "Authorization"), scheme
 }
 
 func (a *Auth) inherit(parent *Auth) {
 	if a == nil || parent == nil {
 		return
 	}
-	if a.TokenPath == "" {
-		a.TokenPath = parent.TokenPath
-	}
-	if a.ExpiresPath == "" {
-		a.ExpiresPath = parent.ExpiresPath
-	}
-	if a.Header == "" {
-		a.Header = parent.Header
-	}
-	if a.Scheme == "" {
-		a.Scheme = parent.Scheme
-	}
-	if a.LeewaySecs == 0 {
-		a.LeewaySecs = parent.LeewaySecs
-	}
+	a.TokenPath = cmp.Or(a.TokenPath, parent.TokenPath)
+	a.ExpiresPath = cmp.Or(a.ExpiresPath, parent.ExpiresPath)
+	a.Header = cmp.Or(a.Header, parent.Header)
+	a.Scheme = cmp.Or(a.Scheme, parent.Scheme)
+	a.LeewaySecs = cmp.Or(a.LeewaySecs, parent.LeewaySecs)
 }
 
 type Paths struct {
@@ -121,10 +105,7 @@ type Conventions struct {
 var ConventionsGuide = ConventionsGuideFor("")
 
 func ConventionsGuideFor(envelopePath string) string {
-	envelopePath = strings.TrimSpace(envelopePath)
-	if envelopePath == "" {
-		envelopePath = "error.code"
-	}
+	envelopePath = cmp.Or(strings.TrimSpace(envelopePath), "error.code")
 	row := func(setting, why string) string {
 		return "    " + setting + strings.Repeat(" ", max(46-len(setting), 2)) + why + "\n"
 	}
@@ -161,26 +142,16 @@ func Default() *Config {
 }
 
 func (c *Config) NeverCommit() []string {
-	runs := DirName + "/runs"
-	descriptor := DirName + "/descriptor.binpb"
-	safespots := DirName + "/safespots"
+	var cfg Config
 	if c != nil {
-		if c.Paths.Runs != "" {
-			runs = c.Paths.Runs
-		}
-		if c.Descriptor.File != "" {
-			descriptor = c.Descriptor.File
-		}
-		if c.Paths.SafeSpots != "" {
-			safespots = c.Paths.SafeSpots
-		}
+		cfg = *c
 	}
 	return []string{
-		strings.TrimSuffix(runs, "/") + "/",
-		descriptor,
+		strings.TrimSuffix(cmp.Or(cfg.Paths.Runs, DirName+"/runs"), "/") + "/",
+		cmp.Or(cfg.Descriptor.File, DirName+"/descriptor.binpb"),
 		DocsDir + "/",
 		DirName + "/" + TokensFile,
-		strings.TrimSuffix(safespots, "/") + "/pending/",
+		strings.TrimSuffix(cmp.Or(cfg.Paths.SafeSpots, DirName+"/safespots"), "/") + "/pending/",
 	}
 }
 
@@ -228,7 +199,7 @@ func Load(start string) (*Config, error) {
 		return nil, err
 	}
 	cfg := Default()
-	if err := decodeStrict(raw, cfg); err != nil {
+	if err := yamlkey.DecodeStrict(raw, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	cfg.Root = root
@@ -340,20 +311,6 @@ func (c *Config) normalizeAuth() error {
 		if len(p.Profiles) > 0 {
 			return fmt.Errorf("auth.profiles.%s: profiles do not nest", name)
 		}
-	}
-	return nil
-}
-
-func decodeStrict(raw []byte, into any) error {
-	d := yaml.NewDecoder(bytes.NewReader(raw))
-	d.KnownFields(true)
-	if err := d.Decode(into); err != nil && !errors.Is(err, io.EOF) {
-		return yamlkey.Explain(err, into, raw)
-	}
-	var extra yaml.Node
-	if err := d.Decode(&extra); err == nil && slices.ContainsFunc(extra.Content, func(c *yaml.Node) bool { return c.Tag != "!!null" }) {
-		return fmt.Errorf("this file holds more than one YAML document, and only the first is read — " +
-			"everything after the '---' would be silently ignored. Split it into separate files")
 	}
 	return nil
 }

@@ -1,9 +1,9 @@
 package catalog
 
 import (
+	"cmp"
 	"github.com/N4darae/shrt/namecase"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -41,11 +41,8 @@ func DetectLogins(cat *Catalog) []LoginCandidate {
 		}
 		out = append(out, c)
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
-		}
-		return out[i].Method.FullName < out[j].Method.FullName
+	slices.SortStableFunc(out, func(a, b LoginCandidate) int {
+		return cmp.Or(cmp.Compare(b.Score, a.Score), cmp.Compare(a.Method.FullName, b.Method.FullName))
 	})
 	return out
 }

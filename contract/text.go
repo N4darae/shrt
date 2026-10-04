@@ -3,6 +3,8 @@ package contract
 import (
 	"fmt"
 	"strings"
+
+	"github.com/N4darae/shrt/chain"
 )
 
 func indentText(s, prefix string) string {
@@ -35,13 +37,13 @@ func (c *RPCContract) Text(lib *Library, rpc string) string {
 	writeList(&b, "pulled in ahead of this", lib.RequiredBy(rpc))
 	if len(c.Fields) > 0 {
 		b.WriteString("  fields\n")
-		for _, n := range sortedKeys(c.Fields) {
+		for _, n := range chain.SortedKeys(c.Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Fields[n]))
 		}
 	}
-	for _, alias := range sortedKeys(c.Aliases) {
+	for _, alias := range chain.SortedKeys(c.Aliases) {
 		fmt.Fprintf(&b, "  alias @%-12s %s\n", alias, c.Aliases[alias].Note)
-		for _, n := range sortedKeys(c.Aliases[alias].Fields) {
+		for _, n := range chain.SortedKeys(c.Aliases[alias].Fields) {
 			fmt.Fprintf(&b, "    %-24s %s\n", n, fieldDetail(c.Aliases[alias].Fields[n]))
 		}
 	}
@@ -100,7 +102,7 @@ func writeMap(b *strings.Builder, label string, m map[string]string) {
 		return
 	}
 	fmt.Fprintf(b, "  %s\n", label)
-	for _, k := range sortedKeys(m) {
+	for _, k := range chain.SortedKeys(m) {
 		fmt.Fprintf(b, "    %-24s %s\n", k, m[k])
 	}
 }

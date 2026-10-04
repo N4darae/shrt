@@ -62,49 +62,39 @@ func (f *fixtureReuse) line() string {
 			"and got a server error (%s): the backend stored that create though it failed it, so the conflict is with this "+
 			"run's own record, not a fixture", f.step, f.why, f.erred.Index, f.erred.ID, errorText(f.erred))
 	}
+	refused := fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from ", f.step, f.why)
+	again := fmt.Sprintf(", and the previous run %s of this chain was refused there the same way with %s", f.repeat, strings.Join(f.before, ", "))
 	if f.finding() {
-		return fmt.Sprintf("step %q was refused as a uniqueness conflict (%s) on a field built from %s, and the previous run "+
-			"%s of this chain was refused there the same way with %s: a value built from ${uuid} or a clock value is unique to "+
-			"its run, so neither can collide with leftover fixtures or another client, and the backend refuses the create itself. "+
-			"This is a finding about the backend, not a fixture collision",
-			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
+		return refused + f.builtFrom() + again + ": a value built from ${uuid} or a clock value is unique to its run, so neither can " +
+			"collide with leftover fixtures or another client, and the backend refuses the create itself. This is a finding about the " +
+			"backend, not a fixture collision"
 	}
 	if f.run == "" && f.repeat != "" {
-		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and the previous run %s of this chain was refused there the same way with %s, also a value no recorded run had "+
-			"created: a repeat with fresh values points at the backend unless another client uses the same values (two "+
-			"pipelines deriving the tag from one commit SHA do), and shrt cannot tell which, so this is not a finding. Build "+
-			"the field from ${uuid} to have a repeat reported as one",
-			f.step, f.why, f.builtFrom(), f.repeat, strings.Join(f.before, ", "))
+		return "fixture collision: " + refused + f.builtFrom() + again + ", also a value no recorded run had created: a repeat with " +
+			"fresh values points at the backend unless another client uses the same values (two pipelines deriving the tag from one " +
+			"commit SHA do), and shrt cannot tell which, so this is not a finding. Build the field from ${uuid} to have a repeat reported as one"
 	}
 	if f.run == "" {
-		return fmt.Sprintf("fixture collision: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and no recorded run of this chain used that value, so the record it collides with was created by something else "+
-			"(another chain with the same value, another client, or a shared backend)",
-			f.step, f.why, f.builtFrom())
+		return "fixture collision: " + refused + f.builtFrom() + ", and no recorded run of this chain used that value, so the record " +
+			"it collides with was created by something else (another chain with the same value, another client, or a shared backend)"
 	}
 	held := "so the backend still holds what that run created"
 	if f.unsure {
 		held = "and whether the call took effect is unknown (it was sent and got no answer), so the backend most likely holds " +
 			"what that run created"
 	}
+	refused = "fixture reused: " + refused + strings.Join(f.vars, ", ") + ", and run " + f.run
 	if f.sentAt != "" {
 		by := ""
 		if len(f.sentBy) > 0 {
 			by = " with " + strings.Join(f.sentBy, ", ")
 		}
-		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and run %s of this chain already sent that value at step %q%s, %s: two tags of this chain built the same value",
-			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.sentAt, by, held)
+		return refused + fmt.Sprintf(" of this chain already sent that value at step %q%s, %s: two tags of this chain built the same value", f.sentAt, by, held)
 	}
 	if f.chain != "" {
-		return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-			"and run %s of chain %s already sent that value, %s",
-			f.step, f.why, strings.Join(f.vars, ", "), f.run, f.chain, held)
+		return refused + " of chain " + f.chain + " already sent that value, " + held
 	}
-	return fmt.Sprintf("fixture reused: step %q was refused as a uniqueness conflict (%s) on a field built from %s, "+
-		"and run %s of this chain already sent that value, %s",
-		f.step, f.why, strings.Join(f.vars, ", "), f.run, held)
+	return refused + " of this chain already sent that value, " + held
 }
 
 func (f *fixtureReuse) fresh() string {
@@ -166,7 +156,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		return nil
 	}
 	fed := map[string]bool{}
-	conflicting := conflictingFields(fields, why)
+	conflicting, cited := conflictingFields(fields, why)
 	if erred := erredBefore(rec, index, conflicting); erred != nil {
 		return &fixtureReuse{step: first.ID, index: index, why: why, erred: erred}
 	}
@@ -185,7 +175,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(unique) != len(conflicting) {
 		unique = nil
 	}
-	if len(unique) > 0 && !namesAField(fields, why) {
+	if len(unique) > 0 && !cited {
 		return nil
 	}
 	if len(unique) > 0 {
@@ -194,14 +184,9 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 	if len(fed) == 0 {
 		return nil
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
 	names := sortedKeys(fed)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun || !usedBy(prev, first.ID) {
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		if prev = namedAs(prev, rec); !usedBy(prev, first.ID) {
 			continue
 		}
 		same := []string{}
@@ -214,7 +199,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 		}
 		if len(same) > 0 {
 			st, _ := prev.Step(first.ID)
-			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !createdStep(st)}
+			return &fixtureReuse{step: first.ID, index: index, why: why, vars: same, run: prev.RunID, unsure: !answeredCleanly(st)}
 		}
 	}
 	sentValues := []string{}
@@ -223,12 +208,7 @@ func detectFixtureReuse(e *env, c *chain.Chain, rec *runner.Record) *fixtureReus
 			sentValues = append(sentValues, f.sent)
 		}
 	}
-	current := []string{}
-	for _, n := range names {
-		if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-			current = append(current, fmt.Sprintf("%s=%v", n, v))
-		}
-	}
+	current := varValues(rec.Vars, names)
 	if len(current) == 0 {
 		return nil
 	}
@@ -273,11 +253,7 @@ func uniquenessRefusal(c *chain.Chain, rec *runner.Record) (*runner.StepRecord, 
 func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index int, why string, all, fields []fixtureField, unique []string) *fixtureReuse {
 	f := &fixtureReuse{step: first.ID, index: index, why: why, unique: unique}
 	for _, field := range fields {
-		for _, n := range field.vars {
-			if v, ok := rec.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-				f.vars = append(f.vars, fmt.Sprintf("%s=%v", n, v))
-			}
-		}
+		f.vars = append(f.vars, varValues(rec.Vars, field.vars)...)
 	}
 	prev := previousRunSending(e, rec, first.ID)
 	if prev == nil {
@@ -287,10 +263,7 @@ func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index
 	if !ok || st.Call != first.Call || !refusedSameWay(why, all, fields, st) {
 		return f
 	}
-	var req any
-	if json.Unmarshal(st.Request, &req) != nil {
-		return f
-	}
+	req := decoded(st.Request)
 	for _, field := range fields {
 		if v, ok := chain.Get(req, field.path); ok {
 			f.before = append(f.before, fmt.Sprintf("%s=%v", field.path, v))
@@ -312,13 +285,10 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 		out = append(out, fmt.Sprintf("%s=%v", n, was))
 	}
 	if st, ok := prev.Step(step); ok {
-		var req any
-		sent := []string{}
-		if json.Unmarshal(st.Request, &req) == nil {
-			for _, f := range fields {
-				if v, ok := chain.Get(req, f.path); ok {
-					sent = append(sent, fmt.Sprint(v))
-				}
+		sent, req := []string{}, decoded(st.Request)
+		for _, f := range fields {
+			if v, ok := chain.Get(req, f.path); ok {
+				sent = append(sent, fmt.Sprint(v))
 			}
 		}
 		if _, run, _ := usedByAnotherChain(e, prev, sent); run != "" {
@@ -357,7 +327,8 @@ func refusedSameWay(why string, all, conflicting []fixtureField, prev *runner.St
 		}
 		then = append(then, f)
 	}
-	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(conflictingFields(then, was)) == fieldPaths(conflicting)
+	now, _ := conflictingFields(then, was)
+	return refusalCodes(was, then) == refusalCodes(why, all) && fieldPaths(now) == fieldPaths(conflicting)
 }
 
 func refusalBlamesAnotherField(req any, why string, fields []fixtureField) bool {
@@ -407,14 +378,10 @@ func inRunRepeatAcceptedBefore(e *env, rec *runner.Record, index int, conflictin
 		repeated := false
 		for j := 0; j < index && !repeated; j++ {
 			st := rec.Steps[j]
-			if st == nil || st.Call != first.Call || !createdStep(st) {
+			if st == nil || st.Call != first.Call || !answeredCleanly(st) {
 				continue
 			}
-			var before any
-			if json.Unmarshal(st.Request, &before) != nil {
-				continue
-			}
-			if got, ok := chain.Get(before, f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
+			if got, ok := chain.Get(decoded(st.Request), f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
 				repeated = true
 			}
 		}
@@ -473,7 +440,7 @@ type fixtureField struct {
 	unique bool
 }
 
-func conflictingFields(fields []fixtureField, why string) []fixtureField {
+func conflictingFields(fields []fixtureField, why string) ([]fixtureField, bool) {
 	byValue, byName := []fixtureField{}, []fixtureField{}
 	folded := foldName(why)
 	for _, f := range fields {
@@ -485,25 +452,12 @@ func conflictingFields(fields []fixtureField, why string) []fixtureField {
 		}
 	}
 	if len(byValue) > 0 {
-		return byValue
+		return byValue, true
 	}
 	if len(byName) > 0 {
-		return byName
+		return byName, true
 	}
-	return fields
-}
-
-func namesAField(fields []fixtureField, why string) bool {
-	folded := foldName(why)
-	for _, f := range fields {
-		if f.sent != "" && strings.Contains(why, f.sent) {
-			return true
-		}
-		if name := foldName(leafName(f.path)); name != "" && strings.Contains(folded, name) {
-			return true
-		}
-	}
-	return false
+	return fields, false
 }
 
 func foldName(s string) string {
@@ -528,15 +482,13 @@ func usedByAnotherChain(e *env, rec *runner.Record, values []string) (string, st
 		if !entry.IsDir() {
 			continue
 		}
-		ids, _ := e.store.ListRuns(entry.Name())
-		for i := len(ids) - 1; i >= 0; i-- {
-			other, err := e.store.LoadRun(entry.Name(), ids[i])
-			if err != nil || other.DryRun || other.Chain == rec.Chain {
+		for other := range newestRuns(e, entry.Name()) {
+			if other.Chain == rec.Chain {
 				continue
 			}
 			for _, st := range other.Steps {
-				if (createdStep(st) || sentUnknown(st)) && sendsAll(st, values) {
-					return other.Chain, other.RunID, !createdStep(st)
+				if (answeredCleanly(st) || sentUnknown(st)) && sendsAll(st, values) {
+					return other.Chain, other.RunID, !answeredCleanly(st)
 				}
 			}
 		}
@@ -548,29 +500,26 @@ func sentByThisChain(e *env, rec *runner.Record, names, values []string) (string
 	if len(values) == 0 {
 		return "", "", nil, false
 	}
-	ids, _ := e.store.ListRuns(rec.Chain)
-	for i := len(ids) - 1; i >= 0; i-- {
-		if ids[i] == rec.RunID {
-			continue
-		}
-		prev, err := loadRunNamedAs(e, rec, ids[i])
-		if err != nil || prev.DryRun {
-			continue
-		}
+	for prev := range newestRuns(e, rec.Chain, rec.RunID) {
+		prev = namedAs(prev, rec)
 		for _, st := range prev.Steps {
-			if !(createdStep(st) || sentUnknown(st)) || !sendsAll(st, values) {
+			if !(answeredCleanly(st) || sentUnknown(st)) || !sendsAll(st, values) {
 				continue
 			}
-			by := []string{}
-			for _, n := range names {
-				if v, ok := prev.Vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
-					by = append(by, fmt.Sprintf("%s=%v", n, v))
-				}
-			}
-			return prev.RunID, st.ID, by, !createdStep(st)
+			return prev.RunID, st.ID, varValues(prev.Vars, names), !answeredCleanly(st)
 		}
 	}
 	return "", "", nil, false
+}
+
+func varValues(vars map[string]any, names []string) []string {
+	var out []string
+	for _, n := range names {
+		if v, ok := vars[n]; ok && fmt.Sprint(v) != pathmask.MaskRedacted {
+			out = append(out, fmt.Sprintf("%s=%v", n, v))
+		}
+	}
+	return out
 }
 
 func sentUnknown(st *runner.StepRecord) bool {
@@ -580,7 +529,7 @@ func sentUnknown(st *runner.StepRecord) bool {
 
 func usedBy(rec *runner.Record, step string) bool {
 	st, ok := rec.Step(step)
-	return ok && (createdStep(st) || sentUnknown(st))
+	return ok && (answeredCleanly(st) || sentUnknown(st))
 }
 
 func sendsAll(st *runner.StepRecord, values []string) bool {
@@ -588,32 +537,16 @@ func sendsAll(st *runner.StepRecord, values []string) bool {
 	if json.Unmarshal(st.Request, &req) != nil {
 		return false
 	}
-	for _, v := range values {
-		found := false
-		visitStrings(req, func(s string) {
-			if s == v {
-				found = true
-			}
-		})
-		if !found {
-			return false
-		}
-	}
-	return true
-}
-
-func createdStep(st *runner.StepRecord) bool {
-	return st != nil && st.Transport == nil && len(st.Response) > 0 && st.Status != runner.StatusSkipped && stepRefusalText(st) == ""
+	sent := map[string]bool{}
+	visitStrings(req, func(s string) { sent[s] = true })
+	return !slices.ContainsFunc(values, func(v string) bool { return !sent[v] })
 }
 
 func stepRefusalText(st *runner.StepRecord) string {
 	if st.Transport != nil {
 		return strings.TrimSpace(st.Transport.Code + ": " + st.Transport.Message)
 	}
-	var body any
-	if err := json.Unmarshal(st.Response, &body); err != nil {
-		return ""
-	}
+	body := decoded(st.Response)
 	code, ok := chain.Get(body, chain.EnvelopePath())
 	if !ok || code == nil || fmt.Sprint(code) == chain.EnvelopeOK() || fmt.Sprint(code) == "" {
 		return ""
