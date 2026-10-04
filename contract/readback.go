@@ -27,7 +27,7 @@ func singleCarrier(m *catalog.Method) *catalog.Field {
 	return out
 }
 
-func (p *Plan) normalised(lib *Library, rpc, field string) bool {
+func (p *Plan) normalised(lib *Library, rpc, field string, word *regexp.Regexp, caseToo bool) bool {
 	c, ok := lib.Get(canonicalCall(p.cat, rpc))
 	if !ok {
 		return false
@@ -36,21 +36,18 @@ func (p *Plan) normalised(lib *Library, rpc, field string) bool {
 	if fc := c.Fields[field]; fc != nil {
 		note = fc.Note
 	}
-	if yes, no := claims(note, normalisedClaim, nil); yes && !no {
+	if yes, no := claims(note, word, nil); yes && !no {
 		return true
 	}
 	if yes, no := claims(note, trimClaimed, trimDenied); yes && !no {
 		return true
 	}
 	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique {
-			continue
-		}
-		if f.Field != field && !mentionsField(f.When, field) {
+		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
 			continue
 		}
 		text := strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")
-		if ignoresCase(f, text) || trimsSpace(f, text) {
+		if (caseToo && ignoresCase(f, text)) || trimsSpace(f, text) {
 			return true
 		}
 	}
@@ -185,7 +182,7 @@ func (p *Plan) assertReadBack(lib *Library) []string {
 				continue
 			}
 			want := "${steps." + src.ID + ".request." + key + "}"
-			if p.normalised(lib, src.Call, sf.Name) {
+			if p.normalised(lib, src.Call, sf.Name, normalisedClaim, true) {
 				sm, err := p.cat.Lookup(src.Call)
 				if err != nil {
 					continue
@@ -303,7 +300,7 @@ func (p *Plan) mixedCaseProbe(lib *Library, st *chain.Step) []*chain.Step {
 		sort.Strings(out)
 		return out
 	}
-	echoed := func(key string) bool { return !p.normalised(lib, st.Call, key) }
+	echoed := func(key string) bool { return !p.normalised(lib, st.Call, key, normalisedClaim, true) }
 	return p.retypedTextProbe(lib, st, "mixed_case", pick, swapLiteralCase, echoed, func(fields []string) string {
 		return fmt.Sprintf("as %s, but %s with the letters' case swapped: accepted, and echoed and stored with "+
 			"that case, unless the contract says the backend normalises it.", st.ID, strings.Join(fields, ", "))
@@ -347,32 +344,6 @@ func (p *Plan) retypedTextProbe(lib *Library, st *chain.Step, tag string, pick f
 
 var normalisedWord = regexp.MustCompile(`(?i)\bnormali[sz]\w*|\bcanonicali[sz]\w*`)
 
-func (p *Plan) trimmed(lib *Library, rpc, field string) bool {
-	c, ok := lib.Get(canonicalCall(p.cat, rpc))
-	if !ok {
-		return false
-	}
-	note := ""
-	if fc := c.Fields[field]; fc != nil {
-		note = fc.Note
-	}
-	if yes, no := claims(note, trimClaimed, trimDenied); yes && !no {
-		return true
-	}
-	if yes, no := claims(note, normalisedWord, nil); yes && !no {
-		return true
-	}
-	for _, f := range lib.AllFailures(canonicalCall(p.cat, rpc)) {
-		if _, unique := uniquenessNoun(f); !unique || (f.Field != field && !mentionsField(f.When, field)) {
-			continue
-		}
-		if trimsSpace(f, strings.Join([]string{f.When, f.Message, c.Summary, note}, " ")) {
-			return true
-		}
-	}
-	return false
-}
-
 func (p *Plan) keptUntrimmed(lib *Library, rpc, field string) bool {
 	c, ok := lib.Get(canonicalCall(p.cat, rpc))
 	if !ok {
@@ -401,7 +372,7 @@ func (p *Plan) paddedTextProbe(lib *Library, st *chain.Step) []*chain.Step {
 			if !isFreeText(name) && !p.keptUntrimmed(lib, st.Call, key) {
 				return
 			}
-			if p.trimmed(lib, st.Call, key) {
+			if p.normalised(lib, st.Call, key, normalisedWord, false) {
 				skipped = append(skipped, key)
 			} else {
 				padded = append(padded, key)
