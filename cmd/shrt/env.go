@@ -34,7 +34,7 @@ func loadEnv(withCatalog bool) (*env, error) {
 		return nil, configLoadError(wd, err)
 	}
 	contract.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
-	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
+	chain.SetItemEnvelope(cfg.Conventions.ItemEnvelopePath)
 	chain.ApplyCodeFields(cfg.Conventions.CodeFields)
 	e := &env{
 		cfg:   cfg,

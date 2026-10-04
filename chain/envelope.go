@@ -438,8 +438,6 @@ func ApplyConventions(readOnlyPrefixes []string, envelopePath, envelopeOK string
 	setEnvelopeLocked(envelopePath, envelopeOK)
 }
 
-func ApplyItemEnvelope(path string) { SetItemEnvelope(path) }
-
 func ApplyCodeFields(names []string) {
 	out := []string{}
 	for _, n := range names {

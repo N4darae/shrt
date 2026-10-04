@@ -220,7 +220,7 @@ func globMatch(pattern, s string) bool {
 
 func NewFromConfig(ctx context.Context, cfg *config.Config, cat *catalog.Catalog) (*Runner, Options, error) {
 	chain.ApplyConventions(cfg.Conventions.ReadOnlyPrefixes, cfg.Conventions.EnvelopePath, cfg.Conventions.EnvelopeOK)
-	chain.ApplyItemEnvelope(cfg.Conventions.ItemEnvelopePath)
+	chain.SetItemEnvelope(cfg.Conventions.ItemEnvelopePath)
 	chain.ApplyCodeFields(cfg.Conventions.CodeFields)
 	if err := chain.ValidateEnvelopeIn(cat, cfg.Conventions.EnvelopePath); err != nil {
 		return nil, Options{}, err

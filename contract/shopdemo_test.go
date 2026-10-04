@@ -19,11 +19,11 @@ func shopDemo(t *testing.T) (*catalog.Catalog, *contract.Library) {
 	item := chain.ItemEnvelope()
 	codes := chain.CodeFields()
 	contract.ApplyConventions(nil, "status.code", "SUCCESS")
-	chain.ApplyItemEnvelope("results[].status.code")
+	chain.SetItemEnvelope("results[].status.code")
 	chain.ApplyCodeFields([]string{"app_code", "reason"})
 	t.Cleanup(func() {
 		contract.ApplyConventions(nil, path, ok)
-		chain.ApplyItemEnvelope(item)
+		chain.SetItemEnvelope(item)
 		chain.ApplyCodeFields(codes)
 	})
 	raw, err := os.ReadFile(filepath.Join("testdata", "shopdemo", "descriptor.binpb"))
