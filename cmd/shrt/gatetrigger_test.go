@@ -57,7 +57,7 @@ func TestATriggerLineContrastsTheFailingCallsWithThePassingOnes(t *testing.T) {
 		{"a passing call alike in every dimension", []map[string]string{lines(2, ""), lines(3, "")}, []map[string]string{lines(1, ""), lines(3, "")}, ""},
 		{"values on both sides", []map[string]string{clerk, {"as": "default", "set note": "set"}}, []map[string]string{admin}, ""},
 		{"lengths that interleave", []map[string]string{lines(1, ""), lines(3, "")}, []map[string]string{lines(2, "")}, ""},
-		{"no passing call", []map[string]string{clerk}, nil, "trigger: fails on every call (1 of 1; as clerk)"},
+		{"one failing call and no passing call", []map[string]string{clerk}, nil, ""},
 		{"every call fails, over the profiles and list lengths they span", []map[string]string{lines(1, ""), lines(6, ""), {"as": "clerk", "len lines": "3", "len lines[first].tags": "2"}}, nil,
 			"trigger: fails on every call (3 of 3; as clerk and default, lines of 1 to 6 items)"},
 		{"no failing call", nil, []map[string]string{admin}, ""},
@@ -148,8 +148,8 @@ func TestTheTriggerSaysHowGotKeepsWhatWasSent(t *testing.T) {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}
-	if got, _ := triggerOf(echo(long, long[:20]), nil); got != "trigger: fails on every call (1 of 1); got keeps the first 20 of the 38 bytes of the name sent (1 call)" {
-		t.Errorf("with no passing call the line says every call fails, then how got relates to what was sent: %q", got)
+	if got, _ := triggerOf(echo(long, long[:20]), nil); got != "got keeps the first 20 of the 38 bytes of the name sent (1 call)" {
+		t.Errorf("one failing call and no passing call leave only how got relates to what was sent: %q", got)
 	}
 }
 

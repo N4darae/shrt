@@ -310,7 +310,7 @@ func (c cut) holds(call rowCall) bool {
 func triggerOf(fails, passes []rowCall) (string, []string) {
 	echo := echoRelation(fails)
 	switch {
-	case len(fails) == 0:
+	case len(fails) == 0, len(passes) == 0 && numCalls(fails) < 2:
 		return echo, nil
 	case len(passes) == 0:
 		return strings.TrimSuffix("trigger: "+everyCall(fails)+"; "+echo, "; "), nil

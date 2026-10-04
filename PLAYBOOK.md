@@ -437,7 +437,7 @@ last bytes, a count dropped, trimmed, another case; alone under the row when not
 calls. A passing call counts only where the gate checked the row's field on it, by its own
 expectation or, when a later read shows the fault, a later read of the same record; for a refusal,
 any call of it that succeeded, leaving out auth probes. Two splits that both hold are both said; a
-single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. With
+single split beside a pair, or two pairs, say nothing, since the calls cannot tell which it is. With two or more failing calls and
 no passing call, `fails on every call (21 of 21; as clerk and default, lines of 1 to 6 items)` names
 what the failing calls span.
 No line means none of these splits them, so probe from the example. The example is the call that

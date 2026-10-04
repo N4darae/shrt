@@ -145,7 +145,7 @@ does together: `fails with lines of 2+ items and lines[last].qty above 1 (30 cal
 relates to it when one rule fits every such call: `got keeps the first 20 bytes of the name sent (3 calls)` (a suffix,
 trimmed, another case), alone under the row when nothing splits the calls. A call passes only where the gate checked
 the row's field on it (its own expectation, or a later read of the same record; for a refusal, any call of it that
-succeeded). When no call passes, `trigger: fails on every call (21 of 21; as clerk and default, lines of 1 to 6
+succeeded). When no call passes and two or more fail, `trigger: fails on every call (21 of 21; as clerk and default, lines of 1 to 6
 items)`, the profiles and list lengths the failing calls span. No line when nothing splits them, when a single split
 and a pair (or two pairs) both do, or when the failing calls should have been refused. A row whose example reads a
 number a suspect write moved says by how much against the safe spot's run: `qty_on_hand fell 6 from 3 to -3 where
