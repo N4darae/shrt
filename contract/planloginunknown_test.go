@@ -17,13 +17,7 @@ func loginOptions() contract.PlanOptions {
 
 func loginPlanWhen(t *testing.T, when string) (*contract.Plan, string) {
 	t.Helper()
-	return shopDemoMutated(t, loginOptions(), func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.auth.v1.AuthService/Login"]; c != nil {
-			for i := range c.Failures {
-				c.Failures[i].When = when
-			}
-		}
-	}, "Login")
+	return shopDemoMutated(t, loginOptions(), failureWhen("shop.auth.v1.AuthService/Login", "", when), "Login")
 }
 
 func TestAnUnknownUserIsProbedForTheWaysAContractSaysNoAccountHasTheName(t *testing.T) {

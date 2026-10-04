@@ -133,15 +133,7 @@ func TestAnIncreaseAndABatchArePlannedWithLargeQuantitiesAndTheExactLevel(t *tes
 
 func TestAnEmailFailureWordedWithoutTheAtCharacterStillGetsAMalformedProbe(t *testing.T) {
 	for _, when := range []string{"email does not contain an at sign", "the email lacks @", "an email without an @", "email has no @ symbol", "the email is missing its at-sign"} {
-		p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-			if c := rpcs["shop.customers.v1.CustomerService/CreateCustomer"]; c != nil {
-				for i := range c.Failures {
-					if c.Failures[i].Reason == "EmailInvalid" {
-						c.Failures[i].When = when
-					}
-				}
-			}
-		}, "CreateCustomer")
+		p, text := shopDemoMutated(t, contract.PlanOptions{}, failureWhen("shop.customers.v1.CustomerService/CreateCustomer", "EmailInvalid", when), "CreateCustomer")
 		probe := planStep(t, p, "create_customer_email_no_at")
 		if strings.Contains(bodyAt(t, probe, "email"), "@") {
 			t.Fatalf("%q: the probe sends an email with no @:\n%s", when, text)
@@ -150,15 +142,8 @@ func TestAnEmailFailureWordedWithoutTheAtCharacterStillGetsAMalformedProbe(t *te
 }
 
 func TestAnInvalidArgumentClauseThePlanCannotReadIsNamedInANote(t *testing.T) {
-	p, _ := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.customers.v1.CustomerService/CreateCustomer"]; c != nil {
-			for i := range c.Failures {
-				if c.Failures[i].Reason == "EmailInvalid" {
-					c.Failures[i].When = "email is empty, or email is not a well-formed address"
-				}
-			}
-		}
-	}, "CreateCustomer")
+	p, _ := shopDemoMutated(t, contract.PlanOptions{}, failureWhen("shop.customers.v1.CustomerService/CreateCustomer",
+		"EmailInvalid", "email is empty, or email is not a well-formed address"), "CreateCustomer")
 	planStep(t, p, "create_customer_email_empty")
 	notes := strings.Join(p.Notes, "\n")
 	if !strings.Contains(notes, "email is not a well-formed address") || !strings.Contains(notes, "EmailInvalid") || !strings.Contains(notes, "at sign") {

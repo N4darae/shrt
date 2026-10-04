@@ -25,16 +25,21 @@ func shopDemoMutated(t *testing.T, opts contract.PlanOptions, mutate func(rpcs m
 	return p, string(raw)
 }
 
-func TestARoleProbeExpectsThePermissionFailureNotAShapeErrorWhoseWhenMentionsTheRole(t *testing.T) {
-	p, text := shopDemoMutated(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.catalog.v1.ProductService/CreateProduct"]; c != nil {
+func failureWhen(rpc, reason, when string) func(map[string]*contract.RPCContract) {
+	return func(rpcs map[string]*contract.RPCContract) {
+		if c := rpcs[rpc]; c != nil {
 			for i := range c.Failures {
-				if c.Failures[i].Reason == "SkuRequired" {
-					c.Failures[i].When = "sku is empty or only whitespace; checked before the role and the price"
+				if reason == "" || c.Failures[i].Reason == reason {
+					c.Failures[i].When = when
 				}
 			}
 		}
-	}, "CreateProduct")
+	}
+}
+
+func TestARoleProbeExpectsThePermissionFailureNotAShapeErrorWhoseWhenMentionsTheRole(t *testing.T) {
+	p, text := shopDemoMutated(t, contract.PlanOptions{Auth: true, Profiles: []string{"clerk"}}, failureWhen("shop.catalog.v1.ProductService/CreateProduct",
+		"SkuRequired", "sku is empty or only whitespace; checked before the role and the price"), "CreateProduct")
 	wantExpect(t, planStep(t, p, "create_product_as_clerk"), "status.details.0.reason", "PermissionDenied")
 	if strings.Contains(text, "refused with SkuRequired") {
 		t.Fatalf("a when: that mentions the role in passing does not make a shape error the denial:\n%s", text)
@@ -42,15 +47,8 @@ func TestARoleProbeExpectsThePermissionFailureNotAShapeErrorWhoseWhenMentionsThe
 }
 
 func TestAnIdempotencyReplayIsNotExpectedToFailWithAnUnrelatedFailureMentioningTheKey(t *testing.T) {
-	p, text := shopDemoMutated(t, contract.PlanOptions{}, func(rpcs map[string]*contract.RPCContract) {
-		if c := rpcs["shop.orders.v1.OrderService/CreateOrder"]; c != nil {
-			for i := range c.Failures {
-				if c.Failures[i].Reason == "CustomerNotFound" {
-					c.Failures[i].When = "no customer has id_customer, and the idempotency key was not seen before"
-				}
-			}
-		}
-	}, "CreateOrder")
+	p, text := shopDemoMutated(t, contract.PlanOptions{}, failureWhen("shop.orders.v1.OrderService/CreateOrder",
+		"CustomerNotFound", "no customer has id_customer, and the idempotency key was not seen before"), "CreateOrder")
 	wantExpect(t, planStep(t, p, "create_order_replay_other_body"), "order.id_order", "${create_order.order.id_order}")
 	if strings.Contains(text, "is refused with 1301") {
 		t.Fatalf("CustomerNotFound is no key conflict:\n%s", text)
