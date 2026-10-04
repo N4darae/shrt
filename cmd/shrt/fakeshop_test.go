@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
@@ -25,6 +27,8 @@ type fakeShop struct {
 	skuEchoBug         bool
 	stockInProduct     bool
 	confirmExtraUnit   bool
+	addStockLostBug    bool
+	stockReadBug       bool
 
 	next      int
 	getCalls  int
@@ -109,13 +113,27 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 			return 200, map[string]any{"status": ok(), "product": wrong}
 		}
 		if s.stockInProduct {
-			stocked := map[string]any{"qty_on_hand": strconv.FormatInt(s.stock[fmt.Sprint(p["id_product"])], 10)}
-			for k, v := range p {
-				stocked[k] = v
+			qty := s.stock[fmt.Sprint(p["id_product"])]
+			if s.stockReadBug {
+				qty--
 			}
-			return 200, map[string]any{"status": ok(), "product": stocked}
+			return 200, map[string]any{"status": ok(), "product": s.stocked(p, qty)}
 		}
 		return 200, map[string]any{"status": ok(), "product": p}
+	case "/shop.catalog.v1.ProductService/ListProducts":
+		prefix := fmt.Sprint(body["sku_prefix"])
+		var ids []string
+		for id, p := range s.products {
+			if strings.HasPrefix(fmt.Sprint(p["sku"]), prefix) {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		list := []any{}
+		for _, id := range ids {
+			list = append(list, s.stocked(s.products[id], s.stock[id]))
+		}
+		return 200, map[string]any{"status": ok(), "products": list}
 	case "/shop.catalog.v1.StockService/AddStock":
 		s.addCalls++
 		if status := s.addStockFailAt[s.addCalls]; status == 503 {
@@ -127,8 +145,11 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		if _, found := s.products[id]; !found {
 			return 200, map[string]any{"status": rejected("ProductNotFound")}
 		}
-		s.stock[id] += num64(body["qty"])
-		return 200, map[string]any{"status": ok(), "qty_on_hand": strconv.FormatInt(s.stock[id], 10)}
+		answered := s.stock[id] + num64(body["qty"])
+		if !s.addStockLostBug {
+			s.stock[id] = answered
+		}
+		return 200, map[string]any{"status": ok(), "qty_on_hand": strconv.FormatInt(answered, 10)}
 	case "/shop.orders.v1.OrderService/CreateOrder":
 		key := fmt.Sprint(body["idempotency_key"])
 		if prev, seen := s.idem[key]; seen && key != "" {
@@ -194,6 +215,14 @@ func (s *fakeShop) handle(path string, body map[string]any) (int, map[string]any
 		return 200, map[string]any{"status": ok(), "order": o}
 	}
 	return 404, map[string]any{"code": "unimplemented", "message": path}
+}
+
+func (s *fakeShop) stocked(p map[string]any, qty int64) map[string]any {
+	out := map[string]any{"qty_on_hand": strconv.FormatInt(qty, 10)}
+	for k, v := range p {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *fakeShop) server() *httptest.Server {

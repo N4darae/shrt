@@ -65,8 +65,12 @@ traffic.
 Any command exits 2 for an unknown command, 1 for a bad flag or a setup it cannot load, 0 for `-h`
 and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 
+To check a release for bugs, run `shrt gate -repro` (first row): it does the work that otherwise
+follows the gate, a settled suspect, a verified repro per suspect rpc and a check of the masks.
+
 | command | does | exits other than 0 |
 |---|---|---|
+| `shrt gate -repro [-skip-waits]` | the gate, then for each row of `failures by suspect rpc:` the read that settles an unclear write or read, and `repro: shrt run <path>  (reproduced 3/3)`, a slice in `.shrt/scratch/` verified 3 times; one `masks:` line says whether a mask hid more than run tags, ids and timestamps. `-skip-waits` leaves out chains with `wait:` steps, each `SKIPPED` and never counted as passing; not for CI | 1 a failure; 3 no verdict, or nothing failed but a chain was skipped |
 | `shrt init` | write `.shrt/`, build the descriptor, install the skill, subagent and `.shrt/ci-gate.sh` | 2 descriptor not built; 3 credentials not exported |
 | `shrt version` | version, commit, build time and the docs it carries | |
 | `shrt doctor` | check this repo's `.shrt/` installation: prints each WARN and FAIL, `-v` every check | 1 a FAIL, or a warning under `-strict` |
@@ -110,6 +114,7 @@ and otherwise as below; 3 is no verdict, neither red nor green: re-run.
 | `FAIL` over `FINDING: ... failure at <rpc>, below` | such a call failed and something else changed too; the `FAIL` line names that change |
 | `FAIL not as pinned:` | a kept-red chain that failed otherwise or passed; the moved pin and its suspect are named, judged against the pinned value, a pin that held counting as no change |
 | `NO VERDICT` | exit 3: backend down, restarting or refusing auth |
+| `SKIPPED` | `-skip-waits` left it out; never counted as passing, so with nothing failed the gate exits 3 |
 
 Each `FAIL` line ends with its suspect and `also <suspect>` for the first other one (`at <field>` when that one is a
 write, the field it changed; `at transport code <code>` when it was refused before a body existed), or
@@ -124,13 +129,24 @@ suspect's request and every change with its want and got as `verify` prints it (
 chain with no safe spot; a change repeated at more steps or list items once, `(and N more at ...)`), and the knock-on
 counts: no separate `verify` is needed to see the values. How a suspect is chosen: `PLAYBOOK.md` §8.
 
-A chain with `wait:` steps is named on stderr as the gate starts, with its total wait. It starts
+A chain with `wait:` steps is named on stderr as the gate starts, with its total wait and that
+`-skip-waits` leaves it out (never in CI: the wrapper below does not pass it). It starts
 at once, beside the other chains, when it writes nothing (each step is the configured login or a
 read) and each read's request carries `${vars.tag}`, the gate's fresh tag: it then changes nothing
 another chain reads, and no other chain can change what it reads. Otherwise it runs in its turn and
 the stderr line names the step that keeps it there. Every line still comes in its place. A gate with
 such a chain, or one that took 30s or more, ends with `time: <total>; slowest: <chain> <time> (waits
 <d> by design, ...)`, so a long gate is not mistaken for a hang.
+
+`-repro` follows the summary with one block per row: for an `unclear` suspect whose field another
+read rpc also returns, `settled on the write` or `settled on the read`, from a copy of the chain up to
+that read plus the other read (`.shrt/scratch/<chain>-tell-apart-<read>.yaml`); then `repro: shrt run
+<path>  (reproduced 3/3)`, `chain slice -verify` of the row's step (in a chain with a safe spot when
+the row has one) written to `.shrt/scratch/<chain>-slice-<step>.yaml`, kept with more writes when
+the slice says so, or `repro: none:` and why. One `masks:` line closes it: `verify -run latest -json`
+of each chain with a safe spot, offline, then each value a volatile path hid that is not a run tag, an
+id or a timestamp, listed; the items of a whole list a step marks volatile (an unscoped list, which
+holds whatever else the backend holds) are only counted.
 
 A token refused early once makes the gate hold a
 fresh one (at most 30s) and re-send a read: refused twice is a `FINDING` that sessions end early

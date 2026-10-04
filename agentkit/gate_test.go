@@ -24,6 +24,9 @@ func TestGateScriptIsTheWholeReadmeBlock(t *testing.T) {
 	if strings.Contains(string(raw), "```") {
 		t.Fatal("no fence may leak into the script")
 	}
+	if strings.Contains(string(raw), "-skip-waits") {
+		t.Fatal("CI runs every chain: the gate script must not leave out the ones that wait")
+	}
 	if _, err := exec.LookPath("bash"); err == nil {
 		cmd := exec.Command("bash", "-n")
 		cmd.Stdin = bytes.NewReader(raw)

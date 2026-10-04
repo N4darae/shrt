@@ -1,0 +1,93 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	"github.com/N4darae/shrt/diff"
+)
+
+const shelfChain = `apiVersion: shrt/v1
+name: shelf
+volatile:
+    - '**.sku'
+steps:
+    - id: create_product
+      call: ProductService/CreateProduct
+      body:
+        sku: shelf-${vars.tag}-a
+        price_minor: "250"
+      expect:
+        - path: status.code
+          equals: SUCCESS
+    - id: add_stock
+      call: StockService/AddStock
+      body:
+        id_product: ${create_product.product.id_product}
+        qty: "5"
+      expect:
+        - path: qty_on_hand
+          equals: "5"
+    - id: get_product
+      call: ProductService/GetProduct
+      body:
+        id_product: ${create_product.product.id_product}
+      expect:
+        - path: product.qty_on_hand
+          equals: "5"
+`
+
+func TestGoldenGateRepro(t *testing.T) {
+	shop := newFakeShop()
+	shop.stockInProduct = true
+	chdirToFakeShop(t, shop)
+	inProcessGate(t)
+	writeFile(t, ".shrt/chains/shelf.yaml", shelfChain)
+	for _, args := range [][]string{{"run", "shelf", "-var", "tag=tfirst001"}, {"confirm", "shelf", "-note", "shelf"}, {"confirm", "shelf", "-approve", "-by", "alice@example.test"}} {
+		if out, code := shrtOut(t, args[0], args[1:]...); code != 0 {
+			t.Fatalf("%v: exit %d\n%s", args, code, out)
+		}
+	}
+	var golden strings.Builder
+	for _, c := range []struct {
+		name        string
+		lost, stale bool
+	}{
+		{"AddStock answers 5 and stores nothing: ListProducts reads 0 too, so the write", true, false},
+		{"GetProduct reads one short: ListProducts reads the 5 AddStock answered, so the read", false, true},
+	} {
+		shop.addStockLostBug, shop.stockReadBug = c.lost, c.stale
+		out, code := shrtOut(t, "gate", "-repro", "-no-session-check", "-hollow-baseline", "")
+		fmt.Fprintf(&golden, "# %s\n$ shrt gate -repro  [exit %d]\n%s\n", c.name, code, out)
+		want := map[bool]string{true: "settled on the write add_stock (StockService/AddStock)", false: "settled on the read get_product (ProductService/GetProduct)"}[c.lost]
+		if code != 1 || !strings.Contains(out, want) || !strings.Contains(out, "repro: shrt run .shrt/scratch/shelf-slice-get_product.yaml  (reproduced 3/3)") {
+			t.Errorf("%s: the gate settles the unclear row with ListProducts and verifies a one-line repro, got %d:\n%s", c.name, code, out)
+		}
+		if !strings.Contains(out, "masks: none of the ") {
+			t.Errorf("%s: a sku differing by the run tag under a volatile path is no mask that hid a change:\n%s", c.name, out)
+		}
+	}
+	checkGolden(t, "gate-repro.txt", golden.String())
+}
+
+func TestTheGateListsAMaskedValueThatDifferedBeyondTagsIdsAndTimestamps(t *testing.T) {
+	report := func(changes ...diff.Change) gateOutcome {
+		raw, _ := json.Marshal(map[string]any{"run": map[string]any{"vars": map[string]any{"tag": "tnew00001"}}, "diff": diff.Report{VolatileValues: changes}})
+		return gateOutcome{stdout: string(raw)}
+	}
+	gateWorkspace(t, map[string][]gateOutcome{"verify cli-thing-flow": {report(
+		diff.Change{Step: "make", Path: "thing.created_at", Kind: diff.KindChanged, Want: "2026-09-28T18:38:33Z", Got: "2026-10-04T17:50:13Z"},
+		diff.Change{Step: "make", Path: "thing.name", Kind: diff.KindChanged, Want: "n-told0001-x", Got: "n-tnew00001-x"},
+		diff.Change{Step: "make", Path: "thing.total", Kind: diff.KindChanged, Want: "600", Got: "400"},
+		diff.Change{Step: "list_all", Path: "things.3.name", Kind: diff.KindChanged, Want: "a", Got: "b", Mask: "things"},
+		diff.Change{Step: "list_all", Path: "things", Kind: diff.KindLength, Want: 5, Got: 9, Mask: "things"},
+	)}})
+	out := gateMasks(context.Background(), []*gateChain{{name: "cli-thing-flow", spot: true}, {name: "cli-unique"}})
+	if out != "masks: 1 masked or volatile value(s) differed beyond run tags, ids and timestamps, leaving out 2 inside whole lists a step marks volatile, "+
+		"which hold whatever else the backend holds (cli-thing-flow list_all):\n  cli-thing-flow make thing.total (600 -> 400)" {
+		t.Fatalf("a timestamp and a run tag are what a mask is for, a total is not, and an unscoped list is counted apart:\n%s", out)
+	}
+}

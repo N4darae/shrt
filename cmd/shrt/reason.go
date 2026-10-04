@@ -193,20 +193,25 @@ func requestLine(r reason, step string, sent func(string) string) string {
 	return ""
 }
 
-func tellApart(e *env, r reason, path string) string {
+type tellRead struct {
+	method *catalog.Method
+	path   string
+}
+
+func tellApartReads(e *env, r reason, path string) (string, []tellRead, bool) {
 	if r.Kind != reasonUnclear || len(r.Or) > 0 || e == nil || e.cat == nil {
-		return ""
+		return "", nil, false
 	}
 	m, err := e.cat.Lookup(r.ReadRPC)
 	if err != nil {
-		return ""
+		return "", nil, false
 	}
 	carrier, ok := carrierOf(m, path)
 	if !ok {
-		return ""
+		return "", nil, false
 	}
 	msg, field := carrier[:strings.LastIndex(carrier, ".")], leafName(carrier)
-	var via []string
+	var via []tellRead
 	for _, o := range e.cat.Methods() {
 		if len(via) == 2 {
 			break
@@ -215,8 +220,20 @@ func tellApart(e *env, r reason, path string) string {
 			if o.ServerStreaming {
 				p = catalog.StreamMessages + "[]." + p
 			}
-			via = append(via, shortRPC(o.FullName)+" ("+p+")")
+			via = append(via, tellRead{method: o, path: p})
 		}
+	}
+	return field, via, true
+}
+
+func tellApart(e *env, r reason, path string) string {
+	field, reads, ok := tellApartReads(e, r, path)
+	if !ok {
+		return ""
+	}
+	var via []string
+	for _, t := range reads {
+		via = append(via, shortRPC(t.method.FullName)+" ("+t.path+")")
 	}
 	if len(via) == 0 && r.Other == asSent {
 		return fmt.Sprintf("%s answered %s as sent; only %s differs", r.Step, field, methodName(r.ReadRPC))
