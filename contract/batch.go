@@ -163,7 +163,7 @@ func (p *Plan) refusedLineReads(lib *Library, probe *chain.Step, lines []batchLi
 			if prod == nil || chain.IsReadOnlyCall(prod.Call) {
 				continue
 			}
-			e, ok := p.readerFor(lib, prod, ref[1])
+			e, ok := p.readerMatching(lib, prod, ref[1], true)
 			if !ok {
 				continue
 			}
@@ -198,7 +198,7 @@ func (p *Plan) reportedMatchesStored(lib *Library, partial *chain.Step, key stri
 				continue
 			}
 			if _, seen := entity[ref[0]]; !seen {
-				e, ok := p.readerFor(lib, prod, ref[1])
+				e, ok := p.readerMatching(lib, prod, ref[1], true)
 				if !ok {
 					continue
 				}

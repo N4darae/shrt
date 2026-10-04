@@ -24,7 +24,7 @@ func ProducersOf(field string, methods []*catalog.Method, exclude string) []Prod
 	leaf := field[strings.LastIndex(field, ".")+1:]
 	out := []Producer{}
 	for _, m := range methods {
-		if m.FullName == exclude || isReadOnly(m.Name) || m.Streaming() {
+		if m.FullName == exclude || chain.IsReadOnlyCall(m.Name) || m.Streaming() {
 			continue
 		}
 		if carriesLeaf(catalog.DescribeMessage(m.Input()).Fields, leaf) {
@@ -102,10 +102,6 @@ func carriesLeaf(fields []*catalog.Field, leaf string) bool {
 	return false
 }
 
-func isReadOnly(name string) bool {
-	return chain.IsReadOnlyCall(name)
-}
-
 func ScaffoldOverlay(domain string, methods []*catalog.Method, existing *Library, all []*catalog.Method) *yaml.Node {
 	doc := &yaml.Node{Kind: yaml.MappingNode}
 	put(doc, "apiVersion", scalar(OverlayAPIVersion))
@@ -164,7 +160,7 @@ func scaffoldRPC(m *catalog.Method, prior *RPCContract, all []*catalog.Method) *
 			return node
 		}
 	}
-	if isReadOnly(m.Name) {
+	if chain.IsReadOnlyCall(m.Name) {
 		return scaffoldReadOnly(m, all)
 	}
 	return scaffoldWrite(m, all)
@@ -251,7 +247,7 @@ func addNewFields(node *yaml.Node, prior *RPCContract, m *catalog.Method, all []
 		}
 	}
 	hint := fieldHint
-	if isReadOnly(m.Name) {
+	if chain.IsReadOnlyCall(m.Name) {
 		hint = readOnlyHint
 	}
 	added := &yaml.Node{Kind: yaml.MappingNode}

@@ -431,7 +431,7 @@ func (p *Plan) buildStep(id, alias string, m *catalog.Method, lib *Library) *cha
 	schema := catalog.DescribeMessage(m.Input())
 	names := byIndexDepth(sortedKeys(fields))
 	for _, name := range names {
-		growLists(step.Body, name)
+		growAt(step.Body, chain.SplitPath(name))
 	}
 	for _, name := range names {
 		f := fields[name]
@@ -625,10 +625,6 @@ func setAt(cur any, segs []string, value any) bool {
 }
 
 const maxPlannedEntries = 100
-
-func growLists(body map[string]any, path string) {
-	growAt(body, chain.SplitPath(path))
-}
 
 func growAt(cur any, segs []string) any {
 	if len(segs) == 0 {
@@ -1021,7 +1017,7 @@ func (p *Plan) noteRequirements() {
 			p.gap("step %s: required is an unfilled TODO, so this plan cannot say what the server rejects without — treat the body as unverified", id)
 		}
 		for _, name := range pc.contract.Required {
-			if IsRequiredNone(name) {
+			if strings.TrimSpace(name) == RequiredNone {
 				continue
 			}
 			if strings.TrimSpace(name) == RequiredUnknown {

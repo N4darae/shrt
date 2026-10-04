@@ -609,7 +609,7 @@ func (p *Plan) readAfterMoves(lib *Library, unread map[string][]string) {
 			if s == nil {
 				continue
 			}
-			en, ok := p.readerFor(lib, prod, s.idPath)
+			en, ok := p.readerMatching(lib, prod, s.idPath, true)
 			if !ok {
 				continue
 			}
@@ -1281,7 +1281,7 @@ func (p *Plan) probeSameEntityTwice(lib *Library, isTarget func(*chain.Step) boo
 		act.Expect = retargetExpect(act.Expect, order.ID, fixture.ID)
 		act.Description = fmt.Sprintf("%s on an order naming one %s on two %s: the stock read after it is down by both quantities.", st.ID, noun, v.list)
 		steps := []*chain.Step{fixture, act}
-		if e, ok := p.readerFor(lib, entity, v.stock.idPath); ok {
+		if e, ok := p.readerMatching(lib, entity, v.stock.idPath, true); ok {
 			steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
 				fmt.Sprintf("the %s after %s: %s lower by %d, both lines counted.", e.carrier, id, v.stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 		}
@@ -1348,7 +1348,7 @@ func (p *Plan) probeSameLineTwice(lib *Library, r *effectRules, isTarget func(*c
 				"merges or drops a line for a %s it already saw fails", st.ID, id, entity.ID, list, a, b, noun)
 		} else {
 			probe.Description = fmt.Sprintf("as %s, with %s on both %s (%d and %d): each line applied in turn, the second on top of the first.", st.ID, entity.ID, list, a, b)
-			if e, ok := p.readerFor(lib, entity, stock.idPath); ok {
+			if e, ok := p.readerMatching(lib, entity, stock.idPath, true); ok {
 				steps = append(steps, e.readStep(p.freeStepID(defaultID(e.reader.Name)+"_after_"+id),
 					fmt.Sprintf("the %s after %s: %s up by %d, both lines counted.", e.carrier, id, stock.moved, a+b), "${"+entity.ID+"."+e.idPath+"}"))
 			}

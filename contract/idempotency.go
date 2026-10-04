@@ -122,7 +122,7 @@ func (p *Plan) replayAfterTransitions(lib *Library, st *chain.Step, m *catalog.M
 		return
 	}
 	idPath := carrier + "." + idField
-	read, ok := p.readerFor(lib, st, idPath)
+	read, ok := p.readerMatching(lib, st, idPath, true)
 	if !ok {
 		return
 	}

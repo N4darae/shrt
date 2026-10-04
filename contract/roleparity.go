@@ -180,7 +180,7 @@ func (p *Plan) readParity(st *chain.Step, m *catalog.Method, c *RPCContract, pro
 func (p *Plan) writeParity(lib *Library, st *chain.Step, m *catalog.Method, profiles []string) {
 	entities := p.entitiesOf(lib, st)
 	if idPath := p.createdIDPath(st, m); idPath != "" {
-		if e, ok := p.readerFor(lib, st, idPath); ok {
+		if e, ok := p.readerMatching(lib, st, idPath, true); ok {
 			entities = append(entities, e)
 		}
 	}

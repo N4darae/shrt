@@ -28,11 +28,10 @@ const (
 	LegacyRefSeparator = "#"
 )
 
-const NoneLiteral = "NONE"
-
-const RoleNone = NoneLiteral
-
-const RequiredNone = NoneLiteral
+const (
+	RoleNone     = "NONE"
+	RequiredNone = "NONE"
+)
 
 const RequiredUnknown = "UNKNOWN"
 
@@ -81,14 +80,6 @@ func (c *RPCContract) IsUnfilled(key string) bool { return c.Unfilled[key] }
 
 func (c *RPCContract) DeclaresNoRole() bool {
 	return len(c.RequiresRole) == 1 && strings.TrimSpace(c.RequiresRole[0]) == RoleNone
-}
-
-func (c *RPCContract) DeclaresNothingRequired() bool {
-	return len(c.Required) == 1 && strings.TrimSpace(c.Required[0]) == RequiredNone
-}
-
-func IsRequiredNone(name string) bool {
-	return strings.TrimSpace(name) == RequiredNone
 }
 
 func IsRequiredLiteral(name string) bool {

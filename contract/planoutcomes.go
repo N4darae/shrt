@@ -2,6 +2,7 @@ package contract
 
 import (
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,15 +54,6 @@ func (p *Plan) verdictOnlyLeft(lib *Library) bool {
 			if c, ok := lib.Get(m.FullName); ok && len(DeclaredFacts(c)) > 0 {
 				return true
 			}
-		}
-	}
-	return false
-}
-
-func declaresFact(c *RPCContract, name string) bool {
-	for _, section := range []map[string]string{c.Exports, c.Terminal, c.SoftSignals} {
-		if _, ok := section[name]; ok {
-			return true
 		}
 	}
 	return false
@@ -135,7 +127,7 @@ func (p *Plan) outcomeExpectations(st *chain.Step, m *catalog.Method, c *RPCCont
 			continue
 		}
 		for _, o := range scalars {
-			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && declaresFact(c, o.Name) {
+			if chain.IsNumericKind(o.Kind) && strings.HasPrefix(o.Name, f.Name+"_") && slices.Contains(DeclaredFacts(c), o.Name) {
 				out = append(out, chain.Expectation{Path: o.Name, Gte: "${steps." + st.ID + ".request." + key + "}"})
 			}
 		}

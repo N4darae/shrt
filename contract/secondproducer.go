@@ -178,7 +178,7 @@ func (p *Plan) cloneProducer(src string, reader *chain.Step) (string, []producer
 	clone := copyStep(orig, id)
 	suffix := strings.TrimPrefix(id, src+"_")
 	if m, err := p.cat.Lookup(orig.Call); err == nil {
-		distinctProducer(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix)
+		distinctProducerAt(clone.Body, catalog.DescribeMessage(m.Input()).Fields, suffix, 1)
 	}
 	p.insertAfter(src, clone)
 	p.noteUnterminatedOrdinal(orig, clone)
@@ -291,10 +291,6 @@ func markAfterVar(text string, loc []int, marker string) string {
 		return text[:loc[1]+1] + marker + "." + rest[1:]
 	}
 	return text[:loc[1]+1] + marker + rest[1:]
-}
-
-func distinctProducer(body map[string]any, fields []*catalog.Field, suffix string) {
-	distinctProducerAt(body, fields, suffix, 1)
 }
 
 func distinctProducerAt(body map[string]any, fields []*catalog.Field, suffix string, rank int) {

@@ -115,8 +115,6 @@ func QualityTerms() []QualityTerm {
 	}
 }
 
-func ScoreOf(r QualityRPC) int { return ScoreOfPhase(r, PhaseAll) }
-
 func ScoreOfPhase(r QualityRPC, phase string) int {
 	total := 0
 	for _, t := range QualityTerms() {
@@ -186,17 +184,13 @@ func MethodShapes(cat *catalog.Catalog) map[string]MethodShape {
 			shape.RequestFields = append(shape.RequestFields, f.Name)
 		}
 		for _, f := range catalog.DescribeMessage(m.Output()).Fields {
-			if referenceableResponseField(f) {
+			if f.Name != chain.EnvelopeField() {
 				shape.ResponseFields = append(shape.ResponseFields, f.Name)
 			}
 		}
 		out[m.FullName] = shape
 	}
 	return out
-}
-
-func referenceableResponseField(f *catalog.Field) bool {
-	return f.Name != chain.EnvelopeField()
 }
 
 func MeasurePhase(lib *Library, cat *catalog.Catalog, domain, phase string) QualityReport {
@@ -263,7 +257,7 @@ func saysAnything(f *FieldContract) bool {
 }
 
 func requiredSaysSomething(c *RPCContract, shape MethodShape) bool {
-	if c.DeclaresNothingRequired() {
+	if len(c.Required) == 1 && strings.TrimSpace(c.Required[0]) == RequiredNone {
 		return true
 	}
 	real := map[string]bool{}
@@ -332,12 +326,12 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		}
 	}
 
-	writePath := !isReadOnly(shortRPC(rpc))
+	writePath := !chain.IsReadOnlyCall(rpc)
 	unwired, unchecked := measureIDKeys(c, fields, writePath)
 
 	noFailures := writePath && len(c.Failures) == 0
 
-	noProducer := !writePath && !hasWriteProducer(c, fields, requiredBy) && !noteExplains(c.NoProducer)
+	noProducer := !writePath && !hasWriteProducer(c, fields, requiredBy) && !Explains(c.NoProducer)
 
 	missingRole := len(c.RequiresRole) == 0
 
@@ -359,7 +353,7 @@ func measureRPC(domain, rpc string, c *RPCContract, shape MethodShape, requiredB
 		WiredFields:              wired,
 		HasSummary:               Explains(c.Summary),
 	}
-	row.Score = ScoreOf(row)
+	row.Score = ScoreOfPhase(row, PhaseAll)
 	return row
 }
 
@@ -367,7 +361,7 @@ func hasWriteProducer(c *RPCContract, fields map[string]*FieldContract, required
 	isWrite := func(node string) bool {
 		rpc, _ := SplitNode(node)
 		rpc = strings.TrimSpace(rpc)
-		return rpc != "" && !isReadOnly(shortRPC(rpc))
+		return rpc != "" && !chain.IsReadOnlyCall(rpc)
 	}
 	for _, n := range c.Needs {
 		if isWrite(n) {
@@ -412,20 +406,16 @@ func Explains(text string) bool {
 	return len(strings.Fields(trimmed)) >= minExplanationWords
 }
 
-func noteExplains(note string) bool {
-	return Explains(note)
-}
-
 func measureIDKeys(c *RPCContract, fields map[string]*FieldContract, writePath bool) (unwired, unchecked []string) {
 	unwired, unchecked = []string{}, []string{}
 	keys := map[string]bool{}
 	for key := range fields {
-		if isEntityIDKey(key) {
+		if IsEntityIDField(key) {
 			keys[key] = true
 		}
 	}
 	for _, key := range c.Required {
-		if isEntityIDKey(key) {
+		if IsEntityIDField(key) {
 			keys[key] = true
 		}
 	}
@@ -501,8 +491,6 @@ func effectiveFields(c *RPCContract) map[string]*FieldContract {
 func hasValueSource(f *FieldContract) bool {
 	return f != nil && (f.From != "" || f.SameAs != "" || f.Value != "")
 }
-
-func isEntityIDKey(key string) bool { return IsEntityIDField(key) }
 
 func relatedKey(a, b string) bool {
 	if a == b || strings.HasPrefix(a, b+".") || strings.HasPrefix(b, a+".") {

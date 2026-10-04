@@ -274,7 +274,7 @@ func (p *Plan) entitiesOf(lib *Library, st *chain.Step) []entityRead {
 				continue
 			}
 			seen[m[0]] = true
-			if e, ok := p.readerFor(lib, prod, m[1]); ok {
+			if e, ok := p.readerMatching(lib, prod, m[1], true); ok {
 				out = append(out, e)
 			}
 			if depth < 1 {
@@ -310,10 +310,6 @@ func allStepRefs(v any) [][2]string {
 	}
 	walk(v)
 	return out
-}
-
-func (p *Plan) readerFor(lib *Library, prod *chain.Step, idPath string) (entityRead, bool) {
-	return p.readerMatching(lib, prod, idPath, true)
 }
 
 func (e entityRead) readStep(id, description, ref string) *chain.Step {

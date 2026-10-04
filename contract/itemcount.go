@@ -89,7 +89,7 @@ func (p *Plan) addItemCounts(lib *Library, st *chain.Step, il itemList, thirds m
 		id, ok := thirds[sec.src]
 		if !ok {
 			var made []*chain.Step
-			id, made = p.thirdProducer(sec)
+			id, made = p.itemProducer(sec, 3)
 			thirds[sec.src] = id
 			added = append(added, made...)
 		}
@@ -223,10 +223,6 @@ func (p *Plan) reserveStepID(base string) string {
 	}
 	p.reserved[id] = true
 	return id
-}
-
-func (p *Plan) thirdProducer(sec producerSecond) (string, []*chain.Step) {
-	return p.itemProducer(sec, 3)
 }
 
 func (p *Plan) itemProducer(sec producerSecond, n int) (string, []*chain.Step) {

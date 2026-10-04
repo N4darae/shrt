@@ -94,31 +94,13 @@ func exportHints(fields []*catalog.Field, prefix string) []ExportHint {
 	return out
 }
 
-func StepNodePreferring(m *catalog.Method, id string, prefer []string) *yaml.Node {
-	if id == "" {
-		id = defaultID(m.Name)
-	}
-	step := &chain.Step{
-		ID:     id,
-		Call:   m.FullName,
-		Expect: SuccessExpectation(m),
-	}
-	node := &yaml.Node{}
-	if err := node.Encode(step); err != nil {
-		return nil
-	}
-	schema := catalog.DescribeMessage(m.Input())
-	inject(node, bodyNode(schema.Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
-	return node
-}
-
 func stepYAML(m *catalog.Method, prefer []string) string {
-	node := StepNodePreferring(m, "", prefer)
-	if node == nil {
+	node := &yaml.Node{}
+	if err := node.Encode(&chain.Step{ID: defaultID(m.Name), Call: m.FullName, Expect: SuccessExpectation(m)}); err != nil {
 		return ""
 	}
-	seq := &yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}}
-	raw, err := yaml.Marshal(seq)
+	inject(node, bodyNode(catalog.DescribeMessage(m.Input()).Fields, catalog.ScaffoldWith(m.Input(), catalog.ScaffoldOptions{Prefer: prefer})))
+	raw, err := yaml.Marshal(&yaml.Node{Kind: yaml.SequenceNode, Content: []*yaml.Node{node}})
 	if err != nil {
 		return ""
 	}
