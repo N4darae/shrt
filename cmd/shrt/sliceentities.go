@@ -394,24 +394,12 @@ func assertsListItemKey(c *chain.Chain, stepID, key string) bool {
 	for _, e := range s.Expect {
 		segs := chain.SplitPath(e.Path)
 		for i := 1; i < len(segs); i++ {
-			if segs[i] == key && isIndex(segs[i-1]) {
+			if segs[i] == key && chain.IsDigits(segs[i-1]) {
 				return true
 			}
 		}
 	}
 	return false
-}
-
-func isIndex(seg string) bool {
-	if seg == "" {
-		return false
-	}
-	for _, r := range seg {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func listsItemsKeyed(v any, key string) bool {

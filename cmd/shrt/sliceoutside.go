@@ -86,23 +86,11 @@ func outsideState(run *runner.Record, target *runner.StepRecord) []string {
 func listItemPrefix(path string) string {
 	segs := strings.Split(path, ".")
 	for i := len(segs) - 1; i > 0; i-- {
-		if digitsOnly(segs[i]) {
+		if chain.IsDigits(segs[i]) {
 			return strings.Join(segs[:i+1], ".")
 		}
 	}
 	return ""
-}
-
-func digitsOnly(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
 }
 
 func lookupPath(v any, path string) any {
@@ -111,7 +99,7 @@ func lookupPath(v any, path string) any {
 		case map[string]any:
 			v = t[seg]
 		case []any:
-			if !digitsOnly(seg) {
+			if !chain.IsDigits(seg) {
 				return nil
 			}
 			i := 0
