@@ -273,10 +273,7 @@ func uniqueCollision(e *env, rec *runner.Record, first *runner.StepRecord, index
 	if !ok || st.Call != first.Call || !refusedSameWay(why, all, fields, st) {
 		return f
 	}
-	var req any
-	if json.Unmarshal(st.Request, &req) != nil {
-		return f
-	}
+	req := decoded(st.Request)
 	for _, field := range fields {
 		if v, ok := chain.Get(req, field.path); ok {
 			f.before = append(f.before, fmt.Sprintf("%s=%v", field.path, v))
@@ -298,13 +295,10 @@ func freshValuesOf(e *env, rec, prev *runner.Record, step string, names []string
 		out = append(out, fmt.Sprintf("%s=%v", n, was))
 	}
 	if st, ok := prev.Step(step); ok {
-		var req any
-		sent := []string{}
-		if json.Unmarshal(st.Request, &req) == nil {
-			for _, f := range fields {
-				if v, ok := chain.Get(req, f.path); ok {
-					sent = append(sent, fmt.Sprint(v))
-				}
+		sent, req := []string{}, decoded(st.Request)
+		for _, f := range fields {
+			if v, ok := chain.Get(req, f.path); ok {
+				sent = append(sent, fmt.Sprint(v))
 			}
 		}
 		if _, run, _ := usedByAnotherChain(e, prev, sent); run != "" {
@@ -397,11 +391,7 @@ func inRunRepeatAcceptedBefore(e *env, rec *runner.Record, index int, conflictin
 			if st == nil || st.Call != first.Call || !createdStep(st) {
 				continue
 			}
-			var before any
-			if json.Unmarshal(st.Request, &before) != nil {
-				continue
-			}
-			if got, ok := chain.Get(before, f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
+			if got, ok := chain.Get(decoded(st.Request), f.path); ok && fmt.Sprint(got) == f.sent && repeatAcceptedBefore(e, rec, first.ID, st.ID, f.path) {
 				repeated = true
 			}
 		}
@@ -579,10 +569,7 @@ func stepRefusalText(st *runner.StepRecord) string {
 	if st.Transport != nil {
 		return strings.TrimSpace(st.Transport.Code + ": " + st.Transport.Message)
 	}
-	var body any
-	if err := json.Unmarshal(st.Response, &body); err != nil {
-		return ""
-	}
+	body := decoded(st.Response)
 	code, ok := chain.Get(body, chain.EnvelopePath())
 	if !ok || code == nil || fmt.Sprint(code) == chain.EnvelopeOK() || fmt.Sprint(code) == "" {
 		return ""

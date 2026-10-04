@@ -224,13 +224,11 @@ func replayedKeys(c *chain.Chain, now *runner.StepRecord) func(was *runner.StepR
 		}
 	}
 	return func(was *runner.StepRecord) *idempotentReplay {
-		var a any
-		if len(body) > 0 && json.Unmarshal(was.Request, &a) == nil {
-			for _, k := range body {
-				if x, ok := chain.Get(a, k.name); ok {
-					if r := sameKey(now.ID, k.field, fmt.Sprint(x), k.value, k.template); r != nil {
-						return r
-					}
+		a := decoded(was.Request)
+		for _, k := range body {
+			if x, ok := chain.Get(a, k.name); ok {
+				if r := sameKey(now.ID, k.field, fmt.Sprint(x), k.value, k.template); r != nil {
+					return r
 				}
 			}
 		}

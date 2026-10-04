@@ -129,10 +129,7 @@ func (s *priorScan) shrunkList(st *runner.StepRecord) string {
 	if !answeredCleanly(st) {
 		return ""
 	}
-	var after any
-	if json.Unmarshal(st.Response, &after) != nil {
-		return ""
-	}
+	after := decoded(st.Response)
 	key, ok := requestKey(st)
 	if !ok {
 		return ""
