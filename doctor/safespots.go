@@ -155,13 +155,12 @@ func sameStepsAs(spotPath, spotsDir, chainsDir string, names []string) (string, 
 			unspotted = append(unspotted, n)
 		}
 	}
-	if len(unspotted) == 1 {
+	switch {
+	case len(unspotted) == 1:
 		return unspotted[0], nil
-	}
-	if len(unspotted) > 1 {
-		pool = unspotted
-	}
-	if len(pool) > 1 {
+	case len(unspotted) > 1:
+		return "", unspotted
+	case len(pool) > 1:
 		return "", pool
 	}
 	return "", nil
