@@ -3,7 +3,6 @@ package runner
 import (
 	"cmp"
 	"fmt"
-	"strings"
 
 	"github.com/N4darae/shrt/catalog"
 	"github.com/N4darae/shrt/chain"
@@ -74,7 +73,7 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 			continue
 		}
 		if step.SkipAuth {
-			if name, ok := headerIn(step.Headers, "Authorization"); ok {
+			if name, ok := chain.HeaderNamed(step.Headers, "Authorization"); ok {
 				return fmt.Errorf("step %q (step %d) writes %q by hand with skip_auth, so nothing was sent: that pins one "+
 					"principal into one step with no refresh, and chain lint rejects it. Declare the principal as a "+
 					"profile in .shrt/config.yaml and name it with auth: <profile>", step.ID, i+1, name)
@@ -88,7 +87,7 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 		if !routed {
 			continue
 		}
-		if name, ok := headerIn(step.Headers, headers[profile]); ok {
+		if name, ok := chain.HeaderNamed(step.Headers, headers[profile]); ok {
 			return fmt.Errorf("step %q (step %d) writes %q by hand, and auth profile %q covers this call, so nothing was "+
 				"sent: the auth middleware would overwrite the header with %q's token and the step would run as %q's "+
 				"principal while reading as another's, which chain lint rejects. To call as a different principal, "+
@@ -97,15 +96,6 @@ func (r *Runner) checkHandWrittenAuth(c *chain.Chain) error {
 		}
 	}
 	return nil
-}
-
-func headerIn(headers map[string]string, want string) (string, bool) {
-	for name := range headers {
-		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(want)) {
-			return name, true
-		}
-	}
-	return "", false
 }
 
 func routeOf(router *transport.AuthRouter, cat *catalog.Catalog) func(*chain.Step) (string, bool) {

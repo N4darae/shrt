@@ -402,7 +402,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"skip_auth and auth: %q contradict each other — skip_auth sends no token at all, drop one", s.Auth)})
 	}
-	if name, ok := headerNamed(s.Headers, "Authorization"); ok && s.SkipAuth {
+	if name, ok := HeaderNamed(s.Headers, "Authorization"); ok && s.SkipAuth {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"skip_auth with a hand-written %q header is the workaround auth profiles replaced: it pins one "+
 				"principal into one step, with no refresh, so the chain fails tomorrow for a reason that is "+
@@ -411,7 +411,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 		return issues
 	}
 	if coverage == nil {
-		if name, ok := headerNamed(s.Headers, "Authorization"); ok {
+		if name, ok := HeaderNamed(s.Headers, "Authorization"); ok {
 			issues = append(issues, Issue{Step: s.ID, Severity: SeverityWarn, Message: fmt.Sprintf(
 				"%q is written by hand and the auth middleware overwrites it whenever a profile covers this "+
 					"call, so this value is discarded rather than sent. Keep it only if your config declares no "+
@@ -423,7 +423,7 @@ func lintAuth(s *Step, coverage func(*Step) (string, string, bool)) []Issue {
 	if !covered {
 		return issues
 	}
-	if name, ok := headerNamed(s.Headers, header); ok {
+	if name, ok := HeaderNamed(s.Headers, header); ok {
 		issues = append(issues, Issue{Step: s.ID, Severity: SeverityError, Message: fmt.Sprintf(
 			"%q is written by hand, and auth profile %q covers this call, so the auth middleware "+
 				"overwrites the header with that profile's token: the value written here is never sent and "+
@@ -449,7 +449,7 @@ func lintAuthProfile(s *Step, profiles []string) []Issue {
 			"chain before sending anything%s", s.Auth, strings.Join(have, ", "), didYouMean(s.Auth, have))}}
 }
 
-func headerNamed(headers map[string]string, want string) (string, bool) {
+func HeaderNamed(headers map[string]string, want string) (string, bool) {
 	for name := range headers {
 		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(want)) {
 			return name, true

@@ -748,7 +748,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was refused before a response body existed (transport %s), so there is no "+
 			"response to read.", sr.Transport.Code)
 	case sr.Status == StatusError:
-		return "did not complete (" + firstLine(sr.Error) + "), so there is no response to read."
+		return "did not complete (" + FirstLine(sr.Error) + "), so there is no response to read."
 	case sr.Drift:
 		return "was answered with a body the descriptor could not decode, so no value read from it can be trusted."
 	}
@@ -760,7 +760,7 @@ func whyNotReadable(sr *StepRecord) string {
 		return fmt.Sprintf("was answered but failed its assertion on %s: -keep-going does not send a request "+
 			"built from a response the chain has already said is wrong.", strings.Join(failed, ", "))
 	}
-	return "did not pass (" + firstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
+	return "did not pass (" + FirstLine(cmp.Or(sr.Error, sr.Status)) + "), so -keep-going does not " +
 		"send a request built from its response."
 }
 
@@ -890,7 +890,7 @@ func groupProblems(problems []string) []string {
 	return out
 }
 
-func firstLine(s string) string {
+func FirstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return strings.TrimSpace(line)
 }
@@ -1045,7 +1045,7 @@ func (r *Runner) Run(ctx context.Context, c *chain.Chain, opts Options) (*Record
 		}
 	}
 	for at, ids := range repeats {
-		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), capIDs(ids, 10))
+		failures[at] += fmt.Sprintf("\nthe same for %d more step(s): %s", len(ids), chain.ListSome(ids, 10))
 	}
 	switch {
 	case (pastPins || !opts.KeepGoing) && len(failures) == 1 && len(failed) == 1 && unreached == 0:
@@ -2193,13 +2193,6 @@ func newRunID(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z") + "-" + hex.EncodeToString(b)
 }
 
-func capIDs(ids []string, max int) string {
-	if len(ids) <= max {
-		return strings.Join(ids, ", ")
-	}
-	return fmt.Sprintf("%s and %d more", strings.Join(ids[:max], ", "), len(ids)-max)
-}
-
 func (s *StepRecord) failures() []string {
 	parts := []string{}
 	for _, e := range s.Expect {
@@ -2259,15 +2252,10 @@ func withMisspeltItemVerdicts(sr *StepRecord, refusals []chain.ItemRefusal, body
 			refusals = append(refusals, m.Refusal)
 		}
 	}
-	sort.SliceStable(refusals, func(a, b int) bool { return itemLine(refusals[a].Line) < itemLine(refusals[b].Line) })
+	sort.SliceStable(refusals, func(a, b int) bool { return chain.ItemIndex(refusals[a].Line) < chain.ItemIndex(refusals[b].Line) })
 	sr.Warning = joinLines(sr.Warning, strings.Join(lines, "; ")+": a key that differs from the item verdict only in case or "+
 		"separators is not read, so each such line is judged as carrying no verdict, never as a success")
 	return refusals
-}
-
-func itemLine(line string) int {
-	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
-	return n
 }
 
 func unknownHoldsAVerdict(unknown []string) bool {

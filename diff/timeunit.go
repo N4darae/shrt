@@ -31,7 +31,7 @@ func recordWindow(rec *runner.Record) *runWindow {
 	}
 	from := rec.StartedAt
 	if from.IsZero() {
-		at, ok := runIDStamp(rec.RunID)
+		at, ok := runner.RunIDTime(rec.RunID)
 		if !ok {
 			return nil
 		}
@@ -44,7 +44,7 @@ func spotWindow(spot *store.SafeSpot) *runWindow {
 	if spot == nil {
 		return nil
 	}
-	at, ok := runIDStamp(spot.RunID)
+	at, ok := runner.RunIDTime(spot.RunID)
 	if !ok {
 		return nil
 	}
@@ -55,12 +55,6 @@ func spotWindow(spot *store.SafeSpot) *runWindow {
 		}
 	}
 	return &runWindow{from: at, to: to.Add(time.Second)}
-}
-
-func runIDStamp(id string) (time.Time, bool) {
-	stamp, _, _ := strings.Cut(id, "-")
-	at, err := time.Parse("20060102T150405Z", stamp)
-	return at, err == nil
 }
 
 type timeValue struct {

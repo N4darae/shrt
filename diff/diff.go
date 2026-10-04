@@ -251,7 +251,7 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 	first := firstRed(rec)
 	if first != nil {
 		rep.FirstFailure = fmt.Sprintf("step %d %s (%s)", first.Index, first.ID, first.Status)
-		if why := firstLineOf(first.Error); why != "" {
+		if why := runner.FirstLine(first.Error); why != "" {
 			rep.FirstFailure += ": " + why
 		} else if failed := failedExpectation(first); failed != "" {
 			rep.FirstFailure += ": " + failed
@@ -276,14 +276,14 @@ func compareMasking(spot *store.SafeSpot, rec *runner.Record, extra []string, as
 		if StepReached(rec, want) && !StepReached(rec, got) && got != first && !sentUnanswered(got) {
 			rep.Changes = append(rep.Changes, Change{
 				Step: want.ID, Path: "status", Kind: KindNotReached,
-				Want: want.Status, Got: got.Status, Detail: firstLineOf(got.Error),
+				Want: want.Status, Got: got.Status, Detail: runner.FirstLine(got.Error),
 			})
 			continue
 		}
 		if want.Status != got.Status {
 			change := Change{Step: want.ID, Path: "status", Kind: KindStatus, Want: want.Status, Got: got.Status}
 			if got.Status == runner.StatusError || got.Transport != nil {
-				change.Detail = firstLineOf(got.Error)
+				change.Detail = runner.FirstLine(got.Error)
 			}
 			if change.Detail == "" {
 				change.Detail = heldBackDetail(got)
@@ -901,11 +901,6 @@ func firstRed(rec *runner.Record) *runner.StepRecord {
 		}
 	}
 	return nil
-}
-
-func firstLineOf(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return strings.TrimSpace(line)
 }
 
 func unapproved(approved []string, rec *runner.Record, extra []string) []string {

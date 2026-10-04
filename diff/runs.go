@@ -89,7 +89,7 @@ func stepError(s *runner.StepRecord) string {
 	if s == nil || (s.Status != runner.StatusError && s.Status != runner.StatusSkipped && s.Transport == nil) {
 		return ""
 	}
-	return firstLineOf(s.Error)
+	return runner.FirstLine(s.Error)
 }
 
 func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunReport {
@@ -191,7 +191,7 @@ func CompareRunsSkipping(a, b *runner.Record, extra []string, fx Fixtures) *RunR
 		if sb == nil || sa.Status != runner.StatusError || sb.Status != runner.StatusError || StepReached(a, sa) || StepReached(b, sb) {
 			continue
 		}
-		if ea, eb := firstLineOf(sa.Error), firstLineOf(sb.Error); ea != eb {
+		if ea, eb := runner.FirstLine(sa.Error), runner.FirstLine(sb.Error); ea != eb {
 			rep.ErrorChanges = append(rep.ErrorChanges, StepStatus{Step: sa.ID, A: sa.Status, B: sb.Status, ErrorA: ea, ErrorB: eb})
 		}
 	}
@@ -703,7 +703,7 @@ func failingLines(s *runner.StepRecord) []string {
 		if s.Transport != nil {
 			out = append(out, fmt.Sprintf("transport %s: %s", s.Transport.Code, s.Transport.Message))
 		} else if s.Error != "" {
-			out = append(out, firstLineOf(s.Error))
+			out = append(out, runner.FirstLine(s.Error))
 		}
 	}
 	return out

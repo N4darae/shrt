@@ -160,7 +160,7 @@ func ItemRefusals(response any) ([]ItemRefusal, error) {
 		line := fmt.Sprintf("%s.%d", listPath, i)
 		out = append(out, ItemRefusal{Path: line + "." + field, Code: NoItemVerdict, Line: line})
 	}
-	sort.SliceStable(out, func(a, b int) bool { return itemIndex(out[a].Line) < itemIndex(out[b].Line) })
+	sort.SliceStable(out, func(a, b int) bool { return ItemIndex(out[a].Line) < ItemIndex(out[b].Line) })
 	if len(items) > 0 && accounted == 0 {
 		return nil, fmt.Errorf("conventions.item_envelope_path expects each %s[] to carry %q, and none of "+
 			"the %d item(s) declares it at all. The per-item verdict is NOT being checked: a batch refusing "+
@@ -228,7 +228,7 @@ func MisspeltItemVerdicts(sent any, unknown []string) []MisspeltItemVerdict {
 	return out
 }
 
-func itemIndex(line string) int {
+func ItemIndex(line string) int {
 	n, _ := strconv.Atoi(line[strings.LastIndex(line, ".")+1:])
 	return n
 }

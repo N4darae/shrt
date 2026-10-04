@@ -83,7 +83,7 @@ func keptRedVerdict(c *chain.Chain, rec *Record, scope *chain.Scope) (string, st
 	case 1:
 		problems = append(problems, fmt.Sprintf("step %q was not sent (why is on its line), so a regression there would not be seen", unsentOther[0]))
 	default:
-		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), capIDs(unsentOther, 5)))
+		problems = append(problems, fmt.Sprintf("%d other steps were not sent (%s), so a regression there would not be seen", len(unsentOther), chain.ListSome(unsentOther, 5)))
 	}
 	if len(problems) == 0 {
 		return KeptRedAsPinned, "failed exactly as kept_red pins: " + pinSummary(c.KeptRed), ""
@@ -200,10 +200,10 @@ func PinCount(n int) string {
 
 func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []string, bool) {
 	if sr.Status == StatusError {
-		return []string{fmt.Sprintf("step %q is error (%s)", id, inNewFailure)}, []string{id + " is error: " + firstLine(sr.Error)}, false
+		return []string{fmt.Sprintf("step %q is error (%s)", id, inNewFailure)}, []string{id + " is error: " + FirstLine(sr.Error)}, false
 	}
 	if sr.Drift || !sr.AssertionFailed() {
-		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + firstLine(sr.Error)}, false
+		return []string{fmt.Sprintf("step %q failed with no failed expectation (%s)", id, inNewFailure)}, []string{id + " failed: " + FirstLine(sr.Error)}, false
 	}
 	if sr.Transport != nil && (len(want) == 0 || pinnedRefusal(sr, want)) {
 		what := "step %q was refused at transport where nothing is pinned (%s)"
@@ -211,7 +211,7 @@ func stepMismatch(id string, sr *StepRecord, want []chain.Pin) ([]string, []stri
 			what = "step %q: the pinned step was refused at transport, so its pinned failure was not seen (%s)"
 		}
 		return []string{fmt.Sprintf(what, id, inNewFailure)},
-			[]string{id + " refused at transport: " + firstLine(strings.TrimSpace(sr.Transport.Code+": "+sr.Transport.Message))}, false
+			[]string{id + " refused at transport: " + FirstLine(strings.TrimSpace(sr.Transport.Code+": "+sr.Transport.Message))}, false
 	}
 	out, fresh := []string{}, []string{}
 	unpinned := false
