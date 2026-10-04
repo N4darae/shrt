@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/N4darae/shrt/chain"
@@ -217,7 +216,10 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 		if err != nil || len(kept.Kept) <= len(plain.Kept) {
 			continue
 		}
-		closure := "shrt chain slice " + c.Name + " -step " + h.Best + freshVarFlags(plain.FreshVars)
+		closure := "shrt chain slice " + c.Name + " -step " + h.Best
+		if len(plain.FreshVars) > 0 {
+			closure += " " + freshFlags(slices.Sorted(slices.Values(plain.FreshVars)))
+		}
 		if related, _ := relatedDroppedWrites(plain, rec); len(related) > 0 {
 			h.CommandSteps = len(kept.Kept)
 			continue
@@ -227,14 +229,12 @@ func preferClosureRepro(e *env, lib *contract.Library, chains []*chain.Chain, hi
 	}
 }
 
-func freshVarFlags(fresh []string) string {
-	names := append([]string{}, fresh...)
-	sort.Strings(names)
-	out := ""
+func freshFlags(names []string) string {
+	flags := make([]string, 0, len(names))
 	for _, name := range names {
-		out += " -var " + name + "=<fresh>"
+		flags = append(flags, "-var "+name+"=<fresh>")
 	}
-	return out
+	return strings.Join(flags, " ")
 }
 
 func freshVarsOf(e *env, lib *contract.Library) func(*chain.Chain, string) []string {

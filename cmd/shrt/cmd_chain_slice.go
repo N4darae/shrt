@@ -356,12 +356,8 @@ func printSlice(res *chain.SliceResult, written string, verdict *sliceVerdict, v
 		printSliceDetail(res)
 	}
 	if len(res.FreshVars) > 0 {
-		flags := make([]string, 0, len(res.FreshVars))
-		for _, name := range res.FreshVars {
-			flags = append(flags, "-var "+name+"=<fresh>")
-		}
 		fmt.Printf("\nkept writes create with %s, so each run needs a value this backend has not seen: %s\n",
-			strings.Join(res.FreshVars, ", "), strings.Join(flags, " "))
+			strings.Join(res.FreshVars, ", "), freshFlags(res.FreshVars))
 	}
 	if len(res.MissingVars) > 0 {
 		fmt.Printf("\nundeclared vars the kept steps read, pass: %s\n", strings.Join(missingVarFlags(res, nil), " "))
@@ -1560,12 +1556,8 @@ func freshVarsError(res *chain.SliceResult, source *chain.Chain, rec *runner.Rec
 	if len(reused) == 0 {
 		return nil
 	}
-	flags := make([]string, 0, len(reused))
-	for _, name := range reused {
-		flags = append(flags, "-var "+name+"=<fresh>")
-	}
 	return fmt.Errorf("kept writes create with %s, which already exists (%s): pass %s, a value this backend has not seen",
-		strings.Join(reused, ", "), strings.Join(from, "; "), strings.Join(flags, " "))
+		strings.Join(reused, ", "), strings.Join(from, "; "), freshFlags(reused))
 }
 
 func recordVerdictIn(path string, record func(string) string) error {
