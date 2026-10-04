@@ -113,7 +113,7 @@ func TestChainPinKeepsTheFailureRedInASliceAndTheRestGreen(t *testing.T) {
 		t.Fatalf("the description says where the pinned steps went:\n%q", rest.Description)
 	}
 	if slice, err := chain.LoadFile(".shrt/chains/probe-orders-slice-cancel_confirmed.yaml"); err != nil ||
-		!strings.Contains(slice.Description, "\nPins cancel_confirmed CancelOrder status.code.\n") {
+		!strings.Contains(slice.Description, "\nPins cancel_confirmed CancelOrder status.code=REJECTED.\n") {
 		t.Fatalf("the slice's description says what it pins (%v):\n%q", err, slice.Description)
 	}
 	captureStdout(t, func() { err = runRun(context.Background(), []string{"probe-orders", "-quiet"}) })
@@ -970,6 +970,30 @@ func TestAKeptRedLineNamesEveryPin(t *testing.T) {
 		c.KeptRed = k.pins
 		if got := pinnedText(c); got != k.want {
 			t.Errorf("pins %v: got %q, want %q", k.pins, got, k.want)
+		}
+	}
+}
+
+func TestAKeptRedLineSaysWhatEachPinGot(t *testing.T) {
+	got := func(v string) *string { return &v }
+	absent := false
+	c := &chain.Chain{Steps: []*chain.Step{{ID: "list", Call: "shop.orders.v1.OrderService/ListOrders", Expect: []chain.Expectation{{Path: "orders.1", Exists: &absent}}},
+		{ID: "confirm", Call: "shop.orders.v1.OrderService/ConfirmOrder"}, {ID: "read", Call: shopGet}}}
+	for _, k := range []struct {
+		pins []chain.Pin
+		want string
+	}{
+		{[]chain.Pin{{Step: "confirm", Path: "status.code", Got: got("SUCCESS")}, {Step: "confirm", Path: "status.details.0.reason", Got: got("")}, {Step: "read", Path: "product.qty_on_hand", Got: got("-1")}},
+			`confirm ConfirmOrder status.code=SUCCESS, status.details[].reason="", read GetProduct product.qty_on_hand=-1`},
+		{[]chain.Pin{{Step: "list", Path: "orders.1", Got: got("true")}, {Step: "confirm", Path: "status.message", Got: got("no order o1, sorry")}},
+			`list ListOrders orders.1 present, confirm ConfirmOrder status.message="no order o1,..."`},
+		{[]chain.Pin{{Step: "read", Path: "product.qty_on_hand", Got: got("1")}, {Step: "read", Path: "product.price_minor", Got: got("2")}, {Step: "read", Path: "product.sku", Got: got("x")},
+			{Step: "read", Path: "product.name", Got: got("y")}, {Step: "read", Path: "product.id_product", Got: got("p1")}},
+			"read GetProduct product.qty_on_hand=1, product.price_minor=2, product.sku=x, product.name=y and 1 more"},
+	} {
+		c.KeptRed = k.pins
+		if text := pinnedText(c); text != k.want {
+			t.Errorf("got %q, want %q", text, k.want)
 		}
 	}
 }

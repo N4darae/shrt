@@ -23,7 +23,8 @@ runs. A row of a
 counter a write moved (`increase:`/`decrease:` in its contract) says how far against the approved run
 (`fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`), measured only on that record.
 One `masks:` line says whether a mask hid more than run tags, ids and timestamps; each `KEPT RED`
-line names every pin of its slice and the day it was pinned, and a
+line names every pin of its slice with its pinned value (`status.code=SUCCESS`) and the day it was
+pinned, and a
 fold `(+N kept-red slice(s), every pin held, ...)` under a failing parent says those pins held, so
 no `shrt run` of the slices is needed. `shrt verify
 <chain> -run latest` shows every changed value of the gate's run offline; `shrt diff <chain> -step

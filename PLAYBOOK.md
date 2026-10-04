@@ -515,7 +515,7 @@ shrt run billing                     # green: propose and approve it
 slices the first failing step (with the failing steps that read it, fail the same call the same way
 or with list items ignoring the same request filter, or are failing reads with no write between),
 cuts them from the chain, adds `Kept red in <slice>: <steps>.` to its description and `Pins <step>
-<rpc> <field>, ...` to the slice's (the pins the gate's `KEPT RED` line names), and re-runs
+<rpc> <field>=<got>, ...` to the slice's (the pins and pinned values the gate's `KEPT RED` line names), and re-runs
 until it passes. A pinned read keeps the last earlier read of its field that passed, when kept
 writes lie between (`checkpoint:`), so a later defect in an earlier write fails there and is
 named. It stops when a slice does not reproduce or a FINDING or intermittent failure explains the

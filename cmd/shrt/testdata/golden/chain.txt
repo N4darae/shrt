@@ -81,7 +81,7 @@ verify without confirm_single: 1 of 1 step(s) that failed in source run RUNID pa
 
 $ shrt chain pin probe-orders  [exit 0]
 slice of cancel_confirmed did not reproduce without the writes it needs: again with -keep add_stock
-wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red on cancel_confirmed at status.code
+wrote .shrt/chains/probe-orders-slice-cancel_confirmed.yaml: kept red, pins cancel_confirmed CancelOrder status.code=REJECTED
 verify reproduced 3/3: step cancel_confirmed, source run RUNID, details from slice run RUNID
 ran probe-orders -keep-going: run RUNID, passed
 wrote .shrt/chains/probe-orders.yaml: probe-orders no longer runs cancel_confirmed: kept red in probe-orders-slice-cancel_confirmed

@@ -20,7 +20,7 @@ shrt gate: FAIL: 1 of 2 chain(s) failed; next: shrt diff <chain> -step <id> (a s
 
 $ shrt gate -no-session-check -hollow-baseline   [exit 1]
 FAIL       probe-orders                         chain change: cancel_confirmed (OrderService/CancelOrder) step want=shop.orders.v1.OrderService/CancelOrder got=<none>
-KEPT RED   probe-orders-slice-cancel_confirmed  pins cancel_confirmed CancelOrder status.code; pinned DATE
+KEPT RED   probe-orders-slice-cancel_confirmed  pins cancel_confirmed CancelOrder status.code=REJECTED; pinned DATE
 PASS       shop-product
 failures by suspect rpc:
   OrderService/CancelOrder: 1 step(s) in 1 chain(s); e.g. probe-orders cancel_confirmed step want=shop.orders.v1.OrderService/CancelOrder got=<none>
