@@ -1,418 +1,157 @@
 # PITFALLS
 
-Symptom → cause → fix. Each entry is something an agent can still hit and has to act on. Keys are
-in `GRAMMAR.md`, procedures in `PLAYBOOK.md`.
+Symptom, cause, fix. Keys are in `GRAMMAR.md`, procedures in `PLAYBOOK.md`.
 
----
+## Setup and tooling
 
-# Setup and tooling
+### 1. A key is rejected, or seems to do nothing
+Loaders reject unknown keys and suggest the nearest. A key from another tool (`allow_failure:`, `one_of:`) does not exist. Look it up in `GRAMMAR.md`.
 
-## 1. A key is rejected, or a key you wrote seems to do nothing
+### 2. A step says `error`, and you blame the backend
+`error` usually means nothing was sent: a reference or login body did not resolve, an env var is unset, or the login failed. Read the step's `error` line. `failed` is evidence about the server; `error` is almost always the fixture.
 
-**Cause.** Every loader rejects unknown keys: `unknown key "expects" at line 16 (did you mean
-"expect"?)`. A key borrowed from another tool (`allow_failure:`, `one_of:`) does not exist.
-**Fix.** Look the key up in `GRAMMAR.md`; a key not listed there does not exist.
+### 3. A field plainly in the response reads as missing, or lint passes an old shape
+The descriptor is stale, and lint trusts it. Run `shrt catalog build` after every proto change; `shrt doctor` fails when it differs.
 
-## 2. A field that is plainly in the response reads as missing, or lint passes an old shape
+### 4. Lint passes a rule you know changed
+The `shrt` binary or the installed docs are stale. Check `shrt version` and `shrt doctor`, rebuild the binary, then `shrt init -force -build=false`.
 
-**Cause.** The descriptor is stale. Lint validates against whatever the descriptor says, so a stale
-descriptor is self-consistent and quiet. **Fix.** `shrt catalog build` after every proto change.
-`shrt doctor` rebuilds and fails when the bytes differ.
+### 5. `shrt run` refuses with `env NAME is not set` although a token is cached
+The token cache is keyed by the resolved login body, so the body must resolve first. Export the variables `auth.body` names.
 
-## 3. Lint says everything is fine with a rule you know changed
+### 6. Exit 3 from `run` or `verify`
+No verdict: the backend was unreachable or restarting, a fixture was reused, or auth was refused. Re-run once, with a fresh `-var tag` if the line says so. Exit 3 is neither red nor green.
 
-**Cause.** A stale `shrt` binary lints with its old rules, and installed docs can be older than the
-binary. **Fix.** `shrt version` and `shrt doctor`; rebuild or reinstall the binary, then
-`shrt init -force -build=false` to refresh `.shrt/docs/` and the agent kit.
+### 7. A streaming rpc is skipped or refused
+`shrt contract plan` plans a server-streaming rpc's first message (`messages.0`) and its token probes; many auth interceptors skip streams. Client- and bidi-streaming rpcs are refused: test them by hand.
 
-## 4. A run says `error`, and you blame the backend
+## Writing chains
 
-**Cause.** `error` usually means no request was sent: a reference or login body did not resolve, an
-env var is unset, or the login failed. Less often the transport failed after sending or the answer
-was not JSON. **Fix.** Read the step's `error` line before the step name. `failed` is evidence
-about the server; `error` is almost always about the fixture.
+### 8. `not_empty` or `exists` asserts the wrong thing
+`not_empty` is false for `""`, `0`, `false`, `[]`, `{}` and an int64 `"0"`. `exists` reads what the server sent, and a proto3 scalar sends nothing for its zero value. Use `exists: true` for presence; to tell zero from unset, assert the value (`equals: false`).
 
-## 5. `shrt run` refuses with `env NAME is not set` although a cached token is valid
+### 9. `${uuid}` in `vars:` is rejected
+`vars` values are not resolved. Put `${uuid}` in the body, or pass `-var key=...`.
 
-**Cause.** The token cache is keyed by target, login rpc and resolved login body, so the body must
-resolve before the cache is read. **Fix.** Export the variables `auth.body` in
-`.shrt/config.yaml` names. There is no cache-only path.
+### 10. A green `-dry-run`, then a red first run
+A dry run has no responses, so references resolve to scaffold values. It proves the chain's shape, not bodies built from references. Run `chain lint`, then a real run.
 
-## 6. Exit 3 from `run` or `verify`
+### 11. A number or clock comparison fails on equal-looking values
+`equals` compares text and does no arithmetic: `${a.qty}+${b.qty}` is the text `0+5`. Work the result out and assert a literal. Compare clocks with `within: {of: "${nowunix+3600}", by: 5}`, never `equals`.
 
-**Cause.** No verdict: the backend was unreachable, answered unavailable, restarted mid-run, a
-fixture was reused, or authentication was refused. The output says which and ends in `re-run`.
-**Fix.** Re-run once (with a fresh `-var tag` if the line says so). Do not count 3 as red or green.
+### 12. A step fails with an `envelope` entry although its expectations held
+The call was refused in-band and no expectation pins the verdict, so a check on zeros held by accident. Assert the envelope: `equals: <ok>` for a call that must succeed, the refusal code for one that must be refused.
 
-## 7. A streaming rpc is skipped, or refused
+### 13. A refusal probe is asked for every required field, or its body assertions are `unevaluated`
+Lint treats a step as a probe only when it pins a refusal on the envelope or on `transport.code` / `transport.http_status`. A 4xx Connect error has no body: assert `transport.*`.
 
-**Cause.** A backend's auth interceptor often wraps unary calls only, so a server-streaming rpc
-(`WatchInvoice`) can answer with no token at all. **Fix.** `shrt contract plan WatchInvoice` plans
-the happy call (`messages.0`) and the two token probes; `contract status -gaps` lists it until a
-chain calls it. Client- and bidi-streaming rpcs are refused: test those by hand.
+### 14. `allow_fail` did not let the chain go on
+It tolerates only a transport refusal on a step with no expectations. Assert the refusal, or run with `-keep-going`.
 
----
+### 15. The second run of a chain is refused as a duplicate
+A unique field is a literal, or built from a var left at an earlier run's value.
 
-# Writing chains
+- Build unique values from `${vars.tag}` and leave `tag` undeclared.
+- `fixture reused` or `fixture collision` (exit 3): re-run with a fresh var.
+- `CHAIN DEFECT: the chain collides with itself` (exit 1): build the literal field it names from a var.
+- A conflict with a create that got a server error earlier in the run: the backend stored it anyway.
+- An idempotency key must be `${uuid}`.
 
-## 8. `not_empty` where `exists` was meant
+### 16. A prefix list counts another run's fixtures
+`inv-${vars.tag}` also matches tag `x0`'s fixtures. End the prefix with the separator: `inv-${vars.tag}-`.
 
-**Cause.** `not_empty` is false for `""`, `0`, `false`, `[]`, `{}`, and for an int64 `"0"`. On a
-count it asserts non-zero, not present. **Fix.** Use `exists: true` for presence; see the truth
-table in `GRAMMAR.md` §1.
+### 17. An exact count passes once and then fails
+The list is not scoped to the run. Filter by something the run created, or assert membership (`includes:`) and a lower bound.
 
-## 9. `exists` cannot tell zero from unset
+### 18. A `-var` is ignored, or refused as a typo
+A var the chain never reads is dropped with a warning. A name within two edits of a real var is refused; the refusal lists the real ones.
 
-**Cause.** A proto3 scalar without `optional` sends nothing for `false`, `0`, `""` or an empty
-list. **Fix.** Assert the value (`equals: false`) or the emptiness (`items.0 exists: false`). Mark
-the field `optional` in the proto if presence matters.
+### 19. A scratch chain run by path is refused
+Its `name:` is a chain's under `paths.chains`. Rename it: `name: <name>-scratch`.
 
-## 10. Two rules on one expectation are rejected
+### 20. Perturbing a var for a drift test broke the next replay
+The var reached shared state other chains read. Perturb only values the chain's own tag isolates.
 
-**Cause.** One entry holds one rule; a second would replace the first. **Fix.** Repeat the path in
-a second entry.
+## Contracts and plans
 
-## 11. `${uuid}` in `vars:` is rejected
+### 21. A planned chain lints, runs green and means nothing
+`plan` wires what the contracts say. Read `order:` as a claim; a missing step is a missing `needs:` or `from:`. Paste the `effects:` each `gap:` prints.
 
-**Cause.** `vars` values are not resolved. **Fix.** Put `${uuid}` in the body that needs it, or
-pass the value with `-var key=...`.
+### 22. A field stays unfilled and no `from:` reaches it
+The value exists only in a request. Use `same_as: <rpc>->request_path`.
 
-## 12. A green `-dry-run` and a red first real run
+### 23. Two supposedly independent entities are one
+An `@alias` not declared under `aliases:` makes an identical step. Declare it with the fields that differ.
 
-**Cause.** Dry run has no responses, so references resolve to scaffold values (`""`, `"0"`). It
-proves the chain's shape and step 1's body, not bodies built from references. Of lint it runs only
-the expect-path check. **Fix.** `chain lint` first, then a real run.
+### 24. A backend code is in no contract, or no chain can send it
+Contracts are hand-kept: script a comparison of your error constructors against every `failures:` entry. A code only a body the proto cannot express would reach: declare it `unreachable:` with the reason.
 
-## 13. An expectation comparing a number fails on equal-looking values
+### 25. Contract lint says a failure repeats another
+Same code, reason and field. If they are different branches, give each its own `field:`.
 
-**Cause.** `equals` compares text and does no arithmetic: `${a.qty}+${b.qty}` is the text `0+5`.
-`${nowunix}` is a string of digits. **Fix.** Work the result out from the inputs you chose and
-assert it as a literal or a var. Compare clock values with `within`, `between`, `gt`/`lt`.
+### 26. A `before:` edge or `source:` path points at nothing
+Nothing checks edges or paths. When an rpc is retired, grep the overlays for it. Write `source:` paths without line ranges.
 
-## 14. A clock assertion flakes at a second boundary
+### 27. Batch steps pass while every line was refused
+Set `conventions.item_envelope_path` and check it against a refused line. A backend whose verdict is not at `error.code` needs `envelope_path` and `envelope_ok` too (PLAYBOOK.md §3b).
 
-**Cause.** `equals: ${nowunix+3600}` against a backend stamp one second off. **Fix.**
-`within: {of: "${nowunix+3600}", by: 5}`.
+## Runs, safe spots and verify
 
-## 15. A step asserting only `error.code == OK` passes whatever the call did
+### 28. `confirm` refuses a run
+The run did not pass, its record was edited, or the chain is kept red. `-approve` also refuses when the chain file changed since the run. Run again and approve on the proposal's branch.
 
-**Cause.** The envelope says the server did not crash. **Fix.** Assert what the call produced: a
-value read back, a state, a count, an invariant against an earlier step. `chain lint -strict` fails
-such a step (`envelope-only`) when its contract declares response facts.
+### 29. `confirm` warns that fields differ from the earlier passing run
+Values change every run without looking like ids or timestamps. Declare them `volatile`, or the list `unordered`, unless the change is real. Run twice before proposing.
 
-## 16. A read passed and the response was empty
+### 30. Verify fails after you add a `volatile` or `redact` pattern
+A safe spot keeps the patterns it was approved with. Propose a new run with `-supersede`.
 
-**Cause.** A green envelope on an empty body. **Fix.** `shrt chain hollow` names every such read
-from the run records. Assert what the read should find. Where empty is correct, add a line
-`<chain> <step-id> <reason>` to `.shrt/hollow-allow.txt`; an entry without a reason is refused.
+### 31. A masked value is reported anyway
+A volatile value that became null or vanished was lost, not changed. A timestamp that changed unit, or jumped over 400 days, is real too. Treat both as real changes.
 
-## 17. A step fails with an `envelope` entry although its expectations held
+### 32. `FINDING: intermittent failure at <rpc>`
+A server error answered on its one re-send, elsewhere in the run, or in the previous run; in the gate, also an rpc failing every Nth call. A real defect, just not deterministic (exit 1).
 
-**Cause.** The call was refused in-band (or sent no verdict) and no expectation pins the verdict,
-so `qty equals: 0` held only on the zeros a refusal leaves. **Fix.** Assert `equals: <ok>` on the
-envelope for a call that must succeed, or the refusal code for one that must be refused. A
-`not_equal: ""` or a rule on a sibling such as `message` pins nothing.
+### 33. A token refused long before its stated expiry
+Sessions end early, or the backend restarted. Settle it with a chain of the login and reads carrying `${vars.tag}`, `wait:` between, no writes, so `shrt gate` runs it beside the others. Keep it out of the per-commit gate.
 
-## 18. A refusal probe collects `is required ... while expecting success` errors
+### 34. `drift after a chain change` or `drift with different input`
+The chain or its vars changed since approval. Restore them, or run the chain green and propose it with `-supersede`.
 
-**Cause.** Lint treats a step as a refusal probe only when it pins a refusal on the envelope path
-(`not_equal: <ok>` or `equals: <code>`) or on `transport.code` / `transport.http_status`.
-`allow_fail` and an `app_code` alone do not count. **Fix.** Add the envelope or transport line; do
-not fill the fields the probe omits on purpose.
+### 35. A renamed chain lost its safe spot, or its JSON conflicts in a merge
+A safe spot belongs to the chain name: `shrt confirm <new> -rename-from <old> -by <email>`. For a merge conflict, follow PLAYBOOK.md §8.
 
-## 19. A Connect refusal fails every body assertion as `unevaluated`
+### 36. `shrt diff` says no differences, and both runs were wrong
+`diff` compares; it is not a verdict. Use a safe spot.
 
-**Cause.** A 4xx Connect error has no response message. **Fix.** Assert `transport.code`,
-`transport.http_status` and `transport.message` (`GRAMMAR.md` §1).
+### 37. The response carries fields the proto does not declare
+The backend is newer than the proto. Update it and run `shrt catalog build`.
 
-## 20. `allow_fail` did not let the chain go on
+### 38. A secret still appears in a run record
+Redaction misses a secret hashed or double-encoded, and a credential in a header not named like one. Add a `redact` path.
 
-**Cause.** It tolerates only a transport refusal on a step with no expectations, never a failed or
-`error` step. **Fix.** Assert the refusal instead, or run `shrt run -keep-going` to see what lies
-behind the first red.
+### 39. A kept-red chain says `PINNED DEFECT GONE`
+A fix was deployed, or the target runs another build. Check the run's `build` first. If the fix is real, remove `kept_red`, run, propose.
 
-## 21. A hand-written `Authorization` header is a lint error
+### 40. A kept-red chain says `FAILED, NOT AS PINNED` or `NEW FAILURE`
+Something else failed, or a pinned step now answers differently. Treat it as a regression; do not re-pin it away.
 
-**Cause.** The auth middleware would overwrite it. **Fix.** Declare a profile under `auth.profiles`
-and put `auth: <profile>` on the step. Probe missing and invalid tokens with `skip_auth: true` and
-`auth: invalid`.
+## Slices and search
 
-## 22. A login step in the chain did not seed the profile's token
+### 41. A slice went green where the chain was red
+It dropped a write whose state the target needed. Always `-verify`, follow its `next:` line, and read `WARNING possible under-inclusion`.
 
-**Cause.** A login seeds a profile only when it sent that profile's `body` exactly. **Fix.** Log in
-with the profile's credentials, or let shrt log in by itself.
+### 42. A slice landed in the directory every gate runs
+`-write` got a path under `paths.chains`. Move it to `.shrt/scratch/`. Only `shrt chain pin` writes slices beside the chain, on purpose.
 
-## 23. The second run of a chain is refused as a duplicate
+### 43. `-verify` asks for `-var name=<fresh>`
+A kept write puts that var into what it creates, and the old values exist. Pass one never used before.
 
-**Cause.** A unique field is a literal, or built from a var left at the value an earlier run used.
-**Fix.** Build unique values from `${vars.tag}` and leave `tag` undeclared, so each run gets a
-fresh one; a declared `tag:` needs a fresh `-var tag=...` per run. `fixture reused` / `fixture
-collision` (exit 3): re-run with a fresh var. `CHAIN DEFECT: the chain collides with itself`
-(exit 1): rebuild the literal field it names from a var. A conflict with a value an earlier step
-of the same run sent and got a server error for is neither: the backend stored a create it
-failed, and a fresh var collides the same way. An idempotency key must be `${uuid}` (lint:
-`literal-idempotency-key`).
+### 44. `chain slice -write` refuses the chain's own file
+The slice drops part of the chain you wrote. Prove that chain with `shrt run <file> -repeat 3`, or write the slice under another name.
 
-## 24. A prefix list counts another run's fixtures
+### 45. `chain hollow` counts runs of a deleted chain
+Run records are never deleted for you; they show as `orphan`, outside the counts. Delete `.shrt/runs/<name>/`.
 
-**Cause.** A prefix ending at the var (`inv-${vars.tag}`) matches `inv-${vars.tag}0-...` of tag
-`x0`. **Fix.** End it with the separator every fixture carries (`inv-${vars.tag}-`). Lint warns
-`unterminated-prefix`.
-
-## 25. An exact count passes once and fails on the next run or another database
-
-**Cause.** The list is not scoped to the run. **Fix.** Filter it by something the run created, or
-assert membership (`includes:`) and a lower bound. Lint warns `unscoped-count`.
-
-## 26. A `-var` is ignored with a warning, or refused as a typo
-
-**Cause.** A var the chain never reads is dropped with a `warning:`; a name within two edits of a
-real var is refused so a typo cannot collapse runs onto one key. **Fix.** Check the spelling; the
-refusal lists the vars the chain reads.
-
-## 27. A scratch chain run by path is refused
-
-**Cause.** Its `name:` is that of a chain under `paths.chains`, so its runs would count as that
-chain's. **Fix.** Rename it (`name: <name>-scratch`).
-
-## 28. Perturbing a var for a drift test broke the next replay
-
-**Cause.** The var reached shared state that other chains read. **Fix.** Perturb only values the
-chain's own tag isolates.
-
----
-
-# Contracts and plans
-
-## 29. A planned chain lints, runs green and means nothing
-
-**Cause.** `plan` wires what the contracts say; it cannot judge business sense. **Fix.** Read the
-`order:` line as a claim about the flow. A missing step means a missing `needs:`/`from:` in the
-contract: fix the contract and re-plan, rather than adding the step by hand. A `gap:` saying an rpc
-`says nothing of` a number means nothing is asserted after it: paste the `effects:` it prints.
-`summary` is prose for people; wording it differently does not help. A `needs:` puts every call of
-the rpc after it, so a defect from the state before it (a PENDING order of three lines) passes: when
-the needed write only takes the record to the state a `restore:` names, state that `restore:` and
-re-plan, and `plan` calls the rpc from both states. `shrt contract status -gaps` lists a write no
-chain calls from a state its plan does (`no state`); `shrt chain which -rpc` prints the state and
-item count each step acts on.
-
-## 30. The plan leaves a numeric zero that lint accepts
-
-**Cause.** Lint cannot tell a scaffold `"0"` from a deliberate zero. Only the plan header reports
-it (`still carries the scaffold's numeric zero`). **Fix.** Fill it, or say `value: "0"` in the
-contract. A field `note:` does not silence it.
-
-## 31. Quality score 0, and plans that cannot compose a chain
-
-**Cause.** The score counts what is present; an incomplete `needs:` scores the same as a complete
-one, and `before:` has no term. **Fix.** Run `shrt contract plan <read>` for every read and ask
-whether that order could have produced the row the read returns. A one-step order means no
-producer: add `needs:` or `before:`, or `no_producer:` if nothing in this API writes it.
-
-## 32. A field stays unfilled and no `from:` can reach it
-
-**Cause.** `from` reads a response path; the value exists only in a request. **Fix.** `same_as:
-<rpc>->request_path`.
-
-## 33. Two supposedly independent entities turn out to be one
-
-**Cause.** An `@alias` the target never declares under `aliases:` makes a second identical step.
-**Fix.** Declare the alias with the fields that make it differ.
-
-## 34. A `before:` edge points at an rpc that always refuses
-
-**Cause.** Edges name their target by string; nothing checks it still works. **Fix.** When an rpc
-is retired, grep the overlays for its name and re-point the edges.
-
-## 35. `contract lint` says a failure repeats another
-
-**Cause.** Same code, reason and field. **Fix.** If they are different branches, give each its own
-`field:`; do not merge them.
-
-## 36. A backend code no chain can send
-
-**Cause.** Every request is validated against the descriptor, so a body the proto cannot express
-never leaves. **Fix.** Declare the failure with `unreachable:` and the reason.
-
-## 37. A code the backend raises is in no contract
-
-**Cause.** Contracts are hand-maintained. **Fix.** Script a comparison of your backend's error
-constructors against every `failures:` entry, per rpc and domain-wide, and run it in your gate.
-
-## 38. A `source:` path nobody can find
-
-**Cause.** Written from memory, or a `:line-range` that drifted. **Fix.** Resolve every path before
-committing; anchor on function names, not line numbers.
-
-## 39. Batch steps pass while every line was refused
-
-**Cause.** `conventions.item_envelope_path` is unset. **Fix.** Set it to the per-item verdict
-(`results[].error.code`) and check it once against a response you know refused a line. `doctor`
-warns when it sees an unconfigured per-item verdict.
-
-## 40. Every assertion misses the envelope
-
-**Cause.** The backend reports its verdict somewhere other than `error.code`. **Fix.** Set
-`conventions.envelope_path` and `envelope_ok` (`PLAYBOOK.md` §3b); `doctor` names the path the
-responses carry.
-
----
-
-# Runs, safe spots and verify
-
-## 41. `confirm` refuses a run
-
-**Cause.** The run did not pass, its record was edited (seal mismatch), or the chain is kept red.
-`-approve` also refuses when the chain file now differs from the one the proposed run ran (another
-branch checked out). **Fix.** Run the chain again and propose the new run; approve on the branch the
-proposal came from.
-
-## 42. `confirm` warns that fields differ from the earlier passing run
-
-**Cause.** Values that change every run and are not id-, timestamp- or fixture-shaped. **Fix.**
-Declare them `volatile` (or the list `unordered` when only its order changes), re-run, propose
-again, unless the difference is real. Run a chain twice before proposing so the check is made.
-
-## 43. Verify fails on a volatile pattern you just added
-
-**Cause.** The safe spot stores the patterns it was approved with; a wider mask hides values the
-approver saw. The same holds for a new `redact` pattern. **Fix.** Propose a run under the new mask
-with `-supersede` and have it approved.
-
-## 44. A `volatile` field that became null or disappeared is reported
-
-**Cause.** A volatile pattern tolerates a changed value, not a lost one. `null` to absent loses
-nothing and stays masked. **Fix.** Treat it as a real change.
-
-## 45. `order changed`, or `same items in another order`
-
-**Cause.** The list holds the safe spot's items in another order. **Fix.** Declare
-`unordered: [<list>]` only if its order varies between runs of one release; otherwise, or when a
-positional expectation fails, it is a regression.
-
-## 46. A step-level `volatile` did not mask another step
-
-**Cause.** Step patterns apply to that step only; config and chain patterns apply to all. **Fix.**
-Declare it where it belongs.
-
-## 47. A timestamp change is reported although `*_at` is masked
-
-**Cause.** It changed unit (seconds to milliseconds) or jumped outside 400 days of its run.
-**Fix.** Treat it as a real change.
-
-## 48. `FINDING: intermittent failure at <rpc>`
-
-**Cause.** A server error on a request answered on its one re-send (reads only, judged on that
-answer), elsewhere in the run or in the previous run; in the gate, also one failing every Nth
-call, reported on every chain it explains. A step whose suspect is that call (a read missing the
-refused write) counts with it. **Fix.** A real backend defect (exit 1), just not deterministic.
-A lone server error the previous run answered gets a `note:` that it looks intermittent, unless
-another call of the same rpc failed in the run without one: then the note says it is a backend
-change at that rpc, and a re-run will not clear it.
-
-## 49. A token refused long before the expiry its login stated (`note:` or `WARNING:` line)
-
-**Cause.** Sessions end before their stated expiry, or the backend restarted. **Fix.** A short
-chain whose reads carry `wait:` between the suspected and the stated lifetime, twice after the
-login: early expiry prints `FINDING: token refused ...` (exit 1). Keep it out of the per-commit gate.
-Build it of the login and reads whose request carries `${vars.tag}`, with no write: `shrt gate`
-then runs it beside the other chains instead of adding its waits to the gate's time.
-
-## 50. `drift after a chain change` or `drift with different input`, not `regression`
-
-**Cause.** The chain file or its vars changed since approval. **Fix.** Restore the input, or bring
-the chain in line, run it green and propose it with `-supersede`.
-
-## 51. Renamed a chain and lost its safe spot
-
-**Cause.** A safe spot belongs to the chain name. **Fix.** `shrt confirm <new> -rename-from <old>
--by <email>` for a pure rename.
-
-## 52. A merge conflict in `.shrt/safespots/<chain>.json`
-
-**Cause.** Two branches each superseded it. **Fix.** Take one side whole (`git checkout --ours` or
-`--theirs`), run `verify` on the merged backend, and re-propose if it drifts (`PLAYBOOK.md` §8).
-Never hand-merge the JSON.
-
-## 53. `shrt diff` says no differences, and both runs were wrong
-
-**Cause.** `diff` compares two runs; it is not a verdict. **Fix.** Use a safe spot for a verdict.
-`shrt diff <c>` skips `verify` replays; pass run ids to compare them.
-
-## 54. The response carries fields the proto does not declare
-
-**Cause.** The backend is newer than the proto. They are dropped and named in a warning; with
-`validate_output: true` the step fails with `"drift": true` and asserts nothing. **Fix.** Update the
-proto and `shrt catalog build` if they should be compared; otherwise rebuild before reading drift
-as a backend defect.
-
-## 55. A secret still appears in a run record
-
-**Cause.** Redaction covers `redact` paths and known secrets by value, including common encodings,
-not a secret hashed, reversed or encoded twice, nor a credential in a header whose name does not say
-so. **Fix.** Cover the field with `redact`, read credentials from env vars named like credentials,
-and keep such echoes out of committed runs.
-
-## 56. A kept-red chain says `PINNED DEFECT GONE`
-
-**Cause.** The defect no longer reproduces: a fix was deployed, or the target runs another build.
-**Fix.** Check the `build` of the run first (`target.build_header` or `run -build`). If the fix is
-real, remove `kept_red`, run, propose. Never confirm a chain while it has `kept_red`.
-
-## 57. A kept-red chain says `FAILED, NOT AS PINNED` or `NEW FAILURE outside the pinned defect`
-
-**Cause.** Something else failed, or a pinned step now returns something different from the last
-run that failed as pinned. **Fix.** Treat it as a regression; re-pin (`shrt chain pin`) only when
-the change is understood.
-
-## 58. One real defect keeps a long chain from a safe spot
-
-**Fix.** `shrt chain pin <c>` keeps the defect red in a slice of its own; confirm the rest
-(`PLAYBOOK.md` §9).
-
----
-
-# Slices and search
-
-## 59. A slice went green where the chain was red
-
-**Cause.** It dropped a write whose state the target needed. **Fix.** Always `-verify`; follow its
-`next:` line, which keeps the writes it names. Read `WARNING possible under-inclusion`.
-
-## 60. A slice landed in the directory every gate runs
-
-**Cause.** `-write` was given a path under `paths.chains`; without a path it writes
-`.shrt/scratch/`, which no sweep reads. **Fix.** Move it to `.shrt/scratch/` and run it by path, or
-keep the defect red with `shrt chain pin`, which writes its slices beside the chain on purpose.
-
-## 61. `-verify` refuses up front asking for `-var name=<fresh>`
-
-**Cause.** A kept write interpolates that var into what it creates, and its earlier values already
-exist on the backend. **Fix.** Pass a value never used before.
-
-## 62. `chain slice -write` refuses the chain's own file
-
-**Cause.** The slice drops a step or an expectation of the chain you wrote, so writing it there
-would lose them. **Fix.** To prove that chain reproduces, run it unchanged: `shrt run <file>
--repeat 3`. To keep the slice, `-write` another name, or `-write` alone.
-
-## 63. "220 of 229 steps kept" read as 220 passing steps
-
-**Cause.** The count is what the file holds. **Fix.** Run the rest before proposing it.
-
-## 64. `chain which` lists a match you cannot trust
-
-**Cause.** `asserted` means a chain claims it; only `OBSERVED` means a local run record reached the
-step, and run records are machine-local. **Fix.** Run the chain, then query again; paste the printed
-`reproduce:` line rather than retyping it.
-
-## 65. `chain hollow` counts runs of a chain you deleted or renamed
-
-**Cause.** Run records are evidence and are never deleted for you. They are listed apart as
-`orphan` and excluded from the counts. **Fix.** Delete `.shrt/runs/<name>/` when done with it.
-
-## 66. A gate of `lint && run` is green on chains that prove nothing
-
-**Cause.** Plain `chain lint` exits 0 on assertion-quality warnings. **Fix.** Gate on
-`chain lint -strict`, or run `bash .shrt/ci-gate.sh`, which runs it (`shrt gate` alone does not).
+### 46. A gate of `lint && run` is green on chains that prove nothing
+Plain `chain lint` exits 0 on assertion-quality warnings. Gate with `bash .shrt/ci-gate.sh`, which runs `chain lint -strict`.
