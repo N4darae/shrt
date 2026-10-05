@@ -14,7 +14,7 @@ later replays are diffed against it, so a regression names the rpc that changed.
 Run `shrt gate -repro`. It leaves out the chains that wait by design (marked `W` in `shrt chain
 ls`, then `SKIPPED`; `shrt gate <chain>` runs one), so it takes seconds. Each row of `failures by
 suspect rpc:` gets the read that settles an unclear write or read, or two writes on a counter, and
-a verified one-line repro (`repro: shrt run <path>  (5 of 119 steps, reproduced 3/3)`, as small as a
+a verified one-line repro (`repro: shrt run <path> (5 of 119 steps, reproduced 3/3)`, as small as a
 re-run shows it can be, with the read-back that contradicts a write's answer kept in it, its failed line
 `want=<answer> (${vars.<write>_answered}) got=<stored>`, and the read that cleared an earlier write, so
 `run` on it names the row's suspect); its
@@ -22,14 +22,14 @@ re-run shows it can be, with the read-back that contradicts a write's answer kep
 repeated key, a field's value or byte length, or two of these together), or says every call fails,
 and how got relates to what was sent: take it as the pattern instead of working it out from the
 runs. Where it rests on few calls, the gate has sent the contrasting calls itself and prints the
-firmed line (`trigger, firmed by -repro in place of the row's line above:`, the one to trust), or
-`trigger above does not hold:`, above the row's repro. A row of a
+firmed line (`trigger:`, the one to trust), or
+`trigger: none:`, above the row's repro. A row of a
 counter a write moved (`increase:`/`decrease:` in its contract) says how far against the approved run
 (`fell 4 from 10 to 6 where the approved run fell 2 from 10 to 8: 2x`), measured only on that record.
 One `masks:` line says whether a mask hid more than run tags, ids and timestamps; each `KEPT RED`
 line names every pin of its slice with its pinned value (`status.code=SUCCESS`) and the day it was
 pinned, and a
-fold `(+N kept-red slice(s), every pin held, ...)` under a failing parent says those pins held, so
+fold `+N kept red fail too (<date>): ...` under a failing parent says those pins held, so
 no `shrt run` of the slices is needed. `shrt verify
 <chain> -run latest` shows every changed value of the gate's run offline (for a chain with no safe
 spot, its failed expectations); `shrt diff <chain> -step
